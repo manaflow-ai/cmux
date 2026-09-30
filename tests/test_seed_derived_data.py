@@ -694,7 +694,7 @@ def seed_pools():
     """
     decide = load("seed-derived-data.yml")["jobs"]["decide"]["steps"]
     env = next(step for step in decide if step.get("id") == "inputs")["env"]
-    return [env[f"SEED_POOL_{index}"] for index in (1, 2, 3)]
+    return [env[f"SEED_POOL_{index}"] for index in (1, 2)]
 
 
 def named(step_list, name):
@@ -962,10 +962,10 @@ class Wiring(unittest.TestCase):
         nightly = load("nightly.yml")["jobs"]["refresh-test-compilation-cache"]
         job = workflow["jobs"]["seed"]
         # Every nightly cold seed lands on a pool the per-push seeder uses, on
-        # the same Xcode, and the macOS 15 pool gets one too.
+        # the same Xcode: the publishing 12 vCPU pool.
         self.assertEqual(nightly["runs-on"], "${{ matrix.pool }}")
         self.assertLessEqual(set(nightly["strategy"]["matrix"]["pool"]), set(seed_pools()))
-        self.assertEqual(nightly["strategy"]["matrix"]["pool"][-1], seed_pools()[-1])
+        self.assertEqual(nightly["strategy"]["matrix"]["pool"], seed_pools()[:1])
         self.assertEqual(nightly["env"]["CMUX_CI_XCODE_APP"], job["env"]["CMUX_CI_XCODE_APP"])
         # On the lane's pools the seeder uses the nightly's Xcode.
         context = github_context("push", MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")
@@ -987,9 +987,8 @@ class Wiring(unittest.TestCase):
         self.assertIs(job["strategy"]["fail-fast"], False)
         context = github_context("push", MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")
         pools = {evaluate(pool, context) for pool in seed_pools()}
-        # macOS 15 too, on its own Xcode, for ci-macos-15.yml's dispatches.
-        self.assertEqual(pools, {"blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26",
-                                 "blacksmith-6vcpu-macos-15"})
+        # No macOS 15 seed: pull requests no longer compile there.
+        self.assertEqual(pools, {"blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"})
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]["runs-on"]
         self.assertIn(evaluate(admission, github_context("pull_request", ref="refs/pull/1/merge",
                                                          MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")), pools)
@@ -1020,7 +1019,7 @@ class Wiring(unittest.TestCase):
         # another image or Xcode.
         # The 12 vCPU pool comes first: it starts in seconds, and the first
         # entry alone publishes the app-host product.
-        runs_on, own, _ = seed_pools()
+        runs_on, own = seed_pools()
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]["runs-on"]
         larger = ("(vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26') == 'blacksmith-6vcpu-macos-26'"
                   " && 'blacksmith-12vcpu-macos-26'")
@@ -1079,9 +1078,9 @@ class Wiring(unittest.TestCase):
         script = inputs["run"].replace("python3 scripts/ci/seed_decide.py", "printf '%s\\n'")
 
         def pools(trusted, roots):
-            env = {"PATH": "/usr/bin:/bin", "SEED_POOL_1": "a", "SEED_POOL_2": "a", "SEED_POOL_3": "c-vcpu-macos-15",
+            env = {"PATH": "/usr/bin:/bin", "SEED_POOL_1": "a", "SEED_POOL_2": "a",
                    "SEED_TRUSTED_POOL": trusted, "SEED_TRUSTED_ROOTS": roots, "XCODE_APP": "X",
-                   "XCODE_APP_MACOS_15": "Y", "EVENT_NAME": "push", "GITHUB_OUTPUT": "/dev/null",
+                   "EVENT_NAME": "push", "GITHUB_OUTPUT": "/dev/null",
                    "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
             out = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
             args = out.stdout.split()
@@ -1089,7 +1088,7 @@ class Wiring(unittest.TestCase):
             return out.returncode, [args[i + 1] for i, arg in enumerate(args)
                                     if arg == "--pool" and not args[i + 1].startswith("=")]
 
-        self.assertEqual(pools("", "2"), (0, ["a=X", "a=X", "c-vcpu-macos-15=Y"]))
+        self.assertEqual(pools("", "2"), (0, ["a=X", "a=X"]))
         self.assertEqual(pools(label, "1")[1][-1], f"{label}=X")
         self.assertEqual(pools(label, "2")[1][-2:], [f"{label}=X", f"{label}@2=X"])
         self.assertNotEqual(pools(label, "x")[0], 0)
@@ -1185,29 +1184,25 @@ class Wiring(unittest.TestCase):
         self.assertIn("::warning::glaeda holds no root", run(2)[2])
         self.assertNotEqual(run(1)[0], 0)
 
-    def test_the_macos_15_pool_seeds_with_the_xcode_ci_macos_15_compiles_with(self):
+    def test_no_pool_seeds_macos_15_and_the_macos_15_lane_compiles_there_cold(self):
+        """Pull requests no longer overflow to macOS 15, so no push to main
+        spends a macOS 15 seed build; ci-macos-15.yml compiles there cold."""
         import sys as _sys
         _sys.path.insert(0, str(ROOT / "scripts" / "ci"))
         import pr_runner_pool
 
+        macos_15 = pr_runner_pool.MACOS_15_RUNNER
         job = load("seed-derived-data.yml")["jobs"]["seed"]
-        *_, overflow = seed_pools()
         context = github_context("push", MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")
-        pool = evaluate(overflow, context)
-        self.assertEqual(pool, pr_runner_pool.MACOS_15_RUNNER)
-        context["matrix"] = {"pool": pool}
-        self.assertEqual(evaluate(job["env"]["CMUX_CI_XCODE_APP"], context), "/Applications/Xcode-15.app")
-        # Not a pull-request pool: pull requests test on main's macOS 26.
-        self.assertNotIn(pool, pr_runner_pool.POOLS)
-        # ci-macos-15.yml puts admission there, on the same Xcode, on any event.
+        self.assertNotIn(macos_15, [evaluate(pool, context) for pool in seed_pools()])
+        self.assertNotIn("MACOS_15", yaml.safe_dump(job["env"]))
+        self.assertNotIn(macos_15, pr_runner_pool.POOLS)
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]
         for event in ("schedule", "workflow_dispatch"):
             lane = github_context(event)
             lane["inputs"]["macos_15_lane"] = "true"
-            self.assertEqual(evaluate(admission["runs-on"], lane), pool, event)
+            self.assertEqual(evaluate(admission["runs-on"], lane), macos_15, event)
             self.assertEqual(evaluate(admission["env"]["CMUX_CI_XCODE_APP"], lane), "/Applications/Xcode-15.app")
-        # Only the first entry publishes the product, never this one.
-        self.assertNotEqual(seed_pools()[0], overflow)
 
     def test_main_push_publishes_the_product_admission_would_compile(self):
         """Pull requests adopt this product in place of compiling, so it has to
