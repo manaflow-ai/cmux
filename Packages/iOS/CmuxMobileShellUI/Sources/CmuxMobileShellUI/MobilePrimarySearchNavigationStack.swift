@@ -10,6 +10,7 @@ struct MobilePrimarySearchNavigationStack<Root: View, Destination: View>: View {
     @Binding var path: [MobileWorkspacePreview.ID]
     @Binding var selection: MobilePrimaryTab
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
+    var isActive = true
     var hidesRootNavigationBar = false
     @ViewBuilder let root: () -> Root
     @ViewBuilder let destination: (MobileWorkspacePreview.ID) -> Destination
@@ -20,12 +21,16 @@ struct MobilePrimarySearchNavigationStack<Root: View, Destination: View>: View {
                 .toolbar(hidesRootNavigationBar ? .hidden : .automatic, for: .navigationBar)
                 .modifier(MobilePrimarySearchLifecycleModifier(
                     scope: searchCoordinator.scope,
-                    update: searchCoordinator.updateLifecycle
+                    update: { scope, isSearching in
+                        guard isActive else { return }
+                        searchCoordinator.updateLifecycle(scope: scope, isSearching: isSearching)
+                    }
                 ))
                 .navigationDestination(for: MobileWorkspacePreview.ID.self, destination: destination)
         }
         .searchable(text: searchText, isPresented: searchPresentation, prompt: prompt)
         .onSubmit(of: .search) {
+            guard isActive else { return }
             selection = searchCoordinator.commitSubmit()
         }
         .mobileToolbarVisibility(path.isEmpty ? .automatic : .hidden, for: .tabBar)

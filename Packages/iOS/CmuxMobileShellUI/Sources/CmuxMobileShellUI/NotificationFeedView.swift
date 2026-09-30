@@ -21,6 +21,7 @@ struct NotificationFeedView: View {
     let projection: NotificationFeedProjection
     let refreshesOnAppear: Bool
     let actions: NotificationFeedActions
+    var isActive = true
     @Binding var isConfirmingMarkAllRead: Bool
     let showsNavigationToolbar: Bool
     /// Mark-all-read cannot be undone in one gesture, so the toolbar button
@@ -64,7 +65,7 @@ struct NotificationFeedView: View {
             }
         }
         .task {
-            guard refreshesOnAppear else { return }
+            guard isActive, refreshesOnAppear else { return }
             await actions.refresh()
         }
         .onChange(of: projection.filter) { _, filter in

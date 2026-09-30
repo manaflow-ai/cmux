@@ -140,27 +140,30 @@ struct MobilePrimaryTabScaffold<
                     transaction.disablesAnimations = true
                 }
                 .overlay(alignment: .top) {
-                    // Keep the selected navigation stack outside the system
-                    // tab content transition. iOS 26 crossfades a tab's
-                    // hosted NavigationStack before its toolbar items have
-                    // been laid out, which produces a blank top frame. The
-                    // selected stack is swapped synchronously; its bottom
-                    // inset leaves the native tab bar on top. Mounting only
-                    // the selected stack also keeps onAppear/onDisappear and
-                    // feed refresh work scoped to the visible tab.
+                    // Keep every navigation stack mounted outside the system
+                    // tab content transition so tab-local state, scroll positions,
+                    // and pushed paths survive a switch. Only the selected stack
+                    // is visible and interactive. Its bottom inset leaves the
+                    // native tab bar on top.
                     GeometryReader { geometry in
-                        Group {
-                            switch selection {
-                            case .workspaces:
-                                workspaces
-                            case .feed:
-                                feed
-                            case .notifications:
-                                notifications
-                            case .search:
-                                search
-                                    .environment(\.mobilePrimarySearchDestination, true)
-                            }
+                        ZStack {
+                            workspaces
+                                .opacity(selection == .workspaces ? 1 : 0)
+                                .allowsHitTesting(selection == .workspaces)
+                                .accessibilityHidden(selection != .workspaces)
+                            feed
+                                .opacity(selection == .feed ? 1 : 0)
+                                .allowsHitTesting(selection == .feed)
+                                .accessibilityHidden(selection != .feed)
+                            notifications
+                                .opacity(selection == .notifications ? 1 : 0)
+                                .allowsHitTesting(selection == .notifications)
+                                .accessibilityHidden(selection != .notifications)
+                            search
+                                .environment(\.mobilePrimarySearchDestination, true)
+                                .opacity(selection == .search ? 1 : 0)
+                                .allowsHitTesting(selection == .search)
+                                .accessibilityHidden(selection != .search)
                         }
                         .frame(
                             width: geometry.size.width,

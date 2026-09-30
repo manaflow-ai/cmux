@@ -14,13 +14,14 @@ struct NotificationFeedStoreView: View {
     let status: MobileNotificationFeedStatus
     let projection: NotificationFeedProjection
     let selectedMacDeviceIDs: Set<String>?
+    var isActive = true
     var showsNavigationToolbar = true
 
     var body: some View {
         NotificationFeedView(
             status: status,
             projection: projection,
-            refreshesOnAppear: !isSearchDestination,
+            refreshesOnAppear: isActive && !isSearchDestination,
             actions: actions,
             isConfirmingMarkAllRead: $isConfirmingMarkAllRead,
             showsNavigationToolbar: showsNavigationToolbar

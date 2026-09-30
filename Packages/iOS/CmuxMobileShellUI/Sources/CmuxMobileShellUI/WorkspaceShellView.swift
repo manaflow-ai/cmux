@@ -401,6 +401,8 @@ struct WorkspaceShellView: View {
                 }
             }
             .onChange(of: selectedPrimaryTab) { oldValue, newValue in
+                workspacesStackIsOnScreen = newValue == .workspaces
+                notificationsStackIsOnScreen = newValue == .notifications
                 store.recordAppEvent(
                     .primaryTabSelected,
                     detail: .primaryTab(diagnosticPrimaryTab(newValue))
@@ -428,6 +430,8 @@ struct WorkspaceShellView: View {
                 consumeDeeplinkNavigationRequestIfNeeded()
             }
             .onAppear {
+                workspacesStackIsOnScreen = selectedPrimaryTab == .workspaces
+                notificationsStackIsOnScreen = selectedPrimaryTab == .notifications
                 store.recordAppEvent(
                     .primaryTabSelected,
                     detail: .primaryTab(diagnosticPrimaryTab(selectedPrimaryTab))
@@ -497,7 +501,10 @@ struct WorkspaceShellView: View {
                     )
                 } feed: {
                     NavigationStack(path: $feedNavigationPath) {
-                        agentFeedStoreView(for: presentation)
+                        agentFeedStoreView(
+                            for: presentation,
+                            isActive: selectedPrimaryTab == .feed
+                        )
                             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                                 workspaceDestination(
                                     for: workspaceID,
@@ -518,6 +525,7 @@ struct WorkspaceShellView: View {
                             status: presentation.notificationFeedStatus,
                             projection: notificationFeedProjection,
                             selectedMacDeviceIDs: presentation.selectedNotificationFeedMacDeviceIDs,
+                            isActive: selectedPrimaryTab == .notifications,
                             showsNavigationToolbar: false
                         )
                             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
@@ -581,6 +589,7 @@ struct WorkspaceShellView: View {
                 path: primarySearchNavigationPath,
                 selection: $selectedPrimaryTab,
                 searchCoordinator: primarySearchCoordinator,
+                isActive: selectedPrimaryTab == .search,
                 hidesRootNavigationBar: true
             ) {
                 Group {
@@ -601,7 +610,11 @@ struct WorkspaceShellView: View {
                             )
                         }
                     case .feed:
-                        agentFeedStoreView(for: presentation)
+                        agentFeedStoreView(
+                            for: presentation,
+                            isActive: selectedPrimaryTab == .search
+                                && primarySearchCoordinator.scope == .feed
+                        )
                     case .notifications:
                         NotificationFeedStoreView(
                             store: store,
@@ -610,6 +623,8 @@ struct WorkspaceShellView: View {
                             status: presentation.notificationFeedStatus,
                             projection: notificationFeedProjection,
                             selectedMacDeviceIDs: presentation.selectedNotificationFeedMacDeviceIDs,
+                            isActive: selectedPrimaryTab == .search
+                                && primarySearchCoordinator.scope == .notifications,
                             showsNavigationToolbar: false
                         )
                     }
@@ -1536,13 +1551,17 @@ struct WorkspaceShellView: View {
         )
     }
 
-    private func agentFeedStoreView(for presentation: WorkspaceShellRenderPresentation) -> AgentFeedStoreView {
+    private func agentFeedStoreView(
+        for presentation: WorkspaceShellRenderPresentation,
+        isActive: Bool = true
+    ) -> AgentFeedStoreView {
         AgentFeedStoreView(
             store: store,
             items: presentation.agentFeedItems,
             status: presentation.agentFeedStatus,
             pendingReplyRequestIDs: presentation.agentFeedPendingReplyRequestIDs,
             pendingTerminalReplyItemIDs: presentation.agentFeedPendingTerminalReplyItemIDs,
+            isActive: isActive,
             searchCoordinator: primarySearchCoordinator
         )
     }

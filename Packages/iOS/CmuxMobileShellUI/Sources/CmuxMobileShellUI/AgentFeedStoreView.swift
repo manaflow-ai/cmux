@@ -12,6 +12,7 @@ struct AgentFeedStoreView: View {
     let status: MobileNotificationFeedStatus
     let pendingReplyRequestIDs: Set<String>
     let pendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>
+    var isActive = true
 
     @State private var showsNavigationFailure = false
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
@@ -23,7 +24,7 @@ struct AgentFeedStoreView: View {
             pendingReplyRequestIDs: pendingReplyRequestIDs,
             pendingTerminalReplyItemIDs: pendingTerminalReplyItemIDs,
             failedTerminalReplies: store.agentFeedFailedTerminalReplies,
-            refreshesOnAppear: true,
+            refreshesOnAppear: isActive,
             actions: actions,
             searchText: searchCoordinator.searchDestinationText(for: .feed)
         )

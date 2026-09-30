@@ -110,6 +110,7 @@ public struct NotificationFeedPreviewView: View {
                             path: $searchNavigationPath,
                             selection: $selectedTab,
                             searchCoordinator: primarySearchCoordinator,
+                            isActive: selectedTab == .search,
                             hidesRootNavigationBar: true
                         ) {
                             Group {
@@ -124,6 +125,8 @@ public struct NotificationFeedPreviewView: View {
                                         projection: projection,
                                         refreshesOnAppear: false,
                                         actions: actions,
+                                        isActive: selectedTab == .search
+                                            && primarySearchCoordinator.scope == .notifications,
                                         isConfirmingMarkAllRead: $isConfirmingMarkAllRead,
                                         showsNavigationToolbar: false
                                     )
@@ -194,10 +197,12 @@ public struct NotificationFeedPreviewView: View {
             projection: projection,
             refreshesOnAppear: true,
             actions: actions,
+            isActive: selectedTab == .notifications,
             isConfirmingMarkAllRead: $isConfirmingMarkAllRead,
             showsNavigationToolbar: false
         )
         .task {
+            guard selectedTab == .notifications else { return }
             await runScrollStressIfEnabled(proxy: proxy)
         }
     }
