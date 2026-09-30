@@ -1,5 +1,7 @@
+import CmuxMobileShell
 import CmuxMobileSupport
 import SwiftUI
+import UIKit
 
 struct WorkspaceListNewWorkspaceMenu: View, Equatable {
     let value: WorkspaceListNewWorkspaceMenuValue
@@ -12,14 +14,57 @@ struct WorkspaceListNewWorkspaceMenu: View, Equatable {
     var body: some View {
         if value.asksForComputer, actions.createWorkspaceOnComputer != nil {
             computerMenu
+        } else if !value.sshKinds.isEmpty, let create = actions.createSSHWorkspace {
+            sshKindMenu(create: create)
         } else {
             singleComputerMenu
         }
     }
 
-    /// One scoped computer, or the only available computer under All
-    /// Computers: the tap creates directly and the long press keeps the
-    /// existing group action.
+    /// One SSH computer: tap lists the kinds it can create. A host serves
+    /// every kind at once, so there is no default to guess.
+    private func sshKindMenu(create: @escaping (MobileSSHWorkspaceKind) -> Void) -> some View {
+        Menu {
+            Section {
+                kindItems(value.sshKinds, create: create)
+            }
+            if value.canCreateGroup {
+                Section {
+                    groupButton
+                }
+            }
+        } label: {
+            Image(systemName: "plus")
+        }
+        .disabled(!value.isEnabled)
+        .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
+        .accessibilityIdentifier("MobileNewWorkspaceButton")
+    }
+
+    /// "New cmux-tui Workspace", "New tmux Session", "New Shell"; a kind the
+    /// computer cannot create is dimmed with the reason as the subtitle.
+    @ViewBuilder
+    private func kindItems(
+        _ kinds: [WorkspaceCreateKindOption],
+        create: @escaping (MobileSSHWorkspaceKind) -> Void
+    ) -> some View {
+        ForEach(kinds) { option in
+            Button {
+                guard value.isEnabled, option.unavailableReason == nil else { return }
+                create(option.kind)
+            } label: {
+                Text(option.kind.sshNewItemTitle)
+                if let reason = option.unavailableReason {
+                    Text(reason)
+                }
+                Image(systemName: option.kind.sshSystemImage)
+            }
+            .disabled(option.unavailableReason != nil)
+            .accessibilityIdentifier("ssh.addMenu.kind.\(option.kind.sshAccessibilityKey)")
+        }
+    }
+
+    /// One computer to create on: tap creates, long-press offers a group.
     private var singleComputerMenu: some View {
         Menu {
             if value.canCreate {
@@ -32,10 +77,9 @@ struct WorkspaceListNewWorkspaceMenu: View, Equatable {
                     )
                 }
                 .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
-            } else if let target = value.singleConnectedTarget,
-                      actions.createWorkspaceOnComputer != nil {
+            } else if let target = value.singleConnectedTarget {
                 Button {
-                    actions.createWorkspaceOnComputer?(target)
+                    actions.createWorkspaceOnComputer?(target, nil)
                 } label: {
                     Label(
                         L10n.string("mobile.workspace.new", defaultValue: "New Workspace"),
@@ -55,38 +99,54 @@ struct WorkspaceListNewWorkspaceMenu: View, Equatable {
         .accessibilityIdentifier("MobileNewWorkspaceButton")
     }
 
-    /// Several computers under All Computers: the tap asks where the new
-    /// workspace goes instead of silently using the foreground Mac.
+    /// Several computers under "All Computers": tap asks where the new
+    /// workspace goes; every item carries the same status treatment.
     private var computerMenu: some View {
         Menu {
             Section(L10n.string("mobile.workspace.new", defaultValue: "New Workspace")) {
                 ForEach(value.computerTargets) { target in
-                    Button {
-                        guard target.isConnected else { return }
-                        actions.createWorkspaceOnComputer?(target)
-                    } label: {
-                        Text(
-                            String(
-                                format: L10n.string(
-                                    "mobile.workspace.newOnMachine",
-                                    defaultValue: "New Workspace on %@"
-                                ),
-                                target.name
-                            )
-                        )
-                        Image(systemName: target.systemImage)
+                    if target.sshKinds.isEmpty {
+                        Button {
+                            guard target.statusText == nil else { return }
+                            actions.createWorkspaceOnComputer?(target, nil)
+                        } label: {
+                            targetLabel(target)
+                        }
+                        .disabled(target.statusText != nil)
+                        .accessibilityIdentifier("MobileNewWorkspaceOnComputer-\(target.id)")
+                    } else {
+                        Menu {
+                            kindItems(target.sshKinds) { kind in
+                                actions.createWorkspaceOnComputer?(target, kind)
+                            }
+                        } label: {
+                            targetLabel(target)
+                        }
+                        .accessibilityIdentifier("MobileNewWorkspaceOnComputer-\(target.id)")
                     }
-                    .disabled(!target.isConnected)
-                    .accessibilityIdentifier("MobileNewWorkspaceOnComputer-\(target.id)")
                 }
             }
-            groupButton
+            if value.canCreateGroup {
+                Section {
+                    groupButton
+                }
+            }
         } label: {
             Image(systemName: "plus")
         }
         .disabled(!value.isEnabled)
         .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
         .accessibilityIdentifier("MobileNewWorkspaceButton")
+    }
+
+    /// Bare Text/Text/Image tuple: UIMenu reads title, subtitle, then icon.
+    @ViewBuilder
+    private func targetLabel(_ target: WorkspaceCreateComputerTarget) -> some View {
+        Text(target.name)
+        if let statusText = target.statusText {
+            Text(statusText)
+        }
+        Image(uiImage: Self.statusDot(target.statusColor))
     }
 
     @ViewBuilder
@@ -103,5 +163,12 @@ struct WorkspaceListNewWorkspaceMenu: View, Equatable {
             }
             .accessibilityIdentifier("MobileNewWorkspaceGroupMenuItem")
         }
+    }
+
+    /// Menu item images render as templates; bake the status color in so the
+    /// dot keeps it, like the status dots in the lists.
+    private static func statusDot(_ color: Color) -> UIImage {
+        let image = UIImage(systemName: "circle.fill") ?? UIImage()
+        return image.withTintColor(UIColor(color), renderingMode: .alwaysOriginal)
     }
 }

@@ -592,9 +592,9 @@ extension WorkspaceShellView {
     }
 
     #if os(iOS)
-    /// Computers `+` offers while "All Computers" is shown: connected Macs
-    /// and every saved SSH computer (creating on one connects it). Empty
-    /// when the list is scoped to one computer.
+    /// Computers `+` offers while "All Computers" is shown: connected Macs,
+    /// Cloud machines, and every saved SSH computer (creating on one connects
+    /// it). Empty when the list is scoped to one computer.
     var newWorkspaceComputerTargets: [WorkspaceCreateComputerTarget] {
         switch macSelectionScope.visibleSelection {
         case .machine:
@@ -624,6 +624,15 @@ extension WorkspaceShellView {
                 statusText: status == .connected ? nil : status.sshStatusText,
                 statusColor: status.sshStatusColor,
                 sshKinds: store.sshComputers.kindAvailability(hostID: host.id).map(WorkspaceCreateKindOption.init)
+            ))
+        }
+        for host in store.externalHostSummaries where !host.isHidden {
+            targets.append(WorkspaceCreateComputerTarget(
+                id: host.hostID,
+                kind: .cloud(hostID: host.hostID),
+                name: host.displayName ?? host.hostID,
+                statusText: host.status == .connected ? nil : host.status.label,
+                statusColor: host.status.tintColor
             ))
         }
         return targets
@@ -661,6 +670,8 @@ extension WorkspaceShellView {
         switch target.kind {
         case .ssh(let hostID):
             createSSHWorkspace(hostID: hostID, kind: kind)
+        case .cloud(let hostID):
+            createWorkspaceOnExternalHost(onHost: hostID)
         case .mac(let macDeviceID, let instanceTag):
             if isForegroundMac(macDeviceID: macDeviceID, instanceTag: instanceTag) {
                 create()

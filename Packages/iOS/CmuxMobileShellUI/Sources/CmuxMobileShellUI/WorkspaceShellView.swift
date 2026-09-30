@@ -219,6 +219,8 @@ struct WorkspaceShellView: View {
     var tailscalePairingRequired = false
     var showSettings: () -> Void = {}
     var showComputers: () -> Void = {}
+    /// Present the SSH computer form (PRD D6). `nil` hides SSH add actions.
+    var showAddSSHComputer: (() -> Void)? = nil
     var taskComposerPresentation = MobileChildSheetPresentation()
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
@@ -1273,6 +1275,15 @@ struct WorkspaceShellView: View {
             createWorkspaceInGroup: resolvedCreateWorkspaceInGroup,
             createWorkspaceGroup: resolvedCreateWorkspaceGroup,
             createWorkspaceOnCloudMachine: { createWorkspaceOnExternalHost(onHost: $0) },
+            newWorkspaceComputerTargets: newWorkspaceComputerTargets,
+            createWorkspaceOnComputer: { target, kind in
+                createWorkspace(on: target, kind: kind, create: resolvedCreateWorkspace)
+            },
+            sshNewWorkspaceKinds: sshNewWorkspaceKinds,
+            createSSHWorkspace: sshCreateHostID.map { hostID in
+                { kind in createSSHWorkspace(hostID: hostID, kind: kind) }
+            },
+            sshCreateHostID: sshCreateHostID,
             canCreateWorkspace: canCreateWorkspaceForSelection,
             macSelection: $macSelection,
             switchMac: { macDeviceID, instanceTag in
@@ -1694,14 +1705,35 @@ struct WorkspaceShellView: View {
     }
 
     var canCreateWorkspaceForMacSelection: Bool {
-        macSelectionScope.canCreateWorkspace(
+        if sshCreateHostID != nil || newWorkspaceComputerTargets.count > 1 {
+            return pendingMacSwitchID == nil
+        }
+        return macSelectionScope.canCreateWorkspace(
             base: canCreateWorkspace,
             switchPending: pendingMacSwitchID != nil
         )
     }
 
+    /// The SSH computer the workspace list is scoped to, if any.
+    var selectedSSHHostID: UUID? {
+        guard case .machine(let id) = macSelection,
+              let hostID = store.sshHostID(computerDeviceID: id),
+              store.sshComputers.host(id: hostID) != nil else { return nil }
+        return hostID
+    }
+
+    /// Where New Workspace goes when it targets an SSH computer: the selected
+    /// one, or the only one when no Mac is connected.
+    var sshCreateHostID: UUID? {
+        if let selectedSSHHostID { return selectedSSHHostID }
+        guard store.connectionState != .connected,
+              case .all = macSelectionScope.visibleSelection,
+              store.sshComputers.hosts.count == 1 else { return nil }
+        return store.sshComputers.hosts.first?.id
+    }
+
     @MainActor
-    private func switchMacFromWorkspacePicker(
+    func switchMacFromWorkspacePicker(
         macDeviceID: String,
         instanceTag: String?
     ) async -> Bool {
@@ -1729,7 +1761,7 @@ struct WorkspaceShellView: View {
         }
     }
 
-    private var macSelectionScope: WorkspaceMacSelectionScope {
+    var macSelectionScope: WorkspaceMacSelectionScope {
         WorkspaceMacSelectionScope(
             selection: macSelection,
             workspaces: store.workspaces,

@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -12,13 +13,15 @@ extension WorkspaceListView {
                 createWorkspaceOnCloudMachine != nil
             case .mac:
                 switchMac != nil
+            case .ssh:
+                createWorkspaceOnComputer != nil || createSSHWorkspace != nil
             }
         }
-        let createOnComputer: ((WorkspaceListNewWorkspaceMenuValue.ComputerTarget) -> Void)? =
+        let createOnComputer: ((WorkspaceCreateComputerTarget, MobileSSHWorkspaceKind?) -> Void)? =
             computerTargets.isEmpty
             ? nil
-            : { target in
-                createWorkspaceOnComputerTarget(target)
+            : { target, kind in
+                createWorkspaceOnComputerTarget(target, kind: kind)
             }
         let createWorkspaceAction: () -> Void = {
             if let scopedExternalHostID, let createWorkspaceOnCloudMachine {
@@ -28,7 +31,7 @@ extension WorkspaceListView {
                 targets: computerTargets
             ),
                let createOnComputer {
-                createOnComputer(target)
+                createOnComputer(target, nil)
             } else {
                 createWorkspace()
             }
@@ -38,12 +41,15 @@ extension WorkspaceListView {
                 canCreate: canCreateWorkspaceForMacSelection,
                 // Groups are a Mac concept; a Cloud machine has none.
                 canCreateGroup: createWorkspaceGroup != nil && scopedExternalHostID == nil,
-                computerTargets: createOnComputer == nil ? [] : computerTargets
+                computerTargets: createOnComputer == nil ? [] : computerTargets,
+                sshKinds: createSSHWorkspace == nil ? [] : sshNewWorkspaceKinds,
+                sshTargetHostID: createSSHWorkspace == nil ? nil : sshCreateHostID
             ),
             actions: WorkspaceListNewWorkspaceMenuActions(
                 createWorkspace: createWorkspaceAction,
                 createWorkspaceGroup: createWorkspaceGroup,
-                createWorkspaceOnComputer: createOnComputer
+                createWorkspaceOnComputer: createOnComputer,
+                createSSHWorkspace: createSSHWorkspace
             )
         )
     }
@@ -52,12 +58,19 @@ extension WorkspaceListView {
     /// the same switch path as the title picker; Cloud machines go straight
     /// to the external-host bridge.
     private func createWorkspaceOnComputerTarget(
-        _ target: WorkspaceListNewWorkspaceMenuValue.ComputerTarget
+        _ target: WorkspaceCreateComputerTarget,
+        kind: MobileSSHWorkspaceKind?
     ) {
         switch target.kind {
         case .cloud(let hostID):
             guard let createWorkspaceOnCloudMachine else { return }
             createWorkspaceOnCloudMachine(hostID)
+        case .ssh:
+            if let createWorkspaceOnComputer {
+                createWorkspaceOnComputer(target, kind)
+            } else if let kind, let createSSHWorkspace {
+                createSSHWorkspace(kind)
+            }
         case .mac(let macDeviceID, let instanceTag):
             guard macSelectionScope.shouldSwitch(to: target.id) else {
                 createWorkspace()
@@ -110,8 +123,23 @@ extension WorkspaceListView {
             return nil
         }
         return { workspaceID in
+            guard let confirmation = workspaceCloseConfirmation(for: workspaceID) else {
+                closeWorkspace?(workspaceID)
+                return
+            }
+            workspacePendingCloseConfirmation = confirmation
             workspacePendingCloseID = workspaceID
         }
+    }
+
+    /// What closing `workspaceID` asks first (the store's one rule for every
+    /// close entrypoint); `nil` closes at once. Previews without a store keep
+    /// the Mac question.
+    func workspaceCloseConfirmation(
+        for workspaceID: CmuxMobileShellModel.MobileWorkspacePreview.ID
+    ) -> MobileWorkspaceCloseConfirmation? {
+        guard let store else { return .macWorkspace }
+        return store.workspaceCloseConfirmation(id: workspaceID)
     }
 
     #if os(iOS)

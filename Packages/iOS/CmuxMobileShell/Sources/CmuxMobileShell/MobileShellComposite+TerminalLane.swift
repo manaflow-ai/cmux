@@ -7,10 +7,7 @@ extension MobileShellComposite {
         // Demo surfaces have no Mac-side lane; without this guard a mounted
         // demo terminal would open a lane at whatever REAL Mac holds the
         // foreground ticket, for a surface that Mac has never heard of.
-        guard !demonstrationOwnsSurface(surfaceID) else { return }
-        // An external host serves its own bytes in-process, for the same
-        // reason: no Mac has heard of this surface.
-        guard !externalHostOwnsSurface(surfaceID) else { return }
+        guard !locallyServedOwnsSurface(surfaceID) else { return }
         guard let terminalLaneCoordinator,
               connectionState == .connected,
               terminalByteContinuationsBySurfaceID[surfaceID] != nil,
@@ -63,6 +60,9 @@ extension MobileShellComposite {
                 return self.consumeTerminalLaneFrame(frame, surfaceID: surfaceID)
             },
             readinessChanged: { @MainActor [weak self] ready in
+                // Units on a lane that closed are resent whatever replaced it,
+                // so this runs before the lifecycle guard.
+                self?.exactlyOnceInputLaneReadinessChanged(surfaceID: surfaceID, ready: ready)
                 guard let self,
                       self.connectionGeneration == connectionGeneration,
                       self.terminalLaneLifecycleID == lifecycleID else { return }
@@ -74,6 +74,11 @@ extension MobileShellComposite {
                 } else {
                     self.terminalLaneOutputReadySurfaceIDs.remove(surfaceID)
                 }
+            },
+            acknowledged: { @MainActor [weak self] acknowledgement in
+                // A verdict stays valid after the lane or connection that
+                // carried it is gone; the sender matches it by stream.
+                self?.exactlyOnceSender.receive(acknowledgement)
             }
         )
         Task { await terminalLaneCoordinator.ensure(configuration) }

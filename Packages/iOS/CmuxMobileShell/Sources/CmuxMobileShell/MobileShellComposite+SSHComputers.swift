@@ -60,14 +60,18 @@ extension MobileShellComposite: MobileSSHComputersSink {
         return sshOwnsMac(deviceID: row.macDeviceID)
     }
 
-    /// Whether a surface is served on the phone (demonstration or SSH)
-    /// rather than by a paired Mac.
+    /// Whether a surface is served on the phone (demonstration, SSH, or
+    /// external host) rather than by a paired Mac.
     func locallyServedOwnsSurface(_ surfaceID: String) -> Bool {
-        demonstrationOwnsSurface(surfaceID) || sshOwnsSurface(surfaceID)
+        demonstrationOwnsSurface(surfaceID)
+            || sshOwnsSurface(surfaceID)
+            || externalHostOwnsSurface(surfaceID)
     }
 
     func locallyServedOwnsWorkspaceRow(_ id: MobileWorkspacePreview.ID) -> Bool {
-        demonstrationOwnsWorkspaceRow(id) || sshOwnsWorkspaceRow(id)
+        demonstrationOwnsWorkspaceRow(id)
+            || sshOwnsWorkspaceRow(id)
+            || externalHostOwnsWorkspaceRow(id)
     }
 
     /// Routes input for locally served surfaces. Returns `false` for Mac
@@ -174,8 +178,8 @@ extension MobileShellComposite {
     }
 
     /// Whether the phone's own emulator is the terminal for this surface
-    /// (every SSH surface), so scrolling and replies stay local.
+    /// (SSH and external-host surfaces), so scrolling and replies stay local.
     public func surfaceIsLocallyEmulated(_ surfaceID: String) -> Bool {
-        sshOwnsSurface(surfaceID)
+        sshOwnsSurface(surfaceID) || externalHostOwnsSurface(surfaceID)
     }
 }

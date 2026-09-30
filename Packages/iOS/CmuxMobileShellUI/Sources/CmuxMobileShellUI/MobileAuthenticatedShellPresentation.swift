@@ -8,16 +8,16 @@ enum MobileAuthenticatedShellPresentation: Equatable {
         connectionState: MobileConnectionState,
         hasKnownPairedMac: Bool,
         hasHiddenComputers: Bool,
+        hasSSHComputers: Bool = false,
         hasExternalHosts: Bool = false
     ) -> Self {
-        // An external host (a Cloud machine) is a computer: its workspaces
-        // render in the shell, so the add-device screen would hide real,
-        // reachable work — and the tab scaffold with it, making the Cloud tab
-        // unreachable for exactly the no-Mac account it exists for.
-        if hasExternalHosts { return .workspace }
+        // SSH computers and external hosts are listed in the workspace shell,
+        // so they keep the user out of the pair-a-Mac-only screen.
         if connectionState != .connected,
            !hasKnownPairedMac,
-           !hasHiddenComputers {
+           !hasHiddenComputers,
+           !hasSSHComputers,
+           !hasExternalHosts {
             return .disconnected
         }
         return .workspace
