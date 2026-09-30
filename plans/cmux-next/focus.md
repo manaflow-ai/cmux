@@ -330,9 +330,10 @@ count, and an undo and a redo stack owned by the machine. The field editor's App
   responder changes. Only the coordinator moves the responder
   (`FocusEffectApplier` calls `AddressBarView.focus()`; a click in the field is AppKit's own
   mouse-down, which the coordinator observes through `ShellWindow.makeFirstResponder`).
-- Field editor: `fieldChanged(text, selection, marked, kind: insert | delete | paste)`. This one event
-  covers typing, Backspace and Delete, cut, paste, IME composition start, update and commit,
-  caret moves, drag selections, and Cmd-A. The reducer compares the event with the model to find what changed.
+- Field editor: `fieldChanged(text, selection, marked, kind)`. `kind` is `insert`, `delete` or `paste`
+  for a text edit (typing, Backspace and Delete, cut, paste, IME composition start, update and
+  commit). It is nil for a selection-only change (caret moves, drag selections, Cmd-A). If you type the next
+  character of a selected inline completion, the text does not change, but the event is still an edit and re-queries.
 - Keys taken before the field editor's default: `up`, `down`, `tab`, `backTab`,
   `enter(currentTab | newBackgroundTab (Cmd) | newForegroundTab (Shift-Cmd, Option) | newWindow (Shift))`,
   `escape`, `selectAll` (Cmd-L when the field already has focus), `undo`, `redo`.
