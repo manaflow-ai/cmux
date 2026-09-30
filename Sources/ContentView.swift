@@ -924,6 +924,8 @@ struct ContentView: View {
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
     @State private var sidebarDragStartWidth: CGFloat?
+    /// The side panel kept when only one fits (SidePanelWidthFit): the one shown last.
+    @State private var preferredSidePanel: SidePanelWidthFit.Panel = .left
     // Non-observed: flush pacing must not invalidate the view.
     @State private var selectedTabIds: Set<UUID> = []
     @State private var mountedWorkspaceIds: [UUID] = []
@@ -1301,7 +1303,7 @@ struct ContentView: View {
                     let startWidth = fileExplorerDragStartWidth ?? fileExplorerWidth
                     let nextWidth = Self.clampedRightSidebarWidth(
                         startWidth - translation,
-                        availableWidth: availableWidth,
+                        availableWidth: resolvedRightSidebarAvailableWidth(availableWidth),
                         configuredMaximumWidth: rightSidebarConfiguredMaximumWidth
                     )
                     withTransaction(Transaction(animation: nil)) {
@@ -1323,7 +1325,13 @@ struct ContentView: View {
             ?? NSApp.keyWindow?.contentView?.bounds.width
             ?? NSApp.keyWindow?.contentLayoutRect.width
         if let resolvedAvailableWidth, resolvedAvailableWidth > 0 {
-            return max(minimumSidebarWidth, resolvedAvailableWidth * Self.maximumSidebarWidthRatio)
+            // Never wider than what leaves the terminal its minimum next to the right sidebar.
+            let widthLeftByRightSidebar = resolvedAvailableWidth - rightSidebarWidth
+                - SidePanelWidthFit.minimumTerminalWidth
+            return max(
+                minimumSidebarWidth,
+                min(resolvedAvailableWidth * Self.maximumSidebarWidthRatio, widthLeftByRightSidebar)
+            )
         }
 
         let fallbackScreenWidth = NSApp.keyWindow?.screen?.frame.width
@@ -1389,7 +1397,15 @@ struct ContentView: View {
         )
     }
 
+    /// The width the right sidebar and the terminal share: the window minus the
+    /// left sidebar, so a wide right sidebar cannot squeeze the terminal the left
+    /// sidebar already narrowed.
     private func resolvedRightSidebarAvailableWidth(_ availableWidth: CGFloat? = nil) -> CGFloat {
+        let windowWidth = resolvedWindowContentWidth(availableWidth)
+        return windowWidth - (sidebarState.isVisible ? sidebarWidth : 0)
+    }
+
+    private func resolvedWindowContentWidth(_ availableWidth: CGFloat? = nil) -> CGFloat {
         if let availableWidth {
             return availableWidth
         }
@@ -1429,13 +1445,64 @@ struct ContentView: View {
         )
     }
 
+    /// A hidden right sidebar keeps its width; it is clamped when it shows again.
     private func clampRightSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
+        guard rightSidebarVisible else { return }
         let nextWidth = normalizedRightSidebarWidth(fileExplorerWidth, availableWidth: availableWidth)
         guard abs(nextWidth - fileExplorerWidth) > 0.5 else { return }
         withTransaction(Transaction(animation: nil)) {
             fileExplorerWidth = nextWidth
         }
         fileExplorerState.width = nextWidth
+    }
+
+    private var currentSidePanelFit: SidePanelWidthFit {
+        SidePanelWidthFit(
+            isLeftVisible: sidebarState.isVisible,
+            isRightVisible: fileExplorerState.isVisible,
+            isLeftAutoCollapsed: sidebarState.isAutoCollapsed,
+            isRightAutoCollapsed: fileExplorerState.isAutoCollapsed,
+            preferredPanel: preferredSidePanel
+        )
+    }
+
+    private func applySidePanelFit(_ next: SidePanelWidthFit) {
+        guard next != currentSidePanelFit else { return }
+        preferredSidePanel = next.preferredPanel
+        // The flags first: FileExplorerState persists `isVisible || isAutoCollapsed`.
+        sidebarState.isAutoCollapsed = next.isLeftAutoCollapsed
+        fileExplorerState.isAutoCollapsed = next.isRightAutoCollapsed
+        withTransaction(Transaction(animation: nil)) {
+            if fileExplorerState.isVisible != next.isRightVisible {
+                fileExplorerState.isVisible = next.isRightVisible
+            }
+            sidebarState.setVisible(next.isLeftVisible)
+        }
+    }
+
+    /// Collapses side panels the window is too narrow for, and brings back ones it
+    /// collapsed earlier once they fit again, so the terminal keeps
+    /// `SidePanelWidthFit.minimumTerminalWidth`. Runs after the left width clamp
+    /// and before the right one, so a right sidebar about to collapse keeps its width.
+    private func fitSidePanelsToWindow(availableWidth: CGFloat? = nil) {
+        let windowWidth = resolvedWindowContentWidth(availableWidth)
+        applySidePanelFit(currentSidePanelFit.fitting(
+            windowWidth: windowWidth,
+            leftWidth: sidebarWidth,
+            rightWidth: normalizedRightSidebarWidth(fileExplorerWidth, availableWidth: windowWidth)
+        ))
+    }
+
+    /// A panel that just became visible keeps its place; the other one collapses
+    /// if both do not fit.
+    private func makeRoomForShownSidePanel(_ panel: SidePanelWidthFit.Panel) {
+        let windowWidth = resolvedWindowContentWidth()
+        applySidePanelFit(currentSidePanelFit.showing(
+            panel,
+            windowWidth: windowWidth,
+            leftWidth: sidebarWidth,
+            rightWidth: normalizedRightSidebarWidth(fileExplorerWidth, availableWidth: windowWidth)
+        ))
     }
 
     private func activateSidebarResizerCursor() {
@@ -1956,6 +2023,7 @@ struct ContentView: View {
             sidebarBackdropLayer(width: width, role: role, appearance: appearance)
             content()
                 .environment(\.colorScheme, appearance.sidebarContentColorScheme)
+                .environment(\.sidebarReadabilityBackdrop, appearance.sidebarReadabilityBackdrop)
         }
         // Preserve the panel's intended edge when content reports an
         // intrinsic width larger than the constrained pane. The default
@@ -2049,7 +2117,7 @@ struct ContentView: View {
     }
 
     @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
-    @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
+    @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = SidebarAppearanceCatalogSection().matchTerminalBackground.defaultValue
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults().opacity
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults().hex
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
@@ -2088,9 +2156,11 @@ struct ContentView: View {
         )
     }
 
+    /// Titlebar text over the terminal background. Picks black or white by
+    /// WCAG contrast, the same rule as the sidebar and the Bonsplit tab bar,
+    /// so a saturated mid-tone theme never gets white text at 3.2:1.
     private func fakeTitlebarTextColor(appearance: WindowAppearanceSnapshot) -> Color {
-        let ghosttyBackground = appearance.terminalBackgroundColor
-        return ghosttyBackground.isLightColor
+        cmuxReadableColorScheme(for: appearance.terminalBackgroundColor) == .light
             ? Color.black.opacity(0.78)
             : Color.white.opacity(0.82)
     }
@@ -2365,8 +2435,8 @@ struct ContentView: View {
             }
             return
         }
-        let title = tabManager.resolvedWorkspaceDisplayTitle(for: tab)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // SSH and Cloud workspaces show their host after the title (`title · host`).
+        let title = tabManager.resolvedWorkspaceWindowTitle(for: tab)
         if titlebarText != title {
             titlebarText = title
         }
@@ -3341,6 +3411,7 @@ struct ContentView: View {
                   window === observedWindow else { return }
             let availableWidth = window.contentView?.bounds.width ?? window.contentLayoutRect.width
             clampSidebarWidthIfNeeded(availableWidth: availableWidth)
+            fitSidePanelsToWindow(availableWidth: availableWidth)
             clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
             updateSidebarResizerBandState()
         })
@@ -3399,6 +3470,14 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: sidebarState.isVisible) { _, isVisible in
+            if isVisible {
+                makeRoomForShownSidePanel(.left)
+            }
+            clampRightSidebarWidthIfNeeded()
+            if !isVisible {
+                // A right sidebar collapsed for lack of room may fit again.
+                fitSidePanelsToWindow()
+            }
             setMinimalModeSidebarTitlebarControlsAvailable(isVisible, in: observedWindow)
             if let observedWindow {
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
@@ -3409,6 +3488,13 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: fileExplorerState.isVisible) { isVisible in
+            if isVisible {
+                makeRoomForShownSidePanel(.right)
+                clampRightSidebarWidthIfNeeded()
+            } else {
+                // A left sidebar collapsed for lack of room may fit again.
+                fitSidePanelsToWindow()
+            }
             if !isVisible {
                 _ = AppDelegate.shared?.restoreTerminalFocusAfterRightSidebarHidden(in: observedWindow)
             }
@@ -3515,6 +3601,7 @@ struct ContentView: View {
                 isFullScreen = window.styleMask.contains(.fullScreen)
                 let availableWidth = window.contentView?.bounds.width ?? window.contentLayoutRect.width
                 clampSidebarWidthIfNeeded(availableWidth: availableWidth)
+                fitSidePanelsToWindow(availableWidth: availableWidth)
                 clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
                 syncCommandPaletteDebugStateForObservedWindow()
                 installSidebarResizerPointerMonitorIfNeeded()
@@ -3943,14 +4030,7 @@ struct ContentView: View {
                 }
                 .frame(width: targetWidth)
                 .background(CommandPalettePanelHitRegion())
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color(nsColor: .windowBackgroundColor).opacity(0.98))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color(nsColor: .separatorColor).opacity(0.7), lineWidth: 1)
-                )
+                .ghosttyDialogSurface(cornerRadius: 8)
                 .shadow(color: Color.black.opacity(0.24), radius: 10, x: 0, y: 5)
                 .padding(.top, 40)
             }
@@ -4438,6 +4518,7 @@ struct ContentView: View {
         func updateNSView(_ nsView: CommandPaletteNativeTextField, context: Context) {
             context.coordinator.parent = self
             context.coordinator.parentField = nsView
+            nsView.appearance = WindowAppearanceSnapshot.appKitAppearance(for: context.environment.colorScheme)
             nsView.placeholderString = placeholder
             nsView.font = GlobalFontMagnification.systemFont(ofSize: 13)
 
@@ -5002,6 +5083,7 @@ struct ContentView: View {
 
         func updateNSView(_ nsView: CommandPaletteMultilineTextEditorView, context: Context) {
             context.coordinator.parent = self
+            nsView.appearance = WindowAppearanceSnapshot.appKitAppearance(for: context.environment.colorScheme)
             nsView.placeholder = placeholder
             nsView.maximumHeight = maxHeight
             nsView.textView.setAccessibilityLabel(accessibilityLabel)
@@ -8389,6 +8471,33 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.terminalSizeToMyWindow",
+                title: constant(String(localized: "command.terminalSizeToMyWindow.title", defaultValue: "Size Terminal to My Window")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "size", "resize", "window", "grid", "shared", "phone", "iphone", "fit", "mine"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.terminalShowSizePanel",
+                title: constant(String(localized: "command.terminalShowSizePanel.title", defaultValue: "Show Terminal Size Panel")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "size", "participants", "shared", "clients", "policy", "latest", "smallest", "priority", "fixed"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.terminalDisconnectOtherClients",
+                title: constant(String(localized: "command.terminalDisconnectOtherClients.title", defaultValue: "Disconnect Other Terminal Clients…")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "disconnect", "detach", "clients", "phone", "iphone", "shared", "kick"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.terminalPasteLastScreenshot",
                 title: constant(String(localized: "command.terminalPasteLastScreenshot.title", defaultValue: "Paste Last Screenshot")),
                 subtitle: terminalPanelSubtitle,
@@ -9374,6 +9483,21 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSendCtrlF") {
             if !tabManager.sendCtrlFToFocusedTerminal() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.terminalSizeToMyWindow") {
+            if !tabManager.sizeFocusedTerminalToMyWindow() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.terminalShowSizePanel") {
+            if !tabManager.showFocusedTerminalSizePanel(confirmDisconnectOthers: false) {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.terminalDisconnectOtherClients") {
+            if !tabManager.showFocusedTerminalSizePanel(confirmDisconnectOthers: true) {
                 NSSound.beep()
             }
         }
@@ -10940,19 +11064,6 @@ struct ContentView: View {
 #endif
 }
 
-private struct SidebarResizerAccessibilityModifier: ViewModifier {
-    let accessibilityIdentifier: String?
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if let accessibilityIdentifier {
-            content.accessibilityIdentifier(accessibilityIdentifier)
-        } else {
-            content
-        }
-    }
-}
-
 private enum SidebarFontSizeProvider {
     static func loadFromGhosttyConfig() async -> CGFloat {
         await Task.detached(priority: .utility) {
@@ -11510,6 +11621,7 @@ struct VerticalTabsSidebar: View, Equatable {
     @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
 #endif
     @Environment(\.colorScheme) private var sidebarColorScheme
+    @Environment(\.sidebarReadabilityBackdrop) private var sidebarReadabilityBackdrop
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var sidebarGlobalFontMagnificationPercent
     @State private var sidebarDisplayAccessibility = DisplayAccessibilityOptions.current
 
@@ -11578,7 +11690,7 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     @AppStorage("sidebarMatchTerminalBackground")
-    private var sidebarMatchTerminalBackground = false
+    private var sidebarMatchTerminalBackground = SidebarAppearanceCatalogSection().matchTerminalBackground.defaultValue
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
     private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
@@ -11950,13 +12062,15 @@ struct VerticalTabsSidebar: View, Equatable {
             colorScheme: sidebarColorScheme,
             globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
             lazyContractProbe: sidebarLazyContractProbe,
-            displayAccessibility: sidebarDisplayAccessibility
+            displayAccessibility: sidebarDisplayAccessibility,
+            readabilityBackdropHex: sidebarReadabilityBackdrop?.hexString()
         )
 #else
         let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: sidebarColorScheme,
             globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
-            displayAccessibility: sidebarDisplayAccessibility
+            displayAccessibility: sidebarDisplayAccessibility,
+            readabilityBackdropHex: sidebarReadabilityBackdrop?.hexString()
         )
 #endif
         let renderContext = WorkspaceListRenderContext(
@@ -12122,6 +12236,14 @@ struct VerticalTabsSidebar: View, Equatable {
         ) { workspaceId in
             guard isPresented else { return }
             scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+        }
+        // The compact status tooltip reads agent profiles from the live index,
+        // which is not observable; rebuild the rows it reports as changed.
+        .onReceive(NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)) { notification in
+            guard isPresented, renderContext.tabItemSettings.compactsAgentStatus else { return }
+            for workspaceId in SidebarAgentProfileLabel.changedWorkspaceIds(notification.userInfo, allWorkspaceIds: renderContext.workspaceIds) {
+                scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+            }
         }
         .onAppear {
             if isPresented {
@@ -12500,6 +12622,7 @@ struct VerticalTabsSidebar: View, Equatable {
             ) else { return nil }
             return (workspace.id, input)
         })
+        let memberStatusGlyphs = SidebarCompactStatusGlyph.groupMembers(workspaceRowInputsById)
         let groupRowSnapshotsById = Dictionary(uniqueKeysWithValues: renderContext.workspaceGroups.map { group in
             (
                 group.id,
@@ -12507,6 +12630,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     group: group,
                     memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[group.id] ?? [],
                     renderContext: renderContext,
+                    memberStatusGlyphs: memberStatusGlyphs,
                     unreadSnapshot: unreadSnapshot,
                     notificationIndex: notificationIndex,
                     shouldCollectWorkspaceDropTargets: false
@@ -12529,6 +12653,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 return sidebarWorkspaceGroupTableConfiguration(
                     group: group,
                     memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[groupId] ?? [],
+                    memberStatusGlyphs: memberStatusGlyphs,
                     renderContext: renderContext
                 )
             case .workspace(let workspaceId):
@@ -12762,6 +12887,7 @@ struct VerticalTabsSidebar: View, Equatable {
             shortcutHintText: hintText,
             showsShortcutHints: input.showsModifierShortcutHints,
             colorSchemeIsDark: environment.colorScheme == .dark,
+            readabilityBackdropHex: environment.readabilityBackdropHex,
             globalFontMagnificationPercent: environment.globalFontMagnificationPercent,
             isChecklistExpanded: input.isChecklistExpanded,
             checklistAddFieldActivationToken: input.checklistAddFieldActivationToken,
@@ -13434,6 +13560,9 @@ struct VerticalTabsSidebar: View, Equatable {
 
         case .splitTerminal(let workspaceId, let surfaceId, let direction):
             let outcome = splitDirection(from: direction).map { tabManager.createSplitOutcome(tabId: workspaceId, surfaceId: surfaceId, direction: $0) }
+            if case .noSpace? = outcome {
+                return .rejected(String(localized: "sidebar.extensions.action.noSpaceForPane", defaultValue: "No space for new pane"))
+            }
             guard let outcome, outcome.isAccepted else {
                 return .rejected(String(localized: "sidebar.extensions.action.surfaceCreateRejected", defaultValue: "Surface could not be created"))
             }
@@ -14231,6 +14360,7 @@ struct VerticalTabsSidebar: View, Equatable {
             return (workspace.id, input)
         })
         let _ = anchorCwdRevision
+        let memberStatusGlyphs = SidebarCompactStatusGlyph.groupMembers(workspaceRowInputsById)
         let groupRowSnapshotsById = Dictionary(uniqueKeysWithValues: renderContext.workspaceGroups.map { group in
             (
                 group.id,
@@ -14238,6 +14368,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     group: group,
                     memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[group.id] ?? [],
                     renderContext: renderContext,
+                    memberStatusGlyphs: memberStatusGlyphs,
                     unreadSnapshot: unreadSnapshot,
                     notificationIndex: notificationIndex,
                     shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
@@ -15894,10 +16025,11 @@ struct TabItemView: View, Equatable {
     // percent here and applying a primitive `.font(...)` keeps magnification
     // working while dropping those per-label modifier bodies.
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
-    // Window activation and Increase Contrast only: the selection wash dims to
-    // neutral when the window is inactive, like Finder. Neither changes per
-    // keystroke.
-    @Environment(\.controlActiveState) private var controlActiveState
+    // Increase Contrast strengthens the multi-selection and subtle selection
+    // washes; it changes only when the accessibility option does. Window
+    // activation is read by `SidebarSelectionWindowActivationReader`, and
+    // only for subtle-selection rows that are selected, so focus changes
+    // don't invalidate every row.
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 #if DEBUG
     // Plain-value environment probe (closure struct, not an object reference):
@@ -16198,10 +16330,6 @@ struct TabItemView: View, Equatable {
 #endif
         let signpost = SidebarProfilingSignposts.begin("sidebar-tab-item-body", "index=\(index) workspace=\(sidebarShortTabId(workspaceId)) active=\(isActive) unread=\(unreadCount)")
         let workspaceSnapshot = self.workspaceSnapshot
-        let rowBackgroundStyle = backgroundStyle(for: workspaceSnapshot)
-        let rowBackgroundColor = rowBackgroundStyle.color.map {
-            Color(nsColor: $0).opacity(rowBackgroundStyle.opacity)
-        } ?? .clear
         let rowRailColor = railColor(for: workspaceSnapshot)
         let accessibilityTitle = workspaceSnapshot.accessibilityLabel(index: index, workspaceCount: accessibilityWorkspaceCount)
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
@@ -16220,14 +16348,20 @@ struct TabItemView: View, Equatable {
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let subtitleLineLimit = latestNotificationSubtitle == nil ? 2 : settings.notificationMessageLineLimit
         // Bound notification payloads before shaping so pathological text stays cheap in lazy, Equatable rows.
-        let displayedSubtitle = effectiveSubtitle.map { subtitle in
-            let display = subtitle.sidebarBoundedDisplayString(maxDisplayedLines: subtitleLineLimit, maxDisplayedCharacters: 4096)
-            return latestNotificationSubtitle == nil
-                ? display
-                : SidebarMarkdownRenderer(markdown: display).plainText
-        }
+        // Compact status rows are one line; the notification leads the glyph's tooltip instead.
+        let displayedSubtitle = workspaceSnapshot.compactStatusGlyph != nil
+            ? nil
+            : effectiveSubtitle.map { subtitle in
+                let display = subtitle.sidebarBoundedDisplayString(maxDisplayedLines: subtitleLineLimit, maxDisplayedCharacters: 4096)
+                return latestNotificationSubtitle == nil
+                    ? display
+                    : SidebarMarkdownRenderer(markdown: display).plainText
+            }
         let detailVisibility = visibleAuxiliaryDetails
-        let titleLineLimit = settings.wrapsWorkspaceTitles ? Self.maxWrappedTitleLines : 1
+        // Compact status rows are one line, so title wrapping does not undo it.
+        let titleLineLimit = settings.wrapsWorkspaceTitles && workspaceSnapshot.compactStatusGlyph == nil
+            ? Self.maxWrappedTitleLines
+            : 1
         let displayedTitle = workspaceSnapshot.title.sidebarBoundedDisplayString(
             maxDisplayedLines: titleLineLimit,
             maxDisplayedCharacters: Self.maxDisplayedTitleCharacters
@@ -16245,9 +16379,13 @@ struct TabItemView: View, Equatable {
             scaledCloseButtonHitSize
         )
 
-        let showsLoadingSpinner = showsAgentActivity && workspaceSnapshot.activeCodingAgentCount > 0
-        let badgeOnLeading = unreadCount > 0 && settings.notificationBadgePosition == .leading
-        let badgeOnTrailing = unreadCount > 0 && settings.notificationBadgePosition == .trailing
+        // Compact status draws running and unread as its one glyph instead.
+        let compactStatusGlyph = workspaceSnapshot.compactStatusGlyph?.applyingUnread(unreadCount, latestNotificationText: latestNotificationText)
+        let showsLoadingSpinner = compactStatusGlyph == nil
+            && showsAgentActivity && workspaceSnapshot.activeCodingAgentCount > 0
+        let showsUnreadBadge = compactStatusGlyph == nil && unreadCount > 0
+        let badgeOnLeading = showsUnreadBadge && settings.notificationBadgePosition == .leading
+        let badgeOnTrailing = showsUnreadBadge && settings.notificationBadgePosition == .trailing
         let spinnerOnLeading = showsLoadingSpinner && settings.loadingSpinnerPosition == .leading
         let spinnerOnTrailing = showsLoadingSpinner && settings.loadingSpinnerPosition == .trailing
         let leadingSlotActive = badgeOnLeading || spinnerOnLeading
@@ -16304,6 +16442,13 @@ struct TabItemView: View, Equatable {
                     )
                     .alignmentGuide(.sidebarTitleFirstLineCenter) { $0[VerticalAlignment.center] }
                     .transition(.opacity)
+                }
+
+                if let compactStatusGlyph, compactStatusGlyph.isDrawn {
+                    SidebarCompactStatusGlyphView(glyph: compactStatusGlyph, pointSize: GlobalFontMagnification.scaledSize(scaledFontSize(11), percent: globalFontMagnificationPercent), color: compactStatusGlyph.color(isActive: usesInvertedActiveForeground, selected: selectedWorkspaceForegroundNSColor(opacity: 0.95), secondary: usesInvertedActiveForeground ? selectedWorkspaceForegroundNSColor(opacity: 0.8) : .secondaryLabelColor))
+                        // Same geometry as the AppKit row: pulled into the leading padding, tighter gap to the title.
+                        .padding(.leading, -SidebarCompactStatusGlyph.leadingPullIn)
+                        .padding(.trailing, SidebarCompactStatusGlyph.titleSpacing - titleRowSpacing)
                 }
 
                 SidebarCloudWorkspaceBadgeView(label: detailVisibility.showsBranchDirectory ? workspaceSnapshot.remoteWorkspaceBadgeLabel : nil, pointSize: scaledFontSize(10), tint: activeSecondaryColor(0.7), symbol: workspaceSnapshot.remoteWorkspaceBadgeSymbol)
@@ -16631,27 +16776,7 @@ struct TabItemView: View, Equatable {
         // they appear; content changes now apply in one discrete layout pass.
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
         .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(rowBackgroundColor)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(
-                            activeBorderColor(for: rowBackgroundStyle),
-                            lineWidth: activeBorderLineWidth(for: rowBackgroundStyle)
-                        )
-                }
-                .overlay(alignment: .leading) {
-                    if showsLeadingRail(for: workspaceSnapshot) {
-                        Capsule(style: .continuous)
-                        .fill(rowRailColor)
-                            .frame(width: 3)
-                            .padding(.leading, 4)
-                            .padding(.vertical, 5)
-                            .offset(x: -1)
-                    }
-                }
-        )
+        .background(rowBackground(for: workspaceSnapshot, railColor: rowRailColor))
         .sidebarShortcutHintOverlay(
             text: showsWorkspaceShortcutHint ? workspaceShortcutLabel : nil,
             emphasis: shortcutHintEmphasis,
@@ -16751,8 +16876,68 @@ struct TabItemView: View, Equatable {
         isEditing = true
     }
 
+    /// Only a selected row painted with the subtle selection changes with
+    /// window activation. Legacy and unselected rows never read it.
+    private var selectionChromeTracksWindowActivation: Bool {
+        (isActive || isMultiSelected)
+            && sidebarUsesSubtleSelection(
+                activeTabIndicatorStyle: activeTabIndicatorStyle,
+                subtleSelection: settings.subtleSelection,
+                sidebarSelectionColorHex: sidebarSelectionColorHex
+            )
+    }
+
+    @ViewBuilder
+    private func rowBackground(
+        for workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot,
+        railColor: Color
+    ) -> some View {
+        if selectionChromeTracksWindowActivation {
+            SidebarSelectionWindowActivationReader { isEmphasized in
+                rowBackgroundShape(
+                    style: backgroundStyle(for: workspaceSnapshot, isEmphasized: isEmphasized),
+                    workspaceSnapshot: workspaceSnapshot,
+                    railColor: railColor
+                )
+            }
+        } else {
+            rowBackgroundShape(
+                style: backgroundStyle(for: workspaceSnapshot, isEmphasized: true),
+                workspaceSnapshot: workspaceSnapshot,
+                railColor: railColor
+            )
+        }
+    }
+
+    private func rowBackgroundShape(
+        style: SidebarWorkspaceRowBackgroundStyle,
+        workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot,
+        railColor: Color
+    ) -> some View {
+        RoundedRectangle(cornerRadius: 6)
+            .fill(style.color.map { Color(nsColor: $0).opacity(style.opacity) } ?? .clear)
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(
+                        activeBorderColor(for: style),
+                        lineWidth: activeBorderLineWidth(for: style)
+                    )
+            }
+            .overlay(alignment: .leading) {
+                if showsLeadingRail(for: workspaceSnapshot) {
+                    Capsule(style: .continuous)
+                        .fill(railColor)
+                        .frame(width: 3)
+                        .padding(.leading, 4)
+                        .padding(.vertical, 5)
+                        .offset(x: -1)
+                }
+            }
+    }
+
     private func backgroundStyle(
-        for workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
+        for workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot,
+        isEmphasized: Bool
     ) -> SidebarWorkspaceRowBackgroundStyle {
         sidebarWorkspaceRowBackgroundStyle(
             activeTabIndicatorStyle: activeTabIndicatorStyle,
@@ -16762,7 +16947,7 @@ struct TabItemView: View, Equatable {
             colorScheme: colorScheme,
             sidebarSelectionColorHex: sidebarSelectionColorHex,
             subtleSelection: settings.subtleSelection,
-            isEmphasized: controlActiveState != .inactive,
+            isEmphasized: isEmphasized,
             increaseContrast: colorSchemeContrast == .increased,
             accent: settings.accentColor
         )

@@ -25,6 +25,11 @@
       "message": "ตั้งค่า Cloud VM ไม่สำเร็จและยังล้างข้อมูลไม่เสร็จ",
       "action": "ติดต่อฝ่ายสนับสนุนพร้อมรหัสการติดตามก่อนสร้างเครื่องอื่น"
     },
+    "recreateRequired": {
+      "title": "สร้างเครื่องนี้ใหม่",
+      "message": "เครื่องนี้สร้างขึ้นก่อนการอัปเดต Cloud จึงเชื่อมต่อไม่ได้",
+      "action": "สร้างเครื่องใหม่ คัดลอกไฟล์ด้วย cmux vm pull และ cmux vm push แล้วลบเครื่องนี้"
+    },
     "unsupported": {
       "title": "ไม่สามารถใช้การดำเนินการ Cloud VM ได้",
       "reason": "ประเภทเครื่องนี้ไม่มีการดำเนินการนี้",
@@ -134,7 +139,9 @@
     "backToBlog": "กลับไปบล็อก",
     "readTheDocs": "อ่านเอกสาร",
     "viewChangelog": "ดู Changelog",
-    "otherPlatforms": "แพลตฟอร์มอื่น ๆ"
+    "otherPlatforms": "แพลตฟอร์มอื่น ๆ",
+    "copyCode": "คัดลอกโค้ด",
+    "copied": "คัดลอกแล้ว"
   },
   "nav": {
     "docs": "เอกสาร",
@@ -1358,6 +1365,7 @@
           "warnBeforeQuit": "ตัวเลือกสำรองแบบบูลีนเดิมสำหรับการยืนยันก่อนออก ใช้ app.confirmQuit สำหรับการกำหนดค่าใหม่",
           "warnBeforeClosingTabXButton": "แสดงการยืนยันก่อนปิดแท็บด้วยปุ่มปิดแท็บ",
           "hideTabCloseButton": "ซ่อนปุ่มปิดแท็บในแถบแท็บของพาเนล",
+          "tabBarVisibility": "กำหนดว่าพาเนลจะวาดแถบแท็บของตัวเองเมื่อใด \"always\" วาดแถบแม้พาเนลจะมีแท็บเดียว ส่วน \"multiple-tabs\" จะซ่อนแถบไว้ขณะที่พาเนลมีแท็บเดียว และวาดเมื่อเปิดแท็บที่สอง โหมดมินิมัล (app.minimalMode) จะวาดแถบเสมอ เพราะในโหมดนั้นแถบแท็บของพาเนลบนสุดทำหน้าที่เป็นแถบชื่อหน้าต่างด้วย",
           "forkConversationDefaultDestination": "ปลายทางเริ่มต้นสำหรับคำสั่งหลัก Fork Conversation ในเมนูบริบทของแท็บ เมนูย่อยยังคงแสดงปลายทางทั้งหมด",
           "globalFontMagnification": "อัตราซูมเป็นเปอร์เซ็นต์สำหรับทุกสิ่งที่ cmux วาดเอง ได้แก่ ข้อความในเทอร์มินัล ชื่อแท็บ แถบข้าง การตั้งค่า โอเวอร์เลย์ และกรอบหน้าต่าง หน้าเว็บภายใน surface ของเบราว์เซอร์จะคงขนาดของตัวเองไว้"
         },
@@ -1367,12 +1375,13 @@
           "sessionContentAlignment": "ตำแหน่งแนวนอนของเนื้อหาเทอร์มินัลและแชตเอเจนต์ในตัวเมื่อเปิดใช้ sessionContentMaxWidth",
           "copyOnSelect": "เมื่อเป็น true ข้อความเทอร์มินัลที่เลือกจะถูกคัดลอกไปยังคลิปบอร์ดของระบบเมื่อยืนยันการเลือก เมื่อเป็น false cmux จะไม่ส่งค่าแทนที่ Ghostty copy-on-select; การกำหนดค่าและค่าเริ่มต้นของ Ghostty จะควบคุมพฤติกรรมของคลิปบอร์ดการเลือก",
           "scrollSpeed": "ปรับระยะที่เทอร์มินัลเลื่อนต่อเหตุการณ์การเลื่อนหนึ่งครั้งจากล้อเมาส์หรือแทร็กแพด ค่าที่มากกว่า 1 ทำให้เลื่อนเร็วขึ้น และค่าที่น้อยกว่า 1 ทำให้เลื่อนช้าลง",
-          "showTextBoxOnNewTerminals": "แสดงอินพุต TextBox รุ่นเบต้าเป็นค่าเริ่มต้นสำหรับเวิร์กสเปซ แท็บเทอร์มินัล และการแบ่งเทอร์มินัลที่สร้างใหม่",
-          "focusTextBoxOnNewTerminals": "โฟกัสอินพุต TextBox รุ่นเบต้าเป็นค่าเริ่มต้นสำหรับเวิร์กสเปซ แท็บเทอร์มินัล และการแบ่งเทอร์มินัลที่สร้างใหม่ การโฟกัสจะแสดง TextBox ด้วย"
+          "showTextBoxOnNewTerminals": "แสดงอินพุต TextBoxเป็นค่าเริ่มต้นสำหรับเวิร์กสเปซ แท็บเทอร์มินัล และการแบ่งเทอร์มินัลที่สร้างใหม่",
+          "focusTextBoxOnNewTerminals": "โฟกัสอินพุต TextBoxเป็นค่าเริ่มต้นสำหรับเวิร์กสเปซ แท็บเทอร์มินัล และการแบ่งเทอร์มินัลที่สร้างใหม่ การโฟกัสจะแสดง TextBox ด้วย"
         },
         "notifications": {
           "soundWhenFocused": "เล่นเสียงแจ้งเตือนแม้ว่าแผงที่แจ้งเตือนจะอยู่ในโฟกัสอยู่แล้ว ปิดไว้เป็นค่าเริ่มต้น แผงที่อยู่ในโฟกัสจึงแสดงเพียงวงแหวนและการกะพริบเท่านั้น",
           "suppressOnlyFocusedSurface": "เมื่อเปิดใช้งาน แบนเนอร์การแจ้งเตือนจะถูกถอนออกอัตโนมัติเฉพาะเมื่อ Surface ของมันเป็น Surface ที่โฟกัสอยู่พอดีเท่านั้น แบนเนอร์ที่ส่งให้ Surface ที่ไม่ได้โฟกัสใน workspace ที่กำลังแสดงอยู่จะยังคงแสดงอยู่จนกว่าคุณจะโฟกัส Surface นั้น (หรือคลิก/ปิดมัน) แทนที่จะถูกถอนออกเมื่อ workspace แสดงขึ้น ปิด จะคงพฤติกรรมการถอนแบบเดิมที่อิงตามการมองเห็น workspace",
+          "suppressWhenAppFocused": "เมื่อเปิดใช้ cmux จะข้ามแบนเนอร์บนเดสก์ท็อปสำหรับการแจ้งเตือนทุกรายการขณะที่ cmux เป็นแอปที่ใช้งานอยู่ ไม่ใช่เฉพาะบานหน้าต่างที่โฟกัสอยู่ การแจ้งเตือนยังคงแสดงในแถบด้านข้าง เสียงกับคำสั่งกำหนดเองยังคงทำงาน และการส่งต่อไปยังโทรศัพท์ไม่เปลี่ยนแปลง เมื่อปิดจะยังแสดงแบนเนอร์สำหรับ workspace และบานหน้าต่างอื่นขณะที่ cmux อยู่ในโฟกัส",
           "agentIdleReminder": "แจ้งเตือนเมื่อเอเจนต์ไม่ได้ใช้งานและกำลังรออินพุตของคุณ (ประมาณ 60 วินาทีหลังจบรอบ) ระบบจะระงับการแจ้งเตือนขณะที่งานเบื้องหลังจากรอบก่อนหน้ายังค้างอยู่ เพื่อไม่ให้บิลด์หรือ watcher ที่กำลังทำงานแจ้งเตือนการรอแบบผิดพลาด",
           "soundOverrides": "การแทนที่เสียงการแจ้งเตือนแบบแยกตามเอเจนต์และประเภทการแจ้งเตือน ช่องที่ไม่มีค่าจะใช้ notifications.sound",
           "soundOverride": "การแทนที่เสียงการแจ้งเตือน default ใช้ notifications.sound, none ปิดการเล่น และค่าอื่นจะเลือกเสียงในตัวหรือเสียงกำหนดเอง"
@@ -1395,6 +1404,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "แสดงแต่ละเวิร์กสเปซในบรรทัดเดียว: ไอคอนสีเดียวหน้าชื่อแสดงสถานะของเอเจนต์ รายการที่ยังไม่อ่าน และ pull request แทนแถวสถานะของเอเจนต์ (เช่น กำลังทำงาน หรือ ต้องการข้อมูล) บรรทัดสาขาและไดเรกทอรี และแถว pull request โดยรายละเอียดจะย้ายไปอยู่ในคำอธิบายของไอคอน รายการสถานะอื่นยังคงแถวของตัวเอง",
+          "compactStatusIcons": "ชื่อ SF Symbol ที่ใช้แทนสัญลักษณ์ compactAgentStatus ของแต่ละสถานะ เช่น {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"} สถานะที่ไม่ได้ตั้งค่าจะใช้สัญลักษณ์ในตัว และชื่อที่แสดงไม่ได้จะกลับไปใช้สัญลักษณ์ในตัวเช่นกัน",
           "notificationMessageLineLimit": "จำนวนบรรทัดสูงสุดที่แสดงสำหรับการแจ้งเตือนล่าสุดใต้ชื่อของแต่ละพื้นที่ทำงาน",
           "rightMaxWidth": "ความกว้างสูงสุดเป็นพอยต์สำหรับแถบด้านขวา หากเว้นไว้ จะใช้ขีดจำกัดแบบไดนามิกในตัว"
         },
@@ -1534,7 +1545,6 @@
       "restartNew": "สร้าง workspace ใหม่ (ค่าเริ่มต้น)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "สลับการตัดบรรทัดในตัวแก้ไขไฟล์ (Option+Z).",
       "title": "คีย์ลัด",
       "description": "คีย์ลัดทั้งหมดใน cmux จัดกลุ่มตามหมวดหมู่",
       "metaDescription": "คีย์ลัด cmux ทั้งหมดสำหรับ workspace, surface, แยกหน้าจอ, เบราว์เซอร์, แจ้งเตือน, ค้นหา และจัดการหน้าต่างบน macOS",
@@ -1864,7 +1874,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (เบต้า)",
+      "textBox": "TextBox",
       "ios": "แอป iOS",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "ภาพรวม",
@@ -1879,7 +1889,11 @@
       "remoteSection": "การเข้าถึงระยะไกล",
       "customizeSection": "การปรับแต่งและการดูแลระบบ",
       "basicsSection": "พื้นฐาน",
-      "remoteTmux": "การสะท้อน tmux ระยะไกล"
+      "remoteTmux": "การสะท้อน tmux ระยะไกล",
+      "coderouterSection": "CodeRouter",
+      "coderouterOverview": "ภาพรวม",
+      "coderouterAgents": "เอเจนต์และโมเดล",
+      "coderouterCli": "CLI และการแก้ปัญหา"
     },
     "dock": {
       "metaTitle": "Dock สำหรับ workspace และเอเจนต์ใน cmux",
@@ -2026,11 +2040,10 @@
       "daemonPath": "ไบนารี daemon ถูกเก็บไว้ที่ ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote บนโฮสต์ระยะไกลและตรวจสอบกับไฟล์ Manifest SHA-256 ที่ฝังอยู่ในแอป"
     },
     "textBox": {
-      "title": "TextBox (เบต้า)",
-      "metaTitle": "TextBox (เบต้า)",
-      "metaDescription": "กำหนดค่าอินพุต TextBox รุ่นเบต้าของ cmux สำหรับแท็บเทอร์มินัล การแบ่งหน้าต่าง และเวิร์กสเปซใหม่",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "กำหนดค่าอินพุต TextBoxของ cmux สำหรับแท็บเทอร์มินัล การแบ่งหน้าต่าง และเวิร์กสเปซใหม่",
       "intro": "TextBox คือพื้นผิวอินพุตเทอร์มินัลแบบ rich ของ cmux สำหรับเขียนพรอมป์ก่อนส่งไปยังเทอร์มินัล",
-      "betaCallout": "TextBox เป็นฟีเจอร์เบต้า ค่าเริ่มต้นและพฤติกรรมอาจเปลี่ยนแปลงระหว่างการทดสอบ",
       "defaultsTitle": "ค่าเริ่มต้น",
       "defaultsDesc": "การตั้งค่า TextBox อยู่ใน Settings > TextBox:",
       "showSetting": "Show TextBox on New Terminals จะเปิดเวิร์กสเปซ แท็บเทอร์มินัล และการแบ่งเทอร์มินัลใหม่พร้อมแสดง TextBox โดยยังคงโฟกัสไว้ที่เทอร์มินัล",
@@ -2079,7 +2092,7 @@
       "data3": "ข้อมูลเมตาของการจับคู่และอุปกรณ์ เพื่อเชื่อมต่อโทรศัพท์ของคุณกับ Mac ของคุณ",
       "dataNot": "เซสชันเทอร์มินัลแบบโต้ตอบของคุณ รวมถึงเนื้อหาและการกดแป้นพิมพ์ จะไหลโดยตรงระหว่างโทรศัพท์กับ Mac ของคุณผ่านเครือข่ายของคุณเอง และจะไม่ถูกรีเลย์ผ่านหรือจัดเก็บบนเซิร์ฟเวอร์ของ cmux ข้อยกเว้นเดียวคือข้อความแจ้งเตือนที่ส่งต่อ ซึ่งจะผ่าน cmux และบริการพุชของ Apple เพื่อไปถึงโทรศัพท์ของคุณ เว้นแต่คุณจะเปิด Hide content (ดู การแจ้งเตือน ด้านบน)",
       "enterpriseTitle": "องค์กรและการโฮสต์เอง",
-      "enterpriseDesc": "สำหรับการดีพลอยแบบโฮสต์เองหรือแบบแยกจากเครือข่าย โปรดติดต่อ <link>founders@manaflow.com</link>"
+      "enterpriseDesc": "สำหรับการดีพลอยแบบโฮสต์เองหรือแบบแยกจากเครือข่าย โปรดติดต่อ <link>founders@cmux.com</link>"
     },
     "cloudOverview": {
       "title": "cmux Cloud",
@@ -2201,7 +2214,8 @@
       "guestDesc": "ภายในเครื่อง คำสั่ง cmux ควบคุมเซสชันของเครื่องนั้น รองรับ tree, new-workspace, new-split, send, send-key, read-screen, terminal, layout, env, notify, open-url และ self คำสั่ง cmux self แสดงเจ้าของ เครื่องนี้ และเครื่องอื่นๆ ของคุณ cmux vm verb peer ควบคุมเครื่องอื่นๆ ของคุณจากภายในเครื่อง",
       "guestHostOnly": "การลงชื่อเข้าใช้ การอัปโหลดบัญชี AI และคำสั่งวงจรชีวิตของเครื่อง เช่น new, delete, checkpoint, fork, resize, pause, domains, open และ vpn รันได้เฉพาะบน Mac ของคุณเท่านั้น",
       "iosTitle": "iPhone",
-      "iosDesc": "แอป cmux บน iOS ไม่ได้จัดการเครื่อง Cloud เครื่องที่กำลังเริ่มต้นจะแสดงเป็นการ์ดตัวยึดตำแหน่ง"
+      "iosDesc": "แอป cmux บน iOS ไม่ได้จัดการเครื่อง Cloud เครื่องที่กำลังเริ่มต้นจะแสดงเป็นการ์ดตัวยึดตำแหน่ง",
+      "coderouterLink": "เอกสาร CodeRouter: บัญชีที่รองรับ การแชร์ และการใช้งาน"
     },
     "cloudNetworking": {
       "title": "ไฟล์และเครือข่ายของ Cloud",
@@ -2266,7 +2280,8 @@
       "accountsTitle": "บัญชี AI และการกำหนดเส้นทางโมเดล",
       "accountsDesc": "อัปโหลดบัญชีเอเจนต์ให้ทีมของคุณ และตรวจสอบการกำหนดเส้นทางโมเดล",
       "preflightTitle": "รายการตรวจสอบสำหรับสคริปต์",
-      "preflightDesc": "ก่อนที่สคริปต์จะสร้างหรือใช้เครื่อง ให้รันการตรวจสอบแบบอ่านอย่างเดียวเหล่านี้ เพื่อยืนยันว่าคุณลงชื่อเข้าใช้แล้ว แสดงเครื่องและข้อจำกัดของแผน และแสดงว่าไดเรกทอรีใช้เครื่องใด"
+      "preflightDesc": "ก่อนที่สคริปต์จะสร้างหรือใช้เครื่อง ให้รันการตรวจสอบแบบอ่านอย่างเดียวเหล่านี้ เพื่อยืนยันว่าคุณลงชื่อเข้าใช้แล้ว แสดงเครื่องและข้อจำกัดของแผน และแสดงว่าไดเรกทอรีใช้เครื่องใด",
+      "coderouterLink": "เอกสารอ้างอิงคำสั่ง CodeRouter ฉบับเต็ม"
     },
     "cloudTroubleshooting": {
       "title": "ความปลอดภัยและแก้ปัญหา Cloud",
@@ -2323,6 +2338,177 @@
       "fixTransferDisabled": "นโยบายที่มีการจัดการปิดการถ่ายโอนไฟล์ ติดต่อผู้ดูแลระบบ",
       "supportTitle": "ขอความช่วยเหลือ",
       "supportDesc": "หากการสร้างล้มเหลว ให้ใช้ Copy Error ในการแจ้งเตือน แล้วแนบข้อผิดพลาดพร้อม trace ID (ถ้ามี) เมื่อติดต่อฝ่ายสนับสนุน"
+    },
+    "ui": {
+      "onThisPage": "ในหน้านี้",
+      "copyPage": "คัดลอกหน้า",
+      "copyPageDesc": "คัดลอกหน้าเป็น Markdown สำหรับ LLM",
+      "copied": "คัดลอกแล้ว",
+      "pageActions": "การทำงานเพิ่มเติมของหน้า",
+      "openInChatGPT": "เปิดใน ChatGPT",
+      "openInClaude": "เปิดใน Claude",
+      "openInDesc": "ถามคำถามเกี่ยวกับหน้านี้",
+      "askPrompt": "อ่าน {url} เพื่อให้ฉันถามคำถามเกี่ยวกับหน้านี้ได้",
+      "previous": "ก่อนหน้า",
+      "next": "ถัดไป",
+      "helpful": "หน้านี้มีประโยชน์หรือไม่?",
+      "yes": "ใช่",
+      "no": "ไม่",
+      "thanks": "ขอบคุณสำหรับความคิดเห็น",
+      "raiseIssue": "แจ้งปัญหา",
+      "openNavigation": "เปิดการนำทาง",
+      "closeNavigation": "ปิดการนำทาง",
+      "searchShortcut": "ค้นหาเอกสาร (⌘K)",
+      "navigation": "เอกสาร"
+    },
+    "coderouterOverview": {
+      "title": "CodeRouter",
+      "metaTitle": "การกำหนดเส้นทางโมเดล CodeRouter",
+      "metaDescription": "CodeRouter ส่งคำขอ Codex, Claude Code, OpenCode และ Pi ไปยังการสมัครใช้ AI และ API key ของทีม และสลับบัญชีเมื่อถึงขีดจำกัด.",
+      "intro": "CodeRouter คือตัวกำหนดเส้นทางโมเดลเบื้องหลัง cmux เอเจนต์เขียนโค้ดของคุณส่งคำขอไปที่ CodeRouter แล้ว CodeRouter ส่งต่อแต่ละคำขอไปยังการสมัครใช้งานหรือ API key ที่ทีมของคุณเพิ่มไว้ เมื่อบัญชีถูกจำกัดอัตรา ถูกปฏิเสธ หรือใช้งานไม่ได้ CodeRouter จะย้ายงานไปยังบัญชีอื่น เอเจนต์จึงทำงานต่อได้",
+      "whyTitle": "ทำไมต้องใช้",
+      "whyPool": "รวมการสมัครใช้งานและ API key ของ ChatGPT, Claude และ OpenCode Go หลายรายการ แล้วแชร์กับทีมของคุณ",
+      "whyFailover": "ให้เอเจนต์ทำงานต่อได้เมื่อบัญชีหนึ่งถึงขีดจำกัดการใช้งาน",
+      "whyCloud": "ให้เครื่อง cmux Cloud เข้าถึงโมเดลได้โดยไม่ต้องเก็บข้อมูลรับรองไว้บนเครื่อง",
+      "whyUsage": "ดูการใช้โทเค็นแยกตามบัญชี ตาม API key และตามเครื่อง Cloud",
+      "accountsTitle": "บัญชีที่รองรับ",
+      "accountsDesc": "แต่ละบัญชีให้บริการเอเจนต์ที่ใช้ API ของผู้ให้บริการนั้น Codex และ Pi ใช้กลุ่มบัญชีร่วมกันหนึ่งกลุ่ม ส่วน Claude Code ใช้กลุ่มบัญชี Claude แยกต่างหาก",
+      "accountColumn": "บัญชี",
+      "servesColumn": "ให้บริการ",
+      "addColumn": "วิธีเพิ่ม",
+      "accountChatgpt": "การสมัครใช้งาน ChatGPT (workspace ส่วนตัวหรือของทีม)",
+      "accountOpenAiKey": "API key ของ OpenAI",
+      "accountOpenRouterKey": "API key ของ OpenRouter",
+      "accountOpencodeGo": "การสมัครใช้งาน OpenCode Go",
+      "accountClaudeSubscription": "Claude Max หรือ Pro (setup token ของ Claude Code)",
+      "accountAnthropicKey": "API key ของ Anthropic",
+      "accountBedrock": "ข้อมูลรับรองของ Amazon Bedrock",
+      "addDashboard": "แดชบอร์ด CodeRouter",
+      "accountsDashboard": "แดชบอร์ด CodeRouter เพิ่ม API key, โทเค็น Claude และข้อมูลรับรอง Bedrock ได้เช่นกัน และแสดงทุกบัญชีพร้อมสถานะ ช่วงพักการใช้งาน และเซสชันที่ใช้งานอยู่:",
+      "routingTitle": "การกำหนดเส้นทางทำงานอย่างไร",
+      "routingSticky": "แต่ละเซสชันของเอเจนต์จะอยู่บนบัญชีเดียวตราบใดที่บัญชีนั้นยังปกติ ซึ่งช่วยให้แคชพรอมต์ของผู้ให้บริการยังพร้อมใช้ เซสชันใหม่จะไปที่บัญชีที่มีเซสชันที่ใช้งานอยู่น้อยที่สุด",
+      "routingFailover": "เมื่อผู้ให้บริการส่งคืนการจำกัดอัตรา ปฏิเสธข้อมูลรับรอง หรือไม่ตอบกลับ CodeRouter จะพักบัญชีนั้นไว้ชั่วคราวและลองส่งคำขออีกครั้งด้วยบัญชีอื่น โดยจะลองใหม่เฉพาะก่อนที่เอาต์พุตใดๆ ของโมเดลจะถึงเอเจนต์ของคุณ คำตอบที่เริ่มสตรีมแล้วจึงไม่ถูกส่งซ้ำสองครั้ง",
+      "routingProvider": "บริการโฮสต์ของ CodeRouter เป็นผู้ส่งคำขอไปยังผู้ให้บริการ ทราฟฟิกไปยังผู้ให้บริการจึงมาจาก CodeRouter ไม่ได้มาจาก Mac หรือเครื่อง Cloud ของคุณ",
+      "quickstartTitle": "เริ่มต้นใช้งานอย่างรวดเร็วบน Mac",
+      "stepInstall": "ติดตั้ง CodeRouter CLI ซึ่งติดตั้งเป็นทั้ง coderouter และ cr คุณยังรัน cmux cr ได้ด้วย ซึ่งจะเสนอให้ติดตั้งในครั้งแรก",
+      "stepLogin": "ลงชื่อเข้าใช้ด้วยบัญชี cmux ของคุณ cr login จะเปิดเบราว์เซอร์ ให้อนุมัติรหัสที่แสดง",
+      "stepAdd": "เพิ่มการสมัครใช้งาน cr add เปิดเมนูผู้ให้บริการ และ cr add codex ลงชื่อเข้าใช้ ChatGPT ในเบราว์เซอร์ของคุณ",
+      "stepRun": "รันเอเจนต์ผ่าน CodeRouter ด้วย cr codex, cr opencode หรือ cr pi อาร์กิวเมนต์หลังชื่อเอเจนต์จะส่งต่อไปยังเอเจนต์",
+      "cloudTitle": "บนเครื่อง cmux Cloud",
+      "cloudDesc": "เครื่อง Cloud ทุกเครื่องเชื่อมต่อกับ CodeRouter ตั้งแต่ตอนสร้าง Claude Code, Codex, OpenCode และ Pi บนเครื่องใช้บัญชีของทีมคุณโดยไม่ต้องลงชื่อเข้าใช้และไม่ต้องตั้งค่า",
+      "cloudLink": "วิธีตั้งค่าเอเจนต์บนเครื่อง Cloud",
+      "teamsTitle": "ทีมและการแชร์",
+      "teamsScope": "บัญชีเป็นของทีมที่คุณลงชื่อเข้าใช้อยู่ cr org list แสดงทีมของคุณ และ cr org switch เปลี่ยนทีมที่ cr ใช้ คำสั่ง cmux coderouter รับ --team '<id>'",
+      "teamsPrivate": "บัญชีใหม่เป็นบัญชีส่วนตัวของผู้ที่เพิ่ม ในแดชบอร์ด \"แชร์กับทีม\" จะทำให้สมาชิกทุกคนและเครื่อง Cloud ของทีมใช้บัญชีได้ และ \"ตั้งเป็นส่วนตัว\" จะยกเลิกการแชร์นั้น",
+      "teamsPersonal": "ในทีมส่วนตัวของคุณ บัญชีส่วนตัวยังให้บริการเครื่อง Cloud ของคุณเองด้วย เครื่อง Cloud ขององค์กรใช้เฉพาะบัญชีที่แชร์ ดังนั้นให้แชร์บัญชีก่อนที่จะคาดหวังให้เครื่องใช้บัญชีนั้น",
+      "teamsManage": "สมาชิกทุกคนในทีมเพิ่ม เปลี่ยนชื่อ ปิดใช้งาน โอนย้าย และลบบัญชีที่แชร์ของทีมได้ cr transfer ย้ายบัญชีไปยังทีมอื่นหลังจากคุณยืนยัน",
+      "usageTitle": "การใช้งานและขีดจำกัด",
+      "usageLimits": "ผู้ให้บริการแต่ละรายวัดการใช้งานของบัญชีที่ให้บริการคำขอ ตามแผนและขีดจำกัดของบัญชีนั้น CodeRouter กระจายงานไปยังหลายบัญชี แต่ไม่ได้เพิ่มขีดจำกัดของบัญชีใดบัญชีหนึ่ง",
+      "usageCr": "cr แสดงสถานะโควตาของแต่ละการสมัครใช้งาน เพิ่ม --watch เพื่อรีเฟรชทุก 30 วินาที หรือ --json สำหรับสคริปต์",
+      "usageMachines": "cmux coderouter machines แสดงการใช้โทเค็นย้อนหลัง 30 วันและมูลค่าเทียบเท่าราคา API ของแต่ละเครื่อง Cloud ภายในเครื่อง cmux coderouter usage แจกแจงการใช้งานของเครื่องนั้นตามวัน workspace เอเจนต์ และโมเดล",
+      "usageEstimate": "มูลค่าเทียบเท่าราคา API เป็นค่าประมาณจากราคาตามรายการสาธารณะ ไม่ใช่ใบเรียกเก็บเงิน",
+      "privacyTitle": "ข้อมูลรับรองและความเป็นส่วนตัว",
+      "privStored": "ข้อมูลรับรองของผู้ให้บริการถูกเข้ารหัสก่อนจัดเก็บ ไม่มี API หรือมุมมองใดในแดชบอร์ดของ CodeRouter ที่ส่งคืนข้อมูลรับรองที่จัดเก็บไว้ บัญชีแสดงเพียงป้ายชื่อ อีเมล หรือคีย์ที่ปิดบังไว้",
+      "privArgv": "cr add และ cmux coderouter claude add ไม่รับข้อมูลรับรองของผู้ให้บริการเป็นอาร์กิวเมนต์ของคำสั่ง เพราะจะไปอยู่ในประวัติของ shell แต่จะอ่านจากตัวแปรสภาพแวดล้อม อินพุตมาตรฐาน หรือพรอมต์ที่ซ่อนข้อความ",
+      "privLocal": "cr add codex และ cr add opencode ลงชื่อเข้าใช้กับผู้ให้บริการในเบราว์เซอร์ของคุณ cr codex ส่งการตั้งค่า CodeRouter ให้ Codex เฉพาะการรันครั้งนั้น และไม่เปลี่ยนการลงชื่อเข้าใช้และการกำหนดค่า Codex ตามปกติของคุณ",
+      "privCloud": "เครื่อง Cloud ไม่เก็บข้อมูลรับรองใดๆ เอเจนต์บนเครื่องส่งคีย์ตัวยึดตำแหน่งสาธารณะไปยังที่อยู่ CodeRouter แบบส่วนตัว และ network edge ของเครื่องจะเพิ่มข้อมูลรับรองที่ลงนามแล้วซึ่งผูกกับเครื่องนั้น CodeRouter ปฏิเสธข้อมูลรับรองนั้นหากมาจากเครื่องอื่น และเพิกถอนเมื่อเครื่องถูกลบ",
+      "privRequestId": "ทุกการตอบกลับของ CodeRouter มีเฮดเดอร์ x-coderouter-request-id ที่ระบุคำขอนั้น",
+      "nextTitle": "ขั้นตอนถัดไป",
+      "nextAgents": "เอเจนต์และโมเดล: ตั้งค่าเอเจนต์แต่ละตัวบน Mac และบนเครื่อง Cloud",
+      "nextCli": "CLI และการแก้ปัญหา: คำสั่งทั้งหมดและข้อผิดพลาดที่พบบ่อย",
+      "nextCloud": "cmux Cloud"
+    },
+    "coderouterAgents": {
+      "title": "เอเจนต์และโมเดลของ CodeRouter",
+      "metaTitle": "เอเจนต์และโมเดลของ CodeRouter",
+      "metaDescription": "รัน Claude Code, Codex, OpenCode และ Pi ผ่าน CodeRouter บน Mac และบนเครื่อง cmux Cloud และเลือกโมเดลที่เอเจนต์แต่ละตัวใช้",
+      "intro": "หน้านี้แสดงวิธีที่เอเจนต์แต่ละตัวเข้าถึง CodeRouter บน Mac ของคุณและบนเครื่อง cmux Cloud และวิธีที่เอเจนต์แต่ละตัวเลือกโมเดล",
+      "agentColumn": "เอเจนต์",
+      "macColumn": "บน Mac ของคุณ",
+      "cloudColumn": "บนเครื่อง Cloud",
+      "automatic": "อัตโนมัติ",
+      "experimental": "(ทดลอง)",
+      "claudeMacCell": "API key ของ CodeRouter",
+      "macTitle": "บน Mac ของคุณ",
+      "macDesc": "cr เริ่มเอเจนต์ที่คุณติดตั้งไว้แล้ว และชี้เอเจนต์ไปที่ CodeRouter สำหรับการรันครั้งนั้น เอเจนต์ต้องอยู่ใน PATH ของคุณ ทุกอย่างหลังชื่อเอเจนต์จะส่งต่อโดยไม่เปลี่ยนแปลง",
+      "codexDesc": "cr codex รัน Codex พร้อมผู้ให้บริการโมเดล CodeRouter คำสั่งย่อยอย่าง exec, review และ resume ทำงานแบบเดียวกัน cr naked รัน Codex แบบปกติโดยข้าม CodeRouter",
+      "opencodeDesc": "cr opencode โหลดโมเดลจากบัญชี OpenCode Go ของทีมคุณ และใช้โมเดลแรกเว้นแต่คุณจะส่ง --model ค่า --model ต้องเป็นหนึ่งในโมเดลเหล่านั้น สำหรับผู้ให้บริการอื่น ให้รัน opencode แบบปกติ",
+      "piDesc": "cr pi เพิ่มผู้ให้บริการ coderouter ให้ Pi ด้วยโมเดลชุดเดียวกับ Codex และใช้โมเดลแรกเว้นแต่คุณจะส่ง --model ผู้ให้บริการถูกกำหนดตายตัว จึงปฏิเสธ --provider การรองรับ Pi ยังเป็นแบบทดลอง",
+      "claudeTitle": "Claude Code และไคลเอนต์ API อื่นๆ",
+      "claudeDesc": "cr ไม่มีตัวเปิด Claude Code หากต้องการกำหนดเส้นทาง Claude Code บน Mac ของคุณ หรือเครื่องมือใดก็ตามที่ใช้ Anthropic Messages API หรือ OpenAI Responses API ให้สร้าง API key ของ CodeRouter แล้วชี้เครื่องมือไปที่ coderouter.dev",
+      "apiKeyCreate": "สร้างคีย์ในส่วน API key ของแดชบอร์ด CodeRouter คีย์ขึ้นต้นด้วย crk_ และแสดงเพียงครั้งเดียว การสร้างหรือเพิกถอนคีย์ต้องมีสิทธิ์จัดการ API key ในทีมนั้น ซึ่งคุณมีเสมอในทีมส่วนตัวของคุณ:",
+      "apiKeyScope": "API key ขององค์กรใช้เฉพาะบัญชีที่แชร์ของทีม คีย์ในทีมส่วนตัวของคุณใช้บัญชีส่วนตัวของคุณได้ด้วย CodeRouter ให้บริการ OpenAI Responses API ไม่ใช่ Chat Completions",
+      "apiKeyLogin": "บนเครื่องที่เปิดเบราว์เซอร์ไม่ได้ cr login --api-key จะลงชื่อเข้าใช้ cr ด้วยคีย์ และ CODEROUTER_API_KEY ให้คีย์สำหรับคำสั่งเดียว เพิกถอนคีย์ได้ในแดชบอร์ด หรือรัน cr logout บนเครื่องที่ใช้คีย์นั้น",
+      "cloudTitle": "บนเครื่อง cmux Cloud",
+      "cloudDesc": "เครื่อง Cloud ไม่ต้องตั้งค่า สภาพแวดล้อมของเครื่องชี้ OPENAI_BASE_URL และ ANTHROPIC_BASE_URL ไปที่ที่อยู่ CodeRouter แบบส่วนตัว และ cmux เขียนการกำหนดค่าของเอเจนต์แต่ละตัวในครั้งแรกที่ shell หรือเอเจนต์เริ่มทำงาน:",
+      "cloudClaude": "Claude Code อ่าน ANTHROPIC_BASE_URL และ ANTHROPIC_API_KEY ตัวยึดตำแหน่งจากสภาพแวดล้อม พรอมต์ของการรันครั้งแรกถูกตอบไว้แล้ว",
+      "cloudCodex": "Codex ได้รับผู้ให้บริการโมเดล cmux ใน ~/.codex/config.toml",
+      "cloudPi": "Pi ได้รับการแทนที่ผู้ให้บริการใน ~/.pi/agent/models.json",
+      "cloudOpencode": "OpenCode ดาวน์โหลดรายการผู้ให้บริการจาก CodeRouter ในครั้งแรกที่เริ่มทำงาน และบันทึกไว้ที่ ~/.config/opencode/opencode.json",
+      "cloudYours": "cmux เขียนแต่ละไฟล์เฉพาะเมื่อไฟล์นั้นยังไม่มี การแก้ไขของคุณจึงยังอยู่ การกำหนดค่า Codex ที่ระบุผู้ให้บริการโมเดลอื่นไว้แล้วจะไม่ถูกแตะต้อง",
+      "cloudRun": "รันเอเจนต์ตามปกติ cmux coderouter agent แปลงพรอมต์เปล่าให้เป็นรูปแบบรันครั้งเดียวของเอเจนต์ ภายในเครื่องจะรันในเทอร์มินัลปัจจุบัน และบน Mac ของคุณจะเริ่มเอเจนต์บนเครื่องที่คุณระบุ เหมือน cmux vm agent",
+      "cloudAccounts": "เครื่อง Cloud ใช้บัญชีของทีมที่เป็นเจ้าของเครื่อง หากเอเจนต์รายงานว่าไม่มีบัญชีที่ใช้ได้ ให้เพิ่มบัญชี หรือแชร์บัญชีที่มีอยู่กับทีมนั้น",
+      "modelsTitle": "โมเดล",
+      "modelsCodex": "Codex และ Pi ใช้แค็ตตาล็อกโมเดลของบัญชีที่ CodeRouter เลือก ซึ่งให้บริการที่ /v1/models ตัวเลือกโมเดลของ Codex จึงแสดงสิ่งที่บัญชีของคุณใช้ได้ เลือกโมเดลด้วยแฟล็ก -m ของ Codex หรือคำสั่ง /model สำหรับคีย์ OpenRouter นั้น CodeRouter จะส่ง ID โมเดล OpenAI แบบเปล่าเป็น openai/'<model>'",
+      "modelsOpencode": "OpenCode แสดงรายการโมเดลของบัญชี OpenCode Go ของทีม",
+      "modelsClaude": "Claude Code ส่งโมเดลที่คุณเลือกด้วย --model หรือ /model และ CodeRouter ส่งต่อไปยังบัญชีที่เลือก บัญชีแบบการสมัครใช้งานและแบบ API key ให้บริการโมเดลที่ Anthropic อนุญาตสำหรับบัญชีนั้น",
+      "modelsBedrock": "บัญชี Bedrock แปลง ID โมเดล Claude เป็น ID โมเดล Bedrock ด้วยตารางในตัว และ ID ของ Bedrock ส่งผ่านโดยไม่เปลี่ยนแปลง โมเดลที่ไม่มีการแมปจะส่งคืน not_found_error หากต้องการแมปโมเดลอื่น ให้เพิ่มบัญชีด้วย --model:",
+      "modelsList": "ภายในเครื่อง Cloud คำสั่ง cmux coderouter models พิมพ์แค็ตตาล็อกโมเดลของ Codex เป็น JSON"
+    },
+    "coderouterCli": {
+      "title": "CLI และการแก้ปัญหาของ CodeRouter",
+      "metaTitle": "CLI และการแก้ปัญหาของ CodeRouter",
+      "metaDescription": "คำสั่งของ cr CLI และ cmux coderouter สิ่งที่ใช้ได้ภายในเครื่อง cmux Cloud และวิธีแก้ข้อผิดพลาดของ CodeRouter ที่พบบ่อย",
+      "intro": "CodeRouter มีคำสั่งสองชุด cr ซึ่งติดตั้งเป็น coderouter ด้วย ใช้ลงชื่อเข้าใช้ จัดการการสมัครใช้งาน และเปิดเอเจนต์ cmux coderouter จัดการบัญชี Claude ของทีมและการใช้งานเครื่อง Cloud ผ่านแอป cmux ที่ลงชื่อเข้าใช้แล้ว และส่ง verb อื่นทั้งหมดต่อให้ cr",
+      "installTitle": "ติดตั้งและลงชื่อเข้าใช้",
+      "installDesc": "ตัวติดตั้งดาวน์โหลดไบนารีที่ตรวจสอบ checksum แล้วไปที่ ~/.coderouter/bin ลิงก์ cr ไปยังไบนารีนั้น และเพิ่มไดเรกทอรีนั้นใน PATH ของ shell รันอีกครั้งเพื่ออัปเดต รองรับ macOS และ Linux บน arm64 และ x64 CLI ตัวเดียวกันเผยแพร่บน npm และ PyPI",
+      "loginDesc": "cr login เปิดเบราว์เซอร์และพิมพ์ลิงก์สำรอง หากไม่มีเบราว์เซอร์ในเครื่อง ให้ใช้ --device-auth แล้วเปิดลิงก์บนอุปกรณ์อื่น หรือใช้ cr login --code เพื่อวางรหัสหรือ magic link",
+      "crTitle": "cr",
+      "crDesc": "เมื่อไม่ระบุคำสั่ง cr จะแสดงบัญชีของคุณและการใช้งาน การกำหนดเส้นทางเอเจนต์ต้องระบุชัดเจนเสมอ codex, opencode และ pi แบบปกติยังทำงานได้โดยไม่ต้องใช้ CodeRouter",
+      "crAddCodex": "workspace ของ ChatGPT แบบส่วนตัวและแบบทีมใช้อีเมลเดียวกันได้ รัน cr add codex หนึ่งครั้งต่อหนึ่ง workspace แล้วเลือก workspace ในเบราว์เซอร์ CodeRouter จะเก็บไว้เป็นบัญชีแยกกัน",
+      "cmuxTitle": "cmux coderouter",
+      "cmuxDesc": "verb เหล่านี้ทำงานผ่านแอป cmux ซึ่งต้องเปิดอยู่และลงชื่อเข้าใช้แล้ว (cmux auth login) เพิ่ม --json เพื่อรับผลลัพธ์ที่เครื่องอ่านได้ และ --team '<id>' เพื่อระบุทีมอื่นที่ไม่ใช่ทีมที่เลือกอยู่",
+      "claudeAddDesc": "claude add oauth-token อ่าน CLAUDE_CODE_OAUTH_TOKEN หรือ --stdin ในเทอร์มินัลที่ไม่มีทั้งสองอย่าง จะรัน claude setup-token แล้วอ่านโทเค็นที่คำสั่งนั้นพิมพ์ออกมา claude add api-key อ่าน ANTHROPIC_API_KEY, --stdin หรือพรอมต์ที่ซ่อนข้อความ claude add bedrock อ่าน AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY และ AWS_SESSION_TOKEN (ไม่บังคับ) และใช้ภูมิภาคจาก --region, AWS_REGION หรือ AWS_DEFAULT_REGION",
+      "accountSelector": "'<account>' เป็น ID ป้ายชื่อ หรือตัวระบุที่ปิดบังไว้ของบัญชีก็ได้ disable นำบัญชีออกจากการหมุนเวียนจนกว่าคุณจะเปิดใช้งานอีกครั้ง",
+      "passthroughDesc": "verb อื่นทั้งหมดของ cmux coderouter และทุกคำสั่ง cmux cr จะรัน cr โดยไม่เปลี่ยนแปลง เมื่อไม่มี cr ติดตั้งอยู่ cmux จะเสนอให้รันตัวติดตั้ง cmux ไม่ส่งตัวแปรสภาพแวดล้อมหรือการลงชื่อเข้าใช้ของตัวเองให้ cr",
+      "guestTitle": "ภายในเครื่อง Cloud",
+      "guestDesc": "เครื่อง Cloud แต่ละเครื่องมี cmux ของตัวเองพร้อม verb ของ CodeRouter ที่ไม่ต้องลงชื่อเข้าใช้ การจัดการบัญชียังอยู่บน Mac ของคุณ จึงปฏิเสธ claude, login และ logout ภายในเครื่อง",
+      "troubleTitle": "การแก้ปัญหา",
+      "troubleDesc": "ข้อความในคอลัมน์แรกคือสิ่งที่เอเจนต์ cr หรือ cmux พิมพ์ออกมา",
+      "symptomColumn": "ข้อความหรือปัญหา",
+      "fixColumn": "วิธีแก้",
+      "errSignIn": "Sign in with `cr login` and retry. (นอกจากนี้: Missing coderouter route token.)",
+      "fixSignIn": "รัน cr login สำหรับไคลเอนต์ API ให้ตรวจสอบว่าตั้งค่าคีย์แล้วและขึ้นต้นด้วย crk_",
+      "errExpired": "Your coderouter session expired or was revoked.",
+      "fixExpired": "รัน cr login อีกครั้ง API key ที่ถูกเพิกถอนจะหยุดทำงานทันที ให้สร้างคีย์ใหม่",
+      "errNoCodex": "No healthy Codex subscription is currently available.",
+      "fixNoCodex": "รัน cr เพื่อดูสถานะของแต่ละบัญชี เพิ่มบัญชีด้วย cr add หรือรอให้ช่วงพักการใช้งานสิ้นสุด สำหรับเครื่อง Cloud ขององค์กร ให้แชร์บัญชีกับทีม",
+      "errNoClaude": "No Claude upstream account is configured for this team.",
+      "fixNoClaude": "เพิ่มบัญชีด้วย cr add claude หรือ cmux coderouter claude add สำหรับเครื่อง Cloud ขององค์กร ให้แชร์บัญชีนั้นกับทีม",
+      "errClaudeCooling": "Every Claude upstream account of this team is cooling down or disabled.",
+      "fixClaudeCooling": "ลองอีกครั้งหลังช่วงพักการใช้งาน เปิดใช้งานบัญชีที่ปิดอยู่ด้วย cmux coderouter claude enable หรือเพิ่มบัญชีอื่น",
+      "errBedrockModel": "not_found_error จากบัญชี Bedrock",
+      "fixBedrockModel": "โมเดลไม่มีการแมปของ Bedrock ให้ลบบัญชีแล้วเพิ่มใหม่ด้วย --model '<claude-id>=<bedrock-id>'",
+      "errBedrockRegion": "The team's Bedrock account is missing a region.",
+      "fixBedrockRegion": "ลบบัญชีแล้วเพิ่มใหม่ด้วย --region หรือโดยตั้งค่า AWS_REGION ไว้",
+      "errNotInstalled": "CodeRouter CLI is not installed.",
+      "fixNotInstalled": "รันตัวติดตั้ง หรือตอบ y เมื่อ cmux cr เสนอให้ติดตั้ง",
+      "errAgentMissing": "Codex is not installed or is not on PATH (หรือ OpenCode หรือ Pi).",
+      "fixAgentMissing": "ติดตั้งเอเจนต์ cr จะเปิดสำเนาที่พบใน PATH ของคุณ",
+      "errCodexLoop": "`codex` resolves back to coderouter.",
+      "fixCodexLoop": "คำสั่ง codex ของคุณชี้ไปที่ cr ให้วางไฟล์ปฏิบัติการ Codex จริงไว้ลำดับแรกใน PATH",
+      "errOpencodeModel": "`'<model>'` is not a coderouter OpenCode model.",
+      "fixOpencodeModel": "เลือกโมเดลจากบัญชี OpenCode Go ของคุณ หรือรัน opencode แบบปกติสำหรับผู้ให้บริการอื่น",
+      "errOpencodeMachine": "cmux: OpenCode provider configuration is unavailable; retry in one minute.",
+      "fixOpencodeMachine": "เครื่องดาวน์โหลดรายการผู้ให้บริการของ OpenCode ไม่ได้ รอหนึ่งนาทีแล้วเริ่ม OpenCode อีกครั้ง",
+      "errEdge": "CodeRouter: TLS edge unreachable หรือ route rejected ใน cmux auth status ภายในเครื่อง",
+      "fixEdge": "เครื่องเข้าถึง CodeRouter ไม่ได้ หรือ CodeRouter ปฏิเสธข้อมูลรับรองของเครื่อง ลองอีกครั้งในอีกสักครู่ หากยังเกิดขึ้นอยู่ ให้ติดต่อฝ่ายสนับสนุนพร้อมชื่อเครื่องและเอาต์พุตของ cmux auth status --json",
+      "errUnavailable": "coderouter is temporarily unavailable. Retry shortly.",
+      "fixUnavailable": "CodeRouter หรือที่เก็บบัญชีใช้งานไม่ได้ชั่วครู่ ลองอีกครั้ง หากข้อผิดพลาดยังอยู่ ให้รายงานพร้อม ID ของคำขอ",
+      "diagnoseTitle": "วินิจฉัย",
+      "diagnoseDesc": "cr doctor พิมพ์ว่า cr ลงชื่อเข้าใช้แล้วหรือไม่ และใช้ endpoint ใดของ CodeRouter cmux coderouter status แสดงการลงชื่อเข้าใช้ cmux ทีมที่เลือก และบัญชี Claude ของทีมนั้น",
+      "supportTitle": "ขอความช่วยเหลือ",
+      "supportDesc": "เมื่อรายงานคำขอที่ล้มเหลว ให้แนบค่าของเฮดเดอร์การตอบกลับ x-coderouter-request-id ค่านี้ระบุคำขอนั้นในบันทึกของ CodeRouter"
     }
   },
   "legal": {
@@ -4328,7 +4514,7 @@
         "description": "รายงานบั๊กและส่งคำขอฟีเจอร์แบบเปิดเผย"
       },
       "email": {
-        "label": "founders@manaflow.com",
+        "label": "founders@cmux.com",
         "description": "ถนัดอีเมลมากกว่า? เขียนถึงเราได้โดยตรง"
       }
     },
@@ -4350,8 +4536,8 @@
       "privacy": "เราใช้อีเมลของคุณเพื่อตอบกลับคำขอรับการสนับสนุนเท่านั้น เราไม่ขายข้อมูลติดต่อ",
       "submit": "ส่งข้อความ",
       "submitting": "กำลังส่ง…",
-      "success": "ขอบคุณ เราได้รับข้อความของคุณแล้ว และจะตอบกลับทางอีเมลจาก founders@manaflow.com",
-      "error": "เกิดข้อผิดพลาดบางอย่าง กรุณาลองอีกครั้งหรือส่งอีเมลไปที่ founders@manaflow.com"
+      "success": "ขอบคุณ เราได้รับข้อความของคุณแล้ว และจะตอบกลับทางอีเมลจาก founders@cmux.com",
+      "error": "เกิดข้อผิดพลาดบางอย่าง กรุณาลองอีกครั้งหรือส่งอีเมลไปที่ founders@cmux.com"
     }
   },
   "emails": {
@@ -4390,7 +4576,10 @@
     "emailUnavailable": "ไม่พบอีเมล",
     "organization": "องค์กร",
     "personalAccount": "บัญชีส่วนตัว",
-    "switchAccountButton": "ใช้บัญชีอื่น"
+    "switchAccountButton": "ใช้บัญชีอื่น",
+    "signedOutTitle": "ลงชื่อเข้าใช้เพื่ออนุญาต coderouter",
+    "signedOutBody": "แอปพลิเคชันบรรทัดคำสั่งกำลังรอให้คุณลงชื่อเข้าใช้ ลงชื่อเข้าใช้ด้วยบัญชี cmux ของคุณเพื่อเชื่อมต่อเทอร์มินัลนี้ให้เสร็จ หากคุณไม่ได้เริ่มคำขอนี้ ให้ปิดหน้านี้",
+    "signInButton": "ลงชื่อเข้าใช้"
   },
   "MobileRelease106": {
     "title": "มีอะไรใหม่ใน 1.0.6",

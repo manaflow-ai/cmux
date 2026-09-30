@@ -3571,13 +3571,14 @@ FAST_LINUX_GATE = ROOT / "scripts" / "ci" / "fast_linux_gate.py"
 def test_compile_admission_holds_every_product_consumer_behind_the_gate() -> None:
     admission = workflow_job_block("macos-compile-admission", MACOS_WORKFLOW)
     step = workflow_step_block_in(MACOS_WORKFLOW, "macos-compile-admission", CONSUMER_GATE_STEP)
-    # It reads the job the caller names, once: no loop and no sleep.
+    # It reads the job the caller names without polling or sleeping. Pagination
+    # over the bounded Actions response is allowed so late jobs cannot be missed.
     assert 'GATE_JOB: "macOS admission gate"' in step
     assert "name: macOS admission gate" in workflow_job_block("macos-admission-gate")
     assert "python3 scripts/ci/fast_linux_gate.py consumers" in step
     script = FAST_LINUX_GATE.read_text(encoding="utf-8")
-    for polling in ("sleep", "while ", "for attempt", "range("):
-        assert polling not in script
+    assert "sleep" + "(" not in script
+    assert "time." not in script
     # The gate only judges a pull request's first attempt; a re-run is asking
     # for the Mac results.
     assert "github.event_name == 'pull_request' && github.run_attempt == 1" in step
@@ -3642,11 +3643,19 @@ def workflow_step_block_in(workflow_path: Path, job_name: str, step_name: str) -
     return "\n".join(body)
 
 
-def run_consumer_gate(jobs: object, *, status: int = 200, step_name: str = CONSUMER_GATE_STEP) -> subprocess.CompletedProcess:
+def run_consumer_gate(
+    jobs: object,
+    *,
+    status: int = 200,
+    step_name: str = CONSUMER_GATE_STEP,
+    next_page: object | None = None,
+) -> subprocess.CompletedProcess:
     import http.server
     import threading
 
-    body = json.dumps(jobs).encode()
+    bodies = [json.dumps(jobs).encode()]
+    if next_page is not None:
+        bodies.append(json.dumps(next_page).encode())
     requests: list[str] = []
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -3654,8 +3663,13 @@ def run_consumer_gate(jobs: object, *, status: int = 200, step_name: str = CONSU
             requests.append(self.path)
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
+            if next_page is not None and len(requests) == 1:
+                self.send_header(
+                    "Link",
+                    f'<http://127.0.0.1:{server.server_port}/repos/manaflow-ai/cmux/actions/runs/42/jobs?filter=latest&per_page=100&page=2>; rel="next"',
+                )
             self.end_headers()
-            self.wfile.write(body)
+            self.wfile.write(bodies[min(len(requests) - 1, len(bodies) - 1)])
 
         def log_message(self, *args: object) -> None:
             pass
@@ -3684,7 +3698,10 @@ def run_consumer_gate(jobs: object, *, status: int = 200, step_name: str = CONSU
     finally:
         server.shutdown()
         server.server_close()
-    assert requests == ["/repos/manaflow-ai/cmux/actions/runs/42/jobs?filter=latest&per_page=100"]
+    expected = ["/repos/manaflow-ai/cmux/actions/runs/42/jobs?filter=latest&per_page=100"]
+    if next_page is not None:
+        expected.append("/repos/manaflow-ai/cmux/actions/runs/42/jobs?filter=latest&per_page=100&page=2")
+    assert requests == expected
     return result
 
 
@@ -3697,6 +3714,15 @@ def _gate_job(status: str, conclusion: object) -> dict:
 
 def test_consumer_gate_fails_admission_when_the_gate_declined() -> None:
     result = run_consumer_gate(_gate_job("completed", "failure"))
+    assert result.returncode == 1
+    assert "Not admitting macOS consumers" in result.stdout
+
+
+def test_consumer_gate_follows_pagination_before_admitting() -> None:
+    result = run_consumer_gate(
+        {"jobs": [{"name": "changes", "status": "completed", "conclusion": "success"}]},
+        next_page={"jobs": [{"name": "macOS admission gate", "status": "completed", "conclusion": "failure"}]},
+    )
     assert result.returncode == 1
     assert "Not admitting macOS consumers" in result.stdout
 
@@ -4449,6 +4475,75 @@ def test_a_cmux_ui_tests_diff_runs_its_classes_without_a_label() -> None:
         # The full suite never runs cmuxUITests/, so full-ci does not close that gap.
         assert coverage_gap("pull_request", True, ui_diff, []) is True
         assert coverage_gap("pull_request", True, ui_diff, [], ui_suite=True) is False
+
+
+def test_a_diff_the_fuzz_repros_exercise_asks_for_their_replays() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import changed_ui_selectors, fuzz_regression_selectors
+    from ui_tests_dispatch import FUZZ_REGRESSIONS_SELECTOR
+
+    assert fuzz_regression_selectors(["Sources/Sidebar/SidebarState.swift"]) == [FUZZ_REGRESSIONS_SELECTOR]
+    assert fuzz_regression_selectors(["dogfood/fuzz/regressions/x.json", "README.md"]) == [FUZZ_REGRESSIONS_SELECTOR]
+    assert fuzz_regression_selectors(["Sources/Workspace.swift", "README.md"]) == []
+    assert fuzz_regression_selectors(None) == []
+
+    script = ROOT / "scripts/ci/choose_ci_suite.py"
+    with tempfile.TemporaryDirectory() as directory:
+        changed = Path(directory) / "changed.txt"
+        event = Path(directory) / "event.json"
+
+        def outputs(files: str, head: str = "manaflow-ai/cmux", labels: tuple[str, ...] = ()) -> dict[str, str]:
+            changed.write_text(files)
+            event.write_text(json.dumps({
+                "repository": {"full_name": "manaflow-ai/cmux"},
+                "pull_request": {"head": {"repo": {"full_name": head}},
+                                 "labels": [{"name": label} for label in labels]},
+            }))
+            run = subprocess.run(
+                [sys.executable, str(script), "--event-name", "pull_request",
+                 "--pull-request-policy", "compile-only", "--event-path", str(event),
+                 "--files-from", str(changed), "--root", str(ROOT)],
+                capture_output=True, text=True, check=True,
+            )
+            return dict(line.split("=", 1) for line in run.stdout.splitlines() if "=" in line)
+
+        values = outputs("Sources/Sidebar/SidebarState.swift\n")
+        assert values["ui_selectors"] == FUZZ_REGRESSIONS_SELECTOR
+        assert values["coverage_gap"] == "false"
+        assert outputs("Sources/Workspace.swift\n")["ui_selectors"] == ""
+        # A fork's ui-tests job refuses to run anything, and no-full-ci opts out.
+        assert outputs("Sources/Sidebar/SidebarState.swift\n", head="someone/cmux")["ui_selectors"] == ""
+        assert outputs("Sources/Sidebar/SidebarState.swift\n", labels=("no-full-ci",))["ui_selectors"] == ""
+        # Next to a changed class, after it; a helper change stays a gap the replays do not close.
+        classes = changed_ui_selectors(ROOT, ["cmuxUITests/BonsplitTabDragUITests.swift"])
+        assert classes
+        values = outputs("cmuxUITests/BonsplitTabDragUITests.swift\nvendor/bonsplit\n")
+        assert values["ui_selectors"] == " ".join([*classes, FUZZ_REGRESSIONS_SELECTOR])
+        assert values["coverage_gap"] == "false"
+        helper = next(path.relative_to(ROOT).as_posix() for path in sorted((ROOT / "cmuxUITests").rglob("*"))
+                      if path.is_file() and changed_ui_selectors(ROOT, [path.relative_to(ROOT).as_posix()]) is None)
+        values = outputs(f"{helper}\nSources/Sidebar/SidebarState.swift\n")
+        assert values["ui_selectors"] == FUZZ_REGRESSIONS_SELECTOR
+        assert values["coverage_gap"] == "true"
+
+    # Classes that fill one focused run keep it: the replay gives way, and no gap opens.
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        (root / "cmuxUITests").mkdir()
+        names = [f"SidebarWorkspaceReorderRows{index}UITests" for index in range(6)]  # 287 characters; 315 with the replay
+        (root / "cmuxUITests/Many.swift").write_text("".join(f"class {name}: XCTestCase {{}}\n" for name in names))
+        changed = root / "changed.txt"
+        changed.write_text("cmuxUITests/Many.swift\nSources/Sidebar/SidebarState.swift\n")
+        event = root / "event.json"
+        event.write_text(json.dumps({"repository": {"full_name": "manaflow-ai/cmux"},
+                                     "pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}, "labels": []}}))
+        run = subprocess.run(
+            [sys.executable, str(script), "--event-name", "pull_request", "--pull-request-policy", "compile-only",
+             "--event-path", str(event), "--files-from", str(changed), "--root", str(root)],
+            capture_output=True, text=True, check=True)
+        values = dict(line.split("=", 1) for line in run.stdout.splitlines() if "=" in line)
+        assert values["ui_selectors"] == " ".join(f"cmuxUITests/{name}" for name in names)
+        assert values["coverage_gap"] == "false"
 
 
 def test_a_diff_that_edits_a_few_suites_runs_only_those_suites() -> None:
