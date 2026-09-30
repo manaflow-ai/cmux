@@ -12,7 +12,7 @@ macOS 26 pools:
 
     order     vars.CI_PR_POOL_ORDER without its macOS 15 pool; by default
                 blacksmith-12vcpu-macos-26, then blacksmith-6vcpu-macos-26
-    headroom  a machine free (pr_runner_pool.POOL_CAPACITIES), or at most
+    headroom  a machine free on that label's Blacksmith plan capacity, or at most
               vars.CI_PR_POOL_MAX_QUEUED jobs queued (default 0), and no
               queued release or nightly job on the pool
 

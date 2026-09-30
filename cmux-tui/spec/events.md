@@ -60,6 +60,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `client-changed` | subscribe | `client` | protocol 6 |
 | `client-detached` | subscribe | `client` | protocol 6 |
 | `client-list-invalidated` | subscribe | session | protocol 9 reserved serializer; core currently emits no instance |
+| `size-state` | subscribe, byte/render attach | `surface` | protocol 12 additive; client capability `shared-sizing-v1` |
 | `terminal-registry-changed` | subscribe | terminal registry | protocol 9 |
 | `pairing-requested` | trusted Unix subscribe | `request` | protocol 7 |
 | `pairing-resolved` | trusted Unix subscribe | `request` | protocol 7 |
@@ -75,7 +76,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `browser-state` | browser attach | `surface` | protocol 6 |
 | `frame` | browser attach | `surface` | protocol 6 |
 | `scroll-changed` | subscribe and all attach modes | `surface` | protocol 6 |
-| `detached` | byte/render/browser attach | `surface` | protocol 5 |
+| `detached` | byte/render/browser attach | `surface` | protocol 5; `reason`, `by`, `view` additive with `shared-sizing-v1` |
 
 ## Ordering Guarantees
 
@@ -891,6 +892,7 @@ Meaning: One coalesced render frame. The cursor is always present; `rows` contai
 | since | protocol 5 |
 | `colors` field | protocol 6 additive extension |
 | Kitty replay sidecars | protocol 9 aliases; protocol 10 graphics state |
+| `pending` field | additive, `terminal-pending-sequence-v1` |
 
 Payload:
 
@@ -923,7 +925,8 @@ object{
     palette?:object{[index:string]:ColorHex},
     cursor_style:"block"|"underline"|"bar"|null,
     cursor_blink:boolean|null
-  }
+  },
+  pending?:Base64
 }
 ```
 
@@ -943,6 +946,19 @@ It is emitted only for byte attachments whose connection advertised
 choice is captured for that attachment's lifetime. Other clients retain the
 previous exact color-object shape, including clients with strict SDK decoders.
 Older servers safely ignore the unknown client capability and omit the object.
+
+The server takes the replay at any byte of the PTY stream, so its parser may
+be inside an escape sequence, control string, Kitty command, or UTF-8 code
+point. For an attachment whose connection advertised
+`terminal-pending-sequence-v1` through `set-client-info` before attaching,
+`data` ends at a parser boundary and `pending` carries those incomplete bytes;
+it is omitted when there are none. Write `pending` after `data`, the Kitty
+sidecars, and any color sequences the client applies, immediately before the
+next `output`, which completes the sequence. Other attachments receive the
+same bytes appended to `data`, which suits clients that write nothing between
+the replay and the live stream. The one exception is a control string longer
+than 1 MiB that is not a direct Kitty upload: a replay taken inside it omits the
+string, and a resize there drops byte attachments so they reattach.
 
 Example:
 
@@ -983,10 +999,10 @@ Example:
 Payload:
 
 ```text
-object{event:"resized",surface:Id,cols:uint16,rows:uint16,replay?:Base64,data?:Base64,kitty_image_aliases?:array<KittyImageAlias>,kitty_graphics_state?:KittyGraphicsState,colors?:TerminalColors}
+object{event:"resized",surface:Id,cols:uint16,rows:uint16,replay?:Base64,data?:Base64,kitty_image_aliases?:array<KittyImageAlias>,kitty_graphics_state?:KittyGraphicsState,colors?:TerminalColors,pending?:Base64}
 ```
 
-Meaning: Protocol v6 attach-only event indicating that the authoritative surface size changed and the existing mirror must be replaced from the supplied replay. Protocol v7 sends the replay in `replay` and adds the fresh `colors` snapshot, including sparse palette overrides; protocol-v6 compatibility payloads use `data` and omit `colors`. Protocol v9 and v10 clients apply the Kitty sidecars with the same ordering as `vt-state`. Clients must accept either replay field, create a fresh terminal mirror at `cols` by `rows`, apply the replay and sidecars, restore the supplied colors when present, then continue applying later `output` chunks.
+Meaning: Protocol v6 attach-only event indicating that the authoritative surface size changed and the existing mirror must be replaced from the supplied replay. Protocol v7 sends the replay in `replay` and adds the fresh `colors` snapshot, including sparse palette overrides; protocol-v6 compatibility payloads use `data` and omit `colors`. Protocol v9 and v10 clients apply the Kitty sidecars with the same ordering as `vt-state`. Clients must accept either replay field, create a fresh terminal mirror at `cols` by `rows`, apply the replay and sidecars, restore the supplied colors when present, write `pending` when present (with the same capability and meaning as on `vt-state`), then continue applying later `output` chunks.
 
 Example:
 
@@ -1079,15 +1095,58 @@ Payload: `object{event:"frame",surface:Id,seq:uint64,width:uint32,height:uint32,
 Payload:
 
 ```text
-object{event:"detached",surface:Id}
+object{event:"detached",surface:Id,reason?:"network"|"disconnected-by"|"host-shutdown",by?:object{user_id?,display_name?,device_name?},view?:string}
 ```
 
-Meaning: The attach stream ended because the surface disappeared or its output tap stopped.
+Meaning: The attach stream ended because the surface disappeared, its output
+tap stopped, or its connection was detached. A server-initiated connection
+detach carries `reason`: `disconnected-by` after `detach-client` (with `by`,
+the actor), `host-shutdown` after `shutdown-daemon`, and `network` otherwise.
+A client treats an absent or unknown reason as `network` and reconnects; it
+must not reconnect automatically after `disconnected-by`. `view` is present
+only when a relay sub-view was detached; the relay keeps its own attachment
+and forwards the notice to that leaf.
 
 Example:
 
 ```json
 {"event":"detached","surface":1}
+{"event":"detached","surface":1,"reason":"disconnected-by","by":{"display_name":"Maya","device_name":"Mac Studio"}}
+```
+
+### size-state
+
+| Field | Value |
+| --- | --- |
+| event | `size-state` |
+| status | implemented |
+| since | protocol 12 additive; client capability `shared-sizing-v1` |
+
+Payload:
+
+```text
+object{event:"size-state",surface:Id,state:SizeState,self_participant?:string}
+```
+
+`SizeState` is the wire object of
+[`docs/shared-terminal-sizing.md`](../../docs/shared-terminal-sizing.md#size-state-wire-format):
+`generation`, `cols`, `rows`, `reason`, `owners`, `policy`, and
+`participants` (each with `id`, `user_id`, `display_name`, `device_kind`,
+`device_name`, `via`, `viewport`, `counts_override`, `counts`,
+`priority_key`).
+
+Meaning: A terminal's shared sizing state changed. The server emits it to
+every subscriber and on every legacy attach stream of each placement of the
+terminal, only for connections that sent `shared-sizing-v1` through
+`set-client-info`. `self_participant` is the receiving connection's own view
+id when that view participates. `generation` increases by one per change;
+deliveries on different routes may interleave, so ignore a state whose
+generation is not newer than the last one applied.
+
+Example:
+
+```json
+{"event":"size-state","surface":4,"self_participant":"c3","state":{"generation":7,"cols":118,"rows":38,"reason":"latest","owners":["c3"],"policy":{"mode":"latest","priority":[],"fixed":null},"participants":[{"id":"c3","user_id":"u_maya","display_name":"Maya Ortiz","device_kind":"mac","device_name":"Mac Studio","via":null,"viewport":{"cols":118,"rows":38},"counts_override":null,"counts":true,"priority_key":"u_maya/mac"}]}}
 ```
 
 ### agent-changed

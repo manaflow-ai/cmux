@@ -146,6 +146,57 @@ struct SSHConnectionSharingOptionsTests {
         #expect(!merged.contains("ControlMaster=auto"))
     }
 
+    @Test("Route-sensitive options use a private route-specific shared master")
+    func routeSensitiveOptionsUsePrivateRouteSpecificControlPath() {
+        let first = options.mergingDefaults(
+            into: ["ProxyJump=bastion"],
+            routeSensitiveOptions: ["IdentityFile=/Users/alice/.ssh/route-key"],
+            routeIdentifier: "route-a"
+        )
+        let second = options.mergingDefaults(
+            into: ["ProxyJump=bastion"],
+            routeSensitiveOptions: ["IdentityFile=/Users/alice/.ssh/route-key"],
+            routeIdentifier: "route-b"
+        )
+        let firstPath = first.first { $0.hasPrefix("ControlPath=") }
+        let secondPath = second.first { $0.hasPrefix("ControlPath=") }
+
+        #expect(first.contains("ControlMaster=auto"))
+        #expect(first.contains("ControlPersist=600"))
+        #expect(firstPath?.hasPrefix("ControlPath=\(socketDirectory)/") == true)
+        #expect(secondPath?.hasPrefix("ControlPath=\(socketDirectory)/") == true)
+        #expect(firstPath != secondPath)
+        #expect(firstPath?.dropFirst("ControlPath=\(socketDirectory)/".count).count == 40)
+        #expect(options.cmuxOwnedControlPath(in: first) == firstPath.map {
+            String($0.dropFirst("ControlPath=".count))
+        })
+    }
+
+    @Test("Legacy cmux control paths are isolated before route-specific reuse")
+    func legacyControlPathGetsRouteSpecificReplacement() {
+        let merged = options.mergingDefaults(
+            into: ["ProxyJump=bastion", "ControlPath=/tmp/cmux-ssh-501-%C"],
+            routeSensitiveOptions: ["IdentityFile=/Users/alice/.ssh/route-key"],
+            routeIdentifier: "route-a"
+        )
+        let controlPath = merged.first { $0.hasPrefix("ControlPath=") }
+
+        #expect(merged.contains("ControlMaster=auto"))
+        #expect(controlPath?.hasPrefix("ControlPath=\(socketDirectory)/") == true)
+        #expect(!merged.contains("ControlPath=\(socketDirectory)/%C"))
+    }
+
+    @Test("Legacy route-sensitive paths disable sharing without an identity")
+    func legacyRouteSensitivePathWithoutIdentifierIsDisabled() {
+        let merged = options.mergingDefaults(
+            into: ["ProxyJump=bastion", "ControlPath=/tmp/cmux-ssh-501-%C"],
+            routeSensitiveOptions: ["IdentityFile=/Users/alice/.ssh/route-key"]
+        )
+        #expect(merged.contains("ControlMaster=no"))
+        #expect(merged.contains("ControlPath=none"))
+        #expect(!merged.contains("ControlPath=\(socketDirectory)/%C"))
+    }
+
     @Test("Host-key policy options disable default sharing")
     func hostKeyPolicyOptionsDoNotShareAHostStableSocket() {
         for option in [
@@ -379,7 +430,8 @@ struct SSHConnectionSharingOptionsTests {
 
     @Test("An explicitly disabled master gets no sharing defaults")
     func preservesDisabledControlMaster() {
-        let supplied = ["ControlMaster=no", "ForwardAgent=yes"]
+        // ForwardAgent is route-sensitive, which also pins ControlPath=none.
+        let supplied = ["ControlMaster=no", "ServerAliveInterval=30"]
 
         #expect(options.mergingDefaults(into: supplied) == supplied)
         #expect(options.cmuxOwnedControlPath(in: [
