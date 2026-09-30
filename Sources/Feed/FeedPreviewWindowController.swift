@@ -101,7 +101,7 @@ private struct FeedPreviewRootView: View {
             guard let store = FeedCoordinator.shared.store else { return }
             for kind in FeedPreviewFixtures.Kind.allCases {
                 for item in FeedPreviewFixtures.allStates(for: kind) {
-                    store.ingest(FeedPreviewFixtures.wireEvent(for: item))
+                    await store.ingest(FeedPreviewFixtures.wireEvent(for: item))
                 }
             }
         }

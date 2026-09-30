@@ -9,13 +9,15 @@ struct WorkstreamIngestionIdentityTests {
             source: "claude", toolName: "Tool", toolInputJSON: input, requestId: requestID)
     }
 
-    @Test func duplicatePendingAndHandledRequestsKeepOneItem() throws {
+    @Test func duplicatePendingAndHandledRequestsKeepOneItem() async throws {
         let store = WorkstreamStore(ringCapacity: 10)
-        let first = try #require(store.ingestReturningItem(event()))
-        #expect(store.ingestReturningItem(event())?.id == first.id)
+        let firstValue = await store.ingestReturningItem(event())
+        let first = try #require(firstValue)
+        #expect((await store.ingestReturningItem(event()))?.id == first.id)
         #expect(store.items.count == 1)
-        store.markResolved(first.id, decision: .permission(.once))
-        let replay = try #require(store.ingestReturningItem(event()))
+        await store.markResolved(first.id, decision: .permission(.once))
+        let replayValue = await store.ingestReturningItem(event())
+        let replay = try #require(replayValue)
         #expect(replay.id == first.id)
         guard case .resolved(.permission(.once), _) = replay.status else {
             Issue.record("A handled retry must not become pending again")
@@ -24,26 +26,29 @@ struct WorkstreamIngestionIdentityTests {
         #expect(store.items.count == 1)
     }
 
-    @Test func reusedRequestCannotChangePayloadOrSession() throws {
+    @Test func reusedRequestCannotChangePayloadOrSession() async throws {
         let store = WorkstreamStore(ringCapacity: 10)
-        let first = try #require(store.ingestReturningItem(event(input: #"{"command":"first"}"#)))
-        #expect(store.ingestReturningItem(event(input: #"{"command":"different"}"#)) == nil)
-        #expect(store.ingestReturningItem(event(session: "other", input: #"{"command":"first"}"#)) == nil)
+        let firstValue = await store.ingestReturningItem(event(input: #"{"command":"first"}"#))
+        let first = try #require(firstValue)
+        #expect(await store.ingestReturningItem(event(input: #"{"command":"different"}"#)) == nil)
+        #expect(await store.ingestReturningItem(event(session: "other", input: #"{"command":"first"}"#)) == nil)
         #expect(store.items.map(\.id) == [first.id])
     }
 
-    @Test func identityLessLegacyEventsAreNotMistakenForRetries() {
+    @Test func identityLessLegacyEventsAreNotMistakenForRetries() async {
         let store = WorkstreamStore(ringCapacity: 10)
-        store.ingest(event(requestID: nil))
-        store.ingest(event(requestID: nil))
+        await store.ingest(event(requestID: nil))
+        await store.ingest(event(requestID: nil))
         #expect(store.items.count == 2)
     }
 
-    @Test func evictedRequestIdentityCanBeReused() throws {
+    @Test func evictedRequestIdentityCanBeReused() async throws {
         let store = WorkstreamStore(ringCapacity: 1)
-        let first = try #require(store.ingestReturningItem(event(requestID: "first")))
-        _ = store.ingestReturningItem(event(requestID: "second"))
-        let reused = try #require(store.ingestReturningItem(event(requestID: "first")))
+        let firstValue = await store.ingestReturningItem(event(requestID: "first"))
+        let first = try #require(firstValue)
+        _ = await store.ingestReturningItem(event(requestID: "second"))
+        let reusedValue = await store.ingestReturningItem(event(requestID: "first"))
+        let reused = try #require(reusedValue)
         #expect(reused.id != first.id)
         #expect(store.items.map(\.payload.requestID) == ["first"])
     }

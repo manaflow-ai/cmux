@@ -6,21 +6,24 @@ import Testing
 @Suite("WorkstreamStore")
 struct WorkstreamStoreTests {
     @Test("ingest creates a pending item for permission requests")
-    func ingestPending() {
+    func ingestPending() async {
         let store = WorkstreamStore(ringCapacity: 10)
-        store.ingest(.permission("s1", requestId: "r1"))
+        await store.ingest(.permission("s1", requestId: "r1"))
         #expect(store.items.count == 1)
         #expect(store.pending.count == 1)
+        #expect(store.pendingCount == 1)
+        #expect(store.actionableCount == 1)
         #expect(store.items[0].kind == .permissionRequest)
     }
 
     @Test("send(.approvePermission) marks the item resolved")
     func resolvePermission() async throws {
         let store = WorkstreamStore(ringCapacity: 10)
-        store.ingest(.permission("s1", requestId: "r1"))
+        await store.ingest(.permission("s1", requestId: "r1"))
         let itemId = store.items[0].id
         try await store.send(.approvePermission(itemId: itemId, mode: .once))
         #expect(store.pending.isEmpty)
+        #expect(store.pendingCount == 0)
         if case .resolved(let decision, _) = store.items[0].status {
             #expect(decision == .permission(.once))
         } else {
@@ -29,14 +32,16 @@ struct WorkstreamStoreTests {
     }
 
     @Test("Ring buffer evicts oldest items past capacity")
-    func ringEviction() {
+    func ringEviction() async {
         let store = WorkstreamStore(ringCapacity: 3)
         for i in 0..<5 {
-            store.ingest(.permission("s\(i)", requestId: "r\(i)"))
+            await store.ingest(.permission("s\(i)", requestId: "r\(i)"))
         }
         #expect(store.items.count == 3)
         #expect(store.items.first?.workstreamId == "s2")
         #expect(store.items.last?.workstreamId == "s4")
+        #expect(store.pendingCount == 3)
+        #expect(store.actionableCount == 3)
     }
 
     @Test("start loads a small recent slice and pages older persisted rows on demand")
@@ -62,27 +67,31 @@ struct WorkstreamStoreTests {
         )
         await store.start()
         #expect(store.items.map(\.workstreamId) == ["s3", "s4"])
+        #expect(store.pendingCount == 2)
+        #expect(store.actionableCount == 2)
         #expect(store.hasMorePersistedItems)
 
         await store.loadOlderItems()
         #expect(store.items.map(\.workstreamId) == ["s1", "s2", "s3", "s4"])
+        #expect(store.pendingCount == 4)
         #expect(store.hasMorePersistedItems)
 
         await store.loadOlderItems()
         #expect(store.items.map(\.workstreamId) == ["s0", "s1", "s2", "s3", "s4"])
+        #expect(store.pendingCount == 5)
         #expect(!store.hasMorePersistedItems)
     }
 
     @Test("expireAbandonedItems expires items whose agent PID is dead")
-    func expireAbandoned() {
+    func expireAbandoned() async {
         let clock = TestClock(initial: Date(timeIntervalSince1970: 0))
         let store = WorkstreamStore(ringCapacity: 10, clock: { clock.now })
         // Alive agent (pid=1000), dead agent (pid=2000).
-        store.ingest(.permission("alive", requestId: "r1", at: clock.now, ppid: 1000))
-        store.ingest(.permission("dead", requestId: "r2", at: clock.now, ppid: 2000))
-        store.ingest(.permission("untracked", requestId: "r3", at: clock.now))
+        await store.ingest(.permission("alive", requestId: "r1", at: clock.now, ppid: 1000))
+        await store.ingest(.permission("dead", requestId: "r2", at: clock.now, ppid: 2000))
+        await store.ingest(.permission("untracked", requestId: "r3", at: clock.now))
         // Injected liveness: only 1000 is alive.
-        store.expireAbandonedItems { pid in pid == 1000 }
+        await store.expireAbandonedItems { pid in pid == 1000 }
         #expect(store.items.count == 3)
         #expect(store.items[0].status.isPending)
         if case .expired = store.items[1].status {} else {
@@ -90,26 +99,28 @@ struct WorkstreamStoreTests {
         }
         // Item with no ppid: no change (we don't know liveness).
         #expect(store.items[2].status.isPending)
+        #expect(store.pendingCount == 2)
     }
 
     @Test("expirePending moves stale pending items to expired")
-    func expirePending() {
+    func expirePending() async {
         let clock = TestClock(initial: Date(timeIntervalSince1970: 0))
         let store = WorkstreamStore(ringCapacity: 10, clock: { clock.now })
-        store.ingest(.permission("s1", requestId: "r1", at: clock.now))
+        await store.ingest(.permission("s1", requestId: "r1", at: clock.now))
         clock.advance(200)
-        store.expirePending(olderThan: 60)
+        await store.expirePending(olderThan: 60)
         if case .expired = store.items[0].status {
             // ok
         } else {
             Issue.record("expected .expired status after timeout")
         }
+        #expect(store.pendingCount == 0)
     }
 
     @Test("Telemetry items (toolUse) never enter pending")
-    func telemetryNeverPending() {
+    func telemetryNeverPending() async {
         let store = WorkstreamStore(ringCapacity: 10)
-        store.ingest(WorkstreamEvent(
+        await store.ingest(WorkstreamEvent(
             sessionId: "s1",
             hookEventName: .preToolUse,
             source: "claude",
@@ -117,11 +128,13 @@ struct WorkstreamStoreTests {
         ))
         #expect(store.items.count == 1)
         #expect(store.pending.isEmpty)
+        #expect(store.pendingCount == 0)
+        #expect(store.actionableCount == 0)
         #expect(store.items[0].kind == .toolUse)
     }
 
     @Test("PostToolUse preserves failure status from the wire event")
-    func postToolUsePreservesFailureStatus() throws {
+    func postToolUsePreservesFailureStatus() async throws {
         let data = try #require(
             """
             {
@@ -141,7 +154,7 @@ struct WorkstreamStoreTests {
         )
         #expect(encodedObject["is_error"] as? Bool == true)
         let store = WorkstreamStore(ringCapacity: 10)
-        store.ingest(event)
+        await store.ingest(event)
 
         let item = try #require(store.items.first)
         if case .toolResult(let toolName, _, let isError) = item.payload {
@@ -153,7 +166,7 @@ struct WorkstreamStoreTests {
     }
 
     @Test("Codex CLI lifecycle feed events stay telemetry")
-    func codexLifecycleFeedEventsStayTelemetry() {
+    func codexLifecycleFeedEventsStayTelemetry() async {
         let store = WorkstreamStore(
             ringCapacity: 10,
             titleProvider: { event in
@@ -177,7 +190,7 @@ struct WorkstreamStoreTests {
         ]
 
         for event in events {
-            store.ingest(WorkstreamEvent(
+            await store.ingest(WorkstreamEvent(
                 sessionId: "codex-session",
                 hookEventName: event,
                 source: "codex"
@@ -237,21 +250,21 @@ struct WorkstreamStoreTests {
     }
 
     @Test("Telemetry payloads preserve prompt, stop, and todo content")
-    func telemetryContent() {
+    func telemetryContent() async {
         let store = WorkstreamStore(ringCapacity: 10)
-        store.ingest(WorkstreamEvent(
+        await store.ingest(WorkstreamEvent(
             sessionId: "s1",
             hookEventName: .userPromptSubmit,
             source: "claude",
             toolInputJSON: #"{"prompt":"ship it"}"#
         ))
-        store.ingest(WorkstreamEvent(
+        await store.ingest(WorkstreamEvent(
             sessionId: "s1",
             hookEventName: .stop,
             source: "claude",
             toolInputJSON: #"{"reason":"done"}"#
         ))
-        store.ingest(WorkstreamEvent(
+        await store.ingest(WorkstreamEvent(
             sessionId: "s1",
             hookEventName: .todoWrite,
             source: "claude",
@@ -277,16 +290,16 @@ struct WorkstreamStoreTests {
     }
 
     @Test("Prompt context carries into later permission requests")
-    func promptContextCarriesIntoPermission() {
+    func promptContextCarriesIntoPermission() async {
         let store = WorkstreamStore(ringCapacity: 10)
-        store.ingest(WorkstreamEvent(
+        await store.ingest(WorkstreamEvent(
             sessionId: "s1",
             hookEventName: .userPromptSubmit,
             source: "claude",
             toolInputJSON: #"{"prompt":"demo the permission UI"}"#,
             context: WorkstreamContext(permissionMode: "plan")
         ))
-        store.ingest(WorkstreamEvent(
+        await store.ingest(WorkstreamEvent(
             sessionId: "s1",
             hookEventName: .permissionRequest,
             source: "claude",
@@ -300,9 +313,9 @@ struct WorkstreamStoreTests {
     }
 
     @Test("Exit plan context parses plan JSON")
-    func exitPlanParsesContext() {
+    func exitPlanParsesContext() async {
         let store = WorkstreamStore(ringCapacity: 10)
-        store.ingest(WorkstreamEvent(
+        await store.ingest(WorkstreamEvent(
             sessionId: "s1",
             hookEventName: .exitPlanMode,
             source: "claude",
@@ -352,7 +365,7 @@ struct WorkstreamStoreTests {
         await store.start()
         #expect(store.items.first?.workstreamId == canonicalID)
 
-        store.ingest(.permission(
+        await store.ingest(.permission(
             legacyID,
             requestId: "permission-1"
         ))
@@ -395,7 +408,7 @@ struct WorkstreamStoreTests {
                 source == "grok" ? "canonical-grok" : rawValue
             }
         )
-        unknownSourceEventStore.ingest(WorkstreamEvent(
+        await unknownSourceEventStore.ingest(WorkstreamEvent(
             sessionId: "grok-session",
             hookEventName: .userPromptSubmit,
             source: "grok",
@@ -415,8 +428,12 @@ private final class TestClock: @unchecked Sendable {
         return _now
     }
     func advance(_ seconds: TimeInterval) {
+        withLock { _now = _now.addingTimeInterval(seconds) }
+    }
+
+    private func withLock(_ body: () -> Void) {
         lock.lock(); defer { lock.unlock() }
-        _now = _now.addingTimeInterval(seconds)
+        body()
     }
 }
 
