@@ -67,6 +67,13 @@ enum WorkspaceMovePlan {
         return commands
     }
 
+    /// A slot the sidebar resolved with `moving`'s rows still shown (a tab
+    /// dragged onto a gap, `SidebarTabDrop.newWorkspace`) as the slot
+    /// `commands` takes, counted after those rows are removed.
+    static func excluding(_ moving: Set<String>, from position: DropPosition, in window: [SidebarRowSection]) -> DropPosition {
+        position
+    }
+
     /// The window's neighbor of the slot: its row after the slot, else its
     /// last row in the destination, else the destination's end.
     private static func anchor(for position: DropPosition, moving: Set<String>, in section: SidebarRowSection) -> Anchor? {
