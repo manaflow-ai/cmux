@@ -37,9 +37,11 @@ struct SSHTuiMigrationTests {
                 ["/bin/sh", "-c", "exec \"${SHELL:-/bin/sh}\" -l"])
     }
 
+    @MainActor
     @Test("SSH agent sidebar status reconciles the graph present at projector startup")
     func agentSidebarStatusReconcilesExistingCatalogGraph() throws {
         let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
         let panelID = try #require(workspace.focusedPanelId)
         let machine = SurfaceMachineID.ssh("ssh-existing-status")
         let catalog = SurfaceCatalog()
