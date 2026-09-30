@@ -64,6 +64,7 @@ import UIKit
                        textStyle: .subheadline, monospaced: false, color: .label,
                        open: {}, openURL: { opened.urls.append($0) })
         view.frame = CGRect(x: 0, y: 0, width: 600, height: 60)
+        _ = view.measure(width: 600)
         view.layoutIfNeeded()
         let lineY = view.bounds.midY
         let linkPoint = try #require(stride(from: 0, to: view.bounds.width, by: 2)
