@@ -251,6 +251,7 @@ final class AgentAutoResumeCoordinator {
         target.clearStatusEntry(key: Self.statusKey)
     }
 
+    @MainActor
     private enum ResumeTarget {
         case workspace(Workspace, TerminalPanel)
         case dock(DockSplitStore, TerminalPanel)
