@@ -1487,6 +1487,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
     var wasAgentRunning: Bool?
+    /// Whether the terminal has received user input. Nil means unknown in older snapshots.
+    var hasReceivedExplicitInput: Bool?
     /// Whether an update relaunch cut this panel's agent off mid-task, so its automatic resume
     /// asks it to continue. Only the update relaunch saves set it; nil otherwise.
     var resumeWithContinuation: Bool?
@@ -1505,6 +1507,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
         wasAgentRunning: Bool? = nil,
+        hasReceivedExplicitInput: Bool? = nil,
         resumeWithContinuation: Bool? = nil
     ) {
         self.workingDirectory = workingDirectory
@@ -1520,6 +1523,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.isRemoteTerminal = isRemoteTerminal
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
+        self.hasReceivedExplicitInput = hasReceivedExplicitInput
         self.resumeWithContinuation = resumeWithContinuation
     }
 }

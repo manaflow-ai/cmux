@@ -363,6 +363,7 @@ extension DockSplitStore {
                 isRemoteTerminal: transfer?.isRemoteTerminal ?? false,
                 remotePTYSessionID: transfer?.remotePTYSessionID,
                 wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil,
+                hasReceivedExplicitInput: terminal.hasReceivedExplicitInput,
                 resumeWithContinuation: localTmuxStartCommand == nil
                     ? UpdateRelaunchContinuationNudges.shared.marksPanel(panelId)
                     : nil
