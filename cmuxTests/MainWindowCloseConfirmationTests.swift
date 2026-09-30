@@ -159,8 +159,7 @@ final class MainWindowCloseConfirmationTests: XCTestCase {
         // warning turns off, while the live-process safety warning remains.
         appDelegate.closeWindowWithConfirmation(targetWindow)
         XCTAssertEqual(prompts, 1)
-        let offeredKinds = offered.reduce(into: CloseWarningKinds()) { $0.formUnion($1) }
-        XCTAssertEqual(offeredKinds, .window.union(.safety))
+        XCTAssertEqual(offered, [[.window, .safety]])
         XCTAssertFalse(AppCatalogSection().warnBeforeClosingWindow.value(in: defaults))
         XCTAssertTrue(targetWindow.isVisible)
 

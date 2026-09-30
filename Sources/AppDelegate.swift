@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCloudBannerCore
 import CmuxCloudTui
 import CmuxComputerUse
 import CmuxCloudMachines
@@ -558,6 +559,7 @@ final class CmuxMainThreadTurnProfiler {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate, CmuxConfigStoreReloadEnvironment {
     nonisolated(unsafe) static var shared: AppDelegate?
+    let cloudBannerDismissalStore: CloudBannerDismissalStore
     private(set) var devicesRegistry: DeviceSurfaceProviderRegistry?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
@@ -928,6 +930,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
+    var shortcutEventAlternateScreenCache: ShortcutEventAlternateScreenCache?
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var globalFontMagnificationObserver: NSObjectProtocol?
     var ghosttyGotoSplitLeftShortcut: StoredShortcut?
@@ -1455,6 +1458,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     override init() {
+        cloudBannerDismissalStore = CloudBannerDismissalStore(defaults: .standard)
         let fileManager = FileManager.default
         if let bundleIdentifier = Bundle.main.bundleIdentifier,
            !bundleIdentifier.isEmpty,
@@ -1543,7 +1547,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // audit recoverable route lifecycle after a surface unregisters.
         GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(self)
     }
-
     /// Shared native auth callback entrypoint for LaunchServices and embedded
     /// browser handoffs. The returned value reflects completed sign-in.
     @MainActor
@@ -1557,7 +1560,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             AuthDebugLog().log("auth.callback dropped: auth graph not configured yet")
             return false
         }
-
         let signedIn = await accountFlow.handleCallbackURL(url)
         guard signedIn else {
             AuthDebugLog().log("auth.callback did not complete sign-in")
@@ -1590,7 +1592,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 _ = await handleAuthCallbackURLInProcess(url)
             }
         }
-
         let externalFileURLs = externalOpenFileURLs(from: urls)
         let terminalFileRequests = TerminalDefaultFileOpenRequest.requests(from: externalFileURLs)
         let terminalFilePaths = Set(terminalFileRequests.map { $0.fileURL.path(percentEncoded: false) })
@@ -15308,14 +15309,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
-            let focusContext = shortcutEventFocusContext(event)
             let availableChordActions = currentConfiguredShortcutChordActions().filter { action in
                 // Arm by the effective `when` clause (its shortcuts.when override or
                 // the built-in context default), matching the keyDown gate, so a
                 // `when`-broadened chord arms in its allowed context and a narrowed
                 // one does not swallow its first stroke elsewhere (issue #5189).
-                KeyboardShortcutSettings.effectiveWhenClause(for: action)
-                    .evaluate(focusContext.whenClauseContext(for: action))
+                shortcutWhenClauseAllows(action: action, event: event)
             }
             if armConfiguredShortcutChordIfNeeded(event: event, actions: availableChordActions) {
                 return true
@@ -17643,8 +17642,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Gates every focus-scoped shortcut, including the numbered workspace/surface
     /// handlers that previously ignored context (issue #5189).
     func shortcutWhenClauseAllows(action: KeyboardShortcutSettings.Action, event: NSEvent) -> Bool {
-        KeyboardShortcutSettings.effectiveWhenClause(for: action)
-            .evaluate(shortcutEventFocusContext(event).whenClauseContext(for: action))
+        let clause = KeyboardShortcutSettings.effectiveWhenClause(for: action)
+        return clause.evaluate(shortcutWhenClauseContext(for: action, clause: clause, event: event))
     }
 
     /// Resolves a right-sidebar mode shortcut after applying the action's
