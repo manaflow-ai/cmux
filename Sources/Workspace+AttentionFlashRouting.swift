@@ -9,7 +9,8 @@ extension Workspace {
     func clearAgentAttentionNotificationOnTerminalInput(panelId: UUID) -> Bool {
         AppDelegate.shared?.notificationStore?.clearAgentAttentionNotification(
             forTabId: id,
-            surfaceId: panelId
+            surfaceId: panelId,
+            suppressFutureSupersession: true
         ) ?? false
     }
 

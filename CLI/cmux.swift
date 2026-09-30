@@ -40992,11 +40992,24 @@ export default {
             "method": "feed.push",
             "params": params,
         ]
-        if waitTimeout > 0 || shouldAwaitTelemetryIngestion {
+        // Codex progress hooks must use the ordered request lane so the host
+        // can retire the prompt only after this event is accepted. Detached
+        // wrapper telemetry does not carry this marker or send stamp.
+        let isOrderedCodexProgress = source == "codex" && !isActionable && [
+            "PostToolUse", "PostToolUseFailure", "UserPromptSubmit", "Stop", "SessionEnd"
+        ].contains(hookEventName)
+        if isOrderedCodexProgress {
+            eventDict["_hook_sent_at_ms"] = Self.feedHookSentAtMs()
+            request["params"] = [
+                "event": eventDict,
+                "wait_timeout_seconds": waitTimeout,
+            ]
+        }
+        if waitTimeout > 0 || shouldAwaitTelemetryIngestion || isOrderedCodexProgress {
             request["id"] = UUID().uuidString
         }
 
-        if waitTimeout == 0 && !shouldAwaitTelemetryIngestion {
+        if waitTimeout == 0 && !shouldAwaitTelemetryIngestion && !isOrderedCodexProgress {
             let payload = try JSONSerialization.data(withJSONObject: request)
             let line = String(data: payload, encoding: .utf8) ?? "{}"
             // Codex-style agents block in their own approval UI while this
@@ -41124,20 +41137,6 @@ export default {
                     clientDeadline.timeIntervalSinceNow
                 )
             )
-            request["params"] = [
-                "event": eventDict,
-                "wait_timeout_seconds": waitTimeout,
-            ]
-        }
-
-        // The synchronous Codex hook lane preserves agent order for
-        // telemetry-only progress events too. Detached wrapper telemetry does
-        // not carry this ordered marker or a send stamp.
-        let isOrderedCodexProgress = [
-            "PostToolUse", "PostToolUseFailure", "UserPromptSubmit", "Stop", "SessionEnd"
-        ].contains(hookEventName)
-        if source == "codex", !isActionable, isOrderedCodexProgress {
-            eventDict["_hook_sent_at_ms"] = Self.feedHookSentAtMs()
             request["params"] = [
                 "event": eventDict,
                 "wait_timeout_seconds": waitTimeout,

@@ -355,6 +355,10 @@ final class TerminalNotificationStore: ObservableObject {
     var lastNotificationDateByCooldownKey: [String: Date] = [:]
     var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
     private var indexes = NotificationIndexes()
+    /// A direct terminal answer retires one prompt without identifying its
+    /// producer. Do not let a later uncorrelated hook retire a second prompt
+    /// that was already waiting on the same surface.
+    private var agentAttentionSupersessionSuppressed = Set<TabSurfaceKey>()
     private let inFlightPolicyRequests = TerminalNotificationPolicyInFlightStore()
     private init(userNotificationCenter: UserNotificationCenterService) {
         self.userNotificationCenter = userNotificationCenter
@@ -1610,6 +1614,12 @@ final class TerminalNotificationStore: ObservableObject {
         applySidebarOrdering(for: notification, effects: effects)
 
         updated.insert(notification, at: 0)
+        if notification.agentCategory == AgentNotifyCategory.needsPermission.rawValue,
+           let surfaceId = notification.surfaceId {
+            agentAttentionSupersessionSuppressed.remove(
+                TabSurfaceKey(tabId: notification.tabId, surfaceId: surfaceId)
+            )
+        }
         mutateWorkspaceManualUnread(false, forTabId: notification.tabId)
         if let surfaceId = notification.surfaceId {
             mutateSurfaceManualUnread(
@@ -2099,8 +2109,14 @@ final class TerminalNotificationStore: ObservableObject {
         agentKind: String? = nil,
         sessionId: String? = nil,
         correlationKey: String? = nil,
-        before: Date? = nil
+        before: Date? = nil,
+        requiresSoleCandidate: Bool = false,
+        suppressFutureSupersession: Bool = false
     ) -> Bool {
+        let surfaceKey = TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)
+        if requiresSoleCandidate && agentAttentionSupersessionSuppressed.contains(surfaceKey) {
+            return false
+        }
         let liveTabId = AppDelegate.shared?
             .agentNotificationDeliveryTarget(claimedTabId: tabId, surfaceId: surfaceId)?.tabId ?? tabId
         let matching = notifications.enumerated().filter { _, notification in
@@ -2114,7 +2130,8 @@ final class TerminalNotificationStore: ObservableObject {
             if let sessionId, notification.agentSessionId != sessionId { return false }
             return correlationKey == nil || notification.correlationKey == correlationKey
         }
-        guard let index = matching.min(by: { lhs, rhs in
+        guard !requiresSoleCandidate || matching.count == 1,
+              let index = matching.min(by: { lhs, rhs in
             let lhsNotification = notifications[lhs.offset]
             let rhsNotification = notifications[rhs.offset]
             if lhsNotification.createdAt != rhsNotification.createdAt {
@@ -2125,6 +2142,9 @@ final class TerminalNotificationStore: ObservableObject {
             return lhs.offset > rhs.offset
         })?.offset else { return false }
         remove(id: notifications[index].id)
+        if suppressFutureSupersession {
+            agentAttentionSupersessionSuppressed.insert(surfaceKey)
+        }
         return true
     }
 
@@ -2985,6 +3005,7 @@ final class TerminalNotificationStore: ObservableObject {
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
+        agentAttentionSupersessionSuppressed.removeAll()
     }
 
     func promptToEnableNotificationsForTesting() {

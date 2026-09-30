@@ -539,7 +539,8 @@ final class FeedCoordinator: @unchecked Sendable {
             surfaceId: surfaceId,
             agentKind: event.source,
             sessionId: sessionId,
-            before: sentAt
+            before: sentAt,
+            requiresSoleCandidate: true
         )
     }
 
