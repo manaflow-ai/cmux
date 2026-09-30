@@ -223,6 +223,49 @@ struct CloudTreeMachineMenuTests {
         _ = container
     }
 
+    @Test("A workspace row uses the same open verb for click and Return")
+    func workspaceActivationUsesSharedOpenVerb() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let machine = SurfaceMachineID.cloud(Self.machineID)
+        let workspace = SurfaceRemoteWorkspace(id: "ws-open", name: "Open", index: 0, focused: true)
+        let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: "term-open")
+        let view = SurfaceRemoteView(tabID: "tab-open", workspace: workspace)
+        let resource = SurfaceResource(
+            id: resourceID, title: "shell", detail: nil, lifecycle: .running,
+            agent: nil, remoteWorkspace: workspace, remoteViews: [view], port: nil, url: nil
+        )
+        let group = SurfaceResourceGroup(
+            title: workspace.name,
+            placements: [SurfaceResourcePlacement(resource: resourceID, remoteView: view)],
+            remoteWorkspaceID: workspace.id,
+            representsWorkspace: true
+        )
+        let node = CloudTreeNode(
+            id: CloudTreeNodeBuilder.nodeID(workspace: workspace.id, machine: machine),
+            kind: .workspace(machine: machine, workspace, terminalCount: 1, hiddenTabCount: 0, openIn: nil),
+            children: [CloudTreeNode(
+                id: CloudTreeNodeBuilder.nodeID(resource: resourceID, inRemoteWorkspace: workspace.id, remoteTabID: view.tabID),
+                kind: .terminal(CloudTreeTerminalRow(resource: resource, isOpen: false, viewBadge: nil, remoteView: view))
+            )],
+            dragGroup: group
+        )
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(defaults: UserDefaults(suiteName: "cloud-tree-open-verb-\(UUID())")!),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        defer { _ = container }
+        coordinator.apply(nodes: [node])
+        let outline = try #require(coordinator.outlineView)
+        coordinator.open(node)
+        outline.selectRowIndexes(IndexSet(integer: outline.row(forItem: node)), byExtendingSelection: false)
+        coordinator.openSelection()
+        #expect(recorder.openWorkspaces.count == 2)
+        #expect(recorder.openWorkspaces.allSatisfy { $0.machine == machine && $0.workspace.id == workspace.id && $0.group == group })
+    }
+
     @Test("Double-clicking machines and remote workspaces routes to their rename actions")
     func doubleClickRenamesCloudRows() throws {
         let recorder = CloudTreeMenuVerbRecorder()
@@ -726,7 +769,7 @@ struct CloudTreeMachineMenuTests {
     }
 
     private static func nodeActions(recording recorder: CloudTreeMenuVerbRecorder) -> CloudTreeNodeActions {
-        CloudTreeNodeActions(
+        var actions = CloudTreeNodeActions(
             project: { _, _, _ in },
             projectRemoteView: { _, _, _, _ in recorder.projectRemoteViewCount += 1 },
             projectInLocalWorkspace: { _, _ in },
@@ -752,6 +795,10 @@ struct CloudTreeMachineMenuTests {
                 recorder.ownerNavigations.append((machine: machine, group: group, resource: resource, view: view, openIn: openIn))
             }
         )
+        actions.openWorkspace = { machine, workspace, group in
+            recorder.openWorkspaces.append((machine: machine, workspace: workspace, group: group))
+        }
+        return actions
     }
 }
 
@@ -764,6 +811,7 @@ private final class CloudTreeMenuVerbRecorder {
     var deletions: [String] = []
     var projectRemoteViewCount = 0
     var ownerNavigations: [(machine: SurfaceMachineID, group: SurfaceResourceGroup, resource: SurfaceResourceID, view: SurfaceRemoteView?, openIn: UUID?)] = []
+    var openWorkspaces: [(machine: SurfaceMachineID, workspace: SurfaceRemoteWorkspace, group: SurfaceResourceGroup)] = []
     var resizes: [(String, Int)] = []
     var cpuResizes: [(String, Int)] = []
     var memoryResizes: [(String, Int)] = []
