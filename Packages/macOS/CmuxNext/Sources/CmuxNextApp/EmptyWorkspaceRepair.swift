@@ -33,6 +33,8 @@ final class EmptyWorkspaceRepair {
     /// Creates the first terminal of `key` (`create-terminal`, which adds the
     /// first screen and pane). Returns the new surface. Tests replace it.
     var create: @MainActor (WorkspaceKey) async throws -> SurfaceID?
+    /// Closes `key`, a workspace whose last tab closed. Tests replace it.
+    var close: @MainActor (WorkspaceKey) async throws -> Void = { _ in }
     /// Whether commands can run now. Tests replace it.
     var canCreate: @MainActor () -> Bool
     private(set) var states: [WorkspaceKey: FirstTerminal] = [:]
