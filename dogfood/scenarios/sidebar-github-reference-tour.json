@@ -34,29 +34,23 @@
       "shot": "sidebar-reference"
     },
     {
-      "hoverAt": {
-        "x": 0.14,
-        "y": 0.17
+      "hover": {
+        "label": "manaflow-ai/cmux#15850"
       }
     },
     {
       "wait": 0.5
     },
     {
-      "hover": {
-        "label": "manaflow-ai/cmux#15850"
-      }
-    },
-    {
-      "clickAt": {
-        "x": 0.14,
-        "y": 0.17
-      }
+      "shot": "sidebar-reference-hover"
     },
     {
       "click": {
         "label": "manaflow-ai/cmux#15850"
       }
+    },
+    {
+      "wait": 3.0
     },
     {
       "shot": "sidebar-reference-clicked"
