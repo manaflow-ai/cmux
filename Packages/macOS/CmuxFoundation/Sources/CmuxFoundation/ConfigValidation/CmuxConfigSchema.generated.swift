@@ -1140,7 +1140,7 @@ enum CmuxEmbeddedConfigSchema {
         "paneFlashDoubleBlink": {
           "x-cmux-scopes": ["global"],
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Blink the pane flash twice instead of one short pulse."
         },
         "paneFlashColor": {

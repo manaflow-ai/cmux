@@ -16,9 +16,6 @@ struct WorkspaceAttentionColor: Equatable, Sendable {
     private let rgb: UInt32?
     /// The resolved cmux accent used when no valid color is configured.
     private let accent: CmuxAccentColor
-    /// The terminal theme foreground used by flashes when no color is configured.
-    private let themeForegroundRGB: UInt32?
-
     init(
         configuredHex: String?,
         accent: CmuxAccentColor = CmuxAccentColor(),
@@ -26,7 +23,7 @@ struct WorkspaceAttentionColor: Equatable, Sendable {
     ) {
         self.rgb = Self.strictRGB(configuredHex)
         self.accent = accent
-        self.themeForegroundRGB = themeForeground.flatMap { Self.strictRGB($0.hexString()) }
+        _ = themeForeground
     }
 
     var nsColor: NSColor {
@@ -36,16 +33,8 @@ struct WorkspaceAttentionColor: Equatable, Sendable {
         return Self.color(rgb: rgb, alpha: 1)
     }
 
-    /// The pane flash color: the configured color, else the theme foreground
-    /// slightly softened, else the unread ring color.
-    var flashNSColor: NSColor {
-        if rgb == nil, let themeForegroundRGB {
-            return Self.color(rgb: themeForegroundRGB, alpha: Self.themeForegroundFlashAlpha)
-        }
-        return nsColor
-    }
-
-    static let themeForegroundFlashAlpha: CGFloat = 0.85
+    /// The pane flash keeps the configured color or the existing cmux accent.
+    var flashNSColor: NSColor { nsColor }
 
     private static func color(rgb: UInt32, alpha: CGFloat) -> NSColor {
         NSColor(
