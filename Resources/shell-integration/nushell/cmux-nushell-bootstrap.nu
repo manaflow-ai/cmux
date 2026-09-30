@@ -15,10 +15,12 @@
 # shim, so both are candidates. Also normalizes PATH back to a list when user
 # config left it a colon-joined string.
 #
-# The shim root can sit in a shared temporary directory, so it moves only when
-# it is a real directory (not a symlink) owned by this user. nushell has no
-# owner check of its own; stat, which does not follow a symlink here, reports
-# the type and owner. When that can't be confirmed, PATH keeps its order.
-def _cmux_owned_shim_root [root: string] { if not ($root | str starts-with "/") { return false }; try { let found = (^/usr/bin/stat -f "%HT:%u" -- $root | complete); let uid = (^/usr/bin/id -u | complete); $found.exit_code == 0 and $uid.exit_code == 0 and ($found.stdout | str trim) == $"Directory:($uid.stdout | str trim)" } catch { false } }
+# The root must be owned and not writable by another user. Both its lexical
+# and resolved ancestry must be owned by this user/root and not writable by
+# others, except sticky shared directories such as /tmp. A directory's owner
+# can replace children even with the sticky bit, so owner checks also apply.
+def _cmux_shim_metadata [path: string] { let bsd = (^/usr/bin/stat -f "%HT:%u:%Mp%Lp" -- $path | complete); let found = if $bsd.exit_code == 0 { $bsd } else { ^/usr/bin/stat -c "%F:%u:%a" -- $path | complete }; if $found.exit_code != 0 { error make {msg: "unavailable directory metadata"} }; let fields = ($found.stdout | str trim | split row ":"); if ($fields | length) != 3 { error make {msg: "invalid directory metadata"} }; {kind: ($fields | get 0), owner: ($fields | get 1), mode: ($fields | get 2 | into int --radix 8)} }
+def _cmux_shim_chain_safe [root: string, uid: string] { mut current = $root; loop { let meta = (_cmux_shim_metadata $current); if $meta.owner not-in ["0" $uid] { return false }; if $meta.kind in ["Directory" "directory"] { if (($meta.mode | bits and 18) != 0) and (($meta.mode | bits and 512) == 0) { return false } } else if $meta.kind not-in ["Symbolic Link" "symbolic link"] { return false }; if $current == "/" { return true }; let parent = ($current | path dirname); if $parent == $current { return false }; $current = $parent } }
+def _cmux_owned_shim_root [root: string] { if not ($root | str starts-with "/") { return false }; try { let identity = (^/usr/bin/id -u | complete); if $identity.exit_code != 0 { return false }; let uid = ($identity.stdout | str trim); let meta = (_cmux_shim_metadata $root); if ($meta.kind not-in ["Directory" "directory"]) or ($meta.owner != $uid) or (($meta.mode | bits and 18) != 0) { return false }; (_cmux_shim_chain_safe $root $uid) and (_cmux_shim_chain_safe ($root | path expand --strict) $uid) } catch { false } }
 def --env _cmux_refront_cli_shims [] { if ($env.CMUX_SURFACE_ID? | default "") == "" { return }; let raw = ($env.PATH? | default []); let entries = if ($raw | describe | str starts-with "list") { $raw } else { $raw | split row (char esep) }; let roots = ([($env.CMUX_AGENT_COMMAND_SHIM_ROOT? | default ""), ($env.CMUX_CLAUDE_WRAPPER_SHIM_ROOT? | default "")] | uniq | where {|r| ($r in $entries) and (_cmux_owned_shim_root $r) }); $env.PATH = ($roots ++ ($entries | where {|p| $p not-in $roots })) }
 _cmux_refront_cli_shims

@@ -3,48 +3,6 @@ import CmuxCloud
 import AppKit
 import SwiftUI
 
-/// "2 of 3" plan meter. Turns into the upgrade hint when a free plan hits its
-/// machine ceiling — the moment of intent, and the only place we mention it.
-struct MachinePlanMeter: View {
-    let plan: MachinePlanSnapshot
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Text(meterText)
-                .cmuxFont(size: 11, monospacedDigit: true)
-                .foregroundColor(plan.isAtLimit ? Color.orange : .secondary)
-            if plan.isAtLimit && !plan.isPaidPlan {
-                Text(String(localized: "machines.meter.upgrade", defaultValue: "Upgrade for more"))
-                    .cmuxFont(size: 11)
-                    .foregroundColor(.orange)
-            }
-        }
-        .help(meterHelp)
-        .accessibilityElement(children: .combine)
-    }
-
-    private var meterText: String { plan.countLabel }
-
-    private var meterHelp: String {
-        if plan.isAtLimit && !plan.isPaidPlan, let maxActiveVms = plan.maxActiveVms {
-            if plan.isSingleMachinePlan {
-                return String(
-                    localized: "machines.meter.help.atLimit.single",
-                    defaultValue: "Your plan includes 1 machine. Upgrade to create more."
-                )
-            }
-            return String(
-                localized: "machines.meter.help.atLimit",
-                defaultValue: "Your plan includes %d machines. Upgrade to create more."
-            ).replacingOccurrences(of: "%d", with: String(maxActiveVms))
-        }
-        return String(
-            localized: "machines.meter.help",
-            defaultValue: "Machines on your plan. Sleeping machines cost nothing."
-        )
-    }
-}
-
 /// One line under the header on free plans: how long the fleet stays
 /// reachable, counting down to the earliest machine's expiry, and the way out
 /// (the whole line is the upgrade affordance — the same Pro flow the ＋ button
@@ -81,8 +39,8 @@ struct MachinesFreeAccessBanner: View {
             .layoutPriority(1)
             CloudBannerDismissButton(action: onDismiss)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
+        .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
+        .padding(.vertical, RightSidebarChromeMetrics.barVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .foregroundColor(isExpired ? Color.orange : .secondary)
         .contentShape(Rectangle())
