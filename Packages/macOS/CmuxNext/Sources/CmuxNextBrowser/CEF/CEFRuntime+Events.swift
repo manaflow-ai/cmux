@@ -201,10 +201,10 @@ extension CEFRuntime {
             tabsByBrowser[browser]?.devToolsDockSideChosen(value)
         case .foreignBrowserBlocked:
             logger.error("Chromium created a window outside cmux (type \(value)); the fork hid it")
-        case .popupWindowCreated, .popupWindowBounds:
-            // cmux does not enable popup windows yet (the popup panel wires
-            // cmux_shim_popup_window_attach); a fork never sends these then.
-            logger.notice("Chromium popup window event \(kind.rawValue) window=\(window)")
+        case .popupWindowCreated:
+            popupWindowCreated(window: window, browser: browser)
+        case .popupWindowBounds:
+            popupWindowBoundsChanged(window: window)
         case .moved, .unknown:
             break
         }

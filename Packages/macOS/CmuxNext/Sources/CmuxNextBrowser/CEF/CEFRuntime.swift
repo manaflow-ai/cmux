@@ -311,6 +311,8 @@ final class CEFRuntime {
         // (PageBackground); theme changes reach live tabs (fork API 12).
         shim.setBackgroundColor(PageBackground.themeARGB)
         ThemeStore.shared.addResponder(self)
+        // Extension popup windows keep their window id (CEFPopupWindows).
+        if CEFPopupWindows.isEnabled(forkAPIVersion: Int(shim.forkAPIVersion())) { shim.setPopupWindowsEnabled(1) }
         // chrome://newtab without an extension override (BrowserNewTabPage).
         shim.setNewTabPageURL(BrowserNewTabPage.blankURL)
         // Google Chrome's native messaging hosts after cmux's own.

@@ -33,7 +33,8 @@ extension CEFRuntime {
     /// window of its own, and the tab moves into the most recently shown
     /// pane (the window guard hides that window).
     func adoptOrphan(browser: Int32, window: Int32, created: CEFCreatedBy = .none) {
-        guard !adoptions.isClosed(browser) else { return }
+        // A popup window's tab may already belong to its popup host (fork API 11).
+        guard !adoptions.isClosed(browser), tabsByBrowser[browser] == nil else { return }
         let disposition = created.disposition.tabDisposition ?? .foregroundTab
         if let host = hosts.values.first(where: { $0.owns(window: window) }) {
             let placement = takePlacement(window: window, fallback: disposition, created: created)

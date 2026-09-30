@@ -33,6 +33,10 @@ final class CEFPaneHost {
     /// A popup host's about:blank browser that created its Chromium window;
     /// it closes once the popup moved in (`CEFPaneHost+Popups`).
     var placeholder: CEFTab?
+    /// An extension's popup window (chrome.windows.create type popup, fork
+    /// API 11): the hidden Chromium window this popup host attaches to its
+    /// view when the panel first shows it (`CEFPaneHost+PopupWindows`).
+    var popupWindow: Int32?
 
     init(key: CEFPaneKey, runtime: CEFRuntime) {
         self.key = key
@@ -85,6 +89,7 @@ final class CEFPaneHost {
         visibleTab = tab
         // Tabs from windows cmux does not host go to a pane, never a panel.
         if !isPopupHost { runtime.lastShownHost = self }
+        if attachPopupWindowIfNeeded(tab) { return }
         ensureCreated(tab)
         if tab.awaitsWindowMove {
             // Still in its opener's window: activating it there would show
