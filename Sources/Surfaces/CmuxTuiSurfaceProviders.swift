@@ -833,16 +833,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// the machine is unreachable, not that the terminal ended.
     private func closePanesForVanishedRemoteTerminals(observation: CloudVMStateObservation) {
         guard !manualMirrorSessions.isEmpty else { return }
-        let live = Set(
-            catalog.authoritativeSnapshot.resources(on: machine)
-                .filter { $0.id.kind == .terminal }
-                .map(\.id.key)
-        )
+        let resources = catalog.authoritativeSnapshot.resources(on: machine)
+        let live = Set(resources.filter { $0.kind == .terminal }.map(\.id.key))
         let closing = CloudTerminalPaneClosure.panelsToClose(
             boundTerminals: manualMirrorSessions.mapValues(\.terminalID),
             liveTerminalKeys: live,
             freshness: observation.freshness,
-            graphComplete: cloudState.map { catalog.cloudGraphIsComplete(machine: machine, state: $0) } ?? false
+            graphComplete: cloudState.map {
+                CloudVMGraphCompleteness(state: $0, resources: resources).isComplete()
+            } ?? false
         )
         for panelID in closing {
             guard let terminalID = manualMirrorSessions[panelID]?.terminalID else { continue }

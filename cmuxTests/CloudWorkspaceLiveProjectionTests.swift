@@ -274,6 +274,21 @@ struct CloudWorkspaceLiveProjectionTests {
         await coordinator.waitForIdle()
         #expect(closed.isEmpty)
         #expect(catalog.projection(forPanel: missingPanel)?.remoteTabID == "missing")
+
+        var missingViewResources = CmuxTuiSnapshotParser.resources(from: state)
+        let missingIndex = try #require(missingViewResources.firstIndex { $0.id == missingResource })
+        missingViewResources[missingIndex].remoteViews = []
+        install(state, catalog: catalog, resourceOverride: missingViewResources)
+        await coordinator.waitForIdle()
+        #expect(closed.isEmpty)
+        #expect(catalog.projection(forPanel: missingPanel)?.remoteTabID == "missing")
+
+        // A subsequent complete graph may deliberately close the other view.
+        install(try graph(["first": "a"], revision: 2), catalog: catalog)
+        await coordinator.waitForIdle()
+        #expect(closed.map(\.panelID) == [missingPanel])
+        #expect(catalog.projection(forPanel: missingPanel) == nil)
+
     }
 
     @Test("Opening one remote terminal repeatedly reuses its exact local projection")

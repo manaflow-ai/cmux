@@ -90,6 +90,7 @@ final class CloudWorkspaceProjectionCoordinator {
 
     private func reconcile(state: CloudVMState, catalog: SurfaceCatalog) async {
         let machine = state.machine
+        let completeness = CloudVMGraphCompleteness(state: state, resources: catalog.snapshot.resources(on: machine))
         for (workspaceID, binding) in environment.bindings() where binding.vmID == machine.rawValue {
             guard let remoteID = binding.remoteWorkspaceID else { continue }
             if catalog.cloudWorkspaceCreationCoordinator.isPending(localWorkspaceID: workspaceID) { continue }
@@ -103,7 +104,7 @@ final class CloudWorkspaceProjectionCoordinator {
                 if !Task.isCancelled { requested.insert(machine) }
                 return
             }
-            guard catalog.cloudWorkspaceGraphIsComplete(machine: machine, state: state, workspaceID: remoteID) else {
+            guard completeness.isComplete(workspaceID: remoteID) else {
                 continue
             }
             let group = try? catalog.remoteWorkspaceGroup(machine: machine, workspaceID: remoteID)
