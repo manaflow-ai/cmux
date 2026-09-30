@@ -249,7 +249,7 @@ private extension AgentPromptSubmissionSnapshot {
 
     private static func inferredAgentKind(from rows: [String]) -> AgentPromptAgentKind? {
         let text = rows.joined(separator: "\n").lowercased()
-        if text.contains("ask codex") || text.contains("codex") { return .codex }
+        if text.contains("openai codex") || text.contains("codex cli") { return .codex }
         if text.contains("claude code") { return .claude }
         return nil
     }

@@ -133,7 +133,7 @@ extension CMUXCLI {
         var params: [String: Any] = [
             "text": text,
             // `return` lets the host pick the agent-aware submit key (for
-            // example ctrl+enter for a multi-line Claude Code prompt).
+            // example an agent-specific key for a multi-line prompt).
             "submit_key": submit ? "return" : "none",
         ]
         let target = try terminalTargetParams(
@@ -244,20 +244,65 @@ extension CMUXCLI {
         pasteParams["text"] = text
         pasteParams["submit_key"] = "none"
         _ = try client.sendV2(method: "terminal.paste", params: pasteParams)
-        // Ghostty queues paste bytes before the next key event. A short settle
-        // window prevents Return from racing the bracketed-paste terminator.
-        Thread.sleep(forTimeInterval: 0.05)
-
         let agent = (state?["agent"] as? Bool) == true
+        // Ghostty queues paste bytes before the next key event. Wait for the
+        // composer to show the pasted block before submitting; an unchanged
+        // empty snapshot can be the pre-paste state returned while the PTY is
+        // still applying the bracketed paste.
+        if agent {
+            var pastedVisible = false
+            for probe in 0..<4 {
+                Thread.sleep(forTimeInterval: 0.1 * Double(probe + 1))
+                let observed = try? client.sendV2(method: "surface.input_state", params: target)
+                if let observed {
+                    state = observed
+                    let observedState = observed["state"] as? String
+                    let slashPopup = (observed["slash_command_popup"] as? Bool) == true
+                    if observedState == "dialog" && !slashPopup {
+                        throw CLIError(message: String(
+                            format: String(
+                                localized: "cli.send.error.dialogOpen",
+                                defaultValue: "%1$@: %2$@ is waiting on a question or dialog, so nothing was sent. Retry once it is answered, or pass --force to send anyway."
+                            ),
+                            command,
+                            (target["surface_id"] as? String) ?? "?"
+                        ))
+                    }
+                    if observedState == "draft" || observedState == "queued"
+                        || (observed["queued"] as? Bool) == true || slashPopup {
+                        pastedVisible = true
+                        break
+                    }
+                }
+                if let refreshed = try? client.sendV2(method: "surface.read_text", params: target),
+                   let refreshedText = refreshed["text"] as? String {
+                    screen = refreshedText
+                    if Self.submitInputStateFromScreen(refreshedText)?["state"] as? String == "draft" {
+                        pastedVisible = true
+                        break
+                    }
+                }
+            }
+            if !pastedVisible {
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.send.error.submitUnconfirmed",
+                        defaultValue: "%@: %@; nothing was confirmed as submitted"
+                    ),
+                    command,
+                    "the pasted message never became visible in the agent composer"
+                ))
+            }
+        } else {
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+
         let busyCodex = agent
             && ((state?["busy"] as? Bool) == true || (state?["lifecycle"] as? String) == "running")
             && Self.stateOrScreenLooksLikeCodex(state, screen: screen)
         let key: String
         if busyCodex {
             key = "tab"
-        } else if (state?["agent_kind"] as? String)?.lowercased().contains("claude") == true,
-                  text.contains(where: { $0 == "\n" || $0 == "\r" }) {
-            key = "ctrl+enter"
         } else {
             key = "return"
         }
@@ -266,6 +311,13 @@ extension CMUXCLI {
             && ((state?["slash_command_popup"] as? Bool) == true || Self.screenShowsSlashPopup(screen)) ? 2 : 1
         var lastState = state
         for attempt in 0..<maxAttempts {
+            if attempt > 0,
+               let current = lastState,
+               (current["state"] as? String) == "draft",
+               let draftLength = current["draft_length"] as? Int,
+               draftLength != text.count {
+                try throwIfAgentPromptBlocks(current, kind: .text, command: command, target: target)
+            }
             var keyParams = target
             keyParams["key"] = key
             _ = try client.sendV2(method: "surface.send_key", params: keyParams)
@@ -307,9 +359,18 @@ extension CMUXCLI {
                     || (lastState["state"] as? String) == "queued"
                     || (lastState["queued"] as? Bool) == true),
                 (attempt + 1 >= minimumAttempts || !popupStillVisible) {
+                let knownKind = (lastState["agent_kind"] as? String)?.isEmpty == false
+                let status: String
+                if !knownKind {
+                    status = "sent"
+                } else if key == "tab" || (lastState["state"] as? String) == "queued"
+                            || (lastState["queued"] as? Bool) == true {
+                    status = "queued"
+                } else {
+                    status = "submitted"
+                }
                 return printSubmitResult(
-                    status: key == "tab" || (lastState["state"] as? String) == "queued"
-                        || (lastState["queued"] as? Bool) == true ? "queued" : "submitted",
+                    status: status,
                     payload: lastState,
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
@@ -391,6 +452,9 @@ extension CMUXCLI {
 
     private static func screenLooksLikeCodex(_ screen: String?) -> Bool {
         guard let screen else { return false }
+        let branded = screen.lowercased().contains("openai codex")
+            || screen.lowercased().contains("codex cli")
+        guard branded else { return false }
         return screen.split(separator: "\n").contains { line in
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             return trimmed.hasPrefix("›") || trimmed.hasPrefix("> ")
@@ -402,8 +466,8 @@ extension CMUXCLI {
         screen: String?
     ) -> Bool {
         if let kind = state?["agent_kind"] as? String,
-           kind.lowercased().contains("codex") {
-            return true
+           !kind.isEmpty {
+            return kind.lowercased() == "codex"
         }
         return screenLooksLikeCodex(screen)
     }

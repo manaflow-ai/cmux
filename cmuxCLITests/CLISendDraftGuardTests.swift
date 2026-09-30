@@ -171,12 +171,12 @@ struct CLISendDraftGuardTests {
     @Test func sendSubmitQueuesBusyCodexWithTab() throws {
         let busyCodex: [String: Any] = [
             "state": "empty", "agent": true, "terminal": true,
-            "lifecycle": "running", "waiting_on_human": false, "blocks_typing": false,
+            "agent_kind": "codex", "lifecycle": "running", "waiting_on_human": false, "blocks_typing": false,
         ]
         let run = try runCLI(
             arguments: ["send", "--submit", "--surface", Self.targetSurfaceRef, "hello"],
             inputStates: [busyCodex, Self.empty],
-            screenText: "› hello\nWorking…"
+            screenText: "OpenAI Codex\n› hello\nWorking…"
         )
 
         #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
