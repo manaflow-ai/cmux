@@ -15,6 +15,8 @@
   // Longest name printed, other than a name that stands for the content;
   // longer names end in "…" (refs still resolve).
   const NAME_LIMIT = 100;
+  // Longest URL printed without { urls: true }.
+  const URL_LIMIT = 100;
   // Unnamed wrappers that print as their only element child.
   const TRANSPARENT_WRAPPERS = new Set(["listitem", "cell", "gridcell"]);
   // Printing prefers the diff whenever it is shorter than the tree; above
@@ -195,8 +197,10 @@
     if (n.focused) head += " [focused]";
     if (n.hidden) head += " [hidden]";
     if (n.scrollable) head += " [scrollable]";
-    if (n.url && (options.urls || n.showUrl)) head += ` [url=${n.url}]`;
+    if (n.url && options.urls) head += ` [url=${n.url}]`;
     else if (n.offsite) head += ` [url=${n.offsite}]`;
+    // An unnamed link's on-site URL, capped: enough to tell such links apart.
+    else if (n.url && n.showUrl) head += ` [url=${n.url.length > URL_LIMIT ? n.url.slice(0, URL_LIMIT - 1) + "…" : n.url}]`;
     if (n.placeholder) head += ` [placeholder=${q(n.placeholder)}]`;
     if (n.inlineOptions && n.inlineOptions.length) {
       const shown = n.inlineOptions.slice(0, INLINE_OPTIONS).join(", ");

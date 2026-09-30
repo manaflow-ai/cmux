@@ -163,7 +163,8 @@ Rules, and how they improve on the references:
   subdomains of the same two-label base) prints where it goes, host and
   first path segment: `[url=github.com/ninjahawk]`, `[url=example.org/docs/…]`,
   at most 48 characters. A link with no name or named only by an image's alt
-  text prints its full `[url=…]`, so such links can be told apart; with
+  text also prints an on-site `[url=…]` (relative, at most 100 characters),
+  so such links can be told apart; with
   `{ urls: true }` every link shows its full URL, relative when same-origin.
   Other links omit them by default because URLs are about a quarter of a
   page's snapshot and an agent acts on the ref.
