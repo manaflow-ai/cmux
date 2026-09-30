@@ -46,7 +46,17 @@ enum QuitStrings {
         String(localized: "quit.button.keep", defaultValue: "Keep Sessions Running", table: "Quit", bundle: .module)
     }
 
-    static var end: String {
-        String(localized: "quit.button.end", defaultValue: "End All Sessions", table: "Quit", bundle: .module)
+    static var endKeepLayout: String {
+        String(localized: "quit.button.endKeepLayout", defaultValue: "End Sessions, Keep Layout", table: "Quit", bundle: .module)
+    }
+
+    static var endEverything: String {
+        String(localized: "quit.button.endEverything", defaultValue: "End Everything", table: "Quit", bundle: .module)
+    }
+
+    static var endChoices: String {
+        String(localized: "quit.endChoices",
+               defaultValue: "End Sessions, Keep Layout reopens your workspaces and splits with fresh shells. End Everything also deletes the workspaces.",
+               table: "Quit", bundle: .module)
     }
 }

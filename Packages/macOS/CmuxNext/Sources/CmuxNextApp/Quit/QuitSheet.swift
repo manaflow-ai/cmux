@@ -4,7 +4,8 @@ import CmuxNextDesign
 /// The quit sheet: explains that terminals run in cmux-tui and outlive the
 /// app, shows how many local terminals and running programs Quit keeps and
 /// the busiest programs, and asks Keep Sessions Running (default, Return),
-/// End All Sessions, or Cancel (Escape), with "Don't ask again". When only
+/// End Sessions, Keep Layout, End Everything, or Cancel (Escape), with
+/// "Don't ask again". When only
 /// incognito terminals are at stake it is the incognito close confirmation
 /// (Quit, Cancel). A glass panel attached as a sheet to `window`, or a
 /// floating panel when no window is open.
@@ -78,6 +79,7 @@ final class QuitSheet {
         if prompt.offersSessionChoice {
             rows.append(wrapping(QuitStrings.body, role: .secondary))
             rows.append(stats())
+            rows.append(wrapping(QuitStrings.endChoices, role: .secondary))
             if !prompt.busiest.isEmpty {
                 rows.append(wrapping(QuitStrings.busiest(prompt.busiest.joined(separator: ", ")), role: .secondary))
             }
@@ -153,26 +155,41 @@ final class QuitSheet {
         return column
     }
 
+    /// With the session choice: one full-width button per choice, stacked
+    /// (four do not fit in a row, as in a macOS alert with many buttons),
+    /// default first. Otherwise Cancel and Quit in a row.
     private func buttonRow() -> NSView {
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let cancel = add("cancel", ConfirmationStrings.cancel, .plain, #selector(cancelPressed))
-        cancel.keyEquivalent = "\u{1b}"
-        var views: [NSView] = [spacer, cancel]
-        if prompt.offersSessionChoice {
-            let end = add("end", QuitStrings.end, prompt.defaultChoice == .end ? .primary : .destructive, #selector(endPressed))
-            let keep = add("keep", QuitStrings.keep, prompt.defaultChoice == .keep ? .primary : .plain, #selector(keepPressed))
-            (prompt.defaultChoice == .end ? end : keep).keyEquivalent = "\r"
-            views += [end, keep]
-        } else {
+        guard prompt.offersSessionChoice else {
+            let spacer = NSView()
+            spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            let cancel = add("cancel", ConfirmationStrings.cancel, .plain, #selector(cancelPressed))
+            cancel.keyEquivalent = "\u{1b}"
             let quit = add("quit", ConfirmationStrings.quit, .primary, #selector(keepPressed))
             quit.keyEquivalent = "\r"
-            views.append(quit)
+            let row = NSStackView(views: [spacer, cancel, quit])
+            row.spacing = 8
+            row.widthAnchor.constraint(equalToConstant: Self.contentWidth).isActive = true
+            return row
         }
-        let row = NSStackView(views: views)
-        row.spacing = 8
-        row.widthAnchor.constraint(equalToConstant: Self.contentWidth).isActive = true
-        return row
+        let choices: [(QuitSessionsChoice, String, QuitSheetButton.Style, Selector)] = [
+            (.keep, QuitStrings.keep, .plain, #selector(keepPressed)),
+            (.endKeepLayout, QuitStrings.endKeepLayout, .destructive, #selector(endKeepLayoutPressed)),
+            (.endEverything, QuitStrings.endEverything, .destructive, #selector(endEverythingPressed)),
+        ]
+        var views: [NSView] = choices.map { choice, title, style, action in
+            let isDefault = choice == prompt.defaultChoice
+            let button = add(choice.rawValue, title, isDefault ? .primary : style, action)
+            if isDefault { button.keyEquivalent = "\r" }
+            return button
+        }
+        let cancel = add("cancel", ConfirmationStrings.cancel, .plain, #selector(cancelPressed))
+        cancel.keyEquivalent = "\u{1b}"
+        views.append(cancel)
+        for view in views { view.widthAnchor.constraint(equalToConstant: Self.contentWidth).isActive = true }
+        let column = NSStackView(views: views)
+        column.orientation = .vertical
+        column.spacing = 4
+        return column
     }
 
     private func add(_ id: String, _ title: String, _ style: QuitSheetButton.Style, _ action: Selector) -> QuitSheetButton {
@@ -208,7 +225,8 @@ final class QuitSheet {
         }
     }
 
-    /// Presses the button `id` ("keep", "end", "quit", "cancel") as a click
+    /// Presses the button `id` ("keep", "end-keep-layout", "end-everything",
+    /// "quit", "cancel") as a click
     /// does. False when the sheet has no such button.
     @discardableResult
     func press(_ id: String) -> Bool {
@@ -218,7 +236,8 @@ final class QuitSheet {
     }
 
     @objc private func keepPressed() { finish(.quit(.keep, remember: prompt.offersSessionChoice && remember.isChecked)) }
-    @objc private func endPressed() { finish(.quit(.end, remember: remember.isChecked)) }
+    @objc private func endKeepLayoutPressed() { finish(.quit(.endKeepLayout, remember: remember.isChecked)) }
+    @objc private func endEverythingPressed() { finish(.quit(.endEverything, remember: remember.isChecked)) }
     @objc private func cancelPressed() { finish(.cancel) }
 
     /// Closes the sheet and reports `answer` once.

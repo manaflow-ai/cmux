@@ -13625,133 +13625,264 @@
         }
       }
     },
-    "settings.choice.quitEnd": {
+    "settings.choice.quitEndKeepLayout": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "End All Sessions"
+            "value": "End Sessions, Keep Layout"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إنهاء كل الجلسات"
+            "value": "إنهاء الجلسات مع إبقاء التخطيط"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Završi sve sesije"
+            "value": "Završi sesije, zadrži raspored"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Afslut alle sessioner"
+            "value": "Afslut sessioner, behold layout"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle Sitzungen beenden"
+            "value": "Sitzungen beenden, Layout behalten"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Finalizar todas las sesiones"
+            "value": "Finalizar sesiones y mantener el diseño"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Terminer toutes les sessions"
+            "value": "Terminer les sessions, garder la disposition"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Termina tutte le sessioni"
+            "value": "Termina le sessioni, mantieni il layout"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "すべてのセッションを終了"
+            "value": "セッションを終了してレイアウトを維持"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បញ្ចប់វគ្គទាំងអស់"
+            "value": "បញ្ចប់វគ្គ ហើយរក្សាប្លង់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "모든 세션 끝내기"
+            "value": "세션 끝내고 레이아웃 유지"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Avslutt alle økter"
+            "value": "Avslutt økter, behold oppsett"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zamknij wszystkie sesje"
+            "value": "Zamknij sesje, zachowaj układ"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Encerrar todas as sessões"
+            "value": "Encerrar sessões e manter o layout"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Завершить все сеансы"
+            "value": "Завершить сеансы, сохранить макет"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "จบเซสชันทั้งหมด"
+            "value": "จบเซสชัน คงเลย์เอาต์ไว้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tüm oturumları sonlandır"
+            "value": "Oturumları sonlandır, düzeni koru"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Завершити всі сеанси"
+            "value": "Завершити сеанси, зберегти макет"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kết thúc tất cả phiên"
+            "value": "Kết thúc phiên, giữ bố cục"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "结束所有会话"
+            "value": "结束会话，保留布局"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "終止所有工作階段"
+            "value": "終止工作階段，保留版面"
+          }
+        }
+      }
+    },
+    "settings.choice.quitEndEverything": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End Everything"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إنهاء كل شيء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Završi sve"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afslut alt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alles beenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Finalizar todo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tout terminer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Termina tutto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "すべて終了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បញ្ចប់ទាំងអស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모두 끝내기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avslutt alt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamknij wszystko"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Encerrar tudo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завершить всё"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จบทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her şeyi sonlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завершити все"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết thúc tất cả"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "全部结束"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "全部終止"
           }
         }
       }

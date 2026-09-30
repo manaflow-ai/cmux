@@ -4,7 +4,8 @@ import CmuxNextSettings
 /// `debug.quit`: the quit sheet for automation (no system input needed).
 /// `{}` reports it; `{open: true}` starts a quit exactly as Cmd-Q does
 /// (interactive origin); `{remember: bool}` sets "Don't ask again";
-/// `{press: "keep" | "end" | "quit" | "cancel"}` clicks that button.
+/// `{press: "keep" | "end-keep-layout" | "end-everything" | "quit" | "cancel"}`
+/// clicks that button.
 @MainActor
 enum DebugQuit {
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {

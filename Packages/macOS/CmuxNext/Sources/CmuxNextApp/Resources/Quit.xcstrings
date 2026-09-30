@@ -1311,133 +1311,395 @@
         }
       }
     },
-    "quit.button.end": {
+    "quit.button.endKeepLayout": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "End All Sessions"
+            "value": "End Sessions, Keep Layout"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إنهاء كل الجلسات"
+            "value": "إنهاء الجلسات مع إبقاء التخطيط"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Završi sve sesije"
+            "value": "Završi sesije, zadrži raspored"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Afslut alle sessioner"
+            "value": "Afslut sessioner, behold layout"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle Sitzungen beenden"
+            "value": "Sitzungen beenden, Layout behalten"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Finalizar todas las sesiones"
+            "value": "Finalizar sesiones y mantener el diseño"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Terminer toutes les sessions"
+            "value": "Terminer les sessions, garder la disposition"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Termina tutte le sessioni"
+            "value": "Termina le sessioni, mantieni il layout"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "すべてのセッションを終了"
+            "value": "セッションを終了してレイアウトを維持"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បញ្ចប់វគ្គទាំងអស់"
+            "value": "បញ្ចប់វគ្គ ហើយរក្សាប្លង់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "모든 세션 끝내기"
+            "value": "세션 끝내고 레이아웃 유지"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Avslutt alle økter"
+            "value": "Avslutt økter, behold oppsett"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zamknij wszystkie sesje"
+            "value": "Zamknij sesje, zachowaj układ"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Encerrar todas as sessões"
+            "value": "Encerrar sessões e manter o layout"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Завершить все сеансы"
+            "value": "Завершить сеансы, сохранить макет"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "จบเซสชันทั้งหมด"
+            "value": "จบเซสชัน คงเลย์เอาต์ไว้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tüm oturumları sonlandır"
+            "value": "Oturumları sonlandır, düzeni koru"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Завершити всі сеанси"
+            "value": "Завершити сеанси, зберегти макет"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kết thúc tất cả phiên"
+            "value": "Kết thúc phiên, giữ bố cục"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "结束所有会话"
+            "value": "结束会话，保留布局"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "終止所有工作階段"
+            "value": "終止工作階段，保留版面"
+          }
+        }
+      }
+    },
+    "quit.button.endEverything": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End Everything"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إنهاء كل شيء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Završi sve"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afslut alt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alles beenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Finalizar todo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tout terminer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Termina tutto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "すべて終了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បញ្ចប់ទាំងអស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모두 끝내기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avslutt alt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamknij wszystko"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Encerrar tudo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завершить всё"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จบทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her şeyi sonlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завершити все"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết thúc tất cả"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "全部结束"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "全部終止"
+          }
+        }
+      }
+    },
+    "quit.endChoices": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End Sessions, Keep Layout reopens your workspaces and splits with fresh shells. End Everything also deletes the workspaces."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خيار «إنهاء الجلسات مع إبقاء التخطيط» يعيد فتح مساحات العمل والتقسيمات بواجهات أوامر جديدة. أما «إنهاء كل شيء» فيحذف مساحات العمل أيضًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Završi sesije, zadrži raspored ponovo otvara vaše radne prostore i podjele s novim ljuskama. Završi sve briše i radne prostore."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afslut sessioner, behold layout genåbner dine arbejdsområder og opdelinger med nye shells. Afslut alt sletter også arbejdsområderne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Sitzungen beenden, Layout behalten“ öffnet deine Arbeitsbereiche und Teilungen mit neuen Shells wieder. „Alles beenden“ löscht auch die Arbeitsbereiche."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Finalizar sesiones y mantener el diseño vuelve a abrir tus espacios de trabajo y divisiones con shells nuevos. Finalizar todo también elimina los espacios de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminer les sessions, garder la disposition rouvre vos espaces de travail et divisions avec de nouveaux shells. Tout terminer supprime aussi les espaces de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Termina le sessioni, mantieni il layout riapre spazi di lavoro e divisioni con nuove shell. Termina tutto elimina anche gli spazi di lavoro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「セッションを終了してレイアウトを維持」はワークスペースと分割を新しいシェルで開き直します。「すべて終了」はワークスペースも削除します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«បញ្ចប់វគ្គ ហើយរក្សាប្លង់» បើកកន្លែងធ្វើការ និងការបំបែករបស់អ្នកឡើងវិញជាមួយសែលថ្មី។ «បញ្ចប់ទាំងអស់» លុបកន្លែងធ្វើការផងដែរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "‘세션 끝내고 레이아웃 유지’는 워크스페이스와 분할을 새 셸로 다시 엽니다. ‘모두 끝내기’는 워크스페이스도 삭제합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avslutt økter, behold oppsett åpner arbeidsområdene og delingene dine igjen med nye skall. Avslutt alt sletter også arbeidsområdene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamknij sesje, zachowaj układ ponownie otwiera obszary robocze i podziały z nowymi powłokami. Zamknij wszystko usuwa też obszary robocze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Encerrar sessões e manter o layout reabre seus espaços de trabalho e divisões com shells novos. Encerrar tudo também apaga os espaços de trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Завершить сеансы, сохранить макет» снова откроет рабочие области и разделения с новыми оболочками. «Завершить всё» также удалит рабочие области."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“จบเซสชัน คงเลย์เอาต์ไว้” จะเปิดเวิร์กสเปซและการแบ่งหน้าต่างอีกครั้งด้วยเชลล์ใหม่ “จบทั้งหมด” จะลบเวิร์กสเปซด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oturumları sonlandır, düzeni koru çalışma alanlarınızı ve bölmelerinizi yeni kabuklarla yeniden açar. Her şeyi sonlandır çalışma alanlarını da siler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Завершити сеанси, зберегти макет» знову відкриє робочі області й поділи з новими оболонками. «Завершити все» також видалить робочі області."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết thúc phiên, giữ bố cục sẽ mở lại không gian làm việc và các vùng chia với shell mới. Kết thúc tất cả cũng xóa các không gian làm việc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“结束会话，保留布局”会用新的 shell 重新打开你的工作区和分屏。“全部结束”还会删除这些工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「終止工作階段，保留版面」會以新的 shell 重新開啟你的工作區與分割畫面。「全部終止」還會刪除這些工作區。"
           }
         }
       }

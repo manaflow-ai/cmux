@@ -4,16 +4,24 @@ enum QuitSessionsChoice: String, Equatable, Sendable {
     /// Leave every local terminal and the daemon running.
     case keep
     /// End every local terminal and stop the local daemon
-    /// (`shutdown-daemon end_terminals`).
-    case end
+    /// (`shutdown-daemon end_terminals`); workspaces and splits stay and
+    /// reopen with fresh shells.
+    case endKeepLayout = "end-keep-layout"
+    /// Also delete every local workspace first, so the next launch opens
+    /// one new workspace.
+    case endEverything = "end-everything"
+
+    /// Whether the local terminals end.
+    var ends: Bool { self != .keep }
 }
 
 /// Who asked to quit.
 enum QuitOrigin: Equatable, Sendable {
     /// Cmd-Q, the Quit menu item or the Dock's Quit: may show the sheet.
     case interactive
-    /// "Quit and Keep Sessions", "Quit and End Sessions", or `cmux app quit`
-    /// with `--keep-sessions` / `--end-sessions`: runs as asked.
+    /// "Quit and Keep Sessions", "Quit and End Sessions, Keep Layout",
+    /// "Quit and End Everything", or `cmux app quit` with `--keep-sessions`,
+    /// `--end-sessions` or `--end-everything`: runs as asked.
     case explicit(QuitSessionsChoice)
     /// `cmux app quit` (or `action.run quit`) with no flag: follows the
     /// setting and never waits on a sheet.

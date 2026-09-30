@@ -45,20 +45,23 @@ struct QuitPolicyTests {
 
     @Test func aRememberedChoiceQuitsWithoutAsking() {
         #expect(QuitPolicy.decide(.interactive, behavior: .keep, facts: Self.busy) == .quit(.keep))
-        #expect(QuitPolicy.decide(.interactive, behavior: .end, facts: Self.busy) == .quit(.end))
+        #expect(QuitPolicy.decide(.interactive, behavior: .endKeepLayout, facts: Self.busy) == .quit(.endKeepLayout))
+        #expect(QuitPolicy.decide(.interactive, behavior: .endEverything, facts: Self.busy) == .quit(.endEverything))
     }
 
     @Test func scriptedQuitFollowsTheSettingAndNeverAsks() {
         #expect(QuitPolicy.decide(.scripted, behavior: .ask, facts: Self.busy) == .quit(.keep))
         #expect(QuitPolicy.decide(.scripted, behavior: .keep, facts: Self.busy) == .quit(.keep))
-        #expect(QuitPolicy.decide(.scripted, behavior: .end, facts: Self.busy) == .quit(.end))
+        #expect(QuitPolicy.decide(.scripted, behavior: .endKeepLayout, facts: Self.busy) == .quit(.endKeepLayout))
+        #expect(QuitPolicy.decide(.scripted, behavior: .endEverything, facts: Self.busy) == .quit(.endEverything))
         #expect(!QuitPolicy.needsFacts(.scripted))
     }
 
     @Test func explicitChoicesRunAsAsked() {
         for behavior in QuitBehavior.allCases {
             #expect(QuitPolicy.decide(.explicit(.keep), behavior: behavior, facts: Self.busy) == .quit(.keep))
-            #expect(QuitPolicy.decide(.explicit(.end), behavior: behavior, facts: Self.busy) == .quit(.end))
+            #expect(QuitPolicy.decide(.explicit(.endKeepLayout), behavior: behavior, facts: Self.busy) == .quit(.endKeepLayout))
+            #expect(QuitPolicy.decide(.explicit(.endEverything), behavior: behavior, facts: Self.busy) == .quit(.endEverything))
         }
     }
 
@@ -86,12 +89,12 @@ struct QuitPolicyTests {
     @Test func incognitoProgramsFoldIntoTheSameSheet() {
         var facts = Self.busy
         facts.incognitoPrograms = ["npm"]
-        guard case .ask(let prompt) = QuitPolicy.decide(.interactive, behavior: .end, facts: facts) else {
+        guard case .ask(let prompt) = QuitPolicy.decide(.interactive, behavior: .endEverything, facts: facts) else {
             Issue.record("expected the sheet"); return
         }
         #expect(prompt.incognitoPrograms == ["npm"])
         #expect(prompt.offersSessionChoice)
-        #expect(prompt.defaultChoice == .end)
+        #expect(prompt.defaultChoice == .endEverything)
     }
 
     @Test func onlyIncognitoProgramsAskQuitOrCancel() {
@@ -109,12 +112,16 @@ struct QuitPolicyTests {
         let keep = ActionInvocation(arguments: ["keepSessions": .bool(true)])
         let end = ActionInvocation(arguments: ["endSessions": .bool(true)])
         #expect(try QuitPolicy.origin(for: keep, scripted: true) == .explicit(.keep))
-        #expect(try QuitPolicy.origin(for: end, scripted: true) == .explicit(.end))
-        #expect(try QuitPolicy.origin(for: end, scripted: false) == .explicit(.end))
+        let everything = ActionInvocation(arguments: ["endEverything": .bool(true)])
+        #expect(try QuitPolicy.origin(for: end, scripted: true) == .explicit(.endKeepLayout), "--end-sessions keeps the layout")
+        #expect(try QuitPolicy.origin(for: end, scripted: false) == .explicit(.endKeepLayout))
+        #expect(try QuitPolicy.origin(for: everything, scripted: true) == .explicit(.endEverything))
         #expect(try QuitPolicy.origin(for: ActionInvocation(), scripted: true) == .scripted)
         #expect(try QuitPolicy.origin(for: ActionInvocation(), scripted: false) == .interactive)
         let both = ActionInvocation(arguments: ["keepSessions": .bool(true), "endSessions": .bool(true)])
         #expect(throws: QuitArgumentConflict.self) { try QuitPolicy.origin(for: both, scripted: true) }
+        let endBoth = ActionInvocation(arguments: ["endSessions": .bool(true), "endEverything": .bool(true)])
+        #expect(throws: QuitArgumentConflict.self) { try QuitPolicy.origin(for: endBoth, scripted: true) }
     }
 
     @Test func anUnrecordedQuitIsInteractiveAndARecordedOneIsUsedOnce() {
@@ -129,7 +136,7 @@ struct QuitPolicyTests {
         let center = NotificationCenter()
         let tracker = QuitOriginTracker(center: center)
         center.post(name: NSWorkspace.willPowerOffNotification, object: nil)
-        tracker.record(.explicit(.end))
+        tracker.record(.explicit(.endEverything))
         #expect(tracker.consume() == .powerOff)
         let other = QuitOriginTracker(center: NotificationCenter())
         #expect(other.consume(appleEventReason: OSType(kAEShutDown)) == .powerOff)
@@ -139,17 +146,24 @@ struct QuitPolicyTests {
     // MARK: Completion
 
     @Test func keepLeavesTheSessionsAndEndEndsThemAfterTheWindowsSave() async {
-        for (choice, remember) in [(QuitSessionsChoice.keep, false), (.end, false), (.keep, true), (.end, true)] {
-            let log = StepLog()
-            await QuitCompletion.run(choice, remember: remember, QuitSteps(
-                remember: { log.steps.append("remember:\($0.rawValue)") },
-                prepareWindows: { log.steps.append("windows") },
-                endLocalSessions: { log.steps.append("end") }
-            ))
-            var expected = remember ? ["remember:\(choice.rawValue)"] : []
-            expected.append("windows")
-            if choice == .end { expected.append("end") }
-            #expect(log.steps == expected, "\(choice) remember=\(remember)")
+        let choices: [QuitSessionsChoice] = [.keep, .endKeepLayout, .endEverything]
+        for choice in choices {
+            for remember in [false, true] {
+                let log = StepLog()
+                await QuitCompletion.run(choice, remember: remember, QuitSteps(
+                    remember: { log.steps.append("remember:\($0.rawValue)") },
+                    prepareWindows: { log.steps.append("windows") },
+                    endLocalSessions: { log.steps.append($0 ? "end+delete-workspaces" : "end") }
+                ))
+                var expected = remember ? ["remember:\(choice.rawValue)"] : []
+                expected.append("windows")
+                switch choice {
+                case .keep: break
+                case .endKeepLayout: expected.append("end")
+                case .endEverything: expected.append("end+delete-workspaces")
+                }
+                #expect(log.steps == expected, "\(choice) remember=\(remember)")
+            }
         }
     }
 }

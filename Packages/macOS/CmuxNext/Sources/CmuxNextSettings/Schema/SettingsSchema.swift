@@ -63,7 +63,9 @@ public nonisolated enum SettingsSchema {
                 kind: .choice([
                     SettingChoice(QuitBehavior.ask.rawValue, SettingsText.text("settings.choice.quitAsk", "Ask")),
                     SettingChoice(QuitBehavior.keep.rawValue, SettingsText.text("settings.choice.quitKeep", "Keep Sessions Running")),
-                    SettingChoice(QuitBehavior.end.rawValue, SettingsText.text("settings.choice.quitEnd", "End All Sessions")),
+                    SettingChoice(QuitBehavior.endKeepLayout.rawValue,
+                                  SettingsText.text("settings.choice.quitEndKeepLayout", "End Sessions, Keep Layout")),
+                    SettingChoice(QuitBehavior.endEverything.rawValue, SettingsText.text("settings.choice.quitEndEverything", "End Everything")),
                 ]),
                 default: .string(QuitBehaviorSetting.fallback.rawValue),
                 keywords: ["quit", "exit", "sessions", "terminals", "cmux-tui", "daemon", "background"]

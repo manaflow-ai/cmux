@@ -69,7 +69,7 @@ import Testing
     /// border color reset, and Make cmux the Default Browser. Window
     /// counts Minimize (no inventory row; used by idle and visibility checks).
     static let expectedCounts: [ActionCategory: Int] = [
-        .window: 26, // + Quit and Keep Sessions, Quit and End Sessions
+        .window: 27, // + Quit and Keep Sessions, Quit and End Sessions (Keep Layout), Quit and End Everything
         .workspace: 139, // 80 + 29 room actions (plans/cmux-next/data-model.md 7) + showResources + 25 workspace verbs + 4 room/workspace theme actions
         .pane: 66, // + Move Pane to New Workspace
         .screen: 62,

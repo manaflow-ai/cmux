@@ -84,7 +84,7 @@ final class QuitCoordinator {
                 }
             },
             prepareWindows: { await services.windows.prepareForTermination() },
-            endLocalSessions: { await services.daemon.endSessionsAndStop() }
+            endLocalSessions: { await services.daemon.endSessionsAndStop(deletingWorkspaces: $0) }
         ))
         sender.reply(toApplicationShouldTerminate: true)
     }
