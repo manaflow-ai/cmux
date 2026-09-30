@@ -2126,6 +2126,53 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testComputerPickerKeepsPresentedRowsDuringRefresh() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_COMPUTER_PICKER_PERSISTENCE": "1",
+            "CMUX_UITEST_COMPUTER_PICKER_REFRESH": "1",
+            "CMUX_UITEST_SUPPRESS_WHATS_NEW": "1",
+        ])
+        defer { app.terminate() }
+        let picker = app.buttons["MobileWorkspaceMacPicker"]
+        XCTAssertTrue(waitForHittable(picker, timeout: 10))
+        picker.tap()
+
+        func computer(_ index: Int) -> XCUIElement {
+            app.buttons.matching(NSPredicate(
+                format: "identifier BEGINSWITH %@",
+                "MobileWorkspaceMacPickerMachine-picker-refresh-\(index)"
+            )).firstMatch
+        }
+        let first = computer(0)
+        XCTAssertTrue(first.waitForExistence(timeout: 4))
+        let initialTitle = first.label
+        let last = computer(24)
+        for _ in 0..<8 {
+            if last.exists, last.isHittable { break }
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(last.isHittable)
+        let title = last.label
+        let frame = last.frame
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            XCTAssertTrue(last.exists && last.isHittable, "Refresh must not reset the open computer list.")
+            XCTAssertEqual(last.label, title, "Presented rows must keep their opening snapshot.")
+            XCTAssertEqual(last.frame.minY, frame.minY, accuracy: 1, "Refresh must not move the open menu.")
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "computer-picker-bottom-after-refreshes"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        tapMenuItem(last, in: app)
+        XCTAssertTrue(picker.label.hasPrefix("Computer 24"))
+        picker.press(forDuration: 0.6)
+        XCTAssertTrue(first.waitForExistence(timeout: 4))
+        XCTAssertNotEqual(first.label, initialTitle, "Reopening must pick up refreshed computer names.")
+    }
+
+    @MainActor
     func testComputerPickerSelectionSurvivesAppRelaunch() async throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_COMPUTER_PICKER_PERSISTENCE": "1",
@@ -7875,27 +7922,61 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     func testTerminalDropdownKeepsBottomScrollDuringWorkspaceRefresh() throws {
         let app = launchWorkspaceDetailRefreshingTerminalMenuPreviewApp()
+        assertTerminalDropdownKeepsBottomScrollDuringRefresh(in: app)
+    }
+
+    @MainActor
+    func testTerminalDropdownKeepsBottomScrollDuringBrowserRefresh() throws {
+        let app = launchWorkspaceDetailRefreshingTerminalMenuPreviewApp(environment: [
+            "CMUX_UITEST_TERMINAL_MENU_BROWSER_REFRESH": "1",
+        ])
+        assertTerminalDropdownKeepsBottomScrollDuringRefresh(in: app)
+    }
+
+    @MainActor
+    private func assertTerminalDropdownKeepsBottomScrollDuringRefresh(in app: XCUIApplication) {
+        defer { app.terminate() }
+
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         assertTerminalMenuItemExists("terminal-build", in: app)
+        let initialTitle = app.buttons["MobileTerminalMenuItem-terminal-build"].label
         let target = scrollTerminalMenuToItem("terminal-extra-24", in: app)
-        XCTAssertTrue(target.isHittable, "Bottom terminal must be visible before refresh pulses start.")
+        XCTAssertTrue(target.isHittable, "Bottom terminal must be visible before observing refreshes.")
+        capture("tabs-menu-scrolled-to-bottom")
 
         let refreshedTarget = app.buttons["MobileTerminalMenuItem-terminal-extra-24"]
         let deadline = Date().addingTimeInterval(3.0)
         while Date() < deadline {
             XCTAssertTrue(
                 refreshedTarget.exists && refreshedTarget.isHittable,
-                "Bottom terminal must stay visible and hittable while workspace refreshes update terminal titles."
+                "Bottom terminal must stay visible and hittable while workspace and browser titles refresh."
             )
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
+        capture("tabs-menu-bottom-after-background-refreshes")
         tapMenuItem(refreshedTarget, in: app)
         let selectedValue = app.buttons["MobileTerminalDropdown"].value as? String ?? ""
         XCTAssertTrue(
             selectedValue.contains("Terminal 24"),
             "Selecting the bottom terminal should update the picker value. value=\(selectedValue)"
         )
+        // A long press must take a fresh snapshot too; a tap-only refresh
+        // hook leaves stale titles on the native press-drag opening path.
+        app.buttons["MobileTerminalDropdown"].press(forDuration: 0.6)
+        assertTerminalMenuItemExists("terminal-build", in: app)
+        XCTAssertNotEqual(
+            app.buttons["MobileTerminalMenuItem-terminal-build"].label,
+            initialTitle,
+            "Reopening must show current names and proves refreshes occurred during the first opening."
+        )
+        capture("tabs-menu-reopened-with-current-titles")
     }
 
     @MainActor
@@ -8646,13 +8727,16 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchWorkspaceDetailRefreshingTerminalMenuPreviewApp() -> XCUIApplication {
-        let app = launchApp(mockData: false, environment: [
+    private func launchWorkspaceDetailRefreshingTerminalMenuPreviewApp(environment: [String: String] = [:]) -> XCUIApplication {
+        var launchEnvironment = [
             "CMUX_UITEST_WORKSPACE_DETAIL_REFRESHING_TERMINAL_MENU": "1",
             "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
-        ])
+            "CMUX_UITEST_SUPPRESS_WHATS_NEW": "1",
+        ]
+        launchEnvironment.merge(environment) { _, new in new }
+        let app = launchApp(mockData: false, environment: launchEnvironment)
         XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
-        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
+        XCTAssertTrue(waitForHittable(app.buttons["MobileTerminalDropdown"], timeout: 8))
         return app
     }
 
@@ -12295,6 +12379,12 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         app.launchEnvironment = [
             "CMUX_UITEST_MOCK_DATA": "1",
             "CMUX_UITEST_ONBOARDING_PREVIEW": "1",
+            "CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK": "1",
+            // Keep the final page on a deterministic automatic connection
+            // method instead of inheriting simulator defaults from another UI test.
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
+            "CMUX_UITEST_AUTOCONNECT_MIGRATION_PERSISTED_METHOD": "automatic",
         ]
         XCUIDevice.shared.orientation = .portrait
         app.launch()
@@ -12318,7 +12408,6 @@ final class IOSSetupRecoveryUITests: XCTestCase {
             capture("onboarding-\(index + 1)-\(scene.lowercased())", in: app)
             if scene != "Push" { primary.tap() }
         }
-        record("onboarding-button-frames", frames.joined(separator: "\n"))
         XCTAssertEqual(primary.label, "Enable Notifications")
         XCTAssertTrue(app.buttons["MobileOnboardingSecondaryButton"].isHittable)
         primary.tap()
@@ -12327,8 +12416,32 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)[
             "MobileOnboardingPairingSettingsScreenshot"
         ].waitForExistence(timeout: 5))
-        capture("onboarding-4-enable-completed", in: app)
+        let pairingAligned = NSPredicate { _, _ in
+            abs(primary.frame.minY - referenceFrame.minY) < 0.5
+                && abs(primary.frame.maxY - referenceFrame.maxY) < 0.5
+        }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: pairingAligned, object: nil
+        )], timeout: 3), .completed)
+        frames.append("Pairing: \(primary.frame)")
+        capture("onboarding-4-pairing", in: app)
         record("onboarding-action-result", "Continue advanced Agents → Notifications → Push. Enable Notifications awaited the preview permission callback and advanced to Pairing. This preview does not request OS permission.")
+
+        primary.tap()
+        let connect = app.descendants(matching: .any)["MobileOnboardingConnectScene"]
+        XCTAssertTrue(connect.waitForExistence(timeout: 5))
+        let finalPageAligned = NSPredicate { _, _ in
+            abs(primary.frame.minY - referenceFrame.minY) < 0.5
+                && abs(primary.frame.maxY - referenceFrame.maxY) < 0.5
+        }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: finalPageAligned, object: nil
+        )], timeout: 3), .completed)
+        XCTAssertEqual(primary.label, "Check Again")
+        frames.append("Connect: \(primary.frame)")
+        capture("onboarding-5-connect", in: app)
+        record("onboarding-button-frames", frames.joined(separator: "\n"))
+        record("onboarding-final-page-result", "The final connection page keeps the primary action aligned with the preceding onboarding pages.")
     }
 
     @MainActor
@@ -12406,11 +12519,9 @@ final class IOSSetupRecoveryUITests: XCTestCase {
             retry.tap()
             let finish = app.buttons["MobileWorkspaceListPreviewFinishRefresh"]
             XCTAssertTrue(finish.waitForExistence(timeout: 5))
-            let statusLine = app.descendants(matching: .any)[
-                "MobileWorkspaceConnectionStatusLine"
-            ]
-            XCTAssertTrue(statusLine.waitForExistence(timeout: 5))
-            XCTAssertEqual(statusLine.label, "Reconnecting…")
+            let picker = app.buttons["MobileWorkspaceMacPicker"]
+            XCTAssertTrue(picker.waitForExistence(timeout: 5))
+            XCTAssertEqual(picker.value as? String, "Reconnecting…")
             XCTAssertFalse(emptyState.exists)
             XCTAssertFalse(retry.exists)
             XCTAssertFalse(app.buttons["MobileWorkspaceEmptyRetryCancel"].exists)

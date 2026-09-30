@@ -55,7 +55,12 @@ struct SidebarRowPalette {
     ) -> NSColor {
         model.isActive
             ? selectedForeground(selectedOpacity)
-            : semantic(.secondaryLabelColor, opacity: inactiveOpacity)
+            : SidebarAppearanceColorResolver().readableSecondaryColor(
+                .secondaryLabelColor,
+                for: colorScheme,
+                opacity: inactiveOpacity,
+                over: model.readabilityBackdropHex.flatMap { NSColor(hex: $0) }
+            )
     }
 
     /// Link color for row-owned text. AppKit paints `.link` runs in

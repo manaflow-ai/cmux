@@ -3,9 +3,14 @@ import SwiftUI
 
 /// Renders one Cloud tree section header and its optional count.
 public struct CloudTreeGroupRowContent: View {
+    /// Creates a section header with its display style and optional count.
+    /// - Parameters:
+    ///   - title: Localized section title.
+    ///   - count: Count information, or nil to omit the count.
+    ///   - style: Typography and spacing shared with the rest of the tree.
     public init(
         title: String,
-        count: Int? = nil,
+        count: CloudTreeGroupCount? = nil,
         style: CloudTreeStyle
     ) {
         self.title = title
@@ -13,8 +18,11 @@ public struct CloudTreeGroupRowContent: View {
         self.style = style
     }
 
+    /// Localized section title.
     public let title: String
-    public let count: Int?
+    /// Count information, omitted until the group's count is available.
+    public let count: CloudTreeGroupCount?
+    /// Typography and spacing shared with the rest of the tree.
     public let style: CloudTreeStyle
 
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
@@ -28,9 +36,13 @@ public struct CloudTreeGroupRowContent: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 if style.showsGroupCounts, let count {
-                    Text(String(count))
+                    Text(count.text)
                         .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(count.isWarning ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.tertiary))
+                        .lineLimit(1)
+                        // The title truncates first; a clipped "1/5…" would misstate usage.
+                        .fixedSize()
+                        .accessibilityLabel(count.accessibilityLabel ?? count.text)
                 }
             }
             Spacer(minLength: 0)

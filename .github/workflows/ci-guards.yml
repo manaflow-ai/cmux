@@ -79,9 +79,17 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_check_repo_variables.py
 
+      - name: Validate the cloud overflow switch
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cloud_overflow_switch.py
+
       - name: Validate guard failure attribution
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_guard_attribution.py
+
+      - name: Validate main compile attribution
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_main_compile_attribution.py
 
       - name: Validate CI failure attribution
         if: ${{ matrix.group == 'ci' }}
@@ -98,6 +106,10 @@ jobs:
       - name: Validate macOS jobs select a pinned Xcode
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_macos_xcode_selection.py
+
+      - name: Validate Xcode pin audit
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_xcode_pin_audit.py
 
       - name: Validate v0.64.25 rpath repair workflow contract
         if: ${{ matrix.group == 'ci' }}
@@ -195,6 +207,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_write_sidebar_extension_point.py
 
+      - name: Test btop agent sidebar example bounds
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_btop_agents_sidebar.py
+
       - name: Validate settings rows advertise supported cmux.json paths
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_settings_configuration_review_paths.py
@@ -218,6 +234,10 @@ jobs:
       - name: Validate .xcstrings merge driver
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_merge_xcstrings.py
+
+      - name: Validate project.pbxproj merge driver
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_merge_pbxproj.py
 
 
       - name: "Validate Swift Testing #require is not nested"
@@ -452,6 +472,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_delta_since_green.py
 
+      - name: Validate the package interface fingerprint
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_package_interface_fingerprint.py
+
       - name: Validate late placement onto idle root runners
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_late_placement.py
@@ -583,6 +607,10 @@ jobs:
       - name: Validate checkout failure network diagnostics
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_checkout_network_diagnostics.py
+
+      - name: Validate production drift issue updates are sticky
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_iroh_drift_issue.py
 
       - name: Validate Swift Testing suite timeout guard
         if: ${{ matrix.group == 'app-host-execution' }}
@@ -779,6 +807,10 @@ jobs:
       - name: Validate tagged iOS device entitlement fallback
         if: ${{ matrix.group == 'release-ios' }}
         run: node --test ios/tests/tagged-device-entitlements.test.mjs
+
+      - name: Validate cached iOS release-gate launch contract
+        if: ${{ matrix.group == 'release-ios' }}
+        run: node --test ios/tests/iroh-cached-launch.test.mjs
 
       - name: Validate manual iOS workflow ref resolution
         if: ${{ matrix.group == 'release-ios' }}
