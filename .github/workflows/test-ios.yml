@@ -1064,7 +1064,10 @@ jobs:
           && needs.detect-ios-changes.outputs.should_run == 'true' && inputs.swift_package == '' }}
     # Runtime-only consumers share the producer's exact Build/Products tree.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
-    timeout-minutes: 35
+    # The 2026-09-25..30 mini sample has p99 14.1m and max 15.9m. The per-step
+    # watchdogs remain the first line of defense; this 25-minute job cap bounds
+    # setup or teardown that makes no test progress.
+    timeout-minutes: 25
     env:
       # An owned Mac's label (glaeda-<class>-xcode-<version>) names the
       # pull-request lane's Xcode pin, so take that Xcode there, as

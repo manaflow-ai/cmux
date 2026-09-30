@@ -2,8 +2,9 @@ name: CI fail fast
 
 # A pull_request workflow cannot safely hold actions: write because it executes
 # repository-controlled code. This watcher is triggered from the default branch,
-# checks the trusted CI run by its stable workflow path, and cancels that run
-# when a cheap admission job fails before expensive macOS or iOS work finishes.
+# checks the trusted CI run by its stable workflow path, and cancels only jobs
+# whose required producer has already failed. Independent test shards and guard
+# jobs stay alive so one failure does not hide useful signal from the same push.
 on:
   workflow_run:
     workflows: [CI]
@@ -47,6 +48,66 @@ jobs:
           fi
 
           RUN="repos/$REPOSITORY/actions/runs/$RUN_ID"
+          cancelled_jobs=""
+
+          cancel_downstream_jobs() {
+            local failed_name="$1"
+            local jobs
+            case "$failed_name" in
+              "Fast static checks"|"linux-preflight"|"guards / "*)
+                echo "Admission failure in $failed_name; cancelling macOS jobs that cannot produce a useful signal."
+                ;;
+              "macos / macOS compile admission")
+                echo "Compile failure detected; cancelling its downstream consumers."
+                ;;
+              *)
+                return 0
+                ;;
+            esac
+
+            if ! jobs="$(gh api "$RUN/jobs?filter=latest&per_page=100" --paginate --jq '
+              .jobs[]
+              | select(.status != "completed")
+              | [.id, .name, .status]
+              | @tsv
+            ')"; then
+              echo "::warning::could not list jobs while cancelling dependents of $failed_name; leaving them running."
+              return 0
+            fi
+
+            while IFS=$'\t' read -r job_id job_name job_status; do
+              [ -n "$job_id" ] || continue
+              [ "$job_name" = "macos / macOS compile admission" ] && [ "$failed_name" = "macos / macOS compile admission" ] && continue
+              case "$job_name" in
+                "macos / macOS compile admission"|\
+                "macos / app-host unit tests ("*|\
+                "macos / CLI product tests"|\
+                "macos / tests-build-and-lag"|\
+                "macos / release-admission"|\
+                "macos / release-build")
+                  ;;
+                *)
+                  continue
+                  ;;
+              esac
+              # A compile failure cancels only its consumers. An admission
+              # failure also cancels the compile itself; sibling guards and
+              # package/test jobs remain available for diagnosis.
+              if [ "$failed_name" = "macos / macOS compile admission" ] && [ "$job_name" = "macos / macOS compile admission" ]; then
+                continue
+              fi
+              case $'\n'"$cancelled_jobs" in
+                *$'\n'"$job_id"$'\n'*)
+                  continue
+                  ;;
+              esac
+              echo "Cancelling $job_name ($job_id), status $job_status, after $failed_name"
+              gh api --method POST "repos/$REPOSITORY/actions/jobs/$job_id/cancel" || \
+                echo "::warning::could not cancel job $job_id ($job_name)"
+              cancelled_jobs="${cancelled_jobs}${job_id}"$'\n'
+            done <<< "$jobs"
+          }
+
           api_errors=0
           for _ in $(seq 1 540); do
             if ! run_state="$(gh api "$RUN" --jq '[.status, .run_attempt] | @tsv')"; then
@@ -70,13 +131,12 @@ jobs:
               | select(
                   (.name == "Fast static checks"
                     or .name == "linux-preflight"
-                    or (.name | startswith("guards / ")))
+                    or (.name | startswith("guards / "))
+                    or .name == "macos / macOS compile admission")
                   and (.conclusion != null)
-                  and (.conclusion != "success")
-                  and (.conclusion != "skipped")
+                  and (.conclusion == "failure" or .conclusion == "timed_out")
                 )
-              | [.name, .conclusion]
-              | @tsv
+              | .name
             ')"; then
               api_errors=$((api_errors + 1))
               if [ "$api_errors" -ge 10 ]; then
@@ -89,10 +149,10 @@ jobs:
             api_errors=0
 
             if [ -n "$failed" ]; then
-              echo "Early CI failure detected; cancelling expensive jobs:"
-              printf '%s\n' "$failed"
-              gh api --method POST "$RUN/cancel" || true
-              exit 0
+              while IFS= read -r failed_name; do
+                [ -n "$failed_name" ] || continue
+                cancel_downstream_jobs "$failed_name"
+              done <<< "$failed"
             fi
             if [ "$status" = "completed" ]; then
               echo "CI completed without an early admission failure."

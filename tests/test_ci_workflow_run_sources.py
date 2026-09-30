@@ -224,6 +224,38 @@ def test_ci_fail_fast_is_a_trusted_pr_run_watcher() -> None:
     assert "actions/checkout" not in text
 
 
+def test_ci_failfast_keeps_failure_rollups_and_bounds_observed_tails() -> None:
+    """Cancellation must skip rollups, while ordinary failures still report."""
+
+    def job_block(path: str, job_id: str) -> str:
+        text = (ROOT / path).read_text(encoding="utf-8")
+        match = re.search(
+            rf"(?ms)^  {re.escape(job_id)}:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:|\Z)",
+            text,
+        )
+        assert match, f"{path} has no {job_id} job"
+        return match.group("body")
+
+    for path, job_id in (
+        (".github/workflows/ci.yml", "tests"),
+        (".github/workflows/ci.yml", "ci-status"),
+        (".github/workflows/ci-guards.yml", "guard-status"),
+        (".github/workflows/ci-macos.yml", "macos-status"),
+        (".github/workflows/ci-web.yml", "web-status"),
+    ):
+        assert "if: ${{ !cancelled() }}" in job_block(path, job_id)
+
+    assert "timeout-minutes: 60" in job_block(
+        ".github/workflows/ci-macos.yml", "app-host-unit-tests"
+    )
+    assert "timeout-minutes: 35" in job_block(
+        ".github/workflows/ci-macos.yml", "swift-package-tests"
+    )
+    assert "timeout-minutes: 25" in job_block(
+        ".github/workflows/test-ios.yml", "ios-simulator"
+    )
+
+
 def main() -> int:
     paths = sorted([*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml")])
     documents = {path: load(path) for path in paths}
