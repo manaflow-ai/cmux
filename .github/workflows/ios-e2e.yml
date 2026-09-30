@@ -374,6 +374,8 @@ jobs:
           oauth-client-id: ${{ vars.TS_E2E_OIDC_CLIENT_ID }}
           audience: ${{ vars.TS_E2E_OIDC_AUDIENCE }}
           tags: tag:ci
+          # The macOS install dominated this step (44 s); reuse it across runs.
+          use-cache: "true"
 
       - name: Point the apps at this run's backend
         run: |
@@ -402,12 +404,29 @@ jobs:
       - name: Boot fresh named simulator
         run: |
           set -euo pipefail
-          devtype="$(xcrun simctl list devicetypes -j | python3 -c 'import json,sys; ts=[t["identifier"] for t in json.load(sys.stdin)["devicetypes"] if t.get("productFamily")=="iPhone"]; print(ts[-1])')"
-          udid="$(xcrun simctl create "cmux-e2e-${GITHUB_RUN_ID}" "$devtype")"
+          # Newest available iOS runtime, then the newest iPhone it supports.
+          # "iPhone" productFamily also lists iPod touch, and the last device
+          # type overall may have no runtime on the image.
+          read -r runtime devtype < <(xcrun simctl list runtimes -j | python3 -c '
+          import json, sys
+          runtimes = [r for r in json.load(sys.stdin)["runtimes"]
+                      if r.get("isAvailable") and r.get("platform") == "iOS"]
+          if not runtimes:
+              sys.exit("no available iOS runtime")
+          runtime = max(runtimes, key=lambda r: [int(x) for x in r["version"].split(".")])
+          phones = [d for d in runtime.get("supportedDeviceTypes", [])
+                    if d.get("productFamily") == "iPhone" and d["name"].startswith("iPhone")]
+          if not phones:
+              sys.exit("runtime " + runtime["identifier"] + " supports no iPhone")
+          def generation(device):
+              digits = "".join(c if c.isdigit() else " " for c in device["name"]).split()
+              return (int(digits[0]) if digits else 0, "Pro" in device["name"], "Max" not in device["name"])
+          print(runtime["identifier"], max(phones, key=generation)["identifier"])')
+          udid="$(xcrun simctl create "cmux-e2e-${GITHUB_RUN_ID}" "$devtype" "$runtime")"
           xcrun simctl boot "$udid"
           xcrun simctl bootstatus "$udid" -b
           echo "CMUX_E2E_SIM_UDID=$udid" >> "$GITHUB_ENV"
-          echo "simulator: $udid ($devtype)"
+          echo "simulator: $udid ($devtype, $runtime)"
 
       - name: Build and launch Mac app
         run: |
