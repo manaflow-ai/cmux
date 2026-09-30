@@ -98,6 +98,7 @@ class WorkflowWiringTests(unittest.TestCase):
         step_start = action.index("    - name: Download artifact\n")
         step_end = action.find("\n    - name:", step_start + 1)
         step = action[step_start:step_end if step_end >= 0 else len(action)]
+        self.assertIn("uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131", step)
         self.assertIn("timeout-minutes: 15", step)
 
     def test_restore_step_records_the_transport_it_used(self):
