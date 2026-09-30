@@ -1,0 +1,55 @@
+{
+  "paths": [
+    "Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/ShortcutKeymapChooserView*",
+    "Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/ShortcutKeymapPresetRow*",
+    "Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutKeymapPreset*",
+    "Sources/ContentView+KeymapPresetCommands*"
+  ],
+  "launch": {
+    "args": [
+      "-cmux.shortcuts.keymapChooser.answered.v1",
+      "NO"
+    ],
+    "env": {
+      "CMUX_UI_TEST_KEYMAP_CHOOSER": "1"
+    }
+  },
+  "steps": [
+    { "wait": 3 },
+    { "expect": { "id": "KeymapChooser" } },
+    { "expect": { "id": "KeymapChooserPreview" } },
+    { "shot": "01-chooser-on-a-fresh-install" },
+    { "tree": "01-chooser-on-a-fresh-install" },
+
+    { "click": { "id": "KeymapChooserPreset-browser", "type": "button" } },
+    { "wait": 1 },
+    { "shot": "02-preview-browser" },
+    { "tree": "02-preview-browser" },
+
+    { "click": { "id": "KeymapChooserPreset-tmux", "type": "button" } },
+    { "wait": 1 },
+    { "shot": "03-preview-tmux" },
+    { "tree": "03-preview-tmux" },
+
+    { "click": { "id": "KeymapChooserPreset-iterm2", "type": "button" } },
+    { "wait": 1 },
+    { "shot": "04-preview-iterm2" },
+
+    { "click": { "id": "KeymapChooserPreset-terminal", "type": "button" } },
+    { "wait": 1 },
+    { "shot": "05-preview-macos-terminal" },
+
+    { "click": { "id": "KeymapChooserPreset-cmux", "type": "button" } },
+    { "wait": 1 },
+    { "shot": "06-preview-cmux-default" },
+    { "tree": "06-preview-cmux-default" },
+
+    { "click": { "id": "KeymapChooserPreset-browser", "type": "button" } },
+    { "wait": 1 },
+    { "click": { "id": "KeymapChooserApply", "type": "button" } },
+    { "wait": 3 },
+    { "expect": { "id": "KeymapChooser" }, "exists": false },
+    { "shot": "07-applied-and-dismissed", "screen": true },
+    { "tree": "07-applied-and-dismissed" }
+  ]
+}
