@@ -370,6 +370,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
     func testManualCloseOnLastRemotePanelKeepsWorkspaceDisconnected() throws {
         let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -395,6 +396,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
 
+        workspace.terminalPanel(for: remotePanelId)?.surface.killShellProcessesForTesting()
         XCTAssertTrue(workspace.closePanel(remotePanelId, force: true))
         drainMainQueue()
         drainMainQueue()
@@ -410,6 +412,10 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
 
         let firstPlaceholderId = replacement.id
+        // The placeholder may have started login(1) during the queue drains.
+        // Stop the test shell before exercising the product close path so its
+        // native free cannot wait out the SIGHUP grace in a later test suite.
+        replacement.surface.killShellProcessesForTesting()
         XCTAssertTrue(workspace.closePanel(firstPlaceholderId, force: true))
         drainMainQueue()
         drainMainQueue()
@@ -780,6 +786,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
     func testFocusedRemoteChildExitWithMultipleTerminalsDisconnectsWorkspace() async throws {
         let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
         guard let workspace = manager.selectedWorkspace,
               let initialPanelId = workspace.focusedPanelId,
               let initialPanel = workspace.terminalPanel(for: initialPanelId) else {
@@ -814,6 +821,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
         XCTAssertTrue(workspace.isRemoteTerminalSurface(initialPanelId))
 
+        initialPanel.surface.killShellProcessesForTesting()
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: initialPanelId)
         await workspace.waitForRemoteDisconnectTransition(surfaceId: initialPanelId)
 
@@ -823,6 +831,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertFalse(workspace.terminalPanel(for: initialPanelId)?.surface === initialPanel.surface)
         XCTAssertTrue(workspace.remoteDisconnectPlaceholderPanelIds.contains(initialPanelId))
 
+        splitPanel.surface.killShellProcessesForTesting()
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: splitPanel.id)
 
         XCTAssertNil(workspace.panels[splitPanel.id])
@@ -832,6 +841,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
     func testChildExitAfterRemoteSessionEndKeepsWorkspaceDisconnected() async throws {
         let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId,
               let remotePanel = workspace.terminalPanel(for: remotePanelId) else {
@@ -860,6 +870,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
 
+        remotePanel.surface.killShellProcessesForTesting()
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
         await workspace.waitForRemoteDisconnectTransition(surfaceId: remotePanelId)
 

@@ -23,7 +23,7 @@ final class MainWindowLifecycleCoordinator {
         (token: UUID, task: Task<Void, Never>)?
     @ObservationIgnored
     private var windowlessRouteFreezeTasks:
-        [UUID: (token: UUID, task: Task<Void, Never>)] = [:]
+        [UUID: (token: UUID, task: Task<Void, Never>, pendingRetryAttempt: Int?)] = [:]
     @ObservationIgnored
     private var windowlessRecoveryResumeIndexesBindings:
         [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
@@ -32,7 +32,6 @@ final class MainWindowLifecycleCoordinator {
         [SurfaceResumeBindingIndex.PanelKey: Int64]?
     @ObservationIgnored
     private var windowlessRecoveryResumeIndexesGeneration: UInt64 = 0
-
     deinit {
         windowlessRouteFreezeTasks.values.forEach { $0.task.cancel() }
         windowlessRecoveryResumeIndexesTask?.cancel()
@@ -164,19 +163,53 @@ final class MainWindowLifecycleCoordinator {
     /// Cancellation cannot interrupt a synchronous process/filesystem call. Keeping
     /// this handle prevents a later orphan from starting an overlapping scan.
     func retainWindowlessRecoveryResumeIndexesWorker(
-        _ task: Task<ProcessDetectedResumeIndexes, Never>
+        _ task: Task<ProcessDetectedResumeIndexes, Never>,
+        onCompleted: @escaping @MainActor @Sendable (ProcessDetectedResumeIndexes) -> Void = { _ in }
     ) {
         guard windowlessRecoveryResumeIndexesWorkerTask == nil else { return }
         let token = UUID()
         let completionTask = Task { @MainActor [weak self] in
-            _ = await task.value
+            let result = await task.value
             guard let self else { return }
             guard self.windowlessRecoveryResumeIndexesWorkerTask?.token == token else {
                 return
             }
             self.windowlessRecoveryResumeIndexesWorkerTask = nil
+            onCompleted(result)
         }
         windowlessRecoveryResumeIndexesWorkerTask = (token: token, task: completionTask)
+    }
+
+    /// Returns whether a synchronous recovery scan is still draining off-main.
+    func isWindowlessRecoveryResumeIndexesWorkerRunning() -> Bool {
+        windowlessRecoveryResumeIndexesWorkerTask != nil
+    }
+
+    /// Retries after the first attempt before a windowless route stays live.
+    ///
+    /// A route that is never frozen here stays live; the quit and power-off
+    /// saves load a fresh index and freeze it or persist it as a live route.
+    static let windowlessRouteFreezeMaximumRetries = 5
+
+    /// Returns the next retry attempt, or nil once the retry budget is spent.
+    static func nextWindowlessRouteFreezeRetryAttempt(after attempt: Int) -> Int? {
+        attempt < windowlessRouteFreezeMaximumRetries ? attempt + 1 : nil
+    }
+
+    /// Exponential backoff before a retry starts another process/filesystem scan.
+    static func windowlessRouteFreezeRetryDelay(attempt: Int) -> Duration {
+        .seconds(1 << min(max(attempt, 1), 6))
+    }
+
+    /// Consumes all retry requests after the shared worker has completed.
+    func consumeWindowlessRouteFreezeRetries() -> [(windowId: UUID, attempt: Int)] {
+        let retries = windowlessRouteFreezeTasks.compactMap { windowId, entry in
+            entry.pendingRetryAttempt.map { (windowId: windowId, attempt: $0) }
+        }
+        for retry in retries {
+            windowlessRouteFreezeTasks.removeValue(forKey: retry.windowId)
+        }
+        return retries
     }
 
     /// Owns one deferred freeze task until it completes or its route leaves recovery.
@@ -189,13 +222,30 @@ final class MainWindowLifecycleCoordinator {
         token: UUID
     ) {
         windowlessRouteFreezeTasks[windowId]?.task.cancel()
-        windowlessRouteFreezeTasks[windowId] = (token: token, task: task)
+        windowlessRouteFreezeTasks[windowId] = (
+            token: token,
+            task: task,
+            pendingRetryAttempt: nil
+        )
     }
 
     /// Drops a completed deferred freeze task without touching a replacement task.
-    func releaseWindowlessRouteFreezeTask(windowId: UUID, token: UUID) {
+    func releaseWindowlessRouteFreezeTask(
+        windowId: UUID,
+        token: UUID,
+        retryAttemptWhenWorkerCompletes: Int? = nil
+    ) {
         guard windowlessRouteFreezeTasks[windowId]?.token == token else { return }
-        windowlessRouteFreezeTasks.removeValue(forKey: windowId)
+        if let retryAttemptWhenWorkerCompletes {
+            guard let entry = windowlessRouteFreezeTasks[windowId] else { return }
+            windowlessRouteFreezeTasks[windowId] = (
+                token: entry.token,
+                task: entry.task,
+                pendingRetryAttempt: retryAttemptWhenWorkerCompletes
+            )
+        } else {
+            windowlessRouteFreezeTasks.removeValue(forKey: windowId)
+        }
     }
 
     /// Cancels and forgets the deferred freeze for one route.

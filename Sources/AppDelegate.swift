@@ -1304,7 +1304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
-    private var processDetectedSessionSaveGeneration: UInt64 = 0
+    private let processDetectedSessionSaveCoordinator = ProcessDetectedSessionSaveCoordinator()
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
@@ -4070,9 +4070,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         flushPendingStartupNavigationURLRequests()
         if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
-            // Auto-resume input can be queued before tmux has spawned; preserve
-            // restored process-detected bindings until a later live scan.
-            _ = saveSessionSnapshot(includeScrollback: false)
+            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
         }
     }
 
@@ -4476,6 +4474,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func stopSessionAutosaveTimer() {
         sessionAutosaveTimer?.cancel()
         sessionAutosaveTimer = nil
+        processDetectedSessionSaveCoordinator.cancel()
         sessionAutosaveTickInFlight = false
         sessionAutosaveDeferredRetryPending = false
     }
@@ -4724,7 +4723,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         removeWhenEmpty: Bool = false,
         preserveManualRestoreBackupOnMissingPrimary: Bool = false,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        freezeWindowlessRoutes: Bool = true
     ) -> Bool {
         if Self.shouldSkipSessionSaveDuringStartupTransition(
             isStartupSessionRestorePending: !didAttemptStartupSessionRestore,
@@ -4760,7 +4760,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let snapshotBuildResult = buildSessionSnapshotResult(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+            freezeWindowlessRoutes: freezeWindowlessRoutes
         )
         guard let snapshot = snapshotBuildResult.snapshot else {
             let preserveManualRestoreBackup =
@@ -4830,10 +4831,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func debugBuildSessionSnapshotForTesting(
         includeScrollback: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> AppSessionSnapshot? {
         buildSessionSnapshot(
             includeScrollback: includeScrollback,
+            restorableAgentIndex: restorableAgentIndex,
             surfaceResumeBindingIndex: surfaceResumeBindingIndex
         )
     }
@@ -5030,13 +5033,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // A watchdog fallback or synchronous updater callback must not retry
         // process or filesystem work on the main actor.
         let resumeIndexes = ProcessDetectedResumeIndexes.cached(
-            restorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty
+            restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() ?? .empty
         )
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
             restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex,
+            freezeWindowlessRoutes: false
         )
     }
 
@@ -5116,13 +5120,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // index when startup has not populated that cache yet). No surface scan runs, so the
         // surface binding index is unavailable and live bindings are not reconciled away.
         let resumeIndexes = ProcessDetectedResumeIndexes.cached(
-            restorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty
+            restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() ?? .empty
         )
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
             restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex,
+            freezeWindowlessRoutes: false
         )
     }
 
@@ -5133,7 +5138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         let generation = nextProcessDetectedSessionSaveGeneration()
         let ttyDeviceBindings = currentSurfaceTTYDeviceBindings()
-        Task { @MainActor [weak self] in
+        processDetectedSessionSaveCoordinator.replaceTask(Task { @MainActor [weak self] in
             let resumeIndexes = await ProcessDetectedResumeIndexes.load(
                 ttyDeviceBindings: ttyDeviceBindings
             )
@@ -5147,17 +5152,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 restorableAgentIndex: resumeIndexes.restorableAgentIndex,
                 surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
             )
-        }
+        })
     }
 
     @discardableResult
     private func nextProcessDetectedSessionSaveGeneration() -> UInt64 {
-        processDetectedSessionSaveGeneration &+= 1
-        return processDetectedSessionSaveGeneration
+        processDetectedSessionSaveCoordinator.beginGeneration()
     }
 
     private func isCurrentProcessDetectedSessionSaveGeneration(_ generation: UInt64) -> Bool {
-        generation == processDetectedSessionSaveGeneration
+        processDetectedSessionSaveCoordinator.isCurrentGeneration(generation)
     }
 
     fileprivate func recordTypingActivity() {
@@ -5273,34 +5277,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func buildSessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+        surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        freezeWindowlessRoutes: Bool = true
     ) -> AppSessionSnapshot? {
         buildSessionSnapshotResult(
             includeScrollback: includeScrollback,
             restorableAgentIndex: suppliedRestorableAgentIndex,
-            surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
+            surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex,
+            freezeWindowlessRoutes: freezeWindowlessRoutes
         ).snapshot
     }
 
     private func buildSessionSnapshotResult(
         includeScrollback: Bool,
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+        surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        freezeWindowlessRoutes: Bool = true
     ) -> (snapshot: AppSessionSnapshot?, didRemoveCrashDiagnosticData: Bool) {
-        let preflightRoutes = orderedSessionRouteSnapshots(
-            restorableAgentIndex: suppliedRestorableAgentIndex,
+        // Snapshot capture must not perform a cold hook-store/process scan on main.
+        // Nil keeps cold windowless owners live until their asynchronous freeze resolves.
+        let restorableAgentIndex = suppliedRestorableAgentIndex
+        let routes = orderedSessionRouteSnapshots(
+            restorableAgentIndex: restorableAgentIndex,
             surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex,
-            freezeWindowlessRoutes: includeScrollback
+            freezeWindowlessRoutes: includeScrollback && freezeWindowlessRoutes
         )
-        guard !preflightRoutes.isEmpty else { return (nil, false) }
-        let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
-        let routes = suppliedRestorableAgentIndex == nil
-            ? orderedSessionRouteSnapshots(
-                restorableAgentIndex: restorableAgentIndex,
-                surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex,
-                freezeWindowlessRoutes: includeScrollback
-            )
-            : preflightRoutes
+        guard !routes.isEmpty else { return (nil, false) }
         var windows: [SessionWindowSnapshot] = []
         var didRemoveCrashDiagnosticData = false
         let createdAt = Date().timeIntervalSince1970
@@ -5311,7 +5313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 windowSnapshot = sessionWindowSnapshot(
                     for: liveRoute,
                     includeScrollback: includeScrollback,
-                    restorableAgentIndex: restorableAgentIndex,
+                    restorableAgentIndex: restorableAgentIndex ?? .empty,
                     surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
                 )
             case .frozen(_, let frozenWindowSnapshot):

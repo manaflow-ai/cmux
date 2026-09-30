@@ -274,7 +274,8 @@ struct UpdateRelaunchAgentResumeTests {
     func updateRelaunchIndexCaptureIsRecentAndSingleUse() throws {
         let fresh = ProcessDetectedResumeIndexes(
             restorableAgentIndex: .empty,
-            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: [:])
+            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: [:]),
+            isFresh: true
         )
         var capture = UpdateRelaunchIndexCapture()
         // `take` is mutating, so each result is read outside the test macros.
