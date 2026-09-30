@@ -232,10 +232,20 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
             owned_jobs.append("lag")
         if env.get("RUN_CLI") == "true":
             owned_jobs.append("cli-product")
+        # swift-package-tests first builds the Release Ghostty CLI helper
+        # against an SDK 15 Xcode when this run is a full suite that also
+        # checks the Release build. Only the Blacksmith macOS 15 image carries
+        # that SDK; the minis have Xcode 26.6 alone, where ci-macos.yml's
+        # "Select helper Xcode" exits non-zero rather than falling back. So the
+        # lane takes an owned Mac only when it builds no helper
+        # (pr_runner_pool.package_lane_owned()).
+        helper_build = env.get("RUN_FULL_SUITE") == "true" and env.get("RUN_RELEASE_BUILD") == "true"
         for key, lane in (("RUN_CLAUDE_WRAPPER", "claude-wrapper"),
                           ("RUN_REMOTE_DAEMON", "remote-daemon"),
                           ("RUN_SWIFT_PACKAGES", "swift-package"),
                           ("RUN_RELEASE_BUILD", "release-build")):
+            if lane == "swift-package" and helper_build:
+                continue
             if env.get(key) == "true":
                 owned_jobs.append(lane)
     values.update(runner=choice.label, xcode_app=choice.xcode_app, retry_runner=choice.label,
