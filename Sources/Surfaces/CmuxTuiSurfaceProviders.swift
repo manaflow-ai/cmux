@@ -237,6 +237,18 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             refreshCloudBrowserRoutes()
         }
     }
+    func markInactive(status: String) {
+        guard let current = summary.cloudSummary else { return }
+        let inactive = VMSummary(
+            id: current.id, provider: current.provider, status: status, image: current.image,
+            createdAt: current.createdAt, base: current.base, kind: current.kind,
+            capabilities: current.capabilities, displayName: current.displayName, slug: current.slug,
+            freeAccessExpiresAt: current.freeAccessExpiresAt, addressIPv4: current.addressIPv4,
+            addressIPv6: current.addressIPv6, cmuxTuiContract: current.cmuxTuiContract,
+            createdBy: current.createdBy
+        )
+        update(summary: inactive)
+    }
     func suspendForFeatureFlag() {
         isFeatureSuspended = true
         // The first read after resuming must arm afresh, never adopt at once.

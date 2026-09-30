@@ -68,6 +68,7 @@ public actor CloudMachineLinkManager {
     private var browserProxyStarts: [String: Task<CloudBrowserProxyEndpoint, Error>] = [:]
     private var lastFailure: [String: (at: Date, error: String)] = [:]
     private var machineStatuses: [String: String] = [:]
+    private let resumeMachine: @Sendable (String) async throws -> String
     /// A failed link is not retried for this long, so a polling sidebar does not hammer
     /// a machine whose route is broken. Only background upkeep waits it out
     /// (``backoffRejects(failedAt:now:backoff:)``).
@@ -101,11 +102,18 @@ public actor CloudMachineLinkManager {
         hub: CloudWireGuardHub? = nil,
         operations: CloudOperationRecorder? = nil,
         isCloudEnabled: @escaping @Sendable () -> Bool = { true },
+        resumeMachine: @escaping @Sendable (String) async throws -> String = { machineID in
+            guard let client = await MainActor.run(body: { VMClient.shared }) else {
+                throw ManagerError.clientMissing
+            }
+            return try await client.resume(id: machineID)
+        },
         hostThemeColors: @escaping @Sendable () async -> (foreground: String, background: String)?,
         breadcrumb: @escaping @Sendable (_ event: String, _ fields: [String: String]) -> Void = { _, _ in }
     ) {
         self.breadcrumb = breadcrumb
         self.isCloudEnabled = isCloudEnabled
+        self.resumeMachine = resumeMachine
         self.operations = operations
         self.paths = paths
         self.clientURL = clientURL
@@ -181,10 +189,7 @@ public actor CloudMachineLinkManager {
             if Self.isBackgroundUpkeep {
                 throw ManagerError.retryLater("Cloud machine is \(status); waiting for it to run.")
             }
-            guard let client = await MainActor.run(body: { VMClient.shared }) else {
-                throw ManagerError.clientMissing
-            }
-            machineStatuses[machineID] = try await client.resume(id: machineID)
+            machineStatuses[machineID] = try await resumeMachine(machineID)
         }
         if let link = links[machineID], await link.isConnected, let connected = await link.connected {
             return connected

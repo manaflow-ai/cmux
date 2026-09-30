@@ -425,6 +425,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     func machineBecameInactive(_ rawID: String, status: String = "paused") async {
         await links.setMachineStatus(status, for: rawID)
         guard let provider = providers[registeredMachineID(matching: rawID)] else { return }
+        provider.markInactive(status: status)
         scheduleTransportTeardown(rawID, provider: provider)
     }
 
@@ -445,6 +446,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     }
 
     private func scheduleTransportTeardown(_ rawID: String, provider: CmuxTuiSurfaceProvider) {
+        provider.stopTransportResources()
         scheduleTeardown(rawID, provider: provider, retireProvider: false)
     }
 
@@ -455,7 +457,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             await previousTeardown?.value
             if let provider {
                 if retireProvider { await provider.stop() }
-                else { provider.stopTransportResources(); await portAccess.remove(machineID: id) }
+                else { await portAccess.remove(machineID: id) }
             } else {
                 await portAccess.remove(machineID: id)
             }

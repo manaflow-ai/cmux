@@ -35,4 +35,49 @@ struct CloudLinkRetryBackoffTests {
         #expect(!CloudMachineLinkManager.backgroundUpkeepShouldConnect(status: "stopped"))
         #expect(!CloudMachineLinkManager.backgroundUpkeepShouldConnect(status: "suspended"))
     }
+
+    @Test("a paused machine's upkeep request does not wake or dial")
+    func pausedUpkeepDoesNotConnect() async {
+        let probe = ResumeProbe()
+        let links = CloudMachineLinkManager(clientURL: nil, resumeMachine: { id in
+            await probe.record(id)
+            return "running"
+        }, hostThemeColors: { nil })
+        await links.setMachineStatus("paused", for: "vm-paused")
+        await CloudMachineLinkManager.$isBackgroundUpkeep.withValue(true) {
+            do {
+                _ = try await links.connected(machineID: "vm-paused")
+                Issue.record("Paused upkeep unexpectedly connected")
+            } catch CloudMachineLinkManager.ManagerError.retryLater {
+                // The status check ran before any client or private route lookup.
+            } catch {
+                Issue.record("Unexpected error: \(error)")
+            }
+        }
+        #expect(await probe.ids.isEmpty)
+    }
+
+    @Test("a direct open resumes before its carrier dial")
+    func directOpenResumes() async {
+        let probe = ResumeProbe()
+        let links = CloudMachineLinkManager(clientURL: nil, resumeMachine: { id in
+            await probe.record(id)
+            return "running"
+        }, hostThemeColors: { nil })
+        await links.setMachineStatus("paused", for: "vm-paused")
+        do {
+            _ = try await links.connected(machineID: "vm-paused")
+            Issue.record("The nil test client unexpectedly connected")
+        } catch CloudMachineLinkManager.ManagerError.clientMissing {
+            // The test client stops the dial after the resume.
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+        #expect(await probe.ids == ["vm-paused"])
+    }
+}
+
+private actor ResumeProbe {
+    private(set) var ids: [String] = []
+    func record(_ id: String) { ids.append(id) }
 }
