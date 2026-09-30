@@ -30819,6 +30819,114 @@
             "state": "translated",
             "value": "Kimi Code"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi Code"
+          }
         }
       }
     },
@@ -30852,7 +30960,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أولاما"
+            "value": "Ollama"
           }
         },
         "es": {
@@ -30864,19 +30972,85 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "奧拉馬"
+            "value": "Ollama"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "奥拉马"
+            "value": "Ollama"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "올라마"
+            "value": "Ollama"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
           }
         }
       }
@@ -34267,13 +34441,13 @@
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Claude Code"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Claude Code"
           }
         },
@@ -34303,7 +34477,7 @@
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Claude Code"
           }
         },
@@ -34315,7 +34489,7 @@
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Claude Code"
           }
         },
@@ -34327,43 +34501,43 @@
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Claude Code"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Claude Code"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Claude Code"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Claude Code"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Claude Code"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Claude Code"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Claude Code"
           }
         },
@@ -34387,25 +34561,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الدستور الغذائي"
+            "value": "Codex"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Codex"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Codex"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kodex"
+            "value": "Codex"
           }
         },
         "en": {
@@ -34417,18 +34591,18 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Códice"
+            "value": "Codex"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manuscrit"
+            "value": "Codex"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Codex"
           }
         },
@@ -34440,55 +34614,55 @@
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Codex"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사본"
+            "value": "Codex"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Codex"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Codex"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Codex"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Codex"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Codex"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Codex"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Codex"
           }
         },
@@ -34501,7 +34675,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "法典"
+            "value": "Codex"
           }
         }
       }
@@ -34512,18 +34686,18 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "كود مفتوح"
+            "value": "OpenCode"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "OpenCode"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "OpenCode"
           }
         },
@@ -34542,18 +34716,18 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "código abierto"
+            "value": "OpenCode"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Code Ouvert"
+            "value": "OpenCode"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "OpenCode"
           }
         },
@@ -34565,55 +34739,55 @@
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "OpenCode"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오픈코드"
+            "value": "OpenCode"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "OpenCode"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "OpenCode"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "OpenCode"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "OpenCode"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "OpenCode"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "OpenCode"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "OpenCode"
           }
         },
@@ -34626,7 +34800,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開放程式碼"
+            "value": "OpenCode"
           }
         }
       }
@@ -71448,6 +71622,102 @@
           }
         },
         "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "Claude Code"
@@ -138345,6 +138615,114 @@
             "state": "translated",
             "value": "Claude Code"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
         }
       }
     },
@@ -138366,43 +138744,109 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kodex"
+            "value": "Codex"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manuscrit"
+            "value": "Codex"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الدستور الغذائي"
+            "value": "Codex"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Códice"
+            "value": "Codex"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "法典"
+            "value": "Codex"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "法典"
+            "value": "Codex"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사본"
+            "value": "Codex"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
           }
         }
       }
@@ -138431,37 +138875,103 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Code Ouvert"
+            "value": "OpenCode"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "كود مفتوح"
+            "value": "OpenCode"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "código abierto"
+            "value": "OpenCode"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開放程式碼"
+            "value": "OpenCode"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "开放代码"
+            "value": "OpenCode"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오픈코드"
+            "value": "OpenCode"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
           }
         }
       }
@@ -229451,6 +229961,108 @@
             "state": "translated",
             "value": "Claude Code"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
         }
       }
     },
@@ -229506,6 +230118,72 @@
           }
         },
         "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Codex"
@@ -229805,6 +230483,72 @@
             "state": "translated",
             "value": "OpenCode"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
         }
       }
     },
@@ -229818,6 +230562,114 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "Pi"
@@ -287230,6 +288082,114 @@
             "state": "translated",
             "value": "Claude Code"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
         }
       }
     },
@@ -287251,43 +288211,109 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kodex"
+            "value": "Codex"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manuscrit"
+            "value": "Codex"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الدستور الغذائي"
+            "value": "Codex"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Códice"
+            "value": "Codex"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "法典"
+            "value": "Codex"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "法典"
+            "value": "Codex"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사본"
+            "value": "Codex"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
           }
         }
       }
@@ -287306,6 +288332,114 @@
             "state": "translated",
             "value": "Grok"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
         }
       }
     },
@@ -287315,25 +288449,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "وكيل Hermes"
+            "value": "Hermes Agent"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hermes agent"
+            "value": "Hermes Agent"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hermes-agent"
+            "value": "Hermes Agent"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hermes-Agent"
+            "value": "Hermes Agent"
           }
         },
         "en": {
@@ -287345,91 +288479,91 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agente Hermes"
+            "value": "Hermes Agent"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent Hermes"
+            "value": "Hermes Agent"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agente Hermes"
+            "value": "Hermes Agent"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hermes エージェント"
+            "value": "Hermes Agent"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្នាក់ងារ Hermes"
+            "value": "Hermes Agent"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hermes 에이전트"
+            "value": "Hermes Agent"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hermes-agent"
+            "value": "Hermes Agent"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent Hermes"
+            "value": "Hermes Agent"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agente Hermes"
+            "value": "Hermes Agent"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Агент Hermes"
+            "value": "Hermes Agent"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เอเจนต์ Hermes"
+            "value": "Hermes Agent"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hermes Aracısı"
+            "value": "Hermes Agent"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Агент Hermes"
+            "value": "Hermes Agent"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hermes 代理"
+            "value": "Hermes Agent"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hermes 代理程式"
+            "value": "Hermes Agent"
           }
         }
       }
@@ -287458,37 +288592,103 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Code Ouvert"
+            "value": "OpenCode"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "كود مفتوح"
+            "value": "OpenCode"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "código abierto"
+            "value": "OpenCode"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開放程式碼"
+            "value": "OpenCode"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "开放代码"
+            "value": "OpenCode"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오픈코드"
+            "value": "OpenCode"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
           }
         }
       }
@@ -287503,6 +288703,114 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "Pi"
@@ -287526,6 +288834,108 @@
           }
         },
         "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "Rovo Dev"
@@ -367744,37 +369154,103 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Code Ouvert"
+            "value": "OpenCode"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "كود مفتوح"
+            "value": "OpenCode"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "código abierto"
+            "value": "OpenCode"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開放程式碼"
+            "value": "OpenCode"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "开放代码"
+            "value": "OpenCode"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오픈코드"
+            "value": "OpenCode"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
           }
         }
       }
@@ -367789,6 +369265,114 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "Pi"
@@ -443348,6 +444932,114 @@
             "state": "translated",
             "value": "Amp"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp"
+          }
         }
       }
     },
@@ -443365,6 +445057,114 @@
             "state": "translated",
             "value": "Claude Code"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
         }
       }
     },
@@ -443378,6 +445178,114 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeBuddy"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeBuddy"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeBuddy"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeBuddy"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeBuddy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeBuddy"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeBuddy"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeBuddy"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeBuddy"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeBuddy"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeBuddy"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeBuddy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeBuddy"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeBuddy"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeBuddy"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeBuddy"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeBuddy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeBuddy"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "CodeBuddy"
@@ -443403,43 +445311,109 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kodex"
+            "value": "Codex"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manuscrit"
+            "value": "Codex"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الدستور الغذائي"
+            "value": "Codex"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Códice"
+            "value": "Codex"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "法典"
+            "value": "Codex"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "法典"
+            "value": "Codex"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사본"
+            "value": "Codex"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
           }
         }
       }
@@ -443454,6 +445428,114 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copilot"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copilot"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copilot"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copilot"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copilot"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copilot"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copilot"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copilot"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copilot"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copilot"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copilot"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copilot"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copilot"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copilot"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copilot"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copilot"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copilot"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copilot"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "Copilot"
@@ -443475,6 +445557,114 @@
             "state": "translated",
             "value": "Cursor"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor"
+          }
         }
       }
     },
@@ -443488,6 +445678,114 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Factory"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Factory"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Factory"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Factory"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Factory"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Factory"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Factory"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Factory"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Factory"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Factory"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Factory"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Factory"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Factory"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Factory"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Factory"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Factory"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Factory"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Factory"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "Factory"
@@ -443509,6 +445807,114 @@
             "state": "translated",
             "value": "Gemini"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
         }
       }
     },
@@ -443526,6 +445932,114 @@
             "state": "translated",
             "value": "Grok"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
         }
       }
     },
@@ -443539,6 +446053,114 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermes Agent"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "Hermes Agent"
@@ -443570,37 +446192,103 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Code Ouvert"
+            "value": "OpenCode"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "كود مفتوح"
+            "value": "OpenCode"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "código abierto"
+            "value": "OpenCode"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開放程式碼"
+            "value": "OpenCode"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "开放代码"
+            "value": "OpenCode"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오픈코드"
+            "value": "OpenCode"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
           }
         }
       }
@@ -443615,6 +446303,114 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "Pi"
@@ -443636,6 +446432,114 @@
             "state": "translated",
             "value": "Qoder"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qoder"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qoder"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qoder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qoder"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qoder"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qoder"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qoder"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qoder"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qoder"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qoder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qoder"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qoder"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qoder"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qoder"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qoder"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qoder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qoder"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qoder"
+          }
         }
       }
     },
@@ -443649,6 +446553,114 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rovo Dev"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "Rovo Dev"
@@ -451830,37 +454842,103 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Code Ouvert"
+            "value": "OpenCode"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "كود مفتوح"
+            "value": "OpenCode"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "código abierto"
+            "value": "OpenCode"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開放程式碼"
+            "value": "OpenCode"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "开放代码"
+            "value": "OpenCode"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오픈코드"
+            "value": "OpenCode"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
           }
         }
       }
@@ -451875,6 +454953,114 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "Pi"
