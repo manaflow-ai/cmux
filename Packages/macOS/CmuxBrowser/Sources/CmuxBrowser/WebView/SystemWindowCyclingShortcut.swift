@@ -16,6 +16,8 @@ public struct SystemWindowCyclingShortcut: Equatable, Sendable {
     /// The symbolic hot key ID of "Move focus to next window".
     static let symbolicHotKeyID = "27"
 
+    /// Creates a binding for a key code and modifiers, dropping flags that
+    /// describe the key rather than the chord.
     public init(keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) {
         self.keyCode = keyCode
         self.modifierFlags = Self.normalized(modifierFlags)
@@ -59,6 +61,7 @@ public struct SystemWindowCyclingShortcut: Equatable, Sendable {
         current(defaults: symbolicHotKeysDefaults)
     }
 
+    /// The binding stored in `defaults`, resolved as ``resolve(symbolicHotKeys:)`` does.
     static func current(defaults: UserDefaults?) -> SystemWindowCyclingShortcut? {
         resolve(symbolicHotKeys: defaults?.dictionary(forKey: "AppleSymbolicHotKeys"))
     }
