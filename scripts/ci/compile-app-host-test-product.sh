@@ -279,7 +279,7 @@ build() {
       fleet_cache_setting+=("COMPILATION_CACHE_CAS_PATH=$fleet_cas_root/cas")
       while IFS= read -r setting; do
         case "$setting" in
-          COMPILATION_CACHE_ENABLE_PLUGIN=YES|COMPILATION_CACHE_REMOTE_SERVICE_PATH=/*|COMPILATION_CACHE_CAS_PATH=/*)
+          COMPILATION_CACHE_ENABLE_PLUGIN=YES|COMPILATION_CACHE_REMOTE_SERVICE_PATH=/*)
             fleet_cache_setting+=("$setting")
             ;;
         esac
