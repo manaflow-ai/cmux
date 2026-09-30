@@ -35,8 +35,10 @@ enum TabGroupMoves {
     static func toNewColumn(_ group: TabGroupID, anchor pane: PaneModel, afterColumn: DaemonColumnID?, services: AppServices,
                             transaction: ClientTransactionID, completion: @escaping Completion) {
         let target = pane.handle
+        let width = services.newColumnWidth(nextTo: pane)
         run("move-tab-group-to-column", services: services, transaction: transaction, completion: completion) { connection in
-            _ = try await connection.moveTabGroupToColumn(group, target: .pane(target), afterColumn: afterColumn, transaction: transaction)
+            _ = try await connection.moveTabGroupToColumn(group, target: .pane(target), afterColumn: afterColumn, width: width,
+                                                          transaction: transaction)
         }
     }
 

@@ -86,6 +86,45 @@ the end).
 L7. Window resize: frames snap; the focused column keeps its screen x, then F1 fits it
 (niri `update_config`, 362-366). No animation during live resize.
 
+## Column widths
+
+Source files for this section (same commit): `niri-config/src/layout.rs`,
+`src/layout/workspace.rs`, `src/layout/scrolling.rs`, `resources/default-config.kdl`.
+
+W1. A new column is 1/2 of the view. niri: `Layout::default()` sets
+`default_column_width: Some(PresetSize::Proportion(0.5))` (layout.rs 42), the default
+config says `default-column-width { proportion 0.5; }` (default-config.kdl 142), and
+`Workspace::resolve_default_width` (workspace.rs 820) uses it when no window rule sets a
+width. Before this change cmux used 2/3 (the cmux-tui default for `new-pane-right`).
+
+W2. `layout.defaultColumnWidth` in cmux.json changes it: a proportion from 0.1 to 1.0
+(for example `0.5`, `0.6667`). A bad value keeps 0.5 and shows a diagnostic. niri also
+accepts `fixed <px>` (`PresetSize::Fixed`, `resolve_preset_size`, scrolling.rs 5685).
+cmux does not, because the daemon stores a column width as a fraction of the view
+(`set-viewport-pane-width`); a fixed width would change on each window resize.
+
+W3. Proportions include the gaps, as in niri (`resolve_column_width`, scrolling.rs 4532:
+`(view - gap) * p - gap`; cmux `ColumnStripGeometry.pixelWidth`). Two columns with
+`p + q = 1` fill the view exactly.
+
+W4. A lone full-width column changes to `1 - new width` (1/2 with the default) when a
+second column opens next to it, so both columns are fully visible and the view does not
+move. This is a cmux rule; niri keeps every width (`add_column`, scrolling.rs 999, only
+inserts and then reveals the new column with `compute_new_view_offset`, 5588). Reason:
+in niri the first window of a workspace opens at the default width, so a second one fits
+beside it. In cmux a workspace starts as one full-width column. Without W4, the reveal
+(F1) of the new column pushes the first column out, and only its empty right part
+shows. W4 gives the niri result. It does not apply when the lone column is not full
+width, when there are two or more columns, when the new column is wider than 0.9 of the
+view, or when the lone column closes in the same step (its only tab moves out).
+
+W5. Every path that opens a column uses W1 to W4: the New Column action, a split with no
+room, and a tab or tab group dropped into a new column (`AppServices.newColumnWidth`,
+`LayoutModel.prepareNewColumn`, rules in `NewColumnWidth.plan`). The width change is a
+daemon intent (`set-viewport-pane-width`) with an optimistic patch
+(architecture.md section 1), sent before the new column. Workspace blueprints keep their
+own widths. A workspace that no window shows gets W1 only.
+
 ## Trackpad and wheel
 
 T1. A gesture takes over from the presented value; an automatic scroll in flight stops
@@ -113,7 +152,8 @@ T4. A mouse-wheel notch moves to the adjacent snapping point and applies T3.
 `layout.centerFocusedColumn` in cmux.json: `"never"` (default), `"always"`,
 `"on-overflow"`. Palette: Scroll Columns Minimally, Always Center Focused Column, Center
 Focused Column on Overflow (`layout.centerFocusedColumn.{never,always,onOverflow}`), which
-apply at once and write cmux.json. cmux-next has no Settings window yet; cmux.json and the
+apply at once and write cmux.json. `layout.defaultColumnWidth` (W2) has no palette
+action. cmux-next has no Settings window yet; cmux.json and the
 palette are the settings surfaces.
 
 ## Not done

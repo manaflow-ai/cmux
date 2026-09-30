@@ -78,7 +78,8 @@ refused rather than sent to this Mac.
 
 The existing authenticated control connection gains multiplexed TCP streams
 (spec: `cmux-tui/spec/commands.md` "Loopback forwarding"). It rides every
-transport the app already uses (local socket, SSH stdio, the Cloud link), so
+transport the app already uses (the local socket, the local socket of
+`cmux-tui remote connect ssh://…` for SSH machines, and the Cloud link), so
 there is no new listening socket on the remote, no new credential, and no SSH
 port forward.
 

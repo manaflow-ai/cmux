@@ -5,8 +5,12 @@ public nonisolated enum ColumnWidthPreset: Double, CaseIterable, Sendable {
     case twoThirds = 0.6666666666666666
     case full = 1.0
 
-    /// Width of a new column: two-thirds of the viewport (daemon default 0.667).
-    public static let defaultWidth: Double = 2.0 / 3.0
+    /// Built-in width of a new column: half the viewport, niri's
+    /// `default-column-width { proportion 0.5; }`. cmux.json
+    /// `layout.defaultColumnWidth` overrides it (`LayoutModel.defaultColumnWidth`).
+    /// The cmux-tui default for a `new-pane-right` without a width is still 2/3,
+    /// so the app always sends a width.
+    public static let defaultWidth: Double = 0.5
 
     /// Daemon-accepted width range.
     public static let widthRange: ClosedRange<Double> = 0.1...1.0

@@ -75,9 +75,11 @@ enum PaneHandlers {
             return ctx.refuse(reason)
         case .newColumn(_, let anchor):
             let intent = content?.beginFocusIntent()
+            let width = ctx.services.newColumnWidth(nextTo: pane)
             ctx.registry.track(Task {
                 do {
-                    let created = try await connection.newColumn(rightOf: anchor, options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
+                    let created = try await connection.newColumn(rightOf: anchor, width: width,
+                                                                 options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
                     content?.expectFocus(on: created.surface, generation: intent)
                     return nil
                 } catch {

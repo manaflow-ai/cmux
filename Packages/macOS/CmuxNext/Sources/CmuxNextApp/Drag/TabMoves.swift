@@ -69,14 +69,15 @@ enum TabMoves {
         guard services.daemon(for: pane) === daemon else { return completion(false) }
         let surface = tab.surface, paneHandle = pane.handle
         let echoes = daemon.supports(DaemonCapabilities.tabDrag)
+        let width = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
         services.registry.track(Task {
             let ok = await daemon.commit("move-tab-to-column", patch: .custom { _ in }, transaction: transaction,
                                                    expectEcho: echoes) { connection -> Void in
                 do {
                     _ = try await connection.moveTabToColumn(surface, target: .pane(paneHandle), afterColumn: afterColumn,
-                                                             transaction: echoes ? transaction : nil)
+                                                             width: width, transaction: echoes ? transaction : nil)
                 } catch DaemonError.missingCapabilities {
-                    let created = try await connection.newColumn(rightOf: paneHandle)
+                    let created = try await connection.newColumn(rightOf: paneHandle, width: width)
                     _ = try await adopt(surface, into: created, connection: connection)
                 }
             } != nil

@@ -11,7 +11,7 @@ enum ColumnHandlers {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         registry.bind("newColumn", invoke: { invocation in
             guard let pane = ctx.paneController(invocation), let content = pane.workspace else { return }
-            content.handle(.newColumn(after: pane.layoutPaneID, width: ColumnWidthPreset.defaultWidth))
+            content.layoutModel.newColumn(after: pane.layoutPaneID)
         })
         registry.bind("column.focusLeft", invoke: { focusAdjacent($0, forward: false, ctx) })
         registry.bind("column.focusRight", invoke: { focusAdjacent($0, forward: true, ctx) })
