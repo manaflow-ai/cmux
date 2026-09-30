@@ -68,6 +68,51 @@ struct EmptiedWorkspaceTests {
         withExtendedLifetime((services, state)) {}
     }
 
+    /// The snapshot and the live tree agree (nothing changes when the store
+    /// turns live), so the store becoming live must itself run the checks:
+    /// an empty workspace is repaired, and a populated one then closes when
+    /// its last tab closes.
+    @Test func turningLiveWithAnUnchangedTreeRunsTheChecks() async throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        let recorder = Recorder()
+        services.emptyWorkspaces.canCreate = { true }
+        services.emptyWorkspaces.create = { key in
+            recorder.created.append(key)
+            return SurfaceID(rawValue: 42)
+        }
+        services.emptyWorkspaces.close = { key in recorder.closed.append(key) }
+        let empty = Self.emptied(1)
+        services.daemon.store.applyProvisional(snapshot: empty)
+        let workspace = try #require(services.daemon.store.workspaces.first)
+        let state = WindowState(workspaceID: workspace.id)
+        let controller = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
+        await Self.settle { false }
+        #expect(recorder.created.isEmpty, "nothing is repaired from the snapshot")
+        services.daemon.store.apply(snapshot: empty)
+        await Self.settle { !recorder.created.isEmpty }
+        #expect(recorder.created == [Self.key])
+        #expect(recorder.closed.isEmpty)
+        controller.teardown()
+
+        let populated = ActionBindingCoverageTests.boundServices()
+        let closer = Recorder()
+        populated.emptyWorkspaces.canCreate = { true }
+        populated.emptyWorkspaces.create = { key in
+            closer.created.append(key)
+            return SurfaceID(rawValue: 42)
+        }
+        populated.emptyWorkspaces.close = { key in closer.closed.append(key) }
+        let tree = try BridgeTreeFixture.tree()
+        populated.daemon.store.applyProvisional(snapshot: tree)
+        populated.daemon.store.apply(snapshot: tree)
+        await Self.settle { false }
+        populated.daemon.store.apply(snapshot: Self.emptied(tree.workspaceRevision + 1))
+        await Self.settle { !closer.closed.isEmpty }
+        #expect(closer.closed == [Self.key], "its last tab closed on this connection")
+        #expect(closer.created.isEmpty)
+        withExtendedLifetime((services, populated, state)) {}
+    }
+
     @Test func shownWorkspaceWhoseLastTabClosedIsClosedNotRefilled() async throws {
         let (services, recorder) = try Self.services()
         let workspace = try #require(services.daemon.store.workspaces.first)
