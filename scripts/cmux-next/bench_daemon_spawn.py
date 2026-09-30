@@ -40,6 +40,11 @@ def percentile(values, p):
     return ordered[min(len(ordered) - 1, int(round((len(ordered) - 1) * p)))]
 
 
+# The PTYs in use on this Mac must stay below 300: kern.tty.ptmx_max (511) is
+# shared by every agent, so --pty-limit can only lower this.
+MAX_PTY_LIMIT = 300
+
+
 def ptys_in_use():
     """Allocated pseudo-terminals on this Mac (devfs creates /dev/ttysNNN
     while a PTY is open)."""
@@ -238,10 +243,13 @@ def main():
     parser.add_argument("--creates", type=int, default=96)
     parser.add_argument("--reap-grace", type=int, default=30)
     parser.add_argument("--rounds", type=int, default=1)
-    parser.add_argument("--pty-limit", type=int, default=300)
+    parser.add_argument("--pty-limit", type=int, default=MAX_PTY_LIMIT,
+                        help=f"refuse to start when the PTYs in use plus the creates would reach this (at most {MAX_PTY_LIMIT})")
     parser.add_argument("--label", default="spawn")
     parser.add_argument("--out")
     args = parser.parse_args()
+    if not 0 < args.pty_limit <= MAX_PTY_LIMIT:
+        parser.error(f"--pty-limit must be between 1 and {MAX_PTY_LIMIT}")
 
     in_use = ptys_in_use()
     if in_use + args.creates + 2 >= args.pty_limit:

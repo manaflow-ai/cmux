@@ -487,6 +487,11 @@ def wait_for_pty_baseline(profile, pid, baseline, limit_s):
     return profile.pty_holders(pid)
 
 
+# The PTYs in use on this Mac must stay below 300: kern.tty.ptmx_max (511) is
+# shared by every agent, so --pty-limit can only lower this.
+MAX_PTY_LIMIT = 300
+
+
 def ptys_in_use():
     """Allocated pseudo-terminals on this Mac (devfs creates /dev/ttysNNN
     while a PTY is open)."""
@@ -577,14 +582,16 @@ def main():
                         help="seconds past the reap grace a closed tab's terminal may take to exit before it counts as leaked")
     parser.add_argument("--no-warmup", action="store_true",
                         help="skip the warm-up storm that runs before the memory baseline")
-    parser.add_argument("--pty-limit", type=int, default=300,
-                        help="refuse to start when the PTYs in use plus the storm's terminals would reach this")
+    parser.add_argument("--pty-limit", type=int, default=MAX_PTY_LIMIT,
+                        help=f"refuse to start when the PTYs in use plus the storm's terminals would reach this (at most {MAX_PTY_LIMIT})")
     parser.add_argument("--out")
     parser.add_argument("--label", default="cli-storm")
     parser.add_argument("--no-fail", action="store_true")
     parser.add_argument("--keep-daemon", action="store_true",
                         help="skip the final shutdown-daemon end_terminals teardown (next profile)")
     args = parser.parse_args()
+    if not 0 < args.pty_limit <= MAX_PTY_LIMIT:
+        parser.error(f"--pty-limit must be between 1 and {MAX_PTY_LIMIT}")
 
     # Every agent on this Mac shares kern.tty.ptmx_max (511): never let a
     # storm push the PTYs in use to --pty-limit. Checked before each storm,
