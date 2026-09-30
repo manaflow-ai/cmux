@@ -565,6 +565,41 @@ def test_an_unwritable_result_says_it_is_still_ours():
     assert "must not be committed" in result.stderr, result.stderr
 
 
+def test_a_conflict_key_sharing_a_line_keeps_every_side_intact():
+    """A compacted catalog must not lose the text around the conflicting key."""
+    base = '{"sourceLanguage":"en","strings":{"a":{"v":"BASE"},"b":{"v":"KEEP"}},"version":"1.0"}'
+    ours = base.replace("BASE", "OURS")
+    theirs = base.replace("BASE", "THEIRS")
+    code, merged, _ = run(base, ours, theirs)
+
+    assert code == 1
+    # Per-key replacement would have eaten the '{"sourceLanguage":...,"strings":{'
+    # prefix, leaving it in neither side of the conflict.
+    assert merged.count('"sourceLanguage"') == 3, merged
+    assert_conflict_preserves(merged, "OURS", "THEIRS", "BASE", "KEEP")
+    assert len(conflict_regions(merged)) == 1, merged
+
+
+def test_two_conflict_keys_on_one_line_stay_balanced_and_lossless():
+    """Overlapping per-key ranges must not clobber one another's text."""
+    base = (
+        '{\n  "sourceLanguage" : "en",\n  "strings" : {\n'
+        '    "a": { "v": "B1" }, "b": { "v": "B2" }\n'
+        '  },\n  "version" : "1.0"\n}\n'
+    )
+    ours = base.replace("B1", "O1").replace("B2", "O2")
+    theirs = base.replace("B1", "T1").replace("B2", "T2")
+    code, merged, _ = run(base, ours, theirs)
+
+    assert code == 1
+    # conflict_regions() asserts the markers balance; an overlapping
+    # replacement produced a stray '||||||| base' with no opening marker.
+    assert len(conflict_regions(merged)) == 1, merged
+    # Ours' value for the second key was truncated to ',: "O2" }'.
+    assert '"b": { "v": "O2" }' in merged, merged
+    assert_conflict_preserves(merged, "O1", "O2", "T1", "T2", "B1", "B2")
+
+
 def main():
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     for test in tests:

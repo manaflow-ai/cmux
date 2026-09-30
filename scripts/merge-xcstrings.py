@@ -263,6 +263,8 @@ def materialize_catalog_conflicts(
         theirs_block = sources["theirs"].blocks.get(key, "")
         start, _, end = target.spans[key]
         line_start = _line_start(merged_text, start)
+        if merged_text[line_start:start].strip():
+            raise ValueError(f"conflict key {name!r} shares a line with other text")
         suffix = merged_text[end:]
         comma = "," if suffix.startswith(",") else ""
         replacements.append(
@@ -272,6 +274,10 @@ def materialize_catalog_conflicts(
                 conflict_text(base_block, ours_block, theirs_block, width) + comma,
             )
         )
+    ranges = sorted(replacements)
+    for (_, first_end, _), (next_start, _, _) in zip(ranges, ranges[1:]):
+        if first_end > next_start:
+            raise ValueError("conflict keys overlap in the merged catalog")
     result = merged_text
     for start, end, replacement in sorted(replacements, reverse=True):
         result = result[:start] + replacement + result[end:]
