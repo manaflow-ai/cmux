@@ -178,6 +178,17 @@ describe("dashboard router", () => {
     expect(main).toContain('href="/dashboard/testflight"');
   });
 
+  test.each(["/dashboard/teams/new", "/dashboard/settings/account"])(
+    "%s renders inside the settings hub with its subnav",
+    async (url) => {
+      const { html } = await render(url);
+      expect(html).toContain('data-testid="settings-hub"');
+      const hub = html.slice(html.indexOf('data-testid="settings-hub"'));
+      expect(hub).toContain('href="/dashboard/billing"');
+      expect(hub).toContain('href="/dashboard/teams/new"');
+    },
+  );
+
   test("a 401 session renders the sign-in redirect with the exact destination", async () => {
     sessionReply = { status: 401 };
     const { html } = await render("/dashboard/coderouter?team=t1");
