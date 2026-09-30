@@ -320,7 +320,7 @@ final class InputWorld {
         omnibars[tab] = transition.state
         for case .ended(let reason) in transition.effects {
             switch reason {
-            case .commit, .open, .cancel: window.focus.send(.focusPane(pane, source: .keyboard))
+            case .commit, .open, .cancel, .keyword: window.focus.send(.focusPane(pane, source: .keyboard))
             case .blur: break
             }
         }

@@ -165,6 +165,9 @@ final class AppControl {
             .mainActor("debug.extensions.popup") { [weak services] call in
                 .value(services.map { DebugExtensionToolbar.popup(call.params, $0) } ?? .null)
             },
+            .mainActor("debug.extensions.prompt") { [weak services] call in
+                .value(services.map { DebugExtensionPrompts.run(call.params, $0) } ?? .null)
+            },
             .mainActor("debug.crash.app") { call in DebugCrashes.crashApp(call.params) },
             .mainActor("debug.stall") { call in
                 let milliseconds = min(max(call.params["ms"]?.intValue ?? 100, 1), 1_000)

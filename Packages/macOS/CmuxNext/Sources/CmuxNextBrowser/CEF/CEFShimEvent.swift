@@ -48,6 +48,11 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// The page did not handle a key down (Windows key code; the shim
     /// reports only a plain Escape).
     case keyUnhandled(browser: Int32, keyCode: Int)
+    /// An extension install or permission prompt (fork API 12); prompt 0
+    /// is the "installed" notice.
+    case installPrompt(browser: Int32, promptID: Int32, json: String)
+    /// chrome.omnibox suggestions for a keyword-session request (fork API 12).
+    case omniboxSuggestions(requestID: Int32, extensionID: String, json: String)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -88,6 +93,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 26: self = .chromeCommand(browser: browser, command: request)
         case 27: self = .navigationReroute(browser: browser, url: s1, isRedirect: a != 0)
         case 28: self = .keyUnhandled(browser: browser, keyCode: Int(a))
+        case 29: self = .installPrompt(browser: browser, promptID: request, json: s1)
+        case 30: self = .omniboxSuggestions(requestID: request, extensionID: s1, json: s2)
         default: self = .unknown(kind: kind)
         }
     }
@@ -105,13 +112,18 @@ nonisolated enum CEFForkTabEvent: Int32, Sendable {
     case windowDestroyed = 6
     /// An extension was installed, removed, enabled or disabled (fork API v3).
     case extensionsChanged = 7
-    /// The DevTools menu chose a dock side (fork API v5); value = 0
+    /// The DevTools menu chose a dock side (fork API 12); value = 0
     /// undocked, 1 left, 2 bottom, 3 right.
     case devToolsDockSide = 8
     /// Chromium created a Browser (window) outside cmux; the fork keeps it
     /// hidden, moves its tabs to a pane window and closes it (fork API 8).
     /// value = the Browser type.
     case foreignBrowserBlocked = 9
+    /// A chrome.windows.create popup is kept hidden for cmux (fork API 11,
+    /// only while popup windows are enabled); value = the Browser type.
+    case popupWindowCreated = 10
+    /// Its bounds changed (chrome.windows.update).
+    case popupWindowBounds = 11
     case unknown = -1
 }
 

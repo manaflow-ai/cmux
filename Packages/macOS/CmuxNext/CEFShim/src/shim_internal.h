@@ -46,6 +46,20 @@ struct ForkApi {
   // API version 7: navigation state (tab hibernation, session restore).
   char* (*tab_navigation_state)(int) = nullptr;
   int (*tab_restore_navigation)(int, const char*) = nullptr;
+  // API version 12: page background, New Tab page, install prompts,
+  // chrome.omnibox keyword sessions, native messaging fallback folders.
+  int (*browser_set_background_color)(int, unsigned int) = nullptr;
+  void (*set_new_tab_page_url)(const char*) = nullptr;
+  void (*set_install_prompt_handler)(void (*)(void*, int, int, const char*), void*) = nullptr;
+  int (*install_prompt_reply)(int, int) = nullptr;
+  char* (*omnibox_keywords)(int) = nullptr;
+  int (*omnibox_input)(int, const char*, int, const char*, int) = nullptr;
+  void (*set_omnibox_suggestions_handler)(void (*)(void*, int, const char*, const char*), void*) = nullptr;
+  int (*add_native_messaging_dir)(const char*, int) = nullptr;
+  // API version 11: popup windows extensions create.
+  void (*set_popup_windows_enabled)(int) = nullptr;
+  int (*popup_window_bounds)(int, int*, int*, int*, int*) = nullptr;
+  int (*popup_window_attach)(int, void*, int, int) = nullptr;
 };
 
 struct Host {
@@ -124,6 +138,17 @@ void ForgetPopups(int opener);
 bool IsWindowCommand(int command_id);
 // Binds the host's window request handler to the fork (API 8).
 void InstallWindowRequestHandler();
+// Binds the install prompt and omnibox suggestion handlers (API 12) and
+// applies the New Tab page URL and native messaging folders stored before
+// CefInitialize (shim_extensions_ui.mm).
+void InstallExtensionUIHandlers();
+// The visible entry's virtual URL when it is chrome://newtab (the New Tab
+// page, which loads another URL), else `url`.
+std::string DisplayAddress(CefRefPtr<CefBrowser> browser, const std::string& url);
+// "" for the New Tab page's placeholder title (Chromium titles a page
+// without <title> with its URL, "chrome://newtab" or "about:blank"), so the
+// host shows its own "New Tab"; else `title`.
+std::string DisplayTitle(CefRefPtr<CefBrowser> browser, const std::string& title);
 
 // Context menus the host is showing, by token (UI thread only).
 int StoreMenuCallback(CefRefPtr<CefRunContextMenuCallback> callback);

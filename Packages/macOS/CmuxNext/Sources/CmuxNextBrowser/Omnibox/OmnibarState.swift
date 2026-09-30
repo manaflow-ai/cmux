@@ -88,6 +88,9 @@ public nonisolated struct OmnibarState: Equatable, Sendable {
     }
 
     public var phase: Phase = .idle
+    /// The extension keyword session in progress (`OmnibarKeyword`): the
+    /// field holds only the text after the keyword.
+    public var keyword: OmnibarKeyword?
     public var pageURL: URL?
     public var retainedText: String?
     public var edit = Edit()

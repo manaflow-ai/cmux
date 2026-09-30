@@ -40,6 +40,13 @@ struct DefaultChromiumTests {
         #expect(resolve("webkit", inherited: "cef") == .open(BrowserEngineChoice(engine: .webkit)))
     }
 
+    /// A new tab with no URL: Chromium opens its New Tab page (new-tab
+    /// extensions replace it), WebKit its blank page.
+    @Test func newTabURLFollowsTheEngine() {
+        #expect(BrowserEngineChoice(engine: .cef).newTabURL == "chrome://newtab/")
+        #expect(BrowserEngineChoice(engine: .webkit, fallback: .notBundled).newTabURL == "about:blank")
+    }
+
     @Test func fallbackNoticeShowsOnce() {
         let log = ChromiumFallbackLog()
         log.record(.notBundled, source: .newTab, surface: SurfaceID(rawValue: 1))

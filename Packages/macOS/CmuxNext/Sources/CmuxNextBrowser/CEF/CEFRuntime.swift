@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import ImageIO
 import Foundation
 import os
@@ -58,6 +59,10 @@ final class CEFRuntime {
     var offTheRecordContexts: [BrowserProfileID: Set<String>] = [:]
     /// Extension mirrors by profile.
     var extensionStores: [BrowserProfileID: BrowserExtensionStore] = [:]
+    /// Extension prompts on screen, by Chromium prompt id (fork API 12).
+    var extensionPrompts: [Int32: ExtensionPromptSheet] = [:]
+    /// chrome.omnibox keyword sessions (fork API 12).
+    let omniboxKeywords = CEFOmniboxKeywords()
     var nextRequest: Int32 = 1
     /// In-process DevTools calls waiting for their result (with deadlines).
     let devToolsCalls = CEFReplyWaiters<CEFDevToolsKey, String>()
@@ -302,8 +307,16 @@ final class CEFRuntime {
         )
         loadsUnpackedExtensions = !switchSet.loadExtensions.isEmpty
         shim.setExtensionDeveloperMode(loadsUnpackedExtensions ? 1 : 0)
-        // New pages start on the theme color, never white (PageBackground).
+        // Pages use the theme color, never white or Chrome's #292929
+        // (PageBackground); theme changes reach live tabs (fork API 12).
         shim.setBackgroundColor(PageBackground.themeARGB)
+        ThemeStore.shared.addResponder(self)
+        // chrome://newtab without an extension override (BrowserNewTabPage).
+        shim.setNewTabPageURL(BrowserNewTabPage.blankURL)
+        // Google Chrome's native messaging hosts after cmux's own.
+        for folder in CEFNativeMessaging.googleChromeFolders(home: FileManager.default.homeDirectoryForCurrentUser) {
+            _ = shim.addNativeMessagingDir(folder.path, folder.isUserLevel ? 1 : 0)
+        }
         let switches = switchSet.arguments
         switchStorage = switches.map { strdup($0) } + [nil]
         let locale = library.locale

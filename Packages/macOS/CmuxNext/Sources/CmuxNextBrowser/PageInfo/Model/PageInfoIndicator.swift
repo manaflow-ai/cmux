@@ -12,6 +12,8 @@ public nonisolated struct PageInfoIndicator: Hashable, Sendable {
         case file
         /// The product name, for internal pages ("Chrome" in Chrome).
         case product
+        /// An extension keyword session: the extension's name.
+        case keyword(String)
     }
 
     /// How loud the chip is. Chrome draws `danger` in its red; cmux uses the
@@ -70,6 +72,7 @@ public nonisolated struct PageInfoIndicator: Hashable, Sendable {
         switch chip {
         case .input(let symbol): resolve(site: site, isFocused: true, editingSymbol: symbol)
         case .page(let focused): resolve(site: site, isFocused: focused, editingSymbol: nil)
+        case .keyword(let name): PageInfoIndicator(symbol: Symbol.extensionPage, label: .keyword(name), isTriggerable: false)
         }
     }
 

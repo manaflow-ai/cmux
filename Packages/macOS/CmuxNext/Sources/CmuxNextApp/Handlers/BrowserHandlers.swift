@@ -81,7 +81,7 @@ enum BrowserHandlers {
                 // The default engine (never refused: no engine is requested).
                 guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
                 let intent = pane.workspace?.beginFocusIntent()
-                let address = context.services.newTabAddress
+                let address = context.services.newTabAddress(for: choice)
                 Task {
                     do {
                         let surface = try await browserTabs.open(choice, in: handle, url: address)

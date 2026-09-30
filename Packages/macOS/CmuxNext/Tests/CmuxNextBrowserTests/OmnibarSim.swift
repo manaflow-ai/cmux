@@ -119,8 +119,9 @@ import Testing
         for effect in transition.effects {
             switch effect {
             case .query(let generation, let text): queries.append((generation, text))
+            case .keywordInput(_, let text, let generation): queries.append((generation, text))
             case .cancelQuery: queries.removeAll()
-            case .began, .ended, .beep, .deleteSuggestion: break
+            case .began, .ended, .beep, .deleteSuggestion, .keywordStarted, .keywordEnded: break
             }
         }
         checkInvariants()

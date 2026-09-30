@@ -13,6 +13,7 @@ extension CEFRuntime {
     /// Extensions or their actions changed: refresh the profile mirrors of
     /// the window's tabs (a pin changes both lists).
     func refreshExtensionStores(window: Int32, browser: Int32) {
+        omniboxKeywords.invalidate()
         var profiles: Set<BrowserProfileID> = []
         if let tab = tabsByBrowser[browser] { profiles.insert(tab.profileID) }
         for host in hosts.values where host.owns(window: window) { profiles.insert(host.key.profile) }

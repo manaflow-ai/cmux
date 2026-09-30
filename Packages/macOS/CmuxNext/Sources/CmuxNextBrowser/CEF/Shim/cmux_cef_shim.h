@@ -86,6 +86,14 @@ typedef enum {
   // after the renderer). Only Escape without modifiers is reported;
   // a = Windows key code (0x1B). A popup panel closes on it.
   CMUX_SHIM_KEY_UNHANDLED = 28,
+  // An extension install or permission prompt (fork API 12): request =
+  // prompt id (0 = "installed" notice, no reply), s1 = JSON (cef_cmux.h,
+  // cmux_install_prompt_handler_t). Answer with cmux_shim_install_prompt_reply.
+  CMUX_SHIM_INSTALL_PROMPT = 29,
+  // chrome.omnibox suggestions (fork API 12): request = the request id of
+  // cmux_shim_omnibox_input CHANGED, s1 = extension id, s2 = JSON
+  // [{"content","description","deletable","styles":[{"offset","style"}]}].
+  CMUX_SHIM_OMNIBOX_SUGGESTIONS = 30,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -154,6 +162,16 @@ CMUX_SHIM_EXPORT void cmux_shim_set_extension_developer_mode(int enabled);
 // the call use it; call before cmux_shim_initialize so tabs the fork adds
 // (cmux_shim_tab_add) fall back to it too.
 CMUX_SHIM_EXPORT void cmux_shim_set_background_color(unsigned int argb);
+// The page chrome://newtab shows when no extension overrides the New Tab
+// page (fork API 12); NULL or "" keeps Chromium's. Any time, also before
+// cmux_shim_initialize. The ADDRESS event reports "chrome://newtab/" for a
+// New Tab page, whatever URL it loaded.
+CMUX_SHIM_EXPORT void cmux_shim_set_new_tab_page_url(const char* url);
+// Adds a folder Chromium searches for native messaging host manifests after
+// its own (fork API 12), in call order. user_level = 1 for a per-user folder
+// (skipped when policy forbids user-level hosts). Returns 0 when the fork
+// cannot (after initialize) or the path is empty.
+CMUX_SHIM_EXPORT int cmux_shim_add_native_messaging_dir(const char* path, int user_level);
 // Returns 1 when NSApp conforms to CefAppProtocol and implements its
 // methods (the host app's NSApplication subclass must), 0 otherwise. The shim
 // no longer patches NSApp. Check before cmux_shim_initialize.
@@ -262,6 +280,36 @@ CMUX_SHIM_EXPORT int cmux_shim_tab_move_to_window(int browser_id, int window_bro
 CMUX_SHIM_EXPORT int cmux_shim_unresponsive_reply(int browser_id, int terminate);
 // Ends a CONTEXT_MENU: command_id < 0 cancels.
 CMUX_SHIM_EXPORT void cmux_shim_context_menu_done(int token, int command_id, int event_flags);
+
+// Popup windows extensions create (chrome.windows.create type "popup",
+// fork API 11). Enabled, such a window stays hidden and keeps its window id
+// until the host attaches it (tab events CMUX_POPUP_WINDOW_CREATED = 10 and
+// CMUX_POPUP_WINDOW_BOUNDS = 11 of the fork); disabled (the default), its tab
+// moves into a pane window. Call before cmux_shim_initialize; a host that
+// enables it must attach or close every such window. No-ops and 0 on older
+// forks.
+CMUX_SHIM_EXPORT void cmux_shim_set_popup_windows_enabled(int enabled);
+// Screen DIPs, top-left origin. Returns 0 when the window is unknown.
+CMUX_SHIM_EXPORT int cmux_shim_popup_window_bounds(int window_id, int* x, int* y, int* width, int* height);
+// Attaches the kept window over parent_view (NSView*); 1 on success. Call on a
+// later run loop turn than its event.
+CMUX_SHIM_EXPORT int cmux_shim_popup_window_attach(int window_id, void* parent_view, int width, int height);
+
+// Extension install and permission prompts (fork API 12). result: 0 abort,
+// 1 accept, 2 cancel, 3 accept withholding host permissions. Returns 0 when
+// the prompt is unknown.
+CMUX_SHIM_EXPORT int cmux_shim_install_prompt_reply(int prompt_id, int result);
+
+// chrome.omnibox keyword sessions (fork API 12). Keywords of the tab's
+// profile as JSON [{"extension_id","keyword","name","icon_png",
+// "default_description"}], freed with cmux_shim_free; NULL on older forks.
+CMUX_SHIM_EXPORT char* cmux_shim_omnibox_keywords(int browser_id);
+// event: 0 started, 1 changed (value = request id), 2 entered (value =
+// 0 current tab, 1 new foreground tab, 2 new background tab), 3 cancelled,
+// 4 delete suggestion (text = its content). CHANGED returns 1 when the
+// extension listens (OMNIBOX_SUGGESTIONS follows).
+CMUX_SHIM_EXPORT int cmux_shim_omnibox_input(int browser_id, const char* extension_id, int event,
+                                             const char* text, int value);
 
 // Chromium never shows a window of its own (fork API 8). The handler
 // chooses where each window request goes; without one the fork uses the

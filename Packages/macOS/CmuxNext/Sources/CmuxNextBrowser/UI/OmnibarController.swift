@@ -11,7 +11,10 @@ import Foundation
     var resolver: () -> OmniboxResolver
     /// Rows for typed text (the suggestion engine).
     var suggest: (String) async -> [BrowserSuggestion]
-    /// `began`, `ended` and `beep`; queries run here.
+    /// Rows of an extension keyword session for its text (the tab asks the
+    /// extension through `chrome.omnibox`).
+    var keywordSuggest: (_ extensionID: String, _ text: String) async -> [BrowserSuggestion] = { _, _ in [] }
+    /// `began`, `ended`, `beep` and keyword session boundaries; queries run here.
     var onEffect: ((OmnibarEffect) -> Void)?
     /// After every step (bar and chip appearance).
     var onStep: (() -> Void)?
@@ -75,10 +78,19 @@ import Foundation
                 guard !Task.isCancelled else { return }
                 self?.send(.suggestions(generation: generation, rows: rows))
             }
+        case .keywordInput(let extensionID, let text, let generation):
+            queryTask?.cancel()
+            let suggest = keywordSuggest
+            queryTask = Task { [weak self] in
+                let rows = await suggest(extensionID, text)
+                guard !Task.isCancelled else { return }
+                self?.send(.suggestions(generation: generation, rows: rows))
+            }
+            onEffect?(effect)
         case .cancelQuery:
             queryTask?.cancel()
             queryTask = nil
-        case .beep, .began, .ended, .deleteSuggestion:
+        case .beep, .began, .ended, .deleteSuggestion, .keywordStarted, .keywordEnded:
             onEffect?(effect)
         }
     }

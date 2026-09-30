@@ -25,6 +25,9 @@ final class BrowserEnginePreference {
 
 extension AppServices {
     /// What a new browser tab opens when nothing asked for a page:
-    /// `browser.newTabPage`, else a blank page.
-    var newTabAddress: String { settings?.snapshot.browserNewTabPage?.absoluteString ?? "about:blank" }
+    /// `browser.newTabPage`, else the engine's New Tab page (Chromium's
+    /// chrome://newtab/, where new-tab extensions show; WebKit's blank page).
+    func newTabAddress(for choice: BrowserEngineChoice) -> String {
+        settings?.snapshot.browserNewTabPage?.absoluteString ?? choice.newTabURL
+    }
 }

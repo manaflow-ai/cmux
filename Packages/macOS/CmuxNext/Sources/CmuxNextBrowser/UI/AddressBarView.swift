@@ -48,9 +48,24 @@ public final class AddressBarView: NSView {
     /// (Chromium's own WebUI and extension pages, which WebKit cannot show).
     public var allowsChromiumSchemes = false
 
+    /// Extension omnibox keywords of the tab (`chrome.omnibox`), read on
+    /// every reducer step (the tab caches them).
+    public var keywordSource: () -> [OmnibarKeyword] = { [] }
+
+    /// Suggestions of an extension keyword session, from the tab.
+    public var keywordSuggest: (_ extensionID: String, _ text: String) async -> [BrowserSuggestion] {
+        get { controller.keywordSuggest }
+        set { controller.keywordSuggest = newValue }
+    }
+
+    /// Keyword session boundaries (`keywordStarted`, `keywordEnded`), for
+    /// the tab's extension.
+    public var onKeywordSession: ((OmnibarEffect) -> Void)?
+
     private var resolver: OmniboxResolver {
         var resolver = suggestionEngine.resolver
         resolver.urlResolver.allowsChromiumSchemes = allowsChromiumSchemes
+        resolver.keywords = keywordSource()
         return resolver
     }
 
@@ -234,7 +249,8 @@ public final class AddressBarView: NSView {
         case .ended(let reason): onEvent?(.didEndEditing(reason))
         case .beep: NSSound.beep()
         case .deleteSuggestion(let url): suggestionEngine.deleteSuggestion(url)
-        case .query, .cancelQuery: break
+        case .keywordStarted, .keywordEnded: onKeywordSession?(effect)
+        case .query, .cancelQuery, .keywordInput: break
         }
     }
 
@@ -330,6 +346,8 @@ extension AddressBarView: NSTextFieldDelegate {
         // The Home key (Shift-Home extends); Cmd-Left is a caret move.
         case #selector(NSResponder.scrollToBeginningOfDocument(_:)): controller.send(.key(.home(extend: false)))
         case #selector(NSResponder.moveToBeginningOfDocumentAndModifySelection(_:)): controller.send(.key(.home(extend: true)))
+        // Backspace at the start leaves an extension keyword session.
+        case #selector(NSResponder.deleteBackward(_:)): controller.send(.key(.backspaceAtStart))
         default: false
         }
     }

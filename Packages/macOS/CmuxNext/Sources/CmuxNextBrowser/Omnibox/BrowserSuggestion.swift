@@ -9,6 +9,8 @@ public nonisolated struct BrowserSuggestion: Hashable, Sendable, Identifiable {
         case search
         /// A page from history.
         case history
+        /// An extension's suggestion in a keyword session (`chrome.omnibox`).
+        case keyword
     }
 
     public var kind: Kind
@@ -19,6 +21,8 @@ public nonisolated struct BrowserSuggestion: Hashable, Sendable, Identifiable {
     public var url: URL
     /// Higher ranks first. Providers use `0...1000`.
     public var score: Double
+    /// Keyword rows: the text sent to the extension and put in the field.
+    public var content: String?
 
     public var id: String { "\(kind)|\(url.absoluteString)" }
 

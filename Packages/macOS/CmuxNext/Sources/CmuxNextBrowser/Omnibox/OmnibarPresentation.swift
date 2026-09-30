@@ -32,6 +32,8 @@ public nonisolated struct OmnibarPresentation: Equatable, Sendable {
         /// The page's indicator (`PageInfoIndicator`). While focused it keeps
         /// the icon but drops the text label.
         case page(focused: Bool)
+        /// An extension keyword session: the extension's name.
+        case keyword(name: String)
     }
 
     public init(_ state: OmnibarState) {
@@ -50,6 +52,7 @@ public nonisolated struct OmnibarPresentation: Equatable, Sendable {
 
     private static func chip(for state: OmnibarState) -> Chip {
         let search = PageInfoIndicator.Symbol.search
+        if let keyword = state.keyword, state.hasFocus { return .keyword(name: keyword.name) }
         switch state.phase {
         case .editing:
             if let row = state.popup.highlighted, state.popup.rows.indices.contains(row) {

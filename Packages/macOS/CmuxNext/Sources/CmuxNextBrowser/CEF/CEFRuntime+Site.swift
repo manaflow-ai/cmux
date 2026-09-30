@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import Foundation
 
 /// A shim reply to an async site call.
@@ -64,5 +65,14 @@ extension CEFRuntime {
         return try await siteReplies.reply(for: id, timeout: timeout) {
             BrowserTabError.timedOut("CEF \(what) (\(timeout))")
         }
+    }
+}
+
+extension CEFRuntime: ThemeResponsive {
+    /// The Ghostty theme changed: live Chromium tabs repaint their page
+    /// background (fork API 12; the shim skips an unchanged color).
+    func themeDidChange() {
+        guard state == .ready else { return }
+        shim?.setBackgroundColor(PageBackground.themeARGB)
     }
 }

@@ -126,12 +126,15 @@ extension PaneController {
             }
             if child != nil { choice = BrowserPageRequests.choice(adopting: child, inherited: inherited, browserTabs: browserTabs) }
             let pageRequests = services.cache.pageRequests
-            let newTabAddress = services.newTabAddress
+            let newTabAddress = services.newTabAddress(for: choice)
             let handle = pane.handle
             let intent = background ? nil : workspace?.beginFocusIntent()
             services.registry.track(Task {
                 do {
-                    let surface = try await browserTabs.open(choice, in: handle, url: url?.absoluteString ?? (child == nil ? newTabAddress : "about:blank"))
+                    // A new tab the user asked for opens the New Tab page; an
+                    // adopted page (popup, extension tab) keeps its own.
+                    let address = url?.absoluteString ?? (child == nil ? newTabAddress : BrowserNewTabPage.blankURL)
+                    let surface = try await browserTabs.open(choice, in: handle, url: address)
                     if let child { pageRequests.adopt(child, surface: surface) }
                     guard !background else { return nil }
                     pendingSelectSurface = surface

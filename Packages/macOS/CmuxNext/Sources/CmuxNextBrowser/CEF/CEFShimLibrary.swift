@@ -119,6 +119,18 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let releaseContext: @convention(c) (UnsafePointer<CChar>?) -> Void
     let setNavigationGuard: @convention(c) (Int32, Int32) -> Void
 
+    // Extension UI the app draws (fork API 12; no-ops and 0/NULL before).
+    let setNewTabPageURL: @convention(c) (UnsafePointer<CChar>?) -> Void
+    let addNativeMessagingDir: @convention(c) (UnsafePointer<CChar>?, Int32) -> Int32
+    let installPromptReply: @convention(c) (Int32, Int32) -> Int32
+    let omniboxKeywords: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
+    let omniboxInput: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, Int32) -> Int32
+    // Popup windows (fork API 11): exposed for the popup panel; not enabled yet.
+    let setPopupWindowsEnabled: @convention(c) (Int32) -> Void
+    let popupWindowBounds: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?,
+                                           UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?) -> Int32
+    let popupWindowAttach: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32) -> Int32
+
     enum LoadError: Error, Equatable {
         case open(String)
         case missingSymbol(String)
@@ -221,6 +233,14 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         contextProxyState = try r("cmux_shim_context_proxy_state")
         releaseContext = try r("cmux_shim_release_context")
         setNavigationGuard = try r("cmux_shim_set_navigation_guard")
+        setNewTabPageURL = try r("cmux_shim_set_new_tab_page_url")
+        addNativeMessagingDir = try r("cmux_shim_add_native_messaging_dir")
+        installPromptReply = try r("cmux_shim_install_prompt_reply")
+        omniboxKeywords = try r("cmux_shim_omnibox_keywords")
+        omniboxInput = try r("cmux_shim_omnibox_input")
+        setPopupWindowsEnabled = try r("cmux_shim_set_popup_windows_enabled")
+        popupWindowBounds = try r("cmux_shim_popup_window_bounds")
+        popupWindowAttach = try r("cmux_shim_popup_window_attach")
     }
 
     /// Returns a string the shim allocated itself (`cmux_shim_ssl_status`)

@@ -43,6 +43,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var devToolsAfterClose: BrowserDevToolsCommand?
     /// The docked DevTools' parent view and the divider, while docked.
     @ObservationIgnored var devToolsViews: (host: CEFHostView, divider: CEFDevToolsDivider)?
+    /// The window that holds `devToolsViews.host` while DevTools is not docked.
+    @ObservationIgnored var devToolsWindow: CEFDevToolsWindow?
     @ObservationIgnored public weak var devToolsObserver: (any BrowserDevToolsObserving)?
 
     var machine = BrowserTabStateMachine()
@@ -51,9 +53,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var nextNavigation: UInt64 = 0
     @ObservationIgnored var pendingURL: URL?
     @ObservationIgnored var pendingFocus = false
-    /// True until the first real page commits: Chromium paints the theme
-    /// color behind the page (`PageBackground`), then its white default.
-    @ObservationIgnored private(set) var usesThemeBackground = true
     /// Navigation state to restore once the browser exists (created with
     /// an empty URL so its history starts empty).
     @ObservationIgnored var pendingRestore: String?
@@ -135,19 +134,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         }
         if navigationGuard != .none { runtime.shim?.setNavigationGuard(browser, navigationGuard.rawValue) }
         refreshExtensionActions()
-    }
-
-    /// A document committed. The first one that is not a blank page puts
-    /// Chromium's white default back for pages without a background (the
-    /// theme color came from `CefBrowserSettings.background_color`), so plain
-    /// text never shows dark text on a dark theme color.
-    func documentCommitted(_ url: URL?) {
-        guard usesThemeBackground, !PageBackground.isBlank(url) else { return }
-        usesThemeBackground = false
-        guard let browser = browserID else { return }
-        let white: [String: Any] = ["color": ["r": 255, "g": 255, "b": 255, "a": 1]]
-        let runtime = runtime
-        Task { _ = try? await runtime.devTools(browser, method: "Emulation.setDefaultBackgroundColorOverride", params: white) }
     }
 
     func creationFailed() {

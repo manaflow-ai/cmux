@@ -14,6 +14,9 @@ public nonisolated enum OmnibarEndReason: Equatable, Sendable {
     case cancel
     /// Focus moved elsewhere (click, Tab, another pane).
     case blur
+    /// Enter in an extension keyword session: the extension gets `text`
+    /// (`chrome.omnibox.onInputEntered`) and decides what loads.
+    case keyword(extensionID: String, text: String, disposition: OmnibarDisposition)
 }
 
 /// Editing boundaries the App routes (focus handoff between the omnibar and

@@ -5,7 +5,11 @@ public import Foundation
 public nonisolated enum OmnibarRules {
     /// Text a row puts in the field when it is selected with the arrow keys.
     public static func fillText(for row: BrowserSuggestion) -> String {
-        row.kind == .search ? row.title : BrowserURLDisplay.editingText(for: row.url)
+        switch row.kind {
+        case .search: row.title
+        case .keyword: row.content ?? row.title
+        case .navigate, .history: BrowserURLDisplay.editingText(for: row.url)
+        }
     }
 
     /// The suffix that completes `typed` to `row`'s URL, or nil. Only
@@ -13,7 +17,7 @@ public nonisolated enum OmnibarRules {
     /// shown (no scheme, no `www.`) or of the full URL, and never for a
     /// trailing space.
     public static func inlineCompletion(for row: BrowserSuggestion, typed: String) -> String? {
-        guard row.kind != .search, !typed.isEmpty, typed.last?.isWhitespace == false else { return nil }
+        guard row.kind != .search, row.kind != .keyword, !typed.isEmpty, typed.last?.isWhitespace == false else { return nil }
         let lowered = typed.lowercased()
         for form in completionForms(of: row.url) where form.lowercased().hasPrefix(lowered) && form.count > typed.count {
             return String(form.dropFirst(typed.count))

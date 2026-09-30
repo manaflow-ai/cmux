@@ -34,12 +34,18 @@ extension CEFTab {
     }
 
     public func devToolsContains(window: NSWindow) -> Bool {
-        guard devTools.isOpen, devTools.dock.isDocked, let host = devToolsViews?.host, let parent = host.window,
+        guard devTools.isOpen, let host = devToolsViews?.host, let parent = host.window,
               window.parent === parent else { return false }
+        if parent === devToolsWindow { return true }
+        guard devTools.dock.isDocked else { return false }
         let frame = parent.convertToScreen(host.convert(host.bounds, to: nil))
         return frame.contains(NSPoint(x: window.frame.midX, y: window.frame.midY))
     }
 
+    /// Moves DevTools to `dock`. Every move keeps the same DevTools (its
+    /// view is reparented between the pane and `devToolsWindow`), except
+    /// with a fork that cannot embed DevTools, where a window means
+    /// Chromium's own window and a move into or out of it reopens DevTools.
     private func moveDevTools(to dock: BrowserDevToolsDock) {
         let wasDocked = devToolsLayout.dock.isDocked
         devToolsLayout.dock = dock
@@ -49,17 +55,58 @@ extension CEFTab {
             return
         }
         if wasDocked == dock.isDocked {
-            // Bottom <-> right: the same DevTools window, a new frame.
+            // Between dock sides: the same DevTools window, a new frame.
             devTools.dock = dock
             devToolsViews?.divider.needsDisplay = true
             devToolsViews?.divider.window?.invalidateCursorRects(for: devToolsViews!.divider)
             container.layoutContent()
             return
         }
-        // A Chromium child window cannot become a top-level window (or the
+        if devToolsViews != nil, runtime.supportsEmbeddedDevTools {
+            devTools.dock = dock
+            dock.isDocked ? dockDevToolsViews() : undockDevToolsViews()
+            devToolsObserver?.browserTab(self, devToolsDidChange: devTools, focused: true)
+            return
+        }
+        // Chromium's own DevTools window cannot become a child window (or the
         // reverse): reopen DevTools in its new place.
         devToolsAfterClose = .show
         if let browserID { _ = runtime.shim?.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.close, 0, 0) }
+    }
+
+    /// The DevTools view leaves its window for the pane.
+    private func dockDevToolsViews() {
+        guard let views = devToolsViews else { return }
+        views.host.autoresizingMask = []
+        container.addSubview(views.host)
+        container.addSubview(views.divider)
+        closeDevToolsWindow()
+        container.layoutContent()
+    }
+
+    /// The DevTools view leaves the pane for its own window.
+    private func undockDevToolsViews() {
+        guard let views = devToolsViews else { return }
+        let window = devToolsWindow ?? makeDevToolsWindow()
+        views.divider.removeFromSuperview()
+        window.adopt(views.host)
+        window.orderFront(nil)
+        container.layoutContent()
+    }
+
+    private func makeDevToolsWindow() -> CEFDevToolsWindow {
+        let window = CEFDevToolsWindow(frame: CEFDevToolsWindow.frame(near: container.window))
+        window.title = Strings.devToolsWindowTitle(state.title)
+        window.onClose = { [weak self] in self?.performDevTools(.close) }
+        devToolsWindow = window
+        return window
+    }
+
+    private func closeDevToolsWindow() {
+        guard let window = devToolsWindow else { return }
+        devToolsWindow = nil
+        window.onClose = nil
+        window.orderOut(nil)
     }
 
     // MARK: Shim events (CEFRuntime)
@@ -70,9 +117,15 @@ extension CEFTab {
     func devToolsWillOpen() {
         guard let browserID, let shim = runtime.shim else { return }
         devToolsOpening = true
-        if devToolsLayout.dock.isDocked, container.window != nil, runtime.supportsEmbeddedDevTools {
+        if container.window != nil, runtime.supportsEmbeddedDevTools {
+            // Docked or in its own window, DevTools is a child of a cmux
+            // view, so a later move keeps it alive.
+            // Chromium creates DevTools synchronously over a view in the
+            // page's window; a window of its own takes the same view after
+            // DEVTOOLS_OPENED (devToolsOpened), like a later move does.
             let views = devToolsViews ?? makeDevToolsViews()
             container.layoutContent()
+            if views.host.bounds.isEmpty { views.host.frame = container.bounds }
             let size = views.host.bounds.size
             shim.devToolsSetPlacement(browserID, Unmanaged.passUnretained(views.host).toOpaque(), 0, 0,
                                       Int32(max(size.width, 1)), Int32(max(size.height, 1)))
@@ -98,7 +151,9 @@ extension CEFTab {
     func devToolsOpened(browser: Int32, docked: Bool) {
         devToolsOpening = false
         devToolsBrowserID = browser
+        // `docked` = a child of a cmux view (the pane's DevTools host).
         devTools = BrowserDevToolsState(isOpen: true, dock: docked ? devToolsLayout.dock : .window)
+        if docked, !devToolsLayout.dock.isDocked { undockDevToolsViews() }
         container.layoutContent()
         devToolsObserver?.browserTab(self, devToolsDidChange: devTools, focused: true)
     }
@@ -171,7 +226,8 @@ extension CEFTab {
         return (host, divider)
     }
 
-    private func removeDevToolsViews() {
+    func removeDevToolsViews() {
+        closeDevToolsWindow()
         guard let views = devToolsViews else { return }
         devToolsViews = nil
         views.divider.removeFromSuperview()

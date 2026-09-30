@@ -89,6 +89,11 @@ nonisolated struct OmnibarStep {
 
     mutating func focusLost() {
         let wasFocused = state.hasFocus
+        if state.keyword != nil {
+            // The session's text means nothing without its keyword.
+            leaveKeyword(restoreText: false)
+            state.edit = .init()
+        }
         if state.phase == .editing {
             // Chrome `OmniboxViewViews::OnBlur`: typed text that equals the
             // permanent display text reverts to it.
@@ -145,6 +150,7 @@ nonisolated struct OmnibarStep {
             effects.append(.beep)
             return
         }
+        leaveKeyword(restoreText: false)
         commit(url, .currentTab)
     }
 
@@ -181,6 +187,7 @@ nonisolated struct OmnibarStep {
 
     /// Asks for rows for the typed text, or closes the popup when it is blank.
     mutating func query() {
+        if let keyword = state.keyword { return keywordQuery(keyword) }
         guard !state.edit.userText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             closePopup()
             effects.append(.cancelQuery)

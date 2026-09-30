@@ -44,6 +44,9 @@ public nonisolated enum OmnibarInput: Equatable, Sendable {
         /// (Chrome `OmniboxEditModel::TryDeletingPopupLine`).
         case deleteSuggestion
         case undo, redo
+        /// Backspace with the caret at the start of the text: leaves an
+        /// extension keyword session (not handled outside one).
+        case backspaceAtStart
     }
 
     public enum FocusSource: Equatable, Sendable { case mouse, keyboard, programmatic }
@@ -96,4 +99,10 @@ public nonisolated enum OmnibarEffect: Equatable, Sendable {
     case ended(OmnibarEndReason)
     /// Shift-Delete removed this history row: forget the page.
     case deleteSuggestion(URL)
+    /// An extension keyword session started (`chrome.omnibox.onInputStarted`).
+    case keywordStarted(extensionID: String)
+    /// The session's text changed; answer with `.suggestions(generation:)`.
+    case keywordInput(extensionID: String, text: String, generation: UInt64)
+    /// The session ended without Enter (`onInputCancelled`).
+    case keywordEnded(extensionID: String)
 }

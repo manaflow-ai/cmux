@@ -35,6 +35,7 @@ class App : public CefApp, public CefBrowserProcessHandler {
   void OnContextInitialized() override {
     InstallForkObserver();
     InstallWindowRequestHandler();
+    InstallExtensionUIHandlers();
     Emit(CMUX_SHIM_CONTEXT_INITIALIZED, 0);
   }
 
@@ -277,12 +278,12 @@ class Client : public CefClient,
 
   void OnAddressChange(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, const CefString& url) override {
     if (frame->IsMain()) {
-      Emit(CMUX_SHIM_ADDRESS, browser->GetIdentifier(), 0, 0, 0, url.ToString());
+      Emit(CMUX_SHIM_ADDRESS, browser->GetIdentifier(), 0, 0, 0, DisplayAddress(browser, url.ToString()));
     }
   }
 
   void OnTitleChange(CefRefPtr<CefBrowser> browser, const CefString& title) override {
-    Emit(CMUX_SHIM_TITLE, browser->GetIdentifier(), 0, 0, 0, title.ToString());
+    Emit(CMUX_SHIM_TITLE, browser->GetIdentifier(), 0, 0, 0, DisplayTitle(browser, title.ToString()));
   }
 
   void OnFaviconURLChange(CefRefPtr<CefBrowser> browser, const std::vector<CefString>& urls) override {

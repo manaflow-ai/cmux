@@ -45,6 +45,7 @@ final class PageInfoChipButton: NSView {
         case .dangerous: PageInfoStrings.dangerous
         case .file: PageInfoStrings.file
         case .product: PageInfoStrings.product
+        case .keyword(let name): name
         case nil: nil
         }
     }

@@ -27,6 +27,7 @@ final class SuggestionRowView: NSView {
         case .navigate: "globe"
         case .search: "magnifyingglass"
         case .history: "clock"
+        case .keyword: "puzzlepiece.extension"
         }
         icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: OmnibarStyle.iconPointSize, weight: .regular))

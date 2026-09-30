@@ -8,7 +8,7 @@ nonisolated extension OmnibarStep {
         switch key {
         case .up: move(-1, clamp: true)
         case .down: move(1, clamp: true)
-        case .tab: move(1, clamp: false)
+        case .tab: if !startKeywordOnTab() { move(1, clamp: false) }
         case .backTab: move(-1, clamp: false)
         case .enter(let disposition): enter(disposition)
         case .escape: escape()
@@ -18,6 +18,7 @@ nonisolated extension OmnibarStep {
         case .deleteSuggestion: deleteSuggestion()
         case .undo: undo(redo: false)
         case .redo: undo(redo: true)
+        case .backspaceAtStart: backspaceAtStart()
         }
     }
 
@@ -59,6 +60,7 @@ nonisolated extension OmnibarStep {
             handled = false
             return
         }
+        if state.keyword != nil { return commitKeyword(keywordCommitText, disposition) }
         guard let destination = commitDestination else {
             effects.append(.beep)
             return
@@ -88,6 +90,8 @@ nonisolated extension OmnibarStep {
             effects.append(.cancelQuery)
             return
         }
+        // Escape ends a keyword session and reverts, like Chrome.
+        leaveKeyword(restoreText: false)
         let wasEditing = state.phase == .editing
         if wasEditing { pushUndo() }
         state.phase = .focused
@@ -194,6 +198,7 @@ nonisolated extension OmnibarStep {
             handled = false
             return
         }
+        if state.keyword != nil { return commitKeyword(OmnibarRules.fillText(for: state.popup.rows[row]), disposition) }
         commit(state.popup.rows[row].url, disposition)
     }
 }

@@ -65,10 +65,15 @@ public nonisolated enum OmniboxDestination: Hashable, Sendable {
 public nonisolated struct OmniboxResolver: Sendable {
     public var urlResolver: BrowserURLResolver
     public var searchEngine: BrowserSearchEngine
+    /// Extension omnibox keywords of the tab (`chrome.omnibox`); empty for
+    /// WebKit tabs.
+    public var keywords: [OmnibarKeyword]
 
-    public init(urlResolver: BrowserURLResolver = BrowserURLResolver(), searchEngine: BrowserSearchEngine = .google) {
+    public init(urlResolver: BrowserURLResolver = BrowserURLResolver(), searchEngine: BrowserSearchEngine = .google,
+                keywords: [OmnibarKeyword] = []) {
         self.urlResolver = urlResolver
         self.searchEngine = searchEngine
+        self.keywords = keywords
     }
 
     public func destination(for input: String) -> OmniboxDestination? {

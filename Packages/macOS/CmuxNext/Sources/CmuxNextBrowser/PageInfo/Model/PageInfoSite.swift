@@ -64,7 +64,8 @@ public nonisolated struct PageInfoSite: Hashable, Sendable {
 
     public init(url: URL?, security: BrowserSecurityState) {
         self.url = url
-        guard let url, let scheme = url.scheme?.lowercased() else {
+        // The New Tab page (or its blank page) has no identity to show.
+        guard let url, let scheme = url.scheme?.lowercased(), !BrowserNewTabPage.isNewTabPage(url) else {
             kind = .empty
             return
         }

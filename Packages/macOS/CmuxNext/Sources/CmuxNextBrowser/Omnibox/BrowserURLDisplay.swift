@@ -7,7 +7,7 @@ public nonisolated enum BrowserURLDisplay {
     /// `http://` is kept so insecure pages stay recognizable.
     public static func displayText(for url: URL?) -> String {
         guard let url else { return "" }
-        if url.absoluteString == "about:blank" { return "" }
+        if BrowserNewTabPage.isNewTabPage(url) { return "" }
         if url.isFileURL { return url.path(percentEncoded: false) }
 
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
@@ -44,7 +44,7 @@ public nonisolated enum BrowserURLDisplay {
 
     /// Full text placed in the field when editing starts.
     public static func editingText(for url: URL?) -> String {
-        guard let url, url.absoluteString != "about:blank" else { return "" }
+        guard let url, !BrowserNewTabPage.isNewTabPage(url) else { return "" }
         return url.absoluteString
     }
 
@@ -52,7 +52,7 @@ public nonisolated enum BrowserURLDisplay {
     /// else nil (callers show their own "New Tab").
     public static func title(for state: BrowserTabState) -> String? {
         if let title = state.title { return title }
-        guard let url = state.url, url.absoluteString != "about:blank" else { return nil }
+        guard let url = state.url, !BrowserNewTabPage.isNewTabPage(url) else { return nil }
         return url.host() ?? url.lastPathComponent
     }
 }

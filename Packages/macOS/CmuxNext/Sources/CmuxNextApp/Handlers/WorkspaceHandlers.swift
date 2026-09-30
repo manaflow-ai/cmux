@@ -90,7 +90,7 @@ enum WorkspaceHandlers {
         let browserTabs = context.services.cache.browserTabs!
         guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
         let fallbacks = browserTabs.fallbacks
-        let address = context.services.newTabAddress
+        let address = context.services.newTabAddress(for: choice)
         createAndShow(context) { connection, terminal in
             guard let pane = terminal.pane else { return }
             // On the active machine's connection (it may be a Cloud machine).

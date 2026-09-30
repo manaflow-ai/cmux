@@ -64,6 +64,7 @@ nonisolated extension OmnibarStep {
             state.edit.inlineCompletion = String(previous.dropFirst(text.count))
             state.edit.selection = state.completionRange
         }
+        if startKeywordIfTyped(text, kind: kind) { return }
         refreshSuggestions()
     }
 

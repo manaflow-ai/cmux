@@ -269,11 +269,10 @@ public final class BrowserChromeView: NSView {
     }
 
     private func omnibarEvent(_ event: OmnibarEvent) {
-        if case .didEndEditing(.commit(let url)) = event { tab.load(url) }
-        if case .didEndEditing(.open(let url, let disposition)) = event { onOpenURL.map { $0(url, disposition) } ?? tab.load(url) }
+        performOmnibarEnd(event)
         if let onOmnibarEvent { return onOmnibarEvent(event) }
         switch event {
-        case .didEndEditing(.commit), .didEndEditing(.open), .didEndEditing(.cancel): returnFocusToPage()
+        case .didEndEditing(.commit), .didEndEditing(.open), .didEndEditing(.cancel), .didEndEditing(.keyword): returnFocusToPage()
         case .didBeginEditing, .didEndEditing(.blur): break
         }
     }
@@ -302,6 +301,7 @@ public final class BrowserChromeView: NSView {
         findBar.tab = tab
         addressBar.allowsChromiumSchemes = tab.engineKind == .cef
         extensionToolbar.bind(tab)
+        bindOmniboxKeywords(tab)
         if !findBar.isHidden {
             old?.clearFind()
             findBar.isHidden = true

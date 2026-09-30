@@ -66,7 +66,7 @@ enum TabLifecycle {
         case .refuse(let reason): return ctx.refuse(BrowserTabService.message(reason))
         case .open(let resolved): choice = resolved
         }
-        let handle = pane.handle, address = url?.absoluteString ?? ctx.services.newTabAddress
+        let handle = pane.handle, address = url?.absoluteString ?? ctx.services.newTabAddress(for: choice)
         let logger = ctx.services.daemon.logger
         ctx.registry.track(Task {
             do {

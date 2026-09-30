@@ -1,19 +1,19 @@
 import AppKit
 import CmuxNextDesign
 
-/// The page area of a new or loading tab shows the Ghostty theme background
-/// (`Palette.pageBackground`), never a white flash (user feedback, nxdog9).
-///
-/// Both engines draw the theme color until the tab's first real page
-/// arrives, then return to the engine default, so a page without a
-/// background of its own (plain text, unstyled HTML) keeps Chrome's and
-/// Safari's white instead of dark text on a dark theme color.
+/// The page area of a Chromium tab shows the Ghostty theme background
+/// (`Palette.pageBackground`): before its first paint and under every
+/// document without a background of its own (user decision 2026-09-30).
+/// Chromium takes it from `CefSettings`/`CefBrowserSettings.background_color`
+/// and, with fork API 12, paints it in Chrome's contents view too (before,
+/// Chrome painted its New Tab page color, #292929, there). WebKit tabs show
+/// it until their first real page, then WebKit's default.
 nonisolated enum PageBackground {
-    /// A URL whose document keeps the theme color: nothing, or the blank
-    /// page of a new tab.
+    /// A URL whose document keeps the theme color in WebKit: nothing, or
+    /// the page of a new tab.
     static func isBlank(_ url: URL?) -> Bool {
         guard let url else { return true }
-        return url.absoluteString == "about:blank" || url.absoluteString.isEmpty
+        return url.absoluteString.isEmpty || BrowserNewTabPage.isNewTabPage(url)
     }
 
     /// Whether a new page starts on the theme color: only a tab cmux opens

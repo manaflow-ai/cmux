@@ -201,6 +201,17 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(foreign_browser_count, "cmux_foreign_browser_count");
   CMUX_BIND(tab_navigation_state, "cmux_tab_navigation_state");
   CMUX_BIND(tab_restore_navigation, "cmux_tab_restore_navigation");
+  CMUX_BIND(browser_set_background_color, "cmux_browser_set_background_color");
+  CMUX_BIND(set_new_tab_page_url, "cmux_set_new_tab_page_url");
+  CMUX_BIND(set_install_prompt_handler, "cmux_set_install_prompt_handler");
+  CMUX_BIND(install_prompt_reply, "cmux_install_prompt_reply");
+  CMUX_BIND(omnibox_keywords, "cmux_omnibox_keywords");
+  CMUX_BIND(omnibox_input, "cmux_omnibox_input");
+  CMUX_BIND(set_omnibox_suggestions_handler, "cmux_set_omnibox_suggestions_handler");
+  CMUX_BIND(add_native_messaging_dir, "cmux_add_native_messaging_dir");
+  CMUX_BIND(set_popup_windows_enabled, "cmux_set_popup_windows_enabled");
+  CMUX_BIND(popup_window_bounds, "cmux_popup_window_bounds");
+  CMUX_BIND(popup_window_attach, "cmux_popup_window_attach");
 #undef CMUX_BIND
 }
 
@@ -245,7 +256,14 @@ void cmux_shim_set_extension_developer_mode(int enabled) {
 }
 
 void cmux_shim_set_background_color(unsigned int argb) {
+  const bool changed = g_background_color != static_cast<cef_color_t>(argb);
   g_background_color = static_cast<cef_color_t>(argb);
+  // Fork API 12: live tabs follow a theme change too.
+  if (changed && argb && fork_api().browser_set_background_color) {
+    for (auto& [id, browser] : browsers()) {
+      fork_api().browser_set_background_color(id, argb);
+    }
+  }
 }
 
 int cmux_shim_fork_api_version(void) {
@@ -330,6 +348,12 @@ void cmux_shim_shutdown(void) {
   }
   if (fork_api().set_window_request_handler) {
     fork_api().set_window_request_handler(nullptr, nullptr);
+  }
+  if (fork_api().set_install_prompt_handler) {
+    fork_api().set_install_prompt_handler(nullptr, nullptr);
+  }
+  if (fork_api().set_omnibox_suggestions_handler) {
+    fork_api().set_omnibox_suggestions_handler(nullptr, nullptr);
   }
   host() = Host();
   request_contexts().clear();

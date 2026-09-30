@@ -10,6 +10,12 @@ nonisolated struct BrowserEngineChoice: Equatable, Sendable {
     /// The engine came from an existing record or page (reopen, duplicate,
     /// popup), not from the default.
     var inherited = false
+
+    /// What the tab loads when the user gave no URL: Chromium's New Tab
+    /// page (new-tab extensions replace it), WebKit's blank page.
+    var newTabURL: String {
+        BrowserNewTabPage.initialURL(for: engine == .cef ? .cef : .webkit)
+    }
 }
 
 /// Picks the engine for a browser tab created by any entrypoint (New
