@@ -177,6 +177,7 @@ class BuildMetricsTests(unittest.TestCase):
         self.assertEqual(receipt["compile_wall_seconds"], 42.5)
         self.assertEqual(receipt["compile_outcome"], "failure")
         self.assertEqual(receipt["compiler_cache"]["cacheable_tasks"], 3)
+        self.assertEqual(receipt["compiler_cache"]["compile_seconds"], 12.5)
         self.assertEqual(receipt["compiler_cache"]["link_seconds"], 2.25)
         self.assertEqual(receipt["derived_data_log_count"], 1)
         self.assertEqual(receipt["activity_logs"], [{"name": "one.xcactivitylog", "bytes": 3}])

@@ -218,7 +218,13 @@ def build_receipt(
     timing = dict(aggregate_values["timing_summary_seconds"])
     cacheable = int(aggregate_values.get("cacheable_tasks", 0))
     hits = int(aggregate_values.get("cache_hits", 0))
-    compile_phase = phase_seconds(timing, r"SwiftCompile|SwiftDriver|SwiftEmitModule")
+    # `-showBuildTimingSummary` uses the action name (`CompileSwiftSources`)
+    # while ordinary build logs use `SwiftCompile`/`SwiftDriver`; account for
+    # both spellings so host telemetry does not silently report zero compile
+    # time for a successful admission.
+    compile_phase = phase_seconds(
+        timing, r"CompileSwift|SwiftCompile|SwiftDriver|SwiftEmitModule|CompileC"
+    )
     link_phase = phase_seconds(timing, r"(?:^|\s)Ld(?:$|\s)|Link")
     compiler_cache = {
         "cacheable_tasks": cacheable,
