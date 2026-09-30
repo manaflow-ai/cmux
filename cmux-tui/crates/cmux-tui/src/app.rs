@@ -34765,6 +34765,40 @@ mod tests {
     }
 
     #[test]
+    fn another_clients_creations_keep_this_clients_view() {
+        // A phone creating a screen, a tab, or a split moves only the shared
+        // tree's active fields. An attached frontend (the laptop) keeps the
+        // screen, pane, and tab it shows.
+        let mux = Mux::new("foreign-creation-keeps-view-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+        let mut laptop = test_app(Session::Local(mux.clone()));
+        laptop.sidebar_visible = false;
+        laptop.replace_tree(laptop.session.tree());
+        let screen = laptop.tree.active_screen().unwrap().id;
+
+        mux.new_screen(Some(workspace), Some((80, 24))).unwrap();
+        laptop.replace_tree(laptop.session.tree());
+        assert_ne!(mux.with_state(|state| state.workspaces[0].active_screen), 0);
+        assert_eq!(laptop.tree.active_screen().unwrap().id, screen);
+
+        mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        laptop.replace_tree(laptop.session.tree());
+        assert_eq!(laptop.active_surface(), Some(first.id));
+
+        let split = mux.split(pane, SplitDir::Right, Some((40, 24))).unwrap();
+        laptop.replace_tree(laptop.session.tree());
+        assert_ne!(mux.active_surface(), Some(first.id));
+        assert_ne!(laptop.active_surface(), Some(split.id));
+        assert_eq!(laptop.tree.active_screen().unwrap().id, screen);
+        assert_eq!(laptop.active_pane(), Some(pane));
+        assert_eq!(laptop.active_surface(), Some(first.id));
+
+        mux.close_workspace(workspace);
+    }
+
+    #[test]
     fn attached_workspace_mouse_down_uses_both_rendered_rows_and_survives_routing_refresh() {
         let mux = Mux::new(
             "attached-workspace-mouse-test",

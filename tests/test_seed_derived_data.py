@@ -133,6 +133,30 @@ class SeedDerivedData(unittest.TestCase):
         self.assertIn("hit=false", output.read_text())
         self.assertTrue((self.derived / "from-resolve").exists())
 
+    def test_a_clone_replaces_a_symlinked_destination_instead_of_writing_through_it(self):
+        source = self.root / "clone-source"
+        (source / "sub").mkdir(parents=True)
+        (source / "sub" / "file").write_text("new")
+        elsewhere = self.root / "elsewhere"
+        elsewhere.mkdir()
+        destination = self.root / "clone-destination"
+        destination.symlink_to(elsewhere)
+        seed.clone_tree(source, destination)
+        self.assertFalse(destination.is_symlink())
+        self.assertEqual((destination / "sub" / "file").read_text(), "new")
+        self.assertEqual(list(elsewhere.iterdir()), [])
+        # A leftover directory is replaced, never nested into.
+        seed.clone_tree(source, destination)
+        self.assertFalse((destination / source.name).exists())
+        self.assertEqual(sorted(p.name for p in destination.iterdir()), ["sub"])
+
+    def test_a_clone_fails_when_the_destination_cannot_be_cleared(self):
+        destination = self.root / "stuck"
+        destination.mkdir()
+        with mock.patch.object(seed.shutil, "rmtree"):
+            with self.assertRaises(OSError):
+                seed.clone_tree(self.root, destination)
+
     def test_an_owned_mac_keeps_the_seed_and_clones_it_next_time(self):
         """Minis download a seed at about a third of Blacksmith's speed, so an
         owned Mac keeps the seeds it adopted and clones an exact key instead."""
@@ -205,7 +229,8 @@ class SeedDerivedData(unittest.TestCase):
             self.assertEqual(seed.main(["seed", "keep", str(self.derived), "k2", "../evil-"]), 0)
         self.assertFalse((self.root / "cmux-ci-2" / seed.SEED_SOURCE).exists())
 
-    def test_the_trusted_seed_job_keeps_its_seeds_between_save_and_the_product_steps(self):
+    def test_the_trusted_seed_job_keeps_its_seeds_before_save_and_the_product_steps(self):
+        """Keep clones the seed before the R2 upload, so the LAN archive need not wait for it."""
         seeder = steps("seed-derived-data.yml", "seed")
         choose_at, choose = named(seeder, "Keep seeds on a trusted Mac")
         adopt_at, _ = named(seeder, "Adopt the newest seed")
@@ -213,8 +238,9 @@ class SeedDerivedData(unittest.TestCase):
         keep_at, keep = named(seeder, "Keep the seed on this Mac")
         stage_at, _ = named(seeder, "Stage compiled package frameworks")
         self.assertLess(choose_at, adopt_at)
-        self.assertLess(save_at, keep_at)
-        self.assertLess(keep_at, stage_at)
+        self.assertLess(adopt_at, keep_at)
+        self.assertLess(keep_at, save_at)  # the LAN archive gets the seed without waiting on R2
+        self.assertLess(save_at, stage_at)
         self.assertIn("matrix.pool == vars.CI_SEED_TRUSTED_POOL", choose["if"])
         # only runners that run nothing else as this user: a kept seed becomes the next R2 seed
         self.assertIn("vars.CI_SEED_KEEP_LOCAL_RUNNERS", choose["if"])
@@ -544,6 +570,18 @@ class SeedDerivedData(unittest.TestCase):
             published.clear()
             self.assertEqual(seed.locate("p-", "c4"), ("p-j6-c4", None))
 
+    def test_probe_can_require_a_seed_of_its_own_width(self):
+        os.environ["CMUX_SEED_SWIFT_JOBS"] = "6"
+        os.environ["CMUX_SEED_REQUIRE_OWN_WIDTH"] = "1"
+        published = {"p-j12-c4"}
+        with mock.patch.object(seed, "lineage", return_value=["c4"]), \
+                mock.patch.object(seed, "seed_exists", side_effect=lambda key: key in published):
+            self.assertEqual(seed.locate("p-", "c4"), ("p-j6-c4", None))
+        published.add("p-j6-c4")
+        with mock.patch.object(seed, "lineage", return_value=["c4"]), \
+                mock.patch.object(seed, "seed_exists", side_effect=lambda key: key in published):
+            self.assertEqual(seed.locate("p-", "c4"), ("p-j6-c4", 0))
+
     def test_adopt_falls_back_to_a_j14_seed_and_a_j14_runner_prefers_it(self):
         self.assertIn(14, seed.SEEDED_JOB_WIDTHS)
         published = set()
@@ -859,9 +897,14 @@ class Wiring(unittest.TestCase):
 
         for path in (ROOT / ".github/workflows").glob("*.yml"):
             text = path.read_text()
-            if "admission-derived-data-" in text and path.name not in {"nightly.yml", "ci-macos.yml", "seed-derived-data.yml", "test-e2e.yml"}:
+            if "admission-derived-data-" in text and path.name not in {"nightly.yml", "ci-macos.yml", "seed-derived-data.yml", "test-e2e.yml",
+                                                                        "main-compile-probe.yml"}:
                 self.fail(f"{path.name} names the admission DerivedData seed")
-        # E2E builds adopt the same seed but only read it.
+        # E2E builds and main compile probes adopt the same seed but only read it.
+        probe = (ROOT / ".github/workflows/main-compile-probe.yml").read_text()
+        self.assertEqual(set(re.findall(r"seed_derived_data\.py (\w+)", probe)), {"adopt"})
+        self.assertNotIn("cache-save", probe)
+        self.assertNotIn("secrets.", probe)
         e2e = (ROOT / ".github/workflows/test-e2e.yml").read_text()
         for command in re.findall(r"seed_derived_data\.py (\w+)", e2e):
             self.assertIn(command, {"start", "adopt"})

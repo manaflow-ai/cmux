@@ -976,6 +976,48 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
 
 @MainActor
 final class TerminalOffscreenStartupTests: XCTestCase {
+    private var trackedPanels: [TerminalPanel] = []
+    private var trackedManagers: [TabManager] = []
+
+    private func makeTrackedPanel(
+        workspaceId: UUID,
+        initialCommand: String? = nil,
+        initialInput: String? = nil
+    ) -> TerminalPanel {
+        let panel = TerminalPanel(
+            workspaceId: workspaceId,
+            initialCommand: initialCommand,
+            initialInput: initialInput
+        )
+        trackedPanels.append(panel)
+        return panel
+    }
+
+    private func makeTrackedManager() -> TabManager {
+        track(TabManager())
+    }
+
+    private func track<Manager: TabManager>(_ manager: Manager) -> Manager {
+        trackedManagers.append(manager)
+        return manager
+    }
+
+    override func tearDown() {
+        // Offscreen startup tests intentionally create runtimes without a
+        // visible window. Dropping those panels lets Ghostty free the native
+        // surface asynchronously, and the next suite then waits through the
+        // SIGHUP grace period (or records a cross-suite pending-free issue).
+        for panel in trackedPanels.reversed() {
+            panel.surface.releaseHostedSurfaceForTesting()
+        }
+        trackedPanels.removeAll()
+        for manager in trackedManagers.reversed() {
+            manager.closeWorkspacesForTesting()
+        }
+        trackedManagers.removeAll()
+        super.tearDown()
+    }
+
 #if DEBUG
     private final class RecordingMobileTabManager: TabManager {
         private(set) var scheduledMetadataRefreshes: [(workspaceId: UUID, panelId: UUID, reason: String)] = []
@@ -995,7 +1037,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 #endif
 
     func testPlainSurfaceDoesNotStartRuntimeBeforeWindowAttachmentOrInput() {
-        let panel = TerminalPanel(workspaceId: UUID())
+        let panel = makeTrackedPanel(workspaceId: UUID())
 
         XCTAssertNil(panel.hostedView.window)
         XCTAssertFalse(panel.surface.debugHasHeadlessStartupWindowForTesting())
@@ -1007,7 +1049,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     }
 
     func testPlainHostedViewWindowAttachmentCreatesRuntimeSurface() throws {
-        let panel = TerminalPanel(workspaceId: UUID())
+        let panel = makeTrackedPanel(workspaceId: UUID())
         XCTAssertEqual(panel.hostedView.debugSurfaceId, panel.surface.id)
         XCTAssertNil(panel.surface.surface)
         XCTAssertFalse(panel.surface.debugHasHeadlessStartupWindowForTesting())
@@ -1058,7 +1100,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     }
 
     func testInitialInputSurfaceAttemptsRuntimeCreationBeforeWindowAttachment() {
-        let panel = TerminalPanel(
+        let panel = makeTrackedPanel(
             workspaceId: UUID(),
             initialInput: "echo resume\n"
         )
@@ -1075,7 +1117,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     }
 
     func testInitialCommandSurfaceAttemptsRuntimeCreationBeforeWindowAttachment() {
-        let panel = TerminalPanel(
+        let panel = makeTrackedPanel(
             workspaceId: UUID(),
             initialCommand: "echo startup"
         )
@@ -1092,7 +1134,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     }
 
     func testHeadlessStartupWindowDoesNotCountAsViewInWindowForHealth() {
-        let panel = TerminalPanel(
+        let panel = makeTrackedPanel(
             workspaceId: UUID(),
             initialCommand: "echo startup"
         )
@@ -1110,7 +1152,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 
     func testForceRefreshIgnoresHeadlessStartupWindow() throws {
 #if DEBUG
-        let panel = TerminalPanel(
+        let panel = makeTrackedPanel(
             workspaceId: UUID(),
             initialCommand: "echo startup"
         )
@@ -1132,7 +1174,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     }
 
     func testColdSocketInputQueuesInsteadOfDroppingWhenRuntimeSurfaceIsMissing() {
-        let panel = TerminalPanel(workspaceId: UUID())
+        let panel = makeTrackedPanel(workspaceId: UUID())
 
         panel.surface.releaseHostedSurfaceForTesting()
         XCTAssertNil(panel.surface.surface)
@@ -1148,7 +1190,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     }
 
     func testColdSocketInputRejectsOversizedQueueInsteadOfDroppingExistingInput() {
-        let panel = TerminalPanel(workspaceId: UUID())
+        let panel = makeTrackedPanel(workspaceId: UUID())
 
         panel.surface.releaseHostedSurfaceForTesting()
         XCTAssertTrue(panel.surface.sendInput("echo keep-me\n"))
@@ -1165,7 +1207,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     }
 
     func testColdSocketInputQueuesBackspaceControlCharacterAsKeyEvent() {
-        let panel = TerminalPanel(workspaceId: UUID())
+        let panel = makeTrackedPanel(workspaceId: UUID())
 
         panel.surface.releaseHostedSurfaceForTesting()
         XCTAssertTrue(panel.surface.sendInput("abc\u{08}"))
@@ -1179,7 +1221,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     }
 
     func testColdSocketInputQueuesReturnAsCommittedTextInputInsteadOfPasteOrKeyEvent() {
-        let panel = TerminalPanel(workspaceId: UUID())
+        let panel = makeTrackedPanel(workspaceId: UUID())
 
         panel.surface.releaseHostedSurfaceForTesting()
         XCTAssertTrue(panel.surface.sendInput("printf 'ok\\n'\n"))
@@ -1205,7 +1247,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 
     /// Verifies OSC 11 is queued as terminal output bytes instead of literal shell input.
     func testColdSocketInputQueuesOSC11AsRawTerminalBytes() {
-        let panel = TerminalPanel(workspaceId: UUID())
+        let panel = makeTrackedPanel(workspaceId: UUID())
 
         panel.surface.releaseHostedSurfaceForTesting()
         let osc11 = "\u{1B}]11;#341c1c\u{1B}\\"
@@ -1236,7 +1278,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     }
 
     func testColdSocketInputChunksLongCommittedTextInput() {
-        let panel = TerminalPanel(workspaceId: UUID())
+        let panel = makeTrackedPanel(workspaceId: UUID())
 
         panel.surface.releaseHostedSurfaceForTesting()
         let command = "printf '" + String(repeating: "x", count: 360) + "'\n"
@@ -1254,7 +1296,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     }
 
     func testTeardownClosesHeadlessStartupWindow() {
-        let panel = TerminalPanel(
+        let panel = makeTrackedPanel(
             workspaceId: UUID(),
             initialCommand: "echo startup"
         )
@@ -1269,7 +1311,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     }
 
     func testClosedSurfaceRejectsColdSocketInputInsteadOfQueueingIt() {
-        let panel = TerminalPanel(workspaceId: UUID())
+        let panel = makeTrackedPanel(workspaceId: UUID())
 
         panel.surface.releaseHostedSurfaceForTesting()
         panel.surface.beginPortalCloseLifecycle(reason: "test.closed")
@@ -1296,7 +1338,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         // via a non-keyboard path, so the named-key layer has to recognize "ctrl-f".
         // A recognized-but-undeliverable key returns `.surfaceUnavailable` on a closed
         // surface, whereas an unrecognized key returns `.unknownKey`.
-        let panel = TerminalPanel(workspaceId: UUID())
+        let panel = makeTrackedPanel(workspaceId: UUID())
         panel.surface.releaseHostedSurfaceForTesting()
         panel.surface.beginPortalCloseLifecycle(reason: "test.closed")
 
@@ -1330,7 +1372,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 
     func testDaemonSendWorkspaceQueuesColdControlInputInsteadOfReportingDroppedOK() throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = TabManager()
+        let manager = makeTrackedManager()
         TerminalController.shared.setActiveTabManager(manager)
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
@@ -1360,7 +1402,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 
     func testMobileTerminalInputReportsRejectedClosedSurface() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = TabManager()
+        let manager = makeTrackedManager()
         TerminalController.shared.setActiveTabManager(manager)
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
@@ -1389,6 +1431,41 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             return
         }
         XCTAssertEqual(error.code, "surface_unavailable")
+    }
+
+    func testMobileTerminalInputWithoutTerminalIDIsRefusedInsteadOfTypingIntoTheFocusedTerminal() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = makeTrackedManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        panel.surface.releaseHostedSurfaceForTesting()
+
+        // A phone request that names no terminal must never be written into
+        // whichever terminal happens to be focused on the Mac.
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "input",
+                method: "terminal.input",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "text": "rm -rf build\r",
+                ],
+                auth: nil
+            )
+        )
+        TerminalMutationBus.shared.drainForTesting()
+
+        XCTAssertEqual(panel.surface.debugPendingSocketInputForTesting().inputTextItems, 0)
+        guard case let .failure(error) = response else {
+            XCTFail("Expected phone input without a terminal id to be refused")
+            return
+        }
+        XCTAssertEqual(error.code, "terminal_id_required")
     }
 
     func testMobileHostNetworkStatusDoesNotExposePrivateMetadata() async throws {
@@ -1445,7 +1522,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 
     func testMobileRPCRejectsMalformedWorkspaceIDBeforeImplicitFallback() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = TabManager()
+        let manager = makeTrackedManager()
         TerminalController.shared.setActiveTabManager(manager)
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
@@ -1493,7 +1570,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 
     func testMobileWorkspaceListRejectsMissingScopedTargets() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = TabManager()
+        let manager = makeTrackedManager()
         TerminalController.shared.setActiveTabManager(manager)
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
@@ -1537,7 +1614,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 
     func testMobileAttachTicketCreateWithoutTerminalStaysWorkspaceScoped() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = TabManager()
+        let manager = makeTrackedManager()
         TerminalController.shared.setActiveTabManager(manager)
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
@@ -1573,7 +1650,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 
     func testMobileAttachTicketCreateResolvesTerminalIDAcrossWorkspaces() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = TabManager()
+        let manager = makeTrackedManager()
         TerminalController.shared.setActiveTabManager(manager)
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
@@ -1619,7 +1696,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 
     func testMobileAttachTicketCreateCanFilterRoutesForQRPairing() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = TabManager()
+        let manager = makeTrackedManager()
         TerminalController.shared.setActiveTabManager(manager)
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
@@ -1663,7 +1740,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 
     func testMobileTerminalCreateReturnsBeforeStartingGhostty() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = TabManager()
+        let manager = makeTrackedManager()
         TerminalController.shared.setActiveTabManager(manager)
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
@@ -1705,7 +1782,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 #if DEBUG
     func testMobileWorkspaceCreateSkipsHiddenMacSideWorkAndReturnsCreatedScopeOnly() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = RecordingMobileTabManager()
+        let manager = track(RecordingMobileTabManager())
         TerminalController.shared.setActiveTabManager(manager)
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
@@ -1744,7 +1821,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 
     func testMobileTerminalCreateSkipsHiddenMacSideWorkAndKeepsMacSelection() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = RecordingMobileTabManager()
+        let manager = track(RecordingMobileTabManager())
         TerminalController.shared.setActiveTabManager(manager)
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
@@ -1789,7 +1866,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 
     func testMobileBrowserCreateReturnsStreamableDescriptorAndKeepsMacSelection() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = RecordingMobileTabManager()
+        let manager = track(RecordingMobileTabManager())
         TerminalController.shared.setActiveTabManager(manager)
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
@@ -4999,7 +5076,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+        guard let scrollView = hostedView.subviews.first(where: { $0 is GhosttyScrollView }) as? GhosttyScrollView else {
             XCTFail("Expected hosted terminal scroll view")
             return
         }
@@ -5024,13 +5101,14 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             )
         }
 
-        // Start from the overlay style so the test is independent of the
-        // machine running it. The legacy transition below models the system
+        // Start from Automatic so the test is independent of the machine
+        // running it. The legacy transition below models the system
         // preference changing to "Always".
+        scrollView.showScrollBarsPreference = { "Automatic" }
         XCTAssertEqual(
             scrollView.scrollerStyle,
-            NSScroller.preferredScrollerStyle,
-            "The terminal scroll view should start with AppKit's preferred system style"
+            .overlay,
+            "The terminal scroll view should start with the overlay style for Automatic"
         )
         scrollView.scrollerStyle = .overlay
         scrollView.layoutSubtreeIfNeeded()
@@ -5042,6 +5120,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         let initialContentWidth = scrollView.contentSize.width
         XCTAssertEqual(initialSurfaceSize.width, initialContentWidth, accuracy: 0.5)
 
+        scrollView.showScrollBarsPreference = { "Always" }
         scrollView.scrollerStyle = .legacy
         scrollView.layoutSubtreeIfNeeded()
         XCTAssertEqual(scrollView.scrollerStyle, .legacy)
@@ -5090,6 +5169,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             "Preferred scroller style changes should resize the terminal grid for a legacy scrollbar"
         )
 
+        scrollView.showScrollBarsPreference = { "Automatic" }
         scrollView.scrollerStyle = .overlay
         scrollView.layoutSubtreeIfNeeded()
         let overlayContentWidth = scrollView.contentSize.width

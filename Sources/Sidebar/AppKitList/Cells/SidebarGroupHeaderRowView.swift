@@ -12,7 +12,8 @@ import SwiftUI
 final class SidebarGroupHeaderTableCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("SidebarGroupHeaderTableCellView")
 
-    private let backgroundView = NSView()
+    /// Selection fill and edge layer. Internal so tests read its paint directly.
+    let backgroundView = NSView()
     private let pinImageView = NSImageView()
     private let chevronButton = SidebarHeaderGlyphButton()
     private let iconImageView = NSImageView()
@@ -21,6 +22,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     // intrinsic insets shift single digits off the circle's optical center.
     private let unreadBadgeView = SidebarRowUnreadBadgeView()
     private var unreadBadgeFont: NSFont = .systemFont(ofSize: 10, weight: .semibold)
+    /// Compact status mode: replaces the unread badge; see `model.statusGlyph`.
+    private let statusGlyphView = SidebarCompactStatusGlyphImageView()
     private let plusButton = SidebarHeaderGlyphButton()
     private let topDropIndicator = SidebarReorderIndicatorView()
     private let bottomDropIndicator = SidebarReorderIndicatorView()
@@ -28,6 +31,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     private var model: SidebarGroupHeaderRowModel?
     private var actions: SidebarGroupHeaderRowActions?
+    /// Mirrors the table controller's flag, as workspace row cells do, so a
+    /// cell configured while the sidebar is hidden does not restart the pulse.
+    private var isPresentationActive = true
     private var isPointerHovering = false
     private var contextMenuVisible = false
     private var contextMenuDidOpen: (() -> Void)?
@@ -73,6 +79,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         addSubview(nameField)
 
         addSubview(unreadBadgeView)
+        addSubview(statusGlyphView)
 
         plusButton.onClick = { [weak self] in self?.actions?.onTapPlus() }
         plusButton.menuProvider = { [weak self] in self?.makePlusMenu() }
@@ -100,11 +107,22 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         hintPill.resetForReuse()
     }
 
+    func setPresentationActive(_ isActive: Bool) {
+        isPresentationActive = isActive
+        statusGlyphView.isPresentationActive = isActive
+    }
+
+    /// Stops the live presentation without forgetting what it should go back
+    /// to. Only the glyph view's flag is cleared, never this cell's: `configure`
+    /// reapplies the cell's stored `isPresentationActive` to the glyph view on
+    /// every reconfiguration, so clearing the stored one here would leave
+    /// nothing to restore it and a reused cell's pulse would never start again.
     func suspendPresentation() {
         actions = nil
         contextMenuDidOpen = nil
         contextMenuDidClose = nil
         contextMenuVisible = false
+        statusGlyphView.isPresentationActive = false
     }
 
     func configurePresentation(model: SidebarGroupHeaderRowModel) {
@@ -125,6 +143,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         contextMenuDidClose: @escaping () -> Void
     ) {
         let requiresFullApply = self.actions == nil
+        statusGlyphView.isPresentationActive = isPresentationActive
         let previous = self.model
         self.actions = actions
         self.contextMenuDidOpen = contextMenuDidOpen
@@ -188,7 +207,21 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             ? colorResolver.resolvedColor(.labelColor, for: colorScheme)
             : colorResolver.resolvedColor(.labelColor, for: colorScheme, opacity: 0.9)
 
-        let showsBadge = model.anchorUnreadCount > 0
+        // In compact status mode unread folds into the glyph (blue), so the
+        // count badge stays off even when no member state rolls up.
+        statusGlyphView.isHidden = model.statusGlyph == nil
+        if let glyph = model.statusGlyph {
+            statusGlyphView.configure(
+                glyph,
+                pointSize: GlobalFontMagnification.scaledSize(metrics.iconFontSize, percent: percent),
+                color: glyph.color(
+                    isActive: false,
+                    selected: .labelColor,
+                    secondary: colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
+                )
+            )
+        }
+        let showsBadge = model.statusGlyph == nil && !model.compactsAgentStatus && model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
         if showsBadge {
             unreadBadgeFont = .systemFont(
@@ -225,6 +258,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             ? 6
             : 4
         backgroundView.layer?.backgroundColor = headerBackgroundColor(for: model).cgColor
+        applySelectionEdge(headerSelectionEdgeColor(for: model))
 
         topDropIndicator.accentColor = model.accentColor
         bottomDropIndicator.accentColor = model.accentColor
@@ -290,6 +324,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         CATransaction.setDisableActions(true)
         backgroundView.layer?.cornerRadius = 4
         backgroundView.layer?.backgroundColor = labelColor.withAlphaComponent(0.08).cgColor
+        applySelectionEdge(model.anchorActiveEdgeColor)
         CATransaction.commit()
         nameField.textColor = labelColor
     }
@@ -302,6 +337,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         CATransaction.setDisableActions(true)
         backgroundView.layer?.cornerRadius = 6
         backgroundView.layer?.backgroundColor = headerMultiSelectionBackgroundColor(for: model).cgColor
+        applySelectionEdge(model.multiSelectionBackgroundStyle.edgeColor)
         CATransaction.commit()
     }
 
@@ -313,6 +349,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         CATransaction.setDisableActions(true)
         backgroundView.layer?.cornerRadius = 4
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
+        applySelectionEdge(nil)
         CATransaction.commit()
         let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
         nameField.textColor = SidebarAppearanceColorResolver().resolvedColor(
@@ -346,6 +383,18 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             return headerMultiSelectionBackgroundColor(for: model)
         }
         return .clear
+    }
+
+    /// Subtle-selection hairline, matching selected workspace rows.
+    private func headerSelectionEdgeColor(for model: SidebarGroupHeaderRowModel) -> NSColor? {
+        if model.isAnchorActive { return model.anchorActiveEdgeColor }
+        if model.isMultiSelected { return model.multiSelectionBackgroundStyle.edgeColor }
+        return nil
+    }
+
+    private func applySelectionEdge(_ edgeColor: NSColor?) {
+        backgroundView.layer?.borderWidth = edgeColor == nil ? 0 : 1
+        backgroundView.layer?.borderColor = edgeColor?.cgColor
     }
 
     private func headerMultiSelectionBackgroundColor(
@@ -423,6 +472,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             )
         }
 
+        if !statusGlyphView.isHidden {
+            let side = GlobalFontMagnification.scaledSize(metrics.iconFontSize, percent: model.globalFontMagnificationPercent)
+            badgeSize = NSSize(width: side, height: side)
+        }
+
         let nameAvailable = max(0, (plusButton.frame.minX - 4) - x
             - (badgeSize.width > 0 ? badgeSize.width + 6 : 0))
         let nameSize = nameField.attributedStringValue.size()
@@ -443,6 +497,14 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 height: badgeSize.height
             )
             unreadBadgeView.needsDisplay = true
+        }
+        if !statusGlyphView.isHidden {
+            statusGlyphView.frame = NSRect(
+                x: x + min(ceil(nameSize.width), nameAvailable) + 6,
+                y: midY - badgeSize.height / 2,
+                width: badgeSize.width,
+                height: badgeSize.height
+            )
         }
 
         let topOffset: CGFloat = model.isFirstRow ? 0 : -(model.rowSpacing / 2)

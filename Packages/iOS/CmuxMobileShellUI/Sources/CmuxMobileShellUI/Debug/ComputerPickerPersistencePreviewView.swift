@@ -3,6 +3,7 @@ import CmuxMobileBrowser
 import CmuxMobileBrowserStream
 import CmuxMobileShell
 import CmuxMobileShellModel
+import Foundation
 import SwiftUI
 
 /// Exercises the production shell's picker and preferences with fixed Mac snapshots.
@@ -11,7 +12,12 @@ public struct ComputerPickerPersistencePreviewView: View {
     @State private var store = CMUXMobileShellStore(
         isSignedIn: true,
         connectionState: .disconnected,
-        workspaces: [
+        workspaces: initialWorkspaces
+    )
+
+    private static var initialWorkspaces: [MobileWorkspacePreview] {
+        if refreshesPicker { return refreshingWorkspaces(generation: 0) }
+        return [
             MobileWorkspacePreview(
                 id: "workspace-main",
                 macDeviceID: "picker-mac",
@@ -27,7 +33,7 @@ public struct ComputerPickerPersistencePreviewView: View {
                 terminals: []
             ),
         ]
-    )
+    }
     private let browserStore = BrowserSurfaceStore()
     private let browserStreamStore = BrowserStreamStore()
     private let simulatorStreamStore = MobileSimulatorStreamStore()
@@ -51,6 +57,32 @@ public struct ComputerPickerPersistencePreviewView: View {
         .environment(browserStore)
         .environment(browserStreamStore)
         .environment(simulatorStreamStore)
+        .task {
+            guard Self.refreshesPicker else { return }
+            var generation = 0
+            while !Task.isCancelled {
+                try? await ContinuousClock().sleep(for: .milliseconds(250))
+                guard !Task.isCancelled else { return }
+                generation += 1
+                store.replaceForegroundWorkspaceState(Self.refreshingWorkspaces(generation: generation))
+            }
+        }
+    }
+
+    private static var refreshesPicker: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UITEST_COMPUTER_PICKER_REFRESH"] == "1"
+    }
+
+    private static func refreshingWorkspaces(generation: Int) -> [MobileWorkspacePreview] {
+        (0...24).map { index in
+            MobileWorkspacePreview(
+                id: .init(rawValue: "picker-workspace-\(index)"),
+                macDeviceID: "picker-refresh-\(index)",
+                macDisplayName: String(format: "Computer %02d refresh %d", index, generation),
+                name: "Workspace \(index)",
+                terminals: []
+            )
+        }
     }
 }
 #endif

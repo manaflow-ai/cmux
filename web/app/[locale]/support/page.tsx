@@ -37,7 +37,7 @@ const channels = [
     href: "https://github.com/manaflow-ai/cmux/issues",
     internal: false,
   },
-  { key: "email", href: "mailto:founders@manaflow.com", internal: false },
+  { key: "email", href: "mailto:founders@cmux.com", internal: false },
 ] as const;
 
 export default function SupportPage() {

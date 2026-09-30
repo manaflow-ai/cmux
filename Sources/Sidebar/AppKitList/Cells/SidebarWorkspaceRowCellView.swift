@@ -33,6 +33,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let mediaMicView = NSImageView()
     private let mediaCameraView = NSImageView()
     private let statusGlyphButton = SidebarRowTaskStatusGlyphButton()
+    /// `sidebar.compactAgentStatus` leading status glyph.
+    private let compactStatusGlyphView = SidebarCompactStatusGlyphImageView()
     private let titleView = SidebarRowTextView(lines: 1)
     private let cloudImageView = NSImageView()
     private let trailingBadge = SidebarRowUnreadBadgeView()
@@ -249,9 +251,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         // Only the subtle left-rail treatment depends on window activation and
         // Increase Contrast; the default solid fill never changes here.
         let settings = painted.settings
-        guard settings.subtleSelection,
-              settings.activeTabIndicatorStyle != .solidFill,
-              settings.selectionColorHex.flatMap({ NSColor(hex: $0) }) == nil else { return }
+        guard sidebarUsesSubtleSelection(
+            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
+            subtleSelection: settings.subtleSelection,
+            sidebarSelectionColorHex: settings.selectionColorHex
+        ) else { return }
         // Selection-derived foregrounds must resolve from the same window and
         // accessibility state as the fill. These notifications are rare, so
         // repaint the row from its existing model instead of leaving text
@@ -322,6 +326,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             view.imageScaling = .scaleProportionallyDown
             contentContainer.addSubview(view)
         }
+        // The glyph view sets its own scaling mode, shared with the SwiftUI list.
+        contentContainer.addSubview(compactStatusGlyphView)
         statusGlyphButton.isHidden = true
         statusGlyphButton.onClick = { [weak self] in self?.toggleStatusPopover() }
         contentContainer.addSubview(statusGlyphButton)
@@ -389,6 +395,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         isPresentationActive = isActive
         leadingSpinner?.isPresentationActive = isActive
         trailingSpinner?.isPresentationActive = isActive
+        compactStatusGlyphView.isPresentationActive = isActive
     }
 
     func suspendPresentation(commitEdits: Bool = false) {
@@ -589,8 +596,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             )
         }
         reconcileStatusPopover(model: model, showsAnchor: showsStatusGlyph)
+        configureCompactStatusGlyph(model: model, palette: palette)
 
-        let titleLineLimit = settings.wrapsWorkspaceTitles ? 8 : 1
+        // Compact status rows are one line, so title wrapping does not undo it.
+        let titleLineLimit = settings.wrapsWorkspaceTitles && snapshot.compactStatusGlyph == nil ? 8 : 1
         titleView.maximumNumberOfLines = titleLineLimit
         titleView.lineBreakMode = titleLineLimit == 1 ? .byTruncatingTail : .byWordWrapping
         let boundedTitle = snapshot.title.sidebarBoundedDisplayString(
@@ -611,8 +620,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         titleView.alphaValue = snapshot.isMuted ? 0.6 : 1
 
         // Badges / spinner / close
-        let showsSpinner = model.showsAgentActivity && snapshot.activeCodingAgentCount > 0
-        let badgeVisible = model.unreadCount > 0
+        // Compact status draws running and unread as its one glyph instead.
+        let compacts = snapshot.compactStatusGlyph != nil
+        let showsSpinner = !compacts && model.showsAgentActivity && snapshot.activeCodingAgentCount > 0
+        let badgeVisible = !compacts && model.unreadCount > 0
         configureStatusSlot(
             model: model,
             palette: palette,
@@ -656,7 +667,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             let trimmed = snapshot.latestConversationMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
             return (trimmed?.isEmpty == false) ? trimmed : nil
         }()
-        let effectiveSubtitle = model.latestNotificationText ?? conversationSubtitle
+        // Compact status rows are one line; the notification leads the glyph's tooltip instead.
+        let effectiveSubtitle = snapshot.compactStatusGlyph != nil
+            ? nil
+            : model.latestNotificationText ?? conversationSubtitle
         let subtitleLineLimit = model.latestNotificationText == nil ? 2 : settings.notificationMessageLineLimit
         subtitleView.isHidden = effectiveSubtitle == nil
         if let effectiveSubtitle {
@@ -862,6 +876,25 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         } else {
             updateCloseVisibility()
         }
+    }
+
+    private func configureCompactStatusGlyph(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
+        let glyph = model.snapshot.compactStatusGlyph?.applyingUnread(
+            model.unreadCount,
+            latestNotificationText: model.latestNotificationText
+        )
+        compactStatusGlyphView.isPresentationActive = isPresentationActive
+        compactStatusGlyphView.isHidden = glyph?.isDrawn != true
+        guard let glyph, glyph.isDrawn else { return }
+        compactStatusGlyphView.configure(
+            glyph,
+            pointSize: model.scaled(11),
+            color: glyph.color(
+                isActive: model.isActive,
+                selected: palette.selectedForeground(0.95),
+                secondary: palette.secondary(0.8)
+            )
+        )
     }
 
     private func configureMetadata(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
@@ -1277,6 +1310,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             let glyphSize = SidebarRowTaskStatusGlyphButton.occupiedSize(fontScale: model.fontScale)
             place(statusGlyphButton, size: glyphSize, centerY: firstLineCenter)
             x += glyphSize.width + titleRowSpacing
+        }
+        if !compactStatusGlyphView.isHidden {
+            // Sits partly in the row's leading padding, with a tighter gap
+            // to the title, so the glyph does not push the title far right.
+            let side = model.scaled(11)
+            x -= SidebarCompactStatusGlyph.leadingPullIn
+            place(compactStatusGlyphView, size: NSSize(width: side, height: side), centerY: firstLineCenter)
+            x += side + SidebarCompactStatusGlyph.titleSpacing
         }
 
         x = cloudImageView.layoutLeadingSidebarWorkspaceAccessory(

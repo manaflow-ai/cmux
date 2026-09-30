@@ -16,7 +16,8 @@ struct SidebarAppKitRowCellTests {
         customDescription: String? = nil,
         isPinned: Bool = false,
         metadataEntries: [SidebarStatusEntry] = [],
-        metadataBlocks: [SidebarMetadataBlock] = []
+        metadataBlocks: [SidebarMetadataBlock] = [],
+        compactStatusGlyph: SidebarCompactStatusGlyph? = nil
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
@@ -54,7 +55,8 @@ struct SidebarAppKitRowCellTests {
             checklistItems: [],
             checklistCompletedCount: 0,
             checklistTotalCount: 0,
-            checklistFirstUncheckedText: nil
+            checklistFirstUncheckedText: nil,
+            compactStatusGlyph: compactStatusGlyph
         )
     }
 
@@ -67,6 +69,7 @@ struct SidebarAppKitRowCellTests {
         customDescription: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
         metadataBlocks: [SidebarMetadataBlock] = [],
+        compactStatusGlyph: SidebarCompactStatusGlyph? = nil,
         shortcutHintText: String? = nil,
         isMarkdownExpanded: Bool = false,
         colorSchemeIsDark: Bool = true
@@ -80,7 +83,8 @@ struct SidebarAppKitRowCellTests {
                 customDescription: customDescription,
                 isPinned: isPinned,
                 metadataEntries: metadataEntries,
-                metadataBlocks: metadataBlocks
+                metadataBlocks: metadataBlocks,
+                compactStatusGlyph: compactStatusGlyph
             ),
             settings: resolvedSettings,
             isActive: isActive,
@@ -167,7 +171,7 @@ struct SidebarAppKitRowCellTests {
         UserDefaults(suiteName: "SidebarAppKitRowCellTests.\(UUID().uuidString)")!
     }
 
-    private static func makeActions(
+    static func makeActions(
         model: SidebarWorkspaceRowModel,
         tab: Workspace? = nil,
         tabManager: TabManager? = nil,
@@ -2271,6 +2275,81 @@ struct SidebarPinnedIndicatorColorTests {
         )
 
         #expect(groupPin.contentTintColor == workspacePin.contentTintColor)
+    }
+}
+
+@Suite
+@MainActor
+struct SidebarGroupHeaderSelectionEdgeTests {
+    private static func edgeWidth(
+        subtleSelection: Bool,
+        isAnchorActive: Bool,
+        isMultiSelected: Bool
+    ) -> CGFloat {
+        let multiSelectionStyle = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: .leftRail,
+            isActive: false,
+            isMultiSelected: true,
+            customColorHex: nil,
+            colorScheme: .dark,
+            sidebarSelectionColorHex: nil,
+            subtleSelection: subtleSelection
+        )
+        let anchorActiveEdgeColor = sidebarGroupHeaderAnchorActiveEdgeNSColor(
+            activeTabIndicatorStyle: .leftRail,
+            subtleSelection: subtleSelection,
+            sidebarSelectionColorHex: nil,
+            colorScheme: .dark,
+            increaseContrast: false
+        )
+        let cell = SidebarGroupHeaderTableCellView()
+        cell.configurePresentation(model: SidebarGroupHeaderRowModel(
+            groupId: UUID(),
+            anchorWorkspaceId: UUID(),
+            name: "Group",
+            iconSymbol: "folder",
+            tintHex: nil,
+            isCollapsed: false,
+            isPinned: false,
+            isAnchorActive: isAnchorActive,
+            isMultiSelected: isMultiSelected,
+            multiSelectionBackgroundStyle: multiSelectionStyle,
+            anchorActiveEdgeColor: anchorActiveEdgeColor,
+            memberCount: 1,
+            anchorUnreadCount: 0,
+            canMarkRead: false,
+            canMarkUnread: false,
+            hasLatestNotifications: false,
+            canMarkAllRead: false,
+            canMarkAllUnread: false,
+            shortcutHintText: nil,
+            shortcutHintXOffset: 0,
+            shortcutHintYOffset: 0,
+            fontScale: 1,
+            globalFontMagnificationPercent: 100,
+            cwdContextMenuItems: [],
+            rowSpacing: 2,
+            isFirstRow: true,
+            isBeingDragged: false,
+            topDropIndicatorVisible: false,
+            bottomDropIndicatorVisible: false,
+            colorSchemeIsDark: true,
+            notificationBadgeColorHex: nil
+        ))
+        return cell.backgroundView.layer?.borderWidth ?? 0
+    }
+
+    @Test
+    func selectedGroupHeadersDrawTheSubtleSelectionHairline() {
+        #expect(Self.edgeWidth(subtleSelection: true, isAnchorActive: true, isMultiSelected: false) == 1)
+        #expect(Self.edgeWidth(subtleSelection: true, isAnchorActive: false, isMultiSelected: true) == 1)
+        #expect(Self.edgeWidth(subtleSelection: true, isAnchorActive: false, isMultiSelected: false) == 0)
+    }
+
+    @Test
+    func legacySelectionGroupHeadersDrawNoHairline() {
+        #expect(Self.edgeWidth(subtleSelection: false, isAnchorActive: true, isMultiSelected: false) == 0)
+        #expect(Self.edgeWidth(subtleSelection: false, isAnchorActive: false, isMultiSelected: true) == 0)
     }
 }
 

@@ -83,6 +83,13 @@ extension MobileShellComposite {
             terminalID: MobileTerminalPreview.ID(rawValue: surfaceID),
             viewportSize: reportedGrid
         )
+        if sshOwnsSurface(surfaceID) {
+            // The phone owns SSH geometry (PRD D19): the grid it reports is
+            // the grid the server's PTY gets, with nothing to negotiate.
+            // Recording it before the output sink registers lets that
+            // registration attach (and seed) at this grid right away.
+            sshComputers.viewportChanged(surfaceID: surfaceID, columns: columns, rows: rows)
+        }
         // Allocate the generation for offline reports too: the cached
         // dimensions above must never ride a piggyback without a generation,
         // or a reordered stale piggyback could overwrite a newer dedicated
@@ -186,7 +193,10 @@ extension MobileShellComposite {
         // retryViewportReport loop. Placed before the replay-barrier prearm
         // below so no barrier is ever armed against a demo surface (a
         // lingering barrier would gate the engine's output).
-        if demonstrationOwnsSurface(surfaceID) {
+        if locallyServedOwnsSurface(surfaceID) {
+            // A tmux pane keeps its layout size: grant that grid so a pinned
+            // (letterboxed) surface is not resized to the phone's.
+            let granted = sshComputers.remoteGrid(surfaceID: surfaceID) ?? (columns: columns, rows: rows)
             reportedTerminalViewportSizesBySurfaceID[surfaceID] = reportedGrid
             effectiveViewportSizesBySurfaceID[surfaceID] = reportedGrid
             recordAppEvent(
@@ -196,8 +206,8 @@ extension MobileShellComposite {
             )
             finishPreparation()
             return (
-                columns: columns,
-                rows: rows,
+                columns: granted.columns,
+                rows: granted.rows,
                 renderEpoch: nil,
                 renderRevisionFloor: nil
             )
@@ -394,6 +404,10 @@ extension MobileShellComposite {
     /// detach). Fire-and-forget; the Mac also clears on connection close.
     public func clearTerminalViewport(surfaceID: String) {
         recordAppEvent(.terminalViewportClearStarted, correlationID: surfaceID)
+        if sshOwnsSurface(surfaceID) {
+            // Off screen: a cmux-tui terminal stops owning the shared grid.
+            sshComputers.viewportReleased(surfaceID: surfaceID)
+        }
         let sequenceKey = MobileTerminalViewportSequenceKey(
             ownerKey: foregroundMacKey,
             surfaceID: surfaceID

@@ -235,6 +235,19 @@ class PullRequestProductTests(unittest.TestCase):
         self.assertEqual(planned["source_sha"], self.merge)
         self.assertEqual(planned["changed_tests"], "cmuxTests/BTests.swift")
 
+    def test_a_source_run_that_adopted_its_product_names_where_to_look(self) -> None:
+        # test-e2e.yml builds that adopted a product upload none of their own.
+        def api(path: str) -> dict:
+            if path.endswith("/artifacts?per_page=100"):
+                return {"artifacts": []}
+            return {**self.pull_request_run(), "path": ".github/workflows/test-e2e.yml",
+                    "event": "workflow_dispatch", "head_sha": self.head,
+                    "display_title": f"cmuxUITests/A on glaeda-std-xcode-26.6 @ {self.head} [x]"}
+
+        with self.assertRaises(SystemExit) as raised:
+            self.plan(self.head, "5", api)
+        self.assertIn("uploads none of its own", str(raised.exception))
+
     def test_automatic_plan_passes_over_a_merge_with_base_app_changes(self) -> None:
         # The newer pull_request run for this head built a merge that also
         # carries the base's app change; the older push run built the head.
