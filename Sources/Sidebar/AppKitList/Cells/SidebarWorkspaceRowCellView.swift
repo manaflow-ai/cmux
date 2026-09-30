@@ -142,6 +142,37 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         needsLayout = true
     }
 
+    /// Title weight for this row, resolved through the weights the SwiftUI
+    /// rows use, so both renderers agree.
+    ///
+    /// Selection and unread count both take part in row-model equality, so a
+    /// change here re-measures the row instead of reusing a height cached at
+    /// the other weight.
+    private static func titleWeight(for model: SidebarWorkspaceRowModel) -> SidebarRowTextWeight {
+        .workspaceTitle(
+            isSelected: model.isActive || model.isMultiSelected,
+            hasUnread: model.unreadCount > 0
+        )
+    }
+
+    /// Title font resolved from the row's STORED model, even while a painted
+    /// copy supplies the colors.
+    ///
+    /// Row heights are measured from the stored model, and weight changes text
+    /// metrics: a wrapped title can need one more line at semibold than at
+    /// regular. Letting the optimistic selection paint flip the weight would
+    /// therefore draw a row at one weight inside a frame measured at another,
+    /// and `refreshVisiblePumpHeightOverrides` can record that mis-measured
+    /// height and keep it past the paint. Selection colors still flip on press;
+    /// the weight follows the authoritative apply a moment later.
+    private func titleFont(paintedWith painted: SidebarWorkspaceRowModel) -> NSFont {
+        let measured = model ?? painted
+        return .systemFont(
+            ofSize: measured.scaled(SidebarRowTitleMetrics.fontSize),
+            weight: Self.titleWeight(for: measured).appKitWeight
+        )
+    }
+
     var currentModelForMeasurement: SidebarWorkspaceRowModel? { model }
 
     /// Paints the FULL selected treatment instantly on press by applying a
@@ -602,10 +633,16 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         reconcileStatusPopover(model: model, showsAnchor: showsStatusGlyph)
         configureCompactStatusGlyph(model: model, palette: palette)
 
-        // Compact status rows are one line, so title wrapping does not undo it.
-        let titleLineLimit = settings.wrapsWorkspaceTitles && snapshot.compactStatusGlyph == nil ? 8 : 1
+        // Compact status rows are one line, so neither title setting undoes it.
+        let titleMetrics = snapshot.compactStatusGlyph == nil
+            ? SidebarRowTitleMetrics(
+                wrapsTitles: settings.wrapsWorkspaceTitles,
+                usesTwoLines: settings.usesTwoLineWorkspaceTitles
+            )
+            : SidebarRowTitleMetrics(lineLimit: 1)
+        let titleLineLimit = titleMetrics.lineLimit
         titleView.maximumNumberOfLines = titleLineLimit
-        titleView.lineBreakMode = titleLineLimit == 1 ? .byTruncatingTail : .byWordWrapping
+        titleView.lineBreakMode = titleMetrics.appKitLineBreakMode
         let boundedTitle = snapshot.title.sidebarBoundedDisplayString(
             maxDisplayedLines: titleLineLimit,
             maxDisplayedCharacters: 2048
@@ -619,7 +656,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
 #endif
         titleView.stringValue = boundedTitle
-        titleView.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
+        let titleFont = titleFont(paintedWith: model)
+        titleView.font = titleFont
+        // A rename in progress occupies the title's slot, so it tracks the same
+        // font: a notification arriving mid-rename would otherwise leave the
+        // field one weight behind the row it sits in.
+        renameSession?.field.font = titleFont
         titleView.textColor = palette.primaryText
         titleView.alphaValue = snapshot.isMuted ? 0.6 : 1
 
@@ -1183,7 +1225,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 self?.removeInlineRenameSession()
             }
         )
-        session.field.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
+        // The rename field replaces the title in place, so it draws at the
+        // title's weight and the text does not shift when editing starts.
+        session.field.font = titleFont(paintedWith: model)
         session.field.inlineRenameTextColor = palette(model).selectedForeground(1.0)
         renameSession = session
         titleView.isHidden = true
@@ -1279,7 +1323,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         var x = leading
         let badgeSide = 16 * model.fontScale
         let spinnerSide = max(10, 12 * model.fontScale)
-        let firstLineCenter = model.scaled(12.5) * 0.6 + y
+        let firstLineCenter = model.scaled(SidebarRowTitleMetrics.fontSize) * 0.6 + y
 
         func place(_ view: NSView, size: NSSize, centerY: CGFloat) {
             guard apply else { return }
@@ -1335,7 +1379,31 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         // Trailing slot
         let closeHit = max(16, 16 * model.fontScale)
         let closeWidth = max(16, closeHit)
-        let trailingSlotActive = !trailingBadge.isHidden || (trailingSpinner?.isHidden == false) || model.canCloseWorkspace
+        let trailingStatusVisible = !trailingBadge.isHidden || (trailingSpinner?.isHidden == false)
+        // A row that merely CAN be closed no longer reserves the close button's
+        // width: the button is hover-revealed, so on every other row that
+        // reservation was 24pt of blank trailing space paid for by the title.
+        //
+        // The reveal insets the title instead of overlaying it, which is safe
+        // for a single line because a single line's height does not depend on
+        // its width.
+        //
+        // The shortcut hint pill takes the trailing edge too, as an overlay
+        // rather than a slot occupant, and it replaces the close button while it
+        // shows. The title has to yield to it for the same reason it yields to
+        // the button: a held modifier would otherwise paint the pill over the
+        // end of the title, and a one-line title now truncates in the middle, so
+        // its end is a part of the name worth reading.
+        //
+        // A title on more than one line keeps the slot reserved at all times,
+        // whatever is or is not in it. Such a title's height depends on its
+        // width, and neither hover nor a held modifier may restate a row's
+        // height.
+        let titleWrapsToMultipleLines = titleView.maximumNumberOfLines != 1
+        let trailingSlotActive = trailingStatusVisible
+            || showsCloseNow
+            || model.shortcutHintText != nil
+            || titleWrapsToMultipleLines
         let titleMaxX = trailingSlotActive ? (trailing - closeWidth - titleRowSpacing) : trailing
         let titleWidth = max(10, titleMaxX - x)
         let renameField = renameSession?.field

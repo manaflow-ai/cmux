@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxSidebar
 import SwiftUI
 
 /// Pure-AppKit group header cell for the sidebar workspace table.
@@ -201,7 +202,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         nameField.stringValue = model.name
         nameField.font = .systemFont(
             ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
-            weight: .semibold
+            weight: SidebarRowTextWeight.workspaceGroupHeaderName.appKitWeight
         )
         nameField.textColor = model.isAnchorActive
             ? colorResolver.resolvedColor(.labelColor, for: colorScheme)
@@ -421,9 +422,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     static func preferredHeight(model: SidebarGroupHeaderRowModel) -> CGFloat {
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: model.fontScale)
         let percent = model.globalFontMagnificationPercent
+        // Must stay the same font `applyModel` installs on `nameField`, or the
+        // measured height drifts from the drawn line.
         let nameFont = NSFont.systemFont(
             ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
-            weight: .semibold
+            weight: SidebarRowTextWeight.workspaceGroupHeaderName.appKitWeight
         )
         let nameLineHeight = ceil(nameFont.ascender - nameFont.descender + nameFont.leading)
         let content = max(metrics.chevronFrame, metrics.iconFrame, metrics.plusFrame, nameLineHeight)

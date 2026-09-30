@@ -75,7 +75,12 @@ enum SidebarWorkspaceListMetrics {
     static let firstRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight + 2
     static let rowVerticalPadding: CGFloat = 8
     static let rowOuterHorizontalPadding: CGFloat = 6
-    static let rowContentHorizontalPadding: CGFloat = 10
+    /// Padding between a row's selection background and its content.
+    ///
+    /// Two points narrower than the shipped 10: with the outer padding this
+    /// spent 32 of a 240pt sidebar on empty margins, and the title is what the
+    /// sidebar is for.
+    static let rowContentHorizontalPadding: CGFloat = 8
     /// The top fade ends where the first row rests, so rows fade only while
     /// scrolled under the titlebar. It used to reach 20 pt into the list,
     /// which left the first row partly transparent at rest; over a light

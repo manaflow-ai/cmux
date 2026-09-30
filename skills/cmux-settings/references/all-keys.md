@@ -126,6 +126,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.compactAgentStatus` | boolean | `false` | Fold a workspace's agent status, branch, pull request and unread rows into one colored icon before the title, with the details in its tooltip. Rows you added yourself keep their lines. |
 | `sidebar.compactStatusIcons` | object | `{}` | SF Symbol names that replace the compactAgentStatus glyph for each state, for example {"terminal": "apple.terminal", "needsInput": "hand.raised.fill"}. Unset states keep the built-in symbol, and a name that does not render falls back to it. |
 | `sidebar.wrapWorkspaceTitles` | boolean | `false` | Allow workspace titles in the sidebar to wrap to multiple lines instead of truncating after one line. |
+| `sidebar.twoLineWorkspaceTitles` | boolean | `false` | Allow a workspace title in the sidebar a second line before it is truncated, instead of showing it in full like wrapWorkspaceTitles. |
 | `sidebar.beta` | object | — | Experimental sidebar features. |
 | `sidebar.notificationMessageLineLimit` | integer | `12` | Maximum lines shown for the latest notification below each workspace title. |
 | `sidebar.watchGitStatus` | boolean | `true` | Watch repository files for sidebar branch and pull request metadata without polling git. |

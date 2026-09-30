@@ -1327,6 +1327,11 @@
           "default": false,
           "description": "Allow workspace titles in the sidebar to wrap to multiple lines instead of truncating after one line."
         },
+        "twoLineWorkspaceTitles": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow a workspace title in the sidebar a second line before it is truncated, instead of showing it in full like wrapWorkspaceTitles."
+        },
         "showWorkspaceDescription": {
           "type": "boolean",
           "default": true,

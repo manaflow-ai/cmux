@@ -89,6 +89,7 @@ extension CmuxSettingsFileStore {
         "notifications.agentIdleReminder",
         "sidebar.hideAllDetails",
         "sidebar.wrapWorkspaceTitles",
+        "sidebar.twoLineWorkspaceTitles",
         "sidebar.showWorkspaceDescription",
         "sidebar.workspaceDescriptionColor",
         "sidebar.beta.workspaceTodos.controls.enabled",

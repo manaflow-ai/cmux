@@ -353,6 +353,10 @@ enum SidebarSettingsFileMapping {
             defaultsKey: SidebarWorkspaceTitleWrapSettings.key
         ),
         .init(
+            jsonKey: "twoLineWorkspaceTitles",
+            defaultsKey: sidebar.twoLineWorkspaceTitles.userDefaultsKey
+        ),
+        .init(
             jsonKey: "showWorkspaceDescription",
             defaultsKey: sidebar.showWorkspaceDescription.userDefaultsKey
         ),

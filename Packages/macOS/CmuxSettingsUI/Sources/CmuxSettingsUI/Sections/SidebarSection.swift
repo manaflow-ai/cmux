@@ -13,6 +13,7 @@ public struct SidebarSection: View {
     @State private var matchTerminal: DefaultsValueModel<Bool>
     @State var hideAll: DefaultsValueModel<Bool>
     @State private var wrapTitles: DefaultsValueModel<Bool>
+    @State private var twoLineTitles: DefaultsValueModel<Bool>
     @State private var showDesc: DefaultsValueModel<Bool>
     @State private var workspaceDescriptionHex: DefaultsValueModel<String>
     @State private var branchVerticalLayout: DefaultsValueModel<Bool>
@@ -45,6 +46,7 @@ public struct SidebarSection: View {
         _matchTerminal = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.matchTerminalBackground))
         _hideAll = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.hideAllDetails))
         _wrapTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.wrapWorkspaceTitles))
+        _twoLineTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.twoLineWorkspaceTitles))
         _showDesc = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showWorkspaceDescription))
         _workspaceDescriptionHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.workspaceDescriptionColorHex))
         _branchVerticalLayout = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.branchVerticalLayout))
@@ -90,6 +92,7 @@ public struct SidebarSection: View {
             matchTerminal,
             hideAll,
             wrapTitles,
+            twoLineTitles,
             showDesc,
             workspaceDescriptionHex,
             branchVerticalLayout,
@@ -278,6 +281,18 @@ public struct SidebarSection: View {
                     .labelsHidden()
                     .controlSize(.small)
             }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.twoLineWorkspaceTitles"),
+                String(localized: "settings.app.twoLineWorkspaceTitles", defaultValue: "Allow Two Lines for Workspace Titles"),
+                subtitle: String(localized: "settings.app.twoLineWorkspaceTitles.subtitle", defaultValue: "Gives a long workspace title a second line before it is shortened.")
+            ) {
+                Toggle("", isOn: Binding(get: { twoLineTitles.current }, set: { twoLineTitles.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(wrapTitles.current)
             SettingsCardDivider()
 
             SettingsCardRow(

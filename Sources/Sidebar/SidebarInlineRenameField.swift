@@ -8,6 +8,9 @@ import SwiftUI
 struct SidebarInlineRenameField: NSViewRepresentable {
     let initialText: String
     let fontSize: CGFloat
+    /// Weight of the title this field replaces, so the text does not change
+    /// weight when editing starts.
+    let fontWeight: NSFont.Weight
     let textColor: NSColor
     let accessibilityLabel: String
     let placeholder: String
@@ -30,7 +33,7 @@ struct SidebarInlineRenameField: NSViewRepresentable {
         field.usesSingleLineMode = true
         field.cell?.usesSingleLineMode = true
         field.lineBreakMode = .byTruncatingTail
-        field.font = .systemFont(ofSize: fontSize, weight: .semibold)
+        field.font = .systemFont(ofSize: fontSize, weight: fontWeight)
         field.inlineRenameTextColor = textColor
         field.placeholderString = placeholder
         field.setAccessibilityLabel(accessibilityLabel)
@@ -46,7 +49,7 @@ struct SidebarInlineRenameField: NSViewRepresentable {
         // Keep driven visual/accessibility state in sync (NSViewRepresentable
         // convention). initialText/stringValue is intentionally NOT synced here:
         // doing so would reset the cursor and clobber in-progress typing.
-        nsView.font = .systemFont(ofSize: fontSize, weight: .semibold)
+        nsView.font = .systemFont(ofSize: fontSize, weight: fontWeight)
         nsView.inlineRenameTextColor = textColor
         nsView.placeholderString = placeholder
         nsView.setAccessibilityLabel(accessibilityLabel)
