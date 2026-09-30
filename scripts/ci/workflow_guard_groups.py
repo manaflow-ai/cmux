@@ -72,6 +72,8 @@ PATH_OWNERS = {
     ".github/workflows/web-complexity-trusted.yml": frozenset(("ci",)),
     ".github/workflows/iroh-v2-production-drift.yml": frozenset(("ci",)),
     "tests/test_iroh_drift_issue.py": frozenset(("ci",)),
+    ".github/workflows/feature-flag-review-drift.yml": frozenset(("ci",)),
+    "tests/test_feature_flag_review_drift_issue.py": frozenset(("ci",)),
     ".github/review-fabric-policy.json": frozenset(("preflight",)),
     ".github/review-fabric.md": frozenset(("preflight",)),
     ".github/scripts/review_fabric.py": frozenset(("preflight",)),
@@ -84,6 +86,8 @@ PATH_OWNERS = {
     "scripts/verify-local.py": frozenset(("preflight", "ci")),
     # test_lint_feature_flags_scope.py reads its parser and registry discovery.
     "scripts/lint-feature-flags.py": frozenset(("preflight", "ci")),
+    # test_feature_flag_review_lead_time.py loads the report by path.
+    "scripts/report-feature-flag-review-lead-time.py": frozenset(("preflight", "ci")),
     "scripts/verification_receipt.py": frozenset(("ci",)),
     "scripts/ci/app_host_test_products.py": frozenset(("preflight",)),
     "scripts/ci/build_input_fingerprint.py": frozenset(("preflight",)),

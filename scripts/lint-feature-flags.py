@@ -99,16 +99,17 @@ def parse_swift_registry(text: str, source: str) -> list[dict]:
     return flags
 
 
-def collect_flags() -> list[dict]:
-    """Collect declarations from every supported feature flag registry."""
+def collect_flags() -> tuple[list[dict], list[str]]:
+    """Return declarations and the registry paths discovered in the same walk."""
     flags: list[dict] = []
     if WEB_REGISTRY.exists():
-        flags += parse_web_registry(WEB_REGISTRY.read_text())
-    for rel in swift_registry_files():
+        flags += parse_web_registry(WEB_REGISTRY.read_text(encoding="utf-8", errors="replace"))
+    swift_registries = swift_registry_files()
+    for rel in swift_registries:
         path = REPO / rel
         if path.exists():
-            flags += parse_swift_registry(path.read_text(), rel)
-    return flags
+            flags += parse_swift_registry(path.read_text(encoding="utf-8", errors="replace"), rel)
+    return flags, [WEB_REGISTRY_REL, *swift_registries]
 
 
 def grep_key_files(key: str) -> set[str]:
@@ -122,8 +123,7 @@ def grep_key_files(key: str) -> set[str]:
 
 
 def main() -> int:
-    flags = collect_flags()
-    swift_registries = swift_registry_files()
+    flags, registry_files = collect_flags()
 
     if not flags:
         print("lint-feature-flags: no flags declared")
@@ -132,7 +132,7 @@ def main() -> int:
     today = datetime.date.today()
     seen: dict[str, str] = {}
     # git grep returns repo-relative paths.
-    registries = {WEB_REGISTRY_REL, *swift_registries}
+    registries = set(registry_files)
 
     retired = set()
     if RETIRED.exists():

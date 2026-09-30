@@ -44,7 +44,7 @@ class FlagLinterScopeTests(unittest.TestCase):
         )
 
     def test_every_discovered_flag_is_linted(self):
-        flags = self.linter.collect_flags()
+        flags, _ = self.linter.collect_flags()
         keys = {flag["key"] for flag in flags}
         self.assertIn(
             "cloud-machines-enabled-release",
@@ -55,7 +55,7 @@ class FlagLinterScopeTests(unittest.TestCase):
             self.assertTrue(flag["source"], "each flag must be attributed to its own file")
 
     def test_collect_flags_includes_web_and_swift_registries(self):
-        flags = self.linter.collect_flags()
+        flags, _ = self.linter.collect_flags()
         sources = {flag["source"] for flag in flags}
         self.assertIn(self.linter.WEB_REGISTRY_REL, sources)
         self.assertTrue(
