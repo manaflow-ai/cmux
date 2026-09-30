@@ -277,9 +277,9 @@ private func runGit(
 
 @MainActor
 final class TabManagerChildExitCloseTests: XCTestCase {
-    private var previousCloudMarker: Any?
-    override func setUp() { super.setUp(); previousCloudMarker = UserDefaults.standard.object(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey); UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) }
-    override func tearDown() { if let previousCloudMarker { UserDefaults.standard.set(previousCloudMarker, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) } else { UserDefaults.standard.removeObject(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) }; super.tearDown() }
+    private var previousCloudMarker: Any?; private var previousCloudOverride: Bool?
+    override func setUp() { super.setUp(); previousCloudMarker = UserDefaults.standard.object(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey); UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey); previousCloudOverride = CmuxFeatureFlags.shared.overrideValue(for: CmuxFeatureFlags.cloudMachinesFlag); CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag) }
+    override func tearDown() { if let previousCloudMarker { UserDefaults.standard.set(previousCloudMarker, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) } else { UserDefaults.standard.removeObject(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) }; CmuxFeatureFlags.shared.setOverride(previousCloudOverride, for: CmuxFeatureFlags.cloudMachinesFlag); super.tearDown() }
     func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() {
         let manager = TabManager()
         let first = manager.tabs[0]
