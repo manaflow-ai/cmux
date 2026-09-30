@@ -167,6 +167,11 @@ final class DogfoodScenarioUITests: XCTestCase {
         case .hoverAt(let x, let y, let modifiers):
             let point = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: x, dy: y))
             DogfoodStep.holding(modifiers) { point.hover() }
+        case .dragAt(let from, let to, let duration):
+            let window = app.windows.firstMatch
+            let start = window.coordinate(withNormalizedOffset: CGVector(dx: from.x, dy: from.y))
+            let end = window.coordinate(withNormalizedOffset: CGVector(dx: to.x, dy: to.y))
+            start.press(forDuration: duration, thenDragTo: end)
         case .menu(let path):
             try clickMenu(path, in: app)
         case .socket(let method, let params, let saveAs):
@@ -218,18 +223,55 @@ final class DogfoodScenarioUITests: XCTestCase {
         return element
     }
 
+    /// One step of a menu path: the item directly under `owner`'s menu.
+    ///
+    /// `menus` and `menuItems` are descendant queries, so `owner.menuItems[x]`
+    /// matches anywhere in that menu's whole subtree. The File menu alone has
+    /// two `New Window` items and two `Close Workspace` items at different
+    /// depths, so a descendant lookup raises "Multiple matching elements" for
+    /// a path that names exactly one of them. Taking the direct children of
+    /// the one open `Menu` makes each path element mean what it reads as.
+    private func menuChild(_ title: String, of owner: XCUIElement) -> XCUIElement {
+        owner.menus.firstMatch.children(matching: .menuItem)[title]
+    }
+
+    /// Every element after the first names a direct child of the menu the one
+    /// before it opened, so a submenu item needs its submenu in the path.
     private func clickMenu(_ path: [String], in app: XCUIApplication) throws {
         guard let top = path.first else { throw DogfoodError("empty menu path") }
         let bar = app.menuBars.menuBarItems[top]
         guard bar.waitForExistence(timeout: 5) else { throw DogfoodError("no menu \(top)") }
         bar.click()
+        var opened = bar
+        var reached: [String] = [top]
         for item in path.dropFirst() {
-            let menuItem = app.menuItems[item]
+            let menuItem = menuChild(item, of: opened)
             guard menuItem.waitForExistence(timeout: 3) else {
-                app.typeKey(.escape, modifierFlags: [])
-                throw DogfoodError("no menu item \(item)")
+                // One Escape per menu still standing. Escape closes a single
+                // level, so a path that failed inside a submenu used to leave
+                // its parent menu open; a failed step is recorded and the tour
+                // carries on, so every later click landed on the menu overlay
+                // and every later shot, `99-final` included, was taken through
+                // it. One bad title cost the rest of the tour.
+                //
+                // `reached` bounds the loop but does not set it: a middle
+                // element that named a plain command ran it and closed the
+                // menus already, and an extra Escape would go to the app, where
+                // it is a keystroke to whatever the focused terminal is running.
+                for _ in reached where app.menus.count > 0 {
+                    app.typeKey(.escape, modifierFlags: [])
+                }
+                // Name the prefix that resolved, not the whole path: a middle
+                // element with no submenu fails here, and blaming the last
+                // element for that points at the wrong step.
+                throw DogfoodError(
+                    "no menu item \(item) under \(reached.joined(separator: " > "))"
+                )
             }
             menuItem.click()
+            // A submenu's own items hang off the item that opened it.
+            opened = menuItem
+            reached.append(item)
         }
     }
 
@@ -314,13 +356,22 @@ final class DogfoodScenarioUITests: XCTestCase {
     /// tours read better filling the display. Not every locale says "Zoom".
     private func zoomFrontWindow(in app: XCUIApplication) {
         let windowMenu = app.menuBars.menuBarItems["Window"]
-        guard windowMenu.waitForExistence(timeout: 3) else { return }
+        guard windowMenu.waitForExistence(timeout: 3) else {
+            log.append("launch: no Window menu, so the window was left at its default size")
+            return
+        }
         windowMenu.click()
-        let zoom = app.menuItems["Zoom"]
+        // Scoped like `clickMenu`: `Zoom` is unique app-wide today, but this
+        // runs before every tour, so one new duplicate title would break all
+        // of them at step zero.
+        let zoom = menuChild("Zoom", of: windowMenu)
         if zoom.waitForExistence(timeout: 2) {
             zoom.click()
             RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         } else {
+            // Say so. Every shot in the tour is then a default-size window, and
+            // a silent miss here reads as the app having changed, not the menu.
+            log.append("launch: no Zoom item, so the window was left at its default size")
             app.typeKey(.escape, modifierFlags: [])
         }
     }
@@ -489,6 +540,7 @@ enum DogfoodStep {
     case hover(DogfoodTarget, XCUIElement.KeyModifierFlags)
     case clickAt(Double, Double, XCUIElement.KeyModifierFlags)
     case hoverAt(Double, Double, XCUIElement.KeyModifierFlags)
+    case dragAt(from: CGPoint, to: CGPoint, duration: TimeInterval)
     case menu([String])
     case socket(method: String, params: Any, saveAs: String?)
     /// One raw v1 line (for example `agent_journal_append {...}`); `${...}`
@@ -514,6 +566,8 @@ enum DogfoodStep {
             return "clickAt \(x),\(y)\(Self.describe(modifiers))"
         case .hoverAt(let x, let y, let modifiers):
             return "hoverAt \(x),\(y)\(Self.describe(modifiers))"
+        case .dragAt(let from, let to, let duration):
+            return "dragAt \(from.x),\(from.y) to \(to.x),\(to.y) over \(duration)s"
         case .menu(let path): return "menu \(path.joined(separator: " > "))"
         case .socket(let method, _, _): return "socket \(method)"
         case .socketLine(let line): return "socketLine \(line.prefix(40))"
@@ -557,6 +611,14 @@ enum DogfoodStep {
             }
             let modifiers = try Self.modifiers(object["modifiers"])
             self = kind == "clickAt" ? .clickAt(x, y, modifiers) : .hoverAt(x, y, modifiers)
+        case "dragAt":
+            guard let pair = value as? [String: Any],
+                  let from = Self.point(pair["from"]),
+                  let to = Self.point(pair["to"]) else {
+                throw DogfoodError("dragAt takes {\"from\": {x, y}, \"to\": {x, y}} in window space")
+            }
+            let duration = (pair["duration"] as? NSNumber)?.doubleValue ?? 0.2
+            self = .dragAt(from: from, to: to, duration: duration)
         case "menu":
             guard let path = value as? [String], !path.isEmpty else { throw DogfoodError("menu takes a path array") }
             self = .menu(path)
@@ -575,8 +637,16 @@ enum DogfoodStep {
 
     private static let kinds: Set<String> = [
         "shot", "tree", "wait", "type", "key", "click", "doubleClick", "rightClick",
-        "hover", "clickAt", "hoverAt", "menu", "socket", "socketLine", "expect",
+        "hover", "clickAt", "hoverAt", "dragAt", "menu", "socket", "socketLine", "expect",
     ]
+
+    /// Reads a `{"x": 0-1, "y": 0-1}` window-space point.
+    private static func point(_ json: Any?) -> CGPoint? {
+        guard let object = json as? [String: Any],
+              let x = (object["x"] as? NSNumber)?.doubleValue,
+              let y = (object["y"] as? NSNumber)?.doubleValue else { return nil }
+        return CGPoint(x: x, y: y)
+    }
 
     private static func key(named name: String) -> String {
         switch name.lowercased() {

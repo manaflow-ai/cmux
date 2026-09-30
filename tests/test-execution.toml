@@ -40,6 +40,10 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_tmux_wait_for_private_dir.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_cli_layout_focus_contract.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -68,6 +72,11 @@ requirements = ["cmux-cli"]
 
 [[test]]
 path = "tests/test_browser_profile_cli.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_browser_input_files_cli.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
@@ -135,10 +144,16 @@ reason = "Requires an isolated tagged cmux app and helper, two prepared split wo
 [[test]]
 path = "tests/test_hermes_wrapper_hooks.py"
 lane = "macos-cli-no-socket"
+# Exercises the installer's hard wall-clock deadline and a deliberately slow
+# start; parallel lane load can turn the intended delay into a false hang.
+serial = true
 
 [[test]]
 path = "tests/test_claude_wrapper_mutual_shim_loop.py"
 lane = "macos-cli-no-socket"
+# The finite-shim regression has a five-second hang guard. Run it without the
+# parallel pool so host scheduling pressure cannot masquerade as a shim loop.
+serial = true
 
 [[test]]
 path = "tests/test_claude_wrapper_shim_root_survives_tmpdir_change.py"
@@ -147,6 +162,11 @@ lane = "macos-cli-no-socket"
 [[test]]
 path = "tests/test_claude_wrapper_node_options_survives_tmpdir_purge.py"
 lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_issue_7028_claude_shim_persistence.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["fish"]
 
 [[test]]
 path = "tests/test_claude_wrapper_user_binary_resolution.py"
@@ -297,7 +317,15 @@ path = "tests/test_shell_no_git_watch.py"
 lane = "macos-shell"
 
 [[test]]
+path = "tests/test_shell_cli_shim_private_dir.py"
+lane = "macos-shell"
+
+[[test]]
 path = "tests/test_workspace_initial_command_shim_root_owner.py"
+lane = "macos-shell"
+
+[[test]]
+path = "tests/test_shell_pr_watch_private_state.py"
 lane = "macos-shell"
 
 [[test]]
@@ -529,6 +557,10 @@ path = "tests/test_ci_pr_runner_pool.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_simple_pool_picker.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ui_fuzzer_engine.py"
 lane = "linux-guard"
 
@@ -550,6 +582,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_macos_xcode_selection.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_xcode_pin_audit.py"
 lane = "linux-guard"
 
 [[test]]
@@ -582,6 +618,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_sidebar_lazy_layout_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_cli_contract_verb_guard.py"
 lane = "linux-guard"
 
 [[test]]
@@ -681,6 +721,14 @@ path = "tests/test_lint_feature_flags_scope.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_feature_flag_review_lead_time.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_feature_flag_review_drift_issue.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_lint_errno_in_test_assertions.py"
 lane = "linux-guard"
 
@@ -742,6 +790,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_run_e2e.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_e2e_backend_scripts.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1205,6 +1257,10 @@ path = "tests/test_triage_radar.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_triage_rules.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_tui_focused_filter_guard.py"
 lane = "linux-guard"
 
@@ -1314,6 +1370,10 @@ path = "tests/test_r2_cache_prune.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_prune_pr_media.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_install_git_hooks.py"
 lane = "linux-guard"
 
@@ -1358,14 +1418,6 @@ path = "tests/test_ci_admission_placement.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_catch_up_pr.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_auto_catch_up_select.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_run_guards.py"
 lane = "linux-guard"
 
@@ -1374,11 +1426,19 @@ path = "tests/test_ci_check_repo_variables.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cloud_overflow_switch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_merge_main.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_guard_attribution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_main_compile_attribution.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1424,4 +1484,44 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pr_media.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_guard_tests_emit_no_workflow_commands.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_merge_pbxproj.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_btop_agents_sidebar.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_package_interface_fingerprint.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_iroh_drift_issue.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_submodule_forward_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_manual_dispatch_guard_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_manual_dispatch_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_guard_status.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_homebrew_untrusted_input.py"
 lane = "linux-guard"

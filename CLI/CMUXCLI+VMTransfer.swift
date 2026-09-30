@@ -456,7 +456,7 @@ extension CMUXCLI {
         guard !isDirectory else {
             throw CLIError(message: "vm push --secret delivers one file; \(localPath) is a directory. Pack it first (tar czf), or push it without --secret if it holds nothing secret.")
         }
-        guard mode.range(of: "^[0-7]{3,4}$", options: .regularExpression) != nil else {
+        guard mode.range(of: "^[0-7]{3,4}\\z", options: .regularExpression) != nil else {
             throw CLIError(message: "--mode must be three or four octal digits such as 600 or 0644 (got '\(mode)')")
         }
         let data = try Data(contentsOf: localURL)
@@ -832,8 +832,26 @@ extension CMUXCLI {
             guard Date() < deadline else {
                 throw CLIError(message: "Timed out after \(timeoutSeconds)s waiting for \(vmID) (last status: \(status)). Re-run with --timeout <seconds> to wait longer.")
             }
-            Thread.sleep(forTimeInterval: 3)
+            let remainingSeconds = deadline.timeIntervalSinceNow
+            if remainingSeconds > 0 {
+                Thread.sleep(forTimeInterval: min(Self.vmReadyPollInterval(), remainingSeconds))
+            }
         }
+    }
+
+    /// Seconds between `vm.status` polls. `CMUX_VM_WAIT_POLL_SECONDS` overrides the
+    /// default so tests against a mock socket do not wait out the real cadence.
+    static func vmReadyPollInterval(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> TimeInterval {
+        guard let raw = environment["CMUX_VM_WAIT_POLL_SECONDS"],
+              let parsed = TimeInterval(raw),
+              parsed.isFinite,
+              parsed >= 0.01,
+              parsed <= 3 else {
+            return 3
+        }
+        return parsed
     }
 
     // MARK: - transfer plumbing
@@ -1426,7 +1444,7 @@ extension CMUXCLI {
         subject: String
     ) throws {
         let firstToken = report.split(separator: " ").first.map(String.init) ?? ""
-        if firstToken.count == 64, firstToken.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil {
+        if firstToken.count == 64, firstToken.range(of: "^[0-9a-f]{64}\\z", options: .regularExpression) != nil {
             guard firstToken == expectedDigest else {
                 throw CLIError(message: "Digest mismatch on \(subject) — expected \(expectedDigest), machine reports \(firstToken)")
             }
@@ -1500,7 +1518,7 @@ extension CMUXCLI {
 
     static var vmAgentUsage: String {
         """
-        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--new] [--size <s>] [--json] -- <prompt or args...>
+        Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--focus|--no-focus] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--new] [--size <s>] [--json] -- <prompt or args...>
 
         Short forms:
           cmux agent <claude|codex|opencode|pi> [vm-agent-options] -- <prompt or args...>
@@ -1524,6 +1542,9 @@ extension CMUXCLI {
           --cwd <dir>      Local directory to route for (and sync with --sync).
           --name <name>    Terminal name in the tree (default: "<agent>: <prompt…>").
           --no-open        Do not open a pane in this app; just start it.
+          --focus, --no-focus
+                           Focus the opened pane, or open it in the background.
+                           \(openFocusDefaultHelp)
           --remote-workspace <ws>
                            Land the agent's terminal in this machine workspace
                            (a `ws_…` id from `vm tree`, e.g. one staged with
@@ -1693,6 +1714,7 @@ extension CMUXCLI {
         var cwdOption: String?
         var nameOption: String?
         var noOpen = false
+        var focus: Bool?
         var remoteWorkspaceOption: String?
         var forceNew = false
         var sizeOption: String?
@@ -1708,6 +1730,11 @@ extension CMUXCLI {
                 }
                 index += 1
                 return flags[index]
+            }
+            if let flag = try Self.openFocusFlag(in: flags, at: index, command: "vm agent") {
+                focus = flag.focus
+                index += flag.consumed
+                continue
             }
             switch arg {
             case "--agent": agent = try takeValue().lowercased()
@@ -1796,6 +1823,7 @@ extension CMUXCLI {
             "command": vmAgentShellCommand(argv: argv, workDirectory: syncedRemoteDir),
             "name": name,
             "open": !noOpen,
+            "focus": focus ?? Self.defaultFocusForUserOpen(),
         ]
         // --remote-workspace: land the agent's terminal in a staged machine
         // workspace (from `vm workspace new --no-open` or `vm tree`), so it joins
@@ -1803,7 +1831,21 @@ extension CMUXCLI {
         if let remoteWorkspaceOption, !remoteWorkspaceOption.isEmpty {
             params["remote_workspace_id"] = remoteWorkspaceOption
         }
-        let response = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 240)
+        // The pane opens in the caller's own workspace when run inside cmux, not in
+        // whichever workspace happens to be selected. The server rejects an unknown
+        // workspace before it creates anything, so a stale CMUX_WORKSPACE_ID (the tab
+        // moved or its workspace closed) retries once in the selected workspace.
+        var callerParams = params
+        if !noOpen,
+           let callerWorkspace = try? normalizeWorkspaceHandle(ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"], client: client) {
+            callerParams["workspace_id"] = callerWorkspace
+        }
+        let response: [String: Any]
+        do {
+            response = try client.sendV2(method: "surface.new_terminal", params: callerParams, responseTimeout: 240)
+        } catch let error as CLIError where error.v2Code == "invalid_params" && callerParams["workspace_id"] != nil {
+            response = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 240)
+        }
         let terminalId = (response["terminal_id"] as? String) ?? "?"
         let workspaceId = (response["remote_workspace_id"] as? String) ?? "?"
         let surfaceId = (response["surface_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }

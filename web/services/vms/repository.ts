@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, max, ne, or, sql, type SQL } from "drizzle-orm";
+import { alias, type AnyPgColumn } from "drizzle-orm/pg-core";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -201,6 +202,16 @@ export type VmRepositoryShape = {
     readonly tunnelPurpose: "terminal" | "browser";
   }) => Effect.Effect<CloudVmTunnelRow | null, VmDatabaseError>;
   readonly listUserTunnels?: (userId: string) => Effect.Effect<CloudVmTunnelRow[], VmDatabaseError>;
+  /**
+   * Live tunnels with no enrollment or config read since `inactiveBefore`
+   * that a more recently active live tunnel of the same purpose on the same
+   * Mac (access grant) has replaced, oldest activity first. The newest tunnel
+   * per Mac and purpose is never returned, so an idle Mac keeps its access.
+   */
+  readonly listStaleTunnelCandidates?: (input: {
+    readonly inactiveBefore: Date;
+    readonly limit: number;
+  }) => Effect.Effect<CloudVmTunnelRow[], VmDatabaseError>;
   /**
    * Tunnel rows for provider tunnel ids, revoked or not. Ids with no row are
    * absent: the provider account may hold tunnels this database never issued.
@@ -579,6 +590,11 @@ export type VmRepositoryShape = {
     readonly providerSessionId: string;
     readonly title?: string | null;
     readonly status?: CloudVmSessionStatus;
+    /**
+     * Attaches contributed by this call, defaulting to 1; pass a positive count.
+     * The insert branch stores it as the session's first count and the conflict
+     * branch adds it to the existing total, so this is never a replacement value.
+     */
     readonly attachmentCount?: number;
     readonly effectiveCols?: number | null;
     readonly effectiveRows?: number | null;
@@ -756,6 +772,39 @@ const RETRYABLE_FAILED_CREATE_CODES = new Set([
   VM_MODEL_PLANE_FAILURE_CODES.unavailable,
   LEGACY_MODEL_PLANE_ENTITLEMENT_FAILURE_CODE,
 ]);
+
+/**
+ * Allocate the next Base generation number from the highest number this Base
+ * has ever used, not from its active generation.
+ *
+ * A failed create leaves its generation row behind and leaves its VM row
+ * holding the matching `base:<scope>:<name>:g<N>` idempotency key, while
+ * `restoreBaseAfterCreateFailure` rolls the active generation back past both.
+ * Counting from the active generation would therefore hand out a number that
+ * is already taken, which collides on
+ * `cloud_vm_base_generations_base_generation_unique` and on the partial unique
+ * index over (billing_team_id, idempotency_key). `beginBaseOpen` recovers from
+ * that collision by returning the active generation, but `beginBaseReset` has
+ * no such recovery: the violation surfaces as a `VmDatabaseError`, which the
+ * routes answer with a retryable 503, so a Base whose reset was refused could
+ * never be reset again.
+ *
+ * Generation rows are never deleted, so the maximum only moves forward and a
+ * burned number is never reissued. Numbers may skip, which is honest: the
+ * skipped one really was allocated.
+ */
+async function nextBaseGenerationInTx(
+  tx: CloudDbTransaction,
+  baseId: string | undefined,
+  activeGeneration: number,
+): Promise<number> {
+  if (!baseId) return activeGeneration + 1;
+  const [highest] = await tx
+    .select({ generation: max(cloudVmBaseGenerations.generation) })
+    .from(cloudVmBaseGenerations)
+    .where(eq(cloudVmBaseGenerations.baseId, baseId));
+  return Math.max(activeGeneration, Number(highest?.generation ?? 0)) + 1;
+}
 
 /**
  * Finish the transactional half of a Base create failure. Cleanup-pending
@@ -1418,6 +1467,31 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .orderBy(desc(cloudVmTunnels.createdAt));
     }),
 
+  listStaleTunnelCandidates: (input) =>
+    dbEffect("listStaleTunnelCandidates", async () => {
+      const db = cloudDb();
+      const newerName = "newer_tunnel";
+      const newer = alias(cloudVmTunnels, newerName);
+      const activity = tunnelActivitySql(cloudVmTunnels);
+      return await db
+        .select()
+        .from(cloudVmTunnels)
+        .where(and(
+          isNull(cloudVmTunnels.revokedAt),
+          sql`${activity} < ${input.inactiveBefore.toISOString()}::timestamptz`,
+          sql`exists (
+            select 1 from ${cloudVmTunnels} as ${sql.identifier(newerName)}
+            where ${newer.accessGrantId} = ${cloudVmTunnels.accessGrantId}
+              and ${newer.tunnelPurpose} = ${cloudVmTunnels.tunnelPurpose}
+              and ${newer.revokedAt} is null
+              and ${newer.id} <> ${cloudVmTunnels.id}
+              and ${tunnelActivitySql(newer)} > ${activity}
+          )`,
+        ))
+        .orderBy(asc(activity))
+        .limit(input.limit);
+    }),
+
   findTunnelsByProviderTunnelIds: (provider, providerTunnelIds) =>
     dbEffect("findTunnelsByProviderTunnelIds", async () => {
       if (providerTunnelIds.length === 0) return [];
@@ -1775,7 +1849,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             const now = new Date();
             const previousGeneration = existing?.generation ?? null;
             const previousVm = existing?.vm ?? null;
-            const nextGeneration = (existing?.base.activeGeneration ?? 0) + 1;
+            const nextGeneration = await nextBaseGenerationInTx(tx, existing?.base.id, existing?.base.activeGeneration ?? 0);
             const idempotencyKey = `base:${scope.scopeType}:${scope.scopeId}:${name}:g${nextGeneration}`;
             const [vm] = await tx
               .insert(cloudVms)
@@ -1963,7 +2037,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 `base:${scope.scopeType}:${scope.scopeId}:${name}:g${existing?.base.activeGeneration ?? 0}`,
             });
           }
-          const nextGeneration = (existing?.base.activeGeneration ?? 0) + 1;
+          const nextGeneration = await nextBaseGenerationInTx(tx, existing?.base.id, existing?.base.activeGeneration ?? 0);
           const idempotencyKey = `base:${scope.scopeType}:${scope.scopeId}:${name}:g${nextGeneration}`;
           const activePredicates = [
             inArray(cloudVms.status, ["provisioning", "running"]),
@@ -3621,3 +3695,15 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
 Object.assign(vmRepositoryLiveShape, tunnelEnrollmentRepositoryMethods);
 
 export const VmRepositoryLive = Layer.succeed(VmRepository, vmRepositoryLiveShape);
+
+/**
+ * When a tunnel was last enrolled or had its config read. Both paths touch
+ * `last_config_issued_at` and `updated_at`; `created_at` covers legacy rows.
+ */
+function tunnelActivitySql(table: {
+  readonly updatedAt: AnyPgColumn;
+  readonly lastConfigIssuedAt: AnyPgColumn;
+  readonly createdAt: AnyPgColumn;
+}): SQL {
+  return sql`greatest(${table.updatedAt}, coalesce(${table.lastConfigIssuedAt}, ${table.createdAt}))`;
+}

@@ -39,6 +39,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
 MARKER_KEY = "SUBROUTER_CLAUDE_RESUME_COMMAND"
 BOUND_KEY = "CMUX_AGENT_LAUNCH_SUBROUTER_CLAUDE_RESUME_COMMAND"
+ACCOUNT_KEY = "CMUX_AGENT_LAUNCH_ROUTED_CLAUDE_ACCOUNT"
 SR_MARKER = "sr claude proxy --resume"
 SUBROUTER_MARKER = "subrouter claude proxy --resume"
 SESSION_ID = "0198f073-0a5b-7000-8000-000000000059"
@@ -74,6 +75,7 @@ def run_wrapper(
     *,
     marker: str | None,
     inherited_bound: str | None = None,
+    inherited_account: str | None = None,
 ) -> tuple[int, dict[str, str], list[str], str]:
     """Run the wrapper against a fake claude that records its environment.
 
@@ -152,6 +154,8 @@ exit 0
             env[MARKER_KEY] = marker
         if inherited_bound is not None:
             env[BOUND_KEY] = inherited_bound
+        if inherited_account is not None:
+            env[ACCOUNT_KEY] = inherited_account
 
         argv = argv_builder(tmpdir)
         try:
@@ -171,13 +175,30 @@ exit 0
         return proc.returncode, read_env_log(env_log), claude_args, proc.stderr.strip()
 
 
-def private_settings(tmpdir: Path, *, create: bool = True, suffix: str = "3294281412") -> Path:
+def private_settings(
+    tmpdir: Path,
+    *,
+    create: bool = True,
+    suffix: str = "3294281412",
+    body: str = PRIVATE_SETTINGS_BODY,
+) -> Path:
     directory = tmpdir / f"subrouter-claude-settings-{suffix}"
     path = directory / "settings.json"
     if create:
         directory.mkdir(parents=True, exist_ok=True)
-        path.write_text(PRIVATE_SETTINGS_BODY, encoding="utf-8")
+        path.write_text(body, encoding="utf-8")
     return path
+
+
+def settings_with_headers(*headers: str) -> str:
+    """A private settings body whose routing headers are JSON-encoded, as the
+    launcher writes them (one string, lines joined by an escaped newline)."""
+    joined = "\\n".join(("X-Subrouter-Agent: claude", *headers))
+    return (
+        '{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:31415/v1",'
+        '"ANTHROPIC_AUTH_TOKEN":"srt_test_only_not_a_real_token",'
+        f'"ANTHROPIC_CUSTOM_HEADERS":"{joined}"}}}}'
+    )
 
 
 def expect(condition: bool, message: str, failures: list[str]) -> None:
@@ -277,6 +298,51 @@ def test_private_settings_after_option_terminator_is_not_bound(failures: list[st
     expect(BOUND_KEY not in env, f"after --: a literal prompt token was bound: {env.get(BOUND_KEY)!r}", failures)
 
 
+def test_pinned_launch_records_its_account(failures: list[str]) -> None:
+    # The pin comes from the launcher's own routing headers, not its argv, so
+    # it holds however the launcher was invoked. It does not need the marker.
+    for headers, label in (
+        (("X-Subrouter-Account-ID: me@example.com",), "last header"),
+        (("X-Subrouter-Account-ID: me@example.com", "X-Subrouter-Retry: persist"), "middle header"),
+    ):
+        code, env, _, stderr = run_wrapper(
+            lambda tmpdir: ["--settings", str(private_settings(tmpdir, body=settings_with_headers(*headers)))],
+            marker=None,
+        )
+        expect_launched(f"pinned launch ({label})", code, env, stderr, failures)
+        expect(
+            env.get(ACCOUNT_KEY) == "me@example.com",
+            f"pinned launch ({label}): recorded account = {env.get(ACCOUNT_KEY)!r}",
+            failures,
+        )
+
+
+def test_pooled_or_unusable_account_is_not_recorded(failures: list[str]) -> None:
+    for headers, label in (
+        ((), "pooled"),
+        (("X-Subrouter-Preferred-Account-ID: me@example.com",), "preferred only"),
+        (("X-Subrouter-Account-ID: me example.com",), "space in id"),
+        (("X-Subrouter-Account-ID: -me",), "option-like id"),
+    ):
+        code, env, _, stderr = run_wrapper(
+            lambda tmpdir: ["--settings", str(private_settings(tmpdir, body=settings_with_headers(*headers)))],
+            marker=None,
+            inherited_account="stale@example.com",
+        )
+        expect_launched(label, code, env, stderr, failures)
+        expect(ACCOUNT_KEY not in env, f"{label}: recorded account = {env.get(ACCOUNT_KEY)!r}", failures)
+
+
+def test_plain_claude_drops_an_inherited_account(failures: list[str]) -> None:
+    code, env, _, stderr = run_wrapper(
+        lambda tmpdir: ["--model", "opus"],
+        marker=None,
+        inherited_account="me@example.com",
+    )
+    expect_launched("inherited account", code, env, stderr, failures)
+    expect(ACCOUNT_KEY not in env, f"inherited account survived: {env.get(ACCOUNT_KEY)!r}", failures)
+
+
 def main() -> int:
     if ensure_node_on_path() is None:
         print("SKIP: node runtime not found; the wrapper's settings merge needs node")
@@ -290,6 +356,9 @@ def main() -> int:
     test_non_exact_marker_text_is_not_bound(failures)
     test_private_settings_without_marker_is_not_bound(failures)
     test_private_settings_after_option_terminator_is_not_bound(failures)
+    test_pinned_launch_records_its_account(failures)
+    test_pooled_or_unusable_account_is_not_recorded(failures)
+    test_plain_claude_drops_an_inherited_account(failures)
     if failures:
         print("FAIL: the claude wrapper does not bind the Subrouter resume marker to a proven sr launch")
         for failure in failures:

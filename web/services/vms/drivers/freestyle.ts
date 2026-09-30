@@ -18,6 +18,8 @@ import { freestyleRequestFetch } from "./freestyleRequestTiming";
 import { currentVmRequestContext } from "../requestContext";
 import {
   ProviderError,
+  ProviderMachineRecreateRequiredError,
+  ProviderNetworkFullError,
   type AttachTransport,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteApprovalOptions,
@@ -548,10 +550,28 @@ const TUNNEL_CREATE_TIMEOUT_MS = 10_000;
 export function tunnelCreateMayHaveSucceeded(err: unknown): boolean {
   // Our own configuration failures (no credentials) never reached the provider.
   if (err instanceof ProviderError) return false;
+  // A full network is a definite refusal that shares the slug conflict's code.
+  if (isFreestyleNetworkFull(err)) return false;
   if (err instanceof FreestyleApiError) {
     return (err.status === 409 && err.code === "CONFLICT") || err.status >= 500;
   }
   return true;
+}
+
+/**
+ * Freestyle's 409 when every address in a VPC is assigned. It shares the
+ * generic CONFLICT code with slug conflicts and network overlap, so only the
+ * message tells them apart.
+ */
+export function isFreestyleNetworkFull(err: unknown): boolean {
+  return err instanceof FreestyleApiError && err.status === 409 && /no free addresses/i.test(err.message);
+}
+
+/** Wraps a provider failure, keeping a full network distinguishable from an outage. */
+function freestyleOperationError(operation: string, err: unknown): ProviderError {
+  return isFreestyleNetworkFull(err)
+    ? new ProviderNetworkFullError("freestyle", `${operation}: private network has no free addresses`, err)
+    : new ProviderError("freestyle", operation, err);
 }
 
 function tunnelRecoveryReason(err: unknown): string {
@@ -678,7 +698,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
           return { tunnel, created: true, rotated: false };
         } catch (err) {
           if (!tunnelCreateMayHaveSucceeded(err)) {
-            throw new ProviderError("freestyle", `createTunnel(${options.slug})`, err);
+            throw freestyleOperationError(`createTunnel(${options.slug})`, err);
           }
           span.setAttribute("cmux.vm.tunnel.recovery_reason", tunnelRecoveryReason(err));
           // A duplicate create may reuse only the exact same client identity.
@@ -746,7 +766,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
       return mapFreestyleTunnel(data, networkId);
     } catch (err) {
       if (isNotFound(err)) return null;
-      throw new ProviderError("freestyle", `getTunnel(${tunnelId})`, err);
+      throw freestyleOperationError(`getTunnel(${tunnelId})`, err);
     }
   }
 
@@ -777,7 +797,8 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
       if (!attachment) throw new Error("missing attachment");
       return { networkId, addressV4: attachment.ipv4 ?? null, addressV6: attachment.ipv6 ?? null };
     } catch (err) {
-      // Freestyle uses generic CONFLICT for 409s; without remoteCidrs or pinned addresses, overlap is the only reachable 409.
+      if (isFreestyleNetworkFull(err)) throw freestyleOperationError(`attachTunnelNetwork(${tunnelId})`, err);
+      // Freestyle uses generic CONFLICT for 409s; apart from a full network, overlap is the only reachable 409 without remoteCidrs or pinned addresses.
       if (err instanceof FreestyleApiError && err.status === 409 && err.code === "CONFLICT") {
         throw new ProviderTunnelNetworkOverlapError(`Freestyle refused overlapping tunnel network ${networkId}`);
       }
@@ -1014,7 +1035,8 @@ export class FreestyleProvider implements VMProvider {
             },
           };
         } catch (err) {
-          throw err instanceof ProviderError ? err : new ProviderError("freestyle", `create(${image}) failed`, err);
+          if (err instanceof ProviderError) throw err;
+          throw freestyleOperationError(`create(${image}) failed`, err);
         }
       },
     );
@@ -1349,7 +1371,8 @@ export class FreestyleProvider implements VMProvider {
             },
           };
         } catch (err) {
-          throw err instanceof ProviderError ? err : new ProviderError("freestyle", `restore(${snapshotId})`, err);
+          if (err instanceof ProviderError) throw err;
+          throw freestyleOperationError(`restore(${snapshotId})`, err);
         }
       },
     );
@@ -1369,7 +1392,7 @@ export class FreestyleProvider implements VMProvider {
           // the upgrade and backfill in docs/cloud-guest-upgrades.md.
           const routeAddresses = freestyleRouteAddressesFromMetadata(options?.providerMetadata);
           if (options?.providerMetadata?.cmuxTuiContract !== "snapshot-v2" || !routeAddresses) {
-            throw new ProviderError(
+            throw new ProviderMachineRecreateRequiredError(
               "freestyle",
               `VM ${vmId} predates the snapshot-v2 machine contract (no recorded contract or private address); recreate the machine`,
             );

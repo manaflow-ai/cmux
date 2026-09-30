@@ -100,6 +100,22 @@ private struct WorkspacePanelContentHostView: View {
                 workspace.requestDeferredBrowserMaterialization(panelId: panel.id, isVisibleInUI: isVisibleInUI)
             }
         )
+        .onAppear {
+            if isVisibleInUI {
+                workspace.owningTabManager?.dismissNotificationOnVisiblePanel(
+                    tabId: workspace.id,
+                    panelId: panel.id
+                )
+            }
+        }
+        .onChange(of: isVisibleInUI) { _, visible in
+            if visible {
+                workspace.owningTabManager?.dismissNotificationOnVisiblePanel(
+                    tabId: workspace.id,
+                    panelId: panel.id
+                )
+            }
+        }
     }
 }
 
@@ -725,13 +741,9 @@ extension WorkspaceContentView {
             let ts = ISO8601DateFormatter().string(from: Date())
             let line = "[\(ts)] PANEL NOT FOUND for tabId=\(tab.id) ws=\(workspace.id) panelCount=\(workspace.panels.count)\n"
             let logPath = "/tmp/cmux-panel-debug.log"
-            if let handle = FileHandle(forWritingAtPath: logPath) {
-                defer { try? handle.close() }
-                guard (try? handle.seekToEnd()) != nil else { return }
-                try? handle.write(contentsOf: Data(line.utf8))
-            } else {
-                FileManager.default.createFile(atPath: logPath, contents: line.data(using: .utf8))
-            }
+            guard let handle = OwnedLogFile(path: logPath).openForAppending() else { return }
+            defer { try? handle.close() }
+            try? handle.write(contentsOf: Data(line.utf8))
         }
     }
     #else
