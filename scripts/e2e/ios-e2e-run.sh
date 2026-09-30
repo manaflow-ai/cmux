@@ -29,11 +29,15 @@ SIM_UDID="${CMUX_E2E_SIM_UDID:-}"
 EVIDENCE_DIR="${CMUX_E2E_EVIDENCE_DIR:-}"
 BUNDLE_ID=""
 STEP_TIMEOUT=45
+BACKGROUND_SECONDS="${CMUX_E2E_BACKGROUND_SECONDS:-0}"
+VIDEO_PATH="${CMUX_E2E_VIDEO:-}"
+VIDEO_PID=""
 
 usage() {
   cat <<'EOF'
 Usage: scripts/e2e/ios-e2e-run.sh --tag <tag> --sim-udid <udid> --evidence-dir <dir>
-       [--bundle-id <id>] [--step-timeout <seconds>]
+       [--bundle-id <id>] [--step-timeout <seconds>] [--background-seconds <seconds>]
+       [--video <path>]
 EOF
 }
 
@@ -44,17 +48,43 @@ while [[ $# -gt 0 ]]; do
     --evidence-dir) EVIDENCE_DIR="${2:-}"; shift 2 ;;
     --bundle-id) BUNDLE_ID="${2:-}"; shift 2 ;;
     --step-timeout) STEP_TIMEOUT="${2:-}"; shift 2 ;;
+    --background-seconds) BACKGROUND_SECONDS="${2:-}"; shift 2 ;;
+    --video) VIDEO_PATH="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument '$1'" >&2; usage >&2; exit 2 ;;
   esac
 done
 [[ -n "$TAG" && -n "$SIM_UDID" && -n "$EVIDENCE_DIR" ]] || { usage >&2; exit 2; }
+[[ "$BACKGROUND_SECONDS" =~ ^[0-9]+$ ]] || { echo "error: background seconds must be a non-negative integer" >&2; exit 2; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SOCKET="/tmp/cmux-debug-${TAG}.sock"
 AXE="${CMUX_E2E_AXE:-axe}"
 mkdir -p "$EVIDENCE_DIR"
+
+cleanup() {
+  local status=$?
+  if [[ -n "$VIDEO_PID" ]]; then
+    kill -INT "$VIDEO_PID" >/dev/null 2>&1 || true
+    wait "$VIDEO_PID" >/dev/null 2>&1 || true
+  fi
+  exit "$status"
+}
+trap cleanup EXIT INT TERM
+
+monotonic_seconds() {
+  /usr/bin/python3 - <<'PY'
+import time
+print(f"{time.monotonic():.6f}")
+PY
+}
+
+if [[ -n "$VIDEO_PATH" ]]; then
+  mkdir -p "$(dirname "$VIDEO_PATH")"
+  xcrun simctl io "$SIM_UDID" recordVideo --codec=h264 "$VIDEO_PATH" >/dev/null 2>&1 &
+  VIDEO_PID=$!
+fi
 
 # --- evidence + assertion helpers -------------------------------------------
 
@@ -277,6 +307,12 @@ step_done
 
 step "replay-after-reconnect"
 "$AXE" button home --udid "$SIM_UDID"
+BACKGROUND_STARTED="$(monotonic_seconds)"
+if (( BACKGROUND_SECONDS > 0 )); then
+  echo "== backgrounded for ${BACKGROUND_SECONDS}s"
+  sleep "$BACKGROUND_SECONDS"
+fi
+FOREGROUND_STARTED="$(monotonic_seconds)"
 xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID" >/dev/null
 wait_phone "$MARKC"   # session replay re-renders the pre-background history
 # Relaunch resets first responder exactly like a cold boot; re-establish
@@ -290,6 +326,24 @@ if ! input_ready; then
   sleep 1
   input_ready || fail "terminal input never recovered after relaunch"
 fi
+RESUME_SECONDS="$(/usr/bin/python3 - "$FOREGROUND_STARTED" <<'PY'
+import sys, time
+print(f"{time.monotonic() - float(sys.argv[1]):.6f}")
+PY
+)"
+MARK_RESUME="E2ERESUME$(date +%s)"
+type_line "echo $MARK_RESUME"
+wait_mac_output "$MARK_RESUME"
+printf '{"background_seconds":%s,"resume_to_mac_input_seconds":%s,"background_started_monotonic":%s}\n' \
+  "$BACKGROUND_SECONDS" "$RESUME_SECONDS" "$BACKGROUND_STARTED" > "$EVIDENCE_DIR/background.json"
+if (( BACKGROUND_SECONDS >= 120 )); then
+  python3 - "$RESUME_SECONDS" <<'PY'
+import sys
+if float(sys.argv[1]) > 2.0:
+    raise SystemExit("resume-to-input exceeded 2 seconds: " + sys.argv[1])
+PY
+fi
+wait_phone "$MARK_RESUME"
 step_done
 
 # --- 6: input liveness after reconnect ------------------------------------------

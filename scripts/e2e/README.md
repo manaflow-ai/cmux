@@ -37,7 +37,12 @@ streamed terminal.
 | `CMUX_DEV_BACKEND_URL` | Web API origin used for sign-in and pairing. |
 | `CMUX_E2E_SIM_UDID` | The freshly created, booted simulator this run owns. Pass it to every simctl/idb call; never resolve by name. |
 | `CMUX_E2E_EVIDENCE_DIR` | Directory for screenshots, streamed-grid text dumps, and device logs; the workflow uploads it verbatim (`if: always()`). Write a capture at every step boundary, pass or fail. |
+| `CMUX_E2E_BACKGROUND_SECONDS` | Optional background interval for the replay step. Set to `120` or more to enforce the two-second resume-to-Mac-input budget and write `background.json`. |
+| `CMUX_E2E_VIDEO` | Optional simulator video output path. The driver records the whole run and stops the recorder during cleanup. |
+
 | `CMUX_DOGFOOD_STACK_EMAIL` / `CMUX_DOGFOOD_STACK_PASSWORD` | Same account as the Mac host — pairing's same-account RPC gate requires both ends to resolve one account. Same secrecy rules. |
+
+`iroh-codex-workload.sh` starts three real `codex --yolo -m gpt-5.5-mini` sessions in separate Mac workspaces and two supporting workspaces. It records workspace, surface, model, and observed output markers in `codex-workload.jsonl`; set `CMUX_CODEX_DURATION_SECONDS` to keep the sessions active while the iOS gate runs.
 
 On failure exit nonzero and print `E2E FAIL step=<id>` as the last stderr
 line, where `<id>` is a step id below or `sign-in`, `pair`, `connect` for the

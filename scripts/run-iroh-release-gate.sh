@@ -6,7 +6,7 @@ usage() {
 Usage: scripts/run-iroh-release-gate.sh --mode <automatic|relay-only|relay-expiry|direct-only|private-path> --tag <tag>
        [--staging-base-url <url>] [--v2-base-url <url>] [--presence-base-url <url>]
        [--skip-build] [--keep-simulator] [--simulator-id <dedicated-monitor-udid>]
-       [--report-output <path>] [--print-plan]
+       [--report-output <path>] [--print-plan] [--real-usage]
        [--soak-profile <basic|stress>]
        [--credentials-file <agent-profile-env>]
        [--production [--stack-env-file <secure-path>]]
@@ -46,6 +46,7 @@ PRINT_PLAN=0
 SOAK_PROFILE=""
 REPORT_TIMEOUT=480
 DOGFOOD_CREDENTIALS_FILE=""
+REAL_USAGE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -63,6 +64,7 @@ while [[ $# -gt 0 ]]; do
     --print-plan) PRINT_PLAN=1; shift ;;
     --soak-profile) SOAK_PROFILE="${2:-}"; shift 2 ;;
     --credentials-file) DOGFOOD_CREDENTIALS_FILE="${2:-}"; shift 2 ;;
+    --real-usage) REAL_USAGE=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument '$1'" >&2; usage >&2; exit 2 ;;
   esac
@@ -70,6 +72,14 @@ done
 
 [[ -n "$MODE" ]] || { echo "error: --mode is required" >&2; exit 2; }
 [[ -n "$TAG" ]] || { echo "error: --tag is required" >&2; exit 2; }
+if [[ "$REAL_USAGE" -eq 1 && ( "$MODE" != automatic && "$MODE" != relay-only || "$SOAK_PROFILE" != stress ) ]]; then
+  echo "error: --real-usage requires automatic or relay-only stress" >&2
+  exit 2
+fi
+if [[ "$REAL_USAGE" -eq 1 && -z "$REPORT_OUTPUT" ]]; then
+  echo "error: --real-usage requires --report-output" >&2
+  exit 2
+fi
 if [[ "$PRODUCTION" -eq 1 && "$BASE_URL_WAS_EXPLICIT" -eq 1 ]]; then
   echo "error: --production cannot be combined with --staging-base-url" >&2
   exit 2
@@ -310,6 +320,8 @@ REPORT_READY_NOTIFICATION="dev.cmux.ios.iroh-release-gate.report-ready"
 REPORT_WAITER_PID=""
 UI_CAPTURE_WAITER_PID=""
 UI_CAPTURE_DIR=""
+REAL_USAGE_DIR=""
+CODEX_WORKLOAD_PID=""
 STATE_DIR=""
 PROD_ENV_FILE=""
 PROD_CREDENTIALS_FILE=""
@@ -400,6 +412,10 @@ cleanup() {
   if [[ -n "$UI_CAPTURE_DIR" ]]; then
     rm -f "$UI_CAPTURE_DIR/terminal.png"
     rmdir "$UI_CAPTURE_DIR" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$CODEX_WORKLOAD_PID" ]]; then
+    kill -TERM "$CODEX_WORKLOAD_PID" >/dev/null 2>&1 || true
+    wait "$CODEX_WORKLOAD_PID" >/dev/null 2>&1 || true
   fi
   # Preserve diagnostics when the app never emits a report. The normal
   # success path captures these below after the report arrives, but an early
@@ -737,8 +753,8 @@ defaults write "$MAC_BUNDLE_ID" cmux.iroh.debug.transport-mode -string "$RAW_MOD
 # Pin the Worker scope in both UserDefaults stores as well as the build
 # metadata. This prevents a retained dev app from reusing a prior environment
 # override when a production or staging gate is launched with a new tag.
-defaults write "$MAC_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_ENVIRONMENT -string "$V2_ENVIRONMENT"
-defaults write "$MAC_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_BASE_URL -string "$V2_BASE_URL"
+defaults write "$MAC_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_ENVIRONMENT -string "${V2_ENVIRONMENT:-staging}"
+defaults write "$MAC_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_BASE_URL -string "${V2_BASE_URL:-https://cmux-v2-staging.debussy.workers.dev}"
 # The current Iroh implementation owns a separate endpoint configuration.
 # Constrain both generations so a same-host direct route cannot satisfy a
 # check advertised as exercising the relay fleet.
@@ -757,9 +773,9 @@ fi
 xcrun simctl spawn "$SIMULATOR_ID" defaults write \
   "$IOS_BUNDLE_ID" cmux.iroh.debug.transport-mode -string "$RAW_MODE"
 xcrun simctl spawn "$SIMULATOR_ID" defaults write \
-  "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_ENVIRONMENT -string "$V2_ENVIRONMENT"
+  "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_ENVIRONMENT -string "${V2_ENVIRONMENT:-staging}"
 xcrun simctl spawn "$SIMULATOR_ID" defaults write \
-  "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_BASE_URL -string "$V2_BASE_URL"
+  "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_BASE_URL -string "${V2_BASE_URL:-https://cmux-v2-staging.debussy.workers.dev}"
 xcrun simctl spawn "$SIMULATOR_ID" defaults write \
   "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_FORCE_RELAY -string "$FORCE_RELAY"
 
@@ -1057,6 +1073,19 @@ if (( launch_status )); then
   exit "$launch_status"
 fi
 
+if [[ "$REAL_USAGE" -eq 1 ]]; then
+  REAL_USAGE_DIR="${REPORT_OUTPUT%.json}-real-usage"
+  mkdir -p "$REAL_USAGE_DIR"
+  echo "==> starting real Codex workload in three Mac workspaces"
+  CMUX_E2E_TAG="$TAG" \
+  CMUX_CODEX_EVIDENCE_DIR="$REAL_USAGE_DIR" \
+  CMUX_CODEX_MODEL="${CMUX_CODEX_MODEL:-gpt-5.5-mini}" \
+  CMUX_CODEX_DURATION_SECONDS="${CMUX_CODEX_DURATION_SECONDS:-900}" \
+  "$SCRIPT_DIR/e2e/iroh-codex-workload.sh" \
+    > "$REAL_USAGE_DIR/codex-workload.log" 2>&1 &
+  CODEX_WORKLOAD_PID=$!
+fi
+
 DATA_CONTAINER="$(xcrun simctl get_app_container "$SIMULATOR_ID" "$IOS_BUNDLE_ID" data)"
 REPORT_PATH="$DATA_CONTAINER/Library/Caches/$REPORT_FILENAME"
 if ! wait "$REPORT_WAITER_PID"; then
@@ -1232,5 +1261,53 @@ print(json.dumps(redacted_report, sort_keys=True))
 if problems:
     raise SystemExit("Iroh release gate failed: " + "; ".join(problems))
 PY
+
+if [[ "$REAL_USAGE" -eq 1 ]]; then
+  if ! wait "$CODEX_WORKLOAD_PID"; then
+    echo "error: real Codex workload failed" >&2
+    cat "$REAL_USAGE_DIR/codex-workload.log" >&2 || true
+    exit 1
+  fi
+  CODEX_WORKLOAD_PID=""
+  for cycle in 1 2 3; do
+    cycle_dir="$REAL_USAGE_DIR/background-cycle-$cycle"
+    mkdir -p "$cycle_dir"
+    background_seconds=0
+    if [[ "$cycle" -eq 2 ]]; then background_seconds=120; fi
+    echo "==> running iOS foreground/background cycle $cycle (background=${background_seconds}s)"
+    CMUX_E2E_TAG="$TAG" \
+    CMUX_E2E_SIM_UDID="$SIMULATOR_ID" \
+    CMUX_E2E_EVIDENCE_DIR="$cycle_dir" \
+    CMUX_E2E_BACKGROUND_SECONDS="$background_seconds" \
+    CMUX_E2E_VIDEO="$cycle_dir/ios-e2e.mp4" \
+      "$SCRIPT_DIR/e2e/ios-e2e-run.sh" \
+        --tag "$TAG" \
+        --sim-udid "$SIMULATOR_ID" \
+        --evidence-dir "$cycle_dir" \
+        --bundle-id "$IOS_BUNDLE_ID" \
+        --background-seconds "$background_seconds" \
+        --video "$cycle_dir/ios-e2e.mp4"
+  done
+  REAL_USAGE_DIR="$REAL_USAGE_DIR" /usr/bin/python3 <<'PY_REAL_USAGE'
+import json
+import os
+from pathlib import Path
+
+root = Path(os.environ["REAL_USAGE_DIR"])
+cycles = []
+for index in (1, 2, 3):
+    path = root / f"background-cycle-{index}" / "background.json"
+    if not path.is_file():
+        raise SystemExit(f"missing background evidence: {path}")
+    with path.open(encoding="utf-8") as handle:
+        evidence = json.load(handle)
+    cycles.append(evidence)
+if len(cycles) != 3 or cycles[1].get("background_seconds", 0) < 120:
+    raise SystemExit("real usage did not include a 120-second background cycle")
+if any(float(item.get("resume_to_mac_input_seconds", 99)) > 2.0 for item in cycles):
+    raise SystemExit("real usage resume-to-input exceeded two seconds")
+print(json.dumps({"cycles": cycles}, sort_keys=True))
+PY_REAL_USAGE
+fi
 
 echo "==> Iroh release gate passed: $MODE"

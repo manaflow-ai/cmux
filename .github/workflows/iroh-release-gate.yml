@@ -383,6 +383,9 @@ jobs:
           if [[ "${{ matrix.mode }}" == automatic || "${{ matrix.mode }}" == relay-only ]]; then
             GATE_ARGS+=(--soak-profile "${{ inputs.soak_profile }}")
           fi
+          if [[ "${{ inputs.environment }}" == production && "${{ matrix.mode }}" == relay-only && "${{ inputs.soak_profile }}" == stress ]]; then
+            GATE_ARGS+=(--real-usage)
+          fi
           ./scripts/run-iroh-release-gate.sh "${GATE_ARGS[@]}"
 
       - name: Upload redacted verdict
