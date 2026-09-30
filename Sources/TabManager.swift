@@ -257,7 +257,6 @@ class TabManager: ObservableObject {
     /// Set by `restoreSessionSnapshot` to suppress side-effects (like auto-
     /// expanding a group on focus) that would mutate restored state mid-restore.
     private var isRestoringSessionSnapshot: Bool = false
-    private var isDeletingWorkspaceGroup: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
@@ -2011,17 +2010,14 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int, isDragOperation: Bool = false) -> Bool {
-        let previousGroupIds = Set(tabs.compactMap { tab in
-            tab.id == tabId ? tab.groupId : nil
-        })
+        let previousMemberships = workspaceGroupMemberships(for: [tabId])
         let handled = workspaceReordering.reorderWorkspace(
             tabId: tabId,
             toIndex: targetIndex,
             isDragOperation: isDragOperation
         )
         cleanupGeneratedAnchorsAfterWorkspaceRemoval(
-            workspaceIds: [tabId],
-            previousGroupIds: previousGroupIds
+            previousMemberships: previousMemberships
         )
         return handled
     }
@@ -2072,9 +2068,7 @@ class TabManager: ObservableObject {
         usesTopLevelRows: Bool = false,
         explicitGroupId: UUID? = nil
     ) -> Bool {
-        let previousGroupIds = Set(tabs.compactMap { tab in
-            tab.id == tabId ? tab.groupId : nil
-        })
+        let previousMemberships = workspaceGroupMemberships(for: [tabId])
         let handled = workspaceReordering.reorderSidebarWorkspace(
             tabId: tabId,
             toIndex: targetIndex,
@@ -2083,8 +2077,7 @@ class TabManager: ObservableObject {
             explicitGroupId: explicitGroupId
         )
         cleanupGeneratedAnchorsAfterWorkspaceRemoval(
-            workspaceIds: [tabId],
-            previousGroupIds: previousGroupIds
+            previousMemberships: previousMemberships
         )
         return handled
     }
@@ -2098,9 +2091,7 @@ class TabManager: ObservableObject {
         usesTopLevelRows: Bool = false,
         explicitGroupId: UUID? = nil
     ) -> Bool {
-        let previousGroupIds = Set(tabIds.compactMap { tabId in
-            tabs.first { $0.id == tabId }?.groupId
-        })
+        let previousMemberships = workspaceGroupMemberships(for: tabIds)
         let handled = workspaceReordering.reorderSidebarWorkspaces(
             tabIds: tabIds,
             draggedTabId: draggedTabId,
@@ -2110,20 +2101,33 @@ class TabManager: ObservableObject {
             explicitGroupId: explicitGroupId
         )
         cleanupGeneratedAnchorsAfterWorkspaceRemoval(
-            workspaceIds: tabIds,
-            previousGroupIds: previousGroupIds
+            previousMemberships: previousMemberships
         )
         return handled
     }
 
+    private func workspaceGroupMemberships(for workspaceIds: [UUID]) -> [UUID: UUID] {
+        let requestedIds = Set(workspaceIds)
+        return Dictionary(uniqueKeysWithValues: tabs.compactMap { workspace in
+            guard requestedIds.contains(workspace.id), let groupId = workspace.groupId else {
+                return nil
+            }
+            return (workspace.id, groupId)
+        })
+    }
+
     private func cleanupGeneratedAnchorsAfterWorkspaceRemoval(
-        workspaceIds: [UUID],
-        previousGroupIds: Set<UUID>
+        previousMemberships: [UUID: UUID]
     ) {
-        for groupId in previousGroupIds where !tabs.contains(where: { $0.groupId == groupId && !workspaceIds.contains($0.id) }) {
+        let removedMemberships = previousMemberships.filter { workspaceId, groupId in
+            workspacesById[workspaceId]?.groupId != groupId
+        }
+        for groupId in Set(removedMemberships.values) {
             _ = workspaceGrouping.removeGeneratedAnchorIfOrphaned(
                 groupId: groupId,
-                additionalMovedWorkspaceIds: workspaceIds
+                additionalMovedWorkspaceIds: removedMemberships.compactMap { workspaceId, previousGroupId in
+                    previousGroupId == groupId ? workspaceId : nil
+                }
             )
         }
     }
@@ -2175,7 +2179,10 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func reorderWorkspace(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil, isDragOperation: Bool = false) -> Bool {
-        workspaceReordering.reorderWorkspace(tabId: tabId, before: beforeId, after: afterId, isDragOperation: isDragOperation)
+        guard let plan = workspaceReorderPlan(tabId: tabId, before: beforeId, after: afterId) else {
+            return false
+        }
+        return reorderWorkspace(tabId: tabId, toIndex: plan.toIndex, isDragOperation: isDragOperation)
     }
 
     func workspaceReorderPlan(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> WorkspaceReorderPlanItem? {
@@ -2469,9 +2476,6 @@ class TabManager: ObservableObject {
     }
 
     func closeWorkspaceForGroupDeletion(_ tab: Workspace, recordHistory: Bool) {
-        let wasDeletingWorkspaceGroup = isDeletingWorkspaceGroup
-        isDeletingWorkspaceGroup = true
-        defer { isDeletingWorkspaceGroup = wasDeletingWorkspaceGroup }
         closeWorkspace(tab, recordHistory: recordHistory)
     }
 
@@ -2627,8 +2631,7 @@ class TabManager: ObservableObject {
             let promotedAnchorIds = workspaces.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
 
             if let closedWorkspaceGroupId,
-               !closedWorkspaceWasGroupAnchor,
-               !isDeletingWorkspaceGroup {
+               !closedWorkspaceWasGroupAnchor {
                 _ = workspaceGrouping.removeGeneratedAnchorIfOrphaned(
                     groupId: closedWorkspaceGroupId,
                     additionalMovedWorkspaceIds: [workspace.id]

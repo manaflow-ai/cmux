@@ -15,6 +15,7 @@ private let workspaceGroupLogger = Logger(subsystem: "com.cmuxterm.app", categor
 public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     let model: WorkspacesModel<Tab>
     weak var host: (any WorkspaceGroupHosting<Tab>)?
+    var deletingGroupIds = Set<UUID>()
 
     /// Creates the coordinator over the window's workspace model.
     public init(model: WorkspacesModel<Tab>) {
@@ -78,6 +79,9 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         let inferredCwd: String? = anchorWorkingDirectory
             ?? firstChildTab?.currentDirectory
         let originalTabOrder = model.tabs.map(\.id)
+        let previousGroupIds = Set(eligibleChildren.compactMap { workspaceId in
+            model.tabs.first { $0.id == workspaceId }?.groupId
+        })
 
         let anchorId: UUID
         let anchorProvenance: WorkspaceGroupAnchorProvenance
@@ -125,6 +129,12 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             childWorkspaceIds: eligibleChildren,
             originalTabOrder: originalTabOrder
         )
+        for previousGroupId in previousGroupIds {
+            _ = removeGeneratedAnchorIfOrphaned(
+                groupId: previousGroupId,
+                additionalMovedWorkspaceIds: eligibleChildren
+            )
+        }
         // Collapse the sidebar multi-selection so a second ⌘⇧G press doesn't
         // immediately reuse the same child ids and create a duplicate group
         // around them. The new anchor is the only sensible "current"
@@ -292,6 +302,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         if isAnchorOfOtherGroup { return }
         let originalTopLevelIds = model.sidebarTopLevelWorkspaceIdsIncludingEmptyGroups()
         let emptyHeaderId = targetGroup.isEmpty ? targetGroup.anchorWorkspaceId : nil
+        let previousGroupId = tab.groupId
         model.assignGroup(workspaceId: workspaceId, groupId: groupId)
         var preferredTopLevelIds = originalTopLevelIds.filter { $0 != workspaceId }
         if let emptyHeaderId,
@@ -307,6 +318,12 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
                 groupId: groupId,
                 placement: placement,
                 referenceWorkspaceId: referenceWorkspaceId
+            )
+        }
+        if let previousGroupId {
+            _ = removeGeneratedAnchorIfOrphaned(
+                groupId: previousGroupId,
+                additionalMovedWorkspaceIds: [workspaceId]
             )
         }
         host?.workspaceOrderDidChange(movedWorkspaceIds: [workspaceId])
@@ -346,6 +363,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     ) -> Bool {
         guard let host,
               let group = model.workspaceGroups.first(where: { $0.id == groupId }),
+              !deletingGroupIds.contains(groupId),
               group.anchorWorkspaceProvenance == .generated,
               !group.isPinned,
               let anchorId = group.liveAnchorWorkspaceId,

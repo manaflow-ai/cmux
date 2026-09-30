@@ -77,6 +77,12 @@ extension WorkspaceGroupCoordinator {
             || model.tabs.contains(where: { $0.id == confirmation.anchorWorkspaceId }) else {
             return 0
         }
+        let wasAlreadyDeleting = !deletingGroupIds.insert(confirmation.groupId).inserted
+        defer {
+            if !wasAlreadyDeleting {
+                deletingGroupIds.remove(confirmation.groupId)
+            }
+        }
 
         let confirmedWorkspaceIds = Set(confirmation.memberWorkspaceIds)
         let confirmedOrder = Dictionary(
