@@ -72,6 +72,7 @@ final class AppRunMarker {
         installHandlers()
         let window = LaunchRecovery.quickCrashWindow
         survivalTask = Task { [weak self] in
+            // wakeup-allow: one-shot quick-crash window after launch; fires once
             do { try await Task.sleep(for: window) } catch { return }
             self?.markSurvived()
         }
