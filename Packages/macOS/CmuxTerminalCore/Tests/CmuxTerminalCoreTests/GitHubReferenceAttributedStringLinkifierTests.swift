@@ -126,6 +126,36 @@ import Testing
     }
 
     @Test
+    func anIndentedCodeBlockIsLeftAsText() throws {
+        // `isCodeBlock` claims fenced and indented alike. Foundation gives both
+        // the same `.codeBlock` kind, and this is the half the fenced test does
+        // not reach.
+        let result = try linkified(
+            "fixes manaflow-ai/cmux#847\n\n    git log manaflow-ai/cmux#848"
+        )
+
+        #expect(links(result).map(\.1) == ["https://github.com/manaflow-ai/cmux/issues/847"])
+    }
+
+    @Test
+    func referencesInsideBlockStructureAreStillLinked() throws {
+        // The block-level skip is meant to be narrow: a code block and nothing
+        // else. Headings, list items and blockquotes are ordinary prose and an
+        // agent writes references into all three.
+        let result = try linkified(
+            "# manaflow-ai/cmux#1\n\n- manaflow-ai/cmux#2\n\n> manaflow-ai/cmux#3"
+        )
+
+        #expect(
+            links(result).map(\.1) == [
+                "https://github.com/manaflow-ai/cmux/issues/1",
+                "https://github.com/manaflow-ai/cmux/issues/2",
+                "https://github.com/manaflow-ai/cmux/issues/3",
+            ]
+        )
+    }
+
+    @Test
     func aReferenceCutInHalfByStylingIsNotLinked() throws {
         // `manaflow-ai/cmux#84**7**` reaches the scanner as the truncated
         // `manaflow-ai/cmux#84`, which resolves to a different issue than the
