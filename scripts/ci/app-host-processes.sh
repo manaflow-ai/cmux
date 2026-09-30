@@ -279,6 +279,9 @@ cmux_app_host_primary_executable() {
 # Prove that this process incarnation still owns the exact receipt it authored.
 # Return 2 if the PID disappeared during verification and 1 for a live process
 # without the recorded descriptor or for malformed lsof output.
+# Return 0 when PID holds the receipt descriptor, 2 when PID has exited,
+# 3 when a live PID confirmably does not hold it (lsof found no match),
+# and 1 when the descriptor could not be inspected or did not match.
 cmux_app_host_receipt_descriptor_is_open() {
   local pid="$1"
   local receipt_fd="$2"
@@ -296,7 +299,11 @@ cmux_app_host_receipt_descriptor_is_open() {
     if [ "$status" -eq 1 ] && ! /bin/kill -0 "$pid" 2>/dev/null; then
       return 2
     fi
-    echo "FAIL: live app-host PID $pid does not hold its process receipt" >&2
+    if [ "$status" -eq 1 ]; then
+      echo "FAIL: live app-host PID $pid does not hold its process receipt" >&2
+      return 3
+    fi
+    echo "FAIL: lsof could not inspect the process receipt of app-host PID $pid (exit $status)" >&2
     return 1
   fi
 
@@ -361,16 +368,17 @@ cmux_app_host_receipt_descriptor_is_open() {
 # Receipts outlive their app host, and a shared runner can reuse its PID within
 # minutes (one shard saw the PID space wrap twice during a single job). The
 # receipt descriptor is O_CLOEXEC, so no exec keeps it: a PID that runs another
-# executable and does not hold the receipt is a new process, and the receipt
-# is stale. Return 1 when that PID does hold it, which no reuse can explain.
+# executable and confirmably does not hold the receipt is a new process, and
+# the receipt is stale. Return 1 when that PID holds the receipt, which no
+# reuse can explain, or when lsof could not tell.
 cmux_app_host_receipt_pid_was_reused() {
   local status
   if cmux_app_host_receipt_descriptor_is_open "$1" "$2" "$3" 2>/dev/null; then
-    status=0
+    return 1
   else
     status=$?
   fi
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 3 ] || [ "$status" -eq 2 ]
 }
 
 # Return 0 for an exact live identity, 2 for a stale receipt, and 1 for any

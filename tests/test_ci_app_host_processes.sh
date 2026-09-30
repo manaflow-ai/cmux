@@ -27,6 +27,9 @@ if [ "$(basename "$0")" = "fake-lsof" ]; then
     esac
   done
 
+  if [ -n "$path_filter" ] && [ -n "${CMUX_FAKE_LSOF_RECEIPT_EXIT:-}" ]; then
+    exit "$CMUX_FAKE_LSOF_RECEIPT_EXIT"
+  fi
   found=0
   while IFS='|' read -r state_pid state_executable; do
     [ -n "$state_pid" ] || continue
@@ -400,6 +403,25 @@ cmux_terminate_verified_app_hosts \
 unset CMUX_FAKE_LSOF_MISSING_RECEIPT_PID
 /bin/kill -0 "$reused_pid" 2>/dev/null \
   || fail "stale receipt verification signaled the reused PID"
+
+# lsof failing on the receipt query proves nothing about the reused PID, so
+# the mismatched executable still fails cleanup instead of reading as stale.
+make_scope uninspectable-pid
+spawn_process
+uninspectable_pid="$CMUX_TEST_SPAWNED_PID"
+printf '%s|%s\n' "$uninspectable_pid" /bin/sleep > "$CMUX_FAKE_LSOF_STATE"
+write_receipt "$TEST_RECEIPT_DIR" "$KEY" "$uninspectable_pid" "$TEST_EXECUTABLE"
+export CMUX_FAKE_LSOF_RECEIPT_EXIT=2
+if cmux_app_host_verified_pids \
+  "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
+  > "$TMP_DIR/uninspectable-pid.out" 2> "$TMP_DIR/uninspectable-pid.err"; then
+  fail "a receipt whose descriptor lsof could not inspect was treated as stale"
+fi
+grep -q "does not match the PID executable vnode" "$TMP_DIR/uninspectable-pid.err" \
+  || fail "an uninspectable receipt failed for the wrong reason: $(cat "$TMP_DIR/uninspectable-pid.err")"
+unset CMUX_FAKE_LSOF_RECEIPT_EXIT
+/bin/kill -0 "$uninspectable_pid" 2>/dev/null \
+  || fail "uninspectable receipt verification signaled its PID"
 
 make_scope missing-receipt
 spawn_process
