@@ -132,35 +132,41 @@ extension SurfaceCatalog {
         defer { endProjectionMutation(scope) }
         let group = try currentCloudWorkspace(group)?.group ?? group
         try validateOwnership(of: group.resources, at: destination)
-        if let optimistic, let reserved = reserveTerminalGroup(group, into: destination, focus: focus, paneLookup: paneLookup, host: optimistic) {
-            return reserved
-        }
         var projected: [SurfaceProjection] = []
+        var alreadyOpen: [SurfaceProjection] = []
         var firstError: Error?
         var anchor: SurfaceDestination?
         for member in group.placements {
-            let id = member.resource
-            let target: SurfaceDestination
-            if let anchor {
-                target = anchor
-            } else {
-                target = destination
-            }
+            // The first new resource takes the drop spot; the rest join its pane as tabs.
+            let target = anchor ?? destination
             do {
                 let remoteView = try resolveRemoteView(
                     for: member,
                     fallbackWorkspaceID: group.remoteWorkspaceID
                 )
-                let result = try await project(
-                    id,
-                    into: target,
-                    focus: anchor == nil && focus,
-                    reuseExisting: false,
-                    remoteView: remoteView
-                )
-                projected.append(result.projection)
+                if optimistic?.reusesDestinationProjections == true,
+                   let open = openProjection(of: member.resource, remoteView: remoteView, in: destination.workspaceID, paneLookup: paneLookup) {
+                    alreadyOpen.append(open)
+                    continue
+                }
+                // A Cloud terminal gets its pane now and attaches behind it; anything
+                // else (or a pane the host cannot reserve) takes the awaited path.
+                let lead: SurfaceProjection
+                if let optimistic, let reserved = reserveOptimistically(
+                    member, remoteView: remoteView, into: target, focus: anchor == nil && focus, host: optimistic
+                ) {
+                    lead = reserved
+                } else {
+                    lead = try await project(
+                        member.resource,
+                        into: target,
+                        focus: anchor == nil && focus,
+                        reuseExisting: false,
+                        remoteView: remoteView
+                    ).projection
+                }
+                projected.append(lead)
                 if anchor == nil {
-                    let lead = result.projection
                     if let paneID = paneLookup(lead.panelID, lead.workspaceID) {
                         anchor = .tab(workspaceID: lead.workspaceID, paneID: paneID, index: nil)
                     } else {
@@ -171,13 +177,13 @@ extension SurfaceCatalog {
                 if firstError == nil { firstError = error }
             }
         }
-        if projected.isEmpty, let firstError {
+        if projected.isEmpty, alreadyOpen.isEmpty, let firstError {
             throw firstError
         }
-        if projected.isEmpty {
+        if projected.isEmpty, alreadyOpen.isEmpty {
             throw SurfaceCatalogError.destinationNotFound("empty group")
         }
-        return projected
+        return projected + alreadyOpen
     }
 
     /// How a group becomes a new local workspace: the machinery a caller injects so the
@@ -226,6 +232,8 @@ extension SurfaceCatalog {
         var reserve: @MainActor (_ machine: SurfaceMachineID, _ destination: SurfaceDestination, _ focus: Bool) -> CloudTerminalPaneReservation?
         /// Starts the attach loop for a reserved pane whose projection is already recorded.
         var attach: @MainActor (_ reservation: CloudTerminalPaneReservation, _ resource: SurfaceResource, _ remoteTabID: String?) -> Void
+        /// A drop focuses a placement already open in its workspace instead of opening it again.
+        var reusesDestinationProjections = false
 
         @MainActor
         static let app = OptimisticPaneHost(
@@ -347,47 +355,6 @@ extension SurfaceCatalog {
         return (created.workspaceID, projected)
     }
 
-    /// One layout-driven new-workspace projection (`projectGroupAsNewLocalWorkspace(_:layout:)`).
-    ///
-    /// Splits are created parent-first: a split node makes its second pane BEFORE its
-    /// first child's own splits subdivide the first pane. That is the order in which the
-    /// local Bonsplit tree ends up mirroring the layout node for node (the same order
-    /// `Workspace.applyCustomLayout` builds cmux.json layouts in), which is what lets the
-    /// ratio pass walk both trees in step afterwards. The walk returns the tree it really
-    /// built, so a placement that failed to materialize cannot misalign the two.
-    @MainActor
-    /// Every terminal of `group` gets its pane now: the first at `destination`, the rest
-    /// as tabs beside it; each pane's projection is recorded and its attach loop started.
-    /// Returns nil (caller falls back to the awaited path) when the group holds anything
-    /// but cloud terminals the catalog knows, or the first pane cannot be reserved.
-    private func reserveTerminalGroup(
-        _ group: SurfaceResourceGroup,
-        into destination: SurfaceDestination,
-        focus: Bool,
-        paneLookup: PaneLookup,
-        host: OptimisticPaneHost
-    ) -> [SurfaceProjection]? {
-        guard let members = reservableTerminals(group) else { return nil }
-        var projected: [SurfaceProjection] = []
-        var anchor: SurfaceDestination?
-        for (placement, resource, remoteView) in members {
-            let target = anchor ?? destination
-            guard let reservation = host.reserve(resource.machine, target, anchor == nil && focus) else {
-                if anchor == nil { return nil }
-                continue
-            }
-            let projection = recordReservedProjection(reservation, placement: placement, remoteView: remoteView)
-            projected.append(projection)
-            host.attach(reservation, resource, remoteView?.tabID)
-            if anchor == nil {
-                anchor = paneLookup(reservation.panelID, reservation.workspaceID)
-                    .map { .tab(workspaceID: reservation.workspaceID, paneID: $0, index: nil) }
-                    ?? .workspace(id: reservation.workspaceID, placement: .tab)
-            }
-        }
-        return projected.isEmpty ? nil : projected
-    }
-
     /// The group's members as (placement, resource, exact remote view) when every one is a
     /// cloud terminal the catalog knows; nil otherwise, so browsers and unknown resources
     /// keep the awaited path.
@@ -424,6 +391,14 @@ extension SurfaceCatalog {
         return projection
     }
 
+    /// One layout-driven new-workspace projection (`projectGroupAsNewLocalWorkspace(_:layout:)`).
+    ///
+    /// Splits are created parent-first: a split node makes its second pane BEFORE its
+    /// first child's own splits subdivide the first pane. That is the order in which the
+    /// local Bonsplit tree ends up mirroring the layout node for node (the same order
+    /// `Workspace.applyCustomLayout` builds cmux.json layouts in), which is what lets the
+    /// ratio pass walk both trees in step afterwards. The walk returns the tree it really
+    /// built, so a placement that failed to materialize cannot misalign the two.
     @MainActor
     private struct LayoutProjectionWalk {
         let catalog: SurfaceCatalog

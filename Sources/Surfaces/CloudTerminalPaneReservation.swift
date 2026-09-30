@@ -105,6 +105,8 @@ final class CloudTerminalPaneReservation {
     var retry: (@MainActor () -> Void)?
     /// Cancels the local request; a remote terminal already created stays alive.
     var cancel: (@MainActor () -> Void)?
+    /// Set only for a Cloud tree drop: failure removes the pane and restores this.
+    var dropRollback: CloudSurfaceDropRollback?
 
     init(
         workspaceID: UUID,

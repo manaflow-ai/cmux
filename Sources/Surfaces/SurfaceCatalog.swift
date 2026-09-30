@@ -166,7 +166,7 @@ final class SurfaceCatalog {
     }
 
     func unregister(machine: SurfaceMachineID) {
-        cloudWorkspaceCreationCoordinator.cancel(machine: machine)
+        cloudWorkspaceCreationCoordinator.cancel(machine: machine); rollBackCloudSurfaceDrops(on: machine)
         let inFlightKeys = inFlightProjects.keys.filter { $0.machine == machine }
         for key in inFlightKeys {
             cancelInFlightProject(key, error: SurfaceCatalogError.unknownResource(key.resource))
