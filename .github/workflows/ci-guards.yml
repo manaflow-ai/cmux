@@ -1149,6 +1149,12 @@ jobs:
         if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_dock_shortcut_routing_guard.py
 
+      - name: Validate command palette agent surface inventory
+        if: ${{ matrix.group == 'quality-determinism' }}
+        run: |
+          python3 tests/test_ci_command_palette_agent_surface_guard.py
+          python3 scripts/check-command-palette-agent-surface.py
+
       - name: Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)
         if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_issue_5164_starship_prompt_composition.py
