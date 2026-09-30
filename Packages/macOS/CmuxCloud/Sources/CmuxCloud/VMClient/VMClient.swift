@@ -1069,12 +1069,12 @@ public actor VMClient {
     private static let attachTimeoutSeconds: TimeInterval = 16 * 60
 
     private let session: URLSession
-    fileprivate let auth: AuthCoordinator
+    let auth: AuthCoordinator
     private let checkpointRenames: CloudRenameCoordinator
     private let telemetry: VMClientTelemetry
     public nonisolated let operations: CloudOperationRecorder?
     public nonisolated let resourceStats: VMResourceStatsStore
-    fileprivate let machineCache: CloudMachineCache
+    let machineCache: CloudMachineCache
     private let readRequests: CloudReadRequestCoordinator
     private let isCloudEnabled: @Sendable () -> Bool
     private let isCloudAvailable: @Sendable () -> Bool
@@ -1427,13 +1427,13 @@ public actor VMClient {
 
     /// A valid `kind` string → the kind; anything else → nil so the image
     /// heuristic decides.
-    fileprivate static func decodeKind(_ raw: Any?) -> VMMachineKind? {
+    static func decodeKind(_ raw: Any?) -> VMMachineKind? {
         guard let raw = raw as? String else { return nil }
         return VMMachineKind(rawValue: raw.lowercased())
     }
 
     /// `limits.imageKinds: [{kind, image}]`; malformed entries are skipped.
-    fileprivate static func decodeImageKinds(_ raw: Any?) -> [VMImageKindOption] {
+    static func decodeImageKinds(_ raw: Any?) -> [VMImageKindOption] {
         guard let items = raw as? [[String: Any]] else { return [] }
         return items.compactMap { item in
             guard let kind = decodeKind(item["kind"]),
@@ -1443,7 +1443,7 @@ public actor VMClient {
     }
 
     /// `limits.memoryOptionsMb: [number]`; malformed or non-positive entries are skipped.
-    fileprivate static func decodeIntArray(_ raw: Any?) -> [Int] {
+    static func decodeIntArray(_ raw: Any?) -> [Int] {
         guard let items = raw as? [Any] else { return [] }
         return items.compactMap { item in
             let value: Int?
@@ -1457,7 +1457,7 @@ public actor VMClient {
     }
 
     /// JSON numbers arrive as Int64 or Double depending on magnitude; `null`/absent → nil.
-    fileprivate static func epochMilliseconds(_ raw: Any?) -> Int64? {
+    static func epochMilliseconds(_ raw: Any?) -> Int64? {
         if let value = raw as? Int64 { return value }
         if let value = raw as? Int { return Int64(value) }
         if let value = raw as? Double, value.isFinite { return Int64(value) }
@@ -2157,7 +2157,7 @@ public actor VMClient {
         }
     }
 
-    fileprivate func decodeBaseSummary(_ raw: Any?) -> VMBaseSummary? {
+    func decodeBaseSummary(_ raw: Any?) -> VMBaseSummary? {
         guard let obj = raw as? [String: Any] else { return nil }
         guard let id = obj["id"] as? String, !id.isEmpty else { return nil }
         let rawName = (obj["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
