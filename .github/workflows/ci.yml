@@ -1355,23 +1355,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
-      # A cancelled run reaches this gate with every platform workflow
-      # reporting `cancelled`, and the routing check below then reports only
-      # "changes: cancelled", which reads like a routing defect in the pull
-      # request rather than a run that was stopped before it tested anything.
-      # This step says so plainly instead. It still fails: this gate rolls into
-      # the required ci-status check, and a cancelled run tested nothing, so
-      # reporting success here would let a pull request merge untested.
-      # Rerunning the cancelled run clears it.
-      - name: Report a cancelled run
-        if: ${{ cancelled() }}
-        run: |
-          echo "This run was cancelled, so no platform workflow reported a verdict." >&2
-          echo "Rerun this run, or push again, to get a verdict from this gate." >&2
-          exit 1
-
       - name: Check platform workflow routing
-        if: ${{ !cancelled() }}
         env:
           TESTS_NEEDS: ${{ toJSON(needs) }}
         run: |
@@ -1381,6 +1365,21 @@ jobs:
           import sys
 
           needs = json.loads(os.environ["TESTS_NEEDS"])
+          # A cancelled job reaches this gate as a `cancelled` result, and the
+          # routing verdict below would report it as though the pull request had
+          # a routing defect. It does not: the run was stopped before it tested
+          # anything. Say that instead, and still fail. This gate is rolled
+          # into the required ci-status check, so reporting success on a
+          # cancelled run would put a green on a required check that no suite
+          # stood behind, and a pull request could merge with nothing having
+          # tested it. Rerunning the run clears it.
+          cancelled = sorted(name for name, data in needs.items()
+                             if data["result"] == "cancelled")
+          if cancelled:
+              print("cancelled: " + ", ".join(cancelled), file=sys.stderr)
+              print("this run was stopped before it reported a test verdict; "
+                    "rerun it, or push again, to get one", file=sys.stderr)
+              sys.exit(1)
           changes = needs["changes"]
           if changes["result"] != "success":
               print(f"changes: {changes['result']}", file=sys.stderr)
