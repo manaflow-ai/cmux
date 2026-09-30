@@ -8283,21 +8283,12 @@ struct CMUXCLI {
 
     /// Returns true if the argument looks like a filesystem path rather than a CLI command.
     private func looksLikePath(_ arg: String) -> Bool {
-        if arg == "." || arg == ".." { return true }
-        if arg.hasPrefix("/") || arg.hasPrefix("./") || arg.hasPrefix("../") || arg.hasPrefix("~") { return true }
-        if arg.contains("/") { return true }
-        return false
+        CLIPathShorthand.looksLikePath(arg)
     }
 
+    /// `CLIPathShorthand`: a bare word is a command, never a path.
     private func shouldOpenAsPathArgument(_ arg: String) -> Bool {
-        if looksLikePath(arg) {
-            return true
-        }
-        guard !arg.hasPrefix("-"),
-              !Self.topLevelCommandNames.contains(arg) else {
-            return false
-        }
-        return FileManager.default.fileExists(atPath: resolvePath(arg))
+        CLIPathShorthand.opensAsPath(arg) { FileManager.default.fileExists(atPath: resolvePath($0)) }
     }
 
     /// These VM handlers finish local planning and validation before their first request.
