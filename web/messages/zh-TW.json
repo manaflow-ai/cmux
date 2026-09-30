@@ -1374,8 +1374,8 @@
           "sessionContentAlignment": "啟用 sessionContentMaxWidth 時，終端機與內建代理程式聊天內容的水平位置。",
           "copyOnSelect": "為 true 時，選取確認後會將所選終端機文字複製到系統剪貼簿。為 false 時，cmux 不會輸出 Ghostty copy-on-select 覆寫；選取剪貼簿行為由 Ghostty 設定與預設值控制。",
           "scrollSpeed": "調整每次滑鼠滾輪或觸控式軌跡板捲動事件讓終端機移動的距離。大於 1 的值會加快捲動，小於 1 的值會減慢捲動。",
-          "showTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中顯示測試版 TextBox 輸入。",
-          "focusTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中聚焦測試版 TextBox 輸入。聚焦也會顯示 TextBox。"
+          "showTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中顯示TextBox 輸入。",
+          "focusTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中聚焦TextBox 輸入。聚焦也會顯示 TextBox。"
         },
         "notifications": {
           "soundWhenFocused": "即使發出通知的窗格已在焦點中，也播放通知聲音。預設關閉，因此焦點中的窗格只會顯示光環與閃爍。",
@@ -1867,7 +1867,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox（測試版）",
+      "textBox": "TextBox",
       "ios": "iOS 應用程式",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "概覽",
@@ -2031,12 +2031,11 @@
       "daemonPath": "守護程式二進位檔案儲存在遠端主機上的 ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote 中，並根據應用程式中嵌入的 SHA-256 清單進行驗證。"
     },
     "textBox": {
-      "title": "TextBox（測試版）",
-      "metaTitle": "TextBox（測試版）",
-      "metaDescription": "為新的終端機分頁、分割和工作區設定 cmux 測試版 TextBox 輸入。",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "為新的終端機分頁、分割和工作區設定 cmux TextBox 輸入。",
       "metaDescriptionShort": "TextBox 是 cmux 的富文字終端機輸入介面，可在傳送到終端機前編寫與編輯提示，並支援多行輸入、歷史記錄、鍵盤快捷鍵與可設定的終端機整合。",
       "intro": "TextBox 是 cmux 的富文字終端機輸入介面，可在傳送到終端機前編寫提示。",
-      "betaCallout": "TextBox 是測試版功能。測試期間，預設值和行為可能會變更。",
       "defaultsTitle": "預設值",
       "defaultsDesc": "TextBox 設定位於 Settings > TextBox：",
       "showSetting": "Show TextBox on New Terminals 會讓新的工作區、終端機分頁和終端機分割在開啟時顯示 TextBox，同時將焦點保留在終端機。",

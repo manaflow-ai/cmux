@@ -1374,8 +1374,8 @@
           "sessionContentAlignment": "ទីតាំងផ្ដេកនៃខ្លឹមសារស្ថានីយ និងការជជែកជាមួយភ្នាក់ងារដែលភ្ជាប់មកជាមួយ នៅពេលបើក sessionContentMaxWidth។",
           "copyOnSelect": "នៅពេល true អត្ថបទ terminal ដែលបានជ្រើសនឹងត្រូវចម្លងទៅ clipboard របស់ប្រព័ន្ធ ពេលការជ្រើសត្រូវបានបញ្ជាក់។ នៅពេល false cmux មិនបញ្ចេញការកំណត់ជាន់លើ Ghostty copy-on-select ទេ; ការកំណត់ និងលំនាំដើមរបស់ Ghostty គ្រប់គ្រងអាកប្បកិរិយា clipboard សម្រាប់ការជ្រើស។",
           "scrollSpeed": "កំណត់ចម្ងាយដែលទែមីណលផ្លាស់ទីសម្រាប់ព្រឹត្តិការណ៍រំកិលនីមួយៗពីកង់កណ្ដុរ ឬ trackpad។ តម្លៃលើសពី 1 ធ្វើឱ្យរំកិលលឿនជាងមុន ហើយតម្លៃក្រោម 1 ធ្វើឱ្យរំកិលយឺតជាងមុន។",
-          "showTextBoxOnNewTerminals": "បង្ហាញការបញ្ចូល TextBox បេតាជាលំនាំដើមសម្រាប់ workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយដែលទើបបង្កើតថ្មី។",
-          "focusTextBoxOnNewTerminals": "ផ្តោតការបញ្ចូល TextBox បេតាជាលំនាំដើមសម្រាប់ workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយដែលទើបបង្កើតថ្មី។ ការផ្តោតក៏បង្ហាញ TextBox ផងដែរ។"
+          "showTextBoxOnNewTerminals": "បង្ហាញការបញ្ចូល TextBox ជាលំនាំដើមសម្រាប់ workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយដែលទើបបង្កើតថ្មី។",
+          "focusTextBoxOnNewTerminals": "ផ្តោតការបញ្ចូល TextBox ជាលំនាំដើមសម្រាប់ workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយដែលទើបបង្កើតថ្មី។ ការផ្តោតក៏បង្ហាញ TextBox ផងដែរ។"
         },
         "notifications": {
           "soundWhenFocused": "ចាក់សំឡេងជូនដំណឹង ទោះបីផ្ទាំងដែលបានជូនដំណឹងកំពុងស្ថិតក្នុងការផ្តោតរួចហើយក៏ដោយ។ បិទតាមលំនាំដើម ដូច្នេះផ្ទាំងដែលកំពុងផ្តោតបង្ហាញតែរង្វង់ និងពន្លឺភ្លឹបភ្លែតរបស់វាប៉ុណ្ណោះ។",
@@ -1868,7 +1868,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (បេតា)",
+      "textBox": "TextBox",
       "ios": "កម្មវិធី iOS",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "ទិដ្ឋភាពទូទៅ",
@@ -2032,11 +2032,10 @@
       "daemonPath": "daemon binary ត្រូវបានរក្សាទុកនៅ ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote នៅលើម៉ាស៊ីនពីចម្ងាយ និងបានផ្ទៀងផ្ទាត់ប្រឆាំងនឹងការបង្ហាញ SHA-256 ដែលបានបង្កប់នៅក្នុងកម្មវិធី។"
     },
     "textBox": {
-      "title": "TextBox (បេតា)",
-      "metaTitle": "TextBox (បេតា)",
-      "metaDescription": "កំណត់រចនាសម្ព័ន្ធការបញ្ចូល TextBox បេតារបស់ cmux សម្រាប់ផ្ទាំង ស្ប្លីត និង workspace ស្ថានីយថ្មី។",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "កំណត់រចនាសម្ព័ន្ធការបញ្ចូល TextBox របស់ cmux សម្រាប់ផ្ទាំង ស្ប្លីត និង workspace ស្ថានីយថ្មីនៅក្នុង cmux។",
       "intro": "TextBox គឺជាផ្ទៃបញ្ចូលស្ថានីយ rich របស់ cmux សម្រាប់រៀបចំ prompt មុនពេលផ្ញើទៅស្ថានីយ។",
-      "betaCallout": "TextBox គឺជាមុខងារបេតា។ តម្លៃលំនាំដើម និងឥរិយាបថអាចផ្លាស់ប្តូរនៅពេលកំពុងសាកល្បង។",
       "defaultsTitle": "លំនាំដើម",
       "defaultsDesc": "ការកំណត់ TextBox ស្ថិតនៅ Settings > TextBox:",
       "showSetting": "Show TextBox on New Terminals បើក workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយថ្មីដោយបង្ហាញ TextBox ខណៈដែល focus នៅតែស្ថិតក្នុងស្ថានីយ។",
