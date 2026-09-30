@@ -197,16 +197,17 @@ final class AgentAutoResumeCoordinator {
         if nonEmptyRows.suffix(6).contains(where: { $0.trimmingCharacters(in: .whitespaces) == "Resume paused goal?" }) {
             return .codexResumePicker
         }
-        if plainRows.last?.trimmingCharacters(in: .whitespaces) == "Goal stalled (/goal resume)" {
+        if nonEmptyRows.last?.trimmingCharacters(in: .whitespaces) == "Goal stalled (/goal resume)" {
             return .codexGoalResume
         }
         let loweredRows = nonEmptyRows.suffix(6).map { $0.lowercased() }
         if loweredRows.contains(where: { $0.contains("esc to cancel") || $0.contains("press enter to") || $0.contains("enter to confirm") || $0.contains("enter to select") }) {
             return .dialog
         }
+        let promptPrefixes = ["› ", "❯ ", "❯\u{00A0}", "> ", "❯", ">"]
         guard let promptIndex = plainRows.lastIndex(where: { row in
             let trimmed = row.drop(while: { $0 == " " || $0 == "│" })
-            return trimmed.hasPrefix("› ") || trimmed.hasPrefix("❯\u{00A0}")
+            return promptPrefixes.contains(where: trimmed.hasPrefix)
         }) else { return .unknown }
         var typed = ""
         for index in promptIndex..<rows.count {
@@ -215,8 +216,10 @@ final class AgentAutoResumeCoordinator {
                 typed += span.text
             }
             if index == promptIndex {
-                typed = typed.replacingOccurrences(of: "› ", with: "", options: [], range: typed.startIndex..<typed.endIndex)
-                typed = typed.replacingOccurrences(of: "❯\u{00A0}", with: "", options: [], range: typed.startIndex..<typed.endIndex)
+                for prefix in promptPrefixes where typed.hasPrefix(prefix) {
+                    typed.removeFirst(prefix.count)
+                    break
+                }
             }
         }
         return typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .emptyPrompt : .draft
