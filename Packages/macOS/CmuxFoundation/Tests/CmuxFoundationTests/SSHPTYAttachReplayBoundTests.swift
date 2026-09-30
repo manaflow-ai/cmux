@@ -76,6 +76,67 @@ struct SSHPTYAttachReplayBoundTests {
         #expect(text(live) == "typed")
     }
 
+    @Test("a stalled reconnect replay drops a partial prefix candidate when a retry is pending")
+    func endingStalledReconnectReplayDiscardsPartialCandidate() {
+        func progress() -> SSHPTYAttachOutputProgress {
+            SSHPTYAttachOutputProgress(
+                replayBytes: 100,
+                suppressReplayBytes: 6,
+                expectedReplayFingerprint: SSHPTYAttachOutputProgress.fingerprint(
+                    of: Data("oldold".utf8)
+                )
+            )
+        }
+        // The previous attempt already rendered "oldold"; this attempt
+        // received only part of that prefix before the replay deadline.
+        var retrying = progress()
+        #expect(retrying.terminalOutput(from: Data("old".utf8), suppressingReplay: true).isEmpty)
+
+        #expect(retrying.endReplay(discarding: true).isEmpty)
+        #expect(retrying.replayBytesRemaining == 0)
+        #expect(retrying.finishPendingReplay(discarding: true).isEmpty)
+        #expect(text(retrying.terminalOutput(from: Data("typed".utf8), suppressingReplay: true)) == "typed")
+
+        // Without another attempt, nothing else will render the candidate.
+        var lastAttempt = progress()
+        #expect(lastAttempt.terminalOutput(from: Data("old".utf8), suppressingReplay: true).isEmpty)
+        #expect(text(lastAttempt.endReplay(discarding: false)) == "old")
+    }
+
+    @Test("a stalled reconnect replay still forwards validated output when a retry is pending")
+    func endingStalledReconnectReplayKeepsValidatedOutput() {
+        var progress = SSHPTYAttachOutputProgress(
+            replayBytes: 100,
+            suppressReplayBytes: 6,
+            expectedReplayFingerprint: SSHPTYAttachOutputProgress.fingerprint(
+                of: Data("oldold".utf8)
+            )
+        )
+        #expect(progress.terminalOutput(from: Data("oldoldnew".utf8), suppressingReplay: true).isEmpty)
+
+        // "new" follows a proven duplicate prefix and the replay state stored
+        // after the deadline covers it, so no later attempt would render it.
+        #expect(text(progress.endReplay(discarding: true)) == "new")
+    }
+
+    @Test("the output stream passes the retry decision to a stalled replay")
+    func stalledReplayStreamDiscardsPartialCandidate() {
+        var output = SSHPTYAttachReplayOutputStream(
+            progress: SSHPTYAttachOutputProgress(
+                replayBytes: 100,
+                suppressReplayBytes: 6,
+                expectedReplayFingerprint: SSHPTYAttachOutputProgress.fingerprint(
+                    of: Data("oldold".utf8)
+                )
+            ),
+            queryFilterReplayBytes: 100
+        )
+        #expect(output.terminalOutput(from: Data("old".utf8), suppressingReplay: true).isEmpty)
+
+        #expect(output.endStalledReplay(discardingPendingReplay: true).isEmpty)
+        #expect(output.finish(discardingPendingReplay: true).isEmpty)
+    }
+
     @Test("a reconnect replay larger than the validation buffer is forwarded, not dropped")
     func oversizedValidatedReplayIsForwarded() {
         let prefix = Data(repeating: 0x61, count: 6)

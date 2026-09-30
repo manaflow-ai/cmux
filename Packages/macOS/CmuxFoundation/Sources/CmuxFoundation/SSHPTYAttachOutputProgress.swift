@@ -188,8 +188,9 @@ public struct SSHPTYAttachOutputProgress: Sendable {
     /// input forwarding resumes; everything after this call is live output.
     /// The completed fingerprint then covers only the delivered prefix.
     ///
+    /// - Parameter discarding: Not yet honored.
     /// - Returns: Buffered replay output that must still reach the terminal.
-    public mutating func endReplay() -> Data {
+    public mutating func endReplay(discarding: Bool = false) -> Data {
         guard replayBytesRemaining > 0 else { return Data() }
         replayBytesRemaining = 0
         completedReplayFingerprint = replayFingerprintHash

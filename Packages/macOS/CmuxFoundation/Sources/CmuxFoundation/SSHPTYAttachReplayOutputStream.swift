@@ -42,9 +42,11 @@ public struct SSHPTYAttachReplayOutputStream: Sendable {
     /// treats as replay, so an inflated declaration cannot hide live queries
     /// indefinitely.
     ///
+    /// - Parameter discardingPendingReplay: Drop an unvalidated replay prefix
+    ///   candidate, as ``finish(discardingPendingReplay:)`` would.
     /// - Returns: Buffered replay output that must still reach the terminal.
-    public mutating func endStalledReplay() -> Data {
-        queryFilter.filter(progress.endReplay())
+    public mutating func endStalledReplay(discardingPendingReplay: Bool = false) -> Data {
+        queryFilter.filter(progress.endReplay(discarding: discardingPendingReplay))
     }
 
     /// Flushes everything still held when the bridge closes.
