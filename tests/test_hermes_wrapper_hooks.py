@@ -21,8 +21,12 @@ SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-hermes-agent-wrapper"
 SOURCE_TUI_PYTHON_WRAPPER = ROOT / "Resources" / "bin" / "cmux-hermes-python-wrapper"
 SOURCE_TUI_SITECUSTOMIZE = ROOT / "Resources" / "bin" / "cmux-hermes-sitecustomize.py"
 SESSION_ID = "01JZ123456789ABCDEFGHJKMNP"
-# How long run_wrapper lets the wrapper run before it reports a hang.
-WRAPPER_HANG_GUARD_SECONDS = 5
+# How long the wrapper may wait for its hook installer in launch-path checks.
+INSTALLER_BUDGET_SECONDS = 10
+# How long run_wrapper lets the wrapper run before it reports a hang. It must
+# outlast the installer budget plus the launch, or a slow installer on a busy
+# runner is killed with the wrapper before the wrapper can launch Hermes.
+WRAPPER_HANG_GUARD_SECONDS = INSTALLER_BUDGET_SECONDS + 15
 
 
 @dataclass
@@ -393,10 +397,10 @@ exit 0
             env.pop("FAKE_INSTALLER_GATE", None)
         # The wrapper kills its installer at this deadline and launches Hermes
         # anyway. Only the deadline tests pass one; every other run gives the
-        # installer as long as the hang guard, so a check waits for the
-        # installer to finish instead of racing its start on a busy runner.
+        # installer the full budget, so a check waits for the installer to
+        # finish instead of racing its start on a busy runner.
         if installer_timeout_seconds is None:
-            installer_timeout_seconds = WRAPPER_HANG_GUARD_SECONDS
+            installer_timeout_seconds = INSTALLER_BUDGET_SECONDS
         env["CMUX_HERMES_AGENT_HOOK_INSTALL_TIMEOUT_SECONDS"] = str(installer_timeout_seconds)
         if installer_start_delay_seconds:
             env["FAKE_INSTALLER_START_DELAY"] = str(installer_start_delay_seconds)

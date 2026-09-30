@@ -1374,8 +1374,8 @@
           "sessionContentAlignment": "启用 sessionContentMaxWidth 时，终端和内置代理聊天内容的水平位置。",
           "copyOnSelect": "为 true 时，在确认选择后将所选终端文本复制到系统剪贴板。为 false 时，cmux 不会输出 Ghostty copy-on-select 覆盖项；选择剪贴板行为由 Ghostty 配置和默认值控制。",
           "scrollSpeed": "调整每次鼠标滚轮或触控板滚动事件让终端移动的距离。大于 1 的值会加快滚动，小于 1 的值会减慢滚动。",
-          "showTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中显示测试版 TextBox 输入。",
-          "focusTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中聚焦测试版 TextBox 输入。聚焦也会显示 TextBox。"
+          "showTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中显示TextBox 输入。",
+          "focusTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中聚焦TextBox 输入。聚焦也会显示 TextBox。"
         },
         "notifications": {
           "soundWhenFocused": "即使发出通知的窗格已处于焦点状态，也播放通知声音。默认关闭，因此处于焦点的窗格只显示光环和闪烁。",
@@ -1868,7 +1868,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox（测试版）",
+      "textBox": "TextBox",
       "ios": "iOS 应用",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "概览",
@@ -2032,12 +2032,11 @@
       "daemonPath": "守护程序二进制文件存储在远程主机上的 ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote 中，并根据应用程序中嵌入的 SHA-256 清单进行验证。"
     },
     "textBox": {
-      "title": "TextBox（测试版）",
-      "metaTitle": "TextBox（测试版）",
-      "metaDescription": "为新的终端标签页、分屏和工作区配置 cmux 的测试版 TextBox 输入。",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "为新的终端标签页、分屏和工作区配置 cmux 的TextBox 输入。",
       "metaDescriptionShort": "TextBox 是 cmux 的富文本终端输入界面，可在发送到终端前编写和编辑提示，并支持多行输入、历史记录、键盘快捷键与可配置的终端集成。",
       "intro": "TextBox 是 cmux 的富文本终端输入界面，可在发送到终端前编写提示。",
-      "betaCallout": "TextBox 是测试版功能。在测试期间，默认值和行为可能会变化。",
       "defaultsTitle": "默认值",
       "defaultsDesc": "TextBox 设置位于 Settings > TextBox：",
       "showSetting": "Show TextBox on New Terminals 会让新的工作区、终端标签页和终端分屏在打开时显示 TextBox，同时将焦点保留在终端中。",

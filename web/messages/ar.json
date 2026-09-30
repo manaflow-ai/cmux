@@ -1374,8 +1374,8 @@
           "sessionContentAlignment": "الموضع الأفقي لمحتوى الطرفية ودردشة الوكيل المضمنة عند تفعيل sessionContentMaxWidth.",
           "copyOnSelect": "عند true، ينسخ النص المحدد في الطرفية إلى حافظة النظام عند تثبيت التحديد. عند false، لا يصدر cmux تجاوز Ghostty copy-on-select؛ وتتحكم إعدادات Ghostty وقيمه الافتراضية في سلوك حافظة التحديد.",
           "scrollSpeed": "يحدد مقدار تحرك الطرفية مع كل حدث تمرير من عجلة الماوس أو لوحة التعقب. القيم الأكبر من 1 تسرّع التمرير، والقيم الأصغر من 1 تبطئه.",
-          "showTextBoxOnNewTerminals": "يعرض إدخال TextBox التجريبي افتراضيًا لمساحات العمل وتبويبات الطرفية وتقسيماتها المنشأة حديثًا.",
-          "focusTextBoxOnNewTerminals": "يركز إدخال TextBox التجريبي افتراضيًا لمساحات العمل وتبويبات الطرفية وتقسيماتها المنشأة حديثًا. التركيز يعرض TextBox أيضًا."
+          "showTextBoxOnNewTerminals": "يعرض إدخال TextBox افتراضيًا لمساحات العمل وتبويبات الطرفية وتقسيماتها المنشأة حديثًا.",
+          "focusTextBoxOnNewTerminals": "يركز إدخال TextBox افتراضيًا لمساحات العمل وتبويبات الطرفية وتقسيماتها المنشأة حديثًا. التركيز يعرض TextBox أيضًا."
         },
         "notifications": {
           "soundWhenFocused": "شغّل صوت الإشعار حتى عندما تكون اللوحة التي أرسلت الإشعار في موضع التركيز بالفعل. معطّل افتراضيًا، لذا تعرض اللوحة المُركَّز عليها الحلقة والوميض فقط.",
@@ -1868,7 +1868,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (تجريبي)",
+      "textBox": "TextBox",
       "ios": "تطبيق iOS",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "نظرة عامة",
@@ -2031,11 +2031,10 @@
       "daemonPath": "يتم تخزين الملف الثنائي الخفي في ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote على المضيف البعيد ويتم التحقق منه مقابل بيان SHA-256 المضمن في التطبيق."
     },
     "textBox": {
-      "title": "TextBox (تجريبي)",
-      "metaTitle": "TextBox (تجريبي)",
-      "metaDescription": "اضبط إدخال TextBox التجريبي في cmux للتبويبات والتقسيمات ومساحات العمل الطرفية الجديدة.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "اضبط إدخال TextBox في cmux للتبويبات والتقسيمات ومساحات العمل الطرفية الجديدة.",
       "intro": "TextBox هو سطح إدخال طرفي غني في cmux لكتابة المطالبات قبل إرسالها إلى الطرفية.",
-      "betaCallout": "TextBox ميزة تجريبية. قد تتغير القيم الافتراضية والسلوك أثناء الاختبار.",
       "defaultsTitle": "القيم الافتراضية",
       "defaultsDesc": "توجد إعدادات TextBox في Settings > TextBox:",
       "showSetting": "يفتح Show TextBox on New Terminals مساحات العمل وتبويبات الطرفية وتقسيماتها الجديدة مع إظهار TextBox، مع إبقاء التركيز في الطرفية.",
