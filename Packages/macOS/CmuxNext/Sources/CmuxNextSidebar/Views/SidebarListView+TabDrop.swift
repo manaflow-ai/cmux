@@ -90,6 +90,7 @@ extension SidebarListView {
         let clock = springLoadClock
         let delay = springLoadDelay
         external.springTask = Task { [weak self] in
+            // wakeup-allow: one-shot spring-load delay while a tab hovers a row, cancelled when it leaves
             do { try await clock.sleep(for: delay) } catch { return }
             guard let self, self.external === external, external.springTarget == target else { return }
             self.model.click(target)

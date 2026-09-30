@@ -26,6 +26,7 @@ public enum ControlDeadline {
                 }
             }
             let timer = Task {
+                // wakeup-allow: one-shot request deadline, cancelled when the body answers
                 do { try await Task.sleep(until: deadline, clock: .continuous) } catch { return }
                 if race.finish(.failure(timeout)) { work.cancel() }
             }

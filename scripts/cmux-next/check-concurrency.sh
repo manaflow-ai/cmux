@@ -15,6 +15,14 @@
 #   main-actor modules (the uiSwiftSettings targets, main-actor by default):
 #               blocking descriptor IO and synchronous file reads, because
 #               unannotated code there runs on the main thread.
+#   idle wakeups (plans/cmux-next/idle-wakeups.md; everywhere except the
+#               CmuxNextWakeups module, which holds the sanctioned primitives
+#               FrameScheduler, DemandTimer, Backoff): timers of any kind,
+#               raw display links, sleeps, and loops that can spin
+#               (`while true`, `while !Task.isCancelled`, `repeat {`). Nothing
+#               may poll. A reviewed exception carries
+#               `// wakeup-allow: <reason>` on the line or the comment block
+#               directly above.
 #   service code (Daemon, Cloud, Mobile, Control, and the App's *Service /
 #               *Store / Cloud files): a fire-and-forget `Task {` statement.
 #               Store the handle and cancel it with its owner, or say who
@@ -63,6 +71,29 @@ EVERYWHERE = [
      r"|\bAsync(Throwing)?Stream(<[^>]*>)?(\([^)]*\.self\))?\s*\{\s*(\[[^\]]*\]\s*)?\w+\s+in\b"),
 ]
 
+# Idle wakeups: nothing polls; waits are events, one-shot DemandTimer
+# deadlines, Backoff after a failure, or FrameClient frames.
+WAKEUP_PRIMITIVES_MODULE = "CmuxNextWakeups"
+WAKEUP_RULES = [
+    ("timer (use DemandTimer for a one-shot deadline, FrameClient for animation frames)",
+     r"\bTimer\.(scheduledTimer|publish)\b|\bTimer\((timeInterval|fire|fireAt)|\bNSTimer\b|\bCFRunLoopTimerCreate|\bmakeTimerSource\(|\brepeating:\s*\.(seconds|milliseconds|microseconds|nanoseconds|never)"),
+    ("raw display link (use a FrameClient of the window's FrameScheduler)",
+     r"\bdisplayLink\(target:|\bCADisplayLink\(|\bCVDisplayLink"),
+    ("sleep (wait for an event; DemandTimer for a deadline, Backoff.wait after a failure)",
+     r"\bTask\.sleep\(|\.sleep\((for|until):|\bclock\.sleep\b"),
+    ("loop that can spin (block or await readiness; end on EOF and fatal errors)",
+     r"\bwhile\s+true\b|\bwhile\s+!\s*(Task\.)?isCancelled\b|\brepeat\s*\{"),
+]
+WAKEUP_ALLOW = re.compile(r"//\s*wakeup-allow:\s*\S")
+# Files another agent is rewriting right now, so they cannot take an inline
+# comment without a conflict. Temporary: remove the entry when that work lands.
+WAKEUP_PENDING_FILES = {
+    # The CEF pump rework (demand-driven, no fixed safety-net period) is in
+    # flight on feat-cmux-next-cef-pump; its CFRunLoopTimer gets an inline
+    # `wakeup-allow` (one-shot at the delay CEF requests) there.
+    "CmuxNextBrowser/CEF/CEFMessagePump.swift",
+}
+
 # A task group whose body sleeps within this many lines is a deadline race.
 TASK_GROUP_WINDOW = 8
 TASK_GROUP = re.compile(r"\bwith(Throwing)?(Discarding)?TaskGroup\b")
@@ -97,6 +128,7 @@ def allowed(lines, index, escape=ALLOW):
     return False
 
 rules_all = [(name, re.compile(rx)) for name, rx in EVERYWHERE]
+rules_wakeup = [(name, re.compile(rx)) for name, rx in WAKEUP_RULES]
 rules_main = [(name, re.compile(rx)) for name, rx in MAIN_ACTOR]
 
 failures = 0
@@ -121,6 +153,9 @@ for dirpath, _, files in os.walk(sources):
                 if any(GROUP_SLEEP.search(other) for other in window):
                     hits.append("deadline raced in a task group (it waits for a loser that ignores cancellation; "
                                 "race with a continuation, as ControlDeadline does)")
+            if (module != WAKEUP_PRIMITIVES_MODULE and relative.replace(os.sep, "/") not in WAKEUP_PENDING_FILES
+                    and not allowed(lines, index, WAKEUP_ALLOW)):
+                hits += [name for name, rx in rules_wakeup if rx.search(code)]
             if is_service and UNOWNED_TASK.search(code) and not allowed(lines, index, TASK_OWNER):
                 hits.append("unowned Task in service code (store and cancel the handle, or `// task-owner: <reason>`)")
             for name in hits:
@@ -130,7 +165,9 @@ for dirpath, _, files in os.walk(sources):
 
 if failures:
     print(f"check-concurrency: {failures} violation(s). Fix the blocking call, or add a reviewed "
-          "`// concurrency-allow: <reason>` when it provably never runs on the main thread.")
+          "`// concurrency-allow: <reason>` when it provably never runs on the main thread. "
+          "Idle-wakeup hits need an event-driven wait or a reviewed `// wakeup-allow: <reason>` "
+          "(plans/cmux-next/idle-wakeups.md).")
     sys.exit(1)
 print("check-concurrency: ok")
 PY

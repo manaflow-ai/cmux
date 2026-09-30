@@ -29,8 +29,9 @@ extension ControlRouter {
             }
             if heartbeats {
                 group.addTask {
+                    // wakeup-allow: client-requested keepalive (include_heartbeats, 15 s) only while an events.stream client is connected; ends on hangup
                     while !Task.isCancelled {
-                        do { try await clock.sleep(for: .seconds(ControlEventBus.heartbeatIntervalSeconds)) } catch { return }
+                        do { try await clock.sleep(for: .seconds(ControlEventBus.heartbeatIntervalSeconds)) } catch { return } // wakeup-allow: keepalive period above
                         emit(bus.heartbeat(subscription: subscription).compactText)
                     }
                 }

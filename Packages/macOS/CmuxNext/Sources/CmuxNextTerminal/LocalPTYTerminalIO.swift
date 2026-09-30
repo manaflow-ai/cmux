@@ -152,6 +152,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     @discardableResult
     private static func drain(_ fd: Int32, into continuation: AsyncStream<TerminalIOEvent>.Continuation) -> DrainResult {
         var buffer = [UInt8](repeating: 0, count: 65_536)
+        // wakeup-allow: reads until EAGAIN (wait for readiness) or hangup/EOF (terminal); EINTR retries
         while true {
             // concurrency-allow: the PTY descriptor is O_NONBLOCK; read returns EAGAIN instead of waiting.
             let count = buffer.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }

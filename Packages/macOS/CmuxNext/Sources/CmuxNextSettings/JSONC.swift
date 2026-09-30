@@ -138,6 +138,7 @@ public enum JSONC {
         case UInt8(ascii: "["):
             var index = try skipTrivia(bytes, from: start + 1)
             if index < bytes.count, bytes[index] == UInt8(ascii: "]") { return (.scalar, index + 1) }
+            // wakeup-allow: parser loop over a finite in-memory buffer (no IO); every pass consumes input
             while true {
                 let (_, end) = try parseValue(bytes, at: index)
                 index = try skipTrivia(bytes, from: end)
@@ -164,6 +165,7 @@ public enum JSONC {
     private static func parseObject(_ bytes: [UInt8], at open: Int) throws -> (Node, Int) {
         var members: [Member] = []
         var index = try skipTrivia(bytes, from: open + 1)
+        // wakeup-allow: parser loop over a finite in-memory buffer (no IO); every pass consumes input
         while true {
             guard index < bytes.count else { throw Failure.malformed(offset: index) }
             if bytes[index] == UInt8(ascii: "}") {

@@ -124,6 +124,7 @@ extension SidebarListView {
         let clock = clickClock
         let delay = groupToggleDelay
         let task = Task { [weak self] in
+            // wakeup-allow: one-shot double-click disambiguation delay, cancelled by the second click
             do { try await clock.sleep(for: delay) } catch { return }
             guard let self, self.pendingGroupToggle?.group == group else { return }
             self.pendingGroupToggle = nil

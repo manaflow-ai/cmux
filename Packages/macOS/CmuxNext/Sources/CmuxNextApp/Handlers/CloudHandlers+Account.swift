@@ -62,6 +62,7 @@ extension CloudHandlers {
         // concurrency-allow: Observations iteration ends on cancellation, so the group never waits past the deadline
         let loaded = await withTaskGroup(of: Bool.self) { group -> Bool in
             group.addTask { await waitLoaded(store) }
+            // wakeup-allow: one-shot sign-in deadline (240 s) racing the browser callback
             group.addTask { (try? await Task.sleep(for: .seconds(240))) == nil }
             defer { group.cancelAll() }
             return await group.next() ?? false

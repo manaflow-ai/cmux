@@ -90,6 +90,7 @@ public final class ControlSnapshotStore: Sendable {
         }
         if let ready { return ready }
         let timer = Task { [weak self] in
+            // wakeup-allow: one-shot read-barrier deadline (1 s), cancelled when the store catches up
             do { try await Task.sleep(until: deadline, clock: .continuous) } catch { return }
             self?.resolve(id, with: nil)
         }

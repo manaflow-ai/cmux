@@ -124,6 +124,7 @@ final class ControlConnection: @unchecked Sendable {
                 closeNow()
                 return
             }
+            // wakeup-allow: one-shot drain deadline (5 s) after the client half-closes; cancelled by closeNow
             let timer = DispatchSource.makeTimerSource(queue: queue)
             timer.schedule(deadline: .now() + limits.drainTimeout)
             timer.setEventHandler { [weak self] in self?.closeNow() }

@@ -27,6 +27,7 @@ final class BrowserTabService {
     /// a new TabModel in its destination pane), nil when it closed.
     var tabModel: @MainActor (_ id: String) -> TabModel?
     var writeBackDelay: Duration = .milliseconds(500)
+    // wakeup-allow: one-shot debounce of browser record write-back (injected for tests)
     var sleep: BrowserRecordWriter.Sleep = { try await ContinuousClock().sleep(for: $0) }
     private var writers: [String: BrowserRecordWriter] = [:]
     /// Surfaces created in this process (`open`): pages the user asked for

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Observation
 
 /// Opens, restores, closes, and persists windows.
@@ -26,7 +27,8 @@ final class WindowManager {
     private weak var lastActive: WindowController?
     /// Called after a window is ordered in (the restart notice attaches).
     var onPresent: ((WindowController) -> Void)?
-    private var saveTask: Task<Void, Never>?
+    /// Debounced save of window geometry (architecture.md 1: 500 ms).
+    private let saveTimer = DemandTimer(owner: "WindowManager.save")
     private var loadObservation: Task<Void, Never>?
     var membershipObservation: Task<Void, Never>?
     /// New workspaces a window asked for before the daemon reported them:
@@ -287,11 +289,7 @@ final class WindowManager {
 
     func stateDidChange(_ state: WindowState) {
         guard restored, !isTerminating else { return }
-        saveTask?.cancel()
-        saveTask = Task { [weak self] in
-            do { try await ContinuousClock().sleep(for: .milliseconds(500)) } catch { return }
-            await self?.saveNow()
-        }
+        saveTimer.schedule(after: .milliseconds(500)) { @MainActor [weak self] in await self?.saveNow() }
     }
 
     func scheduleSave() {
@@ -319,7 +317,7 @@ final class WindowManager {
 
     /// Flushes state and stops saving (quit).
     func prepareForTermination() async {
-        saveTask?.cancel()
+        saveTimer.cancel()
         await saveNow()
         isTerminating = true
         membershipObservation?.cancel()

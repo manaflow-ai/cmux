@@ -31,6 +31,7 @@ final class CEFReplyWaiters<Key: Hashable & Sendable, Value: Sendable> {
         try await withCheckedThrowingContinuation { continuation in
             let clock = clock
             let deadline = Task { [weak self] in
+                // wakeup-allow: one-shot DevTools reply deadline (5 s), cancelled when the reply arrives
                 do { try await clock.sleep(for: timeout) } catch { return }
                 self?.resolve(key, with: .failure(timeoutError()))
             }

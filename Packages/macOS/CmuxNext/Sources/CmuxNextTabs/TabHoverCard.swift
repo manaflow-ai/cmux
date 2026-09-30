@@ -35,6 +35,7 @@ final class TabHoverCardController {
     private var thumbnails: [TabID: CGImage] = [:]
 
     init(
+        // wakeup-allow: one-shot hover-delay debounce (injected for tests), cancelled on hide
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await ContinuousClock().sleep(for: $0) },
         now: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now }
     ) {

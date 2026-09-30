@@ -134,6 +134,7 @@ public final class MainActorWorkQueue: Sendable {
                 return
             }
             let task = Task { [weak self] in
+                // wakeup-allow: one-shot work-item deadline, cancelled when the item runs
                 do { try await Task.sleep(until: deadline, clock: .continuous) } catch { return }
                 if item.expire(timeout) { self?.state.withLock { $0.stats.expired += 1 } }
             }

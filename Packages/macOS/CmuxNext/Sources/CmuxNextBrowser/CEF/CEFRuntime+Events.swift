@@ -229,6 +229,7 @@ extension CEFRuntime {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 shutdownWaiter = continuation
                 shutdownTimeout = Task { @MainActor [weak self] in
+                    // wakeup-allow: one-shot shutdown deadline, cancelled when Chromium reports closed
                     do { try await Task.sleep(for: timeout) } catch { return }
                     self?.resumeShutdownWaiter()
                 }

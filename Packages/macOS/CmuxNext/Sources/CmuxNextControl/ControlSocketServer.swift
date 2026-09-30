@@ -262,6 +262,7 @@ public final class ControlSocketServer: Sendable {
     /// ENOMEM) suspends it and resumes after a capped backoff; retrying at
     /// once would spin at 100% CPU until descriptors free up.
     private func acceptPending(listener: Int32) {
+        // wakeup-allow: drains the accept backlog; EAGAIN returns (readiness), other failures pause with Backoff
         while true {
             let client = acceptCall(listener)
             if client < 0 {
