@@ -145,23 +145,20 @@ jobs:
             scripts/e2e
           sparse-checkout-cone-mode: true
 
-      # Sticky disks keep node_modules on Blacksmith's co-located storage
-      # across runs, so `bun install` is a lockfile check plus the delta.
-      # Each job gets its own clone of the disk; concurrent runs never share
-      # a mount.
-      - name: Mount iroh-v2 node_modules
-        if: github.repository_owner == 'manaflow-ai'
-        uses: useblacksmith/stickydisk@94697d49e77d0dd78b77deb85ad3de63a28b4b8a # v1.7.1
+      # Bun's package cache, not node_modules, and actions/cache, not a sticky
+      # disk: a sticky-disk key is repository-wide, so any branch's workflow
+      # could mount it and plant code this job would then run while holding
+      # the Stack server key. actions/cache is branch-scoped (a run reads only
+      # its own ref's and the default branch's entries), and `bun install
+      # --frozen-lockfile` checks packages against the lockfile's integrity
+      # hashes as it links them from this cache.
+      - name: Restore Bun package cache
+        id: bun-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          key: ${{ github.repository }}-ios-e2e-iroh-v2-node-modules
-          path: workers/iroh-v2/node_modules
-
-      - name: Mount presence node_modules
-        if: github.repository_owner == 'manaflow-ai'
-        uses: useblacksmith/stickydisk@94697d49e77d0dd78b77deb85ad3de63a28b4b8a # v1.7.1
-        with:
-          key: ${{ github.repository }}-ios-e2e-presence-node-modules
-          path: workers/presence/node_modules
+          path: ~/.bun/install/cache
+          key: ios-e2e-bun-${{ hashFiles('workers/iroh-v2/bun.lock', 'workers/presence/bun.lock') }}
+          restore-keys: ios-e2e-bun-
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -182,31 +179,43 @@ jobs:
           wait "$presence"
           wait "$pull"
 
-      - name: Restore iroh-relay
+      - name: Save Bun package cache
+        if: steps.bun-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: ios-e2e-bun-${{ hashFiles('workers/iroh-v2/bun.lock', 'workers/presence/bun.lock') }}
+
+      # The release tarball is cached and its digest is checked on every run,
+      # hit or miss, so a cache entry can never substitute the binary.
+      - name: Restore iroh-relay archive
         id: relay-cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ${{ runner.temp }}/iroh-relay
+          path: ${{ runner.temp }}/iroh-relay-archive
           key: iroh-relay-${{ env.IROH_RELAY_VERSION }}-${{ env.IROH_RELAY_SHA256 }}
 
-      - name: Download iroh-relay
+      - name: Download iroh-relay archive
         if: steps.relay-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          dir="$RUNNER_TEMP/iroh-relay"
-          asset="iroh-relay-${IROH_RELAY_VERSION}-x86_64-unknown-linux-musl.tar.gz"
-          archive="$RUNNER_TEMP/$asset"
-          mkdir -p "$dir"
-          curl -fsSL --retry 3 -o "$archive" \
-            "https://github.com/n0-computer/iroh/releases/download/${IROH_RELAY_VERSION}/${asset}"
-          echo "${IROH_RELAY_SHA256}  $archive" | sha256sum -c -
-          tar -xzf "$archive" -C "$dir" ./iroh-relay
+          mkdir -p "$RUNNER_TEMP/iroh-relay-archive"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/iroh-relay-archive/iroh-relay.tar.gz" \
+            "https://github.com/n0-computer/iroh/releases/download/${IROH_RELAY_VERSION}/iroh-relay-${IROH_RELAY_VERSION}-x86_64-unknown-linux-musl.tar.gz"
 
-      - name: Save iroh-relay
+      - name: Verify and extract iroh-relay
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/iroh-relay-archive/iroh-relay.tar.gz"
+          echo "${IROH_RELAY_SHA256}  $archive" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/iroh-relay"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/iroh-relay" ./iroh-relay
+
+      - name: Save iroh-relay archive
         if: steps.relay-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ${{ runner.temp }}/iroh-relay
+          path: ${{ runner.temp }}/iroh-relay-archive
           key: iroh-relay-${{ env.IROH_RELAY_VERSION }}-${{ env.IROH_RELAY_SHA256 }}
 
       - name: Join tailnet

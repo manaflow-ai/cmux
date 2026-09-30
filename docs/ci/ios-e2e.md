@@ -78,12 +78,20 @@ shared staging through `CMUX_DEV_BACKEND_MODE=local` and
 and `CMUX_PRESENCE_BASE_URL`; the reload scripts bake them into both apps, and
 the Mac's presence origin is also written to its `presenceServiceURL` default.
 
-Speed: sparse checkout of the three paths the backend runs; node_modules on
-Blacksmith sticky disks; installs, the Postgres image pull and the relay
-restore run in parallel; the relay binary is cached by version and digest;
-Postgres runs without fsync; both Workers, the relay and Postgres start
-concurrently and each readiness poll ticks every 200 ms. The step summary of
-`Start per-run backend` lists every phase's time since start.
+Speed: sparse checkout of the three paths the backend runs; Bun's package
+cache restored with `actions/cache` (Blacksmith-backed); both installs and the
+Postgres image pull run in parallel; the relay tarball is cached; Postgres runs
+without fsync; both Workers, the relay and Postgres start concurrently and each
+readiness poll ticks every 200 ms. The step summary of `Start per-run backend`
+lists every phase's time since start.
+
+Cache safety: the backend job holds the Stack server key, so it never runs
+code from a cache another branch could write. Blacksmith sticky disks are not
+used because their keys are repository-wide. `actions/cache` entries are
+branch-scoped (a run reads its own ref's and the default branch's), `bun
+install --frozen-lockfile` checks packages against the lockfile's integrity
+hashes, and the relay tarball's SHA-256 is verified on every run, cache hit or
+not.
 
 ```bash
 gh workflow run ios-e2e.yml --repo manaflow-ai/cmux --ref <branch> -f backend_only=true
