@@ -9,7 +9,7 @@ private let authTeamLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth-
 extension TerminalController {
     /// Every `auth.team.*` socket method. Mutations and roster reads run on
     /// the async worker path because they await the MainActor account flow.
-    static let authTeamSocketMethods: Set<String> = [
+    nonisolated static let authTeamSocketMethods: Set<String> = [
         "auth.team.list", "auth.team.use", "auth.team.create",
         "auth.team.members", "auth.team.invite", "auth.team.invite_link",
         "auth.team.revoke_invite", "auth.team.remove_member", "auth.team.open_members",
