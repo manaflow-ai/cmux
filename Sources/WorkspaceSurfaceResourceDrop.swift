@@ -52,7 +52,12 @@ extension Workspace {
 #endif
         Task { @MainActor in
             do {
-                let projections = try await catalog.projectGroup(group, into: target, focus: true)
+                // Cloud terminal groups reserve their local panes before the
+                // remote attach round trip. Mixed groups and non-terminal
+                // resources automatically retain the awaited projection path.
+                let projections = try await catalog.projectGroup(
+                    group, into: target, focus: true, optimistic: .app
+                )
                 // A Cloud drag starts in the right sidebar, so the sidebar remains
                 // the window's recorded keyboard owner after AppKit completes the
                 // drop. Re-run the shared focus transaction once the first pane is
