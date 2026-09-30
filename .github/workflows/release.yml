@@ -361,7 +361,8 @@ jobs:
             build-universal/Build/Products/Release/cmux.app \
             --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
             --expected-commit "$cmux_tui_commit" \
-            --require-capability wireguard-hub
+            --require-capability wireguard-hub \
+            --require-acpmux
           ./scripts/cmux-next/write-cmux-tui-version.sh \
             build-universal/Build/Products/Release/cmux.app "$cmux_tui_commit"
 
