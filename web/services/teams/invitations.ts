@@ -3,10 +3,12 @@ import { TeamApiError } from "./errors";
 import { databaseTeamInviteStore, type TeamInviteStore } from "./repository";
 import { withStackDeadline, type StackSentInvitation } from "./stack";
 import type { TeamInvitation, TeamRole } from "./types";
+import { assertTeamEntitlement, ownerPlanIdFromMetadata } from "./entitlementPolicy";
+import { databaseTeamSeatStore, type TeamSeatStore } from "./seatRepository";
 
 export const MAX_INVITE_EMAILS = 20;
 
-export type InvitationDependencies = { readonly store?: TeamInviteStore };
+export type InvitationDependencies = { readonly store?: TeamInviteStore; readonly seatStore?: TeamSeatStore };
 
 export type InviteFailureCode = "already_member" | "invite_failed";
 
@@ -62,11 +64,16 @@ export async function inviteTeamMembers(
   dependencies: InvitationDependencies = {},
 ): Promise<{ invitations: TeamInvitation[]; failed: { email: string; code: InviteFailureCode }[] }> {
   const store = dependencies.store ?? databaseTeamInviteStore;
+  const seatStore = dependencies.seatStore ?? databaseTeamSeatStore;
+  return seatStore.withTeamLock(access.team.id, async (seatSession) => {
   const memberEmails = new Set(
     access.members.map((member) => member.primaryEmail ? normalizeInviteEmail(member.primaryEmail) : null)
       .filter((email): email is string => email !== null),
   );
   const emails = [...new Set(input.emails.map(normalizeInviteEmail))];
+  const pending = await listStackInvitations(access);
+  assertTeamEntitlement({ ownerPlanId: ownerPlanIdFromMetadata(access.team.clientReadOnlyMetadata), memberCount: access.members.length, pendingInviteCount: pending.length, additionalInviteCount: emails.filter((email) => !memberEmails.has(email)).length });
+  await seatSession.getOrCreateOwner({ adminUserIds: access.members.filter((member) => member.id === access.userId).map((member) => member.id) });
   const failed: { email: string; code: InviteFailureCode }[] = [];
   const sent: string[] = [];
   const previous = emails.some((email) => !memberEmails.has(email)) ? await listStackInvitations(access) : [];
@@ -91,6 +98,7 @@ export async function inviteTeamMembers(
   const sentSet = new Set(sent);
   const mine = latestPerEmail(all.filter((invitation) => sentSet.has(invitationEmail(invitation) ?? "")));
   return { invitations: await mapInvitations(access.team.id, mine, store), failed };
+  });
 }
 
 /**

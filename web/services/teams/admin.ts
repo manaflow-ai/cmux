@@ -4,6 +4,7 @@ import { TeamApiError, TeamServiceUnavailableError } from "./errors";
 import { TEAM_ADMIN_PERMISSION } from "./permissions";
 import { databaseTeamInviteStore, type TeamInviteStore } from "./repository";
 import { defaultTeamStackApp, withStackDeadline, type StackTeam, type TeamStackApp } from "./stack";
+import { recordTeamCreator } from "./seatRepository";
 
 type GrantTeamAdminApp = Pick<TeamStackApp, "getUser" | "getTeam">;
 
@@ -40,6 +41,7 @@ export async function createTeamForUser(
   const team = await withStackDeadline(() => stack.createTeam({ displayName, creatorUserId: userId }));
   try {
     await withStackDeadline(() => grantTeamAdmin(stack, userId, team));
+    await recordTeamCreator(team.id, userId);
   } catch (error) {
     await withStackDeadline(() => team.delete()).catch(() => {
       console.error("team create rollback failed", { teamId: team.id });

@@ -19,7 +19,8 @@ export type TeamErrorCode =
   | "link_not_found"
   | "link_invalid"
   | "team_has_active_subscription"
-  | "service_unavailable";
+  | "service_unavailable"
+  | "upgrade_required";
 
 const DEFAULT_MESSAGES: Record<TeamErrorCode, string> = {
   unauthorized: "Sign in to continue.",
@@ -40,6 +41,7 @@ const DEFAULT_MESSAGES: Record<TeamErrorCode, string> = {
   link_invalid: "This invite link is invalid, expired, revoked, or full.",
   team_has_active_subscription: "Cancel the team subscription before deleting the team.",
   service_unavailable: "The service is temporarily unavailable.",
+  upgrade_required: "Upgrade required to add more team members.",
 };
 
 /** `{ error: { code, message } }`, the one error shape of the team API. */

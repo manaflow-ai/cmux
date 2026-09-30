@@ -9,6 +9,7 @@ import {
   requiresBrowserMutationProtection,
 } from "../vms/routeHelpers";
 import { TeamApiError, teamErrorResponse, TeamServiceUnavailableError } from "./errors";
+import { TeamUpgradeRequiredError } from "./entitlementPolicy";
 
 export const TEAM_REQUEST_BODY_LIMIT_BYTES = 16 * 1024;
 
@@ -84,6 +85,7 @@ export async function runTeamRoute(route: string, handler: () => Promise<Respons
   try {
     return await handler();
   } catch (error) {
+    if (error instanceof TeamUpgradeRequiredError) return teamErrorResponse("upgrade_required", 402);
     if (error instanceof TeamApiError) return error.toResponse();
     if (error instanceof TeamServiceUnavailableError) {
       console.error("team route dependency unavailable", { route });

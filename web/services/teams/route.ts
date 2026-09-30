@@ -1,5 +1,6 @@
 import type { AuthedUser } from "../vms/auth";
 import { jsonResponse } from "../vms/routeHelpers";
+import { TeamUpgradeRequiredError } from "./entitlementPolicy";
 import { requireTeamAccess, type TeamAccess, type TeamAccessOptions } from "./access";
 import { authenticateTeamRequest, runTeamRoute, type TeamRouteDependencies } from "./http";
 import { enforceTeamRateLimit } from "./rateLimit";
