@@ -2516,10 +2516,21 @@ final class cmuxUITests: XCTestCase {
         before.lifetime = .keepAlways
         add(before)
 
+        let pickerHeightWithStatus = picker.frame.height
+
         toggleStatus.tap()
+        let heightsDuringStatusRemoval = samplePickerHeights(
+            for: 0.5,
+            picker: picker
+        )
         XCTAssertTrue(
             statusLine.waitForNonExistence(timeout: 3),
             "The preview must exercise the status-to-title transition."
+        )
+        let pickerHeightWithoutStatus = picker.frame.height
+        assertPickerHeights(
+            heightsDuringStatusRemoval,
+            stayAt: [pickerHeightWithStatus, pickerHeightWithoutStatus]
         )
         let after = XCTAttachment(screenshot: app.screenshot())
         after.name = "computer-picker-status-after-transition"
@@ -2527,12 +2538,46 @@ final class cmuxUITests: XCTestCase {
         add(after)
 
         toggleStatus.tap()
+        let heightsDuringStatusAppearance = samplePickerHeights(
+            for: 0.5,
+            picker: picker
+        )
         XCTAssertTrue(
             statusLine.waitForExistence(timeout: 3),
             "The preview must exercise the title-to-status transition."
         )
+        assertPickerHeights(
+            heightsDuringStatusAppearance,
+            stayAt: [pickerHeightWithoutStatus, pickerHeightWithStatus]
+        )
         XCTAssertGreaterThanOrEqual(statusLine.frame.minY, picker.frame.minY - 1)
         XCTAssertLessThanOrEqual(statusLine.frame.maxY, picker.frame.maxY + 1)
+    }
+
+    private func samplePickerHeights(
+        for duration: TimeInterval,
+        picker: XCUIElement
+    ) -> [CGFloat] {
+        let deadline = Date().addingTimeInterval(duration)
+        var heights: [CGFloat] = []
+        while Date() < deadline {
+            heights.append(picker.frame.height)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return heights
+    }
+
+    private func assertPickerHeights(
+        _ observedHeights: [CGFloat],
+        stayAt restingHeights: [CGFloat]
+    ) {
+        XCTAssertFalse(observedHeights.isEmpty)
+        for height in observedHeights {
+            XCTAssertTrue(
+                restingHeights.contains { abs($0 - height) <= 1 },
+                "Picker height \(height) must stay at a resting layout height."
+            )
+        }
     }
 
     @MainActor
