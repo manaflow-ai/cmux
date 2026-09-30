@@ -28,7 +28,7 @@ import CmuxTerminalCore
     }
 
     @Test func c1StringRepliesStayTerminalBytes() {
-        let replies = ["\u{9D}11;rgb:1e1e/1e1e/1e1e\u{9C}", "\u{98}terminal-status\u{9C}"]
+        let replies = ["\u{9B}50;1R", "\u{9D}11;rgb:1e1e/1e1e/1e1e\u{9C}", "\u{98}terminal-status\u{9C}"]
         let events = TerminalSurface.parsedSocketInputEvents(for: replies.joined())
         #expect(terminalBytePayloads(in: events) == replies.map { Data($0.utf8) })
         #expect(!containsUserInputEvents(events))
