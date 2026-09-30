@@ -45,6 +45,31 @@ import Testing
         )
     }
 
+    /// Opening the output is the caller's parameter; a frame that will not
+    /// encode is ours. `record start` creates the file before it answers, so an
+    /// `--out` under a read-only volume fails here, and an agent told to fix its
+    /// flags on `invalid_params` would retry forever on `internal_error`.
+    @Test func writerFailuresSeparateSetupFromEncoding() {
+        #expect(
+            TerminalController.recordingErrorCode(
+                for: WindowRecordingWriterError.setup("could not create the gif at /clip.gif")
+            ) == "invalid_params"
+        )
+        #expect(
+            TerminalController.recordingErrorCode(
+                for: WindowRecordingWriterError.frame("the writer rejected a frame")
+            ) == "internal_error"
+        )
+        #expect(
+            TerminalController.recordingErrorCode(
+                for: WindowRecordingWriterError.finish("the writer did not complete")
+            ) == "internal_error"
+        )
+        #expect(
+            TerminalController.recordingErrorCode(for: WindowRecordingWriterError.noFrames) == "internal_error"
+        )
+    }
+
     /// The case the router's switch was missing: a caller who points `--out` at
     /// a directory gets told their parameter is wrong, not that cmux broke.
     @Test func anUnusableOutputPathIsTheCallersParameter() {
