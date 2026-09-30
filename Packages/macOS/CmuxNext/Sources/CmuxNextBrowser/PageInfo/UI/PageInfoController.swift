@@ -24,6 +24,8 @@ public final class PageInfoController {
     var livePermissions: [SitePermissionKind: SitePermissionSetting] = [:]
     var openedURL: URL?
     private var pageHadFocus = false
+    /// Panel size for the rendered page (card plus shadow margin).
+    private var cardSize = CGSize.zero
     private var dismissedByMouseDown: Int?
     var windows = PageInfoWindows()
 
@@ -113,7 +115,7 @@ public final class PageInfoController {
     private func present(in window: NSWindow, anchor: NSView) {
         let panel = panel ?? makePanel()
         self.panel = panel
-        let size = card.bounds.size
+        let size = cardSize
         let anchorRect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
         let margin = PageInfoStyle.shadowMargin
         var frame = NSRect(x: anchorRect.minX - margin - PageInfoStyle.rowInset,
@@ -155,11 +157,10 @@ public final class PageInfoController {
         let size = card.setContent(content)
         let margin = PageInfoStyle.shadowMargin
         let full = CGSize(width: size.width + margin * 2, height: size.height + margin * 2)
+        cardSize = full
         if let panel, panel.isVisible, panel.frame.size != full {
             let top = panel.frame.maxY
             panel.setFrame(NSRect(x: panel.frame.minX, y: top - full.height, width: full.width, height: full.height), display: true)
-        } else {
-            card.setFrameSize(full)
         }
         if let focused, let row = Self.find(focused, in: content) { panel?.makeFirstResponder(row) }
     }
