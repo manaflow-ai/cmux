@@ -79,6 +79,18 @@ struct CodexAutoNamingArgumentsTests {
         #expect(!args.joined(separator: " ").contains("api-secret"))
     }
 
+    @Test func nonTemporaryConfigDropsUnicodeEscapedHeaderSections() {
+        let args = CodexAutoNamingArguments.build(configToml: #"""
+        model = "gpt-5-codex"
+        model_provider = "subrouter"
+        [model_providers.subrouter."\u0068ttp_headers"]
+        Authorization = "Bearer sensitive-value"
+        """#)
+        let overrides = configOverrides(args)
+        #expect(!overrides.contains(where: { $0.contains("sensitive-value") }))
+        #expect(!args.joined(separator: " ").contains("sensitive-value"))
+    }
+
     @Test func keepsIsolationWhenUserConfigIsMissing() {
         let args = CodexAutoNamingArguments.build(configToml: nil)
         let overrides = configOverrides(args)

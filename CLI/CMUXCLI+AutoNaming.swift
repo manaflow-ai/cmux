@@ -285,10 +285,51 @@ struct CodexAutoNamingArguments: Sendable {
 
     private static func isCredentialBearingKey(section: String, key: String) -> Bool {
         func normalizeComponent(_ raw: String) -> String {
-            raw.trimmingCharacters(in: .whitespacesAndNewlines)
-                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-                .lowercased()
-                .replacingOccurrences(of: "-", with: "_")
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            let unquoted = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            var decoded = ""
+            var index = unquoted.startIndex
+            while index < unquoted.endIndex {
+                guard unquoted[index] == "\\" else {
+                    decoded.append(unquoted[index])
+                    index = unquoted.index(after: index)
+                    continue
+                }
+                let escapeStart = index
+                index = unquoted.index(after: index)
+                guard index < unquoted.endIndex else {
+                    decoded.append("\\")
+                    break
+                }
+                let escape = unquoted[index]
+                index = unquoted.index(after: index)
+                switch escape {
+                case "u", "U":
+                    let length = escape == "u" ? 4 : 8
+                    guard unquoted.distance(from: index, to: unquoted.endIndex) >= length else {
+                        decoded.append(contentsOf: unquoted[escapeStart..<index])
+                        continue
+                    }
+                    let end = unquoted.index(index, offsetBy: length)
+                    let hex = String(unquoted[index..<end])
+                    if let scalarValue = UInt32(hex, radix: 16),
+                       let scalar = UnicodeScalar(scalarValue) {
+                        decoded.unicodeScalars.append(scalar)
+                        index = end
+                    } else {
+                        decoded.append(contentsOf: unquoted[escapeStart..<index])
+                    }
+                case "b": decoded.append("\u{8}")
+                case "t": decoded.append("\t")
+                case "n": decoded.append("\n")
+                case "f": decoded.append("\u{c}")
+                case "r": decoded.append("\r")
+                case "\\": decoded.append("\\")
+                case "\"": decoded.append("\"")
+                default: decoded.append(contentsOf: unquoted[escapeStart..<index])
+                }
+            }
+            return decoded.lowercased().replacingOccurrences(of: "-", with: "_")
         }
         let sectionComponents = section.split(separator: ".").map { normalizeComponent(String($0)) }
         if sectionComponents.contains(where: { $0 == "headers" || $0 == "http_headers" || $0 == "env_http_headers" }) {
