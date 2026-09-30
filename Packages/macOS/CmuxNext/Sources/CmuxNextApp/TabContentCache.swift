@@ -40,9 +40,9 @@ final class TabContentCache {
     /// and inline autocomplete (in memory; not persisted yet).
     let history = InMemoryBrowserHistory()
     private(set) lazy var suggestionEngine = OmniboxSuggestionEngine(providers: [HistorySuggestionProvider(store: history)])
-    /// Incognito pages' omnibar history, never in `history`; replaced when
-    /// the incognito session ends.
+    /// Incognito pages' history and page installs (`TabContentCache+Incognito`).
     var incognitoMemory = IncognitoPageMemory()
+    let pageInstalls = PageInstallCounter()
     /// Tab `key`'s browser profile: an incognito window's, else nil (default).
     var browserProfile: ((String) -> BrowserProfileID?)?
     private(set) var browserTabs: BrowserTabService!
@@ -207,7 +207,7 @@ final class TabContentCache {
     /// launch an app through a custom scheme.
     private func recordURL(_ tab: TabModel) -> URL? {
         guard let services = pageRequests.services, !services.machines.daemon(forTab: tab).isLocal else {
-            return tab.url.flatMap(URL.init(string:))
+            return browserTabs.startURL(for: tab).flatMap(URL.init(string:))
         }
         return RemoteRelayPolicy.remoteBrowserURL(tab.url)
     }
@@ -298,7 +298,6 @@ final class TabContentCache {
         page.delegate = pageRequests
         if page.engineKind == .cef { page.keyRouter = keyRouter }
         (page as? CEFTab)?.devToolsObserver = self
-        // An incognito page never records into or suggests from `history`.
         let incognito = OffTheRecordProfiles.shared.isOffTheRecord(page.profileID) ? incognitoMemory : nil
         let entry = BrowserEntry(tab: page, suggestionEngine: incognito?.suggestions ?? suggestionEngine,
                                  history: incognito?.history ?? history)
@@ -310,6 +309,7 @@ final class TabContentCache {
             entry.chrome.extensionMenuHandler = handler
         }
         browsers[key] = entry
+        pageInstalls.bump()
         // Pages are kept by hibernation, never by the terminal warm set.
         ledger.setRetained(key, false)
         contentDidMount(key)

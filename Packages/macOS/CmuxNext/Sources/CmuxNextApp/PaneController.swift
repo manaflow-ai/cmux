@@ -111,6 +111,12 @@ final class PaneController: SurfacePresenter, PresentablePane {
                 let badge = services.remoteLocalhost.badge(for: tab, url: tab.url.flatMap(URL.init(string:)), engine: engine)
                 item.machineBadge = badge?.text
                 item.machineBadgeHelp = badge?.help
+                // Incognito tabs have only a placeholder record in the daemon.
+                if services.cache.browserTabs.isIncognitoTab(tab.id) {
+                    let live = services.cache.incognitoDisplay(tab)
+                    item.title = live.title ?? Strings.untitledBrowser
+                    item.subtitle = live.url
+                }
             }
             return item
         }

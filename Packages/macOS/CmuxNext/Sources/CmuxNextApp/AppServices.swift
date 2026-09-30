@@ -105,6 +105,14 @@ final class AppServices {
             self?.normalWindowForPageRequest()?.focusedPane?.newBrowserTab(url: url, background: disposition == .backgroundTab)
         }
         cache.cef.openOffTheRecord = { [weak self] url, source in self?.openOffTheRecord(url, source: source) }
+        cache.browserTabs.isIncognitoTab = { [weak self] key in
+            guard let self, let windows, let workspace = workspaceID(ofTab: key) else { return false }
+            return windows.isIncognito(workspace: workspace)
+        }
+        cache.browserTabs.isIncognitoPane = { [weak self] pane in
+            guard let self, let windows, let workspace = daemon.store.workspace(containing: pane)?.id else { return false }
+            return windows.isIncognito(workspace: workspace)
+        }
         cache.browserProfile = { [weak self] key in
             guard let self, let windows else { return nil }
             return windows.browserProfile(forWorkspace: workspaceID(ofTab: key))

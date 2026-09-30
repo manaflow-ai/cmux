@@ -34,6 +34,8 @@ final class BrowserTabService {
     var isIncognitoPane: @MainActor (PaneID) -> Bool = { _ in false }
     /// True for a tab of an incognito window, by tab id (the App sets it).
     var isIncognitoTab: @MainActor (String) -> Bool = { _ in false }
+    /// Start URLs of incognito tabs, by surface, in memory only.
+    private var incognitoURLs: [SurfaceID: String] = [:]
     /// Surfaces created in this process (`open`): pages the user asked for
     /// now, as opposed to tabs restored from the daemon.
     private(set) var openedSurfaces: Set<SurfaceID> = []
@@ -62,8 +64,12 @@ final class BrowserTabService {
     /// The daemon record URL of an incognito tab.
     static let incognitoPlaceholderURL = "about:blank"
 
-    /// The URL a new page of `tab` starts on.
-    func startURL(for tab: TabModel) -> String? { tab.url }
+    /// The URL a new page of `tab` starts on: an incognito tab's from app
+    /// memory, else its record's.
+    func startURL(for tab: TabModel) -> String? { incognitoURLs[tab.surface] ?? tab.url }
+
+    /// Forgets incognito start URLs (the incognito session ended).
+    func forgetIncognitoURLs() { incognitoURLs.removeAll() }
 
     func cefAvailable() -> Bool { cefUnavailable() == nil }
 
@@ -85,9 +91,14 @@ final class BrowserTabService {
     }
 
     /// Creates the daemon record for `choice` in `pane` and records a
-    /// fallback against the new surface (its page shows the notice).
+    /// fallback against the new surface (its page shows the notice). A tab
+    /// of an incognito window (`incognito`, else `isIncognitoPane`) gets an
+    /// opaque placeholder record; its URL stays in app memory
+    /// (`startURL(for:)`), never in the daemon's database.
     func open(_ choice: BrowserEngineChoice, in pane: PaneID, url: String, incognito: Bool? = nil) async throws -> SurfaceID {
-        let surface = try await create(pane, url, choice.engine)
+        let offTheRecord = incognito ?? isIncognitoPane(pane)
+        let surface = try await create(pane, offTheRecord ? Self.incognitoPlaceholderURL : url, choice.engine)
+        if offTheRecord { incognitoURLs[surface] = url }
         openedSurfaces.insert(surface)
         if let reason = choice.fallback {
             fallbacks.record(reason, source: choice.inherited ? .recordedTab : .newTab, surface: surface)
@@ -97,8 +108,10 @@ final class BrowserTabService {
 
     /// Starts writing `page` back to the daemon record of `tab` (keyed by
     /// tab id; one writer per live page).
+    /// An incognito tab is never written back: its page's URL, title and
+    /// favicon stay in memory (the tab strip reads the live page).
     func track(_ page: any BrowserTab, for tab: TabModel) {
-        guard tab.isFrontendOwned, writers[tab.id] == nil else { return }
+        guard tab.isFrontendOwned, writers[tab.id] == nil, !isIncognitoTab(tab.id) else { return }
         let update = update, id = tab.id
         // The surface is looked up by tab id at send time. A moved tab (a
         // split, another window) keeps its record, but the store gives it a
