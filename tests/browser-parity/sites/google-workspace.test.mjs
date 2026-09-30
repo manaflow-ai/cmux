@@ -65,6 +65,13 @@ test("googleSlides.read and export; googleDrive.download and export by Drive URL
   assert.equal(fs.readFileSync(viaDrive.path, "utf8"), "# Design Notes\n\nThe **plan**, in brief.\n");
 });
 
+test("googleDrive.recent lists the Recent view's files with ids and names", async () => {
+  assert.deepEqual(await s.value("sites.googleDrive.recent()"), [
+    { id: "1AbCdEfGhIjKlMnOpQrStUvWxYz012345", title: "Design Notes", type: "Google Docs", url: "https://drive.google.com/open?id=1AbCdEfGhIjKlMnOpQrStUvWxYz012345" },
+    { id: "1ZyXwVuTsRqPoNmLkJiHgFeDcBa987654", title: "Budget 2026", type: "Google Sheets", url: "https://drive.google.com/open?id=1ZyXwVuTsRqPoNmLkJiHgFeDcBa987654" },
+  ]);
+});
+
 test("signed out: Google's sign-in redirect becomes a not_signed_in error naming the fix", async () => {
   const out = await createSitesEnv({ signedIn: false });
   try {

@@ -88,6 +88,14 @@ test("github: issue and pull request pages as structured Markdown, diff, issue l
   assert.match(await s.error('sites.github.issue("acme/private#999")'), /was not found, or this account cannot see it/);
 });
 
+test("github.assigned lists issues and pull requests assigned to the user", async () => {
+  assert.deepEqual(await s.value("sites.github.assigned()"), [
+    { repo: "acme/private", number: 7, kind: "issue", title: "Crash on start", url: "https://github.com/acme/private/issues/7" },
+    { repo: "other/repo", number: 3, kind: "issue", title: "Docs typo", url: "https://github.com/other/repo/issues/3" },
+    { repo: "acme/private", number: 8, kind: "pull", title: "Fix crash", url: "https://github.com/acme/private/pull/8" },
+  ]);
+});
+
 test("linear: viewer, issue with comments, search, assigned; mutations refused", async () => {
   assert.deepEqual(await s.value("sites.linear.viewer()"), { id: "u1", name: "Ada", email: "ada@example.com", organization: "Acme" });
   const i = await s.value('sites.linear.issue("https://linear.app/acme/issue/ENG-12/flaky-test")');

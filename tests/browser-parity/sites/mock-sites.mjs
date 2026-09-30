@@ -122,6 +122,15 @@ function docs(req, url) {
   return { status: 400, text: "bad format" };
 }
 
+function drive(req, url) {
+  if (!signedInGoogle(req)) return { redirect: GOOGLE_LOGIN + encodeURIComponent(url.href) };
+  if (/^\/drive\/u\/\d+\/recent$/.test(url.pathname)) {
+    const row = (id, name, type) => `<div role="row" data-id="${id}" aria-label="${esc(name)} ${type}"><div role="gridcell"><div data-tooltip="${esc(type)}"></div><div class="name">${esc(name)}</div></div><div role="gridcell">Sep 29, 2026</div></div>`;
+    return { html: html(`<div role="main"><div role="grid">${row("1AbCdEfGhIjKlMnOpQrStUvWxYz012345", "Design Notes", "Google Docs")}${row("1ZyXwVuTsRqPoNmLkJiHgFeDcBa987654", "Budget 2026", "Google Sheets")}</div></div>`, "Recent - Google Drive") };
+  }
+  return { status: 404, html: html("Not found") };
+}
+
 function driveContent(req, url) {
   if (!signedInGoogle(req)) return { redirect: GOOGLE_LOGIN + encodeURIComponent(url.href) };
   if (url.pathname === "/download" && url.searchParams.get("id") === "FILE1") return { status: 200, headers: { "content-type": "application/pdf", "content-disposition": 'attachment; filename="report.pdf"' }, body: "%PDF-1.4 report" };
@@ -551,6 +560,8 @@ function github(req, url) {
   if (url.pathname === "/acme/private/pull/8") return { html: html(`<main><h1><bdi class="js-issue-title">Fix crash</bdi></h1><span class="State">Open</span><div class="timeline-comment"><a class="author">ada</a><div class="comment-body markdown-body"><p>Fixes #7</p></div></div></main>`, "Fix crash · Pull Request #8") };
   if (url.pathname === "/acme/private/pull/8.diff") return { status: 200, headers: { "content-type": "text/plain" }, body: "diff --git a/a.c b/a.c\n-crash();\n+ok();\n" };
   if (url.pathname === "/acme/private/issues") return { html: html(`<main><div data-testid="list-row"><a href="/acme/private/issues/7" data-testid="issue-pr-title-link">Crash on start</a> <a href="/acme/private/issues/7">#7</a></div><div data-testid="list-row"><a href="/acme/private/pull/8">Fix crash</a></div><a href="/other/repo/issues/1">Unrelated</a></main>`, "Issues · acme/private") };
+  if (url.pathname === "/issues/assigned") return { html: html(`<main><a href="/acme/private/issues/7">Crash on start</a><a href="/other/repo/issues/3">Docs typo</a><a href="/acme/private/issues/7">#7</a></main>`, "Assigned to me") };
+  if (url.pathname === "/pulls/assigned") return { html: html(`<main><a href="/acme/private/pull/8">Fix crash</a></main>`, "Pull requests") };
   if (url.pathname === "/acme/private/raw/HEAD/README.md") return { status: 200, headers: { "content-type": "text/plain" }, body: "# Private readme\n" };
   return { status: 404, html: html("Page not found", "Page not found · GitHub") };
 }
@@ -650,6 +661,7 @@ const HOSTS = {
   "accounts.google.com": accounts,
   "docs.google.com": docs,
   "drive.usercontent.google.com": driveContent,
+  "drive.google.com": drive,
   "www.google.com": googleSearch,
   "mail.google.com": gmail,
   "calendar.google.com": calendar,
