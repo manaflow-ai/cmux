@@ -7,6 +7,6 @@ extension TerminalSurface {
     public func shellDidBecomeReadyForStartupInput() {
         guard surface != nil,
               let input = startupInputGate.takeForPrompt(generation: terminalLifecycleId) else { return }
-        _ = sendInputAfterExplicitInput(input, recordsExplicitInput: false)
+        sendStartupInputAfterExplicitInput(input)
     }
 }
