@@ -29,7 +29,7 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
     /// Blink the pane flash twice instead of one short pulse.
     public let paneFlashDoubleBlink = DefaultsKey<Bool>(
         id: "notifications.paneFlashDoubleBlink",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "notificationPaneFlashDoubleBlink"
     )
 
