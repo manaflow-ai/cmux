@@ -31592,11 +31592,12 @@ struct CMUXCLI {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return nil }
-            changeWatcher.wait(
-                timeout: min(ownerGraceActive ? 0.25 : 30, remaining),
-                transcriptPath: transcriptPath,
-                observedState: observedTranscriptState
-            )
+            if let observedTranscriptState,
+               let currentState = codexTranscriptFileState(path: transcriptPath),
+               currentState != observedTranscriptState {
+                continue
+            }
+            changeWatcher.wait(timeout: min(ownerGraceActive ? 0.25 : 30, remaining))
         }
         return nil
     }
@@ -31678,13 +31679,8 @@ struct CMUXCLI {
             addFileSource(path: leasePath, eventMask: [.write, .delete, .rename])
         }
 
-        func wait(timeout: TimeInterval, transcriptPath: String?, observedState: CodexTranscriptFileState?) {
+        func wait(timeout: TimeInterval) {
             guard timeout > 0 else { return }
-            if let observedState,
-               let currentState = codexTranscriptFileState(path: transcriptPath),
-               currentState != observedState {
-                return
-            }
             _ = semaphore.wait(timeout: .now() + timeout)
         }
 
