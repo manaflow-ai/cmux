@@ -255,7 +255,8 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: kept) as? Bool, true)
         XCTAssertEqual(defaults.data(forKey: changed), Data([1]))
         XCTAssertNil(defaults.object(forKey: added))
-        XCTAssertEqual(defaults.writtenKeys.sorted(), [added, changed], "a key at its saved value is not rewritten")
+        // Foundation removes a key by setting nil, so a removal records twice.
+        XCTAssertEqual(Set(defaults.writtenKeys), [added, changed], "a key at its saved value is not rewritten")
     }
 
     private func makeKeyDownEvent(
