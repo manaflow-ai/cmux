@@ -15,7 +15,6 @@ let m: TabStripMetrics = {
     m.pinnedTabWidth = 40
     m.compactTabWidth = 160
     m.pinnedGroupGap = 6
-    m.inactiveCloseMinWidth = 100
     m.hoverCloseMinWidth = 36
     m.titleMinWidth = 60
     m.contentLeadingInset = 10

@@ -47,8 +47,8 @@ import Testing
     @Test func hundredIdleTabsStayWithinFiveLayersEach() {
         let h = Harness(count: 100)
         print("tab-layer-budget: 100 tabs -> \(h.totalLayers) layers in strip, \(h.tabLayers) in tab cells")
-        // root, background, separator, icon, title per tab; the selected tab
-        // adds its close button (2 layers).
+        // root, background, separator, icon, title per tab; only a hovered
+        // tab adds its close button (2 layers).
         #expect(h.tabLayers <= 100 * 5 + 2)
         #expect(h.strip.cells.values.filter(\.hasSpinnerLayer).isEmpty)
         #expect(h.strip.cells.values.filter(\.hasBadgeLayer).isEmpty)
@@ -72,7 +72,7 @@ import Testing
     }
 
     @Test func closeButtonLayersFollowHoverOnNarrowTabs() {
-        // Narrow tabs (100 in 1400 pt) show close only when selected or hovered.
+        // Tabs show close only while hovered, the selected one too.
         let h = Harness(count: 100)
         let cell = h.strip.cells[TabID("t2")]!
         #expect(!cell.hasCloseLayers)
@@ -80,6 +80,6 @@ import Testing
         #expect(cell.hasCloseLayers)
         cell.isHovered = false
         #expect(!cell.hasCloseLayers)
-        #expect(h.strip.cells[TabID("t0")]!.hasCloseLayers)
+        #expect(!h.strip.cells[TabID("t0")]!.hasCloseLayers)
     }
 }
