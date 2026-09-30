@@ -5,7 +5,7 @@
   "scripts": {
     "start": "bun server.ts",
     "build": "bun run build.ts",
-    "check": "bun x tsc --noEmit && bun run test",
+    "check": "./node_modules/.bin/tsc --noEmit && bun run test",
     "test": "bun run-tests.ts"
   },
   "dependencies": {
