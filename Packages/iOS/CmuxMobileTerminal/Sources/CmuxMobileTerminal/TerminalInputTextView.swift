@@ -390,7 +390,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         let scrollView = AccessoryEdgeFadeScrollView()
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
-        scrollView.alwaysBounceHorizontal = true
+        // This row contains bounded controls rather than a document. Letting
+        // it elastically overscroll the trailing edge makes the last buttons
+        // disappear briefly and then snap back when the gesture ends.
+        scrollView.bounces = false
+        scrollView.alwaysBounceHorizontal = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         // The scroll view's FRAME starts flush at the composer button's
         // trailing edge; the 4pt visual gap the frame constant used to carry
