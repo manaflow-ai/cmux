@@ -128,8 +128,8 @@ import Testing
         for index in 0..<10_000 { store.setAgentPID("\(index)\(huge.prefix(8))", index, workspace: "W") }
         store.setProgress((0.5, huge), workspace: "W")
         let workspace = store.workspace("W")
-        let limit = 4096 // CompatSidebarStore.fieldByteLimit
-        let pidLimit = 64 // CompatSidebarStore.agentPIDLimit
+        let limit = CompatSidebarStore.fieldByteLimit
+        let pidLimit = CompatSidebarStore.agentPIDLimit
         let statusStrings = workspace.statuses.flatMap { [$0.key, $0.status.value, $0.status.icon, $0.status.color, $0.status.url, $0.status.format].compactMap { $0 } }
         let logStrings = workspace.log.flatMap { [$0.level, $0.source, $0.message].compactMap { $0 } }
         for string in statusStrings + logStrings + Array(workspace.agentPIDs.keys) + [workspace.progress?.label ?? ""] {
