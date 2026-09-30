@@ -43,6 +43,78 @@ struct CLIExplicitSurfaceRoutingTests {
         )
     }
 
+    @Test func newSurfaceAcceptsSeparatedAndEqualsOptions() throws {
+        let cases: [[String]] = [
+            [
+                "new-surface",
+                "--window", Self.reproWindowId,
+                "--type", "browser",
+                "--url", "https://example.com",
+                "--focus", "true",
+            ],
+            [
+                "new-surface",
+                "--window=\(Self.reproWindowId)",
+                "--type=browser",
+                "--url=https://example.com",
+                "--focus=true",
+            ],
+        ]
+
+        for (index, arguments) in cases.enumerated() {
+            let execution = try runMockCommand(
+                arguments: arguments,
+                socketName: "new-surface-valid-\(index)"
+            ) { line in
+                guard let request = Self.jsonObject(line),
+                      let id = request["id"] as? String,
+                      let method = request["method"] as? String else {
+                    return Self.malformedRequestResponse(raw: line)
+                }
+                guard method == "surface.create" else {
+                    return Self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "unexpected_method", "message": method]
+                    )
+                }
+                return Self.v2Response(id: id, ok: true, result: [:])
+            }
+
+            #expect(!execution.result.timedOut, Comment(rawValue: execution.result.stderr))
+            #expect(
+                execution.result.status == 0,
+                Comment(rawValue: execution.result.stderr + execution.result.stdout)
+            )
+            let requests = try execution.state.requestObjects()
+            #expect(requests.compactMap { $0["method"] as? String } == ["surface.create"])
+        }
+    }
+
+    @Test func newSurfaceRejectsMalformedArgumentsBeforeCreate() throws {
+        let cases: [[String]] = [
+            ["new-surface", "--type", "browser", "--url", "https://example.com", "--typo"],
+            ["new-surface", "--type", "browser", "--url", "https://example.com", "--unknown=value"],
+            ["new-surface", "--type", "browser", "--url", "https://example.com", "--focus"],
+        ]
+
+        for (index, arguments) in cases.enumerated() {
+            let execution = try runMockCommand(
+                arguments: arguments,
+                socketName: "new-surface-invalid-\(index)"
+            ) { line in
+                Self.malformedRequestResponse(raw: line)
+            }
+
+            #expect(!execution.result.timedOut, Comment(rawValue: execution.result.stderr))
+            #expect(
+                execution.result.status != 0,
+                Comment(rawValue: execution.result.stderr + execution.result.stdout)
+            )
+            #expect(try execution.state.requestObjects().isEmpty)
+        }
+    }
+
     @Test func numericSurfaceHandleStillInheritsCallerWorkspaceForIndexResolution() throws {
         let socketPath = Self.makeSocketPath("numeric")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
