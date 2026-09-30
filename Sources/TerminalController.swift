@@ -15865,32 +15865,6 @@ class TerminalController {
         let surfaceId = resolved.surfaceID
         let terminalTarget = resolved.target
         let terminalPanel = terminalTarget.panel
-        let routing = ControlRoutingSelectors(
-            hasWindowIDParam: v2HasNonNullParam(params, "window_id"),
-            windowID: v2UUID(params, "window_id"),
-            groupID: v2UUID(params, "group_id"),
-            workspaceID: v2UUID(params, "workspace_id"),
-            surfaceID: v2UUID(params, "surface_id")
-                ?? v2UUID(params, "terminal_id")
-                ?? v2UUID(params, "tab_id"),
-            paneID: v2UUID(params, "pane_id"),
-            remoteRelayOwnerWorkspaceID: v2UUID(
-                params,
-                WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey
-            ),
-            remoteRelayConnectionID: v2UUID(
-                params,
-                WorkspaceRemoteRelayCommandRewriter.connectionIDKey
-            )
-        )
-        guard remoteRelayTargetIsCurrent(
-            routing: routing,
-            workspace: resolved.workspace,
-            surfaceID: surfaceId
-        ) else {
-            return mobileInputNotFound(params: params)
-        }
-        let remotePane = resolved.workspace.remoteTmuxControlPane(surfaceID: surfaceId)
         let delivery = mobileInputDelivery(params: params)
         if let answer = mobileInputAdmissionAnswer(delivery, workspaceID: resolved.workspace.id, surfaceID: surfaceId) {
             return answer
@@ -16069,6 +16043,32 @@ class TerminalController {
         let surfaceId = resolved.surfaceID
         let terminalTarget = resolved.target
         let terminalPanel = terminalTarget.panel
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: v2HasNonNullParam(params, "window_id"),
+            windowID: v2UUID(params, "window_id"),
+            groupID: v2UUID(params, "group_id"),
+            workspaceID: v2UUID(params, "workspace_id"),
+            surfaceID: v2UUID(params, "surface_id")
+                ?? v2UUID(params, "terminal_id")
+                ?? v2UUID(params, "tab_id"),
+            paneID: v2UUID(params, "pane_id"),
+            remoteRelayOwnerWorkspaceID: v2UUID(
+                params,
+                WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey
+            ),
+            remoteRelayConnectionID: v2UUID(
+                params,
+                WorkspaceRemoteRelayCommandRewriter.connectionIDKey
+            )
+        )
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: resolved.workspace,
+            surfaceID: surfaceId
+        ) else {
+            return mobileInputNotFound(params: params)
+        }
+        let remotePane = resolved.workspace.remoteTmuxControlPane(surfaceID: surfaceId)
         let delivery = mobileInputDelivery(params: params)
         if let answer = mobileInputAdmissionAnswer(delivery, workspaceID: resolved.workspace.id, surfaceID: surfaceId) {
             return answer
