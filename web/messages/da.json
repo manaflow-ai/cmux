@@ -1127,7 +1127,9 @@
       "apiKeyUsageUnavailable": "Brug er ikke tilgængelig",
       "revokeApiKeyConfirmBody": "Klienter, der bruger denne nøgle, mister straks godkendelsen.",
       "apiKeysEmptyTitle": "Ingen API-nøgler endnu",
-      "apiKeysEmptyHint": "Opret en for at godkende en CodeRouter-klient."
+      "apiKeysEmptyHint": "Opret en for at godkende en CodeRouter-klient.",
+      "unavailableTitle": "Delte konti er ikke tilgængelige",
+      "unavailableBody": "cmux kan ikke nå tjenesten for delte konti lige nu. Konti tilføjet med cr add samt Anthropic- og Bedrock-konti virker stadig."
     },
     "notFound": {
       "title": "Siden blev ikke fundet",

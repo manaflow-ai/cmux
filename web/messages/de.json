@@ -1127,7 +1127,9 @@
       "apiKeyUsageUnavailable": "Nutzung nicht verfügbar",
       "revokeApiKeyConfirmBody": "Clients mit diesem Schlüssel können sich sofort nicht mehr authentifizieren.",
       "apiKeysEmptyTitle": "Noch keine API-Schlüssel",
-      "apiKeysEmptyHint": "Erstelle einen, um einen CodeRouter-Client zu authentifizieren."
+      "apiKeysEmptyHint": "Erstelle einen, um einen CodeRouter-Client zu authentifizieren.",
+      "unavailableTitle": "Geteilte Konten sind nicht verfügbar",
+      "unavailableBody": "cmux erreicht den Dienst für geteilte Konten gerade nicht. Mit cr add hinzugefügte Konten sowie Anthropic- und Bedrock-Konten funktionieren weiterhin."
     },
     "notFound": {
       "title": "Seite nicht gefunden",

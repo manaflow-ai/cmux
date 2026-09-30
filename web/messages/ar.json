@@ -1127,7 +1127,9 @@
       "apiKeyUsageUnavailable": "الاستخدام غير متاح",
       "revokeApiKeyConfirmBody": "سيتوقف العملاء الذين يستخدمون هذا المفتاح عن المصادقة فورًا.",
       "apiKeysEmptyTitle": "لا توجد مفاتيح API بعد",
-      "apiKeysEmptyHint": "أنشئ مفتاحًا لمصادقة عميل CodeRouter."
+      "apiKeysEmptyHint": "أنشئ مفتاحًا لمصادقة عميل CodeRouter.",
+      "unavailableTitle": "الحسابات المشتركة غير متاحة",
+      "unavailableBody": "لا يستطيع cmux الوصول إلى خدمة الحسابات المشتركة الآن. الحسابات المضافة عبر cr add وحسابات Anthropic وBedrock تعمل كالمعتاد."
     },
     "notFound": {
       "title": "الصفحة غير موجودة",

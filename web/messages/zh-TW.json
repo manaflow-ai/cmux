@@ -1127,7 +1127,9 @@
       "apiKeyUsageUnavailable": "使用量不可用",
       "revokeApiKeyConfirmBody": "使用此金鑰的用戶端將立即無法驗證。",
       "apiKeysEmptyTitle": "還沒有 API 金鑰",
-      "apiKeysEmptyHint": "建立金鑰來驗證 CodeRouter 用戶端。"
+      "apiKeysEmptyHint": "建立金鑰來驗證 CodeRouter 用戶端。",
+      "unavailableTitle": "共享帳戶無法使用",
+      "unavailableBody": "cmux 目前無法連線到共享帳戶服務。透過 cr add 新增的帳戶以及 Anthropic 和 Bedrock 帳戶仍可使用。"
     },
     "notFound": {
       "title": "找不到頁面",

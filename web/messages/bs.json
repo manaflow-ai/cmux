@@ -1127,7 +1127,9 @@
       "apiKeyUsageUnavailable": "Upotreba nije dostupna",
       "revokeApiKeyConfirmBody": "Klijenti koji koriste ovaj ključ odmah će izgubiti autentifikaciju.",
       "apiKeysEmptyTitle": "Još nema API ključeva",
-      "apiKeysEmptyHint": "Kreirajte ključ za autentifikaciju CodeRouter klijenta."
+      "apiKeysEmptyHint": "Kreirajte ključ za autentifikaciju CodeRouter klijenta.",
+      "unavailableTitle": "Dijeljeni računi nisu dostupni",
+      "unavailableBody": "cmux trenutno ne može doći do usluge dijeljenih računa. Računi dodani putem cr add te Anthropic i Bedrock računi i dalje rade."
     },
     "notFound": {
       "title": "Stranica nije pronađena",

@@ -1127,7 +1127,9 @@
       "apiKeyUsageUnavailable": "Użycie niedostępne",
       "revokeApiKeyConfirmBody": "Klienci używający tego klucza natychmiast stracą uwierzytelnianie.",
       "apiKeysEmptyTitle": "Brak kluczy API",
-      "apiKeysEmptyHint": "Utwórz klucz, aby uwierzytelnić klienta CodeRouter."
+      "apiKeysEmptyHint": "Utwórz klucz, aby uwierzytelnić klienta CodeRouter.",
+      "unavailableTitle": "Udostępnione konta są niedostępne",
+      "unavailableBody": "cmux nie może teraz połączyć się z usługą udostępnionych kont. Konta dodane przez cr add oraz konta Anthropic i Bedrock nadal działają."
     },
     "notFound": {
       "title": "Nie znaleziono strony",

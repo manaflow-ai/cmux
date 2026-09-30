@@ -140,6 +140,9 @@ export function CoderouterAccountsSection({
       {shared.kind === "notConfigured" && canManage ? (
         <Notice title={t("notConfiguredTitle")} body={t("notConfiguredBody")} />
       ) : null}
+      {shared.kind === "unavailable" ? (
+        <Notice title={t("unavailableTitle")} body={t("unavailableBody")} />
+      ) : null}
       {shared.kind === "migrationPending" ? (
         <Notice title={t("migrationPendingTitle")} body={t("migrationPendingBody")} />
       ) : null}

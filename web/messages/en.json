@@ -553,7 +553,9 @@
       "apiKeyUsageDetail": "last 30 days: {completions} completions · {tokens} tokens ({input} in / {output} out) · {value} API equivalent",
       "apiKeyUsageUnavailable": "Usage unavailable",
       "apiKeysEmptyTitle": "No API keys yet",
-      "apiKeysEmptyHint": "Create one to authenticate a CodeRouter client."
+      "apiKeysEmptyHint": "Create one to authenticate a CodeRouter client.",
+      "unavailableTitle": "Shared accounts are unavailable",
+      "unavailableBody": "cmux cannot reach the shared account service right now. Accounts added with cr add, and Anthropic and Bedrock accounts, still work."
     },
     "accountMenu": {
       "label": "Account menu",

@@ -1127,7 +1127,9 @@
       "apiKeyUsageUnavailable": "使用数据不可用",
       "revokeApiKeyConfirmBody": "使用此密钥的客户端将立即无法通过验证。",
       "apiKeysEmptyTitle": "还没有 API 密钥",
-      "apiKeysEmptyHint": "创建一个密钥来验证 CodeRouter 客户端。"
+      "apiKeysEmptyHint": "创建一个密钥来验证 CodeRouter 客户端。",
+      "unavailableTitle": "共享账户不可用",
+      "unavailableBody": "cmux 目前无法连接共享账户服务。通过 cr add 添加的账户以及 Anthropic 和 Bedrock 账户仍可使用。"
     },
     "notFound": {
       "title": "找不到页面",

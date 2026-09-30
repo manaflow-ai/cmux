@@ -1127,7 +1127,9 @@
       "apiKeyUsageUnavailable": "Utilisation indisponible",
       "revokeApiKeyConfirmBody": "Les clients utilisant cette clé ne pourront plus s’authentifier immédiatement.",
       "apiKeysEmptyTitle": "Aucune clé API pour l’instant",
-      "apiKeysEmptyHint": "Créez-en une pour authentifier un client CodeRouter."
+      "apiKeysEmptyHint": "Créez-en une pour authentifier un client CodeRouter.",
+      "unavailableTitle": "Les comptes partagés sont indisponibles",
+      "unavailableBody": "cmux ne parvient pas à joindre le service des comptes partagés pour le moment. Les comptes ajoutés avec cr add et les comptes Anthropic et Bedrock fonctionnent toujours."
     },
     "notFound": {
       "title": "Page introuvable",

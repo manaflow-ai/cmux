@@ -553,7 +553,9 @@
       "apiKeyUsageDetail": "過去30日間: {completions} 回の完了 · {tokens} トークン ({input} 入力 / {output} 出力) · API換算 {value}",
       "apiKeyUsageUnavailable": "使用状況を取得できません",
       "apiKeysEmptyTitle": "API キーはまだありません",
-      "apiKeysEmptyHint": "CodeRouter クライアントを認証するためのキーを作成してください。"
+      "apiKeysEmptyHint": "CodeRouter クライアントを認証するためのキーを作成してください。",
+      "unavailableTitle": "共有アカウントは利用できません",
+      "unavailableBody": "現在、共有アカウントサービスに接続できません。cr add で追加したアカウントと、Anthropic および Bedrock のアカウントは引き続き使えます。"
     },
     "accountMenu": {
       "label": "アカウントメニュー",

@@ -1127,7 +1127,9 @@
       "apiKeyUsageUnavailable": "Kullanım verisi yok",
       "revokeApiKeyConfirmBody": "Bu anahtarı kullanan istemciler hemen kimlik doğrulaması yapamaz.",
       "apiKeysEmptyTitle": "Henüz API anahtarı yok",
-      "apiKeysEmptyHint": "Bir CodeRouter istemcisinin kimliğini doğrulamak için bir anahtar oluşturun."
+      "apiKeysEmptyHint": "Bir CodeRouter istemcisinin kimliğini doğrulamak için bir anahtar oluşturun.",
+      "unavailableTitle": "Paylaşılan hesaplar kullanılamıyor",
+      "unavailableBody": "cmux şu anda paylaşılan hesap hizmetine ulaşamıyor. cr add ile eklenen hesaplar ile Anthropic ve Bedrock hesapları çalışmaya devam ediyor."
     },
     "notFound": {
       "title": "Sayfa bulunamadı",

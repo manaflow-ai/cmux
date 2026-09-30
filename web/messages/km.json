@@ -1127,7 +1127,9 @@
       "apiKeyUsageUnavailable": "មិនមានទិន្នន័យប្រើប្រាស់",
       "revokeApiKeyConfirmBody": "ម៉ាស៊ីនភ្ញៀវដែលប្រើសោនេះនឹងបាត់បង់ការផ្ទៀងផ្ទាត់ភ្លាមៗ។",
       "apiKeysEmptyTitle": "មិនទាន់មាន API key នៅឡើយទេ",
-      "apiKeysEmptyHint": "បង្កើត key មួយ ដើម្បីផ្ទៀងផ្ទាត់ម៉ាស៊ីនភ្ញៀវ CodeRouter។"
+      "apiKeysEmptyHint": "បង្កើត key មួយ ដើម្បីផ្ទៀងផ្ទាត់ម៉ាស៊ីនភ្ញៀវ CodeRouter។",
+      "unavailableTitle": "គណនីដែលបានចែករំលែកមិនអាចប្រើបានទេ",
+      "unavailableBody": "cmux មិនអាចភ្ជាប់ទៅសេវាគណនីចែករំលែកបានទេពេលនេះ។ គណនីដែលបន្ថែមដោយ cr add និងគណនី Anthropic និង Bedrock នៅតែដំណើរការ។"
     },
     "notFound": {
       "title": "រកមិនឃើញទំព័រ",

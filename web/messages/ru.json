@@ -1127,7 +1127,9 @@
       "apiKeyUsageUnavailable": "Данные использования недоступны",
       "revokeApiKeyConfirmBody": "Клиенты, использующие этот ключ, сразу потеряют аутентификацию.",
       "apiKeysEmptyTitle": "API-ключей пока нет",
-      "apiKeysEmptyHint": "Создайте ключ, чтобы аутентифицировать клиент CodeRouter."
+      "apiKeysEmptyHint": "Создайте ключ, чтобы аутентифицировать клиент CodeRouter.",
+      "unavailableTitle": "Общие аккаунты недоступны",
+      "unavailableBody": "Сейчас cmux не может связаться со службой общих аккаунтов. Аккаунты, добавленные через cr add, а также аккаунты Anthropic и Bedrock продолжают работать."
     },
     "notFound": {
       "title": "Страница не найдена",

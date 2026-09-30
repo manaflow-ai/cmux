@@ -1127,7 +1127,9 @@
       "apiKeyUsageUnavailable": "Uso indisponível",
       "revokeApiKeyConfirmBody": "Os clientes que usam esta chave perderão a autenticação imediatamente.",
       "apiKeysEmptyTitle": "Nenhuma chave de API ainda",
-      "apiKeysEmptyHint": "Crie uma para autenticar um cliente do CodeRouter."
+      "apiKeysEmptyHint": "Crie uma para autenticar um cliente do CodeRouter.",
+      "unavailableTitle": "Contas compartilhadas indisponíveis",
+      "unavailableBody": "O cmux não consegue acessar o serviço de contas compartilhadas agora. Contas adicionadas com cr add e contas Anthropic e Bedrock continuam funcionando."
     },
     "notFound": {
       "title": "Página não encontrada",

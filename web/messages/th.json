@@ -1127,7 +1127,9 @@
       "apiKeyUsageUnavailable": "ไม่มีข้อมูลการใช้งาน",
       "revokeApiKeyConfirmBody": "ไคลเอนต์ที่ใช้คีย์นี้จะยืนยันตัวตนไม่ได้ทันที",
       "apiKeysEmptyTitle": "ยังไม่มีคีย์ API",
-      "apiKeysEmptyHint": "สร้างคีย์เพื่อยืนยันตัวตนไคลเอนต์ CodeRouter"
+      "apiKeysEmptyHint": "สร้างคีย์เพื่อยืนยันตัวตนไคลเอนต์ CodeRouter",
+      "unavailableTitle": "บัญชีที่แชร์ใช้งานไม่ได้",
+      "unavailableBody": "ขณะนี้ cmux เชื่อมต่อบริการบัญชีที่แชร์ไม่ได้ บัญชีที่เพิ่มด้วย cr add และบัญชี Anthropic และ Bedrock ยังใช้งานได้"
     },
     "notFound": {
       "title": "ไม่พบหน้า",
