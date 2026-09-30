@@ -53,14 +53,14 @@ extension TerminalSurface {
             }
             return await waitTask.value
         } onCancel: {
-            Task { @MainActor [weak self] in
-                self?.cancelRuntimeReadinessWaiter(waiterID)
-            }
+            waitTask.cancel()
         }
     }
 
     @MainActor
     private func waitForRuntimeReadinessEvent(waiterID: UUID) async -> Bool {
+        guard !Task.isCancelled else { return false }
+        if liveSurfaceForGhosttyAccess(reason: "runtime.ready.register") != nil { return true }
         let (events, continuation) = AsyncStream<Bool>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
         )
