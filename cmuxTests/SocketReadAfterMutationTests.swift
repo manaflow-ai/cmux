@@ -78,17 +78,29 @@ struct SocketReadAfterMutationTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let windowID = app.registerMainWindowContextForTesting(tabManager: manager)
         await controller.socketReadSnapshotRefreshTask?.value
-        // Hold the existing coalescing slot: no sleeps or executor-speed
-        // assumptions. Reads must observe mutations before a refresh runs.
-        controller.socketReadSnapshotRefreshTask = Task {}
+        // Hold the coalescing slot with an explicit gate: no sleeps or
+        // executor-speed assumptions. Reads must observe mutations before a
+        // refresh runs.
+        let (gate, continuation) = AsyncStream<Void>.makeStream()
+        let gateTask = Task { for await _ in gate {} }
+        controller.socketReadSnapshotRefreshTask = gateTask
         controller.socketReadSnapshotStore.publish(ControlReadSnapshot())
-        defer {
-            app.unregisterMainWindowContextForTesting(windowId: windowID)
+        do {
+            try await body(controller, manager, windowID)
+        } catch {
             for workspace in manager.tabs { workspace.teardownAllPanels() }
+            app.unregisterMainWindowContextForTesting(windowId: windowID)
+            continuation.finish()
+            await gateTask.value
             controller.socketReadSnapshotRefreshTask = nil
-            controller.socketReadSnapshotStore.publish(ControlReadSnapshot())
-            controller.scheduleSocketReadSnapshotRefresh()
+            controller.socketReadSnapshotStore.invalidate()
+            throw error
         }
-        try await body(controller, manager, windowID)
+        for workspace in manager.tabs { workspace.teardownAllPanels() }
+        app.unregisterMainWindowContextForTesting(windowId: windowID)
+        continuation.finish()
+        await gateTask.value
+        controller.socketReadSnapshotRefreshTask = nil
+        controller.socketReadSnapshotStore.invalidate()
     }
 }
