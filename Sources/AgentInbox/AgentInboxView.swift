@@ -106,6 +106,7 @@ struct AgentInboxView: View {
                 text: $query
             )
             .textFieldStyle(.roundedBorder)
+            .accessibilityIdentifier("AgentInboxSearchField")
             Text(String(localized: "agentInbox.title", defaultValue: "Agent Inbox"))
                 .font(.headline)
                 .foregroundStyle(.secondary)
@@ -298,6 +299,7 @@ struct AgentInboxView: View {
                 )
                 .lineLimit(1...5)
                 .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("AgentInboxReplyField")
                 .focused($isReplyFieldFocused)
                 .onSubmit {
                     sendReply(for: item)

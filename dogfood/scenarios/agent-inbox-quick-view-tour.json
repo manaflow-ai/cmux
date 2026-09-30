@@ -1,0 +1,145 @@
+{
+  "paths": [
+    "Sources/AgentInbox/*"
+  ],
+  "launch": {
+    "args": [
+      "-cmux.flags.override.agent-inbox-quick-view-enabled-release",
+      "<true/>"
+    ]
+  },
+  "steps": [
+    {
+      "socket": "workspace.current",
+      "save": "human"
+    },
+    {
+      "socket": "surface.list",
+      "params": {
+        "workspace_id": "${human.workspace_id}"
+      },
+      "save": "humanSurfaces"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Code review",
+        "focus": false
+      },
+      "save": "agent"
+    },
+    {
+      "socket": "surface.list",
+      "params": {
+        "workspace_id": "${agent.workspace_id}"
+      },
+      "save": "agentSurfaces"
+    },
+    {
+      "socket": "agent.message.send",
+      "params": {
+        "target": "${humanSurfaces.surfaces.0.id}",
+        "from": "reviewer",
+        "sender_surface_id": "${agentSurfaces.surfaces.0.id}",
+        "sender_workspace_id": "${agent.workspace_id}",
+        "body": "The release checks are ready. Can you review the plan?"
+      }
+    },
+    {
+      "socket": "agent.message.send",
+      "params": {
+        "target": "${humanSurfaces.surfaces.0.id}",
+        "from": "planner",
+        "sender_surface_id": "${agentSurfaces.surfaces.0.id}",
+        "sender_workspace_id": "${agent.workspace_id}",
+        "body": "The migration outline is ready for your feedback."
+      }
+    },
+    {
+      "socket": "notification.create",
+      "params": {
+        "workspace_id": "${agent.workspace_id}",
+        "surface_id": "${agentSurfaces.surfaces.0.id}",
+        "title": "Review ready",
+        "body": "Agent Inbox dogfood notification"
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "key": "i",
+      "modifiers": [
+        "command",
+        "shift"
+      ]
+    },
+    {
+      "wait": 1
+    },
+    {
+      "expect": {
+        "id": "AgentInboxSearchField"
+      }
+    },
+    {
+      "shot": "inbox-open"
+    },
+    {
+      "tree": "inbox-open"
+    },
+    {
+      "click": {
+        "id": "AgentInboxSearchField"
+      }
+    },
+    {
+      "type": "reviewer"
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "shot": "inbox-search"
+    },
+    {
+      "click": {
+        "labelContains": "reviewer",
+        "type": "button"
+      }
+    },
+    {
+      "click": {
+        "id": "AgentInboxReplyField"
+      }
+    },
+    {
+      "type": "I am checking the release plan now. Please keep the draft open."
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "shot": "inbox-reply-draft"
+    },
+    {
+      "tree": "inbox-reply-draft"
+    },
+    {
+      "key": "escape"
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "expect": {
+        "id": "AgentInboxSearchField"
+      },
+      "exists": false
+    },
+    {
+      "shot": "end",
+      "screen": true
+    }
+  ]
+}
