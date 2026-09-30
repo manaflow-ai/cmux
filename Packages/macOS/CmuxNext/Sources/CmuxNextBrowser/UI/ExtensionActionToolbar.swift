@@ -72,7 +72,7 @@ final class ExtensionActionButton: NSButton {
     var onRun: (() -> Void)?
     var onMenu: ((CGPoint) -> Void)?
 
-    private let badge = CATextLayer()
+    private let badge = ChromeTextLayer()
     private let density = DensityBinding()
     private var isHovering = false { didSet { updateFill() } }
     private var tracking: NSTrackingArea?
@@ -131,13 +131,17 @@ final class ExtensionActionButton: NSButton {
         super.layout()
         let font = BrowserMetrics.captionFont
         let fontSize = font.pointSize * 0.8
-        badge.font = font
-        badge.fontSize = fontSize
+        badge.font = font.withSize(fontSize)
         badge.contentsScale = window?.backingScaleFactor ?? 2
         let height = ceil(fontSize + 2)
-        let width = max(height, ceil((badge.string as? String ?? "").size(withAttributes: [.font: font.withSize(fontSize)]).width) + 4)
+        let width = max(height, ceil(badge.string.size(withAttributes: [.font: font.withSize(fontSize)]).width) + 4)
         badge.cornerRadius = height / 2
         badge.frame = CGRect(x: bounds.maxX - width, y: 0, width: width, height: height)
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        needsLayout = true
     }
 
     @objc private func run() { onRun?() }

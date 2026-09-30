@@ -117,7 +117,10 @@ public final class CompatService: Sendable {
     }
 
     func connection() throws -> DaemonConnection {
-        guard let connection = connectionProvider() else { throw CompatErrors.notConnected }
+        guard let connection = connectionProvider() else {
+            if let failure = router?.snapshots.current.topology.daemonFailure { throw CompatErrors.daemonUnavailable(failure) }
+            throw CompatErrors.notConnected
+        }
         return connection
     }
 

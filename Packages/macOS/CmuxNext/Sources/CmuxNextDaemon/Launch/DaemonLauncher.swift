@@ -17,12 +17,22 @@ public struct DaemonLauncher: Sendable {
         public var stateDirectory: URL?
         /// Optional daemon config file (`CMUX_TUI_CONFIG`).
         public var configFile: URL?
+        /// Base of the owner's socket directory, sent as `TMPDIR` (cmux-tui
+        /// puts sockets under `$XDG_RUNTIME_DIR` or `$TMPDIR`). The owner's
+        /// identity is the state directory, so the socket must not move with
+        /// whatever `TMPDIR` the app happened to be launched with: an app
+        /// launched with another `TMPDIR` would miss the live owner, spawn a
+        /// second one that cannot take the session lock, and never connect.
+        /// Defaults to the user's Darwin temp directory, which is fixed per user.
+        public var runtimeBase: URL
 
-        public init(binary: URL, session: String, stateDirectory: URL? = nil, configFile: URL? = nil) {
+        public init(binary: URL, session: String, stateDirectory: URL? = nil, configFile: URL? = nil,
+                    runtimeBase: URL = DaemonLauncher.userTemporaryDirectory()) {
             self.binary = binary
             self.session = session
             self.stateDirectory = stateDirectory
             self.configFile = configFile
+            self.runtimeBase = runtimeBase
         }
     }
 
@@ -123,7 +133,33 @@ public struct DaemonLauncher: Sendable {
         return support.appendingPathComponent("cmux/tags/\(component)/tui", isDirectory: true)
     }
 
+    /// The user's per-user temp directory (`confstr(_CS_DARWIN_USER_TEMP_DIR)`),
+    /// independent of the process's `TMPDIR`. Falls back to `/tmp`.
+    public static func userTemporaryDirectory() -> URL {
+        let length = confstr(_CS_DARWIN_USER_TEMP_DIR, nil, 0)
+        if length > 0 {
+            var buffer = [CChar](repeating: 0, count: length)
+            if confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, length) > 0 {
+                let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+                if !path.isEmpty { return URL(fileURLWithPath: path, isDirectory: true) }
+            }
+        }
+        return URL(fileURLWithPath: "/tmp", isDirectory: true)
+    }
+
     // MARK: - Ensure
+
+    /// Environment for `server ensure`: the provider's, plus the state
+    /// directory, config file and a fixed runtime base.
+    func ensureEnvironment() async -> [String: String] {
+        var environment = await environmentProvider()
+        if let stateDirectory = configuration.stateDirectory { environment["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
+        if let configFile = configuration.configFile { environment["CMUX_TUI_CONFIG"] = configFile.path }
+        // XDG_RUNTIME_DIR would win over TMPDIR in cmux-tui's socket lookup.
+        environment["XDG_RUNTIME_DIR"] = nil
+        environment["TMPDIR"] = configuration.runtimeBase.path
+        return environment
+    }
 
     /// Runs `server ensure` and returns the live endpoint.
     public func ensure() async throws -> EnsureResult {
@@ -131,9 +167,7 @@ public struct DaemonLauncher: Sendable {
             try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o700])
         }
-        var environment = await environmentProvider()
-        if let stateDirectory = configuration.stateDirectory { environment["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
-        if let configFile = configuration.configFile { environment["CMUX_TUI_CONFIG"] = configFile.path }
+        let environment = await ensureEnvironment()
         let result = try await ProcessRunner.run(
             executable: configuration.binary,
             arguments: ["--session", configuration.session, "--json", "server", "ensure"],

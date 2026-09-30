@@ -11,7 +11,7 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     public var groupHeaderHeight: CGFloat
     /// Workspace row with one line.
     public var rowHeight: CGFloat
-    /// Workspace row with a subtitle line.
+    /// Workspace row with a live status line.
     public var rowHeightWithSubtitle: CGFloat
     public var rowSpacing: CGFloat
     public var groupBottomPadding: CGFloat
@@ -35,11 +35,11 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     }
 
     func height(for ws: SidebarWorkspace) -> CGFloat {
-        (ws.subtitle ?? "").isEmpty ? rowHeight : rowHeightWithSubtitle
+        ws.liveDetail == nil ? rowHeight : rowHeightWithSubtitle
     }
 }
 
-/// Inputs that change the layout besides the tree itself./// Inputs that change the layout besides the tree itself.
+/// Inputs that change the layout besides the tree itself.
 public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Workspaces removed from the layout (being dragged).
     public var excludedWorkspaces: Set<WorkspaceID> = []
@@ -52,6 +52,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Live gap to open, and its height.
     public var gap: DropPosition?
     public var gapHeight: CGFloat = 0
+    /// Show the machine header even when only one machine is listed.
+    /// Off by default: headers appear once a Cloud or SSH machine joins.
+    public var showsSoleMachineHeader = false
 
     public init() {}
 }

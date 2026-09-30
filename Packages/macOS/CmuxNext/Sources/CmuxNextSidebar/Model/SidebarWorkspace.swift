@@ -30,8 +30,13 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// between machines; drops across machine sections are refused.
     public var machineID: MachineID
     public var title: String
-    /// cwd, git branch, or the agent status line.
+    /// Passive detail (cwd, git branch). Shown in the tooltip and
+    /// accessibility label, never as a second line: it rarely changes and
+    /// repeats on every row.
     public var subtitle: String?
+    /// Live status (agent status line, hook `set_status`). The only text
+    /// that earns the row a second line.
+    public var status: String?
     public var icon: WorkspaceIcon
     public var unread: UnreadState
     public var activity: AgentActivity
@@ -41,6 +46,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         machineID: MachineID = .local,
         title: String,
         subtitle: String? = nil,
+        status: String? = nil,
         icon: WorkspaceIcon = .symbol("terminal"),
         unread: UnreadState = .none,
         activity: AgentActivity = .idle
@@ -49,8 +55,17 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.machineID = machineID
         self.title = title
         self.subtitle = subtitle
+        self.status = status
         self.icon = icon
         self.unread = unread
         self.activity = activity
+    }
+}
+
+nonisolated extension SidebarWorkspace {
+    /// The second line, when the row carries live information.
+    public var liveDetail: String? {
+        guard let status, !status.isEmpty else { return nil }
+        return status
     }
 }

@@ -14,6 +14,8 @@ final class WindowManager {
     private var saveTask: Task<Void, Never>?
     private var loadObservation: Task<Void, Never>?
     private var restored = false
+    /// The window opened at launch before the saved state loaded.
+    private weak var launchWindow: WindowController?
     /// Windows placed by `TestWindowPlacement` so far (cascade ordinal).
     private var placedWindows = 0
     private(set) var isTerminating = false
@@ -32,9 +34,12 @@ final class WindowManager {
 
     // MARK: Restore
 
-    /// Opens the saved windows once the first snapshot arrives. Creates a
-    /// workspace only when the daemon tree is empty.
+    /// Opens one window at once (it shows the connecting state until the
+    /// daemon answers), then restores the saved windows once the first
+    /// snapshot arrives, the launch window becoming the first of them.
+    /// Creates a workspace only when the daemon tree is empty.
     func restoreWhenLoaded() {
+        if controllers.isEmpty { launchWindow = open(record: nil) }
         let store = services.daemon.store
         loadObservation = Task { [weak self] in
             for await loaded in Observations({ store.isLoaded }) where loaded {
@@ -61,8 +66,36 @@ final class WindowManager {
         let records = document.windows.sorted { $0.order > $1.order }.filter { record in
             record.machine != nil || (record.workspaceKey.map { live.contains($0.rawValue) } ?? true)
         }
-        for record in records { open(record: record) }
+        var pending = records[...]
+        var adopted: WindowController?
+        if let launchWindow, controllers.contains(where: { $0 === launchWindow }) {
+            // Adopt the last record (the frontmost after the reverse sort),
+            // so it stays in front like a freshly opened one would.
+            if let record = pending.popLast() {
+                let placed = services.environment.testWindow != nil
+                let frame = placed ? nil : record.frame.map { NSRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }
+                launchWindow.adopt(record, frame: frame)
+                adopted = launchWindow
+            }
+            self.launchWindow = nil
+        }
+        for record in pending { open(record: record) }
+        // The adopted record was the frontmost; keep it in front.
+        if let adopted, !pending.isEmpty { present(adopted) }
         if controllers.isEmpty { open(record: nil) }
+    }
+
+    private func present(_ controller: WindowController) {
+        if services.environment.testWindow != nil, services.environment.noActivate {
+            // Agent screenshot launch: in front on its own screen, still not
+            // key and the app not activated.
+            controller.window?.orderFrontRegardless()
+        } else if services.environment.noActivate {
+            // Behind every other window, not key, app not activated.
+            controller.window?.orderBack(nil)
+        } else {
+            controller.showWindow(nil)
+        }
     }
 
     @discardableResult
@@ -80,16 +113,7 @@ final class WindowManager {
         let controller = WindowController(state: state, services: services, frame: frame)
         controller.sidebar.restore(width: record?.sidebarWidth, collapsed: record?.sidebarCollapsed ?? false)
         controllers.append(controller)
-        if placement != nil, services.environment.noActivate {
-            // Agent screenshot launch: in front on its own screen, still not
-            // key and the app not activated.
-            controller.window?.orderFrontRegardless()
-        } else if services.environment.noActivate {
-            // Behind every other window, not key, app not activated.
-            controller.window?.orderBack(nil)
-        } else {
-            controller.showWindow(nil)
-        }
+        present(controller)
         if controllers.count == 1 { onFirstWindow?(controller) }
         stateDidChange(state)
         return controller

@@ -26,6 +26,26 @@ import Testing
         }
     }
 
+    /// cmux-tui derives the owner socket from `$XDG_RUNTIME_DIR`/`$TMPDIR`.
+    /// Two launches of the same app with different `TMPDIR`s must still
+    /// ask for the same socket, or the second spawns a rival owner that
+    /// cannot take the session lock and the app never connects.
+    @Test func ensureUsesTheUserTempDirectoryWhateverTheLaunchTMPDIR() async throws {
+        let binary = URL(fileURLWithPath: "/usr/bin/true")
+        let configuration = DaemonLauncher.Configuration(binary: binary, session: "cmux-app-t", stateDirectory: URL(fileURLWithPath: "/tmp/state"))
+        let fromFinder = DaemonLauncher(configuration: configuration, environment: { ["TMPDIR": "/var/folders/xx/T/", "PATH": "/usr/bin"] })
+        let fromAgent = DaemonLauncher(configuration: configuration, environment: { ["TMPDIR": "/tmp/agent-tmp/", "XDG_RUNTIME_DIR": "/run/x"] })
+        let bare = DaemonLauncher(configuration: configuration, environment: { [:] })
+        let expected = DaemonLauncher.userTemporaryDirectory().path
+        #expect(expected.hasPrefix("/var/folders/") || expected == "/tmp")
+        for launcher in [fromFinder, fromAgent, bare] {
+            let env = await launcher.ensureEnvironment()
+            #expect(env["TMPDIR"] == expected)
+            #expect(env["XDG_RUNTIME_DIR"] == nil)
+            #expect(env["CMUX_TUI_STATE_DIR"] == "/tmp/state")
+        }
+    }
+
     @Test func parsesBuildCommit() {
         #expect(DaemonLauncher.parseBuildCommit("cmux 0.1.0 (436909bb4319368e8ecc1b6480f73667bd0f2c1d; ghostty e168fd3)\n")
                 == "436909bb4319368e8ecc1b6480f73667bd0f2c1d")
