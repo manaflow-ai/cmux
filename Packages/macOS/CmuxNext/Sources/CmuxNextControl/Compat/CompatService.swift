@@ -82,6 +82,7 @@ public final class CompatService: Sendable {
         // The router owns the service through these closures; the service
         // holds the router weakly, so there is no cycle.
         router.registerV1 { line in await CompatV1.respond(line, service: self) }
+        router.registerTargetResolver { ref, deadline in try await self.resolveActionTarget(ref, deadline: deadline) }
     }
 
     /// Calls `handler` with a workspace UUID (the old app's form of its key)

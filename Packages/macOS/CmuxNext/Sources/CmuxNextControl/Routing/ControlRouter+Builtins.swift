@@ -106,10 +106,22 @@ extension ControlRouter {
 
     // MARK: - action.run
 
+    /// Runs the target resolver over the target and every target argument.
+    private func resolvedTargets(_ request: ControlActionRequest, deadline: ContinuousClock.Instant) async throws -> ControlActionRequest {
+        guard let resolver = targetResolver else { return request }
+        var resolved = request
+        if let target = request.target { resolved.target = try await resolver(target, deadline) }
+        for (name, value) in request.arguments {
+            if case .target(let ref) = value { resolved.arguments[name] = .target(try await resolver(ref, deadline)) }
+        }
+        return resolved
+    }
+
     private func runAction(_ call: ControlCall) async throws -> JSONValue {
         let catalog = call.snapshot.catalog
         let action = try Self.resolveAction(call.params, in: catalog)
-        let request = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds)
+        let request = try await resolvedTargets(
+            Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds), deadline: call.deadline)
         guard catalog.isAvailable(action, target: request.target) || action.unavailableReason != nil else {
             throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.actionNotAvailableInContext", "%@ is not available in the current context", action.id), data: [
                 "action": .string(action.id), "requires": .array(action.requires.map(JSONValue.string)),
