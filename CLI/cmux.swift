@@ -26039,7 +26039,7 @@ struct CMUXCLI {
 
     private static let omoPluginName = "oh-my-openagent"
     private static let legacyOmoPluginName = "oh-my-opencode"
-    private static let openCodeSessionPluginConfigSpec = "./plugins/cmux-session.js"
+    private static let openCodeSessionPluginConfigSpec = "./plugins"
 
     func resolveExecutableInPath(_ name: String, searchPath: String? = nil) -> String? {
         let entries = (searchPath ?? ProcessInfo.processInfo.environment["PATH"])?
@@ -26351,13 +26351,15 @@ struct CMUXCLI {
             config = [:]
         }
 
+        let configuredPlugins = (config["plugins"] as? [Any] ?? []) + (config["plugin"] as? [Any] ?? [])
         var plugins = Self.openCodePluginListNormalizingOMOPlugin(
-            Self.openCodePluginListRemovingSessionPlugin((config["plugin"] as? [Any]) ?? [])
+            Self.openCodePluginListRemovingSessionPlugin(configuredPlugins)
         )
         if !Self.openCodePluginListContains(plugins, spec: Self.omoPluginName, allowVersionSuffix: true) {
             plugins.append(Self.omoPluginName)
         }
-        config["plugin"] = plugins
+        config.removeValue(forKey: "plugin")
+        config["plugins"] = plugins
 
         let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         try output.write(to: shadowJsonURL, options: .atomic)
@@ -33324,7 +33326,9 @@ function firstString(...values) {
 }
 
 function eventProperties(event) {
-  return (event && typeof event === "object" && event.properties) || {};
+  if (!event || typeof event !== "object") return {};
+  // V1 delivered payloads under `properties`; V2 uses `data`.
+  return event.properties || event.data || {};
 }
 
 function normalizeText(value, max = 1000) {
@@ -33542,11 +33546,8 @@ function trackMessage(event) {
   }
 }
 
-const CMUXSessionRestore = async (ctx) => {
-  if (globalThis[CMUX_PLUGIN_INSTALLED_KEY]) return {};
-  globalThis[CMUX_PLUGIN_INSTALLED_KEY] = true;
-  return {
-    event: async ({ event }) => {
+const createCMUXSessionRestore = async (ctx) => {
+  const handleEvent = async (event) => {
       trackMessage(event);
       const props = eventProperties(event);
       switch (event && event.type) {
@@ -33576,12 +33577,37 @@ const CMUXSessionRestore = async (ctx) => {
         default:
           break;
       }
-    },
   };
+
+  return { event: async ({ event }) => handleEvent(event?.event || event) };
 };
 
-export { CMUXSessionRestore };
-export default CMUXSessionRestore;
+// V1 callers invoke the named factory directly and need the process-global
+// duplicate guard. V2 owns each setup subscription, so cleanup can be followed
+// by a fresh setup without inheriting the V1 guard's state.
+export const CMUXSessionRestore = async (ctx) => {
+  if (globalThis[CMUX_PLUGIN_INSTALLED_KEY]) return {};
+  globalThis[CMUX_PLUGIN_INSTALLED_KEY] = true;
+  return createCMUXSessionRestore(ctx);
+};
+
+export default {
+  id: "cmux.session",
+  async setup(ctx) {
+    const controller = new AbortController();
+    const hooks = await createCMUXSessionRestore(ctx);
+    void (async () => {
+      try {
+        for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
+          await hooks.event({ event });
+        }
+      } catch (_) {
+        // Abort is the normal plugin shutdown path.
+      }
+    })();
+    return () => controller.abort();
+  },
+};
 """#
 
     private func openCodeSessionPluginURL(for def: AgentHookDef) -> URL {
@@ -33617,7 +33643,8 @@ export default CMUXSessionRestore;
             if value == spec { return true }
             if allowVersionSuffix, value.hasPrefix("\(spec)@") { return true }
             if spec == Self.openCodeSessionPluginConfigSpec {
-                return value == "./plugins/\(Self.openCodeSessionPluginFilename)"
+                return value == "./plugins"
+                    || value == "./plugins/\(Self.openCodeSessionPluginFilename)"
                     || value.hasSuffix("/plugins/\(Self.openCodeSessionPluginFilename)")
                     || value.hasSuffix("/\(Self.openCodeSessionPluginFilename)")
             }
@@ -33744,9 +33771,17 @@ export default CMUXSessionRestore;
         } else {
             config = [:]
         }
-        var plugins = Self.openCodePluginListRemovingSessionPlugin((config["plugin"] as? [Any]) ?? [])
-        if shouldInstall, !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) { plugins.append(Self.openCodeSessionPluginConfigSpec) }
-        config["plugin"] = plugins
+        let configuredPlugins = (config["plugins"] as? [Any] ?? []) + (config["plugin"] as? [Any] ?? [])
+        var plugins = Self.openCodePluginListRemovingSessionPlugin(configuredPlugins)
+        if shouldInstall, !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) {
+            plugins.append(Self.openCodeSessionPluginConfigSpec)
+        }
+        config.removeValue(forKey: "plugin")
+        if shouldInstall || !plugins.isEmpty {
+            config["plugins"] = plugins
+        } else {
+            config.removeValue(forKey: "plugins")
+        }
         let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         if existingData == output { return false }
         try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
