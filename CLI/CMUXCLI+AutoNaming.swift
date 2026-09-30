@@ -149,6 +149,49 @@ struct AutoNamingEnvironmentPolicy: Sendable {
     /// can produce a title (cmux#9457).
     static let emptyMCPConfigJSON = #"{"mcpServers":{}}"#
 
+    /// OpenCode's `--pure` switch disables external plugins, but its default
+    /// agent still allows built-in tools. Deny every permission for the
+    /// summarizer so transcript text cannot trigger file, shell, MCP, or web
+    /// tools while the provider credentials remain available for the model
+    /// request itself.
+    static let openCodeDenyAllPermissionsJSON = #"{"*":"deny"}"#
+
+    /// A local agent rule is merged after OpenCode's global `agent.build`
+    /// rules, so a user-global allow cannot override the deny-all policy.
+    static let openCodeIsolationConfigJSON = #"{"agent":{"build":{"permission":{"*":"deny"}}}}"#
+
+    /// Returns the provider-capable environment for an isolated OpenCode pass.
+    /// User-selected config paths are removed so only cmux's temporary project
+    /// and the global provider discovery path remain visible.
+    func openCodeSummarizerEnvironment(from env: [String: String]) -> [String: String] {
+        let configOverrideKeys = [
+            "OPENCODE_CONFIG",
+            "OPENCODE_CONFIG_CONTENT",
+            "OPENCODE_CONFIG_DIR",
+            "OPENCODE_PROJECT_CONFIG"
+        ]
+        var selected = summarizerEnvironment(from: env).filter { key, _ in
+            !configOverrideKeys.contains(key)
+        }
+        selected["OPENCODE_DISABLE_PROJECT_CONFIG"] = "1"
+        selected["OPENCODE_CONFIG_CONTENT"] = Self.openCodeIsolationConfigJSON
+        selected["OPENCODE_PERMISSION"] = Self.openCodeDenyAllPermissionsJSON
+        selected["OPENCODE_PURE"] = "1"
+        return selected
+    }
+
+    /// Argument vector for the tool-disabled `opencode run` summarizer call.
+    static func openCodeSummarizerArguments(directory: String, promptPath: String) -> [String] {
+        [
+            "run",
+            "--pure",
+            "--format", "default",
+            "--dir", directory,
+            "--file", promptPath,
+            "Generate a 2-5 word title from the attached conversation excerpt. Output only the title."
+        ]
+    }
+
     /// Argument vector for the tool-disabled `claude -p` summarizer call.
     func claudeSummarizerArguments(from env: [String: String]) -> [String] {
         [

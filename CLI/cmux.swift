@@ -5653,7 +5653,16 @@ struct CMUXCLI {
             }
 
         case "agent":
-            try runVMAgentCommand(rest: Self.vmAgentAliasArgs(commandArgs), client: client, jsonOutput: jsonOutput)
+            // `agent message` and `agent inbox` are local agent messaging;
+            // hibernate and wake act on local agents; everything else stays an
+            // alias of `cmux vm agent`.
+            if try !runAgentMessageCommandIfMatched(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput) {
+                if let verb = commandArgs.first?.lowercased(), verb == "hibernate" || verb == "wake" {
+                    try runAgentHibernation(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+                } else {
+                    try runVMAgentCommand(rest: Self.vmAgentAliasArgs(commandArgs), client: client, jsonOutput: jsonOutput)
+                }
+            }
 
         case "vm", "cloud":
             let sub = commandArgs.first?.lowercased() ?? "ls"
@@ -18731,7 +18740,14 @@ struct CMUXCLI {
         )
         switch command {
         case "agent":
-            return Self.vmAgentUsage.replacingOccurrences(of: "cmux vm agent", with: "cmux agent")
+            return Self.vmAgentUsage.replacingOccurrences(of: "cmux vm agent", with: "cmux agent") + """
+
+
+            Local agents:
+              cmux agent hibernate <surface>   Hibernate one idle, off-screen agent now
+              cmux agent wake <surface>        Resume a hibernated agent in place
+            See `cmux agent-hibernation --help`.
+            """
         case "remotes", "remote":
             return Self.remotesUsage
         case "todo":
@@ -19154,10 +19170,17 @@ struct CMUXCLI {
             return String(localized: "cli.socketControlStatus.help", defaultValue: "Usage: cmux socket-status [--json]")
         case "agent-hibernation":
             return """
-            Usage: cmux agent-hibernation <on|off> [--json]
+            \(Self.agentHibernationUsage)
 
-            Enable or disable routine Agent Hibernation.
+            on|off: enable or disable routine Agent Hibernation.
             Configure idle and live-terminal limits from Settings or cmux settings JSON.
+
+            hibernate <surface>: stop one idle agent now and keep its session for
+            resume. The agent must be off screen, idle, and free of background work.
+            wake <surface>: resume a hibernated agent in place.
+            `cmux agent hibernate|wake <surface>` are aliases.
+
+            <surface> is a UUID, a ref like surface:3, or an index with --workspace.
             """
         case "restore-session":
             return String(localized: "cli.restoreSession.help", defaultValue: """
@@ -21099,6 +21122,18 @@ struct CMUXCLI {
             print("")
             print(verbText)
             return true
+        }
+        if command == "agent", let verb = commandArgs.first?.lowercased() {
+            switch verb {
+            case "message", "msg":
+                print(Self.agentMessageHelp)
+                return true
+            case "inbox":
+                print(Self.agentInboxHelp)
+                return true
+            default:
+                break
+            }
         }
         guard let text = subcommandUsage(command) else { return false }
         print("cmux \(command)")
@@ -29733,7 +29768,7 @@ struct CMUXCLI {
         jsonOutput: Bool
     ) throws {
         guard let subcommand = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "Usage: cmux agent-hibernation <on|off> [--json]")
+            throw CLIError(message: Self.agentHibernationUsage)
         }
         let response: String
         switch subcommand {
@@ -29741,8 +29776,16 @@ struct CMUXCLI {
             response = try sendV1Command("agent_hibernation on", client: client)
         case "off", "disable":
             response = try sendV1Command("agent_hibernation off", client: client)
+        case "hibernate", "wake":
+            try runAgentHibernationTarget(
+                subcommand: subcommand,
+                args: Array(commandArgs.dropFirst()),
+                client: client,
+                jsonOutput: jsonOutput
+            )
+            return
         default:
-            throw CLIError(message: "Usage: cmux agent-hibernation <on|off> [--json]")
+            throw CLIError(message: Self.agentHibernationUsage)
         }
 
         if jsonOutput {
@@ -31587,17 +31630,19 @@ struct CMUXCLI {
         var nextOwnerCheck = Date.distantPast
         var ownerGoneSince: Date?
         var publishedUserInputCallIds = Set<String>()
+        // Arm before every read. A write that lands after the read must wake
+        // the wait below, not wait for the 30 second backstop.
+        let transcriptChanges = CodexTranscriptChangeWatcher()
         while Date() < deadline {
+            if transcriptPath == nil {
+                transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
+            }
+            transcriptChanges.arm(paths: [transcriptPath, leasePath].compactMap { $0 })
+
             if isCodexMonitorLeaseRetired(path: leasePath) {
                 return nil
             }
 
-            if transcriptPath == nil {
-                transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
-            }
-
-            // Taken before the reads, so a write after them wakes the wait below.
-            let observedTranscriptState = codexTranscriptFileState(path: transcriptPath)
             if let currentTranscriptPath = transcriptPath {
                 let userInput = autoreleasepool(invoking: { readCodexTranscriptUserInput(path: currentTranscriptPath, turnId: turnId, excluding: publishedUserInputCallIds) })
                 if let userInput {
@@ -31698,12 +31743,7 @@ struct CMUXCLI {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return nil }
-            waitForCodexTranscriptChange(
-                path: transcriptPath,
-                leasePath: leasePath,
-                timeout: min(ownerGraceActive ? 0.25 : 30, remaining),
-                observedState: observedTranscriptState
-            )
+            transcriptChanges.wait(timeout: min(ownerGraceActive ? 0.25 : 30, remaining))
         }
         return nil
     }
@@ -42064,6 +42104,9 @@ export default {
 
         case "claude":
             telemetry.breadcrumb("hooks.claude.dispatch")
+            if try runAgentInboxHookIfMatched(agent: "claude", commandArgs: rest, client: client) {
+                return
+            }
             do {
                 try runClaudeHook(commandArgs: rest, client: client, telemetry: telemetry, socketPassword: socketPassword)
                 telemetry.breadcrumb("hooks.claude.completed")
@@ -42078,6 +42121,10 @@ export default {
                 throw CLIError(message: "Unknown hooks target: \(first)")
             }
             telemetry.breadcrumb("hooks.\(def.name).dispatch")
+            if def.name == "codex",
+               try runAgentInboxHookIfMatched(agent: "codex", commandArgs: rest, client: client) {
+                return
+            }
             do {
                 try runGenericAgentHook(
                     def: def,
