@@ -2409,7 +2409,8 @@ public actor VMClient {
                 extraHeaders: headers,
                 timeoutSeconds: timeoutSeconds,
                 retryTransientServiceUnavailable: retryTransientServiceUnavailable,
-                allowWhenCloudDisabled: allowedUnderManagedPolicy || allowWhenCloudDisabled,
+                allowedUnderManagedPolicy: allowedUnderManagedPolicy,
+                allowWhenCloudDisabled: allowWhenCloudDisabled,
                 expectedTeamScope: expectedTeamScope,
                 onRetry: { retryCount += 1 }
             )
@@ -2483,6 +2484,7 @@ public actor VMClient {
         extraHeaders: [String: String],
         timeoutSeconds: TimeInterval?,
         retryTransientServiceUnavailable: Bool,
+        allowedUnderManagedPolicy: Bool,
         allowWhenCloudDisabled: Bool, expectedTeamScope: AuthenticatedTeamScope?,
         onRetry: () -> Void
     ) async throws -> (Data, HTTPURLResponse) {
@@ -2543,11 +2545,8 @@ public actor VMClient {
             guard await auth.resolvedTeamID == requestedTeamID else {
                 throw VMClientError.notSignedIn
             }
-            if allowWhenCloudDisabled {
-                if !isCloudAvailable() { throw VMClientError.cloudMachinesDisabled }
-            } else if !isCloudEnabled() {
-                throw VMClientError.cloudMachinesDisabled
-            }
+            try checkCloudAccess(allowedUnderManagedPolicy: allowedUnderManagedPolicy,
+                allowWhenCloudDisabled: allowWhenCloudDisabled)
             let data: Data
             let response: URLResponse
             let attempt = 3 - retriesLeft
@@ -2578,11 +2577,8 @@ public actor VMClient {
             }
             try Task.checkCancellation()
             if let expectedTeamScope, !(await auth.isAuthenticatedTeamScopeCurrent(expectedTeamScope)) { throw VMClientError.notSignedIn }
-            if allowWhenCloudDisabled {
-                if !isCloudAvailable() { throw VMClientError.cloudMachinesDisabled }
-            } else if !isCloudEnabled() {
-                throw VMClientError.cloudMachinesDisabled
-            }
+            try checkCloudAccess(allowedUnderManagedPolicy: allowedUnderManagedPolicy,
+                allowWhenCloudDisabled: allowWhenCloudDisabled)
             guard let http = response as? HTTPURLResponse else {
                 throw VMClientError.malformedResponse("non-HTTP response")
             }

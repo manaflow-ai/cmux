@@ -9,21 +9,19 @@ struct CloudMachinesEnablementView: View {
     let accountFlow: HostAccountFlow?
 
     var body: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            Image(systemName: "cloud")
-                .font(.system(size: 32, weight: .light))
-                .foregroundStyle(.secondary)
-            Text(title)
-                .cmuxFont(size: 14, weight: .semibold)
-                .multilineTextAlignment(.center)
-            Text(subtitle)
-                .cmuxFont(size: 12)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 28)
-            actionContent
-            Spacer()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Label(title, systemImage: "cloud")
+                    .cmuxFont(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                Text(subtitle)
+                    .cmuxFont(.body)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                actionContent
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("CloudMachinesEnablement")
@@ -101,6 +99,7 @@ struct CloudMachinesEnablementView: View {
         case .enabling:
             ProgressView()
                 .controlSize(.small)
+                .accessibilityLabel(title)
             Button(String(localized: "cloud.enable.cancel", defaultValue: "Cancel")) {
                 coordinator.cancel()
             }
