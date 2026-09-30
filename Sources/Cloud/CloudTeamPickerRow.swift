@@ -33,6 +33,8 @@ struct CloudTeamPickerRow: View {
         String(localized: "settings.account.activeTeam", defaultValue: "Active Team")
     }
 
+    @State private var isHovered = false
+
     var body: some View {
         Button {
             presentation.isPresented = true
@@ -46,8 +48,9 @@ struct CloudTeamPickerRow: View {
                     .layoutPriority(1)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
             }
+            // Same grey and hover rule as the tab bar's mode labels above.
+            .foregroundColor(RightSidebarChromeControlStyle.pillForegroundColor(isSelected: false, isHovered: isHovered))
             // Flush with the tree's section chevrons below.
             .padding(.leading, 1)
             .padding(.trailing, 7)
@@ -55,6 +58,7 @@ struct CloudTeamPickerRow: View {
             .contentShape(RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous))
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
         .overlay {
             CloudTeamPickerMenuAnchor(
                 isPresented: $presentation.isPresented,
