@@ -62,12 +62,18 @@ final class InputInvariantMonitor {
 
     private func settle() {
         guard let result = check() else { return }
-        let current = Set(result.violations.map(\.signature))
+        // A window stays unsettled for a moment after a switch; unsettled at
+        // the check and again at its confirmation, its presentation is stuck
+        // (and W1-W4 would never run for it).
+        let violations = result.violations + result.unsettled.map {
+            InputViolation(invariant: .presentationSettles, window: $0, detail: "the focused pane does not present the targeted tab")
+        }
+        let current = Set(violations.map(\.signature))
         reported.formIntersection(current)
         let confirmed = current.intersection(suspected).subtracting(reported)
         suspected = current.subtracting(reported)
         if !confirmed.isEmpty {
-            record(result.violations.filter { confirmed.contains($0.signature) })
+            record(violations.filter { confirmed.contains($0.signature) })
             reported.formUnion(confirmed)
             suspected.subtract(confirmed)
         }

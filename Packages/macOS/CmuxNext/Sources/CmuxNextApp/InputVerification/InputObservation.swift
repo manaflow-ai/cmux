@@ -96,6 +96,7 @@ nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, CaseIterab
     case overlaysMatch = "W6"
     case contextMatches = "W7"
     case presentedMatchesSelection = "W8"
+    case presentationSettles = "W9"
     // Geometry (after settle).
     case chromiumGeometry = "G1"
 
@@ -127,6 +128,7 @@ nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, CaseIterab
         case .overlaysMatch: "open palettes and sheets match the overlay stacks"
         case .contextMatches: "the window that owns the keyboard is active and its focus is the published context"
         case .presentedMatchesSelection: "every shown pane shows its selected tab, and that tab is in the pane"
+        case .presentationSettles: "the focused pane presents the targeted tab within a settle"
         case .chromiumGeometry: "every Chromium page window covers its pane in screen coordinates (ChildPageGeometry)"
         }
     }
