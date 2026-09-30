@@ -10,6 +10,7 @@ public struct WorktreeSeedRepository: Sendable {
     /// The repository root, as given.
     public let root: URL
     private let resolvedRootPath: String
+    private static let maximumSymlinkResolutions = 64
 
     /// Creates a reader for a repository root.
     public init(root: URL) {
@@ -95,6 +96,7 @@ public struct WorktreeSeedRepository: Sendable {
     private static func resolveSymlinksPreservingMissingLeaf(_ url: URL) -> URL? {
         var current = url.standardizedFileURL
         var seen: Set<String> = []
+        var resolutions = 0
 
         while true {
             guard seen.insert(current.path).inserted else { return nil }
@@ -105,6 +107,8 @@ public struct WorktreeSeedRepository: Sendable {
             for (offset, component) in components.dropFirst().enumerated() {
                 rebuilt.appendPathComponent(component)
                 if let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: rebuilt.path) {
+                    guard resolutions < maximumSymlinkResolutions else { return nil }
+                    resolutions += 1
                     current = URL(fileURLWithPath: destination, relativeTo: rebuilt.deletingLastPathComponent())
                     for suffix in components.dropFirst(offset + 2) {
                         current.appendPathComponent(suffix)
