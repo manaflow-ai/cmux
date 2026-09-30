@@ -568,22 +568,42 @@ final class AgentChatSessionRegistry {
         Task { @MainActor [weak self] in
             guard let self else { return }
             let metadata = await self.metadataResolver.refresh(records: snapshot)
-            let refreshableIDs = Set(snapshot.filter { $0.workingDirectory != nil }.map(\.sessionID))
-            for sessionID in refreshableIDs {
-                self.update(sessionID: sessionID) { record in
-                    record.branch = nil
-                    record.worktree = nil
-                    record.linkedPullRequests.removeAll()
-                    record.pullRequestsResolved = false
+            let snapshotByID = Dictionary(uniqueKeysWithValues: snapshot.compactMap { record in
+                record.workingDirectory.map { (record.sessionID, $0) }
+            })
+            let resolvedIDs = Set(metadata.keys)
+            // Apply and clear only while the session still points at the same
+            // checkout captured before the async Git/GitHub work. Do not clear
+            // branch first: retaining it lets us reject a result when the
+            // checkout changed branch in the meantime.
+            for (sessionID, snapshotDirectory) in snapshotByID {
+                guard let current = self.records[sessionID],
+                      current.workingDirectory == snapshotDirectory else {
+                    continue
                 }
-            }
-            for (sessionID, value) in metadata {
-                guard self.records[sessionID] != nil else { continue }
-                self.update(sessionID: sessionID) { record in
-                    record.branch = value.branch
-                    record.worktree = value.worktree
-                    record.linkedPullRequests = value.pullRequests
-                    record.pullRequestsResolved = value.pullRequestsResolved
+                if let value = metadata[sessionID] {
+                    guard current.branch == nil || current.branch == value.branch else {
+                        self.update(sessionID: sessionID) { record in
+                            record.branch = nil
+                            record.worktree = nil
+                            record.linkedPullRequests.removeAll()
+                            record.pullRequestsResolved = false
+                        }
+                        continue
+                    }
+                    self.update(sessionID: sessionID) { record in
+                        record.branch = value.branch
+                        record.worktree = value.worktree
+                        record.linkedPullRequests = value.pullRequests
+                        record.pullRequestsResolved = value.pullRequestsResolved
+                    }
+                } else if !resolvedIDs.contains(sessionID) {
+                    self.update(sessionID: sessionID) { record in
+                        record.branch = nil
+                        record.worktree = nil
+                        record.linkedPullRequests.removeAll()
+                        record.pullRequestsResolved = false
+                    }
                 }
             }
             self.metadataRefreshInFlight = false
