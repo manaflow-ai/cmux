@@ -111,7 +111,7 @@ jobs:
           RUSTFLAGS: "-C embed-bitcode=no"
           # cc-built C objects (sqlite3, blake3, ring) must carry the same
           # minimum OS as the app, or ld warns about every one of them.
-          IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+          IPHONEOS_DEPLOYMENT_TARGET: "17.0"
           MACOSX_DEPLOYMENT_TARGET: "14.0"
         run: |
           set -euo pipefail
@@ -188,8 +188,8 @@ jobs:
             plutil -lint "$fw/Info.plist"
             entries+="<dict><key>BinaryPath</key><string>CmuxTerminalClientFFI.framework/CmuxTerminalClientFFI</string><key>LibraryIdentifier</key><string>$slice</string><key>LibraryPath</key><string>CmuxTerminalClientFFI.framework</string><key>SupportedArchitectures</key><array><string>arm64</string></array><key>SupportedPlatform</key><string>$platform</string>$variant_key</dict>"
           }
-          add_slice aarch64-apple-ios ios-arm64 ios iPhoneOS 18.0 ""
-          add_slice aarch64-apple-ios-sim ios-arm64-simulator ios iPhoneSimulator 18.0 simulator
+          add_slice aarch64-apple-ios ios-arm64 ios iPhoneOS 17.0 ""
+          add_slice aarch64-apple-ios-sim ios-arm64-simulator ios iPhoneSimulator 17.0 simulator
           add_slice aarch64-apple-darwin macos-arm64 macos MacOSX 14.0 ""
           cat > "$xcf/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
@@ -261,9 +261,9 @@ jobs:
             echo "$slice: linked"
           }
           rel=cmux-tui/target
-          smoke_link ios-arm64 iphoneos arm64-apple-ios18.0 \
+          smoke_link ios-arm64 iphoneos arm64-apple-ios17.0 \
             "$rel/aarch64-apple-ios/release/libcmux_terminal_client.a"
-          smoke_link ios-arm64-simulator iphonesimulator arm64-apple-ios18.0-simulator \
+          smoke_link ios-arm64-simulator iphonesimulator arm64-apple-ios17.0-simulator \
             "$rel/aarch64-apple-ios-sim/release/libcmux_terminal_client.a"
           smoke_link macos-arm64 macosx arm64-apple-macos14.0 \
             "$rel/aarch64-apple-darwin/release/libcmux_terminal_client.a"

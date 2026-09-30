@@ -37,6 +37,11 @@ public final class TerminalClient: @unchecked Sendable {
     private let raw: OpaquePointer
     /// Retained while an output handler is installed; the C callback context.
     private var outputBox: OutputBox?
+    /// Most recently requested handler. A callback can request replacement
+    /// while the FFI is synchronously draining the old callback, so that
+    /// request is applied after the drain returns.
+    private var requestedOutputBox: OutputBox?
+    private var outputCallbackUpdateInFlight = false
     /// Held so the tunnel outlives this client.
     private let wireGuard: WireGuardNet?
     private let lock = NSLock()
@@ -90,32 +95,66 @@ public final class TerminalClient: @unchecked Sendable {
     }
 
     deinit {
-        lock.lock()
-        clearOutputHandler()
-        lock.unlock()
+        setOutputHandler(nil)
         cmux_terminal_client_disconnect(raw)
     }
 
     /// Install before `attach`. Runs on library worker threads; hop to the
     /// main actor before touching UI.
     public func setOutputHandler(_ handler: (@Sendable (TerminalOutputEvent) -> Void)?) {
+        let requested = handler.map(OutputBox.init(handler:))
         lock.lock()
-        defer { lock.unlock() }
-        clearOutputHandler()
-        guard let handler else {
+        requestedOutputBox = requested
+        guard !outputCallbackUpdateInFlight else {
+            lock.unlock()
             return
         }
-        let box = OutputBox(handler: handler)
-        outputBox = box
-        cmux_terminal_client_set_output_callback(
-            raw, outputTrampoline, Unmanaged.passUnretained(box).toOpaque())
+        outputCallbackUpdateInFlight = true
+        lock.unlock()
+        applyOutputHandlerUpdates()
     }
 
-    private func clearOutputHandler() {
-        // The FFI contract keeps the context valid until this synchronous
-        // clear returns, including callbacks already in flight.
-        cmux_terminal_client_set_output_callback(raw, nil, nil)
-        outputBox = nil
+    private func applyOutputHandlerUpdates() {
+        while true {
+            lock.lock()
+            let installed = outputBox
+            let requested = requestedOutputBox
+            let unchanged =
+                (installed == nil && requested == nil)
+                || (installed != nil && requested != nil && installed! === requested!)
+            if unchanged {
+                outputCallbackUpdateInFlight = false
+                lock.unlock()
+                return
+            }
+            lock.unlock()
+
+            if let installed {
+                // The FFI waits for callbacks already in flight. Keep the
+                // context retained locally, and never hold `lock` across this
+                // call because the handler can request a deferred replacement.
+                cmux_terminal_client_set_output_callback(raw, nil, nil)
+                lock.lock()
+                if outputBox === installed {
+                    outputBox = nil
+                }
+                lock.unlock()
+            }
+
+            lock.lock()
+            let latest = requestedOutputBox
+            if let latest {
+                outputBox = latest
+            }
+            lock.unlock()
+
+            if let latest {
+                cmux_terminal_client_set_output_callback(
+                    raw,
+                    outputTrampoline,
+                    Unmanaged.passUnretained(latest).toOpaque())
+            }
+        }
     }
 
     public func listTerminals(timeout: Duration = .seconds(15)) throws -> [TerminalSummary] {
