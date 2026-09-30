@@ -1,5 +1,10 @@
 name: CI
 
+# The guard watcher receives this title before dispatch jobs start. Keep a
+# compact, versioned fingerprint here so it can distinguish equivalent PR
+# coverage from a fuller manual request.
+run-name: ${{ format('v1;sha={0};ref={1};cache={2};release={3};coverage={4}', github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha, github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name, inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2', inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS || 'universal', github.event_name != 'pull_request' && 'full' || ((vars.CI_PULL_REQUEST_SUITE || 'compile-only') != 'compile-only' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'full' || 'compile-only') }}
+
 on:
   # Run the router for every pull request. The Linux layer is cheap and the
   # change classifier below keeps unrelated macOS jobs skipped. A workflow-level
@@ -88,6 +93,7 @@ jobs:
       # shard (shard 8), which pr_runner_pool.py still plans for.
       unit_in_admission: ${{ steps.suite.outputs.unit_in_admission }}
       coverage_gap: ${{ steps.suite.outputs.coverage_gap }}
+      coverage_fingerprint: ${{ steps.coverage-fingerprint.outputs.fingerprint }}
       ui_selectors: ${{ steps.suite.outputs.ui_selectors }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
       source_parent1: ${{ steps.source-identity.outputs.parent1 }}
@@ -159,6 +165,13 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 2
+
+      - name: Reject superseded manual dispatch before routing
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COVERAGE_FINGERPRINT: ${{ format('v1;sha={0};ref={1};cache={2};release={3};coverage={4}', github.sha, github.ref_name, inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2', inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS || 'universal', 'full') }}
+        run: python3 scripts/ci/manual_dispatch_guard.py --check-only
 
       - name: Record GitHub-selected source identity
         id: source-identity
@@ -684,6 +697,19 @@ jobs:
             ${files_args[@]+"${files_args[@]}"} \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Record coverage fingerprint
+        id: coverage-fingerprint
+        env:
+          SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          SOURCE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
+          CACHE_BACKEND: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
+          RELEASE_ARCHS: ${{ inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS || 'universal' }}
+          COVERAGE_POLICY: ${{ steps.suite.outputs.full_suite == 'true' && 'full' || 'compile-only' }}
+        run: |
+          set -euo pipefail
+          fingerprint="v1;sha=$SOURCE_SHA;ref=$SOURCE_REF;cache=$CACHE_BACKEND;release=$RELEASE_ARCHS;coverage=$COVERAGE_POLICY"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+
       - name: Mint the owned-pool routing token
         id: route-token
         # The org's manaflow-glaeda-route App, read-only on runners, so the
@@ -695,7 +721,7 @@ jobs:
         # yet, the App not installed, or the App without that organization
         # permission) leaves the token empty, and the choice falls back to the
         # janitor snapshot and CI_OWNED_POOL_SLOTS.
-        if: (github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)) || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)) || github.event_name == 'workflow_dispatch') && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -722,17 +748,16 @@ jobs:
       - name: Choose the pull request macOS pool
         id: macos-pool
         # Fail-safe: any error leaves the outputs empty, which is today's route.
-        # Main's full-suite dispatch (ci-main-full-suite.yml) is routed too,
-        # onto the owned pools only, placed like a pull request unless
-        # (pr_runner_pool.py, "Main's full suite"); ci-macos.yml already reads
-        # these outputs for a workflow_dispatch on main.
+        # Manual dispatches are routed too, onto the owned pools only, placed
+        # like a pull request unless (pr_runner_pool.py, "Main's full suite");
+        # ci-macos.yml reads these outputs for every workflow_dispatch run.
         continue-on-error: true
         timeout-minutes: 1
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          CI_PR_POOL_FORK_ALLOWED: ${{ github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)) && '1' || '0' }}
+          HEAD_REPO: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          CI_PR_POOL_FORK_ALLOWED: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name))) && '1' || '0' }}
           MACOS_RUNNER_PR: ${{ vars.MACOS_RUNNER_PR }}
           DEFAULT_RUNNER: ${{ vars.MACOS_RUNNER_PR }}
           # Empty unless the step above minted it: idle owned runners, live.
@@ -747,7 +772,7 @@ jobs:
           CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           POOL_OWNED_SPLIT: ${{ vars.CI_PR_POOL_OWNED_SPLIT }}
           POOL_OWNED_GUI: ${{ vars.CI_PR_POOL_OWNED_GUI }}
-          CMUX_CI_XCODE_APP_PR: ${{ (github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)) || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && vars.CMUX_CI_XCODE_APP_PR || '' }}
+          CMUX_CI_XCODE_APP_PR: ${{ (github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)) || github.event_name == 'workflow_dispatch') && vars.CMUX_CI_XCODE_APP_PR || '' }}
           CMUX_CI_XCODE_APP_MACOS_15: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
           # The run's machine count. A chosen label is never split.
           RUN_MACOS: ${{ steps.detect.outputs.macos }}
@@ -1089,6 +1114,18 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # A requested manual dispatch may only be suppressed by a PR run that has
+  # selected the equivalent full suite. The guard watcher reads this cheap
+  # marker from the run's jobs rather than inferring coverage from its SHA.
+  full-suite-coverage:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.full_suite == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 1
+    permissions: {}
+    steps:
+      - run: echo "full-suite coverage selected"
+
   static-preflight:
     name: Fast static checks
     # No package installs, submodules or app build: reject malformed inputs
@@ -1190,7 +1227,7 @@ jobs:
     name: Claude wrapper regressions
     needs: [changes, static-preflight]
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.claude_wrapper == 'true' || (needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(needs.changes.outputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && (github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner || github.event_name == 'pull_request' && ((contains(needs.changes.outputs.macos_pr_light_side_jobs, ' claude-wrapper ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner) || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt <= 2 && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(needs.changes.outputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && (github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner || github.event_name == 'pull_request' && ((contains(needs.changes.outputs.macos_pr_light_side_jobs, ' claude-wrapper ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner) || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2 && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     # Normally 1-2 minutes, but it spawns hundreds of short bash, perl and node
     # processes, so a mini saturated by a compile beside it stretches it:
     # 120-527 s at a mean load of 36-100 on 14 cores (glaeda-cmux-jobs.jsonl,
@@ -1266,6 +1303,7 @@ jobs:
     name: macOS admission gate
     needs:
       - changes
+      - full-suite-coverage
       - static-preflight
       - suite-coverage
       - ghosttykit-release-check
@@ -1365,6 +1403,21 @@ jobs:
           import sys
 
           needs = json.loads(os.environ["TESTS_NEEDS"])
+          # A cancelled job reaches this gate as a `cancelled` result, and the
+          # routing verdict below would report it as though the pull request had
+          # a routing defect. It does not: the run was stopped before it tested
+          # anything. Say that instead, and still fail. This gate is rolled
+          # into the required ci-status check, so reporting success on a
+          # cancelled run would put a green on a required check that no suite
+          # stood behind, and a pull request could merge with nothing having
+          # tested it. Rerunning the run clears it.
+          cancelled = sorted(name for name, data in needs.items()
+                             if data["result"] == "cancelled")
+          if cancelled:
+              print("cancelled: " + ", ".join(cancelled), file=sys.stderr)
+              print("this run was stopped before it reported a test verdict; "
+                    "rerun it, or push again, to get one", file=sys.stderr)
+              sys.exit(1)
           changes = needs["changes"]
           if changes["result"] != "success":
               print(f"changes: {changes['result']}", file=sys.stderr)

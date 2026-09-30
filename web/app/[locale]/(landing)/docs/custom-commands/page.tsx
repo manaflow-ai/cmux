@@ -338,6 +338,8 @@ export default function CustomCommandsPage() {
         <li><code>&quot;builtin&quot;</code>: {t("actionTypeBuiltin")} {t("actionTypeBuiltinCopy")} {t("actionTypeBuiltinCopyRemote")}</li>
         <li><code>&quot;workspaceCommand&quot;</code>: {t("actionTypeWorkspaceCommand")}</li>
         <li><code>&quot;workspace&quot;</code>: {t("actionTypeWorkspace")}</li>
+        <li><code>&quot;setting&quot;</code>: {t("actionTypeSetting")}</li>
+        <li><code>&quot;settingPreset&quot;</code>: {t("actionTypeSettingPreset")}</li>
       </ul>
       <DocsHeading level={3} id="action-fields">{t("actionFields")}</DocsHeading>
       <ul>
@@ -353,6 +355,43 @@ export default function CustomCommandsPage() {
       <DocsHeading level={3} id="command-palette-behavior">{t("commandPaletteBehavior")}</DocsHeading>
       <p>
         {t.rich("commandPaletteBehaviorDesc", codeTags("palette", "commands", "newTerminal"))}
+      </p>
+
+      <DocsHeading level={3} id="setting-actions">{t("settingActions")}</DocsHeading>
+      <p>
+        {t.rich("settingActionsDesc", codeTags("path", "set", "toggle", "cycle", "unset", "presets"))}
+      </p>
+      <CodeBlock title="~/.config/cmux/cmux.json" lang="json">{`{
+  "actions": {
+    "scroll.cycle": {
+      "type": "setting",
+      "title": "Cycle Scroll Speed",
+      "path": "terminal.scrollSpeed",
+      "cycle": [1.0, 1.4, 1.8]
+    },
+    "editor.wrap": {
+      "type": "setting",
+      "title": "Toggle Editor Word Wrap",
+      "path": "fileEditor.wordWrap",
+      "toggle": true
+    },
+    "sidebar.quiet": {
+      "type": "settingPreset",
+      "title": "Quiet Sidebar",
+      "preset": "sidebar.quiet"
+    }
+  },
+  "settingPresets": {
+    "sidebar.quiet": {
+      "sidebar": { "showPorts": false, "showPullRequests": false, "showLog": false }
+    }
+  }
+}`}</CodeBlock>
+      <p>
+        {t.rich("settingActionsCli", codeTags("set", "toggle", "preset"))}
+      </p>
+      <p>
+        {t.rich("settingActionsLimits", codeTags("confirm", "byCwd"))}
       </p>
 
       <DocsHeading level={2} id="new-workspace-button">{t("newWorkspaceButton")}</DocsHeading>

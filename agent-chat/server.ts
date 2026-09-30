@@ -205,6 +205,7 @@ let fileTheme = resolveGhosttyTheme();
 let cmuxThemeOverride: GhosttyTheme | null = null;
 let currentTheme = fileTheme;
 const startRequests = new Map<string, { createdAt: number; promise: Promise<Session> }>();
+const sessionActionRequests = new Map<string, { createdAt: number; promise: Promise<Session> }>();
 type AttributionMode = "new-turn" | "current-turn";
 type InternalDoneEvent = Extract<AgentEvent, { kind: "done" }> & { generation?: number };
 const optionCatalog = new Map<string, {
@@ -244,6 +245,12 @@ function pruneStartRequests() {
   const now = Date.now();
   for (const [key, entry] of startRequests) {
     if (now - entry.createdAt > START_REQUEST_TTL_MS) startRequests.delete(key);
+  }
+}
+function pruneSessionActionRequests() {
+  const now = Date.now();
+  for (const [key, entry] of sessionActionRequests) {
+    if (now - entry.createdAt > START_REQUEST_TTL_MS) sessionActionRequests.delete(key);
   }
 }
 const keyConfig = await readKeyConfig();
@@ -1483,7 +1490,7 @@ export function resolveFileDiffPath(cwd: string, path: string): string {
   return rel.replaceAll("\\", "/");
 }
 
-function fileDiffAllowlist(sess: Session): Set<string> {
+function fileDiffAllowlist(sess: Pick<Session, "internal">): Set<string> {
   let allowed = sess.internal.fileDiffAllowlist as Set<string> | undefined;
   if (!allowed) {
     allowed = new Set();
@@ -1518,7 +1525,7 @@ function rebuildFileDiffAllowlist(sess: Session) {
   }
 }
 
-function assertFileDiffAllowed(sess: Session, safePath: string) {
+function assertFileDiffAllowed(sess: Pick<Session, "internal">, safePath: string) {
   if (!fileDiffAllowlist(sess).has(safePath)) throw new Error("path was not reported by this session");
 }
 
@@ -2239,6 +2246,39 @@ function sendWsErrorDetails(
   ws.send(JSON.stringify({ kind: "error", op, message: safeErrorMessage(op, err, { provider }), ...publicDetails }));
 }
 
+/** Handles diff validation and replies for the WebSocket route. */
+export function sendFileDiffResponse(
+  ws: Pick<Bun.ServerWebSocket<WsData>, "data" | "send">,
+  msg: { sessionId?: unknown; path?: unknown; requestId?: unknown },
+  sess?: Pick<Session, "id" | "cwd" | "internal">,
+) {
+  const path = String(msg.path ?? "");
+  const requestId = typeof msg.requestId === "string" && msg.requestId ? msg.requestId : undefined;
+  if (!path) {
+    sendWsErrorDetails(ws, "get-file-diff", new Error("invalid path"), { sessionId: String(msg.sessionId ?? ""), path, requestId });
+    return;
+  }
+  if (!sess) {
+    sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: String(msg.sessionId ?? ""), path, requestId });
+    return;
+  }
+  if (ws.data.subscribed !== sess.id) {
+    sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: sess.id, path, requestId });
+    return;
+  }
+  let safePath: string;
+  try {
+    safePath = resolveFileDiffPath(sess.cwd, path);
+    assertFileDiffAllowed(sess, safePath);
+  } catch (err) {
+    sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path, requestId });
+    return;
+  }
+  return Promise.resolve(fileDiff(sess.cwd, safePath))
+    .then((diff) => ws.send(JSON.stringify({ kind: "file-diff", sessionId: sess.id, path: safePath, diff, requestId })))
+    .catch((err) => sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path, requestId }));
+}
+
 /** Replies on the same command-discovery path used by the WebSocket route. */
 export async function sendCommandCatalogResponse(
   ws: Pick<Bun.ServerWebSocket<WsData>, "send">,
@@ -2379,8 +2419,21 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
         sendWsErrorDetails(ws, "fork", new Error("no session"), { sessionId: String(msg.sessionId ?? "") });
         return;
       }
-      Promise.resolve(forkSession(sess))
-        .then((fork) => ws.send(JSON.stringify({ kind: "session-forked", session: sessionSummary(fork) })))
+      const requestId = typeof msg.requestId === "string" && msg.requestId ? msg.requestId : undefined;
+      pruneSessionActionRequests();
+      const key = requestId ? `fork:${sess.id}:${requestId}` : undefined;
+      const existing = key ? sessionActionRequests.get(key) : undefined;
+      const action = existing?.promise ?? Promise.resolve(forkSession(sess));
+      if (key && !existing) {
+        sessionActionRequests.set(key, { createdAt: Date.now(), promise: action });
+        action.finally(() => {
+          setTimeout(() => {
+            if (sessionActionRequests.get(key)?.promise === action) sessionActionRequests.delete(key);
+          }, START_REQUEST_TTL_MS);
+        }).catch(() => {});
+      }
+      action
+        .then((fork) => ws.send(JSON.stringify({ kind: "session-forked", session: sessionSummary(fork), ...(requestId ? { requestId } : {}) })))
         .catch((err) => {
           sess.emit({ kind: "error", message: safeErrorMessage("fork", err) });
           sendWsErrorDetails(ws, "fork", err, { sessionId: sess.id });
@@ -2393,8 +2446,21 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
         sendWsErrorDetails(ws, "handoff", new Error("no session"), { sessionId: String(msg.sessionId ?? "") });
         return;
       }
-      Promise.resolve(handoffSession(sess))
-        .then((child) => ws.send(JSON.stringify({ kind: "session-handoff", session: sessionSummary(child), sourceSessionId: sess.id })))
+      const requestId = typeof msg.requestId === "string" && msg.requestId ? msg.requestId : undefined;
+      pruneSessionActionRequests();
+      const key = requestId ? `handoff:${sess.id}:${requestId}` : undefined;
+      const existing = key ? sessionActionRequests.get(key) : undefined;
+      const action = existing?.promise ?? Promise.resolve(handoffSession(sess));
+      if (key && !existing) {
+        sessionActionRequests.set(key, { createdAt: Date.now(), promise: action });
+        action.finally(() => {
+          setTimeout(() => {
+            if (sessionActionRequests.get(key)?.promise === action) sessionActionRequests.delete(key);
+          }, START_REQUEST_TTL_MS);
+        }).catch(() => {});
+      }
+      action
+        .then((child) => ws.send(JSON.stringify({ kind: "session-handoff", session: sessionSummary(child), sourceSessionId: sess.id, ...(requestId ? { requestId } : {}) })))
         .catch((err) => {
           sess.emit({ kind: "error", message: safeErrorMessage("handoff", err) });
           sendWsErrorDetails(ws, "handoff", err, { sessionId: sess.id });
@@ -2425,31 +2491,7 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       break;
     }
     case "get-file-diff": {
-      const sess = sessions.get(String(msg.sessionId));
-      const path = String(msg.path ?? "");
-      if (!path) {
-        sendWsErrorDetails(ws, "get-file-diff", new Error("invalid path"), { sessionId: String(msg.sessionId ?? ""), path });
-        return;
-      }
-      if (!sess) {
-        sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: String(msg.sessionId ?? ""), path });
-        return;
-      }
-      if (ws.data.subscribed !== sess.id) {
-        sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: sess.id, path });
-        return;
-      }
-      let safePath: string;
-      try {
-        safePath = resolveFileDiffPath(sess.cwd, path);
-        assertFileDiffAllowed(sess, safePath);
-      } catch (err) {
-        sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path });
-        return;
-      }
-      Promise.resolve(fileDiff(sess.cwd, safePath))
-        .then((diff) => ws.send(JSON.stringify({ kind: "file-diff", sessionId: sess.id, path: safePath, diff })))
-        .catch((err) => sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path }));
+      sendFileDiffResponse(ws, msg, sessions.get(String(msg.sessionId)));
       break;
     }
     case "delete": {

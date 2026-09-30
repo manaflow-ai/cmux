@@ -28,6 +28,10 @@ final class CloudTuiManualMirrorSession {
     /// Set when someone disconnected this Mac; the pane shows it with Reattach
     /// and the session does not reconnect by itself.
     var sharingDetachment: TerminalSharingDetachment?
+    /// Set while only this Mac's own view is detached (`scope:"view"`): the
+    /// connection stays and keeps relaying phones; this pane stops sending
+    /// its own activity until `reattach-view`.
+    var sharingOwnViewDetached = false
     /// Reattach as a viewer: send `counts: false` for this lease after attach.
     var sharingReattachAsViewerPending = false
     /// The local surface id this session published sharing state under.
@@ -463,6 +467,7 @@ final class CloudTuiManualMirrorSession {
     /// is also used by the composed explicit-input callback.
     func claimGeometry() {
         guard surface?.isRendererPortalVisible == true else { return }
+        guard !sharingOwnViewDetached else { return }
         if sizingRelay.isSupported {
             sendSharingFocusActivity()
             return
@@ -476,6 +481,7 @@ final class CloudTuiManualMirrorSession {
     /// user is typing in must be the authoritative geometry owner. An owner
     /// already confirmed, or a server without claims, sends its keys alone.
     func noteExplicitInput() {
+        guard !sharingOwnViewDetached else { return }
         if sizingRelay.isSupported {
             // Activity only matters when it moves ownership to this Mac.
             if let me = sizingRelay.selfParticipantID, sizingRelay.state?.owners == [me] { return }
@@ -485,11 +491,18 @@ final class CloudTuiManualMirrorSession {
         guard (!geometryClaimed && !claimUnsupported) || geometryClaimBlockedByPeer else { return }
         claimGeometry()
     }
+    /// Why this attachment stopped; nil until ``stop(reason:)`` runs.
+    private(set) var stopReason: CloudTuiManualMirrorStopReason?
     /// Permanently tears down this view's attachment without closing the remote
     /// terminal. Closing the control socket is the cleanup fence for old
     /// servers; newer servers additionally retire the lease with the same close.
-    func stop() {
+    ///
+    /// - Parameter reason: Why the attachment ends. Unless the pane is closing,
+    ///   the pane keeps a card for `reason`, so a stop never leaves a silent
+    ///   frozen frame that drops input.
+    func stop(reason: CloudTuiManualMirrorStopReason = .paneClosed) {
         guard phase != .stopped else { return }
+        stopReason = reason
         unbindSharing()
         let wasAttached = phase == .attached
         transition(to: .stopped)
@@ -522,7 +535,8 @@ final class CloudTuiManualMirrorSession {
         connection = nil
         pendingRequests.removeAll(keepingCapacity: false)
         if let surface, surface.hostedView.cloudTerminalOverlay.session === self {
-            surface.hostedView.cloudTerminalOverlay.unbindSession(self)
+            surface.hostedView.cloudTerminalOverlay.endSession(self, presentation: reason.endedPresentation)
+            surface.hostedView.synchronizeCloudTerminalReconnectOverlay()
             surface.onManualSizeApplied = nil
             surface.onNaturalGridInputsChanged = nil
             surface.onRuntimeReady = nil
@@ -636,9 +650,9 @@ final class CloudTuiManualMirrorSession {
         case let .colorsChanged(surfaceID, colors):
             guard surfaceID == remoteSurfaceID else { return }
             applyColors(colors)
-        case let .detached(surfaceID, reason, view):
+        case let .detached(surfaceID, reason, view, viewOnly):
             guard surfaceID == remoteSurfaceID else { return }
-            handleSharingDetached(reason: reason, view: view)
+            handleSharingDetached(reason: reason, view: view, viewOnly: viewOnly)
         case let .sizeState(surfaceID, state):
             guard surfaceID == remoteSurfaceID else { return }
             receiveSizeState(state)
@@ -830,6 +844,8 @@ final class CloudTuiManualMirrorSession {
             }
             serverCapabilities = Set(capabilities)
             sizingRelay.connectionStarted(capabilities: serverCapabilities)
+            // A new connection attaches a fresh view.
+            sharingOwnViewDetached = false
             if creationAttachment != nil, !serverCapabilities.contains("attach-identity-v1") {
                 guard let resolveLegacySurfaceID, let currentConnection = connection else {
                     transitionToDisconnected(reason: .rejected("creation attachment identity unsupported"))
