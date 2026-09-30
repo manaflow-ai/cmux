@@ -279,6 +279,10 @@ enum Command {
         /// Log level filter, e.g. debug or acpmux=trace
         #[arg(long, default_value = "info")]
         log: String,
+        /// Write one JSON line ({"ready":true,"pid","socket","listen","webUrl"}) to this
+        /// inherited file descriptor once the socket and listen address are bound.
+        #[arg(long)]
+        ready_fd: Option<i32>,
     },
 }
 
@@ -375,6 +379,10 @@ enum DaemonCmd {
         /// Log level filter, e.g. debug or acpmux=trace
         #[arg(long, default_value = "info")]
         log: String,
+        /// Write one JSON line ({"ready":true,"pid","socket","listen","webUrl"}) to this
+        /// inherited file descriptor once the socket and listen address are bound.
+        #[arg(long)]
+        ready_fd: Option<i32>,
     },
     /// Daemon status, hosts, and the web URL.
     Status,
@@ -513,14 +521,24 @@ async fn main() -> Result<()> {
             let client = connect(true).await?;
             acpmux::tui::run(client, None).await
         }
-        Some(Command::DaemonRun { listen, token, memory, log }) => {
+        Some(Command::DaemonRun { listen, token, memory, log, ready_fd }) => {
             tracing_subscriber::fmt()
                 .with_env_filter(
                     tracing_subscriber::EnvFilter::try_new(&log).unwrap_or_else(|_| "info".into()),
                 )
                 .with_target(false)
                 .init();
-            acpmux::daemon::run(DaemonOptions { ws_listen: listen, ws_token: token, memory }).await
+            acpmux::daemon::run(DaemonOptions {
+                ws_listen: listen,
+                ws_token: token,
+                memory,
+                ready_fd,
+            })
+            .await?;
+            // The daemon has stopped its agents and synced its store. Exit
+            // now rather than wait for the runtime to drain blocking tasks
+            // (a launcher `--version` check can take 20 s).
+            std::process::exit(0)
         }
         Some(Command::Skill) => {
             use std::io::Write;
@@ -563,8 +581,8 @@ fn flatten(c: Command) -> Command {
             SessionCmd::History { session, limit } => Command::History { session, limit },
         },
         Command::Daemon(dc) => match dc {
-            DaemonCmd::Run { listen, token, memory, log } => {
-                Command::DaemonRun { listen, token, memory, log }
+            DaemonCmd::Run { listen, token, memory, log, ready_fd } => {
+                Command::DaemonRun { listen, token, memory, log, ready_fd }
             }
             DaemonCmd::Status => Command::Status,
             DaemonCmd::Shutdown => Command::Shutdown,

@@ -187,6 +187,11 @@ pub struct Hub {
     /// whenever a session starts, so the picker can list a harness that has
     /// no live session.
     pub(super) known_models: StdMutex<HashMap<String, Vec<(String, String)>>>,
+    /// False while the daemon finishes startup work (login environment,
+    /// launcher checks) in the background. Session creation and agent
+    /// spawns wait for it; every other request is answered at once.
+    pub(super) startup_ready: tokio::sync::watch::Sender<bool>,
+    pub(super) login_env_requested: AtomicBool,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -237,6 +242,8 @@ impl Hub {
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
             known_models: StdMutex::new(HashMap::new()),
+            startup_ready: tokio::sync::watch::channel(true).0,
+            login_env_requested: AtomicBool::new(false),
         });
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {
@@ -251,6 +258,70 @@ impl Hub {
 
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
         self.events.subscribe()
+    }
+
+    /// Hold session creation and agent spawns until `finish_startup`.
+    pub fn begin_startup(&self, login_env: bool) {
+        self.login_env_requested.store(login_env, Ordering::SeqCst);
+        self.startup_ready.send_replace(false);
+    }
+
+    /// Background startup: import the login environment (when requested),
+    /// reload the catalog so PATH discovery sees it, check launchers, then
+    /// let spawns through and probe models.
+    pub async fn finish_startup(self: &Arc<Self>) {
+        let login_env = self.login_env_requested.load(Ordering::SeqCst);
+        let mut reloaded = false;
+        if login_env && crate::login_env::import().await {
+            match self.reload_catalog().await {
+                Ok(_) => reloaded = true,
+                Err(e) => tracing::warn!("catalog reload after login env: {e}"),
+            }
+        }
+        self.verify_launchers().await;
+        self.startup_ready.send_replace(true);
+        tracing::info!("startup complete; agents may spawn");
+        // A catalog reload already started fresh probes.
+        if !reloaded {
+            self.probe_models().await;
+        }
+    }
+
+    pub fn startup_complete(&self) -> bool {
+        *self.startup_ready.borrow()
+    }
+
+    /// Wait until background startup has finished (immediate outside a daemon).
+    pub(super) async fn wait_startup(&self) {
+        let mut rx = self.startup_ready.subscribe();
+        let _ = rx.wait_for(|ready| *ready).await;
+    }
+
+    /// Run `--version` on proxy launchers off the executor and mark the ones
+    /// that fail unavailable (and drop fallbacks that point at them).
+    async fn verify_launchers(&self) {
+        let mut probe = self.config.read().await.clone();
+        let Ok(probe) = tokio::task::spawn_blocking(move || {
+            crate::config::verify_launchers(&mut probe);
+            probe
+        })
+        .await
+        else {
+            return;
+        };
+        let mut cfg = self.config.write().await;
+        for (name, reason) in &probe.unavailable {
+            let argv = |c: &Config| c.harnesses.get(name).map(|p| p.argv.clone());
+            if argv(&cfg) != argv(&probe) || cfg.unavailable.contains_key(name) {
+                continue;
+            }
+            for p in cfg.harnesses.values_mut() {
+                if p.fallback.as_deref() == Some(name.as_str()) {
+                    p.fallback = None;
+                }
+            }
+            cfg.unavailable.insert(name.clone(), reason.clone());
+        }
     }
 
     pub(super) fn load_from_store(self: &Arc<Self>) {

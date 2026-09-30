@@ -69,6 +69,8 @@ impl Hub {
     }
 
     pub async fn new_session(self: &Arc<Self>, req: NewRequest) -> Result<Arc<Session>, RpcError> {
+        // Harness discovery and launcher checks finish in the background.
+        self.wait_startup().await;
         let NewRequest { harness, preset, name, cwd, policy, model, effort } = req;
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
@@ -715,6 +717,8 @@ impl Hub {
         for (name, profile) in agents {
             let hub = self.clone();
             handles.push(tokio::spawn(async move {
+                // Probes spawn agents: wait for the login environment.
+                hub.wait_startup().await;
                 match tokio::time::timeout(
                     std::time::Duration::from_secs(60),
                     hub.probe_one(&name, &profile),
@@ -827,6 +831,7 @@ impl Hub {
         {
             return Ok(child.clone());
         }
+        self.wait_startup().await;
         let agent = session.meta().harness;
         let (profile, defaults) = {
             let cfg = self.config.read().await;

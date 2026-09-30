@@ -87,6 +87,9 @@ impl Hub {
             "peers": self.peers(),
             "remoteSessions": self.remote_sessions.lock().unwrap().len(),
             "webUrl": cfg.websocket.as_ref().map(web_url),
+            "listen": cfg.websocket.as_ref().map(|w| w.listen.clone()),
+            "ready": self.startup_complete(),
+            "loginEnv": crate::login_env::state(self.login_env_requested.load(Ordering::SeqCst)),
         })
     }
 }

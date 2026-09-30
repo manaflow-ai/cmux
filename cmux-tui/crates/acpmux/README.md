@@ -780,7 +780,7 @@ Extensions:
 
 | Method | Purpose |
 | --- | --- |
-| `_acpmux/status`, `_acpmux/harnesses`, `_acpmux/sessions` | Daemon and fleet state. |
+| `_acpmux/status`, `_acpmux/harnesses`, `_acpmux/sessions` | Daemon and fleet state; status also reports `ready`, `loginEnv` and `listen`. |
 | `_acpmux/attach {sessionId, afterSeq?, beforeSeq?, limit?, kinds?, eventStream?}` | Subscribe and get the session detail, a page of events, and `hasMore`. |
 | `_acpmux/detach`, `_acpmux/watch {enabled}` | Unsubscribe; or receive `_acpmux/session_changed` for every session. |
 | `_acpmux/events {sessionId, afterSeq?, beforeSeq?, limit?, kinds?}` | Page through the log, forwards or backwards, with `hasMore`. |
@@ -812,6 +812,10 @@ streamed that same text as an ordinary message. When Codex abandons a partial an
 dropped stream and redelivers it, acpmux records `message_superseded {oldMessageId,
 newMessageId}` before the redelivery. Other harnesses send no such signal.
 
+The daemon binds its socket and `--listen` address (`127.0.0.1:0` picks a free port) before it
+imports the login shell environment, so `_acpmux/status` answers at once; session creation waits
+for the import. `daemon run --ready-fd N` writes `{"ready":true,"pid","socket","listen","webUrl"}`
+to descriptor N when bound. SIGTERM stops every agent, saves sessions and exits within 5 s.
 `acpmux daemon schema` prints the full RPC schema.
 
 Any other method that names a `sessionId` is forwarded to the agent unchanged, so vendor

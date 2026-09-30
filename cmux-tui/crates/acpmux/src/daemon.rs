@@ -14,16 +14,22 @@ pub struct DaemonOptions {
     pub ws_listen: Option<String>,
     pub ws_token: Option<String>,
     pub memory: bool,
+    /// Write one JSON readiness line to this file descriptor once the
+    /// socket and the listen address are bound, then close it.
+    pub ready_fd: Option<i32>,
 }
 
+/// How long SIGTERM or `_acpmux/shutdown` may take before the daemon exits
+/// anyway.
+pub const SHUTDOWN_BUDGET: Duration = Duration::from_secs(5);
+
 pub async fn run(opts: DaemonOptions) -> Result<()> {
-    import_login_env().await;
+    let login_env = crate::login_env::requested();
     let mut config = Config::load()?;
-    crate::config::verify_launchers(&mut config);
     if opts.memory {
         config.store.mode = crate::config::StoreMode::Memory;
     }
-    if config.harnesses.is_empty() {
+    if config.harnesses.is_empty() && !login_env {
         tracing::warn!(
             "no harnesses configured; add {{\"harnesses\":{{\"codex\":{{\"argv\":[\"codex-acp\"]}}}}}} to {}",
             Config::path().display()
@@ -48,6 +54,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             tracing::warn!("could not save generated web config: {e}");
         }
     }
+    let explicit_listen = opts.ws_listen.is_some();
     let ws = opts
         .ws_listen
         .clone()
@@ -60,20 +67,52 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             )
         })
         .or_else(|| config.websocket.clone().map(|w| (w.listen, w.token)));
-    if let Some((listen, token)) = &ws {
-        let mut cfg = config.clone();
-        cfg.websocket =
-            Some(crate::config::WebSocketConfig { listen: listen.clone(), token: token.clone() });
-        config = cfg;
+
+    // Bind before any slow startup work, so clients can connect and ask
+    // `_acpmux/status` at once. Agent spawns wait for `finish_startup`.
+    let unix_listener = crate::server::bind_unix(&socket_path()).await?;
+    let ws_listener = match &ws {
+        Some((listen, token)) => match crate::server::bind_ws(listen).await {
+            Ok(l) => Some((l, token.clone())),
+            Err(e) if !explicit_listen => {
+                tracing::warn!("dashboard disabled: {e:#}");
+                None
+            }
+            Err(e) => {
+                let _ = std::fs::remove_file(socket_path());
+                return Err(e);
+            }
+        },
+        None => None,
+    };
+    // `--listen 127.0.0.1:0` asked for any free port; report the real one.
+    let bound = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok()).map(|a| a.to_string());
+    if let (Some(addr), Some((_, token))) = (&bound, &ws) {
+        config.websocket =
+            Some(crate::config::WebSocketConfig { listen: addr.clone(), token: token.clone() });
     }
     let hub = Hub::new(config, store);
+    hub.begin_startup(login_env);
     std::fs::write(home().join("daemon.pid"), std::process::id().to_string())?;
-    hub.probe_models().await;
+    let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
+    let ws_task =
+        ws_listener.map(|(l, token)| tokio::spawn(crate::server::serve_ws(hub.clone(), l, token)));
+    let ready = serde_json::json!({
+        "ready": true,
+        "pid": std::process::id(),
+        "socket": socket_path(),
+        "listen": bound,
+        "webUrl": hub.config.read().await.websocket.as_ref().map(crate::hub::web_url),
+    });
+    tracing::info!("acpmux ready {ready}");
+    if let Some(fd) = opts.ready_fd {
+        write_ready(fd, &ready);
+    }
+    {
+        let hub = hub.clone();
+        tokio::spawn(async move { hub.finish_startup().await });
+    }
     tokio::spawn(notify_loop(hub.clone()));
-
-    let unix = tokio::spawn(crate::server::listen_unix(hub.clone(), socket_path()));
-    let ws_task = ws
-        .map(|(listen, token)| tokio::spawn(crate::server::listen_ws(hub.clone(), listen, token)));
 
     let shutdown = async {
         let ctrl_c = tokio::signal::ctrl_c();
@@ -97,112 +136,38 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    // New clients get "connection refused" instead of a dying daemon.
+    let _ = std::fs::remove_file(socket_path());
     if let Some(t) = ws_task {
         t.abort();
     }
-    hub.shutdown_all().await;
-    let _ = std::fs::remove_file(socket_path());
+    if tokio::time::timeout(SHUTDOWN_BUDGET, hub.shutdown_all()).await.is_err() {
+        tracing::warn!("agents did not stop within {SHUTDOWN_BUDGET:?}; exiting anyway");
+        hub.flush();
+    }
     let _ = std::fs::remove_file(home().join("daemon.pid"));
+    tracing::info!("stopped");
     Ok(())
 }
 
-/// launchd starts the daemon with a bare environment: no `ANTHROPIC_*`,
-/// no tool PATH, none of the exports in `.zshenv`/`.zprofile`. Agents then
-/// behave differently from the same command in an ssh shell ("Not logged
-/// in"). When started by launchd (`XPC_SERVICE_NAME` set) or with
-/// `ACPMUX_LOGIN_ENV=1`, read the login shell's environment once and fill
-/// in what is missing; the login PATH goes first. `ACPMUX_LOGIN_ENV=0`
-/// turns this off.
-async fn import_login_env() {
-    match std::env::var("ACPMUX_LOGIN_ENV").as_deref() {
-        Ok("0") => return,
-        Ok("1") => {}
-        _ if std::env::var_os("XPC_SERVICE_NAME").is_none() => return,
-        _ => {}
+/// Write the readiness line to an inherited descriptor and close it.
+fn write_ready(fd: i32, ready: &Value) {
+    use std::io::Write;
+    use std::os::fd::FromRawFd;
+    if fd < 0 {
+        return;
     }
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-    let run = tokio::process::Command::new(&shell)
-        .args(["-lic", "command env -0"])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .env("ACPMUX_LOGIN_ENV", "0")
-        .output();
-    let out = match tokio::time::timeout(Duration::from_secs(15), run).await {
-        Ok(Ok(o)) => o,
-        Ok(Err(e)) => {
-            tracing::warn!("login shell env: {shell}: {e}");
-            return;
-        }
-        Err(_) => {
-            tracing::warn!("login shell env: {shell} did not finish in 15s");
-            return;
-        }
-    };
-    let (vars, login_path) = parse_env0(&String::from_utf8_lossy(&out.stdout));
-    let mut added = 0usize;
-    for (key, value) in vars {
-        if std::env::var_os(&key).is_none() {
-            // SAFETY: single-threaded here; nothing else reads the environment yet.
-            unsafe { std::env::set_var(&key, &value) };
-            added += 1;
-        }
+    let mut line = ready.to_string();
+    line.push('\n');
+    // SAFETY: the launcher passed this descriptor for us to write and close.
+    let mut f = unsafe { std::fs::File::from_raw_fd(fd) };
+    if let Err(e) = f.write_all(line.as_bytes()) {
+        tracing::warn!("--ready-fd {fd}: {e}");
     }
-    if let Some(lp) = login_path {
-        let current = std::env::var("PATH").unwrap_or_default();
-        let mut merged: Vec<String> =
-            lp.split(':').filter(|p| !p.is_empty()).map(str::to_owned).collect();
-        for p in current.split(':') {
-            if !p.is_empty() && !merged.iter().any(|m| m == p) {
-                merged.push(p.to_owned());
-            }
-        }
-        unsafe { std::env::set_var("PATH", merged.join(":")) };
+    if fd <= 2 {
+        // Never close stdio.
+        std::mem::forget(f);
     }
-    tracing::info!(shell = %shell, added, "imported login shell environment");
-}
-
-/// Parse `env -0` output: (variables worth importing, the login PATH).
-/// Shell-private and per-process variables are dropped; anything an rc
-/// file printed before `env` ran is discarded up to the last newline.
-fn parse_env0(text: &str) -> (Vec<(String, String)>, Option<String>) {
-    let skip = [
-        "PWD",
-        "OLDPWD",
-        "SHLVL",
-        "_",
-        "TERM",
-        "TERM_SESSION_ID",
-        "TTY",
-        "LOGNAME",
-        "HOME",
-        "USER",
-        "SHELL",
-        "TMPDIR",
-        "SSH_AUTH_SOCK",
-        "ACPMUX_LOGIN_ENV",
-    ];
-    let mut vars = Vec::new();
-    let mut login_path = None;
-    for chunk in text.split('\0') {
-        let Some(eq) = chunk.find('=') else { continue };
-        let start = chunk[..eq].rfind('\n').map(|i| i + 1).unwrap_or(0);
-        let key = &chunk[start..eq];
-        let value = &chunk[eq + 1..];
-        if key.is_empty()
-            || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-            || key.starts_with("XPC_")
-            || skip.contains(&key)
-        {
-            continue;
-        }
-        if key == "PATH" {
-            login_path = Some(value.to_owned());
-        } else {
-            vars.push((key.to_owned(), value.to_owned()));
-        }
-    }
-    (vars, login_path)
 }
 
 fn random_token() -> String {
@@ -315,6 +280,7 @@ async fn notify_loop(hub: Arc<Hub>) {
             ),
         };
         let mut c = tokio::process::Command::new("sh");
+        crate::login_env::apply_tokio(&mut c);
         c.arg("-c")
             .arg(&cmd)
             .env("ACPMUX_EVENT", kind)
@@ -327,24 +293,5 @@ async fn notify_loop(hub: Arc<Hub>) {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_env0_and_drops_noise() {
-        let text = "fnm: using node 22\nANTHROPIC_BASE_URL=http://x\0PATH=/a:/b\0PWD=/tmp\0XPC_SERVICE_NAME=svc\0BAD KEY=1\0MULTI=a\nb\0";
-        let (vars, path) = parse_env0(text);
-        assert_eq!(path.as_deref(), Some("/a:/b"));
-        assert_eq!(
-            vars,
-            vec![
-                ("ANTHROPIC_BASE_URL".to_owned(), "http://x".to_owned()),
-                ("MULTI".to_owned(), "a\nb".to_owned())
-            ]
-        );
     }
 }

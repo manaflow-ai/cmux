@@ -8,7 +8,7 @@
     "session/update": "Live agent updates arrive with sessionId set to the acpmux id and _meta.acpmux {seq, at, kind} merged into the agent's own _meta (the agent's keys are kept). session/load replays add replay: true."
   },
   "methods": {
-    "_acpmux/status": {"params": {}, "result": {"version": "string", "pid": "number", "sessions": "number", "liveAgents": "number", "harnesses": "string[]", "peers": "object[]", "webUrl": "string|null"}},
+    "_acpmux/status": {"params": {}, "result": {"version": "string", "pid": "number", "sessions": "number", "liveAgents": "number", "harnesses": "string[]", "peers": "object[]", "webUrl": "string|null", "listen": "string|null (the bound dashboard/WebSocket address; the real port when started with --listen 127.0.0.1:0)", "ready": "boolean (false while the daemon imports the login environment and checks launchers; session/new and agent spawns wait for it)", "loginEnv": "pending|imported|not_requested"}},
     "_acpmux/sessions": {"params": {}, "result": {"sessions": "SessionSummary[]"}},
     "_acpmux/harnesses": {"params": {}, "result": {"harnesses": "{name: HarnessProfile + family + defaults}", "defaultHarness": "string|null", "families": "{family: string[]}", "defaults": "{family|profile: SessionDefaults}"}},
     "_acpmux/reload_config": {"params": {}, "result": "{reloaded: true, harnesses: string[], defaultHarness: string|null, retainedProfiles: string[], modelProbePending: true}; replaces catalog config without stopping sessions"},
@@ -59,6 +59,10 @@
     "turn_started": {"prompt": "string", "client": "string", "promptId": "string", "turnId": "string", "note": "turnSeq of the turn is this record's seq"},
     "turn_end": {"stopReason": "string|null", "turnId": "string", "turnSeq": "number", "note": "legacy pair of turn_result; turn_error likewise carries {error, code, turnId, turnSeq}"},
     "message_superseded": {"oldMessageId": "string", "newMessageId": "string", "reason": "harness_retry", "source": "codex", "notice": "string (the harness's retry message)", "turnId": "string", "note": "Recorded before the first chunk of the redelivered message. Drop the chunks of oldMessageId. Only Codex signals this (session_info_update _meta.codex.error.willRetry while a message streams); other harnesses give no signal."}
+  },
+  "daemon": {
+    "readiness": "acpmux daemon run binds the socket and --listen address before importing the login shell environment or checking launchers. --ready-fd N writes one line {ready: true, pid, socket, listen, webUrl} to descriptor N and closes it; the log also gets \"acpmux ready {...}\". _acpmux/status answers at once and reports ready and loginEnv.",
+    "shutdown": "SIGTERM, SIGINT and _acpmux/shutdown remove the socket, stop every agent at once (SIGTERM to its process group, SIGKILL after 300 ms), save sessions, sync the store and exit, within 5 s."
   },
   "exitCodes": {"0": "ok", "1": "runtime or agent error", "2": "usage", "3": "timeout", "4": "no such session", "5": "every permission in the turn was denied", "130": "interrupted"}
 }

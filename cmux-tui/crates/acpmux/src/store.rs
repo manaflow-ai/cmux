@@ -160,6 +160,10 @@ pub trait Store: Send + Sync {
         }
         Ok(())
     }
+    /// Make every appended record durable (called on shutdown).
+    fn flush(&self) -> Result<()> {
+        Ok(())
+    }
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
@@ -343,6 +347,13 @@ impl Store for LocalStore {
                     return Ok(());
                 }
             }
+        }
+        Ok(())
+    }
+
+    fn flush(&self) -> Result<()> {
+        for w in self.writers.lock().unwrap().values() {
+            w.file.sync_data()?;
         }
         Ok(())
     }

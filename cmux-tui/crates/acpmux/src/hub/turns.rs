@@ -674,9 +674,21 @@ impl Hub {
         }
     }
 
+    /// Stop every agent at once (each gets SIGTERM, then SIGKILL after
+    /// 300 ms), then save every session and make the log durable.
     pub async fn shutdown_all(&self) {
+        let sessions = self.sessions();
+        futures::future::join_all(sessions.iter().map(|s| self.detach_child(s))).await;
+        self.flush();
+    }
+
+    /// Save every session's meta and sync the event log to disk.
+    pub fn flush(&self) {
         for s in self.sessions() {
-            self.detach_child(&s).await;
+            self.save_meta(&s);
+        }
+        if let Err(e) = self.store.flush() {
+            tracing::warn!("store flush failed: {e}");
         }
     }
 }

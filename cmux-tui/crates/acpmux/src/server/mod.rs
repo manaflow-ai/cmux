@@ -67,23 +67,33 @@ impl Conn {
 // ----------------------------------------------------------------- listen
 
 pub async fn listen_unix(hub: Arc<Hub>, path: PathBuf) -> Result<()> {
+    let listener = bind_unix(&path).await?;
+    serve_unix(hub, listener).await
+}
+
+/// Bind the daemon socket (mode 0600), refusing to steal a live one.
+pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     if path.exists() {
         // Refuse to steal a live socket.
-        if tokio::net::UnixStream::connect(&path).await.is_ok() {
+        if tokio::net::UnixStream::connect(path).await.is_ok() {
             anyhow::bail!("another acpmux daemon owns {}", path.display());
         }
-        std::fs::remove_file(&path)?;
+        std::fs::remove_file(path)?;
     }
-    let listener = UnixListener::bind(&path).with_context(|| format!("bind {}", path.display()))?;
+    let listener = UnixListener::bind(path).with_context(|| format!("bind {}", path.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     }
     tracing::info!("listening on {}", path.display());
+    Ok(listener)
+}
+
+pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
     loop {
         let (stream, _) = match listener.accept().await {
             Ok(s) => s,
@@ -123,8 +133,20 @@ const INDEX_HTML: &str = include_str!("../../web/index.html");
 /// WebSocket protocol. The request head is peeked, never consumed, so the
 /// WebSocket handshake still sees the full request.
 pub async fn listen_ws(hub: Arc<Hub>, addr: String, token: Option<String>) -> Result<()> {
-    let listener = TcpListener::bind(&addr).await.with_context(|| format!("bind {addr}"))?;
-    tracing::info!("web + websocket listening on {addr}");
+    let listener = bind_ws(&addr).await?;
+    serve_ws(hub, listener, token).await
+}
+
+/// Bind the dashboard/WebSocket port. `127.0.0.1:0` picks a free port; read
+/// it back with `local_addr`.
+pub async fn bind_ws(addr: &str) -> Result<TcpListener> {
+    let listener = TcpListener::bind(addr).await.with_context(|| format!("bind {addr}"))?;
+    let local = listener.local_addr().map(|a| a.to_string()).unwrap_or_else(|_| addr.to_owned());
+    tracing::info!("web + websocket listening on {local}");
+    Ok(listener)
+}
+
+pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: Option<String>) -> Result<()> {
     loop {
         let (stream, peer) = match listener.accept().await {
             Ok(s) => s,

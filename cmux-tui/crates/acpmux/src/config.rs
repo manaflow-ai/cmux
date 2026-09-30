@@ -728,6 +728,7 @@ pub fn verify_launchers(cfg: &mut Config) {
 
 fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
     let mut cmd = std::process::Command::new(&argv[0]);
+    crate::login_env::apply_std(&mut cmd);
     cmd.args(&argv[1..])
         .arg("--version")
         .stdin(std::process::Stdio::null())
@@ -773,7 +774,7 @@ fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
 }
 
 fn which(bin: &str) -> Option<String> {
-    let path = std::env::var_os("PATH")?;
+    let path = crate::login_env::path()?;
     for dir in std::env::split_paths(&path) {
         let candidate = dir.join(bin);
         if candidate.is_file() {
@@ -803,37 +804,35 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 /// Connection refused"). Applied only when `CLAUDECODE` is set, so a user's
 /// own `ANTHROPIC_*` settings in a plain shell still pass through.
 pub fn scrub_nested_claude_env(cmd: &mut std::process::Command) {
+    for k in nested_claude_keys() {
+        cmd.env_remove(k);
+    }
+}
+
+/// The keys `scrub_nested_claude_env` removes, from the daemon's environment
+/// and the imported login environment.
+fn nested_claude_keys() -> Vec<std::ffi::OsString> {
     if std::env::var_os("CLAUDECODE").is_none() {
-        return;
+        return Vec::new();
     }
-    for (k, _) in std::env::vars_os() {
-        let key = k.to_string_lossy();
-        if key.starts_with("CLAUDE")
-            || key.starts_with("ANTHROPIC_")
-            || key.starts_with("CMUX_CLAUDE_")
-            || key.starts_with("SUBROUTER_CLAUDE_")
-            || key == "NODE_OPTIONS"
-        {
-            cmd.env_remove(&k);
-        }
-    }
+    std::env::vars_os()
+        .map(|(k, _)| k)
+        .chain(crate::login_env::imported_keys().into_iter().map(Into::into))
+        .filter(|k| {
+            let key = k.to_string_lossy();
+            key.starts_with("CLAUDE")
+                || key.starts_with("ANTHROPIC_")
+                || key.starts_with("CMUX_CLAUDE_")
+                || key.starts_with("SUBROUTER_CLAUDE_")
+                || key == "NODE_OPTIONS"
+        })
+        .collect()
 }
 
 /// Same, for tokio's process builder.
 pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
-    if std::env::var_os("CLAUDECODE").is_none() {
-        return;
-    }
-    for (k, _) in std::env::vars_os() {
-        let key = k.to_string_lossy();
-        if key.starts_with("CLAUDE")
-            || key.starts_with("ANTHROPIC_")
-            || key.starts_with("CMUX_CLAUDE_")
-            || key.starts_with("SUBROUTER_CLAUDE_")
-            || key == "NODE_OPTIONS"
-        {
-            cmd.env_remove(&k);
-        }
+    for k in nested_claude_keys() {
+        cmd.env_remove(k);
     }
 }
 
