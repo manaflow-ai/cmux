@@ -139,7 +139,9 @@
     "backToBlog": "Volver al blog",
     "readTheDocs": "Leer la documentación",
     "viewChangelog": "Ver Changelog",
-    "otherPlatforms": "Otras plataformas"
+    "otherPlatforms": "Otras plataformas",
+    "copyCode": "Copiar código",
+    "copied": "Copiado"
   },
   "nav": {
     "docs": "Documentación",
@@ -1539,7 +1541,6 @@
       "restartNew": "Crear un workspace nuevo (por defecto)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "Alternar el ajuste de línea del editor de archivos (Option+Z).",
       "title": "Atajos de teclado",
       "description": "Todos los atajos de teclado disponibles en cmux, agrupados por categoría.",
       "metaDescription": "Todos los atajos de teclado de cmux para workspaces, superficies, paneles divididos, navegador, notificaciones, búsqueda y gestión de ventanas en macOS.",
@@ -2324,6 +2325,28 @@
       "fixTransferDisabled": "Una política gestionada desactiva la transferencia de archivos. Pregunta a tu administrador.",
       "supportTitle": "Obtener ayuda",
       "supportDesc": "Si falla una creación, usa Copy Error en la notificación e inclúyelo, junto con el ID de traza si lo hay, cuando contactes con soporte."
+    },
+    "ui": {
+      "onThisPage": "En esta página",
+      "copyPage": "Copiar página",
+      "copyPageDesc": "Copiar la página como Markdown para LLM",
+      "copied": "Copiado",
+      "pageActions": "Más acciones de la página",
+      "openInChatGPT": "Abrir en ChatGPT",
+      "openInClaude": "Abrir en Claude",
+      "openInDesc": "Haz preguntas sobre esta página",
+      "askPrompt": "Lee {url} para que pueda hacerte preguntas sobre ella.",
+      "previous": "Anterior",
+      "next": "Siguiente",
+      "helpful": "¿Te resultó útil esta página?",
+      "yes": "Sí",
+      "no": "No",
+      "thanks": "Gracias por tus comentarios.",
+      "raiseIssue": "Abrir issue",
+      "openNavigation": "Abrir navegación",
+      "closeNavigation": "Cerrar navegación",
+      "searchShortcut": "Buscar en la documentación (⌘K)",
+      "navigation": "Documentación"
     }
   },
   "legal": {
