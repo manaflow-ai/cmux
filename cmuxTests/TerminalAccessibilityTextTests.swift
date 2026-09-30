@@ -41,6 +41,13 @@ struct TerminalAccessibilityTextTests {
         #expect(text.insertedText(settingValue: older + "git status") == "git status")
     }
 
+    @Test("A delayed edit survives more than eight newer screen reads")
+    func delayedReadSurvivesScreenChurn() {
+        let newerScreens = (1...10).map { "new screen \($0)\n$ " }
+        let text = model(vending: [screen] + newerScreens)
+        #expect(text.insertedText(settingValue: screen + "git status") == "git status")
+    }
+
     @Test("A value that doesn't keep the text the client read is inserted as is")
     func unrelatedValueIsLiteral() {
         #expect(model(vending: [screen]).insertedText(settingValue: "hello world") == "hello world")
