@@ -1943,14 +1943,21 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func recycledHoveredCellSnapsCloseButtonHidden() {
+    func recycledHoveredCellSnapsCloseButtonHidden() throws {
         let cell = Self.configuredCell(model: Self.makeModel())
         cell.enforcePointerHovering(true)
         #expect(!cell.closeButtonPaintForTesting.isHidden)
+        let closeButton = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? NSButton }
+                .first { $0.accessibilityIdentifier() == "sidebarWorkspaceCloseButton" }
+        )
+        #expect(closeButton.isAccessibilityElement())
 
         cell.prepareForReuse()
         #expect(cell.closeButtonPaintForTesting.isHidden)
         #expect(cell.closeButtonPaintForTesting.alpha == 0)
+        #expect(!closeButton.isAccessibilityElement())
 
         let nextModel = Self.makeModel()
         cell.configure(
