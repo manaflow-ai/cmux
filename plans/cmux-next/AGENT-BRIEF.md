@@ -35,3 +35,9 @@ The machine is shared by many agents, and leftovers filled the disk and the PTY 
 - Remove your tag's DerivedData (`~/Library/Developer/Xcode/DerivedData/cmux-<tag>`) and `/tmp/cmux-debug-<tag>.sock`.
 - Remove your worktree when all its commits are on `origin/feat-cmux-next` (`git cherry origin/feat-cmux-next HEAD` shows no `+`). Use `git worktree remove --force` only when `git status` is clean, because worktrees with submodules need it.
 - A CEF fork build folder is about 45 GB. Only the fork owner (see the latest coordinator message) keeps one. Remove any other one you made.
+
+## Input to a tagged app (added 2026-09-30)
+
+The user types in their own apps while agents test. Keys that reach the wrong app type into the user's work, and keys from the user must never reach a tagged app.
+- Never synthesize system keyboard or mouse input to open or drive tagged app UI: no CGEvent posts, no keys or clicks sent to the frontmost app, no AppleScript or Accessibility key presses. Use `debug.key`, `debug.mouse` and `action.run` on the tagged app's socket; they deliver to that app only and never move the user's pointer or keyboard focus.
+- A no-activate tagged app must never take the keyboard. Check `debug.focus` after you open a panel or palette: `app_active` must be false and `key_window` null. If either is set, or `debug.journal` shows key-down entries you did not send, stop the app at once, and report it as a bug.
