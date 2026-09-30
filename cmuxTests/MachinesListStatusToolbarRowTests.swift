@@ -36,18 +36,21 @@ struct MachinesListStatusToolbarRowTests {
         }
     }
 
-    /// Each row must carry its own sentence, not merely differ from the other
-    /// two: a different glyph and a different button already make three
-    /// identical sentences compare unequal, so pairwise inequality proves
-    /// nothing. Each rendered row is matched against its own stale line, and
-    /// the three stale lines are checked to be distinct. Comparing against the
-    /// catalog rather than English literals keeps a copy edit or a non-`en`
-    /// host from reddening this for reasons unrelated to the behavior.
-    @Test("Each failure renders its own line, and the stale one, not the panel headline")
+    /// Each row must carry its own sentence and symbol, not merely differ from
+    /// the other two because of its action button. The stale copy is asserted
+    /// explicitly so punctuation changes cannot make the surfaces drift.
+    @Test("Each failure renders its own line and symbol, not the panel headline")
     func failuresReadDifferently() throws {
-        for problem in Self.problems {
+        let expected: [(MachinesPanelViewModel.CloudListProblem, String, String)] = [
+            (.unreachable, "Machine list unavailable \u{2014} showing last known", "exclamationmark.icloud"),
+            (.sessionRejected, "Sign-in needs a refresh \u{2014} showing last known", "person.crop.circle.badge.exclamationmark"),
+            (.requiresPro, "Cloud machines need cmux Pro \u{2014} showing last known", "sparkles"),
+        ]
+        for (problem, expectedStale, expectedSymbol) in expected {
             let presentation = MachineListStatusPresentation(.failed(problem))
             let stale = try #require(presentation.staleTitle, "\(problem) has no stale line")
+            #expect(stale == expectedStale, "\(problem) rendered the wrong stale line")
+            #expect(presentation.symbolName == expectedSymbol, "\(problem) rendered the wrong symbol")
             let text = Self.text(of: Self.host(.failed(problem)))
             #expect(text.contains(stale), "\(problem) rendered \(text), not \(stale)")
             // The toolbar sits beside cached rows, so it takes the one-line
@@ -56,7 +59,7 @@ struct MachinesListStatusToolbarRowTests {
             let paragraph = try #require(presentation.subtitle, "\(problem) has no panel subtitle")
             #expect(!text.contains(paragraph), "\(problem) rendered the panel subtitle in the toolbar")
         }
-        let lines = Self.problems.compactMap { MachineListStatusPresentation(.failed($0)).staleTitle }
+        let lines = expected.map(\.1)
         #expect(Set(lines).count == Self.problems.count, "two failures share a stale line: \(lines)")
     }
 
