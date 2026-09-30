@@ -25,6 +25,10 @@ enum WindowHandlers {
                 showMainWindow(context)
             }
         })
+        registry.bind("minimizeWindow", run: { _ in
+            // Show Main Window (showMainWindow) restores it.
+            context.activeWindow?.window?.miniaturize(nil)
+        })
         registry.bind("keepMacAwake", run: { _ in toggleKeepAwake(keepAwake) })
         registry.bind("commandPaletteNext", run: { _ in context.services.palette.model.handle(.moveDown) })
         registry.bind("commandPalettePrevious", run: { _ in context.services.palette.model.handle(.moveUp) })

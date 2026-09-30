@@ -62,9 +62,10 @@ import Testing
     /// Workspace and tab include the group families (architecture.md section 7).
     /// Pane, tab, and terminal also count the cmux-next rows in
     /// `ActionCatalog+Layout.swift` (26 pane/column/screen, 6 tab, 10 terminal).
-    /// Settings counts the pane border, padding and corner toggles.
+    /// Settings counts the pane border, padding and corner toggles. Window
+    /// counts Minimize (no inventory row; used by idle and visibility checks).
     static let expectedCounts: [ActionCategory: Int] = [
-        .window: 22,
+        .window: 23,
         .workspace: 80,
         .pane: 72,
         .tab: 71,

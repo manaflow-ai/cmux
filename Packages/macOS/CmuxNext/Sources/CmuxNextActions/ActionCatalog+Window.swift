@@ -24,6 +24,12 @@ extension ActionCatalog {
                 symbol: "xmark.rectangle", surfaces: [.palette, .keyboard], cliName: "app close-window"
             ),
             ActionDescriptor(
+                id: "minimizeWindow",
+                title: String(localized: "action.minimizeWindow", defaultValue: "Minimize", bundle: .module),
+                keywords: ["dock", "hide", "miniaturize"], category: .window, symbol: "minus.rectangle",
+                surfaces: [.palette], cliName: "app minimize-window"
+            ),
+            ActionDescriptor(
                 id: "toggleFullScreen",
                 title: String(localized: "action.toggleFullScreen", defaultValue: "Toggle Full Screen", bundle: .module),
                 keywords: ["fullscreen", "maximize"], defaultShortcut: Shortcut("f", modifiers: [.control, .command]),
