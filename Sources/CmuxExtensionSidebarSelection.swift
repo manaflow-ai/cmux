@@ -347,7 +347,7 @@ enum CmuxExtensionSidebarSelection {
             navigationTarget: .customSidebars
         )
         SettingsNavigationRequest.post(.customSidebars, anchorID: "setting:customSidebars:templates", highlight: true)
-        CustomSidebarTemplateGalleryRequest.request()
+        AppDelegate.shared?.settingsRuntime?.hostActions.customSidebarTemplateGalleryRequest.request()
     }
 
     @MainActor

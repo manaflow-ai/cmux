@@ -17,6 +17,7 @@ nonisolated private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app
 /// Routes Settings actions to app-owned services, keeping the package independent.
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
+    let customSidebarTemplateGalleryRequest = CustomSidebarTemplateGalleryRequest()
     let computersActions: ComputersSettingsActions
     private let configFileURL: URL
     private let browserDataImportCoordinator: BrowserDataImportCoordinator
@@ -26,7 +27,6 @@ final class HostSettingsActions: SettingsHostActions {
     let computerUseRuntimeService: ComputerUseRuntimeService
     var runComputerUseOnboardingAction:
         @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void = { _ in }
-
     /// Serializes font-size config writes so rapid slider saves persist in order.
     private let fontConfigWriter = FontConfigWriter()
 

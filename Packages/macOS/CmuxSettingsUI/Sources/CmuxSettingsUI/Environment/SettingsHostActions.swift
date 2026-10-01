@@ -8,24 +8,6 @@ public extension Notification.Name {
     static let customSidebarTemplateGalleryRequested = Notification.Name("cmux.settings.customSidebarTemplateGalleryRequested")
 }
 
-/// Holds a gallery request until the progressively mounted Custom Sidebars
-/// section is ready to present it.
-@MainActor
-public enum CustomSidebarTemplateGalleryRequest {
-    private static var pending = false
-
-    public static func request() {
-        pending = true
-        NotificationCenter.default.post(name: .customSidebarTemplateGalleryRequested, object: nil)
-    }
-
-    public static func consume() -> Bool {
-        guard pending else { return false }
-        pending = false
-        return true
-    }
-}
-
 /// Host-supplied callbacks the package's section views invoke for
 /// actions that live outside the catalog — clearing browser history,
 /// opening the user's editor on cmux.json, sending feedback, posting
@@ -40,6 +22,9 @@ public enum CustomSidebarTemplateGalleryRequest {
 /// when no host action is available.
 @MainActor
 public protocol SettingsHostActions: AnyObject {
+    /// Shared request state used by the host and the mounted settings section.
+    var customSidebarTemplateGalleryRequest: CustomSidebarTemplateGalleryRequest { get }
+
     func computersSettingsActions() -> ComputersSettingsActions
     /// A registry snapshot used to populate the per-agent notification sound
     /// matrix. The host owns discovery so newly registered agents appear
@@ -478,6 +463,10 @@ public struct RightSidebarTabSettingsItem: Identifiable, Equatable, Sendable {
 }
 
 public extension SettingsHostActions {
+    var customSidebarTemplateGalleryRequest: CustomSidebarTemplateGalleryRequest {
+        CustomSidebarTemplateGalleryRequest()
+    }
+
     /// Returns the registry-backed agent choices shown by notification sound settings.
     func notificationSoundAgentOptions() -> [NotificationSoundAgentOption] { [] }
 
