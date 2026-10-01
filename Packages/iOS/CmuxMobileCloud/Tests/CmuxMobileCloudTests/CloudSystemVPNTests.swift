@@ -1013,7 +1013,7 @@ import Testing
         await rig.controller.waitForPendingOperation()
     }
 
-    @Test func switchingAccountsPersistsTheOldBrowserPeerWhenVPNIsUnavailable() async {
+    @Test func switchingAccountsRevokesTheOldBrowserPeerWhenVPNIsUnavailable() async {
         let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
         let rig = Rig(pendingRevocationStore: pendingStore)
         await signedIn(rig, scope: "user-1/team-1")

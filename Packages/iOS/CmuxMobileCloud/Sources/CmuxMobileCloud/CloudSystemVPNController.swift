@@ -28,11 +28,8 @@ public final class CloudSystemVPNController {
     private let operationTimeout: Duration
     private let operationGate = CloudSystemVPNOperationGate()
     private let cleanupRetryCount: Int
-    private let maxInMemoryPendingRevocations = 64
-    // The durable store is the source of truth. The in-memory working set is
-    // bounded after each durable write, while remote cleanup remains bounded
-    // per transition and retry. Account transitions do one bounded unit of
-    // remote cleanup; remaining entries continue through the retry path.
+    // Keep pending peer identifiers until revocation succeeds. Evicting one
+    // would strand its server routes; network work is bounded per retry.
     private let maxPendingRevocationsPerTransition = 1
     private let maxPendingRevocationsPerRetry = 8
     private let credentials: @Sendable () async -> CloudAPITokenSource.TokenPair?
@@ -809,7 +806,6 @@ public final class CloudSystemVPNController {
             revocations.insert(pending)
         }
         await pendingRevocationStore.save(revocations, scope: tunnel.scope)
-        trimPendingBrowserTunnelRevocations()
     }
 
     private func persistPendingBrowserTunnelRevocations() async {
@@ -837,14 +833,6 @@ public final class CloudSystemVPNController {
         for (scope, revocations) in revocationsByScope {
             await pendingRevocationStore.save(revocations, scope: scope)
         }
-        trimPendingBrowserTunnelRevocations()
-    }
-
-    private func trimPendingBrowserTunnelRevocations() {
-        guard pendingBrowserTunnelRevocations.count > maxInMemoryPendingRevocations else { return }
-        pendingBrowserTunnelRevocations.removeFirst(
-            pendingBrowserTunnelRevocations.count - maxInMemoryPendingRevocations
-        )
     }
 
     private func rememberAndPersistPendingBrowserTunnelRevocation(

@@ -144,7 +144,9 @@ public final class CloudSessionController {
     /// The scene returned to the foreground.
     public func sceneWillEnterForeground() {
         isForeground = true
-        if case .failed(let failure, _) = machines, failure.isRetryable {
+        if machines.isLoading {
+            refreshMachines()
+        } else if case .failed(let failure, _) = machines, failure.isRetryable {
             refreshMachines()
         } else {
             scheduleProvisioningPollIfNeeded()
