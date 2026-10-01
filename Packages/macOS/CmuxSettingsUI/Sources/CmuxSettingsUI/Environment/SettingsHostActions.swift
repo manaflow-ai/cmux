@@ -463,10 +463,6 @@ public struct RightSidebarTabSettingsItem: Identifiable, Equatable, Sendable {
 }
 
 public extension SettingsHostActions {
-    var customSidebarTemplateGalleryRequest: CustomSidebarTemplateGalleryRequest {
-        CustomSidebarTemplateGalleryRequest()
-    }
-
     /// Returns the registry-backed agent choices shown by notification sound settings.
     func notificationSoundAgentOptions() -> [NotificationSoundAgentOption] { [] }
 
@@ -679,6 +675,7 @@ public extension SettingsHostActions {
 /// have to branch on an optional host.
 @MainActor
 public final class NoopSettingsHostActions: SettingsHostActions {
+    public let customSidebarTemplateGalleryRequest = CustomSidebarTemplateGalleryRequest()
     public init() {}
     public func clearBrowserHistory() {}
     public func openConfigInExternalEditor() {}
