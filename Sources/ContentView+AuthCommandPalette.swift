@@ -182,19 +182,23 @@ extension ContentView {
     /// Builds the Cloud-context explanation for local-only palette actions.
     /// Keeping this as a normal command makes the availability explanation
     /// searchable and gives Cloud users a localized reason for omitted rows.
-    static func commandPaletteCloudAvailabilityInfoContribution() -> CommandPaletteCommandContribution {
+    static func commandPaletteCloudAvailabilityInfoContribution(
+        locale: Locale = .current
+    ) -> CommandPaletteCommandContribution {
         CommandPaletteCommandContribution(
             commandId: commandPaletteCloudAvailabilityInfoCommandId,
             title: { _ in
                 String(
                     localized: "command.cloudVM.availabilityInfo.title",
-                    defaultValue: "Show Cloud command availability"
+                    defaultValue: "Show Cloud command availability",
+                    locale: locale
                 )
             },
             subtitle: { _ in
                 String(
                     localized: "command.cloudVM.availabilityInfo.subtitle",
-                    defaultValue: "Cloud workspace"
+                    defaultValue: "Cloud workspace",
+                    locale: locale
                 )
             },
             keywords: ["cloud", "workspace", "availability", "local", "unavailable", "actions"],
@@ -205,17 +209,20 @@ extension ContentView {
     /// Registers Cloud palette handlers with the shared command dispatcher.
     func registerCloudCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         registry.register(commandId: Self.commandPaletteCloudAvailabilityInfoCommandId) {
-            let alert = NSAlert()
-            alert.messageText = String(
-                localized: "command.cloudVM.availabilityInfo.alertTitle",
-                defaultValue: "Some commands are local-only"
-            )
-            alert.informativeText = String(
-                localized: "command.cloudVM.availabilityInfo.alertMessage",
-                defaultValue: "Folder, simulator, local browser creation, directory search, and diff commands are available after selecting a local workspace. Cloud terminal, browser, workspace, and VM commands remain available here."
-            )
-            alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-            alert.runModal()
+            // Let the command palette finish dismissing before presenting the modal alert.
+            DispatchQueue.main.async {
+                let alert = NSAlert()
+                alert.messageText = String(
+                    localized: "command.cloudVM.availabilityInfo.alertTitle",
+                    defaultValue: "Some commands are local-only"
+                )
+                alert.informativeText = String(
+                    localized: "command.cloudVM.availabilityInfo.alertMessage",
+                    defaultValue: "Folder, simulator, local browser creation, directory search, and diff commands are available after selecting a local workspace. Cloud terminal, browser, workspace, and VM commands remain available here."
+                )
+                alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+                alert.runModal()
+            }
         }
         registry.register(commandId: Self.commandPaletteCloudNewMachineCommandId) {
             _ = AppDelegate.shared?.performNewCloudMachineAction(

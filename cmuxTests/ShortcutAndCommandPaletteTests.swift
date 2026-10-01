@@ -872,7 +872,9 @@ final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
 final class CommandPaletteCloudCommandTests: XCTestCase {
     /// Cloud availability guidance is visible only for Cloud workspaces.
     func testCloudAvailabilityInfoAppearsOnlyForCloudWorkspace() {
-        let contribution = ContentView.commandPaletteCloudAvailabilityInfoContribution()
+        let contribution = ContentView.commandPaletteCloudAvailabilityInfoContribution(
+            locale: Locale(identifier: "en")
+        )
         let localContext = CommandPaletteContextSnapshot()
         var cloudContext = CommandPaletteContextSnapshot()
         cloudContext.setBool(CommandPaletteContextKeys.workspaceIsCloud, true)
