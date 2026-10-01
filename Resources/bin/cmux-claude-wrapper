@@ -1773,13 +1773,23 @@ export CMUX_CLAUDE_PID=$$
 # Headless (`-p`/`--print`) runs share the pane's surface with any interactive
 # session there, so the agent message hooks skip them.
 export CMUX_CLAUDE_HEADLESS=0
+cmux_claude_skip_next=false
 for cmux_claude_arg in "$@"; do
+    if [[ "$cmux_claude_skip_next" == true ]]; then
+        cmux_claude_skip_next=false
+        continue
+    fi
     case "$cmux_claude_arg" in
         --) break ;;
         -p|--print|--print=*) export CMUX_CLAUDE_HEADLESS=1; break ;;
+        -*)
+            if [[ "$cmux_claude_arg" != *=* ]] && claude_option_consumes_value "$cmux_claude_arg"; then
+                cmux_claude_skip_next=true
+            fi
+            ;;
     esac
 done
-unset cmux_claude_arg
+unset cmux_claude_arg cmux_claude_skip_next
 # A parent session's hook spool belongs to that session; this launch starts its own below.
 unset CMUX_CLAUDE_HOOK_SPOOL_DIR
 if [[ -z "$cmux_claude_hook_cmux_bin" ]]; then
@@ -1988,7 +1998,7 @@ CMUX_CLAUDE_QUEUED_HOOK_COMMAND
     cmux_claude_standard_hook_settings_value+='"SessionEnd":['"$q_prefix$session_end$q_suffix"'"}],'
     cmux_claude_standard_hook_settings_value+='"SessionStart":['"$q_prefix$session_start$q_suffix"'"},'"$inbox_wait"'],'
     cmux_claude_standard_hook_settings_value+='"Stop":['"$q_prefix$stop$q_suffix"'"},'"$q_prefix$feed$q_suffix"'"},{"hooks":[{"async":true,"command":"'"$direct_cli"' hooks claude auto-name","timeout":120,"type":"command"}],"matcher":""},'"$inbox_wait"'],'
-    cmux_claude_standard_hook_settings_value+='"StopFailure":['"$q_prefix$stop$q_suffix"'"}],'
+    cmux_claude_standard_hook_settings_value+='"StopFailure":['"$q_prefix$stop$q_suffix"'"},'"$inbox_wait"'],'
     cmux_claude_standard_hook_settings_value+='"SubagentStop":['"$q_prefix$feed$q_suffix"'"}],'
     cmux_claude_standard_hook_settings_value+='"UserPromptSubmit":['"$q_prefix$prompt_submit$q_suffix"'"},{"hooks":[{"command":"'"$direct_cli"' hooks claude inbox-drain 2>/dev/null || echo '"'"'{}'"'"'","timeout":5,"type":"command"}],"matcher":""}]'
     cmux_claude_standard_hook_settings_value+='},"preferredNotifChannel":"notifications_disabled"}'

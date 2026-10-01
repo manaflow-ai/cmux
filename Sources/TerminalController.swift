@@ -1632,7 +1632,7 @@ class TerminalController {
             }
             semaphore.wait()
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
-        case "auth.team.list", "auth.team.use", "auth.team.create":
+        case _ where Self.authTeamSocketMethods.contains(request.method):
             return v2AuthTeamResponse(request)
         case "feedback.submit":
             return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
@@ -6497,7 +6497,7 @@ class TerminalController {
                 workspaceId: ws.id,
                 surfaceId: surfaceId,
                 browserPanel: browserPanel,
-                webView: browserPanel.webView
+                webView: browserPanel.webViewForAutomationCommand()
             ),
             nil
         )
@@ -11310,7 +11310,7 @@ class TerminalController {
                 )
             }
 
-            let result = BrowserStateLoadTransaction.run(
+            let result = BrowserStateLoadTransaction().run(
                 hasNavigation: targetURL != nil,
                 installCookies: {
                     guard let cookieRows = raw["cookies"] as? [[String: Any]] else {
@@ -12851,11 +12851,8 @@ class TerminalController {
     }
 
     private func newWindow() -> String {
-        guard let windowId = v2MainSync({ AppDelegate.shared?.createMainWindow() }) else {
+        guard let windowId = v2MainSync({ self.controlCreateWindowAndActivate(title: nil) }) else {
             return "ERROR: Failed to create window"
-        }
-        if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
-            setActiveTabManager(tm)
         }
         return "OK \(windowId.uuidString)"
     }

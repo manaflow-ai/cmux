@@ -103,6 +103,8 @@ extension TerminalController {
             result = await agentMessageList(params: params)
         case "agent.message.claim":
             result = agentMessageClaim(params: params)
+        case "agent.message.ack":
+            result = agentMessageAck(params: params)
         case "agent.message.mark_read":
             result = agentMessageMarkRead(params: params)
         case "agent.message.poll":
@@ -319,8 +321,45 @@ extension TerminalController {
             store.markDeliveredRead(recipientSurfaceId: surfaceId)
         }
         let via = Self.agentMessageTrimmed(params["via"]) ?? "hook"
-        let messages = store.claimQueued(recipientSurfaceId: surfaceId, via: via)
+        let messages: [AgentMessage]
+        var leaseID: String?
+        if params["defer_delivery"] as? Bool == true {
+            guard let pollerKey = Self.agentMessageTrimmed(params["poller_key"]),
+                  let deferred = store.deferredMessages(
+                      recipientSurfaceId: surfaceId,
+                      pollerKey: pollerKey,
+                      limit: .max
+                  ) else {
+                return .ok(["status": "superseded", "messages": [], "text": ""])
+            }
+            messages = deferred.messages
+            leaseID = deferred.id.isEmpty ? nil : deferred.id
+        } else {
+            messages = store.claimQueued(recipientSurfaceId: surfaceId, via: via)
+        }
+        var payload: [String: Any] = [
+            "messages": messages.map(AgentMessageCenter.payload),
+            "text": messages.agentPromptText,
+        ]
+        if let leaseID { payload["lease_id"] = leaseID }
+        return .ok(payload)
+    }
+
+    private nonisolated func agentMessageAck(params: [String: Any]) -> V2CallResult {
+        guard let surfaceId = Self.agentMessageSurfaceUUID(params["surface_id"]),
+              let leaseID = Self.agentMessageTrimmed(params["lease_id"]),
+              let pollerKey = Self.agentMessageTrimmed(params["poller_key"]) else {
+            return Self.agentMessageMissingSurface()
+        }
+        let via = Self.agentMessageTrimmed(params["via"]) ?? "claude.wake"
+        let messages = AgentMessageCenter.store.acknowledgeDeferredLease(
+            id: leaseID,
+            recipientSurfaceId: surfaceId,
+            pollerKey: pollerKey,
+            via: via
+        )
         return .ok([
+            "status": "acknowledged",
             "messages": messages.map(AgentMessageCenter.payload),
             "text": messages.agentPromptText,
         ])
@@ -332,12 +371,13 @@ extension TerminalController {
         if let id = Self.agentMessageTrimmed(params["id"]) {
             ids.append(id)
         }
+        let surfaceRead: [AgentMessage]
         if let surfaceId = Self.agentMessageSurfaceUUID(params["surface_id"]) {
-            ids += store.messages(surfaceId: surfaceId, states: [.queued, .delivered], limit: 1_000)
-                .filter { $0.recipientSurfaceId == surfaceId }
-                .map(\.id)
+            surfaceRead = store.markDeliveredRead(recipientSurfaceId: surfaceId)
+        } else {
+            surfaceRead = []
         }
-        let read = store.markRead(ids: ids)
+        let read = store.markRead(ids: ids) + surfaceRead
         return .ok(["read": read.map(\.id)])
     }
 
