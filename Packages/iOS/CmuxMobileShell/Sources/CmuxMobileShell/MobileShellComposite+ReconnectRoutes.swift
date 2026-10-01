@@ -267,12 +267,15 @@ extension MobileShellComposite {
             return authorizedTailscale
         }
         // The Iroh method never falls back to raw host/port routes: a pairing
-        // without an Iroh identity stays disconnected until the user either
-        // upgrades the Mac or selects Tailscale for it. Debug loopback rides
-        // alongside Iroh as the dev-build convenience — same-machine lane,
-        // not a cross-method fallback — so an Iroh endpoint that advertises
-        // no relays and no direct addresses cannot starve it.
-        let authenticated = ordered.filter { $0.kind == .iroh || $0.kind == .debugLoopback }
+        // without an authenticated route stays disconnected until the user
+        // either upgrades the Mac or selects Tailscale for it. WebRTC is the
+        // DEBUG experiment's authenticated route; debug loopback rides
+        // alongside both as the same-machine dev-build convenience. Neither
+        // route is a cross-method fallback, so an Iroh endpoint that advertises
+        // no relays and no direct addresses cannot starve a usable route.
+        let authenticated = ordered.filter {
+            $0.kind == .iroh || $0.kind == .webrtc || $0.kind == .debugLoopback
+        }
         if authenticated.isEmpty, let legacyTailscaleCompatibility {
             return ordered.filter { route in
                 legacyTailscaleAuthorizationEvidence(
