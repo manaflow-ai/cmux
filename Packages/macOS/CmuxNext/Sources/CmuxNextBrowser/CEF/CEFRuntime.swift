@@ -327,9 +327,9 @@ final class CEFRuntime {
         let locale = library.locale
         logger.info("CEF locale \(locale.locale, privacy: .public), accept-languages \(locale.acceptLanguages, privacy: .public)")
         let context = Unmanaged.passUnretained(self).toOpaque()
-        // Chromium never opens a window of its own (fork API 8); the fork
-        // installs it at OnContextInitialized.
+        // Chromium never opens a window (fork API 8) nor focuses a page of its own.
         shim.setWindowRequestHandler(cefWindowRequestCallback)
+        shim.setFocusRequestHandler(cefFocusRequestCallback)
         let ok = switchStorage.withUnsafeBufferPointer { buffer in
             buffer.baseAddress!.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
                 shim.initialize(

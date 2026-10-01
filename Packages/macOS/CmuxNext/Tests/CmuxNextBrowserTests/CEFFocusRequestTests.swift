@@ -29,4 +29,35 @@ import Testing
         let tab = makeTab()
         #expect(!tab.chromiumRequestsFocus(.system))
     }
+
+    /// The focus coordinator gives the page focus through `setFocused(true)`:
+    /// CEF asks back inside that call, and the request wins.
+    @Test func cmuxsOwnFocusRequestWins() {
+        let tab = makeTab()
+        #expect(tab.withFocusGrant { tab.chromiumRequestsFocus(.system) })
+        #expect(!tab.chromiumRequestsFocus(.system))
+    }
+
+    /// Requests reach the tab through the runtime; a browser cmux does not
+    /// show (a popup before adoption) is refused.
+    @Test func theRuntimeRoutesRequestsToTheTab() {
+        let tab = makeTab()
+        CEFRuntime.shared.register(tab, browser: 70_101)
+        defer { CEFRuntime.shared.tabsByBrowser[70_101] = nil }
+        #expect(!CEFRuntime.shared.focusRequested(browser: 70_101, source: CEFFocusSource.navigation.rawValue))
+        #expect(tab.withFocusGrant { CEFRuntime.shared.focusRequested(browser: 70_101, source: CEFFocusSource.system.rawValue) })
+        #expect(!CEFRuntime.shared.focusRequested(browser: 70_102, source: CEFFocusSource.system.rawValue))
+    }
+
+    /// Refusals reach the input journal (the live check of every New
+    /// Browser Tab entry point reads them).
+    @Test func aRefusalIsJournaled() {
+        let tab = makeTab()
+        var events: [String] = []
+        let previous = BrowserLifecycleTrace.sink
+        BrowserLifecycleTrace.sink = { tabID, event in if tabID == tab.id.rawValue { events.append(event) } }
+        defer { BrowserLifecycleTrace.sink = previous }
+        _ = tab.chromiumRequestsFocus(.navigation)
+        #expect(events == ["focus-refused source=navigation"])
+    }
 }

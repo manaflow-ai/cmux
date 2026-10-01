@@ -65,6 +65,7 @@ class Client : public CefClient,
                public CefContextMenuHandler,
                public CefRequestHandler,
                public CefCommandHandler,
+               public CefFocusHandler,
                public CefDevToolsMessageObserver {
  public:
   explicit Client(int request) : request_(request) {}
@@ -77,6 +78,22 @@ class Client : public CefClient,
   CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override { return this; }
   CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
   CefRefPtr<CefCommandHandler> GetCommandHandler() override { return this; }
+  CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
+
+  // MARK: Focus
+
+  // CEF focuses a page after every navigation it starts (a new browser's
+  // first load, LoadURL); on macOS that activates the page window, which
+  // takes the keys from the host's omnibar. The host decides every
+  // request (its focus coordinator is the only owner of focus); returning
+  // true cancels it.
+  bool OnSetFocus(CefRefPtr<CefBrowser> browser, FocusSource source) override {
+    const Host& h = host();
+    if (!h.focus_request) {
+      return false;
+    }
+    return h.focus_request(h.ctx, browser->GetIdentifier(), source) == 0;
+  }
 
   // MARK: Chrome commands
 

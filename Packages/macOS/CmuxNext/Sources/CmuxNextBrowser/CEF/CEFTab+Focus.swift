@@ -16,10 +16,53 @@ nonisolated enum CEFFocusSource: Int32, Sendable {
     }
 }
 
+/// C entry for `CefFocusHandler::OnSetFocus` (main thread, CEF's UI
+/// thread). Returns 1 when the page may take focus.
+let cefFocusRequestCallback: CEFShimLibrary.FocusRequestFn = { context, browser, source in
+    guard let context, Thread.isMainThread else { return 0 }
+    let address = UInt(bitPattern: context)
+    return MainActor.assumeIsolated {
+        CEFRuntime.from(address)?.focusRequested(browser: browser, source: source) == true ? 1 : 0
+    }
+}
+
+extension CEFRuntime {
+    /// Chromium asks to focus a page. Unknown browsers (a popup not adopted
+    /// yet) are refused: only a tab cmux shows can be given focus.
+    func focusRequested(browser: Int32, source: Int32) -> Bool {
+        guard let tab = tabsByBrowser[browser] else { return false }
+        return tab.chromiumRequestsFocus(CEFFocusSource(rawValue: source) ?? .system)
+    }
+}
+
 extension CEFTab {
     /// Chromium asks to focus this page (`CefFocusHandler::OnSetFocus`).
-    /// Today the shim installs no focus handler, so every request wins.
+    ///
+    /// Only cmux gives a page focus: the focus coordinator decides, and
+    /// `setFocused(true)` asks inside `grantFocus`. CEF's own requests are
+    /// refused. It asks after every navigation it starts, and on macOS
+    /// granting one activates the page window, which takes the keys from
+    /// the omnibar of a new tab (Chrome keeps that omnibar focused until
+    /// the user clicks the page) or from wherever the user is typing.
     func chromiumRequestsFocus(_ source: CEFFocusSource) -> Bool {
-        true
+        if isGrantingFocus { return true }
+        BrowserLifecycleTrace.record(id, "focus-refused source=\(source.name)")
+        return false
+    }
+
+    /// Gives the page focus on cmux's behalf. CEF asks back through
+    /// `chromiumRequestsFocus` inside this call (the shim's calls run on
+    /// CEF's UI thread, the main thread).
+    func grantFocus(_ browser: Int32) {
+        isGrantingFocus = true
+        defer { isGrantingFocus = false }
+        runtime.shim?.setFocus(browser, 1)
+    }
+
+    /// Runs `body` as if inside cmux's own `SetFocus(true)` (tests).
+    func withFocusGrant<T>(_ body: () -> T) -> T {
+        isGrantingFocus = true
+        defer { isGrantingFocus = false }
+        return body()
     }
 }

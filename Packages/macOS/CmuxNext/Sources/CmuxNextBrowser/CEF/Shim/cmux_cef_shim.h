@@ -142,6 +142,12 @@ typedef int (*cmux_shim_window_request_fn)(void* ctx,
                                            int height,
                                            const char* url,
                                            const char* profile_path);
+// Main thread, when Chromium asks to focus a page (CefFocusHandler::
+// OnSetFocus; source = cef_focus_source_t, 0 navigation, 1 system). CEF
+// asks after every navigation it starts (a new browser's first load,
+// cmux_shim_load_url); cmux_shim_set_focus(id, 1) asks as system inside
+// that call. Return 1 to let the page take focus, 0 to refuse.
+typedef int (*cmux_shim_focus_request_fn)(void* ctx, int browser_id, int source);
 
 
 // SHA-256 (64 lowercase hex digits) of this header as the shim was built.
@@ -226,6 +232,8 @@ CMUX_SHIM_EXPORT void cmux_shim_go_forward(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_reload(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_stop(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_set_focus(int browser_id, int focus);
+// Without a handler every focus request wins (CEF's default).
+CMUX_SHIM_EXPORT void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler);
 CMUX_SHIM_EXPORT void cmux_shim_set_zoom_level(int browser_id, double level);
 // FIND_RESULT events carry `find_id`.
 CMUX_SHIM_EXPORT void cmux_shim_find(int browser_id, int find_id, const char* text, int forward, int match_case, int find_next);

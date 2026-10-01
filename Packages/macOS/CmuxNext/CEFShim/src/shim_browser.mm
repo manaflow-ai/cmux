@@ -124,6 +124,10 @@ void cmux_shim_set_focus(int browser_id, int focus) {
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) host->SetFocus(focus != 0);
 }
 
+void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler) {
+  host().focus_request = handler;
+}
+
 void cmux_shim_set_zoom_level(int browser_id, double level) {
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) host->SetZoomLevel(level);
 }

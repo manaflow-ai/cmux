@@ -23,6 +23,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         UnsafeMutableRawPointer?, Int32, Int32, Int32, Int32, Int32, Int32, Int32, Int32,
         UnsafePointer<CChar>?, UnsafePointer<CChar>?
     ) -> Int32
+    /// `cmux_shim_focus_request_fn`: ctx, browser, source -> 1 allow.
+    typealias FocusRequestFn = @convention(c) (UnsafeMutableRawPointer?, Int32, Int32) -> Int32
 
     let abiIDFn: @convention(c) () -> UnsafePointer<CChar>?
     let load: @convention(c) (UnsafePointer<CChar>?, UnsafeMutablePointer<CChar>?, Int) -> Int32
@@ -101,6 +103,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let shutdown: @convention(c) () -> Void
     /// Chromium never shows a window of its own (fork API 8; no-op before).
     let setWindowRequestHandler: @convention(c) (WindowRequestFn?) -> Void
+    /// Chromium's own focus requests go through cmux (`CefFocusHandler`).
+    let setFocusRequestHandler: @convention(c) (FocusRequestFn?) -> Void
     /// Browsers Chromium created outside cmux (fork API 8; -1 before).
     let foreignBrowserCount: @convention(c) () -> Int32
 
@@ -226,6 +230,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         windowCount = try r("cmux_shim_window_count")
         shutdown = try r("cmux_shim_shutdown")
         setWindowRequestHandler = try r("cmux_shim_set_window_request_handler")
+        setFocusRequestHandler = try r("cmux_shim_set_focus_request_handler")
         foreignBrowserCount = try r("cmux_shim_foreign_browser_count")
         contentSetting = try r("cmux_shim_content_setting")
         setContentSetting = try r("cmux_shim_set_content_setting")
