@@ -88,6 +88,5 @@ enum TerminalHandlers {
         for id: ActionID in ["resumeCommandSet", "resumeCommandEdit", "resumeCommandClear"] {
             registry.bindUnavailable(id, reason: RefusalStrings.needsDaemonCapability("resume-command"))
         }
-        registry.bindUnavailable("findInDirectory", reason: RefusalStrings.findPanelUnported)
     }
 }

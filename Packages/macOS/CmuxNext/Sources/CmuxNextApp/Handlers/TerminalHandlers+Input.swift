@@ -91,7 +91,7 @@ extension TerminalHandlers {
         })
     }
 
-    private static func send(_ text: String, paste: Bool, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
+    static func send(_ text: String, paste: Bool, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
         guard tab.kind == .pty else { return ctx.refuse(RefusalStrings.notATerminal) }
         let surface = tab.surface
@@ -116,7 +116,7 @@ extension TerminalHandlers {
         (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
     }
 
-    private static func shellQuoted(_ path: String) -> String {
+    static func shellQuoted(_ path: String) -> String {
         "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
