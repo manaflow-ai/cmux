@@ -280,14 +280,6 @@ final class NotificationsAnchorRegistry {
         anchors.add(view)
     }
 
-    func visibleAnchor(in window: NSWindow) -> NSView? {
-        anchors.allObjects.first {
-            $0.window === window
-                && !$0.bounds.isEmpty
-                && notificationsPopoverAnchorIsVisible($0)
-        }
-    }
-
     func closestAnchor(in window: NSWindow, to pointInWindow: NSPoint) -> NSView? {
         anchors.allObjects
             .compactMap { view -> (view: NSView, distance: CGFloat)? in
