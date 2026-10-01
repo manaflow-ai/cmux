@@ -82,7 +82,7 @@ struct CurrentWorkReducer {
             return CurrentWorkSnapshot.Item(
                 resourceRef: resource.id.rawValue, durableSurfaceID: local && stableIDs.count == 1 ? stableIDs.first : nil,
                 label: bounded(resource.title), kind: resource.kind.rawValue, lifecycle: resource.lifecycle.rawValue,
-                placement: .init(kind: local ? "local" : "cloud", machine: resource.machine.rawValue), projections: projected,
+                placement: .init(kind: resource.machine.kind, machine: resource.machine.rawValue), projections: projected,
                 cwd: resource.kind == .terminal ? resource.detail.map { bounded($0) } : nil,
                 projectHints: Array(projects.prefix(8)), repositoryHints: Array(repositories.prefix(8)), agents: boundedAgents, attention: Array(attention.prefix(24)),
                 pullRequests: Array(prs.prefix(16)), freshness: fresh, cursor: state?.cursor, receiptRefs: receipts,

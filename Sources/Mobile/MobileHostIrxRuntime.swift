@@ -361,7 +361,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         hadLiveDiscoveryThisRun = false
         setSettingsPhase(.idle)
         if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
-        await outgoingDeviceClient?.enforce(nil)
+        await outgoingDeviceClient?.enforce(nil, releaseAll: true)
         if let oldControl, let metadata = await oldControl.snapshot().cache.device?.descriptor.metadata,
            metadata.pairingEnabled || metadata.capabilities.contains("cmux.mac-host.v1"), scope == nil || !pairingEnabled() {
             let withdrawn = V2DeviceMetadata(appVersion: metadata.appVersion,
@@ -459,7 +459,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             sign: { data in
                 guard await auth.isAuthenticatedTeamScopeCurrent(scope) else { throw V2ControlFailure.scopeMismatch }
                 return try key.sign(data)
-            })
+            },
+            journal: Self.journal)
         let service = V2ControlService(configuration: try .init(baseURL: configuration.baseURL, device: device),
             dependencies: dependencies, store: store)
         listenerState.preferredPort = preferredPort
@@ -504,7 +505,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         controlTask = Task { @MainActor [weak self] in
             for await snapshot in await service.events() {
                 guard !Task.isCancelled else { return }
-                await self?.apply(snapshot, token: token)
+                guard let self else { return }
+                await self.apply(snapshot, token: token)
+                await service.acknowledgeApplied(sequence: snapshot.sequence)
             }
         }
         await service.start()
@@ -606,9 +609,17 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         guard isCurrent(token) else { return }
         schedulePermissionExpiry(token: token)
         // Installing credentials does not replace the endpoint or its admitted sessions.
-        if previousCredentials != snapshot.cache.relayCredentials, let supervisor = endpointSupervisor {
-            await supervisor.rotateCredentials(Self.credentials(snapshot.cache))
-            guard isCurrent(token) else { return }
+        if previousCredentials != snapshot.cache.relayCredentials {
+            let now = Int(Date().timeIntervalSince1970)
+            Self.journal.record("v2-host", "credentials-received", [
+                "count": String(snapshot.cache.relayCredentials.count),
+                "expires_in_s": String((snapshot.cache.relayCredentials.map(\.expiresAt).max() ?? now) - now),
+                "supervisor": String(endpointSupervisor != nil),
+            ])
+            if let supervisor = endpointSupervisor {
+                await supervisor.rotateCredentials(Self.credentials(snapshot.cache))
+                guard isCurrent(token) else { return }
+            }
         }
         requestEndpointReady(token: token)
         if activeDeviceCapabilities != deviceCapabilities { updateDeviceHostingMetadata() }
@@ -685,7 +696,16 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         guard endpointTask == nil else { endpointRefreshPending = true; return }
         guard let supervisor = endpointSupervisor,
               let cache = cachedState, !cache.authorityRevoked,
-              Self.pathMode == .directOnly || Self.credentials(cache).contains(where: { $0.isUsable(at: Date()) }) else { return }
+              Self.pathMode == .directOnly || Self.credentials(cache).contains(where: { $0.isUsable(at: Date()) }) else {
+            // Without this event, a host with only expired credentials skips
+            // endpoint readiness forever and logs nothing.
+            let reason = endpointSupervisor == nil ? "no-supervisor"
+                : cachedState == nil ? "no-cache"
+                : cachedState?.authorityRevoked == true ? "revoked"
+                : "no-usable-credential"
+            Self.journal.record("v2-host", "endpoint-ready-skipped", ["reason": reason])
+            return
+        }
         endpointTask = Task { @MainActor [weak self] in
             defer {
                 if let self, self.generationToken == token {
@@ -976,10 +996,17 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         let eventWriter = MobileHostIrxEventWriter(connection: irx, journal: journal)
         let controlTransport = IrxControlByteTransport(
             connection: irx, control: control, closeCode: .hostShutdown)
+        // The browser tunnel serves phones only, and each open re-checks the
+        // same live authorization that keeps this session admitted.
+        let tunnelHost: IrxTunnelHost? = isMac ? nil : MobileHostBrowserTunnel.makeHost(
+            isAuthorized: { stillAuthorized(peer.endpointIDHex) },
+            journal: journal
+        )
         let laneLoop = Task {
             await Self.runLaneLoop(
                 irx, admittedPeer: admittedPeer, artifactRegistry: artifactRegistry,
                 controlTransport: controlTransport,
+                tunnelHost: tunnelHost,
                 journal: journal,
                 onInteractiveSurface: { surfaceID in
                     // Fire-and-forget: input delivery never waits on the
@@ -1024,6 +1051,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             ]
         )
         laneLoop.cancel()
+        await tunnelHost?.stop()
         await eventWriter.close()
         await irx.close(code: .hostShutdown, origin: .local)
         await registry.remove(deviceID: peer.bindingID, sessionID: sessionID)
@@ -1036,6 +1064,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         admittedPeer: CmxIrohAdmittedPeer,
         artifactRegistry: MobileHostIrohArtifactTransferRegistry,
         controlTransport: IrxControlByteTransport,
+        tunnelHost: IrxTunnelHost?,
         journal: IrxJournal,
         onInteractiveSurface: @escaping MobileHostIrxTerminalLaneServer.InteractiveSurfaceObserver
     ) async {
@@ -1135,6 +1164,13 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     journal.record(
                         "host-lanes", replaced ? "control-replaced" : "control-replace-refused")
                 }
+            case .tcpConnect, .listeningPorts:
+                guard let tunnelHost else {
+                    await lane.writer.reset(errorCode: 2)
+                    await lane.reader.stop(errorCode: 2)
+                    continue
+                }
+                await tunnelHost.accept(lane)
             case .control, .events:
                 // control arrives only pre-admission; events is server-opened.
                 await lane.writer.reset(errorCode: 2)
@@ -1160,5 +1196,36 @@ private actor MobileHostIrxTerminalLaneQuota {
 
     func release() {
         activeCount = max(0, activeCount - 1)
+    }
+}
+
+/// Mac side of the phone's "On iPhone" browser for paired Macs: the phone's
+/// native browser reaches this Mac's loopback (and, when the user opts in,
+/// other hosts) through `tcpConnect` lanes on the admitted irx connection.
+/// Destination rules live in `IrxTunnelDestinationPolicy`; limits and
+/// lifecycle in `IrxTunnelHost`.
+enum MobileHostBrowserTunnel {
+    /// An administrator who disables the embedded browser also disables the
+    /// phone browser tunnel.
+    nonisolated static var isAvailable: Bool {
+        !BrowserAvailabilitySettings.isManagedByPolicy
+    }
+
+    /// The current destination policy (`mobile.browserTunnel.allowOtherHosts`).
+    nonisolated static func policy(defaults: UserDefaults = .standard) -> IrxTunnelDestinationPolicy {
+        IrxTunnelDestinationPolicy(
+            allowsNonLoopbackHosts: SettingCatalog().mobile.browserTunnelAllowOtherHosts.value(in: defaults)
+        )
+    }
+
+    nonisolated static func makeHost(
+        isAuthorized: @escaping @Sendable () -> Bool,
+        journal: IrxJournal
+    ) -> IrxTunnelHost {
+        IrxTunnelHost(
+            policy: { policy() },
+            isAuthorized: { isAvailable && isAuthorized() },
+            journal: journal
+        )
     }
 }

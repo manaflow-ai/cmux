@@ -7,7 +7,5 @@ struct BrowserWebAuthnUserDescriptor: Decodable {
 extension BrowserWebAuthnUserDescriptor {
     func validateNativeRequestShape() throws {
         try id.validateByteCount(BrowserWebAuthnRequestParser.userIDByteRange)
-        try name.validateWebAuthnString(maxUTF8Bytes: BrowserWebAuthnRequestParser.maximumDisplayStringUTF8Bytes)
-        try displayName.validateWebAuthnString(maxUTF8Bytes: BrowserWebAuthnRequestParser.maximumDisplayStringUTF8Bytes)
     }
 }

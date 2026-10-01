@@ -14,6 +14,14 @@ public struct WorkspaceColorsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarSelectionColorHex"
     )
 
+    /// Opt-in faint accent tint with a hairline edge for the selected
+    /// workspace, in place of the solid fill (manaflow-ai/cmux#14890).
+    public let subtleSelection = DefaultsKey<Bool>(
+        id: "workspaceColors.subtleSelection",
+        defaultValue: false,
+        userDefaultsKey: "sidebarSubtleSelection"
+    )
+
     public let notificationBadgeColorHex = DefaultsKey<String>(
         id: "workspaceColors.notificationBadgeColor",
         defaultValue: "",

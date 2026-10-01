@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { runChild } from "./helpers/run-child";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GUEST_CMUX_SHIM } from "../services/vms/guestCli";
 import { GUEST_BROWSER_FILES } from "../services/vms/guestBrowser";
+import { GUEST_CLIPBOARD_FILES } from "../services/vms/guestClipboard";
 import { freestyleGuestFixture, guestCreateOptions } from "./fixtures/freestyleGuest";
 
 const roots: string[] = [];
@@ -39,8 +40,8 @@ function guest(options: { corruptUpload?: boolean; promptFails?: boolean; publis
     write: (path, bytes) => writeFileSync(rebase(path), options.corruptUpload ? "#!/bin/sh\nexit 0\n" : bytes),
     remove: (path) => rmSync(rebase(path), { force: true }),
     exec: async (request) => {
-      const result = spawnSync("/bin/sh", ["-c", rebase(request.command)], {
-        encoding: "utf8", timeout: 5_000,
+      const result = await runChild("/bin/sh", ["-c", rebase(request.command)], {
+        timeout: 5_000,
         env: {
           ...process.env, HOME: root, PATH: `${join(root, "fixture-bin")}:${process.env.PATH}`,
           CMUX_GUEST_FIXTURE_ROOT: root,
@@ -63,23 +64,27 @@ describe("guest CLI publication in an isolated filesystem", () => {
     for (const file of GUEST_BROWSER_FILES.filter((file) => file.path.startsWith("/usr/local/bin/"))) {
       expect(readFileSync(join(root, "bin", file.path.split("/").at(-1)!), "utf8")).toBe(file.content);
     }
+    for (const file of GUEST_CLIPBOARD_FILES) {
+      expect(readFileSync(join(root, "bin", file.path.split("/").at(-1)!), "utf8")).toBe(file.content);
+    }
     expect(statSync(target).mode & 0o777).toBe(0o755);
-    const result = spawnSync(target, ["--help"], { encoding: "utf8", timeout: 5_000 });
+    const result = await runChild(target, ["--help"], { timeout: 5_000 });
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("cmux");
     const daemon = join(root, "cmux-tui");
     writeFileSync(daemon, '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$HOME/daemon-args"\nprintf \'%s\\n\' \'{"session":"cloud","workspaces":[]}\'\n', { mode: 0o755 });
-    const tree = spawnSync(target, ["tree", "--json"], {
-      encoding: "utf8", timeout: 5_000,
+    const tree = await runChild(target, ["tree", "--json"], {
+      timeout: 5_000,
       env: { ...process.env, HOME: root, CMUX_TUI_BIN: daemon },
     });
     expect(tree.status).toBe(0);
     expect(JSON.parse(tree.stdout)).toEqual({ session: "cloud", workspaces: [] });
     expect(readFileSync(join(root, "daemon-args"), "utf8").trim().split("\n"))
       .toEqual(["--session", "cloud", "--json", "session", "current", "snapshot"]);
-    expect(readdirSync(join(root, "bin")).sort()).toEqual([
-      "cmux", "cmux-open-url", "coderouter", "cr", "sensible-browser", "x-www-browser", "xdg-open",
-    ]);
+    const installed = readdirSync(join(root, "bin"));
+    for (const name of ["cmux", "cmux-open-url", "coderouter", "cr", "sensible-browser", "wl-copy", "x-www-browser", "xclip", "xsel", "xdg-open"]) {
+      expect(installed).toContain(name);
+    }
   });
 
   test("a fresh prompt install keeps its identity when an older revision attaches", async () => {
@@ -152,6 +157,9 @@ describe("guest CLI publication in an isolated filesystem", () => {
     // the safety property is that no alias points at that new generation.
     expect(existsSync(join(root, "libexec", "cmux-coderouter"))).toBe(false);
     expect(existsSync(join(root, "bin", "coderouter"))).toBe(false);
+    for (const file of GUEST_CLIPBOARD_FILES) {
+      expect(existsSync(join(root, "bin", file.path.split("/").at(-1)!))).toBe(false);
+    }
     expect(fixture.liveVms.size).toBe(0);
   });
 
@@ -164,6 +172,9 @@ describe("guest CLI publication in an isolated filesystem", () => {
     writeFileSync(join(root, "etc/bashrc"), "previous bashrc generation");
     writeFileSync(join(root, "etc/.prompt-identity"), "previous identity");
     writeFileSync(join(root, "etc/vm-name"), "previous name\n");
+    for (const file of GUEST_CLIPBOARD_FILES) {
+      writeFileSync(join(root, "bin", file.path.split("/").at(-1)!), "previous clipboard generation");
+    }
     const failure = await fixture.createWithGuestInstall({
       ...guestCreateOptions,
       promptIdentity: { machineId: "synthetic", name: "synthetic", revision: 1 },
@@ -179,6 +190,9 @@ describe("guest CLI publication in an isolated filesystem", () => {
     expect(publishArtifacts.some((name) => name.startsWith(".cmux-install-") || (name.startsWith(".prompt-") && ![".prompt-lock", ".prompt-identity"].includes(name)))).toBe(false);
     expect(existsSync(join(root, "libexec", "cmux-coderouter"))).toBe(false);
     expect(existsSync(join(root, "bin", "coderouter"))).toBe(false);
+    for (const file of GUEST_CLIPBOARD_FILES) {
+      expect(readFileSync(join(root, "bin", file.path.split("/").at(-1)!), "utf8")).toBe("previous clipboard generation");
+    }
     expect(fixture.liveVms.size).toBe(0);
   });
 });

@@ -41,11 +41,26 @@ public struct AgentLaunchCaptureRejectionReason: RawRepresentable, Codable, Hash
     /// already exited).
     public static let argvUnavailable = Self(rawValue: "argvUnavailable")
 
+    /// A launch-capture value was present for a trusted launcher, but its
+    /// base64/NUL-separated payload could not be decoded into argv.
+    public static let argvDecodeFailed = Self(rawValue: "argvDecodeFailed")
+
     /// An argv was captured and trusted, but `AgentLaunchSanitizer` judged the
     /// invocation non-restorable (a one-shot subcommand such as `codex exec`, a
     /// rejected option, a wrapper launcher that cannot be replayed). This is
     /// the ground behind a stored `source: "rejected"`.
     public static let sanitizerRejectedArgv = Self(rawValue: "sanitizerRejectedArgv")
+
+    /// Whether this ground invalidates the replay-safe environment/default
+    /// fallback. A PID mismatch or shell-wrapper argv only says that the
+    /// fallback PID was not the agent; it does not reject the launch
+    /// environment that the hook itself carried. Unknown future grounds fail
+    /// closed and are treated as positive capture rejections.
+    public var isPositiveCaptureRejection: Bool {
+        self != .argvUnavailable
+            && self != .nativeProcessDoesNotDescribeKind
+            && self != .argvLooksLikeShellWrapper
+    }
 
     /// The ground a record names when a hook had two argv candidates and
     /// discarded both: the `CMUX_AGENT_LAUNCH_*` capture cmux wrote at launch,

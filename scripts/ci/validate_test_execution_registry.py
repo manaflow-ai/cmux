@@ -48,9 +48,11 @@ ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "tests" / "test-execution.toml"
 WORKFLOWS = ROOT / ".github" / "workflows"
 CI_GUARDS = WORKFLOWS / "ci-guards.yml"
-RUNNER_RE = re.compile(r"scripts/ci/run_python_test_lane\.py\s+--lane\s+([A-Za-z0-9_.-]+)")
+# One invocation may run several lanes (`--lane a --lane b`), in any flag order.
+RUNNER_RE = re.compile(r"scripts/ci/run_python_test_lane\.py(?P<args>[^\n]*)")
+RUNNER_LANE_RE = re.compile(r"--lane[=\s]+([A-Za-z0-9_.-]+)")
 TEST_PATH_RE = re.compile(r"^tests/test_[A-Za-z0-9_.-]+\.py$")
-ALLOWED_FIELDS = {"path", "lane", "requirements", "reason"}
+ALLOWED_FIELDS = {"path", "lane", "requirements", "reason", "serial"}
 INVENTORY_LANES = {"legacy", "manual"}
 SUPPORTED_REQUIREMENTS = {"cmux-cli", "fish"}
 # A workflow that names a test file in a `run:` step executes it directly,
@@ -71,7 +73,8 @@ def runner_lanes_from_workflow_text(text: str) -> set[str]:
     lanes: set[str] = set()
     for line in text.splitlines():
         executable = line.split("#", 1)[0]
-        lanes.update(RUNNER_RE.findall(executable))
+        for match in RUNNER_RE.finditer(executable):
+            lanes.update(RUNNER_LANE_RE.findall(match.group("args")))
     return lanes
 
 
@@ -83,7 +86,8 @@ def all_workflow_text(workflows: Path = WORKFLOWS) -> str:
     """Every workflow's text, for asking whether a path is executed anywhere.
 
     A Linux guard does not have to live in ci-guards.yml to be live. The
-    always-on lanes run guards too -- testbox-broker-guard.yml deliberately has
+    routed CI lanes run guards too -- the Testbox checks now live in
+    ci-guards.yml's `ci` group, while testbox-broker-guard.yml deliberately has
     no path filter, and ci-artifact-transport.yml owns its own -- so checking
     ci-guards.yml alone rejects a test that demonstrably executes on every
     pull request.
@@ -345,6 +349,8 @@ def validate(
             if unknown_requirements:
                 errors.append(f"{path}: unsupported requirements: {', '.join(unknown_requirements)}")
 
+        if "serial" in entry and not isinstance(entry["serial"], bool):
+            errors.append(f"{path}: serial must be true or false")
         if lane == "manual" and not isinstance(entry.get("reason"), str):
             errors.append(f"{path}: manual tests require a reason")
         if lane != "manual" and "reason" in entry:
@@ -460,20 +466,27 @@ def report_warnings(warnings: list[str]) -> None:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-sha", default="")
+    parser.add_argument(
+        "--repo-root",
+        type=Path,
+        default=ROOT,
+        help="repository root to validate (defaults to the helper's checkout)",
+    )
     parser.add_argument("--write", action="store_true",
                         help="register unregistered tests a workflow already runs, then validate")
     args = parser.parse_args(argv)
+    root = args.repo_root.resolve()
 
     if args.write:
         try:
-            for path in register_derivable(ROOT):
+            for path in register_derivable(root):
                 print(f"registered {path} on lane {DIRECT_RUN_LANE}")
         except (OSError, ValueError) as error:
             print(error, file=sys.stderr)
             return 1
 
     try:
-        errors, warnings, lane_counts = validate(ROOT, args.base_sha)
+        errors, warnings, lane_counts = validate(root, args.base_sha)
     except (OSError, ValueError) as error:
         print(error, file=sys.stderr)
         return 1
@@ -487,7 +500,7 @@ def main(argv: list[str]) -> int:
         return 1
 
     summary = ", ".join(f"{lane}={count}" for lane, count in sorted(lane_counts.items()))
-    discovered = sum(1 for path in (ROOT / "tests").glob("test_*.py") if path.is_file())
+    discovered = sum(1 for path in (root / "tests").glob("test_*.py") if path.is_file())
     print(f"Python test execution registry valid: {discovered} tests ({summary})")
     return 0
 

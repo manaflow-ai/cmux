@@ -24,6 +24,21 @@ extension cmuxApp {
 
     @ViewBuilder
     func paneSizingCommandButtons() -> some View {
+            splitCommandButton(
+                title: KeyboardShortcutSettings.Action.newPaneAutoLayout.label,
+                shortcut: menuShortcut(for: .newPaneAutoLayout)
+            ) {
+                guard let appDelegate = AppDelegate.shared else { return }
+                if appDelegate.routeSplitToFocusedDock(
+                    kind: .terminal,
+                    direction: .right,
+                    action: .newPaneAutoLayout,
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                ) {
+                    return
+                }
+                _ = appDelegate.performAutoLayoutPaneShortcut()
+            }
             equalizeSplitsCommandButton()
             splitCommandButton(
                 title: KeyboardShortcutSettings.Action.resizePaneLeft.label,

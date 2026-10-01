@@ -21,7 +21,7 @@ final class PlainPastePTYFixture {
     private let workerClient: TerminalPastePreparationWorkerClient
     var view: GhosttyNSView { surface.hostedView.surfaceView }
 
-    init(optimized: Bool) throws {
+    init(optimized: Bool, workerStartupDelay: Double = 0) throws {
         previousMenu = NSApp.mainMenu
         root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-paste-pty-\(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
@@ -32,14 +32,15 @@ final class PlainPastePTYFixture {
         let fullWrapper = root.appendingPathComponent("full")
         let textWrapper = root.appendingPathComponent("text")
         for (url, executable, label) in [(fullWrapper, app, "full"), (textWrapper, helper, "text")] {
-            let script = "#!/bin/sh\nprintf '%s\\n' '\(label)' >> \(launches.path.terminalShellEscaped)\nexec \(executable.path.terminalShellEscaped) \"$@\"\n"
+            let script = "#!/bin/sh\nprintf '%s\\n' '\(label)' >> \(launches.path.terminalShellEscaped)\nsleep \(workerStartupDelay)\nexec \(executable.path.terminalShellEscaped) \"$@\"\n"
             try script.write(to: url, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
         }
         let owner = GhosttyApp.terminalPasteboard
         let client = TerminalPastePreparationWorkerClient(
             executableURL: fullWrapper, pasteboardService: owner,
-            plainTextExecutableURL: optimized ? textWrapper : nil
+            plainTextExecutableURL: optimized ? textWrapper : nil,
+            prewarmPlainTextWorker: workerStartupDelay > 0
         )
         workerClient = client
         let service = TerminalImageTransferPreparationService(
@@ -120,6 +121,35 @@ final class PlainPastePTYFixture {
         try #require(surface.readText(region: .screen)?.contains("PASTE_READY") == true)
     }
 
+    /// Proves the prewarmed plain-text reader started at init, before any
+    /// paste asked for it, and has served one read, so it is at its request
+    /// wait. The pool reads a reader's readiness byte only with its first
+    /// request, and a wrapper launch can take over a second on a loaded runner
+    /// (see ``warmWorkerLaunchPath()``).
+    func waitUntilStandbyReaderServes() async throws {
+        let deadline = ContinuousClock.now + .seconds(15)
+        while launchLabels() != ["text"], ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(launchLabels() == ["text"], "The plain-text reader was not prewarmed at init")
+        NSPasteboard.general.clearContents()
+        try #require(NSPasteboard.general.setString("cmux-paste-pty-standby", forType: .string))
+        let result = try await workerClient.prepare(TerminalPastePreparationRequest(
+            pasteboard: TerminalPasteboardReadRequest(pasteboard: NSPasteboard.general),
+            mode: .paste,
+            destination: .terminal
+        ))
+        guard case .terminal(.insertText("cmux-paste-pty-standby")) = result else {
+            Issue.record("Standby reader did not serve the readiness read: \(result)")
+            return
+        }
+        try #require(launchLabels() == ["text"], "The readiness read must reuse the prewarmed reader")
+    }
+
+    private func launchLabels() -> [String] {
+        ((try? String(contentsOf: launches, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+    }
+
     /// Warms this fixture's worker launch path before the timed trials.
     ///
     /// The launch-counting wrapper is a fresh shell script per fixture, and
@@ -164,7 +194,7 @@ final class PlainPastePTYFixture {
 
     func close() {
         NSApp.mainMenu = previousMenu
-        surface.teardownSurface()
+        surface.teardownHostedSurfaceForTesting()
         window.orderOut(nil)
         try? FileManager.default.removeItem(at: root)
     }

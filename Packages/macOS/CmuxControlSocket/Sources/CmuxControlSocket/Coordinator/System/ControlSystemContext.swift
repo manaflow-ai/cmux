@@ -2,7 +2,8 @@ public import Foundation
 
 /// The system/misc-domain slice of the control-command seam (a constituent of
 /// the ``ControlCommandContext`` umbrella): `system.identify`, `system.tree`,
-/// `auth.login`, `session.restore_previous`, `settings.open`, `feedback.open`,
+/// `auth.login`, `session.restore_previous`, `session.import`,
+/// `session.export`, `settings.open`, `feedback.open`,
 /// `extension.sidebar.snapshot`, `workspace.action`, `surface.action` /
 /// `tab.action`, `surface.drag_to_split` / `surface.split_off`, and the
 /// DEBUG-only `mobile.dev_stack_auth.configure`.
@@ -45,6 +46,25 @@ public protocol ControlSystemContext: AnyObject {
     /// - Returns: The restore resolution (failure carries the app-localized
     ///   message).
     func controlSessionRestorePrevious() -> ControlSessionRestoreResolution
+
+    /// Validates a session snapshot from another install or a file and
+    /// reopens it as additional windows for `session.import`. Never writes
+    /// the source file.
+    ///
+    /// - Parameter source: The channel or absolute file path to read.
+    /// - Returns: The import resolution (failures carry app-localized
+    ///   messages).
+    func controlSessionImport(source: ControlSessionImportSource) -> ControlSessionImportResolution
+
+    /// Writes this install's saved session snapshot to `path` for
+    /// `session.export`.
+    ///
+    /// - Parameters:
+    ///   - path: The absolute destination path.
+    ///   - overwrite: Whether an existing destination file may be replaced.
+    /// - Returns: The export resolution (failures carry app-localized
+    ///   messages).
+    func controlSessionExport(path: String, overwrite: Bool) -> ControlSessionExportResolution
 
     /// Validates the target and schedules the settings window for
     /// `settings.open`.
@@ -91,6 +111,7 @@ public protocol ControlSystemContext: AnyObject {
     ///   - surfaceID: The explicit `surface_id` / `tab_id`, if any.
     ///   - requestedFocus: The requested `focus` flag (the app applies the
     ///     focus-allowance policy).
+    ///   - force: Whether a close batch may terminate active processes.
     ///   - moveParams: The raw request params, passed through to the
     ///     still-app-side move-to-new-workspace family.
     /// - Returns: The action resolution.
@@ -101,6 +122,7 @@ public protocol ControlSystemContext: AnyObject {
         rawURL: String?,
         surfaceID: UUID?,
         requestedFocus: Bool,
+        force: Bool,
         moveParams: [String: JSONValue]
     ) -> ControlTabActionResolution
 
@@ -115,6 +137,9 @@ public protocol ControlSystemContext: AnyObject {
     ///
     /// - Returns: The localized tab-not-found message.
     func controlSystemTabNotFoundMessage() -> String
+
+    /// App-bundle-resolved message for active-process batch close refusal.
+    func controlSystemCloseStrings() -> ControlSystemCloseStrings
 
     /// Splits a surface off into its own pane for `surface.split_off` /
     /// `surface.drag_to_split`, delegating to the shared app-side

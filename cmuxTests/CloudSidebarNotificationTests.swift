@@ -205,19 +205,29 @@ struct CloudSidebarNotificationTests {
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         fixture.defaults.set(enabled, forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
-        var localMoves = 0
+        final class Counter { var value = 0 }
+        let localMoves = Counter()
         let initial = fixture.catalog.sidebarOrganization.state
         var effects = TerminalNotificationPolicyEffects()
-        effects.applySidebarOrdering(defaults: fixture.defaults) {
-            localMoves += 1
-            fixture.catalog.sidebarOrganization.raiseNotification(resource: .init(machine: fixture.machine,
-                kind: .terminal, key: "term_ws_2"), nodes: fixture.nodes())
-        }
-        #expect(localMoves == (enabled ? 1 : 0))
+        effects.applySidebarOrdering(
+            defaults: fixture.defaults,
+            workspaceId: UUID(),
+            raiseCloudRow: {
+                fixture.catalog.sidebarOrganization.raiseNotification(resource: .init(machine: fixture.machine,
+                    kind: .terminal, key: "term_ws_2"), nodes: fixture.nodes())
+            },
+            moveLocalWorkspace: { localMoves.value += 1 }
+        )
+        #expect(localMoves.value == (enabled ? 1 : 0))
         #expect((fixture.catalog.sidebarOrganization.state != initial) == enabled)
         let admitted = fixture.catalog.sidebarOrganization.state
         effects.reorderWorkspace = false
-        effects.applySidebarOrdering(defaults: fixture.defaults) { Issue.record("Suppressed event reordered sidebars") }
+        effects.applySidebarOrdering(
+            defaults: fixture.defaults,
+            workspaceId: UUID(),
+            raiseCloudRow: { Issue.record("Suppressed event raised the cloud row") },
+            moveLocalWorkspace: { Issue.record("Suppressed event reordered sidebars") }
+        )
         #expect(fixture.catalog.sidebarOrganization.state == admitted)
     }
 

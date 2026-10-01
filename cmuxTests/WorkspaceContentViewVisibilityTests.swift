@@ -225,6 +225,11 @@ final class WorkspaceContentViewVisibilityTests {
         for _ in 0..<7 {
             tabManager.addWorkspace(initialSurface: .cloudVMLoading, select: tabManager.tabs.isEmpty, autoWelcomeIfNeeded: false)
         }
+        // The right-side file explorer is outside this test's minimal-mode
+        // scope. Keep it hidden so delayed workspace-root discovery cannot
+        // invalidate the chrome bodies during the toggle measurement.
+        let fileExplorerState = FileExplorerState(defaults: defaults)
+        fileExplorerState.setVisible(false)
         let notificationStore = TerminalNotificationStore.shared
         let counts = MinimalModeBodyProbeCounts()
         let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
@@ -232,7 +237,7 @@ final class WorkspaceContentViewVisibilityTests {
             .environmentObject(notificationStore)
             .environmentObject(SidebarState())
             .environmentObject(SidebarSelectionState())
-            .environmentObject(FileExplorerState())
+            .environmentObject(fileExplorerState)
             .environmentObject(CmuxConfigStore())
             .environment(
                 \.minimalModeInvalidationProbe,
@@ -270,16 +275,8 @@ final class WorkspaceContentViewVisibilityTests {
         // runner it landed inside the toggle's window (PR run 36016958288 logged
         // "ContentView: _fileExplorerStore changed."), so measure only once the
         // window has gone quiet.
-        var quietRounds = 0
-        for _ in 0..<100 where quietRounds < 3 {
-            counts.reset()
-            await Self.drainMainRunLoop(for: window)
-            let settled = counts.contentViewBody == 0
-                && counts.workspaceContentBody == 0
-                && counts.verticalTabsSidebarBody == 0
-            quietRounds = settled ? quietRounds + 1 : 0
-        }
-        try #require(quietRounds >= 3, "The window must stop re-evaluating chrome bodies before the toggle is measured")
+        let settled = await Self.waitForQuietChromeBodies(counts: counts, window: window)
+        try #require(settled, "The window must stop re-evaluating chrome bodies before the toggle is measured")
         counts.reset()
         counts.isMeasuringInvalidations = true
         defer { counts.isMeasuringInvalidations = false }
@@ -375,6 +372,13 @@ final class WorkspaceContentViewVisibilityTests {
         }
 
         await Self.drainMainRunLoop(for: window)
+        // Same settling as the minimal-mode test: the selected workspace's
+        // directory reaches the file explorer a few runloop turns after the
+        // first render, and that store change re-evaluates ContentView and
+        // WorkspaceContentView. Main runs 36106360658 and 36114055694 logged
+        // "ContentView: _fileExplorerStore changed." inside the unread window.
+        let settled = await Self.waitForQuietChromeBodies(counts: counts, window: window)
+        try #require(settled, "The window must stop re-evaluating chrome bodies before the unread change is measured")
         let workspaceCell = try #require(
             window.contentView.flatMap { root in
                 Self.descendants(of: root)
@@ -562,6 +566,25 @@ final class WorkspaceContentViewVisibilityTests {
                 == SidebarFooterCircularIconStyle.standard.weight
         )
 #endif
+    }
+
+    /// Drains until three consecutive drains re-evaluate no chrome body, so a
+    /// measurement only counts what the change under test invalidates.
+    @MainActor
+    private static func waitForQuietChromeBodies(
+        counts: MinimalModeBodyProbeCounts,
+        window: NSWindow
+    ) async -> Bool {
+        var quietRounds = 0
+        for _ in 0..<100 where quietRounds < 3 {
+            counts.reset()
+            await drainMainRunLoop(for: window)
+            let settled = counts.contentViewBody == 0
+                && counts.workspaceContentBody == 0
+                && counts.verticalTabsSidebarBody == 0
+            quietRounds = settled ? quietRounds + 1 : 0
+        }
+        return quietRounds >= 3
     }
 
     @MainActor

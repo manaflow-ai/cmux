@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import Combine
 import CmuxFoundation
 import CmuxSidebar
@@ -32,6 +33,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let mediaMicView = NSImageView()
     private let mediaCameraView = NSImageView()
     private let statusGlyphButton = SidebarRowTaskStatusGlyphButton()
+    /// `sidebar.compactAgentStatus` leading status glyph.
+    private let compactStatusGlyphView = SidebarCompactStatusGlyphImageView()
     private let titleView = SidebarRowTextView(lines: 1)
     private let cloudImageView = NSImageView()
     private let trailingBadge = SidebarRowUnreadBadgeView()
@@ -60,6 +63,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var lastStatusPopoverModel: SidebarWorkspaceStatusPopoverModel?
 
     private var model: SidebarWorkspaceRowModel?
+    private var selectionChromeObservers: [NSObjectProtocol] = []
+    private var workspaceSelectionChromeObserver: NSObjectProtocol?
     private var actions: SidebarAppKitRowActions?
     private var isPointerHovering = false
     private var contextMenuVisible = false
@@ -208,6 +213,98 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             .withAlphaComponent((style.color == nil ? 0 : style.opacity) * ((style.color?.alphaComponent) ?? 1)).cgColor
     }
 
+    /// Paints the selection fill and edge for `model`.
+    private func applySelectionChrome(_ model: SidebarWorkspaceRowModel) {
+        let palette = palette(model)
+        let settings = model.settings
+        let style = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
+            isActive: model.isActive,
+            isMultiSelected: model.isMultiSelected,
+            customColorHex: model.snapshot.customColorHex,
+            colorScheme: palette.colorScheme,
+            sidebarSelectionColorHex: settings.selectionColorHex,
+            subtleSelection: settings.subtleSelection,
+            isEmphasized: palette.isSelectionEmphasized,
+            increaseContrast: palette.increasesSelectionContrast,
+            accent: palette.accent
+        )
+        applyBackgroundStyle(style)
+        if let edgeColor = style.edgeColor {
+            backgroundView.layer?.borderWidth = 1
+            backgroundView.layer?.borderColor = edgeColor.cgColor
+        } else if settings.activeTabIndicatorStyle.drawsActiveBorder(
+            isActive: model.isActive,
+            increaseContrast: model.displayAccessibility.increaseContrast
+        ) {
+            backgroundView.layer?.borderWidth = 1.5
+            backgroundView.layer?.borderColor = palette.semantic(.labelColor, opacity: 0.5).cgColor
+        } else {
+            backgroundView.layer?.borderWidth = 0
+        }
+    }
+
+    private func repaintSelectionChrome() {
+        guard let model else { return }
+        let painted = paintedModel(model)
+        guard painted.isActive || painted.isMultiSelected else { return }
+        // Only the subtle left-rail treatment depends on window activation and
+        // Increase Contrast; the default solid fill never changes here.
+        let settings = painted.settings
+        guard sidebarUsesSubtleSelection(
+            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
+            subtleSelection: settings.subtleSelection,
+            sidebarSelectionColorHex: settings.selectionColorHex
+        ) else { return }
+        // Selection-derived foregrounds must resolve from the same window and
+        // accessibility state as the fill. These notifications are rare, so
+        // repaint the row from its existing model instead of leaving text
+        // colors from the previous emphasis/contrast state behind.
+        applyModel(painted)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        selectionChromeObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        selectionChromeObservers.removeAll()
+        workspaceSelectionChromeObserver.map { NSWorkspace.shared.notificationCenter.removeObserver($0) }
+        workspaceSelectionChromeObserver = nil
+        guard let window else { return }
+        let repaint: @Sendable (Notification) -> Void = { [weak self] _ in
+            MainActor.assumeIsolated { self?.repaintSelectionChrome() }
+        }
+        selectionChromeObservers = [
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main, using: repaint
+            ),
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignKeyNotification, object: window, queue: .main, using: repaint
+            ),
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeMainNotification, object: window, queue: .main, using: repaint
+            ),
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignMainNotification, object: window, queue: .main, using: repaint
+            ),
+            NotificationCenter.default.addObserver(
+                forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main, using: repaint
+            ),
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main, using: repaint
+            ),
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification, object: nil, queue: .main, using: repaint
+            ),
+        ]
+        workspaceSelectionChromeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil,
+            queue: .main,
+            using: repaint
+        )
+        repaintSelectionChrome()
+    }
+
     override var isFlipped: Bool { true }
 
     override init(frame frameRect: NSRect) {
@@ -229,6 +326,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             view.imageScaling = .scaleProportionallyDown
             contentContainer.addSubview(view)
         }
+        // The glyph view sets its own scaling mode, shared with the SwiftUI list.
+        contentContainer.addSubview(compactStatusGlyphView)
         statusGlyphButton.isHidden = true
         statusGlyphButton.onClick = { [weak self] in self?.toggleStatusPopover() }
         contentContainer.addSubview(statusGlyphButton)
@@ -238,6 +337,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         cloudImageView.setAccessibilityElement(false)
         contentContainer.addSubview(trailingBadge)
         closeButton.onClick = { [weak self] in self?.actions?.commands.closeWorkspace() }
+        closeButton.setAccessibilityRole(.button)
+        closeButton.setAccessibilityIdentifier("sidebarWorkspaceCloseButton")
+        closeButton.setAccessibilityElement(false)
         closeButton.concealImmediately()
         contentContainer.addSubview(closeButton)
 
@@ -288,6 +390,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         // closed). Snap its close button hidden so it cannot fade out on
         // whichever row AppKit hands this cell to next.
         isPointerHovering = false
+        closeButton.setAccessibilityElement(false)
         closeButton.concealImmediately()
         hintPill.resetForReuse()
     }
@@ -296,6 +399,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         isPresentationActive = isActive
         leadingSpinner?.isPresentationActive = isActive
         trailingSpinner?.isPresentationActive = isActive
+        compactStatusGlyphView.isPresentationActive = isActive
     }
 
     func suspendPresentation(commitEdits: Bool = false) {
@@ -401,7 +505,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     private func palette(_ model: SidebarWorkspaceRowModel) -> SidebarRowPalette {
-        SidebarRowPalette(model: model)
+        SidebarRowPalette(
+            model: model,
+            isSelectionEmphasized: NSApp.isActive && (window.map { $0.isKeyWindow || $0.isMainWindow } ?? true),
+            increasesSelectionContrast: model.displayAccessibility.increaseContrast
+        )
     }
 
     private func applyModel(_ model: SidebarWorkspaceRowModel) {
@@ -420,21 +528,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let settings = model.settings
 
         // Chrome
-        let style = sidebarWorkspaceRowBackgroundStyle(
-            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
-            isActive: model.isActive,
-            isMultiSelected: model.isMultiSelected,
-            customColorHex: snapshot.customColorHex,
-            colorScheme: palette.colorScheme,
-            sidebarSelectionColorHex: settings.selectionColorHex
-        )
-        applyBackgroundStyle(style)
-        if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
-            backgroundView.layer?.borderWidth = 1.5
-            backgroundView.layer?.borderColor = palette.semantic(.labelColor, opacity: 0.5).cgColor
-        } else {
-            backgroundView.layer?.borderWidth = 0
-        }
+        applySelectionChrome(model)
         let railColor = sidebarWorkspaceRowExplicitRailNSColor(
             activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
             customColorHex: snapshot.customColorHex,
@@ -497,15 +591,19 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     hasOverride: true,
                     usesMonochrome: model.isActive,
                     fontScale: model.fontScale,
-                    colorScheme: palette.colorScheme
+                    colorScheme: palette.colorScheme,
+                    accent: palette.accent,
+                    differentiateWithoutColor: model.displayAccessibility.differentiateWithoutColor
                 ),
                 monochromeColor: palette.secondary(0.8),
                 neutralColor: palette.secondary(0.8)
             )
         }
         reconcileStatusPopover(model: model, showsAnchor: showsStatusGlyph)
+        configureCompactStatusGlyph(model: model, palette: palette)
 
-        let titleLineLimit = settings.wrapsWorkspaceTitles ? 8 : 1
+        // Compact status rows are one line, so title wrapping does not undo it.
+        let titleLineLimit = settings.wrapsWorkspaceTitles && snapshot.compactStatusGlyph == nil ? 8 : 1
         titleView.maximumNumberOfLines = titleLineLimit
         titleView.lineBreakMode = titleLineLimit == 1 ? .byTruncatingTail : .byWordWrapping
         let boundedTitle = snapshot.title.sidebarBoundedDisplayString(
@@ -526,8 +624,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         titleView.alphaValue = snapshot.isMuted ? 0.6 : 1
 
         // Badges / spinner / close
-        let showsSpinner = model.showsAgentActivity && snapshot.activeCodingAgentCount > 0
-        let badgeVisible = model.unreadCount > 0
+        // Compact status draws running and unread as its one glyph instead.
+        let compacts = snapshot.compactStatusGlyph != nil
+        let showsSpinner = !compacts && model.showsAgentActivity && snapshot.activeCodingAgentCount > 0
+        let badgeVisible = !compacts && model.unreadCount > 0
         configureStatusSlot(
             model: model,
             palette: palette,
@@ -538,9 +638,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             systemName: "xmark", pointSize: model.scaled(9), weight: .medium
         )
         closeButton.contentTintColor = palette.secondary(0.7)
-        closeButton.toolTip = snapshot.isPinned
+        let closeButtonTooltip = snapshot.isPinned
             ? String(localized: "sidebar.pinnedWorkspaceProtected.tooltip", defaultValue: "Pinned workspace — protected from Close")
             : String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close workspace")
+        closeButton.toolTip = closeButtonTooltip
+        closeButton.setAccessibilityLabel(closeButtonTooltip)
         updateCloseVisibility()
 
         // Description / subtitle
@@ -571,15 +673,21 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             let trimmed = snapshot.latestConversationMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
             return (trimmed?.isEmpty == false) ? trimmed : nil
         }()
-        let effectiveSubtitle = model.latestNotificationText ?? conversationSubtitle
+        // Compact status rows are one line; the notification leads the glyph's tooltip instead.
+        let effectiveSubtitle = snapshot.compactStatusGlyph != nil
+            ? nil
+            : model.latestNotificationText ?? conversationSubtitle
         let subtitleLineLimit = model.latestNotificationText == nil ? 2 : settings.notificationMessageLineLimit
         subtitleView.isHidden = effectiveSubtitle == nil
         if let effectiveSubtitle {
             subtitleView.maximumNumberOfLines = subtitleLineLimit
-            subtitleView.stringValue = effectiveSubtitle.sidebarBoundedDisplayString(
+            let display = effectiveSubtitle.sidebarBoundedDisplayString(
                 maxDisplayedLines: subtitleLineLimit,
                 maxDisplayedCharacters: 4096
             )
+            subtitleView.stringValue = model.latestNotificationText == nil
+                ? display
+                : SidebarMarkdownRenderer(markdown: display).plainText
             subtitleView.font = .systemFont(ofSize: model.scaled(10))
             subtitleView.textColor = palette.secondary(0.8)
         }
@@ -623,10 +731,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             text: model.shortcutHintText,
             fontSize: model.scaled(9),
             emphasis: model.isActive ? 1.0 : 0.9,
+            colorScheme: palette.colorScheme,
             representedIdentity: model.workspaceId
         )
-        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: palette.colorScheme).cgColor
-        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: palette.colorScheme).cgColor
+        topDropIndicator.accentColor = palette.accent
+        bottomDropIndicator.accentColor = palette.accent
+        topDropIndicator.layer?.backgroundColor = palette.accentColor.cgColor
+        bottomDropIndicator.layer?.backgroundColor = palette.accentColor.cgColor
         topDropIndicator.isHidden = !model.topDropIndicatorVisible
         bottomDropIndicator.isHidden = !model.bottomDropIndicatorVisible
         alphaValue = model.isBeingDragged ? 0.6 : 1
@@ -647,7 +758,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     func paintControllerDropIndicator(top: Bool, bottom: Bool) {
         let colorScheme = model.map { $0.colorSchemeIsDark ? ColorScheme.dark : .light }
             ?? SidebarAppearanceColorResolver().currentColorScheme()
-        let accent = cmuxAccentNSColor(for: colorScheme)
+        let accent = (model?.settings.accentColor ?? CmuxAccentColor()).nsColor(for: colorScheme)
         topDropIndicator.layer?.backgroundColor = accent.cgColor
         bottomDropIndicator.layer?.backgroundColor = accent.cgColor
         topDropIndicator.isHidden = !top
@@ -670,14 +781,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         badgeVisible: Bool,
         spinnerVisible: Bool
     ) {
-        let badgeFill: NSColor = {
-            if let hex = model.settings.notificationBadgeColorHex, let color = NSColor(hex: hex) {
-                return color
-            }
-            return model.isActive
+        let badgeFill = cmuxNotificationBadgeNSColor(
+            hex: model.settings.notificationBadgeColorHex,
+            fallback: model.isActive
                 ? palette.primaryText.withAlphaComponent(0.25)
-                : cmuxAccentNSColor(for: palette.colorScheme)
-        }()
+                : palette.accentColor
+        )
         let badgeText: NSColor = model.isActive ? palette.primaryText : .white
         let badgeFont = NSFont.systemFont(ofSize: model.scaled(9), weight: .semibold)
 
@@ -756,7 +865,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     private func updateCloseVisibility() {
-        closeButton.setRevealed(showsCloseNow)
+        let revealed = showsCloseNow
+        closeButton.setRevealed(revealed)
+        closeButton.setAccessibilityElement(revealed)
     }
 
     /// Authoritative hover enforcement: the controller sweeps visible cells
@@ -776,6 +887,25 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
     }
 
+    private func configureCompactStatusGlyph(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
+        let glyph = model.snapshot.compactStatusGlyph?.applyingUnread(
+            model.unreadCount,
+            latestNotificationText: model.latestNotificationText
+        )
+        compactStatusGlyphView.isPresentationActive = isPresentationActive
+        compactStatusGlyphView.isHidden = glyph?.isDrawn != true
+        guard let glyph, glyph.isDrawn else { return }
+        compactStatusGlyphView.configure(
+            glyph,
+            pointSize: model.scaled(11),
+            color: glyph.color(
+                isActive: model.isActive,
+                selected: palette.selectedForeground(0.95),
+                secondary: palette.secondary(0.8)
+            )
+        )
+    }
+
     private func configureMetadata(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
         let allEntries = model.settings.visibleAuxiliaryDetails.showsMetadata
             ? model.snapshot.metadataEntries : []
@@ -786,7 +916,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             // yields to the selected foreground — otherwise agent-status
             // tints (blue "Running") vanish into the blue selection
             // highlight. Explicit colors only apply on unselected rows.
-            let explicitColor = entry.color.flatMap { NSColor(hex: $0) }
+            let explicitColor = palette.accent.statusEntryColor(
+                hex: entry.color,
+                isDark: palette.colorScheme == .dark
+            )
             let entryColor: NSColor
             if model.isActive {
                 entryColor = explicitColor != nil
@@ -873,7 +1006,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     : palette.semantic(.secondaryLabelColor, opacity: 0.2),
                 fillColor: model.isActive
                     ? palette.selectedForeground(0.8)
-                    : cmuxAccentNSColor(for: palette.colorScheme),
+                    : palette.accentColor,
                 labelText: progress.label,
                 labelFont: labelFont,
                 labelColor: palette.secondary(0.6)
@@ -1107,6 +1240,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 self?.contextMenuVisible = false
                 self?.updateCloseVisibility()
                 didClose?()
+            },
+            beginInlineRename: { [weak self] in
+                self?.beginInlineRename()
             }
         )
     }
@@ -1183,6 +1319,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             let glyphSize = SidebarRowTaskStatusGlyphButton.occupiedSize(fontScale: model.fontScale)
             place(statusGlyphButton, size: glyphSize, centerY: firstLineCenter)
             x += glyphSize.width + titleRowSpacing
+        }
+        if !compactStatusGlyphView.isHidden {
+            // Sits partly in the row's leading padding, with a tighter gap
+            // to the title, so the glyph does not push the title far right.
+            let side = model.scaled(11)
+            x -= SidebarCompactStatusGlyph.leadingPullIn
+            place(compactStatusGlyphView, size: NSSize(width: side, height: side), centerY: firstLineCenter)
+            x += side + SidebarCompactStatusGlyph.titleSpacing
         }
 
         x = cloudImageView.layoutLeadingSidebarWorkspaceAccessory(
