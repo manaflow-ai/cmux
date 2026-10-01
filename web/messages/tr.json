@@ -426,7 +426,8 @@
         "memberReadOnly": "Bu planı yalnızca ekip yöneticileri değiştirebilir.",
         "grantedBody": "{team} ekibine Team erişimi cmux ekibi tarafından verildi. Yönetilecek bir abonelik yok.",
         "seatsUsed": "{seats} koltuğun {members} tanesi kullanılıyor",
-        "overSeat": "{team} ekibinde {members} üye ve {seats} ücretli koltuk var. Koltuklar üye sayısını izler, bu yüzden abonelik kendiliğinden güncellenir."
+        "overSeat": "{team} ekibinde {members} üye ve {seats} ücretli koltuk var. Koltuklar üye sayısını izler, bu yüzden abonelik kendiliğinden güncellenir.",
+        "addSeats": "Koltuk ekle"
       },
       "teamList": {
         "heading": "Faturalandırma kapsamları",
@@ -1058,6 +1059,8 @@
         "revoke": "İptal et",
         "linksTitle": "Davet bağlantıları",
         "linksDescription": "Herkesin üye olarak katılmak için kullanabileceği yeniden kullanılabilir bir bağlantı.",
+        "seatNudge": "{used} kişi üye veya davetli, ancak planda {seats} koltuk var. Davetler çalışmaya devam eder; herkesi kapsamak için {over, plural, one {# koltuk} other {# koltuk}} ekleyin.",
+        "seatNudgeAction": "Koltukları yönet",
         "actions": {
           "makeAdmin": "Yönetici yap",
           "makeMember": "Üye yap",
@@ -2029,13 +2032,14 @@
         "automation": {
           "ampIntegration": "Amp için cmux hook'larını açar veya kapatır. Kapatıldığında paketle gelen eklenti yüklü kalır ancak devre dışı olur.",
           "suppressSubagentNotifications": "İç içe Codex veya Claude alt ajanlarından gelen görünür tamamlanma bildirimlerini ve durum değişikliklerini gizler, olaylarını Feed telemetrisinde tutar.",
-          "agentAutoResume": "cmux tarafından başlatılan ve turu yeniden denenebilir bir hizmet hatasıyla (model kapasitesi dolu, aşırı yük veya bağlantı koptu) biten bir ajana, artan beklemeyle `continue` gönderir. Bir insanı bekleyen turlar asla sürdürülmez.",
           "workspaceAutoNaming": "Ajan konuşma içeriğinden çalışma alanlarının ve sekmelerin yapay zekâ ile otomatik adlandırılması (isteğe bağlı). Etkinleştirildiğinde cmux, desteklenen ajan oturumlarını her ajanın kendi ikili dosyasını kullanarak kısa başlıklara özetler; elle yapılan yeniden adlandırmalar her zaman önceliklidir.",
           "autoNamingAgent": "Her oturum için otomatik adları hangi aracının oluşturacağı. \"auto\" (varsayılan) her oturumu kendi aracısıyla adlandırır; herhangi bir aracı kısaltması (claude, codex, grok, opencode, pi, omp, …) diğer aracıların oturumları dahil tüm oturumların adlandırmasını geçersiz kılar. Çalıştırılamayan veya kurulu olmayan aracılar oturumun kendi aracısına geri döner, böylece adlandırma asla bozulmaz.",
+          "agentAutoResume": "cmux tarafından başlatılan ve turu yeniden denenebilir bir hizmet hatasıyla (model kapasitesi dolu, aşırı yük veya bağlantı koptu) biten bir ajana, artan beklemeyle `continue` gönderir. Bir insanı bekleyen turlar asla sürdürülmez.",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "cmux'un çıkmadan önce ne zaman onay isteyeceğini denetler. DEV derlemeleri bu ayardan bağımsız olarak her zaman hemen çıkar. Eski app.warnBeforeQuit boolean yedeği olarak kabul edilmeye devam eder.",
+          "whatsNew": "cmux'un bir güncellemeden sonra yenilikleri nasıl gösterdiği. off hiçbir şey göstermez, quiet özeti açana kadar kenar çubuğundaki yardım düğmesini bir noktayla işaretler, sheet ise yeni bir sürümün ilk açılışından sonra özeti bir kez açar. Yardım > What's New in cmux özeti her zaman açar.",
           "windowTitleTemplate": "İsteğe bağlı NSWindow başlık şablonu. Boş bırakılırsa geçerli dizin yedeği dahil cmux'un mevcut varsayılan başlık davranışı korunur. Desteklenen yer tutucular: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Yeni pencereler açılırken yalnızca DEBUG derlemelerinde kullanılan ekran adı. Boş değer sistem varsayılanını kullanır.",
           "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın.",
@@ -2084,6 +2088,7 @@
           "compactStatusIcons": "Her durum için compactAgentStatus glifinin yerine geçen SF Symbol adları, örneğin {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Ayarlanmamış durumlar yerleşik sembolü korur ve görüntülenemeyen bir ad da ona geri döner.",
           "notificationMessageLineLimit": "Her çalışma alanı başlığının altında en son bildirim için gösterilen en fazla satır sayısı.",
           "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır.",
+          "showAgentUsage": "Claude Code veya Codex durum girdisine kodlama aracısının kullanımını ekler: model ve kullanılan bağlam penceresi, ayrıca Claude Code için Anthropic’in yayımlanan liste fiyatlarına göre tahmini API maliyeti (ana iş parçacığı ve alt aracılar). Bu maliyet bir tahmindir, abonelik faturanız değildir; toplu ve öncelikli katmanlar, iş ortağı fiyatlandırması, hızlı mod ve sunucu aracı ücretleri hesaba katılmaz.",
           "beta": {
             "conversations": {
               "enabled": "Kenar çubuğu seçicisinde birleştirilmiş konuşma görünümünü göster."

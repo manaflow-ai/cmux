@@ -426,7 +426,8 @@
         "memberReadOnly": "只有團隊管理員可以變更此方案。",
         "grantedBody": "cmux 團隊已授予 {team} Team 存取權限，沒有需要管理的訂閱。",
         "seatsUsed": "已使用 {members}/{seats}",
-        "overSeat": "{team} 有 {members} 位成員和 {seats} 個付費席次。席次數會跟隨成員數，訂閱會自動更新。"
+        "overSeat": "{team} 有 {members} 位成員和 {seats} 個付費席次。席次數會跟隨成員數，訂閱會自動更新。",
+        "addSeats": "新增席次"
       },
       "teamList": {
         "heading": "帳單範圍",
@@ -1058,6 +1059,8 @@
         "revoke": "撤銷",
         "linksTitle": "邀請連結",
         "linksDescription": "任何人都能透過此可重複使用的連結以成員身分加入。",
+        "seatNudge": "已有 {used} 人是成員或已受邀，但方案只有 {seats} 個席次。邀請仍然有效；請新增 {over, plural, other {# 個席次}}以涵蓋所有人。",
+        "seatNudgeAction": "管理席次",
         "actions": {
           "makeAdmin": "設為管理員",
           "makeMember": "設為成員",
@@ -2029,13 +2032,14 @@
         "automation": {
           "ampIntegration": "開啟或關閉 cmux 的 Amp 掛鉤。關閉後，隨附的外掛仍會保持安裝，但處於閒置狀態。",
           "suppressSubagentNotifications": "隱藏巢狀 Codex 或 Claude 子代理的可見完成通知和狀態變更，同時將其事件保留在 Feed 遙測中。",
-          "agentAutoResume": "當 cmux 啟動的代理因可重試的上游錯誤（模型容量已滿、過載或連線中斷）結束回合時，依退避策略向其傳送 `continue`。等待人工輸入的回合永遠不會被恢復。",
           "workspaceAutoNaming": "可選的 AI 自動命名：根據代理對話內容自動命名工作區與分頁。啟用後，cmux 會使用各受支援代理自己的二進位檔將工作階段摘要為簡短標題；手動重新命名永遠優先。",
           "autoNamingAgent": "為每個工作階段產生自動名稱的代理。\"auto\"（預設）使用各工作階段自己的代理來命名；任意代理識別碼（claude、codex、grok、opencode、pi、omp 等）會覆寫所有工作階段的命名，包括其他代理的工作階段。無法驅動或未安裝的代理會回退到工作階段自身的代理，因此命名永不中斷。",
+          "agentAutoResume": "當 cmux 啟動的代理因可重試的上游錯誤（模型容量已滿、過載或連線中斷）結束回合時，依退避策略向其傳送 `continue`。等待人工輸入的回合永遠不會被恢復。",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "控制 cmux 在退出前何時要求確認。無論此設定為何，DEV 建置都會立即退出。舊的 app.warnBeforeQuit 仍會作為布林後備值接受。",
+          "whatsNew": "cmux 在更新後如何顯示新功能。off 不顯示任何內容，quiet 會在側邊欄說明按鈕上顯示圓點直到你開啟摘要，sheet 會在新版本首次啟動後開啟一次摘要。隨時可從「輔助說明 > cmux 新功能」開啟。",
           "windowTitleTemplate": "可選的 NSWindow 標題範本。留空會保留 cmux 既有的預設標題行為，包括回退到目前目錄。支援的預留位置：'{windowId}'、'{windowToken}'、'{activeWorkspace}'、'{activeDirectory}'、'{defaultTitle}'、'{appName}'。",
           "devWindowDisplay": "僅在 DEBUG 建置中開啟新視窗時使用的顯示器名稱。空值會使用系統預設值。",
           "warnBeforeQuit": "用於退出確認的舊版布林後備值。新設定請使用 app.confirmQuit。",
@@ -2084,6 +2088,7 @@
           "compactStatusIcons": "依狀態取代 compactAgentStatus 字符的 SF Symbol 名稱，例如 {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}。未設定的狀態使用內建符號，無法顯示的名稱也會回退到內建符號。",
           "notificationMessageLineLimit": "每個工作區標題下方顯示的最新通知最大行數。",
           "rightMaxWidth": "右側邊欄的最大寬度（點）。省略時使用內建動態上限。",
+          "showAgentUsage": "在 Claude Code 或 Codex 的狀態項目後附加程式碼代理的用量：所用模型與已佔用的脈絡視窗，並在 Claude Code 上依 Anthropic 公布的標價估算 API 費用（主執行緒與子代理）。該費用僅為估算，並非你的訂閱帳單；批次／優先等級、合作夥伴定價、快速模式以及伺服器工具費用皆未計入。",
           "beta": {
             "conversations": {
               "enabled": "在側邊欄選擇器中顯示整合的對話檢視。"

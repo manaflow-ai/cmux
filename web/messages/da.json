@@ -426,7 +426,8 @@
         "memberReadOnly": "Kun teamadministratorer kan ændre denne plan.",
         "grantedBody": "cmux-teamet har givet {team} adgang til Team. Der er intet abonnement at administrere.",
         "seatsUsed": "{members} af {seats} brugt",
-        "overSeat": "{team} har {members} medlemmer og {seats} betalte pladser. Pladser følger antallet af medlemmer, så abonnementet opdateres af sig selv."
+        "overSeat": "{team} har {members} medlemmer og {seats} betalte pladser. Pladser følger antallet af medlemmer, så abonnementet opdateres af sig selv.",
+        "addSeats": "Tilføj pladser"
       },
       "teamList": {
         "heading": "Faktureringsområder",
@@ -1058,6 +1059,8 @@
         "revoke": "Tilbagekald",
         "linksTitle": "Invitationslinks",
         "linksDescription": "Et genanvendeligt link, som alle kan bruge til at blive medlem.",
+        "seatNudge": "{used} personer er medlemmer eller inviteret, men planen har {seats} pladser. Invitationer virker stadig; tilføj {over, plural, one {# plads} other {# pladser}}, så alle er dækket.",
+        "seatNudgeAction": "Administrer pladser",
         "actions": {
           "makeAdmin": "Gør til administrator",
           "makeMember": "Gør til medlem",
@@ -2029,13 +2032,14 @@
         "automation": {
           "ampIntegration": "Slår cmux-hooks til Amp til eller fra. Når de er slået fra, forbliver det medfølgende plugin installeret, men inaktivt.",
           "suppressSubagentNotifications": "Skjul synlige fuldførelsesnotifikationer og statusændringer fra indlejrede Codex- eller Claude-underagenter, mens deres hændelser bevares i Feed-telemetri.",
-          "agentAutoResume": "Sender `continue` med backoff til en agent startet af cmux, hvis tur sluttede med en upstream-fejl, der kan prøves igen (model uden kapacitet, overbelastet eller mistet forbindelse). Ture, der venter på et menneske, genoptages aldrig.",
           "workspaceAutoNaming": "Valgfri AI-baseret automatisk navngivning af arbejdsområder og faner ud fra agentens samtaleindhold. Når den er aktiveret, opsummerer cmux understøttede agentsessioner til korte titler med hver agents egen binær; manuelle omdøbninger vinder altid.",
           "autoNamingAgent": "Hvilken agent der genererer automatiske navne for hver session. \"auto\" (standard) navngiver hver session med dens egen agent; et hvilket som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) tilsidesætter navngivningen for alle sessioner, også andre agenters. Agenter, der ikke kan styres eller ikke er installeret, falder tilbage til sessionens egen agent, så navngivningen aldrig fejler.",
+          "agentAutoResume": "Sender `continue` med backoff til en agent startet af cmux, hvis tur sluttede med en upstream-fejl, der kan prøves igen (model uden kapacitet, overbelastet eller mistet forbindelse). Ture, der venter på et menneske, genoptages aldrig.",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "Styrer hvornår cmux beder om bekræftelse før afslutning. DEV-builds afsluttes altid straks uanset denne indstilling. Den ældre app.warnBeforeQuit accepteres stadig som boolesk fallback.",
+          "whatsNew": "Hvordan cmux viser nyheder efter en opdatering. off viser intet, quiet markerer hjælpeknappen i sidepanelet med en prik, indtil du åbner oversigten, og sheet åbner oversigten én gang efter første start af en ny version. Hjælp > What's New in cmux åbner den når som helst.",
           "windowTitleTemplate": "Valgfri skabelon for NSWindow-titlen. Tom bevarer cmux' eksisterende standardtiteladfærd, inklusive fallback til den aktuelle mappe. Understøttede pladsholdere: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Skærmnavn, der kun bruges i DEBUG-builds, når nye vinduer åbnes. En tom værdi bruger systemets standard.",
           "warnBeforeQuit": "Ældre boolesk fallback til afslutningsbekræftelse. Brug app.confirmQuit til nye konfigurationer.",
@@ -2084,6 +2088,7 @@
           "compactStatusIcons": "SF Symbol-navne, der erstatter compactAgentStatus-glyffen for hver tilstand, for eksempel {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Tilstande uden værdi beholder det indbyggede symbol, og et navn, der ikke kan vises, falder tilbage til det.",
           "notificationMessageLineLimit": "Det maksimale antal linjer, der vises for den seneste notifikation under hver arbejdsområdetitel.",
           "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse.",
+          "showAgentUsage": "Føjer kodeagentens forbrug til statusposten for Claude Code eller Codex: model og brugt kontekstvindue, og for Claude Code et anslået API-forbrug (hovedtråd og underagenter) til Anthropics offentliggjorte listepriser. Beløbet er et skøn og ikke din abonnementsregning; batch- og prioritetsniveauer, partnerpriser, hurtig tilstand og gebyrer for serverværktøjer er ikke medregnet.",
           "beta": {
             "conversations": {
               "enabled": "Vis den samlede samtalevisning i sidebjælkens vælger."
