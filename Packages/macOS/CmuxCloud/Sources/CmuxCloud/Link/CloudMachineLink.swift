@@ -143,6 +143,10 @@ public actor CloudMachineLink {
     /// this machine. Terminal attachment streams are still allowed to subscribe
     /// separately while they migrate onto this same multiplexer.
     private var resourceConnection: CloudTuiPersistentResourceConnection?
+    /// Changes whenever ownership moves to a newly connected or explicitly
+    /// torn-down client. Awaiting operations must validate this epoch before
+    /// publishing their result to a caller.
+    private var connectionEpoch: UInt64 = 0
     private var eventStreamID: String?
     private var eventsSubscriptionID: UUID?
     private var eventsReaderTask: Task<Void, Never>?
@@ -305,9 +309,13 @@ public actor CloudMachineLink {
         let connected = Connected(socketPath: socketPath, session: session)
         self.connected = connected
         self.resourceConnection = CloudTuiPersistentResourceConnection(socketPath: socketPath)
+        connectionEpoch &+= 1
+        let installedConnectionEpoch = connectionEpoch
         state = .connected
         _ = await startEventsSubscription(socketPath: socketPath, cursor: nil)
-        guard state == .connected, self.connected != nil else {
+        guard state == .connected,
+              self.connected == connected,
+              connectionEpoch == installedConnectionEpoch else {
             throw LinkError.transportLost
         }
         changesContinuation.yield(.connected)
@@ -323,6 +331,7 @@ public actor CloudMachineLink {
         cancelEventsStabilityReset()
         eventsRecoveryPhase = .healthy
         state = .unavailable
+        connectionEpoch &+= 1
         connected = nil
         changesContinuation.finish()
         // Capture and clear every owned resource before the first suspension.
@@ -522,13 +531,15 @@ public actor CloudMachineLink {
     @discardableResult
     private func startEventsSubscription(socketPath: String, cursor: CloudVMCursor?) async -> Bool {
         guard !socketPath.isEmpty else { return false }
+        let subscriptionID = UUID()
         cancelEventsStabilityReset()
-        eventsSubscriptionID = nil
+        // Install the generation before the first await. A concurrent restart
+        // can then invalidate this operation without letting it clobber the
+        // newer stream after cancellation returns.
+        eventsSubscriptionID = subscriptionID
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
         await cancelEventsStream()
-        let subscriptionID = UUID()
-        eventsSubscriptionID = subscriptionID
         var requestChannel: CloudTuiPersistentResourceConnection?
         do {
             let channel = try await controlConnection()
@@ -756,6 +767,7 @@ public actor CloudMachineLink {
     /// Finishes a link exactly once after either the child exits or transport
     /// retirement fences it. The caller sets the final state and error first.
     private func finishLink(reason: String, cursor: CloudVMCursor?, terminateProcess: Bool) async {
+        connectionEpoch &+= 1
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
