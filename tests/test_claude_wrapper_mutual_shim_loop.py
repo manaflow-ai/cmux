@@ -18,6 +18,9 @@ WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
 GENERATED_HOOK_SETTINGS = generated_claude_hook_settings()
 
 
+def generated_hook_count(name: str) -> int:
+    return len(json.loads(GENERATED_HOOK_SETTINGS)["hooks"][name])
+
 # Fixtures exit at once while this is set, so priming runs none of their logic.
 PRIME_ENVIRONMENT_KEY = "CMUX_TEST_PRIME_EXEC"
 
@@ -876,7 +879,7 @@ done
         hooks = settings.get("hooks", {})
         session_start = hooks.get("SessionStart", [])
         stop = hooks.get("Stop", [])
-        if len(session_start) != 1 or len(stop) != 3:
+        if len(session_start) != generated_hook_count("SessionStart") or len(stop) != generated_hook_count("Stop"):
             failures.append(
                 "expected one cmux hook injection after finite shim chain, "
                 f"got SessionStart={len(session_start)} Stop={len(stop)} settings={settings!r}"
@@ -994,7 +997,7 @@ done
             return
         settings = load_settings_value(args[settings_index + 1])
         hooks = settings.get("hooks", {})
-        if len(hooks.get("SessionStart", [])) != 1 or len(hooks.get("Stop", [])) != 3:
+        if len(hooks.get("SessionStart", [])) != generated_hook_count("SessionStart") or len(hooks.get("Stop", [])) != generated_hook_count("Stop"):
             failures.append(f"expected one hook injection after spawning shim chain, got: {settings!r}")
 
 
@@ -1034,7 +1037,7 @@ def verify_custom_path_reentry_result(
     ):
         failures.append(f"issue #10230 emitted malformed hooks structure: {hooks!r}")
         return
-    if len(hooks["SessionStart"]) != 1 or len(hooks["Stop"]) != 3:
+    if len(hooks["SessionStart"]) != generated_hook_count("SessionStart") or len(hooks["Stop"]) != generated_hook_count("Stop"):
         failures.append(
             "issue #10230 re-entry should converge to one cmux hook block, "
             f"got SessionStart={len(hooks['SessionStart'])} "

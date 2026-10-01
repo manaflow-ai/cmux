@@ -63,12 +63,14 @@ public enum DiagnosticPrimaryTab: Int, Sendable, Codable, CaseIterable {
     case workspaces = 1
     case notifications = 2
     case search = 3
+    case feed = 4
 }
 
 /// Fixed search owner stored in the value payload of search lifecycle events.
 public enum DiagnosticSearchScope: Int, Sendable, Codable, CaseIterable {
     case workspaces = 1
     case notifications = 2
+    case feed
 }
 
 /// Fixed mutations stored in the value payload of terminal toolbar settings
