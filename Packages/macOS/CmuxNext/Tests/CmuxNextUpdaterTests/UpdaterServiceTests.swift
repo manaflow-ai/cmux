@@ -58,17 +58,19 @@ import Testing
         #expect(throws: UpdaterUnavailable.self) { try service.switchChannel(to: .nightly) }
     }
 
-    @Test func releaseBuildBuildsTheSparkleDriverAndRegistersLegacyDefaults() {
+    @Test func releaseBuildBuildsTheSparkleDriverAndStagesBackgroundDownloads() {
         let defaults = defaults()
         let service = UpdaterService(identity: AppcastFixtures.identity(), policy: ManagedUpdatePolicy { false },
                                      prober: UpdateProber(fetcher: FixtureFetcher(nil)), defaults: defaults)
         #expect(service.controller != nil)
         #expect(service.disabledReason == nil)
-        // The legacy app's settings keys, with its defaults (hourly, checks on).
+        // cmux-next keeps hourly checks and background downloads enabled so the latest release is
+        // staged before the user opens the update sheet.
         #expect(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
         #expect(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey) == 3600)
         #expect(service.status.automaticChecks)
-        #expect(!service.status.automaticDownloads)
+        #expect(service.status.automaticDownloads)
+        #expect(defaults.bool(forKey: UpdateSettings.backgroundDownloadsMigrationKey))
     }
 
     @Test func channelSwitchOnlyToTheCounterpart() {

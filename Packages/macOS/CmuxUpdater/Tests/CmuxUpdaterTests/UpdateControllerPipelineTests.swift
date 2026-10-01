@@ -13,6 +13,37 @@ import Testing
 /// accepted install and Sparkle's download callback.
 @MainActor
 @Suite struct UpdateControllerPipelineTests {
+    @Test func launchUsesBackgroundCheckWhenAutomaticDownloadsAreEnabled() {
+        let harness = Harness(automaticallyChecksForUpdates: true, automaticallyDownloadsUpdates: true)
+
+        #expect(harness.controller.startUpdaterIfNeeded())
+        #expect(harness.updater.checkForUpdatesInBackgroundCallCount == 1)
+        #expect(harness.updater.checkForUpdateInformationCallCount == 0)
+    }
+
+    @Test func launchUsesInformationProbeWhenAutomaticDownloadsAreDisabled() {
+        let harness = Harness(automaticallyChecksForUpdates: true)
+
+        #expect(harness.controller.startUpdaterIfNeeded())
+        #expect(harness.updater.checkForUpdatesInBackgroundCallCount == 0)
+        #expect(harness.updater.checkForUpdateInformationCallCount == 1)
+    }
+
+    @Test func installActionRelaunchesAnAlreadyStagedBackgroundUpdate() {
+        let harness = Harness()
+        var relaunches = 0
+        harness.model.setState(.installing(.init(
+            isAutoUpdate: true,
+            retryTerminatingApplication: { relaunches += 1 },
+            dismiss: {}
+        )))
+
+        harness.controller.attemptUpdate()
+
+        #expect(relaunches == 1)
+        #expect(harness.updater.checkForUpdatesCallCount == 0)
+    }
+
     private func updateAvailable(_ version: String, replyingInto box: ChoiceBox) -> UpdateState {
         let item = SUAppcastItem(dictionary: [
             "title": "cmux \(version)",
