@@ -11,10 +11,16 @@
 /// - Esc and q leave. Command chords pass through to app shortcuts; every
 ///   other key is swallowed.
 ///
-/// Key codes are macOS virtual key codes. `asciiCharacterProvider` maps a key
-/// code to its ASCII character for non-ASCII input sources, so h/j/k/l work
-/// under a Korean or Russian layout.
-public enum CopyModeKeys {
+/// Key codes are macOS virtual key codes. `asciiCharacter` maps a key code
+/// to its ASCII character for non-ASCII input sources, so h/j/k/l work under
+/// a Korean or Russian layout.
+public struct CopyModeKeys {
+    let asciiCharacter: (UInt16) -> String?
+
+    public init(asciiCharacter: @escaping (UInt16) -> String? = { _ in nil }) {
+        self.asciiCharacter = asciiCharacter
+    }
+
     /// Largest count prefix.
     public static let maxCount = 9_999
 
@@ -29,15 +35,14 @@ public enum CopyModeKeys {
     }
 
     /// One key without pending state. `nil` when the key is not a command.
-    public static func action(
+    public func action(
         keyCode: UInt16,
         charactersIgnoringModifiers: String?,
         modifiers: CopyModeModifiers,
-        hasSelection: Bool,
-        asciiCharacterProvider: (UInt16) -> String? = { _ in nil }
+        hasSelection: Bool
     ) -> CopyModeAction? {
         let key = Key(keyCode: keyCode, characters: charactersIgnoringModifiers, modifiers: modifiers,
-                      asciiCharacterProvider: asciiCharacterProvider)
+                      asciiCharacter: asciiCharacter)
         let mods = key.modifiers, chars = key.chars, lower = key.lowercased
 
         if keyCode == KeyCode.escape { return .exit }
@@ -103,20 +108,19 @@ public enum CopyModeKeys {
     }
 
     /// One key with the session's pending state: count prefixes, `gg`, `yy`.
-    public static func resolve(
+    public func resolve(
         keyCode: UInt16,
         charactersIgnoringModifiers: String?,
         modifiers: CopyModeModifiers,
         hasSelection: Bool,
-        state: inout CopyModeInputState,
-        asciiCharacterProvider: (UInt16) -> String? = { _ in nil }
+        state: inout CopyModeInputState
     ) -> CopyModeResolution {
         let key = Key(keyCode: keyCode, characters: charactersIgnoringModifiers, modifiers: modifiers,
-                      asciiCharacterProvider: asciiCharacterProvider)
+                      asciiCharacter: asciiCharacter)
         let mods = key.modifiers, lower = key.lowercased
 
         func perform(_ action: CopyModeAction) -> CopyModeResolution {
-            let count = clampCount(state.countPrefix ?? 1)
+            let count = Self.clampCount(state.countPrefix ?? 1)
             state.reset()
             return .perform(action, count: count)
         }
@@ -138,12 +142,12 @@ public enum CopyModeKeys {
         if mods.isEmpty, let scalar = lower.unicodeScalars.first, scalar.isASCII, (48...57).contains(scalar.value) {
             let digit = Int(scalar.value - 48)
             if digit != 0 {
-                state.countPrefix = clampCount((state.countPrefix ?? 0) * 10 + digit)
+                state.countPrefix = Self.clampCount((state.countPrefix ?? 0) * 10 + digit)
                 return .consume
             }
             // A leading 0 is "start of line"; after digits it extends the count.
             if let count = state.countPrefix {
-                state.countPrefix = clampCount(count * 10)
+                state.countPrefix = Self.clampCount(count * 10)
                 return .consume
             }
         }
@@ -157,9 +161,8 @@ public enum CopyModeKeys {
             state.pendingG = true
             return .consume
         }
-        guard let action = action(keyCode: keyCode, charactersIgnoringModifiers: charactersIgnoringModifiers,
-                                  modifiers: modifiers, hasSelection: hasSelection,
-                                  asciiCharacterProvider: asciiCharacterProvider) else {
+        guard let action = self.action(keyCode: keyCode, charactersIgnoringModifiers: charactersIgnoringModifiers,
+                                       modifiers: modifiers, hasSelection: hasSelection) else {
             state.reset()
             return .consume
         }
@@ -197,12 +200,12 @@ public enum CopyModeKeys {
         let isUppercase: Bool
 
         init(keyCode: UInt16, characters: String?, modifiers raw: CopyModeModifiers,
-             asciiCharacterProvider: (UInt16) -> String?) {
+             asciiCharacter: (UInt16) -> String?) {
             modifiers = CopyModeKeys.normalized(raw)
             let first = characters?.unicodeScalars.first.map { String($0) } ?? ""
             if first.allSatisfy(\.isASCII) {
                 chars = first
-            } else if let ascii = asciiCharacterProvider(keyCode)?.unicodeScalars.first {
+            } else if let ascii = asciiCharacter(keyCode)?.unicodeScalars.first {
                 chars = String(ascii)
             } else {
                 chars = first

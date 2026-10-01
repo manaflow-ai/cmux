@@ -87,10 +87,9 @@ extension TerminalSurfaceView {
         // Output or a mouse scroll may have moved the cursor or the selection.
         syncCopyModeCursor()
         guard var session = copyMode else { return true }
-        let resolution = CopyModeKeys.resolve(
+        let resolution = CopyModeKeys(asciiCharacter: GhosttyInput.asciiCharacter(forKeyCode:)).resolve(
             keyCode: event.keyCode, charactersIgnoringModifiers: event.charactersIgnoringModifiers,
-            modifiers: modifiers, hasSelection: session.selection != .off, state: &session.input,
-            asciiCharacterProvider: GhosttyInput.asciiCharacter(forKeyCode:))
+            modifiers: modifiers, hasSelection: session.selection != .off, state: &session.input)
         copyMode?.input = session.input
         guard case .perform(let action, let count) = resolution else { return true }
         performCopyMode(action, count: count, surface: surface)

@@ -9,14 +9,14 @@ import Testing
 struct CopyModeKeysTests {
     private func action(_ keyCode: UInt16, _ characters: String, _ modifiers: CopyModeModifiers = [],
                         selecting: Bool = false) -> CopyModeAction? {
-        CopyModeKeys.action(keyCode: keyCode, charactersIgnoringModifiers: characters, modifiers: modifiers,
+        CopyModeKeys().action(keyCode: keyCode, charactersIgnoringModifiers: characters, modifiers: modifiers,
                             hasSelection: selecting)
     }
 
     private func resolve(_ keys: [(UInt16, String, CopyModeModifiers)], selecting: Bool = false,
                          state: inout CopyModeInputState) -> [CopyModeResolution] {
         keys.map { key in
-            CopyModeKeys.resolve(keyCode: key.0, charactersIgnoringModifiers: key.1, modifiers: key.2,
+            CopyModeKeys().resolve(keyCode: key.0, charactersIgnoringModifiers: key.1, modifiers: key.2,
                                  hasSelection: selecting, state: &state)
         }
     }
@@ -30,8 +30,8 @@ struct CopyModeKeysTests {
             (37, "ㅣ", .adjustSelection(.right)),
         ]
         for (keyCode, characters, expected) in cases {
-            #expect(CopyModeKeys.action(keyCode: keyCode, charactersIgnoringModifiers: characters, modifiers: [],
-                                        hasSelection: false, asciiCharacterProvider: ascii) == expected)
+            #expect(CopyModeKeys(asciiCharacter: ascii).action(keyCode: keyCode, charactersIgnoringModifiers: characters,
+                                                               modifiers: [], hasSelection: false) == expected)
         }
     }
 
