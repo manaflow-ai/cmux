@@ -13,7 +13,9 @@ import WebKit
 /// `action`: `seed_rows` (`count`, default 5000), `fling` (`seconds`,
 /// default 3; `nominal_ms`; `wait` returns the stats when the fling ends),
 /// `fling_stats`, `perf_stats` (`raw` adds every frame), `typing_stats`,
-/// `reset_typing`, or `pid` (the WebContent process, for profiling).
+/// `reset_typing`, `pid` (the WebContent process, for profiling), or
+/// `full_rate` (`enabled` turns full-rate rendering on or off on the live
+/// page; returns whether it is on).
 @MainActor
 enum DebugAgentPane {
     /// Long enough for a 5000-row seed and a waited fling of up to ~25 s.
@@ -44,8 +46,12 @@ enum DebugAgentPane {
             }
             return .object(["pane": .string(pane), "pid": .number(Double(pid))])
         }
+        if action == "full_rate" {
+            if let enabled = params["enabled"]?.boolValue { view.rendersAtFullRate = enabled }
+            return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])
+        }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing or pid")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, pid or full_rate")])
         }
         do {
             let result = try await view.webView.callAsyncJavaScript(

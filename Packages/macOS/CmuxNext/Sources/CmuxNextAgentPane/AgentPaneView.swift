@@ -49,7 +49,7 @@ public final class AgentPaneView: NSView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         if rendersAtFullRate {
-            configuration.preferences.setWebKitFeature("PreferPageRenderingUpdatesNear60FPSEnabled", enabled: false)
+            configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: false)
         }
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init(frame: .zero)
@@ -78,6 +78,17 @@ public final class AgentPaneView: NSView {
     }
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
+    /// WebKit's feature that renders a page at the display-rate divisor
+    /// nearest 60 fps.
+    static let near60FPSFeature = "PreferPageRenderingUpdatesNear60FPSEnabled"
+
+    /// Whether the page renders at the display's full rate. Setting it
+    /// changes the live page's preferences.
+    public var rendersAtFullRate: Bool {
+        get { webView.configuration.preferences.isWebKitFeatureEnabled(Self.near60FPSFeature) == false }
+        set { webView.configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: !newValue) }
+    }
+
     public func close() {
         webView.configuration.userContentController.removeScriptMessageHandler(forName: AgentPaneRequest.handlerName, contentWorld: .page)
         webView.navigationDelegate = nil
