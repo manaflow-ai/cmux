@@ -2,8 +2,8 @@ import AppKit
 import Foundation
 import Testing
 import struct CmuxSettings.AppCatalogSection
+import enum CmuxSettings.TerminalLinkBrowserPlacement
 import protocol CmuxWorkspaces.FileOpening
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -754,7 +754,7 @@ private final class RemotePreviewLinkContainer: TerminalLinkOpenContainer {
         Issue.record("Remote file reached local file route")
         return false
     }
-    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool) -> Bool { false }
+    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, placement: TerminalLinkBrowserPlacement, focus: Bool) -> Bool { false }
 }
 
 /// A terminal that runs on this Mac.
@@ -773,7 +773,7 @@ private final class LocalLinkContainer: TerminalLinkOpenContainer {
         deferredFilePaths.append(filePath)
         return true
     }
-    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool) -> Bool { false }
+    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, placement: TerminalLinkBrowserPlacement, focus: Bool) -> Bool { false }
 }
 
 /// Records URLs handed to the coordinator's file-opening seam.

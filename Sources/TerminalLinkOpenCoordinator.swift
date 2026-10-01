@@ -3,6 +3,7 @@ import CmuxCore
 import CmuxTerminalCore
 import CmuxTestSupport
 import CmuxWorkspaces
+import CmuxSettings
 import Foundation
 
 /// Owns terminal-link policy and routes the resulting action through whichever
@@ -326,13 +327,25 @@ struct TerminalLinkOpenCoordinator {
             "container=\(container.terminalLinkContainerDebugName) surfaceId=\(sourcePanelId)"
         )
 
+        let placement = UserDefaultsSettingsClient(defaults: self.defaults)
+            .value(for: BrowserCatalogSection().terminalLinkBrowserPlacement)
         if !request.focus {
-            return container.openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId, focus: false)
+            return container.openTerminalBrowserLink(
+                url: url,
+                sourcePanelId: sourcePanelId,
+                placement: placement,
+                focus: false
+            )
         }
         deferOperation { [self] in
             let currentContainer = self.containerResolver(request.sourceWorkspaceId, sourcePanelId)
             let openedInBrowser = BrowserAvailabilitySettings.isEnabled(defaults: self.defaults)
-                && currentContainer?.openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId) == true
+                && currentContainer?.openTerminalBrowserLink(
+                    url: url,
+                    sourcePanelId: sourcePanelId,
+                    placement: placement,
+                    focus: true
+                ) == true
             if openedInBrowser { return }
             self.log("link.openURL embedded open failed, opening externally host=\(host) surfaceId=\(sourcePanelId) url=\(url)")
             if !self.openExternally(externalURL, reason: "embedded open failed") { NSSound.beep() }

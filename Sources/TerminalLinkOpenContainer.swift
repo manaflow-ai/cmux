@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// Host operations needed to give terminal links identical behavior in the
@@ -21,17 +22,34 @@ protocol TerminalLinkOpenContainer: AnyObject {
     ) -> Bool
 
     @discardableResult
-    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool) -> Bool
-}
-
-struct CloudTerminalLinkTarget: Sendable, Equatable {
-    let url: URL
+    func openTerminalBrowserLink(
+        url: URL,
+        sourcePanelId: UUID,
+        placement: TerminalLinkBrowserPlacement,
+        focus: Bool
+    ) -> Bool
 }
 
 extension TerminalLinkOpenContainer {
     func deferRemoteTerminalFileLinkOpen(sourcePanelId: UUID, rawValue: String) -> Bool { false }
 
-    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
-        openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId, focus: true)
+    func openTerminalBrowserLink(
+        url: URL,
+        sourcePanelId: UUID,
+        placement: TerminalLinkBrowserPlacement
+    ) -> Bool {
+        openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId, placement: placement, focus: true)
     }
+
+    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool) -> Bool {
+        openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId, placement: .split, focus: focus)
+    }
+
+    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
+        openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId, placement: .split, focus: true)
+    }
+}
+
+struct CloudTerminalLinkTarget: Sendable, Equatable {
+    let url: URL
 }

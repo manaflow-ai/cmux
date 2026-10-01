@@ -16969,17 +16969,7 @@ struct CMUXCLI {
                 throw CLIError(message: "browser \(subcommand) does not support \(strayFlag)")
             }
             let url = urlArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-            let respectExternalOpenRules: Bool = {
-                guard let raw = ProcessInfo.processInfo.environment["CMUX_RESPECT_EXTERNAL_OPEN_RULES"] else {
-                    return false
-                }
-                switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-                case "1", "true", "yes", "on":
-                    return true
-                default:
-                    return false
-                }
-            }()
+            let openEnvironment = BrowserOpenEnvironment(environment: ProcessInfo.processInfo.environment)
 
             if surfaceRaw != nil, subcommand == "open" {
                 // Treat `browser <surface> open <url>` as navigate for agent-browser ergonomics.
@@ -17017,7 +17007,7 @@ struct CMUXCLI {
                     params["workspace_id"] = workspace
                 }
             }
-            if respectExternalOpenRules {
+            if openEnvironment.respectsExternalOpenRules {
                 params["respect_external_open_rules"] = true
             }
             if let windowRaw = windowOpt {
@@ -17025,11 +17015,17 @@ struct CMUXCLI {
                     params["window_id"] = window
                 }
             }
+            if subcommand == "open", openEnvironment.isTerminalLink {
+                params["terminal_link"] = true
+                if let source = try normalizeSurfaceHandle(openEnvironment.sourceSurfaceID, client: client) {
+                    params["surface_id"] = source
+                }
+            }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "browser.open_split", params: params)
             let surfaceText = formatHandle(payload, kind: "surface", idFormat: effectiveIDFormat) ?? "unknown"
             let paneText = formatHandle(payload, kind: "pane", idFormat: effectiveIDFormat) ?? "unknown"
-            let placement = ((payload["created_split"] as? Bool) == true) ? "split" : "reuse"
+            let placement = payload["placement_strategy"] as? String == "same_pane" ? "samePane" : ((payload["created_split"] as? Bool) == true ? "split" : "reuse")
             output(payload, fallback: "OK surface=\(surfaceText) pane=\(paneText) placement=\(placement)")
             return
         }
@@ -40474,9 +40470,13 @@ export default {
     private static let openCodePluginFileName = "cmux-feed.js"
 
     private func openCodeConfigDirPath() -> String {
-        OpenCodePaths.configDirectory(environment: ProcessInfo.processInfo.environment).path
+        let e = ProcessInfo.processInfo.environment
+        let home = URL(fileURLWithPath: e["HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.path)
+        let expand: (String) -> String = { p in p == "~" ? home.path : p.hasPrefix("~/") ? home.appendingPathComponent(String(p.dropFirst(2))).path : p }
+        return e["OPENCODE_CONFIG_DIR"].flatMap { $0.isEmpty ? nil : expand($0) }
+            ?? e["XDG_CONFIG_HOME"].flatMap { $0.isEmpty ? nil : "\(expand($0))/opencode" }
+            ?? home.appendingPathComponent(".config/opencode", isDirectory: true).path
     }
-
     private func openCodePluginPath(projectLocal: Bool) -> String {
         if projectLocal {
             let cwd = FileManager.default.currentDirectoryPath

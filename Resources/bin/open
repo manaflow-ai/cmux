@@ -510,7 +510,7 @@ for url in "${cmux_targets[@]}"; do
         else
             unset LC_ALL
         fi
-        export CMUX_RESPECT_EXTERNAL_OPEN_RULES=1
+        export CMUX_TERMINAL_LINK=1 CMUX_RESPECT_EXTERNAL_OPEN_RULES=1
         exec "$CMUX_CLI" browser open "$url"
     ) 2>/dev/null || failed_urls+=("$url")
 done

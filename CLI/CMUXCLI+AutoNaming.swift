@@ -232,14 +232,14 @@ struct CodexAutoNamingArguments: Sendable {
             arguments.insert("--ignore-user-config", at: arguments.firstIndex(of: "--ignore-rules")!)
         }
         guard let configToml else { return arguments }
-        let overrides = providerOverrides(from: configToml)
+        let overrides = providerOverrides(from: configToml, usesTemporaryConfig: usesTemporaryConfig)
         for override in overrides.reversed() {
             arguments.insert(contentsOf: ["-c", override], at: 1)
         }
         return arguments
     }
 
-    private static func providerOverrides(from toml: String) -> [String] {
+    private static func providerOverrides(from toml: String, usesTemporaryConfig: Bool) -> [String] {
         var model: String?
         var modelProvider: String?
         var providerEntries: [(section: String, key: String, value: String)] = []

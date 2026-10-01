@@ -65,6 +65,13 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserOpenTerminalLinksInCmuxBrowser"
     )
 
+    /// Placement shared by clicked terminal links and intercepted `open` commands.
+    public let terminalLinkBrowserPlacement = DefaultsKey<TerminalLinkBrowserPlacement>(
+        id: "browser.terminalLinkBrowserPlacement",
+        defaultValue: .split,
+        userDefaultsKey: "browserTerminalLinkBrowserPlacement"
+    )
+
     public let interceptTerminalOpenCommandInCmuxBrowser = DefaultsKey<Bool>(
         id: "browser.interceptTerminalOpenCommandInCmuxBrowser",
         defaultValue: true,
