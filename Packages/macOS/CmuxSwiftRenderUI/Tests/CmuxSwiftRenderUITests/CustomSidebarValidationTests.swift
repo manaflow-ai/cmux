@@ -103,7 +103,8 @@ struct CustomSidebarValidationTests {
 
         #expect(sidebars.map(\.name).sorted() == ["activity", "agents-board", "agents-cards", "agents-dense", "agents-focus", "agents-timeline", "btop-agents", "clock", "compact", "finder", "focus", "kitchen-sink", "panel-info", "panel-sessions", "panel-subagents", "panel-todo", "ports", "status-board", "workspaces"])
         #expect(sidebars.filter(\.isValid).count == 19)
-        #expect(sidebars.allSatisfy(\.isValid))
+        let allSidebarsValid = sidebars.allSatisfy { $0.isValid }
+        #expect(allSidebarsValid)
     }
 
     @MainActor
