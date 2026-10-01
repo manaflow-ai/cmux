@@ -190,6 +190,39 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         canManageBilling = false
     }
 
+    /// Set for the whole switch so sign-in gates show its progress instead of
+    /// an idle Sign In button that would start a second attempt.
+    private(set) var isSwitchingAccount = false
+    @ObservationIgnored private var switchAttempt: Task<Bool, Never>?
+
+    /// Signs out, then signs in again asking the hosted page to confirm the
+    /// account. The browser may still hold a cmux session; the page's chooser
+    /// offers "continue as" that account or a different one.
+    func switchAccount() async {
+        // Clicking again while a switch is open (its window may be behind
+        // other windows) replaces that attempt with a fresh window. The
+        // sign-out already happened, so it is not repeated.
+        if isSwitchingAccount {
+            switchAttempt = browserSignIn.beginSignIn(selectAccount: true)
+            return
+        }
+        isSwitchingAccount = true
+        defer {
+            isSwitchingAccount = false
+            switchAttempt = nil
+        }
+        await signOut()
+        var attempt = browserSignIn.beginSignIn(selectAccount: true)
+        switchAttempt = attempt
+        // Stay switching until the newest attempt settles: a replaced one
+        // ends early, cancelled, while its replacement is still open.
+        while true {
+            _ = await attempt.value
+            guard let latest = switchAttempt, latest != attempt else { break }
+            attempt = latest
+        }
+    }
+
     /// Socket variant of sign-out. The underlying sign-out continues if the
     /// caller's deadline expires, matching the browser flow contract.
     func signOut(timeout: TimeInterval) async {
