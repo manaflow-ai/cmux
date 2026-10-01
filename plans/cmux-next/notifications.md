@@ -82,10 +82,23 @@ sidebar row menu; `notifications.mutedWorkspaces`), Toggle Notification Banners,
 action per dismissal mode (`notifications.dismissal.<mode>`). Settings actions apply at
 once and write cmux.json. cmux-next has no Settings window yet.
 
+## Panel
+
+Show Notifications (Cmd-I, `cmux notification show`) toggles a panel at the top right of
+the active window: the daemon ledger (`list-notifications`), newest first, each row with
+an unread dot, title, time, source workspace and body. A click opens the source tab and
+closes the panel; the row menu runs Open, Copy, Mark Read and Dismiss with the row's id;
+Up/Down select, Return opens, Delete dismisses, Esc closes. The header has Mark All Read
+and Clear All (`clearAllNotifications`, `cmux notification clear-all`), which removes the
+ledger rows and markers through v2 `notification.clear`. The daemon clears by terminal, so
+Dismiss removes every notification of the row's terminal (a row without a terminal is only
+marked read), and nothing can mark a notification unread. The panel reloads while shown
+when a notification arrives or is read.
+
 ## Verification
 
 `debug.notifications` reports unread tabs with their source, each window's attention
 marks, banners asked for, the arrival and dismissal log, and the live preferences;
 `{"action": "click", "surface": N}` runs the banner click path. Unit tests:
-`NotificationPolicyTests`, `NotificationSettingsTests`, `CompatJournalNotificationTests`,
+`NotificationPolicyTests`, `NotificationSettingsTests`, `NotificationsPanelTests`, `CompatJournalNotificationTests`,
 `FocusRingNoShiftTests` (attention ring on and off, no frame change).
