@@ -1,6 +1,7 @@
 import CMUXAgentLaunch
 import CmuxControlSocket
 import CmuxSettings
+import CryptoKit
 import Darwin
 import Foundation
 import SQLite3
@@ -5146,8 +5147,8 @@ final class RelaySocketResponder {
             socklen_t(MemoryLayout<Int32>.size)
         )
         let challenge = #"{"protocol":"cmux-relay-auth","version":1,"relay_id":"\#(relayID)","nonce":"test-nonce"}"#
-        guard writeLine(challenge, to: clientFD), readLine(from: clientFD) != nil else { return }
-        guard writeLine(#"{"ok":true}"#, to: clientFD),
+        guard writeLine(challenge, to: clientFD), let authLine = readLine(from: clientFD) else { return }
+        guard writeLine(Self.authResult(authLine: authLine, relayID: relayID), to: clientFD),
               let request = readLine(from: clientFD) else { return }
 
         lock.lock()
@@ -5183,6 +5184,22 @@ final class RelaySocketResponder {
             }
             return true
         }
+    }
+
+    /// Token the relay tests pass in `CMUX_RELAY_TOKEN`.
+    static let relayToken = Data(repeating: 0x11, count: 32)
+
+    /// Success line proving the token over the client's nonce, as the app's
+    /// relay does; the CLI sends nothing further without it.
+    private static func authResult(authLine: String, relayID: String) -> String {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(authLine.utf8)) as? [String: Any],
+              let clientNonce = object["client_nonce"] as? String else {
+            return #"{"ok":true}"#
+        }
+        let message = "cmux-relay-server-proof\nrelay_id=\(relayID)\nclient_nonce=\(clientNonce)\nserver_nonce=test-nonce\nversion=1"
+        let proof = HMAC<SHA256>.authenticationCode(for: Data(message.utf8), using: SymmetricKey(data: relayToken))
+        let proofHex = Data(proof).map { String(format: "%02x", $0) }.joined()
+        return #"{"ok":true,"relay_mac":"\#(proofHex)"}"#
     }
 
     private static func posixError(_ operation: String) -> NSError {

@@ -28,9 +28,9 @@ struct WorktreeSeedPatternTests {
         init(_ description: String) { self.description = description }
     }
 
-    @Test func blankAndCommentLinesSelectNothing() {
+    @Test func blankAndCommentLinesSelectNothing() throws {
         for line in ["", "   ", "\t", "# a comment", "   # indented comment"] {
-            #expect(try! parse(line).get() == nil, "\(line.debugDescription) should be skipped")
+            #expect(try parse(line).get() == nil, "\(line.debugDescription) should be skipped")
         }
     }
 
