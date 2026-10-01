@@ -73,9 +73,12 @@ or any large DOM change, because refs go stale.
 ## Waiting
 
 Waits are not supported yet: there is no command that blocks until a selector,
-text, URL or load state appears. Do not poll with `eval` in a loop. Take a new
-`snapshot` when the page is ready, and if an element is missing, report that
-instead of retrying blindly.
+text, URL or load state appears, and `navigate` returns as soon as the load
+starts. After a scripted `navigate`, the templates mark the old document with
+`eval`, then poll `eval` a bounded number of times until a new document reports
+`document.readyState === "complete"`. Do not poll `eval` in an open-ended loop
+for anything else. Take a new `snapshot` when the page is ready, and if an
+element is missing, report that instead of retrying blindly.
 
 ## What the CLI does not cover yet
 
