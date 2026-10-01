@@ -493,6 +493,31 @@ import Testing
         guard case .failed(let failure, let previous) = connection.terminals else { Issue.record("expected failure"); return }
         #expect(failure.kind == .link)
         #expect(previous.isEmpty)
+        #expect(controller.connectionFailure(for: "vm1") == failure)
+
+        controller.retryConnections()
+        #expect(controller.connectionFailure(for: "vm1") == nil)
+        #expect(controller.connection(for: CloudMachine(id: "vm1", provider: "p", status: "running")) !== connection)
+    }
+
+    @Test func attachFailureIsReportedForGlobalRetry() async throws {
+        let connector = FakeConnector()
+        let controller = makeController(connector: connector)
+        controller.sectionDidAppear()
+        await settle { if case .ready = controller.tunnel { return true } else { return false } }
+        let machine = CloudMachine(id: "vm1", provider: "p", status: "running")
+        let connection = try #require(controller.connection(for: machine))
+        _ = try await connection.loadCatalog()
+        connector.session.attachFailure = StubError(message: "attach failed")
+
+        await #expect(throws: StubError.self) {
+            _ = try await connection.attach(terminalID: "t1") { _ in }
+        }
+        #expect(controller.connectionFailure(for: machine.id)?.kind == .link)
+
+        controller.retryConnections()
+        #expect(controller.connectionFailure(for: machine.id) == nil)
+        #expect(controller.connection(for: machine) !== connection)
     }
 }
 

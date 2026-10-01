@@ -257,6 +257,7 @@ final class FakeTerminalSession: CloudTerminalSession, @unchecked Sendable {
     private let lock = OSAllocatedUnfairLock(initialState: State())
     var state: State { lock.withLock { $0 } }
     var terminals: [CloudTerminalSummary] = [CloudTerminalSummary(id: "t1", name: "shell")]
+    var attachFailure: (any Error)?
     var outputHandler: (@Sendable (CloudTerminalOutputEvent) -> Void)? {
         lock.withLock { _ in handlerBox.withLock { $0 } }
     }
@@ -272,6 +273,7 @@ final class FakeTerminalSession: CloudTerminalSession, @unchecked Sendable {
     }
 
     func attach(terminalID: String, output: @escaping @Sendable (CloudTerminalOutputEvent) -> Void) async throws {
+        if let attachFailure { throw attachFailure }
         lock.withLock { $0.attached = terminalID }
         handlerBox.withLock { $0 = output }
     }

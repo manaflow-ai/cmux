@@ -74,9 +74,11 @@ public final class CloudMachineConnection {
                 self.workspaces = .loaded(workspaceRowsValue)
                 self.lastError = nil
             } catch {
-                guard !Task.isCancelled else { return }
-                self.terminals = .failed(CloudSessionFailure.classify(error, stage: .link), previous: self.terminals.elements)
-                self.workspaces = .failed(CloudSessionFailure.classify(error, stage: .link), previous: self.workspaces.elements)
+                guard !Task.isCancelled, !(error is CancellationError) else { return }
+                let failure = CloudSessionFailure.classify(error, stage: .link)
+                self.terminals = .failed(failure, previous: self.terminals.elements)
+                self.workspaces = .failed(failure, previous: self.workspaces.elements)
+                self.lastError = failure
             }
         }
     }
@@ -138,14 +140,21 @@ public final class CloudMachineConnection {
         terminalID: String,
         output: @escaping @Sendable (CloudTerminalOutputEvent) -> Void
     ) async throws -> CloudTerminalAttachment {
-        let session = try await connectedSession()
-        // A superseded caller cancels this attach while the dial above runs;
-        // attaching anyway would re-point the machine's single attachment
-        // slot at the OLD terminal and replace the new one's output handler.
-        try Task.checkCancellation()
-        try await session.attach(terminalID: terminalID, output: output)
-        lastError = nil
-        return CloudTerminalAttachment(session: session, terminalID: terminalID)
+        do {
+            let session = try await connectedSession()
+            // A superseded caller cancels this attach while the dial above runs;
+            // attaching anyway would re-point the machine's single attachment
+            // slot at the OLD terminal and replace the new one's output handler.
+            try Task.checkCancellation()
+            try await session.attach(terminalID: terminalID, output: output)
+            lastError = nil
+            return CloudTerminalAttachment(session: session, terminalID: terminalID)
+        } catch {
+            if !(error is CancellationError) {
+                lastError = CloudSessionFailure.classify(error, stage: .link)
+            }
+            throw error
+        }
     }
 
     /// Reads the daemon's workspaces and terminals in one pass, connecting
