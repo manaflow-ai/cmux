@@ -62,6 +62,8 @@ fn load_config() -> Result<Config> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // One TLS crypto provider for wss:// servers.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let cli = Cli::parse();
     match cli.command.unwrap_or(Command::Run) {
         Command::Login { server, token, machine } => {

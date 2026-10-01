@@ -29,6 +29,12 @@ export interface MuxApiMethods {
   agentsLast(options: { session: string; machine?: string }): Promise<{ text: string }>;
   agentsCancel(options: { session: string; machine?: string }): Promise<{ cancelled: true }>;
   messagesSend(text: string): Promise<void>;
+  memoryRecall(options: {
+    pattern: string;
+    limit?: number;
+  }): Promise<{ index: number; line: string }[]>;
+  memoryZoom(options: { lo: number; hi: number }): Promise<string[]>;
+  memoryNote(text: string): Promise<{ index: number }>;
 }
 
 export const MUX_API_DECLARATIONS = `/** In scope as \`mux\`. Every method is async. */
@@ -63,6 +69,14 @@ declare const mux: {
   messages: {
     /** Posts to this conversation right away. Only for progress during long work; your final answer is posted for you. */
     send(text: string): Promise<void>;
+  };
+  memory: {
+    /** Log lines matching a regular expression (case-insensitive), newest first. Exact detail from any time. */
+    recall(options: { pattern: string; limit?: number }): Promise<{ index: number; line: string }[]>;
+    /** What a #lo-hi summary from your memory was made of: its two halves, or raw lines at the bottom. */
+    zoom(options: { lo: number; hi: number }): Promise<string[]>;
+    /** Records a fact worth keeping (a preference, a decision, a result). Messages are remembered on their own. */
+    note(text: string): Promise<{ index: number }>;
   };
 };`;
 
@@ -111,6 +125,11 @@ export class Run extends WorkerEntrypoint {
         cancel: (o) => api.agentsCancel(o),
       },
       messages: { send: (text) => api.messagesSend(String(text)) },
+      memory: {
+        recall: (o) => api.memoryRecall(o),
+        zoom: (o) => api.memoryZoom(o),
+        note: (text) => api.memoryNote(String(text)),
+      },
     };
     try {
       const value = await (async () => {
