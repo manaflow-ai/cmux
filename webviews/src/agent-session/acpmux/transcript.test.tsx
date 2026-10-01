@@ -65,6 +65,31 @@ describe("acpmux virtual transcript", () => {
     }
   });
 
+  test("a scroll mounts the rows for the next frames in the scroll direction before it paints", async () => {
+    const size = { width: 760, height: 600 };
+    const restore = fakeViewport(size);
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
+      const totalHeight = parseFloat((dom.window.document.querySelector(".acpmux-spacer") as HTMLElement).style.height);
+      expect(scroller.scrollTop).toBe(totalHeight - 600);
+      const mountedTops = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")].map((row) => parseFloat(/translateY\((-?[\d.]+)px\)/.exec(row.style.transform)?.[1] ?? "NaN"));
+      // A fling upward: each scroll event moves a viewport and a half. The scroll
+      // event commits before the frame paints (no extra animation-frame hop), and
+      // rows two steps ahead are already mounted when the next step lands.
+      const step = 900;
+      for (const top of [totalHeight - 600 - step, totalHeight - 600 - 2 * step]) {
+        act(() => { scroller.scrollTop = top; scroller.dispatchEvent(new dom.window.Event("scroll")); });
+        expect(Math.min(...mountedTops())).toBeLessThanOrEqual(Math.max(0, top - 2 * step));
+        expect(Math.max(...mountedTops())).toBeGreaterThanOrEqual(top);
+      }
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
   test("a height-only shrink that makes fitting rows overflow opens at the latest row once", async () => {
     const size = { width: 760, height: 10_000 };
     const restore = fakeViewport(size);
