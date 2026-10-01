@@ -76,6 +76,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             openPopup(child, request: request, openerKey: key, pane: pane)
         case .unhandledEscape, .resizePopup:
             break
+        case .takeFocus:
+            services.focusAddressBarAfterPage(key)
         }
     }
 

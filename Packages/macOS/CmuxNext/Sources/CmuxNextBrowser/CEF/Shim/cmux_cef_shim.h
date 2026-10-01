@@ -94,6 +94,9 @@ typedef enum {
   // cmux_shim_omnibox_input CHANGED, s1 = extension id, s2 = JSON
   // [{"content","description","deletable","styles":[{"offset","style"}]}].
   CMUX_SHIM_OMNIBOX_SUGGESTIONS = 30,
+  // Focus left the page (CefFocusHandler::OnTakeFocus): Tab past the last
+  // element (a = 1) or Shift-Tab past the first (a = 0).
+  CMUX_SHIM_TAKE_FOCUS = 31,
 } cmux_shim_event_kind_t;
 
 typedef enum {

@@ -63,6 +63,8 @@ extension CEFTab {
             if let url = URL(string: url) { emit(.rerouteStore(url)) }
         case .keyUnhandled(_, let keyCode):
             if keyCode == 0x1B { emit(.unhandledEscape) }
+        case .takeFocus(_, let forward):
+            emit(.takeFocus(forward: forward))
         case .renderTerminated(_, let status, let code, _):
             rendererTerminated(.cef(status: status, code: code))
         case .renderUnresponsive:

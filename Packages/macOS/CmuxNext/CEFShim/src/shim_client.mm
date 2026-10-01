@@ -95,6 +95,12 @@ class Client : public CefClient,
     return h.focus_request(h.ctx, browser->GetIdentifier(), source) == 0;
   }
 
+  // Tab past the last element or Shift-Tab past the first: the host moves
+  // focus to its omnibar (Chrome moves it to the toolbar).
+  void OnTakeFocus(CefRefPtr<CefBrowser> browser, bool next) override {
+    Emit(CMUX_SHIM_TAKE_FOCUS, browser->GetIdentifier(), 0, next ? 1 : 0);
+  }
+
   // MARK: Chrome commands
 
   // Chrome commands that open a window of Chromium's own never run: the

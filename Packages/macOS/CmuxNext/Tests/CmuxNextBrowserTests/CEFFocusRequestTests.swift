@@ -61,3 +61,26 @@ import Testing
         #expect(events == ["focus-refused source=navigation"])
     }
 }
+
+/// Tab past a page's last element (CefFocusHandler::OnTakeFocus).
+@MainActor
+@Suite struct CEFTakeFocusTests {
+    private final class Recorder: BrowserTabDelegate {
+        var intents: [String] = []
+        func browserTab(_ tab: any BrowserTab, didRequest intent: BrowserTabIntent) {
+            intents.append(String(describing: intent))
+        }
+    }
+
+    @Test func focusLeavingThePageAsksTheHostForTheOmnibar() {
+        let runtime = CEFRuntime.shared
+        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: "take"), profile: .default), runtime: runtime)
+        let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(tab)
+        let recorder = Recorder()
+        tab.delegate = recorder
+        tab.handle(CEFShimEvent(kind: 31, browser: 1, request: 0, a: 1, b: 0, s1: "", s2: ""))
+        tab.handle(CEFShimEvent(kind: 31, browser: 1, request: 0, a: 0, b: 0, s1: "", s2: ""))
+        #expect(recorder.intents == ["takeFocus(forward: true)", "takeFocus(forward: false)"])
+    }
+}
