@@ -40,10 +40,14 @@ const paneThemeType = () => document.documentElement.dataset.theme === "light" ?
 
 function EditBlock({ file, edit, index, layout, onPainted }: { file: TurnFile; edit: DiffEdit; index: number; layout: DiffLayout; onPainted: () => void }) {
   // A language the bundle can't highlight shows as plain text; Pierre throws for it otherwise.
+  // Each transcript update rebuilds the turn's files; the patch text is compared so an
+  // unchanged edit keeps its parsed diff and does not paint again.
+  const patch = useMemo(() => editPatch(file, edit), [file, edit]);
+  const highlighted = isHighlighted(getFiletypeFromFileName(file.displayPath));
   const fileDiff = useMemo(() => {
-    const parsed = getSingularPatch(editPatch(file, edit));
-    return isHighlighted(getFiletypeFromFileName(file.displayPath)) ? parsed : setLanguageOverride(parsed, "text");
-  }, [file, edit]);
+    const parsed = getSingularPatch(patch);
+    return highlighted ? parsed : setLanguageOverride(parsed, "text");
+  }, [patch, highlighted]);
   const afterRender = useStableCallback(onPainted);
   const options = useMemo(() => ({
     theme: { dark: AGENT_DIFF_THEME, light: AGENT_DIFF_THEME_LIGHT },
@@ -124,8 +128,10 @@ export function DiffPanel({ files, initialPath, onClose }: { files: TurnFile[]; 
     section?.scrollIntoView?.({ block: "start" });
   };
   // Diffs paint after the highlighter loads, moving the file below them; the opened file is
-  // revealed again after each paint until the reader scrolls.
+  // revealed again after each paint until the reader scrolls, types or picks another file.
   const revealing = useRef(initialPath);
+  const stopRevealing = () => { revealing.current = undefined; };
+  const revealFromTree = (path: string) => { revealing.current = path; reveal(path); };
   const onPainted = useStableCallback(() => { if (revealing.current) reveal(revealing.current); });
   // Focus moves into the view, so keys reach it and a screen reader announces it.
   useEffect(() => { back.current?.focus(); if (initialPath) reveal(initialPath); }, [initialPath]);
@@ -139,7 +145,7 @@ export function DiffPanel({ files, initialPath, onClose }: { files: TurnFile[]; 
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
   }, [onClose]);
-  const chooseLayout = (next: DiffLayout) => { setLayout(next); try { window.localStorage?.setItem(LAYOUT_KEY, next); } catch { /* the choice lasts this pane only */ } };
+  const chooseLayout = (next: DiffLayout) => { stopRevealing(); setLayout(next); try { window.localStorage?.setItem(LAYOUT_KEY, next); } catch { /* the choice lasts this pane only */ } };
   return <section ref={panel} className="acpmux-diff-panel" aria-label="Changes">
     <header className="acpmux-diff-header">
       <button ref={back} type="button" className="acpmux-diff-back" aria-label="Back to transcript" onClick={onClose}>‹</button>
@@ -150,8 +156,8 @@ export function DiffPanel({ files, initialPath, onClose }: { files: TurnFile[]; 
       </div>
     </header>
     <div className="acpmux-diff-main">
-      <div ref={body} className="acpmux-diff-body" onWheel={() => { revealing.current = undefined; }} onPointerDown={() => { revealing.current = undefined; }}>{files.length === 0 ? <div className="acpmux-muted">No file changes in this turn.</div> : files.flatMap((file) => file.edits.map((edit, index) => <EditBlock key={`${file.path}\u0000${edit.toolId}\u0000${index}`} file={file} edit={edit} index={index} layout={layout} onPainted={onPainted} />))}</div>
-      <nav className="acpmux-diff-tree" aria-label="Changed files"><ChangedFilesTree files={files} selected={selected} onSelect={reveal} /></nav>
+      <div ref={body} className="acpmux-diff-body" onWheel={stopRevealing} onPointerDown={stopRevealing} onKeyDown={stopRevealing}>{files.length === 0 ? <div className="acpmux-muted">No file changes in this turn.</div> : files.flatMap((file) => file.edits.map((edit, index) => <EditBlock key={`${file.path}\u0000${edit.toolId}\u0000${index}`} file={file} edit={edit} index={index} layout={layout} onPainted={onPainted} />))}</div>
+      <nav className="acpmux-diff-tree" aria-label="Changed files"><ChangedFilesTree files={files} selected={selected} onSelect={revealFromTree} /></nav>
     </div>
   </section>;
 }

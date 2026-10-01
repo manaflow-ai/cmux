@@ -281,14 +281,18 @@ export function AcpmuxApp() {
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
   const openDiff = useCallback((rowId: string, path?: string) => setDiffView({ sessionId: sessionIdRef.current, rowId, path, opener: document.activeElement instanceof HTMLElement ? document.activeElement : undefined }), []);
-  const closeDiff = useCallback(() => setDiffView(undefined), []);
+  const closedByUser = useRef(false);
+  const closeDiff = useCallback(() => { closedByUser.current = true; setDiffView(undefined); }, []);
   // Focus returns to the opener once the view is gone: until then the transcript is hidden,
   // and a hidden control can't take focus.
   const diffOpener = useRef<HTMLElement | undefined>(undefined);
   if (diffView?.opener) diffOpener.current = diffView.opener;
   useLayoutEffect(() => {
     if (diffView || !diffOpener.current) return;
-    diffOpener.current.focus();
+    // A view that closed itself (session switch, turn gone) leaves focus where the reader put it.
+    const focus = document.activeElement;
+    if (closedByUser.current || !focus || focus === document.body) diffOpener.current.focus();
+    closedByUser.current = false;
     diffOpener.current = undefined;
   }, [diffView]);
   // Row ids repeat across sessions (they count events), so another session closes the view.

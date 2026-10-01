@@ -493,7 +493,7 @@ describe("acpmux turn diff", () => {
       await act(async () => back.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
       expect(document.querySelector(".acpmux-diff-panel")).toBeNull();
       // Focus goes back to the control that opened the view, once the transcript shows again.
-      expect(document.activeElement).toBe(review);
+      expect(document.activeElement).toBe(review!);
     } finally {
       await act(async () => root.unmount());
       delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
