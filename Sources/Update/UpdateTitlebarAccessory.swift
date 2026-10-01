@@ -3019,8 +3019,7 @@ final class UpdateTitlebarAccessoryController {
         pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
         let windowIdentifier = ObjectIdentifier(window)
         DispatchQueue.main.async { [weak self] in
-            guard let self,
-                  let window = self.liveWindow(withIdentifier: windowIdentifier) else { return }
+            guard let self, let window = self.liveWindow(withIdentifier: windowIdentifier) else { return }
             window.contentView?.needsLayout = true
             window.contentView?.superview?.needsLayout = true
             window.contentView?.layoutSubtreeIfNeeded()
