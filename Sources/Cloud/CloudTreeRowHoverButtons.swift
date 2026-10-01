@@ -49,7 +49,11 @@ struct CloudTreeRowHoverButtons: View {
                 accessibilityLabel: String(localized: "machines.row.delete", defaultValue: "Delete Machine"),
                 isBusy: false
             ) {
-                machineActions.confirmDelete(machine.id)
+                if let confirmDeleteNamed = machineActions.confirmDeleteNamed {
+                    confirmDeleteNamed(machine.id, machine.displayName)
+                } else {
+                    machineActions.confirmDelete(machine.id)
+                }
             }
         case .pendingMachine(let operation):
             // A running create can be cancelled from the row; a failed create

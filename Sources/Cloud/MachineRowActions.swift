@@ -11,6 +11,8 @@ struct MachineRowActions {
     let openDesktop: @MainActor (String) -> Void
     let runCommand: @MainActor (String, [String]) -> Void
     let confirmDelete: @MainActor (String) -> Void
+    /// Presents deletion with a human-facing name while retaining the stable id for the command.
+    var confirmDeleteNamed: (@MainActor (String, String?) -> Void)? = nil
     let promptRename: @MainActor (String, String?) -> Void
     /// Grow the machine through the shared `cmux vm resize` command.
     let resizeDisk: @MainActor (String, Int) -> Void
@@ -60,7 +62,10 @@ struct MachineRowActions {
                 }
             },
             confirmDelete: { id in
-                presentDeleteConfirmation(id: id, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
+                presentDeleteConfirmation(id: id, displayName: nil, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
+            },
+            confirmDeleteNamed: { id, displayName in
+                presentDeleteConfirmation(id: id, displayName: displayName, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
             },
             promptRename: { id, currentLabel in
                 presentRenamePrompt(id: id, currentLabel: currentLabel, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
@@ -225,6 +230,7 @@ struct MachineRowActions {
     @MainActor
     private static func presentDeleteConfirmation(
         id: String,
+        displayName: String?,
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
         onDidMutate: @escaping @MainActor () -> Void
     ) {
@@ -234,7 +240,9 @@ struct MachineRowActions {
             localized: "machines.delete.title",
             defaultValue: "Delete machine “%@”?"
         )
-        alert.messageText = String(format: format, id)
+        let confirmationName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .flatMap { $0.isEmpty ? nil : $0 } ?? id
+        alert.messageText = String(format: format, confirmationName)
         alert.informativeText = String(
             localized: "machines.delete.message",
             defaultValue: "This permanently deletes the machine and everything stored on it. This cannot be undone."

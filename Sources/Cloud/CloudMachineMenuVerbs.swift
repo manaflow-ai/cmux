@@ -13,6 +13,8 @@ struct CloudMachineMenuVerbs {
     var promptRename: @MainActor (String, String?) -> Void
     var copyToPasteboard: @MainActor (String) -> Void
     var confirmDelete: @MainActor (String) -> Void
+    /// Optional display-name-aware delete presentation for surfaces with a machine snapshot.
+    var confirmDeleteNamed: (@MainActor (String, String?) -> Void)? = nil
     var promptUpgrade: @MainActor () -> Void
 
     /// Connect verbs: Open Shell, New Workspace, Open Desktop, full client.
@@ -55,7 +57,13 @@ struct CloudMachineMenuVerbs {
 
     func deleteEntries(_ machine: MachineSnapshot) -> [CloudMenuEntry] {
         let id = machine.id
-        return [action("delete", id, String(localized: "machines.menu.delete", defaultValue: "Delete…")) { confirmDelete(id) }]
+        return [action("delete", id, String(localized: "machines.menu.delete", defaultValue: "Delete…")) {
+            if let confirmDeleteNamed {
+                confirmDeleteNamed(id, machine.displayName)
+            } else {
+                confirmDelete(id)
+            }
+        }]
     }
 
     /// The complete machine submenu used outside the sidebar, led by a status line.
