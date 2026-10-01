@@ -2,7 +2,7 @@ public import Foundation
 
 /// The shape of a Cloud machine. The server maps this to its current image
 /// manifest, so the phone never needs to know provider-specific image IDs.
-public enum CloudMachineKind: String, CaseIterable, Sendable, Equatable {
+public enum CloudMachineKind: String, CaseIterable, Sendable, Equatable, Hashable {
     /// A shell-only machine that boots quickly and uses fewer resources.
     case base
     /// A machine with the desktop image, when the provider offers one.
