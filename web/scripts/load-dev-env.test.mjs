@@ -15,7 +15,7 @@ function sourceDevEnv({
   localKeyID = "",
   providerFileContents = "",
   extraFileContents = "",
-}) {
+} = {}) {
   const home = mkdtempSync(path.join(tmpdir(), "cmux-load-dev-env-"));
   const secrets = path.join(home, ".secrets");
   const envFile = path.join(secrets, "cmuxterm-dev.env");
@@ -48,7 +48,7 @@ function sourceDevEnv({
       "bash",
       [
         "-c",
-        `source "$1"; printf '%s\\0%s\\0%s\\0%s\\0%s' "\${CMUX_RELAY_POLICY_KEY_ID-}" "\${CMUX_RELAY_POLICY_PRIVATE_KEY_PEM-}" "\${FREESTYLE_API_KEY-}" "\${FREESTYLE_SANDBOX_SNAPSHOT-}" "\${CMUX_VM_DEFAULT_PROVIDER-}"`,
+        `source "$1"; printf '%s\\0%s\\0%s\\0%s\\0%s\\0%s' "\${CMUX_RELAY_POLICY_KEY_ID-}" "\${CMUX_RELAY_POLICY_PRIVATE_KEY_PEM-}" "\${FREESTYLE_API_KEY-}" "\${FREESTYLE_SANDBOX_SNAPSHOT-}" "\${CMUX_VM_DEFAULT_PROVIDER-}" "\${CMUX_LOCAL_DEV_PRO-}"`,
         "bash",
         scriptPath,
       ],
@@ -57,6 +57,7 @@ function sourceDevEnv({
         env: {
           ...process.env,
           HOME: home,
+          CMUX_LOCAL_DEV_PRO: "",
           CMUXTERM_ENV_FILE: envFile,
           CMUX_RELAY_POLICY_KEY_ID: "",
           CMUX_RELAY_POLICY_PRIVATE_KEY_PEM: "",
@@ -133,4 +134,9 @@ test("loads an explicitly selected Freestyle provider from the extra environment
 
   assert.equal(apiKey, "explicit-freestyle-key");
   assert.equal(provider, "freestyle");
+});
+
+test("development backends default to Pro VM access", () => {
+  const [, , , , , developmentPro] = sourceDevEnv();
+  assert.equal(developmentPro, "1");
 });
