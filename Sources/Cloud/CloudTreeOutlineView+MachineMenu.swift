@@ -47,6 +47,8 @@ extension CloudTreeOutlineView.Coordinator {
             promptRename: actions.promptRename,
             copyToPasteboard: nodeActions.copyToPasteboard,
             confirmDelete: actions.confirmDelete,
+            shutdown: actions.shutdown,
+            restart: actions.restart,
             promptUpgrade: actions.promptUpgrade
         )
     }

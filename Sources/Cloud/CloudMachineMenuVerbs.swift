@@ -13,6 +13,8 @@ struct CloudMachineMenuVerbs {
     var promptRename: @MainActor (String, String?) -> Void
     var copyToPasteboard: @MainActor (String) -> Void
     var confirmDelete: @MainActor (String) -> Void
+    var shutdown: @MainActor (String) -> Void = { _ in }
+    var restart: @MainActor (String) -> Void = { _ in }
     var promptUpgrade: @MainActor () -> Void
 
     /// Connect verbs: Open Shell, New Workspace, Open Desktop, full client.
@@ -43,6 +45,11 @@ struct CloudMachineMenuVerbs {
             entries.append(action("copyIP", id, String(localized: "machines.menu.copyIPAddress", defaultValue: "Copy IP Address")) { copyToPasteboard(address) })
         }
         entries.append(action("status", id, String(localized: "machines.menu.status", defaultValue: "Status")) { runCommand(id, ["vm", "status"]) })
+        if machine.stats?.state == .asleep {
+            entries.append(action("restart", id, String(localized: "machines.menu.restart", defaultValue: "Restart")) { restart(id) })
+        } else {
+            entries.append(action("shutdown", id, String(localized: "machines.menu.shutdown", defaultValue: "Shut Down")) { shutdown(id) })
+        }
         // Only verbs this provider can honor: a Checkpoint that answers 502 is not a verb.
         if machine.capabilities.snapshot {
             entries.append(action("checkpoint", id, String(localized: "machines.menu.checkpoint", defaultValue: "Checkpoint")) { runCommand(id, ["vm", "snapshot"]) })
