@@ -14,6 +14,11 @@ final class BrowserTabService {
     var create: @MainActor (_ pane: PaneID, _ url: String, _ engine: BrowserEngineTag) async throws -> SurfaceID
     /// `update-frontend-browser-tab`. Returns false when the command failed.
     var update: @MainActor (SurfaceID, BrowserRecordUpdate) async -> Bool
+    /// `tab.update` (zoom, back/forward) on the tab's public id. Returns
+    /// false when the command failed.
+    var updateState: @MainActor (ResourceID, BrowserRecordUpdate) async -> Bool
+    /// Whether the tab's daemon keeps zoom and history (state resources).
+    var keepsState: @MainActor (TabModel) -> Bool
     /// Whether the daemon serves `frontend-browser-tabs-v1`.
     var isAvailable: @MainActor () -> Bool
     /// Why Chromium cannot open a tab now; nil when it can (or may still
@@ -50,6 +55,12 @@ final class BrowserTabService {
                 _ = try await connection.updateFrontendBrowserTab(surface, url: update.url, title: update.title, faviconURL: update.favicon)
             } ?? false
         }
+        updateState = { [weak daemon] tab, update in
+            await daemon?.run("tab.update") { connection in
+                try await connection.updateTabRecord(tab, zoom: update.zoom, back: update.back, forward: update.forward)
+            } ?? false
+        }
+        keepsState = { [weak daemon] _ in daemon?.store.servesStateResources ?? false }
         tabModel = { [weak daemon] id in
             daemon?.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.id == id }
         }
@@ -110,16 +121,26 @@ final class BrowserTabService {
     /// tab id; one writer per live page).
     /// An incognito tab is never written back: its page's URL, title and
     /// favicon stay in memory (the tab strip reads the live page).
+    /// A page restores the zoom its record keeps.
     func track(_ page: any BrowserTab, for tab: TabModel) {
         guard tab.isFrontendOwned, writers[tab.id] == nil, !isIncognitoTab(tab.id) else { return }
-        let update = update, id = tab.id
+        let update = update, updateState = updateState, id = tab.id
+        let keeps = keepsState(tab)
+        if keeps, let zoom = tab.zoom, abs(page.state.zoom - zoom) > 0.001 { page.setZoom(zoom) }
         // The surface is looked up by tab id at send time. A moved tab (a
         // split, another window) keeps its record, but the store gives it a
         // new TabModel in the destination pane, so the writer must not hold
         // the original one.
-        writers[id] = BrowserRecordWriter(tab: page, recorded: BrowserRecord(tab: tab), delay: writeBackDelay, sleep: sleep) { [weak self] fields in
-            guard let surface = self?.tabModel(id)?.surface else { return false }
-            return await update(surface, fields)
+        writers[id] = BrowserRecordWriter(
+            tab: page, recorded: BrowserRecord(tab: tab), tracksState: keeps,
+            daemonRecord: { [weak self] in self?.tabModel(id).map(BrowserRecord.init(tab:)) },
+            delay: writeBackDelay, sleep: sleep
+        ) { [weak self] fields in
+            guard let tab = self?.tabModel(id) else { return false }
+            if fields.hasRecordFields, !(await update(tab.surface, fields)) { return false }
+            guard fields.hasStateFields else { return true }
+            guard let resource = tab.resourceID else { return false }
+            return await updateState(resource, fields)
         }
     }
 

@@ -15,7 +15,7 @@ public enum TabItemMapping {
             icon: .symbol(isBrowser ? "globe" : (tab.dead ? "xmark.octagon" : "terminal")),
             isPinned: tab.pinned,
             isUnread: tab.hasUnread,
-            isBusy: tab.agent?.state == .working,
+            isBusy: tab.agent?.state == .working || isReportingProgress(tab),
             status: status(tab)
         )
     }
@@ -24,7 +24,16 @@ public enum TabItemMapping {
         switch tab.agent?.state {
         case .blocked: .needsInput
         case .done: .success
-        default: tab.dead ? .failure : .none
+        default: tab.dead || tab.progress?.state == .error ? .failure : .none
+        }
+    }
+
+    /// The daemon parsed running OSC 9;4 progress for the tab's terminal
+    /// (every terminal, shown or not).
+    static func isReportingProgress(_ tab: TabModel) -> Bool {
+        switch tab.progress?.state {
+        case .normal?, .indeterminate?: true
+        default: false
         }
     }
 }
