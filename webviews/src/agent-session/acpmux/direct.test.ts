@@ -138,7 +138,7 @@ describe("direct client session state", () => {
   test("history pages through events and keeps the live summary, queue and permission", async () => {
     const client = await connect();
     ScriptedSocket.current.notify("_acpmux/permission_pending", { sessionId: "a", permissionId: "p1", request: { toolCall: { title: "Run" }, options: [] } });
-    ScriptedSocket.respond = ({ method }) => method === "_acpmux/events" ? { events: [userEvent("a", 3, "a three"), userEvent("a", 4, "a four")], hasMore: true } : {};
+    ScriptedSocket.respond = ({ method }) => method === "_acpmux/events" ? { events: [userEvent("a", 3, "a three"), userEvent("a", 4, "a four")], more: true } : {};
     await client.loadOlder();
     const methods = ScriptedSocket.current.sent.map((request) => request.method);
     expect(methods.filter((method) => method === "_acpmux/attach").length).toBe(1);
@@ -147,6 +147,15 @@ describe("direct client session state", () => {
     expect(latest().queue).toEqual([{ id: "q1", prompt: "queued" }]);
     expect(latest().summary?.status).toBe("idle");
     expect(latest().permission?.permissionId).toBe("p1");
+    expect(latest().canLoadOlder).toBe(true);
+  });
+
+  test("history stops when the daemon reports no more", async () => {
+    const client = await connect();
+    ScriptedSocket.respond = ({ method }) => method === "_acpmux/events" ? { events: [userEvent("a", 3, "a three")], more: false } : {};
+    await client.loadOlder();
+    expect(texts()).toEqual(["a three", "a five", "a six"]);
+    expect(latest().canLoadOlder).toBe(false);
   });
 
   test("a history page that lands after the selection changed is dropped", async () => {
@@ -180,23 +189,61 @@ describe("direct client session state", () => {
     void client.send("still sending").catch(() => undefined);
     await settle();
     ScriptedSocket.respond = ({ method, params }) => method === "_acpmux/events" && params.afterSeq === 6 ? { events: [userEvent("a", 7, "a seven")] } : {};
-    ScriptedSocket.current.notify("_acpmux/lagged", { sessionId: "a" });
+    ScriptedSocket.current.notify("_acpmux/lagged", { sessionIds: ["a"], watch: false, dropped: 3 });
     expect(texts()).toEqual(["a five", "a six", "still sending"]);
     await settle();
     expect(texts()).toEqual(["a five", "a six", "a seven", "still sending"]);
     expect(latest().queue).toEqual([{ id: "q1", prompt: "queued" }]);
   });
 
+  test("a lag notice without session IDs resyncs the selected session", async () => {
+    await connect();
+    ScriptedSocket.respond = ({ method, params }) => method === "_acpmux/events" && params.sessionId === "a" && params.afterSeq === 6 ? { events: [userEvent("a", 7, "a seven")] } : {};
+    ScriptedSocket.current.notify("_acpmux/lagged", { dropped: 2 });
+    await settle();
+    expect(texts()).toEqual(["a five", "a six", "a seven"]);
+  });
+
+  test("a lag notice for other sessions leaves the selected one alone", async () => {
+    await connect();
+    const sent = ScriptedSocket.current.sent.length;
+    ScriptedSocket.current.notify("_acpmux/lagged", { sessionIds: ["b"], watch: false, dropped: 1 });
+    await settle();
+    expect(ScriptedSocket.current.sent.length).toBe(sent);
+  });
+
+  test("lag recovery pages until the daemon reports no more", async () => {
+    await connect();
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method !== "_acpmux/events") return {};
+      if (params.afterSeq === 6) return { events: [userEvent("a", 7, "a seven")], more: true };
+      if (params.afterSeq === 7) return { events: [userEvent("a", 8, "a eight")], more: false };
+      return {};
+    };
+    ScriptedSocket.current.notify("_acpmux/lagged", { sessionIds: ["a"], watch: false, dropped: 2 });
+    await settle();
+    await settle();
+    expect(texts()).toEqual(["a five", "a six", "a seven", "a eight"]);
+  });
+
+  test("a watch lag refreshes the session picker", async () => {
+    await connect();
+    ScriptedSocket.respond = ({ method }) => method === "_acpmux/watch" ? { sessions: [{ sessionId: "a" }, { sessionId: "b" }, { sessionId: "c" }] } : { events: [] };
+    ScriptedSocket.current.notify("_acpmux/lagged", { sessionIds: [], watch: true, dropped: 4 });
+    await settle();
+    expect(latest().sessions.map((session) => session.sessionId)).toEqual(["a", "b", "c"]);
+  });
+
   test("lag recovery for a session that is no longer selected is ignored", async () => {
     const client = await connect();
     ScriptedSocket.held.add("_acpmux/events");
-    ScriptedSocket.current.notify("_acpmux/lagged", { sessionId: "a" });
+    ScriptedSocket.current.notify("_acpmux/lagged", { sessionIds: ["a"], watch: false, dropped: 1 });
     await client.select("b");
     ScriptedSocket.current.release("_acpmux/events", { events: [userEvent("a", 7, "stale a seven")] });
     await settle();
     client.snapshot();
     expect(texts()).toEqual(["b one"]);
-    ScriptedSocket.current.notify("_acpmux/lagged", { sessionId: "a" });
+    ScriptedSocket.current.notify("_acpmux/lagged", { sessionIds: ["a"], watch: false, dropped: 1 });
     expect(ScriptedSocket.current.waiting.length).toBe(0);
   });
 
