@@ -3890,6 +3890,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         SessionSnapshotPersistenceWriter.removeLegacyPersistedWindowGeometry(defaults: defaults)
     }
 
+#if DEBUG
+    /// Clears all persisted window geometry for isolated UI-test processes.
+    ///
+    /// Tests must start from the same clean geometry state regardless of which
+    /// schema version a previous test run wrote.
+    private nonisolated static func forgetPersistedWindowGeometryForTestProcess(
+        defaults: UserDefaults = .standard
+    ) {
+        defaults.removeObjectIfPresent(forKey: persistedWindowGeometryDefaultsKey)
+        removeLegacyPersistedWindowGeometry(defaults: defaults)
+    }
+#endif
+
     private func persistWindowGeometry(from window: NSWindow?) {
         guard let window else { return }
         persistWindowGeometry(
@@ -7735,6 +7748,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .getState:
             return .state(.init(visible: state.isVisible, modeRawValue: state.rightSidebarRemoteModeRawValue))
         }
+    }
+
+    @discardableResult
+    func selectCustomSidebarInRightPanel(name: String) -> Bool {
+        if case .ok = applyRightSidebarRemoteCommand(.setCustomSidebar(name: name, focus: true)) {
+            return true
+        }
+        return false
     }
 
     /// Opens My Devices in the selected main window and scopes its reveal request

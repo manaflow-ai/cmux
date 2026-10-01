@@ -252,7 +252,15 @@ def changed_files(repo, base, include_deleted=False):
         kind = "inputs" if include_deleted else "Swift files"
         raise ValueError(f"Cannot select changed {kind} against {base!r}; "
                          "check the Git checkout and local base ref") from error
-    names = sorted({os.fsdecode(p) for p in (changed + untracked).split(b"\0") if p and (include_deleted or p.endswith(b".swift"))})
+    # Interpreted custom-sidebar templates use `.swift` as their runtime file
+    # extension, but are SwiftUI-style source snippets rather than Swift files
+    # for the compiler. Keep them out of the native syntax preflight.
+    names = sorted({
+        os.fsdecode(p) for p in (changed + untracked).split(b"\0")
+        if p and (include_deleted or p.endswith(b".swift"))
+        and b"/Resources/CustomSidebarTemplates/" not in p
+        and b"Examples/CustomSidebars/" not in p
+    })
     return names, {"base_ref": base, "base_sha": base_sha, "merge_base_sha": merge_base,
                    "excluded_untracked_prefixes": [".glaeda/apple-build/"],
                    "contents": "current working tree, including staged/unstaged and nonignored untracked files"}
