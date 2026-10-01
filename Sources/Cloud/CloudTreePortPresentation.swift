@@ -15,7 +15,7 @@ struct CloudTreePortPresentation {
     }
 
     var toolTip: String? {
-        detail ?? title
+        resource.detail
     }
 
     var accessibilityLabel: String {
