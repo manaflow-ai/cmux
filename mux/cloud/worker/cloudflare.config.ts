@@ -20,6 +20,8 @@ const worker = defineWorker({
     ASSETS: bindings.assets(),
     CODEROUTER_API_KEY: bindings.secret(),
     FREESTYLE_API_KEY: bindings.secret(),
+    // BusyBox + git, 1 vCPU / 128 MiB / 1 GB (scripts/bake-memory-snapshot.ts).
+    MUX_MEMORY_SNAPSHOT: bindings.text("mux-memory-base"),
     MUX_DEV_AUTH: bindings.secret(),
     // cmux development Stack project (cmuxterm-dev). Switching to the production
     // project needs OAuth redirect domains added there; see DESIGN.md.

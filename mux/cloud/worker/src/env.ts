@@ -16,6 +16,8 @@ export interface Env {
   CODEROUTER_API_KEY?: string;
   /** Freestyle API key for memory VMs; without it memory stays in Durable Object SQLite. */
   FREESTYLE_API_KEY?: string;
+  /** Snapshot memory VMs boot from (scripts/bake-memory-snapshot.ts). */
+  MUX_MEMORY_SNAPSHOT?: string;
   CODEROUTER_BASE_URL?: string;
 }
 

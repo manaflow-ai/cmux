@@ -4,8 +4,9 @@ import { exec } from "./freestyle.ts";
 /**
  * A mux's memory as a git repo on a VM: LOG.txt (one line per entry, append
  * only) and TREE/<lo>-<hi>.txt (rebuildable summaries). Every write commits.
- * Commands go through Freestyle exec; data travels on stdin or in env, never
- * in the command line.
+ * Commands go through Freestyle exec and use only BusyBox tools (the
+ * `mux-memory-base` snapshot is BusyBox plus git); data travels on stdin or in
+ * env, never in the command line. Recall patterns are POSIX extended regexes.
  */
 export class GitExecMemoryStore implements MemoryStore {
   private readonly dir: string;
@@ -13,11 +14,11 @@ export class GitExecMemoryStore implements MemoryStore {
   private readonly apiKey: string;
   private readonly vmId: string;
 
-  constructor(apiKey: string, vmId: string, muxId: string) {
+  constructor(apiKey: string, vmId: string, muxId: string, baseDir = "/data/mux-memory") {
     this.apiKey = apiKey;
     this.vmId = vmId;
     if (!/^[A-Za-z0-9_-]+$/.test(muxId)) throw new Error(`bad mux id ${muxId}`);
-    this.dir = `$HOME/mux-memory/${muxId}`;
+    this.dir = `${baseDir}/${muxId}`;
   }
 
   private run(script: string, options: { stdin?: string; env?: Record<string, string> } = {}) {
@@ -53,31 +54,31 @@ export class GitExecMemoryStore implements MemoryStore {
   }
 
   async recall(pattern: string, limit: number) {
-    const out = await this.run(
-      `python3 -c 'import json,os,re
-p=re.compile(os.environ["P"],re.I);n=int(os.environ["N"]);lines=open("LOG.txt").read().split("\\n")[:-1];hits=[]
-for i in range(len(lines)-1,-1,-1):
-  if p.search(lines[i]): hits.append({"index":i,"line":lines[i]})
-  if len(hits)>=n: break
-print(json.dumps(hits))'`,
-      { env: { P: pattern, N: String(limit) } },
-    );
-    return JSON.parse(out) as { index: number; line: string }[];
+    const out = await this.run(`grep -n -i -E -e "$P" LOG.txt | tail -n "$N" || true`, {
+      env: { P: pattern, N: String(Math.max(1, Math.floor(limit))) },
+    });
+    return out
+      .split("\n")
+      .filter(Boolean)
+      .map((row) => {
+        const colon = row.indexOf(":");
+        return { index: Number(row.slice(0, colon)) - 1, line: row.slice(colon + 1) };
+      })
+      .reverse();
   }
 
   async getNodes(ranges: Range[]) {
     const found = new Map<string, string>();
     if (ranges.length === 0) return found;
+    // Keys are "<lo>-<hi>" with digits only, safe to split on spaces.
     const out = await this.run(
-      `python3 -c 'import json,os
-out={}
-for k in json.loads(os.environ["K"]):
-  try: out[k]=open("TREE/"+k+".txt").read().strip()
-  except FileNotFoundError: pass
-print(json.dumps(out))'`,
-      { env: { K: JSON.stringify(ranges.map(key)) } },
+      `for k in $K; do f="TREE/$k.txt"; if [ -f "$f" ]; then printf '%s\\t' "$k"; cat "$f"; fi; done`,
+      { env: { K: ranges.map(key).join(" ") } },
     );
-    for (const [k, v] of Object.entries(JSON.parse(out) as Record<string, string>)) found.set(k, v);
+    for (const row of out.split("\n")) {
+      const tab = row.indexOf("\t");
+      if (tab > 0) found.set(row.slice(0, tab), row.slice(tab + 1));
+    }
     return found;
   }
 

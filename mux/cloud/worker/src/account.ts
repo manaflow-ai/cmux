@@ -86,8 +86,10 @@ export class AccountDO extends DurableObject<Env> {
   async memoryVm(): Promise<string | undefined> {
     const apiKey = this.env.FREESTYLE_API_KEY;
     if (!apiKey) return undefined;
+    // v2: VMs from the mux-memory-base snapshot (1 vCPU, 128 MiB). Memory moves
+    // over on its own: the Durable Object caches push their lines to the new VM.
     const row = this.sql
-      .exec<{ value: string }>("SELECT value FROM meta WHERE key = 'memory_vm'")
+      .exec<{ value: string }>("SELECT value FROM meta WHERE key = 'memory_vm_v2'")
       .toArray()[0];
     if (row) return row.value;
     const viewer = this.sql
@@ -96,10 +98,11 @@ export class AccountDO extends DurableObject<Env> {
     const owner = viewer ? (JSON.parse(viewer.value) as Viewer).id : this.ctx.id.toString();
     const vmId = await ensureVm(
       apiKey,
-      `mux-mem-${(await sha256(owner)).slice(0, 20)}`,
+      `mux-memory-${(await sha256(owner)).slice(0, 20)}`,
       "mux memory",
+      this.env.MUX_MEMORY_SNAPSHOT,
     );
-    this.sql.exec("INSERT OR REPLACE INTO meta (key, value) VALUES ('memory_vm', ?)", vmId);
+    this.sql.exec("INSERT OR REPLACE INTO meta (key, value) VALUES ('memory_vm_v2', ?)", vmId);
     return vmId;
   }
 
