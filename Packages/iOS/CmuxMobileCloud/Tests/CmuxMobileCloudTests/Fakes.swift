@@ -45,6 +45,7 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
     }
     var attach: Result<CloudAttachEndpoint, any Error> = .success(CloudAttachEndpoint(route: "ws://[fd00::10]:1337/v1/link", session: "s1"))
     var approvals: [Bool] = [true]
+    var approvalFailure: (any Error)?
     /// Thrown by pause, resume and delete when set.
     var lifecycleFailure: (any Error)?
     var holdLifecycleActions = false
@@ -209,6 +210,7 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
             calls.approve.append((machineID, invitationId))
             return calls.approve.count - 1
         }
+        if let approvalFailure { throw approvalFailure }
         return index < approvals.count ? approvals[index] : approvals.last ?? true
     }
 
@@ -326,12 +328,17 @@ final class FakeConnector: CloudTerminalConnecting, @unchecked Sendable {
     var connects: [Connect] { lock.withLock { $0 } }
     let session = FakeTerminalSession()
     var failure: (any Error)?
+    var connectGate: (started: TestSignal, release: TestSignal)?
 
     func connect(route: String, stateDirectory: URL, deviceName: String, invitation: String?, trustedCarrier: Bool, tunnel: (any CloudTunnel)?) async throws -> any CloudTerminalSession {
         lock.withLock {
             $0.append(Connect(route: route, stateDirectory: stateDirectory, deviceName: deviceName, invitation: invitation, trustedCarrier: trustedCarrier, hasTunnel: tunnel != nil))
         }
         if let failure { throw failure }
+        if let connectGate {
+            await connectGate.started.signal()
+            await connectGate.release.wait()
+        }
         return session
     }
 }

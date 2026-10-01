@@ -506,12 +506,12 @@ import Testing
         #expect(service.calls.approve.isEmpty)
     }
 
-    @Test func approvalLoopPollsUntilGranted() async {
+    @Test func approvalLoopPollsUntilGranted() async throws {
         let service = FakeCloudVMService()
         service.approvals = [false, false, true]
         let clock = TestClock()
         let loop = Task {
-            await CloudMachineConnection.approveUntilGranted(service: service, machineID: "vm1", invitationId: "inv", clock: clock)
+            try await CloudMachineConnection.approveUntilGranted(service: service, machineID: "vm1", invitationId: "inv", clock: clock)
         }
         await settle { clock.sleepers == 1 }
         clock.advance(by: .seconds(2))
@@ -519,8 +519,68 @@ import Testing
         clock.advance(by: .seconds(2))
         await settle { service.calls.approve.count == 2 && clock.sleepers == 1 }
         clock.advance(by: .seconds(2))
-        await loop.value
+        try await loop.value
         #expect(service.calls.approve.count == 3)
+    }
+
+    @Test func approvalLoopReportsADepletedInvitation() async {
+        let service = FakeCloudVMService()
+        service.approvals = [false]
+        let clock = TestClock()
+        let loop = Task {
+            try await CloudMachineConnection.approveUntilGranted(
+                service: service,
+                machineID: "vm1",
+                invitationId: "inv",
+                clock: clock,
+                attemptLimit: 2
+            )
+        }
+
+        await settle { clock.sleepers == 1 }
+        clock.advance(by: .seconds(2))
+        await settle { service.calls.approve.count == 1 && clock.sleepers == 1 }
+        clock.advance(by: .seconds(2))
+
+        do {
+            try await loop.value
+            Issue.record("approval unexpectedly succeeded")
+        } catch {
+            #expect(String(describing: error) == "cloud invitation approval timed out")
+        }
+    }
+
+    @Test func approvalFailureReachesCatalogBeforeLateConnectReturns() async throws {
+        let service = FakeCloudVMService()
+        service.machines = .success([CloudMachine(id: "vm1", provider: "p", status: "running")])
+        service.attach = .success(CloudAttachEndpoint(
+            route: "ws://[fd00::10]:1337/v1/link", session: "s1",
+            invitation: .init(uri: "cmux-remote+invite://abc", invitationId: "inv1")
+        ))
+        service.approvalFailure = CloudAPIError.httpStatus(404, message: nil, action: nil)
+        let connector = FakeConnector()
+        let started = TestSignal()
+        let release = TestSignal()
+        connector.connectGate = (started, release)
+        let clock = TestClock()
+        let controller = makeController(service: service, connector: connector, clock: clock)
+        controller.sectionDidAppear()
+        defer { controller.sectionDidDisappear() }
+        await settle { if case .ready = controller.tunnel { return true }; return false }
+        let connection = try #require(controller.connection(for: CloudMachine(id: "vm1", provider: "p", status: "running")))
+
+        connection.refreshTerminals()
+        await started.wait()
+        await settle { clock.sleepers == 1 }
+        clock.advance(by: .seconds(2))
+        await settle { if case .failed = connection.terminals { return true }; return false }
+        #expect(connection.lastError?.kind == .link)
+        #expect(connection.lastError?.isRetryable == true)
+        #expect(connector.session.loadCatalogCalls == 0)
+
+        await release.signal()
+        await settle { connector.session.state.disconnected == 1 }
+        #expect(connector.session.state.disconnected == 1)
     }
 
     @Test func linkFailureIsReportedOnTheCatalog() async throws {
@@ -610,29 +670,49 @@ final class TestClock: Clock, @unchecked Sendable {
 
     private let lock = NSLock()
     private var current = Instant(offset: .zero)
-    private var waiters: [(deadline: Instant, continuation: CheckedContinuation<Void, any Error>)] = []
+    private struct Waiter {
+        let id: UUID
+        let deadline: Instant
+        let continuation: CheckedContinuation<Void, any Error>
+    }
+
+    private var waiters: [Waiter] = []
 
     var now: Instant { lock.withLock { current } }
     var minimumResolution: Duration { .nanoseconds(1) }
     var sleepers: Int { lock.withLock { waiters.count } }
 
     func sleep(until deadline: Instant, tolerance: Duration?) async throws {
-        try Task.checkCancellation()
-        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, any Error>) in
-            lock.withLock {
-                if deadline <= current {
-                    c.resume()
-                } else {
-                    waiters.append((deadline, c))
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, any Error>) in
+                var result: Result<Void, any Error>?
+                lock.withLock {
+                    if Task.isCancelled {
+                        result = .failure(CancellationError())
+                    } else if deadline <= current {
+                        result = .success(())
+                    } else {
+                        waiters.append(Waiter(id: id, deadline: deadline, continuation: c))
+                    }
+                }
+                if let result {
+                    c.resume(with: result)
                 }
             }
+        } onCancel: {
+            let continuation = lock.withLock { () -> CheckedContinuation<Void, any Error>? in
+                guard let index = waiters.firstIndex(where: { $0.id == id }) else { return nil }
+                return waiters.remove(at: index).continuation
+            }
+            continuation?.resume(throwing: CancellationError())
         }
     }
 
     func advance(by duration: Duration) {
         let due: [CheckedContinuation<Void, any Error>] = lock.withLock {
             current = current.advanced(by: duration)
-            let (ready, waiting) = waiters.reduce(into: ([CheckedContinuation<Void, any Error>](), [(deadline: Instant, continuation: CheckedContinuation<Void, any Error>)]())) { acc, entry in
+            let (ready, waiting) = waiters.reduce(into: ([CheckedContinuation<Void, any Error>](), [Waiter]())) { acc, entry in
                 if entry.deadline <= current { acc.0.append(entry.continuation) } else { acc.1.append(entry) }
             }
             waiters = waiting

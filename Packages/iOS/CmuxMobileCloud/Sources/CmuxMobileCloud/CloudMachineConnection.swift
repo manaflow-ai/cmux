@@ -4,6 +4,43 @@ import OSLog
 
 private let cloudLinkLog = Logger(subsystem: "dev.cmux.ios", category: "cloud-link")
 
+private enum CloudMachineConnectionError: Error, Sendable, CustomStringConvertible {
+    case invitationExpired
+    case approvalTimedOut
+
+    var description: String {
+        switch self {
+        case .invitationExpired: "cloud invitation expired"
+        case .approvalTimedOut: "cloud invitation approval timed out"
+        }
+    }
+}
+
+private actor CloudConnectionCancellation {
+    private var cancelled = false
+    private var connector: Task<any CloudTerminalSession, any Error>?
+    private var approval: Task<Void, any Error>?
+
+    func set(
+        connector: Task<any CloudTerminalSession, any Error>,
+        approval: Task<Void, any Error>
+    ) {
+        guard !cancelled else {
+            connector.cancel()
+            approval.cancel()
+            return
+        }
+        self.connector = connector
+        self.approval = approval
+    }
+
+    func cancel() {
+        cancelled = true
+        connector?.cancel()
+        approval?.cancel()
+    }
+}
+
 /// One machine's daemon link and terminal catalog.
 ///
 /// The link opens lazily on the first catalog load. First contact hands the
@@ -223,26 +260,62 @@ public final class CloudMachineConnection {
         let task = Task<any CloudTerminalSession, any Error> { [service, connector, tunnel, identity, stateDirectory, deviceName, approvalClock, machine] in
             let endpoint = try await service.openAttach(machineID: machine.id, deviceFingerprint: identity.fingerprint)
             cloudLinkLog.notice("Cloud link started trustedCarrier=\(endpoint.trustedCarrier, privacy: .public) invitation=\(endpoint.invitation != nil, privacy: .public)")
-            var approval: Task<Void, Never>?
-            if !endpoint.trustedCarrier, let invitation = endpoint.invitation {
-                approval = Task {
-                    await Self.approveUntilGranted(
-                        service: service,
-                        machineID: machine.id,
-                        invitationId: invitation.invitationId,
-                        clock: approvalClock
-                    )
+            // Approval failure must not wait for a blocking native connect.
+            // A session returned after the stream ends is closed immediately.
+            let cancellation = CloudConnectionCancellation()
+            let sessions = AsyncThrowingStream<any CloudTerminalSession, any Error> { continuation in
+                let connectorTask = Task<any CloudTerminalSession, any Error> {
+                    do {
+                        let session = try await connector.connect(
+                            route: endpoint.route,
+                            stateDirectory: stateDirectory,
+                            deviceName: deviceName,
+                            invitation: endpoint.trustedCarrier ? nil : endpoint.invitation?.uri,
+                            trustedCarrier: endpoint.trustedCarrier,
+                            tunnel: tunnel
+                        )
+                        if case .terminated = continuation.yield(session) {
+                            session.disconnect()
+                        }
+                        continuation.finish()
+                        return session
+                    } catch {
+                        continuation.finish(throwing: error)
+                        throw error
+                    }
+                }
+                let approvalTask = Task<Void, any Error> {
+                    guard !endpoint.trustedCarrier, let invitation = endpoint.invitation else { return }
+                    do {
+                        try await Self.approveUntilGranted(
+                            service: service,
+                            machineID: machine.id,
+                            invitationId: invitation.invitationId,
+                            clock: approvalClock
+                        )
+                    } catch {
+                        continuation.finish(throwing: error)
+                    }
+                }
+                Task {
+                    await cancellation.set(connector: connectorTask, approval: approvalTask)
+                }
+                continuation.onTermination = { _ in
+                    Task { await cancellation.cancel() }
                 }
             }
-            defer { approval?.cancel() }
-            return try await connector.connect(
-                route: endpoint.route,
-                stateDirectory: stateDirectory,
-                deviceName: deviceName,
-                invitation: endpoint.trustedCarrier ? nil : endpoint.invitation?.uri,
-                trustedCarrier: endpoint.trustedCarrier,
-                tunnel: tunnel
-            )
+            return try await withTaskCancellationHandler(operation: {
+                for try await session in sessions {
+                    guard !Task.isCancelled else {
+                        session.disconnect()
+                        throw CancellationError()
+                    }
+                    return session
+                }
+                throw CancellationError()
+            }, onCancel: {
+                Task { await cancellation.cancel() }
+            })
         }
         connectTask = task
         defer { connectTask = nil }
@@ -266,24 +339,29 @@ public final class CloudMachineConnection {
         service: any CloudVMServing,
         machineID: String,
         invitationId: String,
-        clock: any Clock<Duration>
-    ) async {
-        for _ in 0 ..< 150 {
-            guard !Task.isCancelled else { return }
-            do {
-                try await clock.sleep(for: .seconds(2))
-            } catch {
-                return
-            }
+        clock: any Clock<Duration>,
+        attemptLimit: Int = 150
+    ) async throws {
+        for _ in 0 ..< max(1, attemptLimit) {
+            try Task.checkCancellation()
+            try await clock.sleep(for: .seconds(2))
             do {
                 if try await service.approveEnrollment(machineID: machineID, invitationId: invitationId) {
                     return
                 }
             } catch let error as CloudAPIError {
-                if case .httpStatus(404, _, _) = error { return }
+                if case .httpStatus(404, _, _) = error {
+                    throw CloudMachineConnectionError.invitationExpired
+                }
+                if !CloudSessionFailure.classify(error, stage: .link).isRetryable {
+                    throw error
+                }
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 continue
             }
         }
+        throw CloudMachineConnectionError.approvalTimedOut
     }
 }
