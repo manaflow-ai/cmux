@@ -193,6 +193,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
 #if DEBUG
     var hasOptimisticSelectionForTesting: Bool { optimisticSelection != nil }
+
+    /// Whether the selected fill has reached the render tree: what the next
+    /// frame shows, rather than what the current turn has painted so far.
+    var isSelectionHighlightOnScreenForTesting: Bool {
+        (backgroundView.layer?.presentation()?.backgroundColor?.alpha ?? 0) > 0.5
+    }
 #endif
 
     /// True when a press at this view should not repaint selection (the
