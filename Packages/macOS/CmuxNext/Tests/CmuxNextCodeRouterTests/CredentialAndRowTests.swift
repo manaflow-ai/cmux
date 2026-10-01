@@ -150,9 +150,24 @@ import Testing
         #expect(!groq.canConnect, "CodeRouter does not route Groq")
     }
 
+    @Test func bedrockConnectNeedsBothAWSKeysInTheEnvironment() throws {
+        let home = try FixtureHome()
+        try home.write(".aws/config", "[profile work]\nregion = us-east-1\n")
+        func row(_ env: [String: String]) -> AccountRowState {
+            var row = AccountRowState(provider: .bedrock)
+            row.reduce(.cmuxSignIn(true))
+            row.reduce(.detected(ProviderDetector(environment: home.environment(env)).detectBedrock()))
+            return row
+        }
+        #expect(row([:]).status == .signedIn)
+        #expect(!row([:]).canConnect, "a profile alone cannot be uploaded")
+        #expect(!row(["AWS_ACCESS_KEY_ID": "AKIAFIXTURE"]).canConnect)
+        #expect(row(["AWS_ACCESS_KEY_ID": "AKIAFIXTURE", "AWS_SECRET_ACCESS_KEY": "fixture"]).canConnect)
+    }
+
     @Test func reauthShellLineQuotes() {
         #expect(AIProvider.codex.reauthPlan.shellLine == "codex login")
-        #expect(AIProvider.claude.reauthPlan.shellLine == "claude /login")
+        #expect(AIProvider.claude.reauthPlan.shellLine == "claude auth login", "claude auth --help: `auth login`")
         #expect(ReauthPlan.command(["echo", "a b", "it's"]).shellLine == "echo 'a b' 'it'\\''s'")
     }
 }
