@@ -113,6 +113,7 @@ struct cmuxApp: App {
         }
 
         let runtime = CMUXMobileRuntime(
+            supportedRouteKinds: transportFactory.supportedKinds,
             transportFactory: transportFactory,
             stackAccessTokenProvider: CMUXMobileRuntime.stackAccessTokenProvider(from: auth.coordinator),
             stackAccessTokenForStatusProvider: CMUXMobileRuntime.stackAccessTokenForStatusProvider(from: auth.coordinator),
