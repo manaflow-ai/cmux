@@ -3451,7 +3451,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         var loadedActiveMac: MobilePairedMac?
         var loadedMacs: [MobilePairedMac]
-        if hydratePairedMacs, pairedMacLoadState == .loaded {
+        if hydratePairedMacs,
+           pairedMacLoadState == .loaded,
+           storedPairedMacCacheScope == scope {
             // `loadPairedMacs()` just populated this cache for the launch UI.
             // Reusing it avoids a second active-row query and a second full
             // SQLite read before the first Iroh dial. The backup refresh still
