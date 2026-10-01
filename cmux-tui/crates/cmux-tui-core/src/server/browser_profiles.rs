@@ -28,6 +28,9 @@ pub(super) fn move_to(mux: &Mux, id: &str, index: usize) -> anyhow::Result<Value
 pub(super) fn delete(mux: &Mux, id: &str) -> anyhow::Result<Value> {
     let (deletion, _) =
         mux.personal_mutation(|registry| Ok((registry.delete_browser_profile(id)?, true)))?;
+    if let Some(revision) = deletion.bookmarks_revision {
+        mux.emit_bookmarks_changed(id.to_string(), revision);
+    }
     let workspaces = deletion
         .cleared_workspaces
         .iter()
@@ -39,5 +42,6 @@ pub(super) fn delete(mux: &Mux, id: &str) -> anyhow::Result<Value> {
         "browser_profile": id,
         "cleared_workspaces": workspaces,
         "cleared_rooms": deletion.cleared_rooms,
+        "deleted_bookmarks": deletion.deleted_bookmarks,
     }))
 }

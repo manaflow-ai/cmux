@@ -1,6 +1,7 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+mod bookmarks;
 mod host_close;
 mod idle_close;
 mod personal;
@@ -980,6 +981,12 @@ pub enum MuxEvent {
     /// and order; `profiles-v1`) changed. Consumers refetch `list-personal`.
     PersonalChanged {
         personal_revision: u64,
+    },
+    /// The bookmark tree of one browser profile in the home session changed
+    /// (`bookmarks-v1`). Consumers refetch `list-bookmarks`.
+    BookmarksChanged {
+        browser_profile_id: String,
+        bookmarks_revision: u64,
     },
     /// A durable terminal-registry mutation committed. Consumers use this as
     /// a barrier, then fetch `terminal-events` or a fresh snapshot.

@@ -94,6 +94,7 @@ mod loopback_forward;
 pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
+mod bookmarks;
 mod browser_profiles;
 mod launch_snapshot;
 mod personal;
@@ -242,6 +243,10 @@ pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
 /// `list-personal` and the `*-browser-profile` commands
 /// (plans/cmux-next/data-model.md section 5).
 pub const BROWSER_PROFILES_CAPABILITY: &str = "browser-profiles-v1";
+/// One bookmark tree per browser profile in the home session: the
+/// `*-bookmark` commands, `list-bookmarks`, `import-bookmarks` and the
+/// `bookmarks-changed` event (plans/cmux-next/bookmarks.md section 2.1).
+pub const BOOKMARKS_CAPABILITY: &str = "bookmarks-v1";
 /// Screen presentation: `set-screen-metadata`, `set-screen-pinned`,
 /// `move-screen`, `new-screen` with `screen_name`/`color`/`icon`/`pinned`/
 /// `index`/`group`/`cwd`, the `color`/`icon`/`pinned`/`group` screen fields,
@@ -401,6 +406,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         PROFILES_CAPABILITY,
         PERSONAL_TERMINALS_CAPABILITY,
         BROWSER_PROFILES_CAPABILITY,
+        BOOKMARKS_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
         NOTIFICATION_SOURCE_CAPABILITY,
@@ -2058,6 +2064,65 @@ enum Command {
     /// room defaults that name it.
     DeleteBrowserProfile {
         browser_profile: String,
+    },
+    /// The bookmark tree of one browser profile (`bookmarks-v1`).
+    ListBookmarks {
+        browser_profile_id: String,
+    },
+    /// Create a bookmark or folder. A caller-chosen `bookmark` id makes a
+    /// retry return the stored node. (`id` is the request envelope's.)
+    CreateBookmark {
+        browser_profile_id: String,
+        parent: String,
+        kind: String,
+        title: String,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        url: Option<String>,
+        #[serde(default)]
+        favicon_key: Option<String>,
+        #[serde(default)]
+        source_key: Option<String>,
+        #[serde(default)]
+        created_ms: Option<u64>,
+        #[serde(default)]
+        bookmark: Option<String>,
+    },
+    /// Update a bookmark. An absent field is unchanged; JSON null clears
+    /// `favicon_key` or `last_used_ms`.
+    UpdateBookmark {
+        bookmark: String,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        url: Option<String>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        favicon_key: Option<Option<String>>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        last_used_ms: Option<Option<u64>>,
+    },
+    /// Move a bookmark to a final index under a parent of the same profile.
+    MoveBookmark {
+        bookmark: String,
+        parent: String,
+        index: usize,
+    },
+    /// Delete a bookmark and its subtree.
+    DeleteBookmark {
+        bookmark: String,
+    },
+    /// Write an imported bookmark tree in one transaction.
+    ImportBookmarks {
+        browser_profile_id: String,
+        parent: String,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        source_key: Option<String>,
+        #[serde(default)]
+        replace: bool,
+        nodes: Vec<Value>,
     },
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
@@ -11119,6 +11184,11 @@ fn response_error_code(error: &anyhow::Error) -> Option<String> {
                 .downcast_ref::<crate::ColumnStickyError>()
                 .and_then(|error| error.code().map(str::to_string))
         })
+        .or_else(|| {
+            error
+                .downcast_ref::<crate::workspace_registry::BookmarkError>()
+                .map(|error| error.code().to_string())
+        })
 }
 
 /// Answers a request line that did not decode into a command. The reply
@@ -15032,6 +15102,52 @@ fn handle_command_with_cancellation(
         Command::DeleteBrowserProfile { browser_profile } => {
             browser_profiles::delete(mux, &browser_profile)
         }
+        Command::ListBookmarks { browser_profile_id } => bookmarks::list(mux, &browser_profile_id),
+        Command::CreateBookmark {
+            browser_profile_id,
+            parent,
+            kind,
+            title,
+            index,
+            url,
+            favicon_key,
+            source_key,
+            created_ms,
+            bookmark,
+        } => bookmarks::create(
+            mux,
+            crate::workspace_registry::BookmarkInput {
+                id: bookmark,
+                browser_profile_id,
+                parent,
+                index,
+                kind,
+                title,
+                url,
+                favicon_key,
+                source_key,
+                created_ms,
+            },
+        ),
+        Command::UpdateBookmark { bookmark, title, url, favicon_key, last_used_ms } => {
+            bookmarks::update(
+                mux,
+                &bookmark,
+                crate::workspace_registry::BookmarkUpdate { title, url, favicon_key, last_used_ms },
+            )
+        }
+        Command::MoveBookmark { bookmark, parent, index } => {
+            bookmarks::move_to(mux, &bookmark, &parent, index)
+        }
+        Command::DeleteBookmark { bookmark } => bookmarks::delete(mux, &bookmark),
+        Command::ImportBookmarks {
+            browser_profile_id,
+            parent,
+            index,
+            source_key,
+            replace,
+            nodes,
+        } => bookmarks::import(mux, browser_profile_id, parent, index, source_key, replace, nodes),
         Command::CreateProfile {
             name,
             profile,
@@ -16470,6 +16586,11 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::PersonalChanged { personal_revision } => json!({
             "event": "personal-changed",
             "personal_revision": personal_revision,
+        }),
+        MuxEvent::BookmarksChanged { browser_profile_id, bookmarks_revision } => json!({
+            "event": "bookmarks-changed",
+            "browser_profile_id": browser_profile_id,
+            "bookmarks_revision": bookmarks_revision,
         }),
         MuxEvent::TerminalRegistryChanged { registry_id, generation, terminal_revision } => json!({
             "event":"terminal-registry-changed",

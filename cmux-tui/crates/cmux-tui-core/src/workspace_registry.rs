@@ -34,6 +34,7 @@ mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
 mod kept_tab_store;
+mod personal_bookmarks;
 mod personal_browser_profiles;
 mod personal_mutations;
 mod personal_store;
@@ -69,6 +70,10 @@ pub(crate) use journal_extensions::{
     JournalSegmentSealCommit, JournalSegmentSealStart,
 };
 pub use kept_tab_store::KeptTabRecord;
+pub use personal_bookmarks::{
+    Bookmark, BookmarkError, BookmarkImport, BookmarkImportNode, BookmarkInput, BookmarkUpdate,
+    invalid_bookmark,
+};
 pub use personal_browser_profiles::{
     BrowserProfileInput, BrowserProfileUpdate, PersonalBrowserProfile,
 };
