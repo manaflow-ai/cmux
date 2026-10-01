@@ -2,7 +2,7 @@ import React, { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { flushSync } from "react-dom";
 import type { Token } from "marked";
 import { applyAgentTheme } from "../shared/theme";
-import { diffRows, layoutConversation, markdownBlocks, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
+import { diffRows, layoutConversation, markdownBlocks, safeHref, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { startMockHost } from "./mock";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
@@ -44,8 +44,7 @@ function renderInline(tokens: Token[] | undefined, fallback: string): React.Reac
   return tokens.map((token, index) => {
     if (token.type === "codespan") return <code key={index}>{token.text}</code>;
     if (token.type === "link") {
-      let href: string | undefined;
-      try { href = /^https?:$/i.test(new URL(token.href, "https://cmux.invalid").protocol) ? token.href : undefined; } catch { href = undefined; }
+      const href = safeHref(token.href);
       return href ? <a key={index} href={href} rel="noreferrer">{renderInline(token.tokens, token.text)}</a> : token.text;
     }
     if ("tokens" in token) return <React.Fragment key={index}>{renderInline(token.tokens, "text" in token ? token.text : token.raw ?? "")}</React.Fragment>;

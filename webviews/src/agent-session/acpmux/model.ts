@@ -115,13 +115,20 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   return 24 + chromeHeight(row) + textLines * MESSAGE_LINE_HEIGHT;
 }
 
+/// A link target the page opens: http and https only.
+export function safeHref(href: string): string | undefined {
+  try { return /^https?:$/i.test(new URL(href, "https://cmux.invalid").protocol) ? href : undefined; } catch { return undefined; }
+}
+
 /// The text `renderInline` in App.tsx draws for `tokens`, as the estimator measures it. Inline
 /// code draws in 11.5px monospace (styles.css), no wider per character than the prose font's digits,
-/// so each of its characters measures as a "0".
+/// so each of its characters measures as a "0". A monospace space is a full cell, so a code
+/// space measures as a "0" and a space, which keeps the line break.
 export function measuredText(tokens: Token[] | undefined, fallback: string): string {
   if (!tokens?.length) return fallback;
   return tokens.map((token) => {
-    if (token.type === "codespan") return (token as Tokens.Codespan).text.replace(/\S/g, "0");
+    if (token.type === "codespan") return (token as Tokens.Codespan).text.replace(/\S/g, "0").replace(/ /g, "0 ");
+    if (token.type === "link" && !safeHref((token as Tokens.Link).href)) return (token as Tokens.Link).text;
     if ("tokens" in token) return measuredText(token.tokens, "text" in token ? token.text : token.raw ?? "");
     return token.raw ?? ("text" in token ? token.text : "");
   }).join("");
@@ -140,7 +147,8 @@ function textHeight(text: string, width: number, prepared: Map<string, PreparedT
 
 function blockHeight(block: Token, width: number, prepared: Map<string, PreparedText | null>): number {
   switch (block.type) {
-    case "list": return (block as Tokens.List).items.reduce((sum, item) => sum + textHeight(measuredText(item.tokens, item.text), width - LIST_INDENT, prepared), 0);
+    // An empty item (or one still streaming in) still draws its bullet's line.
+    case "list": return (block as Tokens.List).items.reduce((sum, item) => sum + Math.max(MESSAGE_LINE_HEIGHT, textHeight(measuredText(item.tokens, item.text), width - LIST_INDENT, prepared)), 0);
     case "blockquote": return textHeight(measuredText((block as Tokens.Blockquote).tokens, (block as Tokens.Blockquote).text), width - QUOTE_INDENT, prepared);
     case "hr": return 2;
     case "code": {
