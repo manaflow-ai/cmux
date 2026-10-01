@@ -13,10 +13,10 @@ import Testing
 @MainActor
 @Suite("Cloud machine ordering", .serialized)
 struct CloudMachineOrderingTests {
-    /// The Cloud sidebar draws no drag hints (#15123), including for machine headers.
+    /// Machine reorder destinations show an insertion line; unrelated sidebar and file drops remain hint-free.
     private func expectReorderIndicator(_ outline: NSOutlineView, atY expectedY: CGFloat? = nil) {
         let indicator = outline.subviews.first {
-            $0.identifier?.rawValue == "sidebarReorderIndicator" && !$0.isHidden
+            $0 is SidebarReorderIndicatorView && !$0.isHidden
         }
         #expect(indicator != nil)
         if let indicator, let expectedY {
@@ -25,7 +25,7 @@ struct CloudMachineOrderingTests {
     }
 
     private func expectNoReorderIndicator(_ outline: NSOutlineView) {
-        #expect(!outline.subviews.contains { $0.identifier?.rawValue == "sidebarReorderIndicator" && !$0.isHidden })
+        #expect(!outline.subviews.contains { $0 is SidebarReorderIndicatorView && !$0.isHidden })
     }
 
     @Test("Header edges move whole machines and retain selection and expansion",
