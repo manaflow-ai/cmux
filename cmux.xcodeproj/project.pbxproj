@@ -338,6 +338,7 @@
 		961300000000000000000003 /* AttributedString+SidebarRowLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 961300000000000000000004 /* AttributedString+SidebarRowLinks.swift */; };
 		A47E00010000000000000001 /* AuthEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A47E00010000000000000002 /* AuthEnvironmentTests.swift */; };
 		A10649160000000000000001 /* AutomationActionExecutionResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649120000000000000001 /* AutomationActionExecutionResult.swift */; };
+		D419EE26ABDD6D959C2FA566 /* AutomationCLISyntaxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58D877C7641C64D6DE1C07B3 /* AutomationCLISyntaxTests.swift */; };
 		A10649250000000000000001 /* AutomationConfigMutationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649240000000000000001 /* AutomationConfigMutationCoordinator.swift */; };
 		A10649260000000000000001 /* AutomationConfigMutationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649240000000000000001 /* AutomationConfigMutationCoordinator.swift */; };
 		A10649050000000000000001 /* AutomationConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10649040000000000000001 /* AutomationConfigStore.swift */; };
@@ -4791,6 +4792,7 @@
 		961300000000000000000004 /* AttributedString+SidebarRowLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/AttributedString+SidebarRowLinks.swift"; sourceTree = "<group>"; };
 		A47E00010000000000000002 /* AuthEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthEnvironmentTests.swift; sourceTree = "<group>"; };
 		A10649120000000000000001 /* AutomationActionExecutionResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationActionExecutionResult.swift; sourceTree = "<group>"; };
+		58D877C7641C64D6DE1C07B3 /* AutomationCLISyntaxTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AutomationCLISyntaxTests.swift"; sourceTree = "<group>"; };
 		A10649240000000000000001 /* AutomationConfigMutationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationConfigMutationCoordinator.swift; sourceTree = "<group>"; };
 		A10649040000000000000001 /* AutomationConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationConfigStore.swift; sourceTree = "<group>"; };
 		A10649150000000000000001 /* AutomationConfigStoreError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationConfigStoreError.swift; sourceTree = "<group>"; };
@@ -13091,6 +13093,7 @@
 				EA6E81B689749BFCBB162559 /* AutoNamingOpenCodeArgumentsTests.swift */,
 				87E6108C88D431EA49F1EEF7 /* SessionSnapshotImportBrowserStateTests.swift */,
 				8B70CAEA9981DF16CB3B5C72 /* BrowserMobileStreamTeardownTests.swift */,
+				58D877C7641C64D6DE1C07B3 /* AutomationCLISyntaxTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16893,6 +16896,7 @@
 				A7206E010000000000000001 /* AppIconAppearanceObserverTests.swift in Sources */,
 				C2824F0C0000000000000001 /* AppKitTestEventPump.swift in Sources */,
 				A47E00010000000000000001 /* AuthEnvironmentTests.swift in Sources */,
+				D419EE26ABDD6D959C2FA566 /* AutomationCLISyntaxTests.swift in Sources */,
 				A10649350000000000000001 /* AutomationProcessSessionTests.swift in Sources */,
 				A10649110000000000000001 /* AutomationRuleTests.swift in Sources */,
 				AA9457BF0000000000000001 /* AutoNamingClaudeArgumentsTests.swift in Sources */,
