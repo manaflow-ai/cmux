@@ -330,12 +330,6 @@ enum TmuxCompatArgumentParser {
         var positional: [String] = []
     }
 
-    struct ArgumentError: Error, LocalizedError, Equatable, Sendable {
-        let message: String
-
-        var errorDescription: String? { message }
-    }
-
     static func parseClearHistory(_ args: [String]) throws -> TmuxCompatParsedArguments {
         let result = try scan(
             args,
@@ -344,7 +338,7 @@ enum TmuxCompatArgumentParser {
             flagOptions: []
         )
         guard result.positional.isEmpty else {
-            throw invalid("clear-history: unexpected arguments: \(result.positional.joined(separator: " "))")
+            throw CLIError(message: "clear-history: unexpected arguments: \(result.positional.joined(separator: " "))")
         }
         return make(result)
     }
@@ -357,7 +351,7 @@ enum TmuxCompatArgumentParser {
             flagOptions: ["--bracketed"]
         )
         guard result.positional.isEmpty else {
-            throw invalid("paste-buffer: unexpected arguments: \(result.positional.joined(separator: " "))")
+            throw CLIError(message: "paste-buffer: unexpected arguments: \(result.positional.joined(separator: " "))")
         }
         return make(result)
     }
@@ -371,7 +365,7 @@ enum TmuxCompatArgumentParser {
             allowsPositional: true
         )
         if result.values["--command"] != nil, !result.positional.isEmpty {
-            throw invalid("respawn-pane: unexpected arguments: \(result.positional.joined(separator: " "))")
+            throw CLIError(message: "respawn-pane: unexpected arguments: \(result.positional.joined(separator: " "))")
         }
         let command = result.values["--command"] ?? result.positional.joined(separator: " ")
         return make(result, commandText: command.isEmpty ? nil : command)
@@ -406,10 +400,6 @@ enum TmuxCompatArgumentParser {
         )
     }
 
-    private static func invalid(_ message: String) -> ArgumentError {
-        ArgumentError(message: message)
-    }
-
     private static func scan(
         _ args: [String],
         command: String,
@@ -424,7 +414,7 @@ enum TmuxCompatArgumentParser {
             let arg = args[index]
             if terminated {
                 guard allowsPositional else {
-                    throw invalid("\(command): unexpected argument: \(arg)")
+                    throw CLIError(message: "\(command): unexpected argument: \(arg)")
                 }
                 result.positional.append(arg)
                 index += 1
@@ -441,13 +431,13 @@ enum TmuxCompatArgumentParser {
                     value = String(arg.dropFirst(option.count + 1))
                 } else {
                     guard index + 1 < args.count, args[index + 1] != "--", !args[index + 1].hasPrefix("-") else {
-                        throw invalid("\(command): \(option) requires a value")
+                        throw CLIError(message: "\(command): \(option) requires a value")
                     }
                     value = args[index + 1]
                     index += 1
                 }
                 guard !value.isEmpty else {
-                    throw invalid("\(command): \(option) requires a value")
+                    throw CLIError(message: "\(command): \(option) requires a value")
                 }
                 result.values[option] = value
                 index += 1
@@ -459,10 +449,10 @@ enum TmuxCompatArgumentParser {
                 continue
             }
             if arg.hasPrefix("-") {
-                throw invalid("\(command): unknown option '\(arg)'")
+                throw CLIError(message: "\(command): unknown option '\(arg)'")
             }
             guard allowsPositional else {
-                throw invalid("\(command): unexpected argument: \(arg)")
+                throw CLIError(message: "\(command): unexpected argument: \(arg)")
             }
             result.positional.append(arg)
             index += 1
