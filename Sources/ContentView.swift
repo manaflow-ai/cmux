@@ -906,10 +906,31 @@ struct ContentView: View {
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.notifications.paneFlashColorHex) private var paneFlashColorHex
+    @AppStorage("notificationPaneFlashThemeColor") private var paneFlashThemeColor = false
     /// Resolved cmux accent, seeded from the app delegate's observer and
     /// updated from its change notification. This view is the window root,
     /// so it cannot read the accent from its own environment modifier.
     @State private var cmuxAccent = AppDelegate.shared?.accentColor ?? CmuxAccentColor()
+    /// Terminal theme foreground, which colors pane flashes when no flash
+    /// color is configured. Updated from the default appearance notification.
+    @State private var terminalThemeForeground = GhosttyApp.shared.defaultForegroundColor
+
+    private var resolvedWorkspaceAttentionColor: WorkspaceAttentionColor {
+        resolveWorkspaceAttentionColor()
+    }
+
+    private func resolveWorkspaceAttentionColor(
+        configuredHex: String?? = nil,
+        accent: CmuxAccentColor? = nil,
+        themeForeground: NSColor? = nil
+    ) -> WorkspaceAttentionColor {
+        WorkspaceAttentionColor(
+            configuredHex: configuredHex ?? paneFlashColorHex,
+            accent: accent ?? cmuxAccent,
+            themeForeground: themeForeground ?? terminalThemeForeground,
+            useThemeForeground: paneFlashThemeColor
+        )
+    }
     /// Canonical sidebar width, deliberately NOT observed by ContentView:
     /// divider ticks re-evaluate only the SidebarWidthReader wrappers that
     /// consume the width, never this body. All reads/writes outside view
@@ -7707,6 +7728,14 @@ struct ContentView: View {
         }
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.whatsNew",
+                title: constant(String(localized: "command.whatsNew.title", defaultValue: "What's New in cmux")),
+                subtitle: constant(String(localized: "command.checkForUpdates.subtitle", defaultValue: "Global")),
+                keywords: ["whats", "new", "changelog", "release", "notes", "highlights", "update", "version"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.applyUpdateIfAvailable",
                 title: constant(String(localized: "command.applyUpdateIfAvailable.title", defaultValue: "Apply Update (If Available)")),
                 subtitle: constant(String(localized: "command.applyUpdateIfAvailable.subtitle", defaultValue: "Global")),
@@ -8385,6 +8414,7 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
+        contributions.append(contentsOf: Self.commandPaletteTerminalScrollContributions(subtitle: terminalPanelSubtitle))
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitRight",
@@ -8986,6 +9016,9 @@ struct ContentView: View {
         registry.register(commandId: "palette.checkForUpdates") {
             AppDelegate.shared?.checkForUpdates(nil)
         }
+        registry.register(commandId: "palette.whatsNew") {
+            WhatsNewCenter.shared.presentOnDemand(source: "commandPalette")
+        }
         registry.register(commandId: "palette.switchAppChannel") {
             AppDelegate.shared?.switchAppChannel(nil)
         }
@@ -9374,6 +9407,7 @@ struct ContentView: View {
                 NSSound.beep()
             }
         }
+        registerTerminalScrollCommandPaletteHandlers(&registry)
         registry.register(commandId: "palette.terminalClearScreenKeepScrollback") {
             if !tabManager.clearFocusedTerminalKeepingScrollback() {
                 NSSound.beep()
@@ -11134,6 +11168,7 @@ struct VerticalTabsSidebar: View, Equatable {
     let chromeBackgroundColor: NSColor
     var observedWindow: NSWindow? { observedWindowReference.window }
     @EnvironmentObject var tabManager: TabManager
+    @EnvironmentObject var sidebarState: SidebarState
     // Plain reference by design. Native row and titlebar subscribers own the
     // unread invalidation boundary, so this O(workspaces) root stays inert.
     var notificationStore: TerminalNotificationStore { .shared }
@@ -12899,7 +12934,8 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func scheduleWorkspaceSnapshotRefresh(workspaceId: UUID) {
-        workspaceSnapshotRefreshCoalescer.schedule(workspaceId: workspaceId) { workspaceIds in
+        workspaceSnapshotRefreshCoalescer.schedule(workspaceId: workspaceId) { [sidebarState] workspaceIds in
+            guard sidebarState.isVisible else { return }
             refreshWorkspaceSnapshots(workspaceIds: workspaceIds)
         }
     }
@@ -15366,6 +15402,7 @@ private enum SidebarHelpMenuAction {
     case checkForUpdates
     case sendFeedback
     case welcome
+    case whatsNew
 }
 
 private struct SidebarHelpMenuButton: View {
@@ -15388,6 +15425,7 @@ private struct SidebarHelpMenuButton: View {
     let onSendFeedback: () -> Void
 
     @State private var isPopoverPresented = false
+    private var whatsNewCenter: WhatsNewCenter { .shared }
 
     private var iconSize: CGFloat {
 #if DEBUG
@@ -15422,6 +15460,13 @@ private struct SidebarHelpMenuButton: View {
         } label: {
             SidebarFooterHelpIcon(pointSize: iconSize, weight: iconWeight)
                 .frame(width: buttonSize, height: buttonSize, alignment: .center)
+                .overlay(alignment: .topTrailing) {
+                    // Quiet What's New: a static dot, no motion, cleared once opened.
+                    if whatsNewCenter.hasUnseenHighlights {
+                        SidebarWhatsNewDot()
+                            .offset(x: -3, y: 3)
+                    }
+                }
         }
         .buttonStyle(SidebarFooterIconButtonStyle())
         .frame(width: buttonSize, height: buttonSize, alignment: .center)
@@ -15445,6 +15490,13 @@ private struct SidebarHelpMenuButton: View {
                 action: .welcome,
                 accessibilityIdentifier: "SidebarHelpMenuOptionWelcome",
                 isExternalLink: false
+            )
+            helpOptionButton(
+                title: String(localized: "sidebar.help.whatsNew", defaultValue: "What's New"),
+                action: .whatsNew,
+                accessibilityIdentifier: "SidebarHelpMenuOptionWhatsNew",
+                isExternalLink: false,
+                showsUnseenDot: whatsNewCenter.hasUnseenHighlights
             )
             if CmuxFeatureFlags.shared.isProUpgradeUIEnabled {
                 helpOptionButton(
@@ -15539,7 +15591,8 @@ private struct SidebarHelpMenuButton: View {
         accessibilityIdentifier: String,
         isExternalLink: Bool,
         shortcutHint: String? = nil,
-        trailingSystemImage: String? = nil
+        trailingSystemImage: String? = nil,
+        showsUnseenDot: Bool = false
     ) -> some View {
         Button {
             isPopoverPresented = false
@@ -15548,6 +15601,9 @@ private struct SidebarHelpMenuButton: View {
             HStack(spacing: 8) {
                 Text(title)
                     .cmuxFont(size: 12)
+                if showsUnseenDot {
+                    SidebarWhatsNewDot()
+                }
                 Spacer(minLength: 0)
                 if let shortcutHint {
                     helpOptionShortcutHint(text: shortcutHint)
@@ -15640,9 +15696,29 @@ private struct SidebarHelpMenuButton: View {
                     appDelegate.openWelcomeWorkspace()
                 }
             }
+        case .whatsNew:
+            isPopoverPresented = false
+            Task { @MainActor in
+                WhatsNewCenter.shared.presentOnDemand(source: "sidebarHelpMenu")
+            }
         }
     }
 
+}
+
+/// The quiet What's New indicator: a small accent dot with no animation.
+private struct SidebarWhatsNewDot: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
+
+    var body: some View {
+        Circle()
+            .fill(cmuxAccent.color)
+            .frame(width: 6, height: 6)
+            // A bare shape is not an accessibility element, so the label needs
+            // one to attach to or VoiceOver never mentions the dot.
+            .accessibilityElement()
+            .accessibilityLabel(String(localized: "sidebar.help.whatsNew.unseen", defaultValue: "New highlights"))
+    }
 }
 
 // PERF: TabItemView is an Equatable value projection. The parent owns every
@@ -16911,7 +16987,7 @@ private struct SidebarMetadataRows: View {
     }
 
     private var helpText: String {
-        entries.map(\.sidebarDisplayText)
+        entries.map(\.sidebarHelpText)
         .joined(separator: "\n")
     }
 
@@ -16939,7 +17015,7 @@ private struct SidebarMetadataEntryRow: View {
                     rowContent(underlined: true)
                 }
                 .buttonStyle(.plain)
-                .safeHelp(url.absoluteString)
+                .safeHelp(entry.sidebarToolTip(linkURL: url) ?? url.absoluteString)
             } else {
                 rowContent(underlined: false)
                     .contentShape(Rectangle())

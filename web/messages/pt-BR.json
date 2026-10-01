@@ -426,7 +426,8 @@
         "memberReadOnly": "Somente administradores da equipe podem alterar este plano.",
         "grantedBody": "O acesso ao Team foi concedido a {team} pela equipe do cmux. Não há assinatura para gerenciar.",
         "seatsUsed": "{members} de {seats} em uso",
-        "overSeat": "{team} tem {members} membros e {seats} assentos pagos. Os assentos seguem o número de membros, então a assinatura é atualizada sozinha."
+        "overSeat": "{team} tem {members} membros e {seats} assentos pagos. Os assentos seguem o número de membros, então a assinatura é atualizada sozinha.",
+        "addSeats": "Adicionar assentos"
       },
       "teamList": {
         "heading": "Escopos de cobrança",
@@ -1058,6 +1059,8 @@
         "revoke": "Revogar",
         "linksTitle": "Links de convite",
         "linksDescription": "Um link reutilizável que qualquer pessoa pode usar para entrar como membro.",
+        "seatNudge": "{used} pessoas são membros ou foram convidadas, mas o plano tem {seats} assentos. Os convites continuam funcionando; adicione {over, plural, one {# assento} other {# assentos}} para cobrir todos.",
+        "seatNudgeAction": "Gerenciar assentos",
         "actions": {
           "makeAdmin": "Tornar administrador",
           "makeMember": "Tornar membro",
@@ -2029,13 +2032,14 @@
         "automation": {
           "ampIntegration": "Liga ou desliga os hooks do cmux para o Amp. Quando desligados, o plugin incluído continua instalado, mas inativo.",
           "suppressSubagentNotifications": "Suprime notificações visíveis de conclusão e alterações de status de agentes filhos aninhados do Codex ou Claude, mantendo seus eventos na telemetria do Feed.",
-          "agentAutoResume": "Envia `continue`, com espera progressiva, a um agente iniciado pelo cmux cujo turno terminou com um erro do serviço que pode ser repetido (modelo sem capacidade, sobrecarregado ou conexão perdida). Turnos aguardando uma pessoa nunca são retomados.",
           "workspaceAutoNaming": "Nomeação automática opcional de espaços de trabalho e abas por IA a partir do conteúdo das conversas do agente. Quando ativada, o cmux resume as sessões de agentes compatíveis em títulos curtos usando o binário próprio de cada agente; renomeações manuais sempre prevalecem.",
           "autoNamingAgent": "Qual agente gera os nomes automáticos para cada sessão. \"auto\" (padrão) nomeia cada sessão com o próprio agente; qualquer slug de agente (claude, codex, grok, opencode, pi, omp, …) substitui a nomeação de todas as sessões, mesmo as de outros agentes. Agentes não utilizáveis ou não instalados recorrem ao agente da própria sessão, de modo que a nomeação nunca falha.",
+          "agentAutoResume": "Envia `continue`, com espera progressiva, a um agente iniciado pelo cmux cujo turno terminou com um erro do serviço que pode ser repetido (modelo sem capacidade, sobrecarregado ou conexão perdida). Turnos aguardando uma pessoa nunca são retomados.",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "Controla quando o cmux pede confirmação antes de sair. Builds DEV sempre saem imediatamente, independentemente desta configuração. O app.warnBeforeQuit legado ainda é aceito como fallback booleano.",
+          "whatsNew": "Como o cmux mostra as novidades após uma atualização. off não mostra nada, quiet marca o botão de ajuda da barra lateral com um ponto até você abrir o resumo, e sheet abre o resumo uma vez após a primeira execução de uma nova versão. Ajuda > What's New in cmux o abre a qualquer momento.",
           "windowTitleTemplate": "Modelo opcional para o título NSWindow. Em branco preserva o comportamento de título padrão existente do cmux, incluindo o fallback para o diretório atual. Espaços reservados compatíveis: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Nome da tela usado apenas em builds DEBUG ao abrir novas janelas. Um valor vazio usa o padrão do sistema.",
           "warnBeforeQuit": "Fallback booleano legado para confirmação de saída. Use app.confirmQuit em novas configurações.",
@@ -2084,6 +2088,7 @@
           "compactStatusIcons": "Nomes de SF Symbols que substituem o glifo de compactAgentStatus para cada estado, por exemplo {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Estados não definidos mantêm o símbolo integrado, e um nome que não pode ser exibido volta para ele.",
           "notificationMessageLineLimit": "Número máximo de linhas exibidas para a notificação mais recente abaixo do título de cada espaço de trabalho.",
           "rightMaxWidth": "Largura máxima em pontos para a barra lateral direita. Quando omitida, o limite dinâmico integrado se aplica.",
+          "showAgentUsage": "Acrescenta o uso do agente de código à entrada de status do Claude Code ou do Codex: modelo e janela de contexto consumida e, no Claude Code, um custo de API estimado (thread principal e subagentes) pelos preços de tabela publicados pela Anthropic. O custo é uma estimativa, não a sua fatura de assinatura; os níveis batch e priority, os preços para parceiros, o modo rápido e as taxas de ferramentas de servidor não são considerados.",
           "beta": {
             "conversations": {
               "enabled": "Mostrar a visualização unificada de conversas no seletor da barra lateral."

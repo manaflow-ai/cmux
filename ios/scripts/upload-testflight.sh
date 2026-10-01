@@ -63,25 +63,32 @@ verify_ipa_aps_environment_production() {
     rm -rf "$workdir"
     return 1
   fi
-  while IFS= read -r -d '' extension_app; do
-    extension_ent="$workdir/$(basename "$extension_app").entitlements.plist"
-    if ! codesign --verify --strict --verbose=2 "$extension_app" >&2 ||
-      ! codesign -d --entitlements :- --xml "$extension_app" > "$extension_ent" 2>/dev/null; then
-      echo "error: signed notification extension failed code-signature verification: $extension_app" >&2
-      rm -rf "$workdir"
-      return 1
-    fi
-    extension_bundle_id="$("$PLISTBUDDY" -c 'Print :CFBundleIdentifier' "$extension_app/Info.plist" 2>/dev/null || true)"
-    extension_app_id="$("$PLISTBUDDY" -c 'Print :application-identifier' "$extension_ent" 2>/dev/null || true)"
-    extension_team_id="$("$PLISTBUDDY" -c 'Print :com.apple.developer.team-identifier' "$extension_ent" 2>/dev/null || true)"
-    expected_extension_app_id="$DEVELOPMENT_TEAM.$extension_bundle_id"
-    if [[ "$extension_app_id" != "$expected_extension_app_id" || "$extension_team_id" != "$DEVELOPMENT_TEAM" ]]; then
-      echo "error: signed notification extension identity is invalid (application-identifier='${extension_app_id:-<absent>}', expected='$expected_extension_app_id', team='${extension_team_id:-<absent>}'): $extension_app" >&2
-      plutil -p "$extension_ent" >&2 || true
-      rm -rf "$workdir"
-      return 1
-    fi
-  done < <(find "$app/PlugIns" -type d -name '*.appex' -prune -print0 2>/dev/null)
+  # CloudVPN.appex is a system-network extension with a different signing
+  # contract. Only the notification service extension uses the host app's
+  # notification-style application-identifier/team entitlements checked here.
+  local extension_app="$app/PlugIns/NotificationService.appex"
+  if [[ ! -d "$extension_app" ]]; then
+    echo "error: signed IPA is missing NotificationService.appex: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  extension_ent="$workdir/NotificationService.appex.entitlements.plist"
+  if ! codesign --verify --strict --verbose=2 "$extension_app" >&2 ||
+    ! codesign -d --entitlements :- --xml "$extension_app" > "$extension_ent" 2>/dev/null; then
+    echo "error: signed notification extension failed code-signature verification: $extension_app" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  extension_bundle_id="$($PLISTBUDDY -c 'Print :CFBundleIdentifier' "$extension_app/Info.plist" 2>/dev/null || true)"
+  extension_app_id="$($PLISTBUDDY -c 'Print :application-identifier' "$extension_ent" 2>/dev/null || true)"
+  extension_team_id="$($PLISTBUDDY -c 'Print :com.apple.developer.team-identifier' "$extension_ent" 2>/dev/null || true)"
+  expected_extension_app_id="$DEVELOPMENT_TEAM.$extension_bundle_id"
+  if [[ "$extension_app_id" != "$expected_extension_app_id" || "$extension_team_id" != "$DEVELOPMENT_TEAM" ]]; then
+    echo "error: signed notification extension identity is invalid (application-identifier='${extension_app_id:-<absent>}', expected='$expected_extension_app_id', team='${extension_team_id:-<absent>}'): $extension_app" >&2
+    plutil -p "$extension_ent" >&2 || true
+    rm -rf "$workdir"
+    return 1
+  fi
   rm -rf "$workdir"
   return 0
 }

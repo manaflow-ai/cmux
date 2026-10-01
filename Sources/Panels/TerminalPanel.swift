@@ -822,7 +822,7 @@ final class TerminalPanel: Panel, ObservableObject {
            now < attentionFlashActiveUntil {
             return
         }
-        attentionFlashActiveUntil = now + FocusFlashPattern.duration
+        attentionFlashActiveUntil = now + FocusFlashPattern.current.duration
 
         switch TmuxOverlayExperimentSettings.target() {
         case .bonsplitPane:
