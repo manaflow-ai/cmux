@@ -87,8 +87,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private var watchedLink: CloudMachineLink?
     private var changeWatcherID: UUID?
     private var scheduledRefresh: Task<Void, Never>?
-    private var recoveryRetryTask: Task<Void, Never>?; private var recoveryRetryCount = 0
-    private static let recoveryRetryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(5), .seconds(15), .seconds(30)]
+    fileprivate var recoveryRetryTask: Task<Void, Never>?; fileprivate var recoveryRetryCount = 0
+    fileprivate static let recoveryRetryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(5), .seconds(15), .seconds(30)]
     private var portsCache: (ports: [Int], at: Date)?
     var portDiscovery = CloudPortDiscovery()
     private(set) var summaryGeneration: UInt64 = 0
@@ -499,7 +499,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard await reconcileManualMirrorAttachments(
                 connected: connected, link: link, lifecycle: lifecycle, refresh: generation
             ) else { return false }
-            resetRecoveryRetry()
+            if snapshotEstablishedCurrentGraph { resetRecoveryRetry() } else { scheduleRecoveryRetry() }
         } catch {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             if CloudMachineAccessLoss(error: error) != nil {
