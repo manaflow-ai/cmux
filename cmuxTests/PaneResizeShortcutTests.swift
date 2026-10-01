@@ -34,6 +34,7 @@ struct PaneResizeShortcutTests {
             defer { window.performClose(nil) }
             let manager = try #require(delegate.tabManagerFor(windowId: windowId))
             let workspace = try #require(manager.selectedWorkspace)
+            let controller = workspace.bonsplitController
             // createMainWindow copies the size of the current main window, and
             // earlier tests in the host leave 320-point windows behind. Split
             // admission then correctly refuses a side-by-side split, so give
@@ -63,9 +64,7 @@ struct PaneResizeShortcutTests {
             #expect(await AppKitTestEventPump().waitUntil(timeout: .seconds(3)) {
                 workspace.tmuxLayoutSnapshot?.panes.count == 2
             })
-            let controller = workspace.bonsplitController
-            controller.setContainerFrame(CGRect(x: 0, y: 0, width: 1000, height: 1000))
-            let split = try rootSplit(controller)
+            let controller = workspace.bonsplitController; let split = try rootSplit(controller)
             #expect(controller.setDividerPosition(0.5, forSplit: try #require(UUID(uuidString: split.id))))
             workspace.didProgrammaticallyChangeSplitGeometry()
 

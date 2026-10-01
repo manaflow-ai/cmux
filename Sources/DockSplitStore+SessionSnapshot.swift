@@ -363,10 +363,7 @@ extension DockSplitStore {
                 isRemoteTerminal: transfer?.isRemoteTerminal ?? false,
                 remotePTYSessionID: transfer?.remotePTYSessionID,
                 wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil,
-                hasReceivedExplicitInput: terminal.hasReceivedExplicitInput,
-                resumeWithContinuation: localTmuxStartCommand == nil
-                    ? UpdateRelaunchContinuationNudges.shared.marksPanel(panelId)
-                    : nil
+                hasReceivedExplicitInput: terminal.hasReceivedExplicitInput
             )
             browserSnapshot = nil
             filePreviewSnapshot = nil
@@ -389,7 +386,7 @@ extension DockSplitStore {
                     forwardHistoryURLStrings: history.forwardHistoryURLStrings,
                     transparentBackground: browser.sessionSnapshotTransparentBackground,
                     diffViewerToken: diffViewer?.token,
-                    diffViewerRequestPath: diffViewer?.requestPath, cloudResource: browser.cloudResourceForSession,
+                    diffViewerRequestPath: diffViewer?.requestPath, cloudResource: browser.cloudResourceForSession, interactionState: browser.persistableInteractionStateForSessionSnapshot(), keepsPageActive: browser.keepsPageActiveForSessionSnapshot,
                     cloudTeamID: browser.cloudTeamIDForSession
                 )
             } else if let deferred = panel as? DeferredBrowserPanel {

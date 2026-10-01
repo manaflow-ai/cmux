@@ -337,17 +337,12 @@ struct CloudWorkspaceLiveProjectionTests {
     func progressingPassesStayAdmitted() throws {
         let state = try graph(["first": "a"], revision: 1)
         var budget = CloudWorkspaceReconcileBudget()
-        // `admit` is mutating, and #expect expands a method call into a closure
-        // over an immutable copy, so record each result before asserting it.
         for version in 0..<UInt64(CloudWorkspaceReconcileBudget.maxPassesPerState) {
-            let admitted = budget.admit(.init(state: state, projectionVersion: version, bindings: [:]))
-            #expect(admitted)
+            if !budget.admit(.init(state: state, projectionVersion: version, bindings: [:])) { Issue.record("progressing pass was unexpectedly rejected") }
         }
-        let admittedPastCeiling = budget.admit(.init(state: state, projectionVersion: 1_000, bindings: [:]))
-        #expect(!admittedPastCeiling)
+        if budget.admit(.init(state: state, projectionVersion: 1_000, bindings: [:])) { Issue.record("exhausted pass was unexpectedly admitted") }
         let next = try graph(["first": "a"], revision: 2)
-        let admittedNewGraph = budget.admit(.init(state: next, projectionVersion: 1_000, bindings: [:]))
-        #expect(admittedNewGraph, "A new graph starts a new budget")
+        if !budget.admit(.init(state: next, projectionVersion: 1_000, bindings: [:])) { Issue.record("a new graph did not start a new budget") }
     }
 
     @Test("Lifecycle cancellation is not retained as a projection failure")
