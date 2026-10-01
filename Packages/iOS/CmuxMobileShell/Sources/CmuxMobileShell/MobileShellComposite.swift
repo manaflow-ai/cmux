@@ -1390,6 +1390,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Advances whenever the shared foreground list application seam runs,
     /// including mobile state-sync snapshots and deltas.
     var foregroundWorkspaceStateRevision: UInt64 = 0
+    /// Coalesces bursts of authoritative workspace-list writes into one latest
+    /// snapshot, and cancels the write when the shell is torn down.
+    @ObservationIgnored private var foregroundWorkspaceSnapshotPersistenceTask: Task<Void, Never>?
     @ObservationIgnored var workspaceChangesSummaryDebounceTask: Task<Void, Never>?
     @ObservationIgnored var workspaceChangesSummaryDebounceTaskID: UUID?
     @ObservationIgnored var workspaceChangesSummaryFetchTask: Task<Void, Never>?
@@ -2237,6 +2240,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceChangesSummaryTrailingTask?.cancel()
         pullToRefreshTask?.cancel()
         foregroundWorkspaceMutationRefreshTask?.cancel()
+        foregroundWorkspaceSnapshotPersistenceTask?.cancel()
         for entry in pairedMacLoadTasks.values {
             entry.task.cancel()
         }
@@ -4028,8 +4032,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // on scope resolution. Only the newest foreground revision may write,
         // otherwise an older task can resume later and restore stale rows over
         // the newer snapshot.
-        Task(priority: .userInitiated) { @MainActor [weak self] in
+        foregroundWorkspaceSnapshotPersistenceTask?.cancel()
+        foregroundWorkspaceSnapshotPersistenceTask = Task(priority: .userInitiated) { @MainActor [weak self] in
             guard let self,
+                  !Task.isCancelled,
                   self.secondaryAggregationScopeGeneration == sourceGeneration,
                   self.foregroundWorkspaceStateRevision == sourceWorkspaceStateRevision,
                   self.identityProvider?.currentUserID == sourceUserID,
@@ -4038,12 +4044,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   self.secondaryAggregationScopeGeneration == sourceGeneration,
                   self.foregroundWorkspaceStateRevision == sourceWorkspaceStateRevision,
                   self.identityProvider?.currentUserID == sourceUserID else { return }
+            guard !Task.isCancelled else { return }
             workspaceSnapshotStore.save(
                 state: state,
                 userID: scope.userID,
                 teamID: scope.teamID,
                 pairing: pairing
             )
+            if self.foregroundWorkspaceStateRevision == sourceWorkspaceStateRevision {
+                self.foregroundWorkspaceSnapshotPersistenceTask = nil
+            }
         }
     }
 

@@ -209,11 +209,6 @@ final class MobileIrohSoakRunner {
                 } else {
                     guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
                 }
-                if shouldForceReconnect {
-                    expectedConnection = try observe(await connection())
-                } else {
-                    guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
-                }
             }
             let duration = Self.seconds(cycleStarted.duration(to: clock.now))
             evidence.maximumCycleSeconds = max(evidence.maximumCycleSeconds, duration)

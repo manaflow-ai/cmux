@@ -37,10 +37,28 @@ read_screen() {
   "${CLI[@]}" read-screen --workspace "$1" --surface "$2" --lines 40 2>/dev/null || true
 }
 
+shell_quote() {
+  printf '%q' "$1"
+}
+
 declare -a WORKSPACES=()
 declare -a SURFACES=()
 declare -a READY_SESSIONS=()
 declare -a ITERATION_COUNTS=()
+
+# Closing a workspace terminates the terminal process group that owns the
+# Codex/support command. Always clean up, including when a marker or RPC check
+# fails, so one gate cannot leave workspaces and child processes behind for the
+# next gate.
+cleanup() {
+  local workspace
+  set +e
+  for workspace in "${WORKSPACES[@]}"; do
+    "${CLI[@]}" close-workspace --workspace "$workspace" >/dev/null 2>&1
+  done
+}
+trap cleanup EXIT INT TERM
+
 TASK_ROOT="/tmp/cmux-iroh-mario"
 for ((index=1; index<=COUNT+2; index++)); do
   workdir="$TASK_ROOT-$index"
@@ -49,9 +67,9 @@ for ((index=1; index<=COUNT+2; index++)); do
   rm -f "$session_log"
   if (( index <= COUNT )); then
     prompt="Build and iteratively improve a playable Mario-style HTML game in $workdir. Use real file edits and run local checks. Work independently for at least ten meaningful iterations. Print CMUX_CODEX_${index}_READY after the first playable version and CMUX_CODEX_${index}_ITER_<number> after every later improvement. Keep the game runnable from index.html."
-    command="codex --yolo -m '$MODEL' -- $(printf '%q' "$prompt") 2>&1 | tee -a $(printf '%q' "$session_log")"
+    command="codex --yolo -m $(shell_quote "$MODEL") -- $(shell_quote "$prompt") 2>&1 | tee -a $(shell_quote "$session_log")"
   else
-    command="while true; do printf 'CMUX_SUPPORT_${index}_READY\n' | tee -a $(printf '%q' "$session_log"); sleep 30; done"
+    command="while true; do printf 'CMUX_SUPPORT_${index}_READY\\n' | tee -a $(shell_quote "$session_log"); sleep 30; done"
   fi
   response="$("${CLI[@]}" --json --id-format uuids workspace create --name "iroh codex $index" --cwd "$workdir" --command "$command" --focus false)"
   workspace="$(printf '%s' "$response" | json_value workspace_id)"
