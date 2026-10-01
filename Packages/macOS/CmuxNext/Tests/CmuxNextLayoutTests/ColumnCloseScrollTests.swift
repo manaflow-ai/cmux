@@ -25,11 +25,13 @@ struct ColumnCloseScrollTests {
 
     /// Waits (up to 5 s of wall time) for `condition`; springs run on the
     /// window's display link, so this needs real time, not just yields.
-    private func settle(_ view: LayoutRootView, _ condition: () -> Bool) async {
+    @discardableResult
+    private func settle(_ view: LayoutRootView, _ condition: () -> Bool) async -> Bool {
         let deadline = ContinuousClock.now + .seconds(5)
         while !condition(), ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(5))
         }
+        return condition()
     }
 
     @Test func closingTheRightmostColumnSpringsBack() async {
@@ -65,19 +67,21 @@ struct ColumnCloseScrollTests {
         // strip gap between the two observations.
         let screen = view.screenViews["s"]!
         view.model.focus("c")
-        await settle(view) {
+        let settledBefore = await settle(view) {
             guard let frame = view.frame(of: "c") else { return false }
             return !view.driver.isRunning && frame.minX > 0 && frame.maxX <= screen.bounds.maxX
         }
+        #expect(settledBefore)
         let before = view.frame(of: "c")
         #expect(before != nil)
 
         view.model.apply(screens: columns(["b", "c", "d"]))
-        await settle(view) {
+        let settledAfter = await settle(view) {
             guard let frame = view.frame(of: "c") else { return false }
             return screen.geometry.columnOrder.count == 3 && !view.driver.isRunning
                 && frame.minX > 0 && frame.maxX <= screen.bounds.maxX
         }
+        #expect(settledAfter)
         #expect(view.frame(of: "c") == before)
         withExtendedLifetime(provider) {}
     }
