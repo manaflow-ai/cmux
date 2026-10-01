@@ -30,7 +30,7 @@ struct NWConnectionAsyncTests {
             listener.cancel()
             accepted.cancel()
         }
-        guard let port = await listenerReady.result else {
+        guard let port = await boundedValue(listenerReady, timeout: .seconds(2)) else {
             Issue.record("The test listener did not become ready")
             return
         }
@@ -46,42 +46,39 @@ struct NWConnectionAsyncTests {
         }
 
         let finished = CloudLinkFirstValue<Bool>()
+        let registered = CloudLinkFirstValue<Bool>()
         let receive = Task {
             defer { finished.resolve(true) }
-            _ = try? await client.receiveChunk(maximumLength: 1)
+            _ = try? await client.receiveChunk(maximumLength: 1, onReceiveRegistered: { registered.resolve(true) })
         }
+        defer { receive.cancel() }
+        let receiveRegistered = await boundedValue(registered, timeout: .seconds(2)) == true
+        #expect(receiveRegistered, "The Network receive must be registered before cancellation")
+        guard receiveRegistered else { return }
         receive.cancel()
 
-        // A stalled continuation must finish from task cancellation. Keep a
-        // bounded fallback so a regression cannot strand this test forever;
-        // the fallback is deliberately after the assertion's deadline.
-        let completed = await withTaskGroup(of: Bool?.self) { group in
-            group.addTask { await finished.result }
-            group.addTask {
-                try? await Task.sleep(for: .milliseconds(300))
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first ?? false
-        }
-        if !completed {
-            client.cancel()
-            _ = await finished.result
-        }
-        let underlyingConnectionCancelled = await withTaskGroup(of: Bool?.self) { group in
-            group.addTask { await connectionCancelled.result }
-            group.addTask {
-                try? await Task.sleep(for: .milliseconds(300))
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first ?? false
-        }
-        #expect(completed)
+        let completed = await boundedValue(finished, timeout: .milliseconds(300)) == true
+        #expect(completed, "Cancellation must release the registered receive")
+        let underlyingConnectionCancelled = await boundedValue(connectionCancelled, timeout: .milliseconds(300)) == true
         #expect(underlyingConnectionCancelled)
-        _ = await receive.result
+        // Cleanup never waits on the receive task itself: a broken continuation
+        // must fail the assertions above without stranding this test.
+
+    }
+}
+
+private func boundedValue<Value: Sendable>(
+    _ signal: CloudLinkFirstValue<Value>, timeout: Duration
+) async -> Value? {
+    await withTaskGroup(of: Value?.self) { group in
+        group.addTask { await signal.result }
+        group.addTask {
+            try? await Task.sleep(for: timeout)
+            return nil
+        }
+        let first = await group.next() ?? nil
+        group.cancelAll()
+        return first
     }
 }
 
