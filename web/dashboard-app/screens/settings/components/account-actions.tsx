@@ -6,6 +6,7 @@ import { Link } from "@tanstack/react-router";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { clearCoderouterOrganizationScope } from "@/services/coderouter/organizationScope";
+import { forgetAllSessions } from "@/app/handler/account-sessions-client";
 import {
   ConfirmDialog,
   InlineError,
@@ -31,6 +32,9 @@ export function AccountActions() {
   // the coderouter organization scope.
   const signOut = () =>
     runSignOut(async () => {
+      // Like Gmail, signing out also ends the other accounts this browser
+      // keeps for switching.
+      await forgetAllSessions();
       await app.signOut();
       clearCoderouterOrganizationScope();
       // Home is outside the SPA; a document load also drops every cached query.

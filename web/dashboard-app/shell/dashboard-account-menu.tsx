@@ -10,6 +10,7 @@ import { Link } from "@tanstack/react-router";
 import type { DashboardSessionUser } from "../lib/session-types";
 import { localeHomeHref } from "../lib/locale-href";
 import { clearCoderouterOrganizationScope } from "@/services/coderouter/organizationScope";
+import { forgetAllSessions } from "@/app/handler/account-sessions-client";
 import { useThemeToggle } from "@/app/[locale]/theme";
 import { Badge } from "../components/settings-ui";
 import { planQuery } from "../queries/billing";
@@ -152,6 +153,9 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
                   setSignOutPending(true);
                   setSignOutError(false);
                   try {
+                    // Like Gmail, signing out also ends the other accounts
+                    // this browser keeps for switching.
+                    await forgetAllSessions();
                     await stackApp.signOut();
                     clearCoderouterOrganizationScope();
                     // Leaving the SPA: a document load drops every cached query.

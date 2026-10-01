@@ -1,11 +1,14 @@
 "use client";
 
+import { Button } from "@base-ui-components/react/button";
+import { Field } from "@base-ui-components/react/field";
 import { useHexclaveApp, useUser, type CurrentUser } from "@hexclave/next";
 import { KnownErrors } from "@hexclave/shared";
 import { getPasswordError } from "@hexclave/shared/dist/helpers/password";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type FormEvent, type ReactNode } from "react";
+import { forgetSession, saveCurrentSession, signedInAccounts, switchSession, tokenSignIn } from "./account-sessions-client";
 import {
   ACCOUNT_HISTORY_KEY,
   PENDING_OAUTH_KEY,
@@ -14,6 +17,7 @@ import {
   forgetAccount,
   handlerHref,
   isReturningFromOAuth,
+  oauthLoginHint,
   otherAccounts,
   parseAccountHistory,
   parsePendingOAuth,
@@ -60,6 +64,9 @@ export type CmuxSignInMessages = {
   chooseAccountSubtitle: string;
   useAnotherAccount: string;
   forgetAccount: string;
+  signedOut: string;
+  signingInAs: string;
+  sessionEnded: string;
   redirecting: string;
   lastUsed: string;
   legal: string;
@@ -94,50 +101,74 @@ export function CmuxSignIn({ mode, messages }: { mode: Mode; messages: CmuxSignI
   const params = useSearchParams();
   const returnTo = params.get("after_auth_return_to");
   // Set when the chooser opens the form on this page ("use another account",
-  // or a remembered account that signs in by email).
-  const [inlineSignIn, setInlineSignIn] = useState<{ email: string | null; method: string | null; password: boolean } | null>(null);
+  // or a remembered account that has to sign in again).
+  const [inlineSignIn, setInlineSignIn] = useState<InlineSignIn | null>(null);
+  // A switch signs the browser in before it leaves. Until it has, the chooser
+  // stays: the entry would otherwise turn to "continue" and redirect a
+  // second time, ahead of the switch's own account check.
+  const [switching, setSwitching] = useState(false);
+  const remembered = otherAccounts(useAccountHistory(), user?.id ?? "");
   const entry = signInEntry({
     hasUser: user !== null,
     isRestricted: user?.isRestricted === true,
     prompt: params.get("prompt"),
     returningFromOAuth: isReturningFromOAuth(params),
+    hasRememberedAccounts: mode === "sign-in" && remembered.length > 0,
   });
 
-  if (entry === "continue" || entry === "onboarding") {
+  // Always in this slot (null when signed out), so the screen next to it
+  // keeps its state when a switch signs the browser in.
+  const remember = user ? <RememberThisAccount user={user} /> : null;
+
+  if (switching || (entry === "choose-account" && !inlineSignIn)) {
     return (
       <>
-        {user && <RememberThisAccount user={user} />}
-        <AutomaticRedirect mode={mode} onboarding={entry === "onboarding"} messages={messages} />
+        {remember}
+        <ChooseAccount
+          messages={messages}
+          current={user ? { id: user.id, email: user.primaryEmail, displayName: user.displayName, profileImageUrl: user.profileImageUrl } : null}
+          onContinue={() => app.redirectToAfterSignIn({ replace: true })}
+          onSignInHere={setInlineSignIn}
+          onSwitching={setSwitching}
+        />
       </>
     );
   }
-  if (entry === "choose-account" && user && !inlineSignIn) {
+  if (entry === "continue" || entry === "onboarding") {
     return (
       <>
-        <RememberThisAccount user={user} />
-        <ChooseAccount
-          messages={messages}
-          current={{ id: user.id, email: user.primaryEmail, displayName: user.displayName, profileImageUrl: user.profileImageUrl }}
-          onContinue={() => app.redirectToAfterSignIn({ replace: true })}
-          onSignInHere={(email, method, password) => setInlineSignIn({ email, method, password })}
-        />
+        {remember}
+        <AutomaticRedirect mode={mode} onboarding={entry === "onboarding"} messages={messages} />
       </>
     );
   }
   // Signing in on top of the current session replaces it, so a switch never
   // needs a sign-out first.
   return (
-    <SignInForm
-      mode={inlineSignIn ? "sign-in" : mode}
-      messages={messages}
-      returnTo={returnTo}
-      prefillEmail={inlineSignIn?.email ?? null}
-      lastUsedMethod={inlineSignIn?.method ?? null}
-      startWithPassword={inlineSignIn?.password ?? false}
-      onBack={inlineSignIn ? () => setInlineSignIn(null) : undefined}
-    />
+    <>
+      {remember}
+      <SignInForm
+        mode={inlineSignIn ? "sign-in" : mode}
+        messages={messages}
+        returnTo={returnTo}
+        prefillEmail={inlineSignIn?.email ?? null}
+        lastUsedMethod={inlineSignIn?.method ?? null}
+        startWithPassword={inlineSignIn?.password ?? false}
+        notice={inlineSignIn?.sessionEnded ? messages.sessionEnded : null}
+        onBack={inlineSignIn ? () => setInlineSignIn(null) : undefined}
+      />
+    </>
   );
 }
+
+/** The form opened from the chooser, for one account or for a new one. */
+type InlineSignIn = {
+  email: string | null;
+  method: string | null;
+  password: boolean;
+  /** The account's saved session had ended: say why it asks again. */
+  sessionEnded: boolean;
+};
 
 // MARK: Layout
 
@@ -149,19 +180,22 @@ function Page({ children }: { children: ReactNode }) {
   );
 }
 
-function Heading({ title, subtitle }: { title: string; subtitle?: string }) {
+function Heading({ id, title, subtitle }: { id?: string; title: string; subtitle?: string }) {
   return (
     <header className="mb-6">
-      <h1 className="text-[22px] font-semibold tracking-[-0.02em]">{title}</h1>
+      <h1 id={id} className="text-[22px] font-semibold tracking-[-0.02em]">{title}</h1>
       {subtitle && <p className="mt-1.5 text-sm text-muted">{subtitle}</p>}
     </header>
   );
 }
 
+// Buttons are Base UI's: a busy button stays focusable (aria-disabled), so
+// focus and the screen reader stay on what was pressed. Disabled styles key
+// off its data-disabled attribute.
 const buttonClass =
-  "flex h-[38px] w-full cursor-pointer items-center gap-2.5 border border-border bg-background px-3 text-left text-sm text-foreground transition-colors hover:bg-foreground/[0.05] active:bg-foreground/[0.08] focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground disabled:cursor-not-allowed disabled:opacity-50";
+  "flex h-[38px] w-full cursor-pointer items-center gap-2.5 border border-border bg-background px-3 text-left text-sm text-foreground transition-colors hover:bg-foreground/[0.05] active:bg-foreground/[0.08] focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50 data-[disabled]:hover:bg-background";
 const primaryButtonClass =
-  "flex h-[38px] w-full cursor-pointer items-center justify-center border border-foreground bg-foreground px-3 text-sm font-medium text-background transition-opacity hover:opacity-85 active:opacity-75 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground disabled:cursor-not-allowed disabled:opacity-50";
+  "flex h-[38px] w-full cursor-pointer items-center justify-center border border-foreground bg-foreground px-3 text-sm font-medium text-background transition-opacity hover:opacity-85 active:opacity-75 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-foreground data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50";
 const inputClass =
   "h-[38px] w-full min-w-0 border border-border bg-background px-3 text-sm text-foreground outline-none placeholder:text-muted focus:border-foreground disabled:opacity-50";
 const linkClass =
@@ -178,6 +212,16 @@ function FieldError({ id, text }: { id: string; text: string | null }) {
 
 function Spinner() {
   return <SignInSpinner />;
+}
+
+/** A button's label while it works: the spinner shows, the name stays for screen readers. */
+function BusyLabel({ busy, children }: { busy: boolean; children: string }) {
+  return busy ? <><Spinner /><span className="sr-only">{children}</span></> : <>{children}</>;
+}
+
+/** Spoken, not shown: progress a screen reader would otherwise miss. */
+function Announce({ text }: { text: string | null }) {
+  return <p role="status" aria-live="polite" className="sr-only">{text ?? ""}</p>;
 }
 
 // MARK: Signed-in states
@@ -209,117 +253,222 @@ function AutomaticRedirect({ mode, onboarding, messages }: { mode: Mode; onboard
   );
 }
 
-function ChooseAccount({ messages, current, onContinue, onSignInHere }: {
+function ChooseAccount({ messages, current, onContinue, onSignInHere, onSwitching }: {
   messages: CmuxSignInMessages;
-  current: { id: string; email: string | null; displayName: string | null; profileImageUrl: string | null };
+  /** The signed-in account, or null on a signed-out browser. */
+  current: AccountRow | null;
   onContinue: () => Promise<void>;
-  onSignInHere: (email: string | null, method: string | null, password: boolean) => void;
+  onSignInHere: (form: InlineSignIn) => void;
+  /** True from the moment a saved session is made this browser's until the switch leaves or fails. */
+  onSwitching: (switching: boolean) => void;
 }) {
   const app = useHexclaveApp();
   const enabledProviders = app.useProject().config.oauthProviders.map(({ id }) => id);
-  // The row that was picked, so only it shows progress; the rest just wait.
-  const [pending, setPending] = useState<string | null>(null);
+  const headingId = useId();
+  const errorId = useId();
+  const history = useAccountHistory();
+  const live = { current, others: otherAccounts(history, current?.id ?? "") };
+  // While a row works, the list holds still: a switch signs the browser in
+  // before it leaves, which would otherwise reshuffle the rows under it.
+  const [pending, setPending] = useState<{ row: string; label: string; rows: typeof live } | null>(null);
+  const { current: shownCurrent, others } = pending?.rows ?? live;
   const busy = pending !== null;
-  // Rows other than the picked one fade while it works.
-  const rowClass = (row: string) => `${accountRowClass} transition-opacity ${busy && pending !== row ? "opacity-50" : ""}`;
   const [error, setError] = useState<string | null>(null);
-  const others = otherAccounts(useAccountHistory(), current.id);
+  // Accounts the server still holds a session for (null until it answers),
+  // and accounts a pick found signed out since.
+  const [signedIn, setSignedIn] = useState<ReadonlySet<string> | null>(null);
+  const [ended, setEnded] = useState<ReadonlySet<string>>(() => new Set());
+  const isSignedOut = (id: string) => ended.has(id) || (signedIn !== null && !signedIn.has(id));
 
-  // Like Gmail, nothing is signed out. An account that signs in only with a
-  // provider goes straight there; any other opens the options here with its
-  // email filled in.
-  function pickRemembered(account: RememberedAccount) {
+  useEffect(() => {
+    let cancelled = false;
+    void signedInAccounts().then((ids) => {
+      if (!cancelled && ids) setSignedIn(new Set(ids));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function start(row: string, label: string) {
+    setPending({ row, label, rows: live });
+    setError(null);
+  }
+
+  function fail() {
+    setPending(null);
+    setError(messages.errorGeneric);
+  }
+
+  // Like Gmail: a signed-in account switches straight in and nothing is
+  // signed out. One whose session ended signs in again through its own
+  // method: a provider-only account goes straight there, any other opens the
+  // form here with its email filled in.
+  async function pickRemembered(account: RememberedAccount) {
+    start(account.id, account.email ?? account.displayName ?? "");
+    let sessionEnded = isSignedOut(account.id);
+    if (!sessionEnded) {
+      const activate = tokenSignIn(app);
+      if (!activate) {
+        console.error("[cmux sign-in] saved sessions are unavailable: the SDK's token sign-in step is missing");
+      } else {
+        const result = await switchSession(account.id);
+        if (result.status === "error") return fail();
+        if (result.status === "ok") {
+          onSwitching(true);
+          try {
+            await activate(result.tokens);
+            // The server already matched the tokens to this account; this
+            // confirms the browser really is that account before leaving
+            // (allowing the SDK a moment to publish the new session).
+            let now = await app.getUser({ includeRestricted: true });
+            for (let attempt = 0; now?.id !== account.id && attempt < 5; attempt += 1) {
+              await new Promise((resolve) => setTimeout(resolve, 200));
+              now = await app.getUser({ includeRestricted: true });
+            }
+            if (now?.id !== account.id) throw new Error(`the switch landed on ${now ? "a different account" : "no account"}`);
+            await app.redirectToAfterSignIn({ replace: true });
+          } catch (caught) {
+            console.error("[cmux sign-in] switching accounts failed", caught);
+            onSwitching(false);
+            fail();
+          }
+          return;
+        }
+        sessionEnded = true;
+        setEnded((previous) => new Set(previous).add(account.id));
+      }
+    }
     const provider = rememberedSignInProvider(account, enabledProviders);
     if (!provider) {
-      onSignInHere(account.email, null, account.hasPassword === true);
+      setPending(null);
+      onSignInHere({ email: account.email, method: null, password: account.hasPassword === true, sessionEnded });
       return;
     }
-    setPending(account.id);
-    setError(null);
     writeStored(PENDING_OAUTH_KEY, serializePendingOAuth(account.id));
-    startOAuth(app, provider).catch(() => {
+    startOAuth(app, provider, oauthLoginHint(provider, account.email)).catch(() => {
       writeStored(PENDING_OAUTH_KEY, null);
-      setPending(null);
-      setError(messages.errorGeneric);
+      fail();
     });
   }
 
+  const listRef = useRef<HTMLUListElement>(null);
+
+  function forget(account: RememberedAccount, index: number) {
+    writeStored(ACCOUNT_HISTORY_KEY, JSON.stringify(forgetAccount(readHistory(), account.id)));
+    void forgetSession(account.id);
+    // The focused button just went away with its row: focus the row that
+    // took its place (or "use a different account") instead of the page.
+    requestAnimationFrame(() => {
+      const rows = listRef.current?.querySelectorAll<HTMLElement>(":scope > li > button:first-child");
+      if (!rows?.length) return;
+      rows[Math.min(index + (shownCurrent ? 1 : 0), rows.length - 1)].focus();
+    });
+  }
+
+  const rowClass = (row: string) => `${accountRowClass} transition-opacity ${busy && pending.row !== row ? "opacity-50" : ""}`;
+  const name = (account: AccountView) => account.email ?? account.displayName ?? "";
+
   return (
     <Page>
-      <Heading title={messages.chooseAccountTitle} subtitle={messages.chooseAccountSubtitle} />
-      <ul className="divide-y divide-border border border-border bg-background">
-        <li>
-          <button
-            type="button"
-            disabled={busy}
-            className={rowClass("current")}
-            onClick={() => {
-              setPending("current");
-              setError(null);
-              onContinue().catch(() => {
-                setPending(null);
-                setError(messages.errorGeneric);
-              });
-            }}
-          >
-            <AccountAvatar account={current} />
-            <AccountLabel account={current} />
-            <span
-              className={`ml-auto grid h-4 w-4 flex-none place-items-center text-muted transition-[color,transform] duration-150 ${
-                pending === "current" ? "" : "group-hover:translate-x-0.5 group-hover:text-foreground"
-              }`}
-            >
-              {pending === "current" ? <Spinner /> : <ChevronIcon />}
-            </span>
-          </button>
-        </li>
-        {others.map((account) => (
-          <li key={account.id} className="group/row relative">
-            <button type="button" disabled={busy} className={`${rowClass(account.id)} pr-11`} onClick={() => pickRemembered(account)}>
-              <AccountAvatar account={account} />
-              <AccountLabel account={account} />
-              {pending === account.id && <span className="ml-auto grid h-4 w-4 flex-none place-items-center"><Spinner /></span>}
-            </button>
-            <button
-              type="button"
+      <Heading id={headingId} title={messages.chooseAccountTitle} subtitle={messages.chooseAccountSubtitle} />
+      <ul ref={listRef} aria-labelledby={headingId} aria-busy={busy} className="divide-y divide-border border border-border bg-background">
+        {shownCurrent && (
+          <li>
+            <Button
+              focusableWhenDisabled
               disabled={busy}
-              aria-label={format(messages.forgetAccount, { account: account.email ?? account.displayName ?? "" })}
-              title={format(messages.forgetAccount, { account: account.email ?? account.displayName ?? "" })}
-              onClick={() => writeStored(ACCOUNT_HISTORY_KEY, JSON.stringify(forgetAccount(readHistory(), account.id)))}
-              className="group/x absolute inset-y-0 right-1.5 my-auto grid h-7 w-7 cursor-pointer place-items-center text-muted opacity-0 transition-[opacity,background-color,color,transform] duration-150 hover:bg-foreground/[0.08] hover:text-foreground active:scale-90 active:bg-foreground/[0.12] focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground group-hover/row:opacity-100 disabled:opacity-0"
+              className={rowClass("current")}
+              onClick={() => {
+                start("current", name(shownCurrent));
+                onContinue().catch(fail);
+              }}
             >
-              <CloseIcon />
-            </button>
+              <AccountAvatar account={shownCurrent} />
+              <AccountLabel account={shownCurrent} />
+              <span
+                className={`ml-auto grid h-4 w-4 flex-none place-items-center text-muted transition-[color,transform] duration-150 ${
+                  pending?.row === "current" ? "" : "group-hover:translate-x-0.5 group-hover:text-foreground"
+                }`}
+              >
+                {pending?.row === "current" ? <Spinner /> : <ChevronIcon />}
+              </span>
+            </Button>
           </li>
-        ))}
+        )}
+        {others.map((account, index) => {
+          const signedOut = isSignedOut(account.id);
+          return (
+            <li key={account.id} className="group/row relative">
+              <Button
+                focusableWhenDisabled
+                disabled={busy}
+                className={rowClass(account.id)}
+                onClick={() => void pickRemembered(account)}
+              >
+                <AccountAvatar account={account} dimmed={signedOut} />
+                <AccountLabel account={account} />
+                {/* The right edge lines up with the current row's chevron. It
+                    always keeps room for the remove button, which takes the
+                    status's place on hover. */}
+                <span className="ml-auto flex min-w-7 flex-none items-center justify-end">
+                  {pending?.row === account.id ? (
+                    <span className="grid h-4 w-4 place-items-center"><Spinner /></span>
+                  ) : signedOut ? (
+                    <span className="text-xs italic text-muted transition-opacity duration-150 group-hover/row:opacity-0 group-has-[:focus-visible]/row:opacity-0 [@media(hover:none)]:pr-8 [@media(hover:none)]:group-hover/row:opacity-100">
+                      {messages.signedOut}
+                    </span>
+                  ) : null}
+                </span>
+              </Button>
+              <Button
+                disabled={busy}
+                aria-label={format(messages.forgetAccount, { account: name(account) })}
+                title={format(messages.forgetAccount, { account: name(account) })}
+                onClick={() => forget(account, index)}
+                className="group/x absolute inset-y-0 right-1.5 my-auto grid h-7 w-7 cursor-pointer place-items-center text-muted opacity-0 transition-[opacity,background-color,color,transform] duration-150 hover:bg-foreground/[0.08] hover:text-foreground active:scale-90 active:bg-foreground/[0.12] focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground group-hover/row:opacity-100 data-[disabled]:opacity-0 [@media(hover:none)]:opacity-100"
+              >
+                <CloseIcon />
+              </Button>
+            </li>
+          );
+        })}
         <li>
-          <button type="button" disabled={busy} className={rowClass("another")} onClick={() => onSignInHere(null, null, false)}>
+          <Button
+            focusableWhenDisabled
+            disabled={busy}
+            className={rowClass("another")}
+            onClick={() => onSignInHere({ email: null, method: null, password: false, sessionEnded: false })}
+          >
             <span aria-hidden="true" className="grid h-7 w-7 flex-none place-items-center text-muted transition-colors group-hover:text-foreground">
               <PlusIcon />
             </span>
             <span className="text-sm">{messages.useAnotherAccount}</span>
-          </button>
+          </Button>
         </li>
       </ul>
       <div className="mt-2">
-        <FieldError id="choose-account-error" text={error} />
+        <FieldError id={errorId} text={error} />
       </div>
+      <Announce text={pending && pending.row !== "another" ? format(messages.signingInAs, { account: pending.label }) : null} />
     </Page>
   );
 }
 
 const accountRowClass =
-  "group flex w-full cursor-pointer items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-foreground/[0.05] active:bg-foreground/[0.08] focus-visible:bg-foreground/[0.05] focus-visible:outline-none disabled:cursor-default disabled:hover:bg-transparent";
+  "group flex w-full cursor-pointer items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-foreground/[0.05] active:bg-foreground/[0.08] focus-visible:bg-foreground/[0.05] focus-visible:outline-none data-[disabled]:cursor-default data-[disabled]:hover:bg-transparent";
 
 type AccountView = { email: string | null; displayName: string | null; profileImageUrl?: string | null };
+type AccountRow = AccountView & { id: string };
 
-function AccountAvatar({ account }: { account: AccountView }) {
+function AccountAvatar({ account, dimmed = false }: { account: AccountView; dimmed?: boolean }) {
+  const fade = dimmed ? "opacity-60 grayscale" : "";
   if (account.profileImageUrl?.startsWith("https://")) {
     // eslint-disable-next-line @next/next/no-img-element -- a remote avatar of any host; next/image needs each host configured.
-    return <img src={account.profileImageUrl} alt="" referrerPolicy="no-referrer" className="h-7 w-7 flex-none border border-border object-cover" />;
+    return <img src={account.profileImageUrl} alt="" referrerPolicy="no-referrer" className={`h-7 w-7 flex-none border border-border object-cover ${fade}`} />;
   }
   return (
-    <span aria-hidden="true" className="grid h-7 w-7 flex-none place-items-center bg-foreground font-mono text-[11px] font-medium text-background">
+    <span aria-hidden="true" className={`grid h-7 w-7 flex-none place-items-center bg-foreground font-mono text-[11px] font-medium text-background ${fade}`}>
       {accountInitials(account.displayName, account.email)}
     </span>
   );
@@ -337,11 +486,16 @@ function AccountLabel({ account }: { account: AccountView }) {
 
 /**
  * Adds the signed-in account to this browser's list (an external store, not
- * React state). Its sign-in method is looked up afterwards so the redirect
+ * React state) and keeps its session, so a later switch away and back needs
+ * no new sign-in. Its sign-in method is looked up afterwards so the redirect
  * never waits on it.
  */
 function RememberThisAccount({ user }: { user: CurrentUser }) {
-  const { id, primaryEmail: email, displayName, profileImageUrl } = user;
+  const { id, primaryEmail: email, displayName, profileImageUrl, isRestricted } = user;
+  useEffect(() => {
+    // An account still finishing onboarding has no session worth keeping.
+    if (!isRestricted) void saveCurrentSession();
+  }, [id, isRestricted]);
   useEffect(() => {
     writeStored(ACCOUNT_HISTORY_KEY, JSON.stringify(rememberAccount(readHistory(), { id, email, displayName, profileImageUrl, hasPassword: user.hasPassword })));
     writeStored(PENDING_OAUTH_KEY, null);
@@ -367,7 +521,7 @@ const PROVIDER_PREFERENCE = ["google", "github", "apple", "microsoft", "gitlab",
 
 type EmailStep = { kind: "enter" } | { kind: "code"; email: string; nonce: string };
 
-function SignInForm({ mode, messages, returnTo, prefillEmail = null, lastUsedMethod = null, startWithPassword = false, onBack }: {
+function SignInForm({ mode, messages, returnTo, prefillEmail = null, lastUsedMethod = null, startWithPassword = false, notice = null, onBack }: {
   mode: Mode;
   messages: CmuxSignInMessages;
   returnTo: string | null;
@@ -376,6 +530,8 @@ function SignInForm({ mode, messages, returnTo, prefillEmail = null, lastUsedMet
   lastUsedMethod?: string | null;
   /** Open the email methods on email and password (a remembered password account). */
   startWithPassword?: boolean;
+  /** Why the form opened, shown under the heading. */
+  notice?: string | null;
   onBack?: () => void;
 }) {
   const app = useHexclaveApp();
@@ -411,30 +567,41 @@ function SignInForm({ mode, messages, returnTo, prefillEmail = null, lastUsedMet
   return (
     <Page>
       {onBack && (
-        <button
-          type="button"
+        <Button
           onClick={onBack}
           className="group mb-5 -ml-1 inline-flex cursor-pointer items-center gap-1 px-1 py-0.5 text-sm text-muted transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
         >
           <BackIcon />
           {messages.back}
-        </button>
+        </Button>
       )}
       <Heading
         title={mode === "sign-in" ? messages.signInTitle : messages.signUpTitle}
         subtitle={mode === "sign-in" ? messages.signInSubtitle : messages.signUpSubtitle}
       />
+      {notice && (
+        <p className="-mt-3 mb-5 border border-border px-3 py-2 text-sm text-muted">
+          {notice}
+        </p>
+      )}
       <div className="grid gap-2">
         {config.oauthProviders.map(({ id }) => (
-          <OAuthProviderButton key={id} provider={id} disabled={inIframe} messages={messages} lastUsedOverride={onBack ? lastUsedMethod : undefined} />
+          <OAuthProviderButton
+            key={id}
+            provider={id}
+            disabled={inIframe}
+            messages={messages}
+            lastUsedOverride={onBack ? lastUsedMethod : undefined}
+            loginHint={oauthLoginHint(id, prefillEmail)}
+          />
         ))}
         {passkeyAvailable && <PasskeyButton messages={messages} />}
         {inIframe && hasOAuth && <p className="text-xs text-muted">{messages.embeddedDisabled}</p>}
         {hasEmail && (hasOAuth || passkeyAvailable) && (
-          <div className="my-2 flex items-center gap-2.5 font-mono text-[11px] text-muted" role="separator">
-            <span className="h-px flex-1 bg-border" />
+          <div className="my-2 flex items-center gap-2.5 font-mono text-[11px] text-muted">
+            <span aria-hidden="true" className="h-px flex-1 bg-border" />
             {messages.or}
-            <span className="h-px flex-1 bg-border" />
+            <span aria-hidden="true" className="h-px flex-1 bg-border" />
           </div>
         )}
         {hasEmail && (
@@ -558,30 +725,34 @@ const providerNames: Record<string, string> = {
   discord: "Discord",
 };
 
-function OAuthProviderButton({ provider, disabled, messages, lastUsedOverride }: {
+function OAuthProviderButton({ provider, disabled, messages, lastUsedOverride, loginHint = null }: {
   provider: string;
   disabled: boolean;
   messages: CmuxSignInMessages;
   /** When set (even to null), replaces this browser's "last used" hint. */
   lastUsedOverride?: string | null;
+  /** The account the form was opened for: the provider goes straight to it. */
+  loginHint?: string | null;
 }) {
   const app = useHexclaveApp();
   const browserLastUsed = useLastUsedProvider();
   const lastUsed = lastUsedOverride === undefined ? browserLastUsed : lastUsedOverride;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const errorId = useId();
   const name = providerNames[provider] ?? provider;
 
   return (
     <>
-      <button
-        type="button"
+      <Button
+        focusableWhenDisabled={busy}
         className={buttonClass}
         disabled={disabled || busy}
+        aria-describedby={error ? errorId : undefined}
         onClick={() => {
           setBusy(true);
           setError(null);
-          startOAuth(app, provider).catch(() => {
+          startOAuth(app, provider, loginHint).catch(() => {
             setBusy(false);
             setError(messages.errorGeneric);
           });
@@ -592,14 +763,17 @@ function OAuthProviderButton({ provider, disabled, messages, lastUsedOverride }:
         {busy ? <span className="ml-auto"><Spinner /></span> : lastUsed === provider && (
           <span className="ml-auto border border-border px-1.5 font-mono text-[11px] leading-[18px] text-muted">{messages.lastUsed}</span>
         )}
-      </button>
-      <FieldError id={`oauth-${provider}-error`} text={error} />
+      </Button>
+      <FieldError id={errorId} text={error} />
     </>
   );
 }
 
-/** Leaves for a provider. Its callback returns here with the continue marker. */
-function startOAuth(app: ReturnType<typeof useHexclaveApp>, provider: string): Promise<void> {
+/**
+ * Leaves for a provider. Its callback returns here with the continue marker.
+ * With a login hint the provider opens on that account, not its chooser.
+ */
+function startOAuth(app: ReturnType<typeof useHexclaveApp>, provider: string, loginHint: string | null = null): Promise<void> {
   try {
     window.localStorage.setItem(LAST_USED_KEY, provider);
   } catch {
@@ -608,7 +782,7 @@ function startOAuth(app: ReturnType<typeof useHexclaveApp>, provider: string): P
   // The provider returns to this exact URL; the marker makes that landing
   // continue instead of asking which account to use.
   window.history.replaceState(window.history.state, "", withContinueMarker(window.location.href));
-  return app.signInWithOAuth(provider).catch((caught: unknown) => {
+  return app.signInWithOAuth(provider, loginHint ? { loginHint } : undefined).catch((caught: unknown) => {
     console.error("[cmux sign-in] OAuth start failed", caught);
     window.history.replaceState(window.history.state, "", withoutContinueMarker(window.location.href));
     throw caught;
@@ -619,12 +793,14 @@ function PasskeyButton({ messages }: { messages: CmuxSignInMessages }) {
   const app = useHexclaveApp();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const errorId = useId();
   return (
     <>
-      <button
-        type="button"
+      <Button
+        focusableWhenDisabled
         className={buttonClass}
         disabled={busy}
+        aria-describedby={error ? errorId : undefined}
         onClick={async () => {
           setBusy(true);
           setError(null);
@@ -644,8 +820,8 @@ function PasskeyButton({ messages }: { messages: CmuxSignInMessages }) {
         <KeyIcon />
         <span>{messages.signInWithPasskey}</span>
         {busy && <span className="ml-auto"><Spinner /></span>}
-      </button>
-      <FieldError id="passkey-error" text={error} />
+      </Button>
+      <FieldError id={errorId} text={error} />
     </>
   );
 }
@@ -674,18 +850,17 @@ function EmailMethods({ mode, messages, returnTo, magicLinkEnabled, credentialEn
       {method === "code" ? (
         <EmailCode messages={messages} email={email} onEmailChange={setEmail} />
       ) : mode === "sign-in" ? (
-        <PasswordSignIn messages={messages} returnTo={returnTo} email={email} onEmailChange={setEmail} />
+        <PasswordSignIn messages={messages} returnTo={returnTo} email={email} onEmailChange={setEmail} focusPassword={prefillEmail !== null} />
       ) : (
         <PasswordSignUp messages={messages} email={email} onEmailChange={setEmail} />
       )}
       {canSwitch && (
-        <button
-          type="button"
+        <Button
           className={`justify-self-start text-sm ${linkClass}`}
           onClick={() => setMethod(method === "code" ? "password" : "code")}
         >
           {method === "code" ? messages.usePasswordInstead : messages.useEmailCodeInstead}
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -706,24 +881,41 @@ function EmailField({ messages, value, onChange, error, disabled, autoFocus, for
   forPassword?: boolean;
 }) {
   return (
-    <>
-      <label htmlFor="cmux-sign-in-email" className="sr-only">{messages.emailLabel}</label>
-      <input
-        id="cmux-sign-in-email"
-        className={inputClass}
-        name={forPassword ? "username" : "email"}
-        type="email"
-        autoComplete={forPassword ? "username" : "email"}
-        placeholder={messages.emailPlaceholder}
-        value={value}
-        disabled={disabled}
-        autoFocus={autoFocus}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={error ? "cmux-sign-in-email-error" : undefined}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      <FieldError id="cmux-sign-in-email-error" text={error} />
-    </>
+    <TextField
+      label={messages.emailLabel}
+      error={error}
+      disabled={disabled}
+      name={forPassword ? "username" : "email"}
+      type="email"
+      autoComplete={forPassword ? "username" : "email"}
+      placeholder={messages.emailPlaceholder}
+      value={value}
+      autoFocus={autoFocus}
+      onChange={onChange}
+    />
+  );
+}
+
+/**
+ * One labelled input on Base UI's Field: the label, the invalid state and the
+ * error message are tied to the input for assistive tech. The label is
+ * visually hidden; the placeholder says the same thing on screen.
+ */
+function TextField({ label, error, disabled, className = inputClass, onChange, ...input }: {
+  label: string;
+  error: string | null;
+  disabled?: boolean;
+  className?: string;
+  onChange: (value: string) => void;
+} & Pick<ComponentProps<"input">, "name" | "type" | "autoComplete" | "placeholder" | "value" | "autoFocus" | "inputMode" | "autoCapitalize" | "spellCheck" | "maxLength">) {
+  return (
+    <Field.Root invalid={error !== null} disabled={disabled} className="grid gap-2">
+      <Field.Label className="sr-only">{label}</Field.Label>
+      <Field.Control {...input} className={className} onValueChange={(next) => onChange(next)} />
+      <Field.Error match={error !== null} role="alert" className="text-xs text-red-600 dark:text-red-400">
+        {error}
+      </Field.Error>
+    </Field.Root>
   );
 }
 
@@ -773,11 +965,11 @@ function EmailCode({ messages, email, onEmailChange }: {
     );
   }
   return (
-    <form className="grid gap-2" noValidate onSubmit={send}>
+    <form className="grid gap-2" noValidate aria-busy={busy} onSubmit={send}>
       <EmailField messages={messages} value={email} onChange={onEmailChange} error={error} disabled={busy} />
-      <button type="submit" className={primaryButtonClass} disabled={busy}>
-        {busy ? <Spinner /> : messages.continueWithEmail}
-      </button>
+      <Button type="submit" focusableWhenDisabled className={primaryButtonClass} disabled={busy}>
+        <BusyLabel busy={busy}>{messages.continueWithEmail}</BusyLabel>
+      </Button>
     </form>
   );
 }
@@ -818,9 +1010,10 @@ function CodeEntry({ messages, email, nonce, onBack, onResend }: {
     <div className="grid gap-2">
       <p className="text-sm font-medium">{messages.checkEmailTitle}</p>
       <p className="text-sm text-muted">{lead}<bdi className="text-foreground">{email}</bdi>{tail}</p>
-      <label htmlFor="cmux-sign-in-code" className="sr-only">{messages.codeLabel}</label>
-      <input
-        id="cmux-sign-in-code"
+      <TextField
+        label={messages.codeLabel}
+        error={error}
+        disabled={busy}
         className={`${inputClass} h-12 text-center font-mono text-lg uppercase tracking-[0.5em]`}
         inputMode="text"
         autoComplete="one-time-code"
@@ -829,32 +1022,31 @@ function CodeEntry({ messages, email, nonce, onBack, onResend }: {
         maxLength={6}
         autoFocus
         value={code}
-        disabled={busy}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={error ? "cmux-sign-in-code-error" : undefined}
-        onChange={(event) => {
+        onChange={(value) => {
           // Codes are six letters or digits; submit as soon as they are in.
-          const next = event.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 6);
+          const next = value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 6);
           setCode(next);
           if (next.length > 0 && next.length < 6) setError(null);
           if (next.length === 6 && !busy) void submit(next);
         }}
       />
-      <FieldError id="cmux-sign-in-code-error" text={error} />
+      <Announce text={busy ? messages.redirecting : null} />
       <p className="text-sm text-muted">
-        <button type="button" className={linkClass} onClick={onBack}>{messages.back}</button>
+        <Button className={linkClass} onClick={onBack}>{messages.back}</Button>
         <span aria-hidden="true">{" · "}</span>
-        <button type="button" className={linkClass} onClick={onResend}>{messages.resendCode}</button>
+        <Button className={linkClass} onClick={onResend}>{messages.resendCode}</Button>
       </p>
     </div>
   );
 }
 
-function PasswordSignIn({ messages, returnTo, email, onEmailChange }: {
+function PasswordSignIn({ messages, returnTo, email, onEmailChange, focusPassword = false }: {
   messages: CmuxSignInMessages;
   returnTo: string | null;
   email: string;
   onEmailChange: (value: string) => void;
+  /** The email is already filled in (a remembered account): start on the password. */
+  focusPassword?: boolean;
 }) {
   const app = useHexclaveApp();
   const [password, setPassword] = useState("");
@@ -886,26 +1078,23 @@ function PasswordSignIn({ messages, returnTo, email, onEmailChange }: {
   }
 
   return (
-    <form className="grid gap-2" noValidate onSubmit={submit}>
+    <form className="grid gap-2" noValidate aria-busy={busy} onSubmit={submit}>
       <EmailField messages={messages} value={email} onChange={onEmailChange} error={emailError} disabled={busy} forPassword />
-      <label htmlFor="cmux-sign-in-password" className="sr-only">{messages.passwordLabel}</label>
-      <input
-        id="cmux-sign-in-password"
+      <TextField
+        label={messages.passwordLabel}
+        error={passwordError}
+        disabled={busy}
         name="password"
-        className={inputClass}
         type="password"
         autoComplete="current-password"
         placeholder={messages.passwordLabel}
         value={password}
-        disabled={busy}
-        aria-invalid={passwordError ? true : undefined}
-        aria-describedby={passwordError ? "cmux-sign-in-password-error" : undefined}
-        onChange={(event) => setPassword(event.target.value)}
+        autoFocus={focusPassword}
+        onChange={setPassword}
       />
-      <FieldError id="cmux-sign-in-password-error" text={passwordError} />
-      <button type="submit" className={primaryButtonClass} disabled={busy}>
-        {busy ? <Spinner /> : messages.signInButton}
-      </button>
+      <Button type="submit" focusableWhenDisabled className={primaryButtonClass} disabled={busy}>
+        <BusyLabel busy={busy}>{messages.signInButton}</BusyLabel>
+      </Button>
       <a className={`justify-self-start text-sm ${linkClass}`} href={handlerHref("forgot-password", returnTo)}>
         {messages.forgotPassword}
       </a>
@@ -974,48 +1163,40 @@ function PasswordSignUp({ messages, email, onEmailChange }: {
   }
 
   return (
-    <form className="grid gap-2" noValidate onSubmit={submit}>
+    <form className="grid gap-2" noValidate aria-busy={busy} onSubmit={submit}>
       <EmailField messages={messages} value={email} onChange={onEmailChange} error={emailError} disabled={busy} forPassword />
-      <label htmlFor="cmux-sign-up-password" className="sr-only">{messages.passwordLabel}</label>
-      <input
-        id="cmux-sign-up-password"
+      <TextField
+        label={messages.passwordLabel}
+        error={passwordError}
+        disabled={busy}
         name="new-password"
-        className={inputClass}
         type="password"
         autoComplete="new-password"
         placeholder={messages.passwordLabel}
         value={password}
-        disabled={busy}
-        aria-invalid={passwordError ? true : undefined}
-        aria-describedby={passwordError ? "cmux-sign-up-password-error" : undefined}
-        onChange={(event) => {
-          setPassword(event.target.value);
+        onChange={(value) => {
+          setPassword(value);
           setPasswordError(null);
           setRepeatError(null);
         }}
       />
-      <FieldError id="cmux-sign-up-password-error" text={passwordError} />
-      <label htmlFor="cmux-sign-up-repeat" className="sr-only">{messages.repeatPasswordLabel}</label>
-      <input
-        id="cmux-sign-up-repeat"
+      <TextField
+        label={messages.repeatPasswordLabel}
+        error={repeatError}
+        disabled={busy}
         name="confirm-password"
-        className={inputClass}
         type="password"
         autoComplete="new-password"
         placeholder={messages.repeatPasswordLabel}
         value={repeat}
-        disabled={busy}
-        aria-invalid={repeatError ? true : undefined}
-        aria-describedby={repeatError ? "cmux-sign-up-repeat-error" : undefined}
-        onChange={(event) => {
-          setRepeat(event.target.value);
+        onChange={(value) => {
+          setRepeat(value);
           setRepeatError(null);
         }}
       />
-      <FieldError id="cmux-sign-up-repeat-error" text={repeatError} />
-      <button type="submit" className={primaryButtonClass} disabled={busy}>
-        {busy ? <Spinner /> : messages.createAccountButton}
-      </button>
+      <Button type="submit" focusableWhenDisabled className={primaryButtonClass} disabled={busy}>
+        <BusyLabel busy={busy}>{messages.createAccountButton}</BusyLabel>
+      </Button>
     </form>
   );
 }

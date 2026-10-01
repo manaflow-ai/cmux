@@ -13,14 +13,26 @@ export const SELECT_ACCOUNT_PROMPT = "select_account";
  */
 export const CHOOSE_ACCOUNT_ON_EVERY_SIGNED_IN_ARRIVAL = false;
 
+/**
+ * A signed-out browser that has signed in before lists those accounts first,
+ * like Gmail, when true. Off: it always opens on the form.
+ */
+export const CHOOSE_ACCOUNT_WHEN_SIGNED_OUT = true;
+
 export function signInEntry(input: {
   hasUser: boolean;
   isRestricted: boolean;
   prompt: string | null;
   returningFromOAuth: boolean;
+  /** Sign-in (not sign-up) with remembered accounts to list. */
+  hasRememberedAccounts?: boolean;
   chooseOnEverySignedInArrival?: boolean;
+  chooseWhenSignedOut?: boolean;
 }): SignInEntry {
-  if (!input.hasUser) return "form";
+  if (!input.hasUser) {
+    const listRemembered = input.chooseWhenSignedOut ?? CHOOSE_ACCOUNT_WHEN_SIGNED_OUT;
+    return listRemembered && input.hasRememberedAccounts && !input.returningFromOAuth ? "choose-account" : "form";
+  }
   if (input.isRestricted) return "onboarding";
   // OAuth finishes by landing back here signed in, with the same query
   // (prompt included). That landing must continue, or every OAuth login
@@ -97,9 +109,10 @@ export function accountInitials(displayName: string | null | undefined, email: s
 
 /**
  * Accounts that signed in on this browser, newest first, for the chooser.
- * No tokens: picking one signs in again through its own method (an OAuth
- * provider answers from its own session, like Gmail's account list), and the
- * new sign-in replaces the current session. Nothing is signed out first.
+ * No tokens here: those live in the server-only saved sessions
+ * (account-sessions.ts). Picking a saved account switches to it; one whose
+ * session ended signs in again through its own method. Nothing is signed out
+ * first.
  */
 export type RememberedAccount = {
   id: string;
@@ -228,6 +241,20 @@ export function rememberedMethodFor(input: {
 }): string | null {
   if (input.hasPassword) return null;
   return preferredSignInMethod(input.linked, input.preference);
+}
+
+/**
+ * Providers that take the OpenID Connect `login_hint`: given a remembered
+ * account's email they go straight to that account ("Continue as ...")
+ * instead of their own account chooser. GitHub's equivalent wants a
+ * username, which isn't kept; Apple has none.
+ */
+const LOGIN_HINT_PROVIDERS = new Set(["google", "microsoft"]);
+
+/** The hint to send a provider for a known account, or null for none. */
+export function oauthLoginHint(provider: string, email: string | null | undefined): string | null {
+  const address = email?.trim();
+  return address && LOGIN_HINT_PROVIDERS.has(provider) && address.includes("@") ? address : null;
 }
 
 /**

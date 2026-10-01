@@ -6,6 +6,7 @@ import { Suspense } from "react";
 import { stackServerApp } from "../../lib/stack";
 import { CliAuthConfirmation, type CliAuthIdentityMessages } from "../cli-auth-confirmation";
 import { CmuxOAuthCallback, CmuxSignIn, type CmuxSignInMessages } from "../cmux-sign-in";
+import { EndSavedSessions } from "../end-saved-sessions";
 import { SignInSpinner } from "../sign-in-spinner";
 import { hostedAuthErrorRedirect } from "../sign-in-entry";
 import hosted from "../hosted.module.css";
@@ -99,9 +100,12 @@ export default async function StackHandlerPage(
   // every current and future auth path can opt into client rendering without
   // a missing-boundary error.
   return (
-    <Suspense fallback={<StackHandlerLoading />}>
-      {handlerContent}
-    </Suspense>
+    <>
+      {stack.length === 1 && stack[0] === "sign-out" && <EndSavedSessions />}
+      <Suspense fallback={<StackHandlerLoading />}>
+        {handlerContent}
+      </Suspense>
+    </>
   );
 }
 

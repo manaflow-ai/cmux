@@ -25,6 +25,7 @@ const {
   handlerHref,
   hostedAuthErrorRedirect,
   isReturningFromOAuth,
+  oauthLoginHint,
   signInEntry,
   signUpPendingHref,
   withContinueMarker,
@@ -35,9 +36,18 @@ const { GET: startNativeSignIn } = await import("../app/handler/native-sign-in/r
 const signedIn = { hasUser: true, isRestricted: false, prompt: null, returningFromOAuth: false };
 
 describe("sign-in entry", () => {
-  test("a signed-out browser gets the form, whatever else is set", () => {
+  test("a signed-out browser with no remembered accounts gets the form", () => {
     expect(signInEntry({ ...signedIn, hasUser: false })).toBe("form");
     expect(signInEntry({ ...signedIn, hasUser: false, prompt: SELECT_ACCOUNT_PROMPT })).toBe("form");
+  });
+
+  // Like Gmail: the accounts this browser used come first, signed in or not.
+  test("a signed-out browser that has signed in before lists those accounts", () => {
+    const signedOut = { ...signedIn, hasUser: false, hasRememberedAccounts: true };
+    expect(signInEntry(signedOut)).toBe("choose-account");
+    expect(signInEntry({ ...signedOut, chooseWhenSignedOut: false })).toBe("form");
+    // A failed OAuth return lands signed out; it gets the form, not the list again.
+    expect(signInEntry({ ...signedOut, returningFromOAuth: true })).toBe("form");
   });
 
   test("a signed-in arrival continues by default", () => {
@@ -267,5 +277,20 @@ describe("password accounts", () => {
     history = rememberAccount(history, { id: "a", email: "a@x.com", displayName: "A" }, 2);
     expect(history[0].hasPassword).toBe(true);
     expect(parseAccountHistory(JSON.stringify(history))[0].hasPassword).toBe(true);
+  });
+});
+
+describe("login hint for a remembered account", () => {
+  test("Google and Microsoft get the account's email; others get none", () => {
+    expect(oauthLoginHint("google", " lucas@example.com ")).toBe("lucas@example.com");
+    expect(oauthLoginHint("microsoft", "lucas@example.com")).toBe("lucas@example.com");
+    expect(oauthLoginHint("github", "lucas@example.com")).toBeNull();
+    expect(oauthLoginHint("apple", "lucas@example.com")).toBeNull();
+  });
+
+  test("no usable email, no hint", () => {
+    expect(oauthLoginHint("google", null)).toBeNull();
+    expect(oauthLoginHint("google", "  ")).toBeNull();
+    expect(oauthLoginHint("google", "not-an-email")).toBeNull();
   });
 });
