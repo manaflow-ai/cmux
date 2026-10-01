@@ -22,6 +22,9 @@ public final class MobileWorkspaceSnapshotStore {
         private var knownKeys: Set<String>?
         private var savedAtByKey: [String: Date] = [:]
         private var latestRevisionByKey: [String: UInt64] = [:]
+        // A forced removal advances this generation so an encode that started
+        // before the removal cannot recreate the deleted row when it finishes.
+        private var generationByKey: [String: UInt64] = [:]
 
         init(defaults: DefaultsBox, maxAge: TimeInterval, maxRecords: Int) {
             self.defaults = defaults
@@ -89,8 +92,10 @@ public final class MobileWorkspaceSnapshotStore {
             key: String,
             savedAt: Date,
             revision: UInt64,
+            generation: UInt64,
             namespace: String
         ) {
+            guard generation == (generationByKey[key] ?? 0) else { return }
             if let latest = latestRevisionByKey[key], revision < latest { return }
             latestRevisionByKey[key] = revision
             defaults.value.set(data, forKey: key)
@@ -105,6 +110,7 @@ public final class MobileWorkspaceSnapshotStore {
 
         func remove(key: String, revision: UInt64, force: Bool) {
             if force {
+                generationByKey[key] = (generationByKey[key] ?? 0) &+ 1
                 latestRevisionByKey[key] = (latestRevisionByKey[key] ?? revision) &+ 1
             } else {
                 if let latest = latestRevisionByKey[key], revision < latest { return }
@@ -327,6 +333,10 @@ public final class MobileWorkspaceSnapshotStore {
     private let maxAge: TimeInterval = 7 * 24 * 60 * 60
     private let maxRecords = 64
     private let maxRecordBytes = 512 * 1024
+    // This is MainActor-owned so a save captures its generation before its
+    // detached encode can suspend. A later forced removal advances the token
+    // synchronously and invalidates that already-started save.
+    private var generationByKey: [String: UInt64] = [:]
     private let persistence: Persistence
 
     public init(defaults: UserDefaults = .standard) {
@@ -351,7 +361,7 @@ public final class MobileWorkspaceSnapshotStore {
             groups: state.groups.map(Group.init),
             workspaceGroupsAreAuthoritative: state.workspaceGroupsAreAuthoritative
         )
-        return try? JSONEncoder().encode(record)
+            return try? JSONEncoder().encode(record)
     }
 
     public func load(
@@ -411,6 +421,7 @@ public final class MobileWorkspaceSnapshotStore {
         revision: UInt64 = 0
     ) async {
         let storageKey = key(userID: userID, teamID: teamID, pairing: pairing)
+        let generation = generationByKey[storageKey] ?? 0
         // An authoritative empty list is a deletion, not a reason to retain
         // the previous preview. Otherwise a closed workspace would reappear
         // on the next launch until the snapshot TTL expired.
@@ -441,6 +452,7 @@ public final class MobileWorkspaceSnapshotStore {
             key: storageKey,
             savedAt: savedAt,
             revision: revision,
+            generation: generation,
             namespace: namespace
         )
     }
@@ -453,6 +465,9 @@ public final class MobileWorkspaceSnapshotStore {
         force: Bool = false
     ) async {
         let storageKey = key(userID: userID, teamID: teamID, pairing: pairing)
+        if force {
+            generationByKey[storageKey] = (generationByKey[storageKey] ?? 0) &+ 1
+        }
         await persistence.remove(key: storageKey, revision: revision, force: force)
     }
 

@@ -3923,32 +3923,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedPairedMacCacheScope = scope
     }
 
-    /// Restore display-only workspace rows for the current account/team before
-    /// the first live list response. Cached rows are deliberately marked
-    /// reconnecting and non-authoritative, so no action or terminal stream can
-    /// use them until the Mac sends a fresh authenticated snapshot.
-    private func restoreWorkspaceSnapshots(
-        for macs: [MobilePairedMac],
-        scope: MobileShellScopeSnapshot
-    ) {
-        guard let workspaceSnapshotStore else { return }
-        var changed = false
-        for mac in macs {
-            let key = MacPairingKey(mac)
-            guard workspacesByMac[key]?.status != .connected,
-                  let cached = workspaceSnapshotStore.load(
-                      userID: scope.userID,
-                      teamID: scope.teamID,
-                      pairing: key
-                  ) else { continue }
-            workspacesByMac[key] = cached
-            changed = true
-        }
-        if changed {
-            recomputeDerivedWorkspaceState()
-        }
-    }
-
     /// Restore all scoped display snapshots before the paired-Mac SQLite read.
     /// The snapshot store carries the account/team scope in each value, so an
     /// early render cannot leak rows from another signed-in identity. The live
@@ -4760,7 +4734,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         pairedMacs = visibleLoaded
         reconcileWorkspaceSnapshots(with: visibleLoaded)
-        restoreWorkspaceSnapshots(for: visibleLoaded, scope: scope)
         recordAppEvent(
             .pairedMacStoreReadSucceeded,
             startedAt: startedAt,

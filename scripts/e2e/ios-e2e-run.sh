@@ -471,11 +471,6 @@ if ! input_ready; then
   sleep 1
   input_ready || fail "terminal input never recovered after relaunch"
 fi
-RESUME_SECONDS="$(/usr/bin/python3 - "$FOREGROUND_STARTED" <<'PY'
-import sys, time
-print(f"{time.monotonic() - float(sys.argv[1]):.6f}")
-PY
-)"
 APP_FOREGROUND_SECONDS=""
 APP_FOREGROUND_SECONDS_JSON="null"
 if [[ -n "$SURFACE_ID" ]]; then
@@ -487,6 +482,11 @@ fi
 MARK_RESUME="E2ERESUME$(date +%s)"
 type_line "echo $MARK_RESUME"
 wait_mac_output "$MARK_RESUME"
+RESUME_SECONDS="$(/usr/bin/python3 - "$FOREGROUND_STARTED" <<'PY'
+import sys, time
+print(f"{time.monotonic() - float(sys.argv[1]):.6f}")
+PY
+)"
 printf '{"background_seconds":%s,"resume_to_mac_input_seconds":%s,"app_foreground_to_terminal_ready_seconds":%s,"background_started_monotonic":%s}\n' \
   "$BACKGROUND_SECONDS" "$RESUME_SECONDS" "$APP_FOREGROUND_SECONDS_JSON" "$BACKGROUND_STARTED" > "$EVIDENCE_DIR/background.json"
 if (( BACKGROUND_SECONDS >= 120 )) && [[ -n "$APP_FOREGROUND_SECONDS" ]]; then
