@@ -64,12 +64,8 @@ struct PaneResizeShortcutTests {
             #expect(await AppKitTestEventPump().waitUntil(timeout: .seconds(3)) {
                 workspace.tmuxLayoutSnapshot?.panes.count == 2
             })
-<<<<<<< HEAD
             let controller = workspace.bonsplitController
             let split = try rootSplit(controller)
-=======
-            let controller = workspace.bonsplitController; let split = try rootSplit(controller)
->>>>>>> 8a5b39c4ab1593a9320891e6506d3cf44fb92beb
             #expect(controller.setDividerPosition(0.5, forSplit: try #require(UUID(uuidString: split.id))))
             workspace.didProgrammaticallyChangeSplitGeometry()
 
