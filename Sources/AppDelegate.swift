@@ -1773,12 +1773,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
 #if DEBUG
         // UI tests run on a shared VM user profile, so persisted shortcuts can drift and make
-        // key-equivalent routing flaky. Force defaults for deterministic tests. The same
-        // profile carries the last closed window's frame, which sizes the launch window.
+        // key-equivalent routing flaky. Force defaults for deterministic tests. App-host test
+        // processes already start from their own empty domain (TestProcessDefaults).
         if isRunningUnderXCTest {
             SystemWideHotkeySettings.reset()
             KeyboardShortcutSettings.resetAll()
-            Self.forgetPersistedWindowGeometryForTestProcess()
+            if TestProcessDefaults.isolatedDomainName == nil {
+                Self.forgetPersistedWindowGeometryForTestProcess()
+            }
         }
 #endif
 
@@ -3858,23 +3860,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         defaults: UserDefaults = .standard
     ) {
         legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObjectIfPresent(forKey: $0) }
-    }
-
-    /// Forgets the last closed main window's frame so a test process opens its
-    /// first window at the default size.
-    ///
-    /// Every main-window close writes its frame to the app's standard
-    /// defaults, and the launch window and any window created without a source
-    /// window read it back. App-host test processes on one machine share that
-    /// domain, so without this reset a process inherits whatever window an
-    /// earlier process closed last, often a 320-point fixture. Every later
-    /// `createMainWindow()` copies that launch window, and split admission then
-    /// refuses side-by-side splits (#15392).
-    nonisolated static func forgetPersistedWindowGeometryForTestProcess(
-        defaults: UserDefaults = .standard
-    ) {
-        removeLegacyPersistedWindowGeometry(defaults: defaults)
-        defaults.removeObjectIfPresent(forKey: persistedWindowGeometryDefaultsKey)
     }
 
     private func persistWindowGeometry(from window: NSWindow?) {
@@ -15719,46 +15704,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Workspace navigation: Cmd+Ctrl+] / Cmd+Ctrl+[
         if matchConfiguredShortcut(event: event, action: .nextSidebarTab) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
 #if DEBUG
-            let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+            let selected = routedManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             cmuxDebugLog(
                 "ws.shortcut dir=next repeat=\(event.isARepeat ? 1 : 0) keyCode=\(event.keyCode) selected=\(selected)"
             )
 #endif
-            tabManager?.selectNextTab()
+            routedManager?.selectNextTab()
             return true
         }
 
         if matchConfiguredShortcut(event: event, action: .prevSidebarTab) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
 #if DEBUG
-            let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+            let selected = routedManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             cmuxDebugLog(
                 "ws.shortcut dir=prev repeat=\(event.isARepeat ? 1 : 0) keyCode=\(event.keyCode) selected=\(selected)"
             )
 #endif
-            tabManager?.selectPreviousTab()
+            routedManager?.selectPreviousTab()
             return true
         }
 
         if matchConfiguredShortcut(event: event, action: .nextSidebarTabInGroup) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
 #if DEBUG
-            let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+            let selected = routedManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             cmuxDebugLog(
                 "ws.shortcut dir=next scope=group repeat=\(event.isARepeat ? 1 : 0) keyCode=\(event.keyCode) selected=\(selected)"
             )
 #endif
-            tabManager?.selectNextTab(scope: .focusedGroupMembers)
+            routedManager?.selectNextTab(scope: .focusedGroupMembers)
             return true
         }
 
         if matchConfiguredShortcut(event: event, action: .prevSidebarTabInGroup) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
 #if DEBUG
-            let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+            let selected = routedManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             cmuxDebugLog(
                 "ws.shortcut dir=prev scope=group repeat=\(event.isARepeat ? 1 : 0) keyCode=\(event.keyCode) selected=\(selected)"
             )
 #endif
-            tabManager?.selectPreviousTab(scope: .focusedGroupMembers)
+            routedManager?.selectPreviousTab(scope: .focusedGroupMembers)
             return true
         }
 
@@ -15841,7 +15830,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // The Close Tab shortcut must close the focused panel even if first-responder
         // momentarily lags on a browser NSTextView during split focus transitions.
         if matchConfiguredShortcut(event: event, action: .closeTab) {
-            let panels = allBrowserPanelsForInspectorWindowClose()
+            let panels = allLiveBrowserPanels()
             if closeDetachedInspectorWindowForCloseShortcut(event: event, panels: panels) {
                 return true
             }
@@ -19476,11 +19465,6 @@ extension AppDelegate {
     }
 }
 
-extension AppDelegate {
-    func browserPanelsForInspectorFocusHandoff() -> [BrowserPanel] {
-        allBrowserPanelsForInspectorWindowClose()
-    }
-}
 private extension NSWindow {
     static func cmuxCommandPaletteOwnsFieldEditor(_ textView: NSTextView?, in window: NSWindow) -> Bool {
         guard let textView,

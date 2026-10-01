@@ -808,13 +808,10 @@ function pinnedFetch(pin: ProviderPin): typeof fetch {
       });
       outgoing.on("error", reject);
       if (body) {
-        // Read the web stream directly. Bun 1.3 can surface a stream error
-        // from Readable.fromWeb as an unhandled error even when pipeline's
-        // callback receives it, leaving the test runner and request hanging.
-        void writeRequestBody(body, outgoing, reject).catch((error) => {
-          outgoing.destroy(error instanceof Error ? error : new Error(String(error)));
-          reject(error);
-        });
+        // Read the Web stream directly. Bun 1.3's Readable.fromWeb adapter can
+        // surface a body error outside pipeline's callback, leaving the test
+        // process with an unhandled rejection and the upstream request open.
+        void writeWebRequestBody(body, outgoing, init.signal ?? undefined).catch(reject);
       } else {
         outgoing.end();
       }
@@ -822,58 +819,60 @@ function pinnedFetch(pin: ProviderPin): typeof fetch {
   }) as typeof fetch;
 }
 
-async function writeRequestBody(
+async function writeWebRequestBody(
   body: ReadableStream<Uint8Array>,
   outgoing: ClientRequest,
-  reject: (reason?: unknown) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
-  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
-  const cancelBody = (reason: unknown) => {
-    if (reader) void reader.cancel(reason).catch(() => {});
+  const reader = body.getReader();
+  let closeError: Error | undefined;
+  const cancel = (reason: unknown) => {
+    const error = reason instanceof Error ? reason : new Error(String(reason));
+    closeError ??= error;
+    void reader.cancel(reason).catch(() => undefined);
   };
-  const onOutgoingError = (error: Error) => cancelBody(error);
-  outgoing.once("error", onOutgoingError);
+  const onAbort = () => {
+    const reason = signal?.reason ?? new DOMException("The request was aborted", "AbortError");
+    cancel(reason);
+    outgoing.destroy(closeError);
+  };
+  const onClose = () => {
+    if (!outgoing.writableEnded) cancel(new Error("Upstream request closed during upload"));
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
+  outgoing.once("close", onClose);
   try {
-    reader = body.getReader();
     while (true) {
       const { done, value } = await reader.read();
       if (done) {
+        if (closeError) throw closeError;
         outgoing.end();
         return;
       }
-      if (!outgoing.write(value)) await waitForRequestDrain(outgoing);
+      if (value?.byteLength && !outgoing.write(value)) {
+        await new Promise<void>((resolve, reject) => {
+          const onDrain = () => { cleanup(); resolve(); };
+          const onError = (error: Error) => { cleanup(); reject(error); };
+          const onClosed = () => { cleanup(); reject(closeError ?? new Error("Upstream request closed")); };
+          const cleanup = () => {
+            outgoing.off("drain", onDrain);
+            outgoing.off("error", onError);
+            outgoing.off("close", onClosed);
+          };
+          outgoing.once("drain", onDrain);
+          outgoing.once("error", onError);
+          outgoing.once("close", onClosed);
+        });
+      }
     }
   } catch (error) {
-    const reason = error instanceof Error ? error : new Error(String(error));
-    outgoing.destroy(reason);
-    reject(reason);
+    outgoing.destroy(error instanceof Error ? error : new Error(String(error)));
+    throw error;
   } finally {
-    outgoing.off("error", onOutgoingError);
-    try {
-      reader?.releaseLock();
-    } catch {
-      // A failed or already-cancelled source is fully closed by the reader.
-    }
+    signal?.removeEventListener("abort", onAbort);
+    outgoing.off("close", onClose);
+    reader.releaseLock();
   }
-}
-
-function waitForRequestDrain(outgoing: ClientRequest): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const cleanup = () => {
-      outgoing.off("drain", onDrain);
-      outgoing.off("error", onError);
-    };
-    const onDrain = () => {
-      cleanup();
-      resolve();
-    };
-    const onError = (error: Error) => {
-      cleanup();
-      reject(error);
-    };
-    outgoing.once("drain", onDrain);
-    outgoing.once("error", onError);
-  });
 }
 
 const BODY_DECODERS: Record<string, () => NodeJS.ReadWriteStream> = {
