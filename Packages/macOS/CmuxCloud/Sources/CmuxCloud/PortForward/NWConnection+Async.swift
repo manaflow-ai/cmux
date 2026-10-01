@@ -26,6 +26,7 @@ extension NWConnection {
         }
     }
 
+    /// The callback payload kept Sendable while crossing the async bridge.
     private struct ReceivedChunk: Sendable {
         let data: Data?
         let isComplete: Bool
@@ -36,6 +37,11 @@ extension NWConnection {
     }
 
     /// Starts the connection on `queue` and returns once it is ready.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     public func startAndWaitUntilReady(queue: DispatchQueue) async throws {
         let outcome = CloudLinkFirstValue<Result<Void, StreamError>>()
         return try await withTaskCancellationHandler {
@@ -66,16 +72,12 @@ extension NWConnection {
 
     /// The next chunk of incoming bytes; `isComplete` marks the peer's end of
     /// stream (the chunk may then be empty).
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     public func receiveChunk(maximumLength: Int = 65_536) async throws -> (data: Data?, isComplete: Bool) {
-        try await receiveChunk(maximumLength: maximumLength, onReceiveRegistered: {})
-    }
-
-    /// The registration callback lets cancellation tests wait for an actual
-    /// pending Network receive instead of racing task startup.
-    func receiveChunk(
-        maximumLength: Int,
-        onReceiveRegistered: @Sendable () -> Void
-    ) async throws -> (data: Data?, isComplete: Bool) {
         let outcome = CloudLinkFirstValue<Result<ReceivedChunk, StreamError>>()
         return try await withTaskCancellationHandler {
             receive(minimumIncompleteLength: 1, maximumLength: maximumLength) { data, _, isComplete, error in
@@ -85,7 +87,6 @@ extension NWConnection {
                     outcome.resolve(.success(ReceivedChunk(data: data, isComplete: isComplete)))
                 }
             }
-            onReceiveRegistered()
             let result = await outcome.result ?? .failure(.cancelled)
             return try result.get().tuple
         } onCancel: {
@@ -95,6 +96,11 @@ extension NWConnection {
 
     /// Exactly `count` bytes, or ``StreamError/endedEarly`` when the peer
     /// closes first.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     public func receiveExactly(_ count: Int) async throws -> [UInt8] {
         let outcome = CloudLinkFirstValue<Result<[UInt8], StreamError>>()
         return try await withTaskCancellationHandler {
@@ -117,6 +123,11 @@ extension NWConnection {
     }
 
     /// Returns once the stack has accepted all of `data`.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     public func sendAll(_ data: Data) async throws {
         let outcome = CloudLinkFirstValue<Result<Void, StreamError>>()
         try await withTaskCancellationHandler {
@@ -135,6 +146,11 @@ extension NWConnection {
     }
 
     /// Half-close: nothing more will be sent; the peer may keep sending.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     public func finishSending() async throws {
         let outcome = CloudLinkFirstValue<Result<Void, StreamError>>()
         try await withTaskCancellationHandler {
