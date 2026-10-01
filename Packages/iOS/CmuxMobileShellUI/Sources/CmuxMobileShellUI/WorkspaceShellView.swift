@@ -135,6 +135,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                     addDevice: showAddDevice
                 )
             )
+            .equatable()
             .frame(
                 minHeight: horizontalSizeClass == .regular
                     ? WorkspaceRootToolbarSizing.controlHeight
@@ -207,6 +208,8 @@ private struct WorkspaceShellRenderPresentation {
 struct WorkspaceShellView: View {
     #if os(iOS) && DEBUG
     @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    /// The Cloud tab's content, supplied by the composition root.
+    @Environment(\.mobileCloudTabContent) private var cloudTabContent
     #endif
     @Bindable var store: CMUXMobileShellStore
     let signOut: @MainActor @Sendable () -> Void
@@ -341,20 +344,7 @@ struct WorkspaceShellView: View {
         )
         #if os(iOS)
         GeometryReader { geometry in
-            Group {
-                if usesCompactStack {
-                    compactScaffold(presentation: presentation)
-                } else {
-                    // Regular-width (iPad): the NavigationSplitView is the one
-                    // navigation hierarchy. Wrapping it in the TabView renders
-                    // the iOS 26 floating tab strip on top of the split
-                    // columns' own toolbars; destinations move into the
-                    // sidebar's bottom bar instead.
-                    workspaceTabContent(
-                        presentation: presentation
-                    )
-                }
-            }
+            primaryScaffold(presentation: presentation)
             .background {
                 NotificationFeedSearchProjectionSync(
                     searchCoordinator: primarySearchCoordinator,
@@ -436,9 +426,9 @@ struct WorkspaceShellView: View {
     }
 
     #if os(iOS)
-    /// The compact (iPhone-style) shell: the primary destinations live in the
-    /// system TabView with the transient search tab.
-    private func compactScaffold(presentation: WorkspaceShellRenderPresentation) -> some View {
+    /// Primary destinations retain their own navigation across tab switches.
+    /// Workspace tabs keep split navigation at regular widths.
+    private func primaryScaffold(presentation: WorkspaceShellRenderPresentation) -> some View {
         MobilePrimaryTabScaffold(
             selection: $selectedPrimaryTab,
             searchCoordinator: primarySearchCoordinator,
@@ -470,6 +460,9 @@ struct WorkspaceShellView: View {
                     }
             }
         } notifications: {
+            if !usesCompactStack {
+                workspaceTabContent(presentation: presentation)
+            } else {
             NavigationStack(path: $notificationNavigationPath) {
                 NotificationFeedStoreView(
                     store: store,
@@ -502,10 +495,15 @@ struct WorkspaceShellView: View {
             .onChange(of: pendingPrimarySearchNotificationNavigationID) { _, _ in
                 consumePendingPrimarySearchNavigation(for: .notifications)
             }
+            }
+        } cloud: {
+            // Supplied by the composition root; the shell owns no Cloud code.
+            cloudTabContent?.makeView()
         } search: {
             primarySearchTabContent(presentation: presentation)
         }
     }
+
     #endif
 
     #if os(iOS)
@@ -903,8 +901,7 @@ struct WorkspaceShellView: View {
     }
 
     private var taskComposerAction: (() -> Void)? {
-        // The task composer creates workspaces through a Mac.
-        guard store.supportsTaskComposer, selectedSSHHostID == nil else { return nil }
+        guard store.supportsTaskComposer else { return nil }
         return openTaskComposer
     }
 
@@ -984,15 +981,12 @@ struct WorkspaceShellView: View {
     #endif
 
     #if os(iOS)
-    /// The split (iPad) sidebar column: one destination surface switched by
-    /// the bottom-bar control, the shared root toolbar on top, and the native
-    /// search field scoped to the visible destination. There is no TabView in
-    /// this hierarchy, so no floating tab strip can overlap the column
-    /// toolbars.
+    /// The workspace tab's split sidebar. Top-level destination navigation is
+    /// provided by the system tab bar; this sidebar owns workspace search and
+    /// the Mac picker.
     private func splitSidebar(presentation: WorkspaceShellRenderPresentation) -> some View {
         let selectedMacDeviceIDs = presentation.selectedNotificationFeedMacDeviceIDs
         let notificationItems = presentation.notificationFeedItems
-        let unreadCount = presentation.notificationUnreadCount
         return Group {
             switch splitSidebarDestination {
             case .feed:
@@ -1005,7 +999,12 @@ struct WorkspaceShellView: View {
                     projection: notificationFeedProjection,
                     selectedMacDeviceIDs: selectedMacDeviceIDs
                 )
-            case .workspaces, .search:
+            case .cloud where cloudTabContent != nil:
+                // The sidebar column already owns a navigation container and
+                // the destination bar, so Cloud renders inside it rather than
+                // bringing a stack of its own.
+                cloudTabContent?.makeEmbeddedView()
+            case .workspaces, .cloud, .search:
                 workspaceList(
                     navigationStyle: .sidebar,
                     searchText: primarySearchCoordinator.searchDestinationText(for: .workspaces),
@@ -1015,7 +1014,9 @@ struct WorkspaceShellView: View {
             }
         }
         .toolbar {
-            if splitSidebarDestination == .notifications || splitSidebarDestination == .feed {
+            if splitSidebarDestination == .notifications
+                || splitSidebarDestination == .feed
+                || (splitSidebarDestination == .cloud && cloudTabContent != nil) {
                 ToolbarItem(placement: .topBarTrailing) {
                     // Notifications has no WorkspaceListView toolbar, so the
                     // sidebar owns its trailing control directly in this path.
@@ -1028,9 +1029,6 @@ struct WorkspaceShellView: View {
         }
         .toolbar {
             rootToolbarContent
-        }
-        .toolbar {
-            splitSidebarBottomBar(unreadCount: unreadCount)
         }
         // Keep NavigationSplitView's synthesized control out of the toolbar.
         // The shared custom action is owned by this sidebar while open and by
@@ -1087,7 +1085,10 @@ struct WorkspaceShellView: View {
                 workspacesTitle: L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
                 feedTitle: L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
                 notificationsTitle: notificationsSegmentTitle(unreadCount: unreadCount),
-                showsNotifications: !displaySettings.feedReplacesNotifications
+                showsNotifications: !displaySettings.feedReplacesNotifications,
+                cloudTitle: cloudTabContent == nil
+                    ? nil
+                    : L10n.string("mobile.tabs.cloud", defaultValue: "Cloud")
             )
         }
         if #available(iOS 26.0, *) {
@@ -1115,6 +1116,8 @@ struct WorkspaceShellView: View {
         let feedTitle: String
         let notificationsTitle: String
         let showsNotifications: Bool
+        /// Nil in a build without Cloud, which omits the destination.
+        let cloudTitle: String?
 
         var body: some View {
             HStack(spacing: 0) {
@@ -1133,6 +1136,13 @@ struct WorkspaceShellView: View {
                         .notifications,
                         title: notificationsTitle,
                         accessibilityID: "MobileSplitSidebarNotifications"
+                    )
+                }
+                if let cloudTitle {
+                    destinationButton(
+                        .cloud,
+                        title: cloudTitle,
+                        accessibilityID: "MobileSplitSidebarCloud"
                     )
                 }
             }
@@ -1322,6 +1332,7 @@ struct WorkspaceShellView: View {
             createWorkspace: resolvedCreateWorkspace,
             createWorkspaceInGroup: resolvedCreateWorkspaceInGroup,
             createWorkspaceGroup: resolvedCreateWorkspaceGroup,
+            createWorkspaceOnCloudMachine: { createWorkspaceOnExternalHost(onHost: $0) },
             newWorkspaceComputerTargets: newWorkspaceComputerTargets,
             createWorkspaceOnComputer: { target, kind in
                 createWorkspace(on: target, kind: kind, create: resolvedCreateWorkspace)
@@ -1371,13 +1382,6 @@ struct WorkspaceShellView: View {
             filterState: workspaceListFilterState,
             searchText: searchText
         )
-        #if os(iOS)
-        .sshWorkspaceListPanel(
-            sshWorkspaceListPanel,
-            installingCmuxTUI: !store.sshComputers.installingCmuxTUIHosts.isEmpty,
-            actions: sshWorkspaceListPanelActions
-        )
-        #endif
     }
 
     #if os(iOS)
@@ -1398,16 +1402,12 @@ struct WorkspaceShellView: View {
     /// connection story: reauth and initial restore render their own chrome,
     /// transient degradation renders only this line.
     private var toolbarConnectionStatusLine: WorkspaceConnectionStatusLine? {
-        // An SSH computer reports its own connection, the same way; the Mac
-        // connection's status line would describe a different computer.
-        if selectedSSHHostID != nil {
-            return sshWorkspaceListPanel?.statusLine
-        }
-        return WorkspaceListConnectionChrome(
+        WorkspaceListConnectionChrome(
             hasStore: true,
             connectionRequiresReauth: store.connectionRequiresReauth,
             connectionRecoveryFailed: store.connectionRecoveryFailed,
-            isRecoveringConnection: store.isRecoveringConnection,
+            isRecoveringConnection: store.isRecoveringConnection
+                && store.workspaceListShowsForegroundRecovery,
             isRecoveringWorkspaceList: store.isRecoveringWorkspaceList,
             connectionStatus: listConnectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
@@ -1460,12 +1460,7 @@ struct WorkspaceShellView: View {
             names[mac.id] = mac.resolvedName
         }
         if let buildScope = MobileIOSBuildScope.current() {
-            names = names.mapValues(buildScope.computerDisplayName)
-        }
-        // After the build-scope mapping: the dev tag suffix names a cmux Mac
-        // build, and an SSH host is not one.
-        for host in store.sshComputers.hosts {
-            names[store.sshComputerDeviceID(hostID: host.id)] = host.name
+            names = buildScope.computerDisplayNames(names, isExternalHost: store.externalHostOwnsHost)
         }
 
         let buildLabelsByID = WorkspaceMacBuildLabelResolver().labels(
@@ -1492,9 +1487,10 @@ struct WorkspaceShellView: View {
             agentFeedPendingReplyRequestIDs: store.agentFeedPendingReplyRequestIDs,
             agentFeedPendingTerminalReplyItemIDs: store.agentFeedPendingTerminalReplyItemIDs,
             toolbarMachineSnapshots: toolbarMachineSnapshots,
-            // The shared gate also covers SSH computers and the computer
-            // menu, which the Mac-only selection scope cannot see.
-            canCreateWorkspaceForSelection: canCreateWorkspaceForMacSelection
+            canCreateWorkspaceForSelection: scope.canCreateWorkspace(
+                base: canCreateWorkspace,
+                switchPending: pendingMacSwitchID != nil
+            )
         )
     }
 
@@ -1657,6 +1653,8 @@ struct WorkspaceShellView: View {
             if notificationNavigationPath.last != workspaceID {
                 notificationNavigationPath = [workspaceID]
             }
+        case .cloud:
+            break
         case .search:
             break
         }
@@ -1669,7 +1667,7 @@ struct WorkspaceShellView: View {
     ) -> Bool {
         let previousTab = selectedPrimaryTab
         if (selectedPrimaryTab == .search || primarySearchCoordinator.isPresented),
-           tab.searchScope != nil {
+           tab != .search {
             primarySearchCoordinator.deactivateCurrentSearch()
         }
         beforeSelection()
@@ -1728,6 +1726,7 @@ struct WorkspaceShellView: View {
         case .workspaces: .workspaces
         case .feed: .feed
         case .notifications: .notifications
+        case .cloud: .cloud
         case .search: .search
         }
     }
@@ -1778,11 +1777,6 @@ struct WorkspaceShellView: View {
     /// reference) is what crosses into the `List`-hosting view.
     private var refreshWorkspacesClosure: @Sendable () async -> Void {
         let store = store
-        // An SSH computer's pull-to-refresh is its explicit reconnect (and
-        // relist), which also resumes automatic connects it had paused.
-        if let hostID = selectedSSHHostID {
-            return { await store.openSSHComputer(hostID: hostID) }
-        }
         // Reconnect-or-refresh: when offline, pull-to-refresh re-attempts the saved
         // active Mac or the visible unavailable workspace owner instead of
         // no-opping, so the offline list can recover itself.
@@ -1832,28 +1826,6 @@ struct WorkspaceShellView: View {
         return store.sshComputers.hosts.first?.id
     }
 
-    /// Status and empty state for the selected SSH computer.
-    private var sshWorkspaceListPanel: SSHWorkspaceListPanel? {
-        guard let hostID = selectedSSHHostID,
-              store.sshComputers.host(id: hostID) != nil else { return nil }
-        let deviceID = store.sshComputerDeviceID(hostID: hostID)
-        return SSHWorkspaceListPanel(
-            hostID: hostID,
-            status: store.sshComputers.statusByHost[hostID] ?? .idle,
-            hasWorkspaces: store.workspaces.contains { $0.macDeviceID == deviceID },
-            willAutoConnect: store.sshComputers.canAutoConnect(hostID: hostID)
-        )
-    }
-
-    private var sshWorkspaceListPanelActions: SSHWorkspaceListPanelActions {
-        let store = store
-        return SSHWorkspaceListPanelActions(
-            refresh: { hostID in await store.openSSHComputer(hostID: hostID) },
-            autoConnect: { hostID in store.autoConnectSSHComputer(hostID: hostID) },
-            refreshConnected: { store.sshComputers.refreshConnectedHosts() }
-        )
-    }
-
     @MainActor
     func switchMacFromWorkspacePicker(
         macDeviceID: String,
@@ -1891,7 +1863,6 @@ struct WorkspaceShellView: View {
             notificationFeedItems: store.notificationFeedItems,
             foregroundMacDeviceID: store.connectedMacDeviceID ?? store.activeTicket?.macDeviceID,
             foregroundInstanceTag: store.connectedMacInstanceTag,
-            locallyServedMachineIDs: Set(store.sshComputers.hosts.map { store.sshComputerDeviceID(hostID: $0.id) }),
             aliasesFor: {
                 store.pairedMacAliasIDs(for: $0, instanceTag: $1)
             }
@@ -1934,11 +1905,19 @@ struct WorkspaceShellView: View {
         toggleSidebar: (() -> Void)? = nil,
         showsSidebarToggle: Bool = false
     ) -> some View {
-        WorkspaceDetailContainer(
+        // A Cloud machine's workspace makes its new workspace on that machine,
+        // whether or not a Mac is connected.
+        let externalHostID = workspaceID.flatMap { store.externalHostID(ofWorkspace: $0) }
+        return WorkspaceDetailContainer(
             store: store,
             workspaceID: workspaceID,
-            createWorkspace: createWorkspace,
-            canCreateWorkspace: canCreateWorkspaceForSelection,
+            createWorkspace: externalHostID == nil || workspaceID == nil
+                ? createWorkspace
+                : { [workspaceID] in
+                    if let workspaceID { createWorkspaceOnExternalHost(beside: workspaceID) }
+                },
+            canCreateWorkspace: externalHostID.map { store.externalHostIsConnected($0) }
+                ?? canCreateWorkspaceForSelection,
             renameWorkspace: renameWorkspaceClosure,
             customizeWorkspace: customizeWorkspaceClosure,
             setWorkspaceUnread: setWorkspaceUnreadClosure,
