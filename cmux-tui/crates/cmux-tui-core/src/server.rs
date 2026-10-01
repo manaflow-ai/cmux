@@ -16573,6 +16573,10 @@ mod session_identity_tests;
 mod personal_tests;
 
 #[cfg(test)]
+#[path = "server/sticky_columns_tests.rs"]
+mod sticky_columns_tests;
+
+#[cfg(test)]
 #[path = "server/personal_terminal_tests.rs"]
 mod personal_terminal_tests;
 

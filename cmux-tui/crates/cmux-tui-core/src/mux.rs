@@ -20653,6 +20653,8 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    mod sticky_columns;
+
     use crate::layout::{DEFAULT_VIEWPORT_PANE_WIDTH, VirtualRect};
     use crate::resource::{BrowserPublicId, MachinePublicId, SessionPublicId, TabPublicId};
     use crate::workspace_registry::{
