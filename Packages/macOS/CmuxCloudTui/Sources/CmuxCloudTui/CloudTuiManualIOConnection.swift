@@ -346,6 +346,7 @@ public final class CloudTuiManualIOConnection: @unchecked Sendable {
             }
             if result < 0, errno == EINTR { continue }
             if result < 0, (errno == EAGAIN || errno == EWOULDBLOCK) {
+                compactPendingWritesLocked()
                 resumeWriteSourceLocked()
                 return
             }
