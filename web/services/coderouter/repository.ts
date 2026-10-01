@@ -45,6 +45,11 @@ export class CodeRouterCredentialRace extends Error {
   readonly _tag = "CodeRouterCredentialRace";
 }
 
+/** The persisted VM owner team disagrees with the team requested for token issuance. */
+export class VmOwnerTeamMismatchError extends Error {
+  readonly _tag = "VmOwnerTeamMismatchError";
+}
+
 export function routeTokenHash(token: string): string {
   return createHash("sha256").update(token, "utf8").digest("hex");
 }
@@ -144,7 +149,7 @@ export async function issueVmAuthorizationToken(
     .where(eq(cloudVms.id, vmId))
     .limit(1);
   if (!vm || vm.ownerTeamId !== teamId) {
-    throw new Error("VM owner team does not match CodeRouter team");
+    throw new VmOwnerTeamMismatchError("VM owner team does not match CodeRouter team");
   }
   const expiresAt = new Date(Date.now() + ROUTE_TOKEN_LIFETIME_MS);
   const token = await signVmAuthorization({
