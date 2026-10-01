@@ -1170,12 +1170,30 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Flash the focused pane when requested."
         },
+        "paneFlashDoubleBlink": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": true,
+          "description": "Blink the pane flash twice instead of one short pulse."
+        },
+        "paneFlashOnTyping": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": true,
+          "description": "Flash the pane when terminal typing dismisses its notification."
+        },
+        "paneFlashThemeColor": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": false,
+          "description": "Use the terminal theme foreground for flashes when paneFlashColor is unset. Unread rings remain cmux blue."
+        },
         "paneFlashColor": {
           "x-cmux-scopes": ["global"],
           "$ref": "#/$defs/colorHexOrNull",
           "default": null,
           "descriptionKey": "schemaDescriptions.notifications.paneFlashColor",
-          "description": "Override the pane flash and unread ring color. Null keeps the built-in blue."
+          "description": "Override the pane flash and unread ring color. Null flashes in the terminal theme's foreground and keeps unread rings in the cmux accent."
         },
         "soundWhenFocused": {
           "x-cmux-scopes": ["global"],
@@ -1476,6 +1494,12 @@ enum CmuxEmbeddedConfigSchema {
           "type": "boolean",
           "default": true,
           "description": "Show progress indicators."
+        },
+        "showAgentUsage": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.sidebar.showAgentUsage",
+          "description": "Append coding-agent usage to the Claude Code or Codex status entry: model and context window used, plus for Claude Code an estimated API cost (main thread and subagents) at published Anthropic list prices. The cost is an estimate, not your subscription bill; batch/priority tiers, partner pricing, fast mode and server-tool fees are not modelled."
         },
         "showAgentActivity": {
           "type": "boolean",

@@ -20,6 +20,56 @@ struct RemoteRelayAuthorizationPolicyTests {
         }
     }
 
+    @Test("terminal paste is scoped to one exact remote surface")
+    func terminalPasteScope() {
+        let policy = RemoteRelayAuthorizationPolicy()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        #expect(policy.validate(
+            method: "terminal.paste",
+            parameters: [
+                "workspace_id": workspaceID.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "text": "first line\nsecond line",
+                "submit_key": "return",
+            ],
+            ownerWorkspaceID: workspaceID,
+            surfaceIDs: [surfaceID]
+        ) == .allowed)
+
+        #expect(policy.validate(
+            method: "terminal.paste",
+            parameters: [
+                "workspace_id": workspaceID.uuidString,
+                "surface_id": UUID().uuidString,
+                "text": "nope",
+                "submit_key": "none",
+            ],
+            ownerWorkspaceID: workspaceID,
+            surfaceIDs: [surfaceID]
+        ) == .denied(
+            code: "remote_relay_surface_denied",
+            message: "Relay request targets a surface outside its workspace"
+        ))
+
+        for submitKey in ["enter", "ctrl+enter", ""] {
+            #expect(policy.validate(
+                method: "terminal.paste",
+                parameters: [
+                    "workspace_id": workspaceID.uuidString,
+                    "surface_id": surfaceID.uuidString,
+                    "text": "bounded",
+                    "submit_key": submitKey,
+                ],
+                ownerWorkspaceID: workspaceID,
+                surfaceIDs: [surfaceID]
+            ) == .denied(
+                code: "remote_relay_method_denied",
+                message: "Relay terminal paste requires text and submit_key none|return"
+            ))
+        }
+    }
+
     @Test("tmux surface mutations require exact in-workspace selectors")
     func tmuxSurfaceSelectors() {
         let policy = RemoteRelayAuthorizationPolicy()

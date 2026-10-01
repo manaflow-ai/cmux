@@ -10357,6 +10357,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var lastFlashStyle: FlashStyle = .navigation
     private var workspaceAttentionColor = WorkspaceAttentionColor(configuredHex: nil)
     private var workspaceAttentionNSColor = WorkspaceAttentionColor(configuredHex: nil).nsColor
+    private var workspaceAttentionFlashNSColor = WorkspaceAttentionColor(configuredHex: nil).flashNSColor
     private let keyboardCopyModeBadgeContainerView: GhosttyFlashOverlayView
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
     private let keyboardCopyModeBadgeIconView: NSImageView
@@ -10684,7 +10685,7 @@ final class GhosttySurfaceScrollView: NSView {
         flashOverlayView.layer?.masksToBounds = false
         flashOverlayView.autoresizingMask = [.width, .height]
         let flashStyle = WorkspaceAttentionCoordinator.flashStyle(for: .navigation)
-        let flashColor = WorkspaceAttentionColor(configuredHex: nil).nsColor
+        let flashColor = WorkspaceAttentionColor(configuredHex: nil).flashNSColor
         flashLayer.fillColor = NSColor.clear.cgColor
         flashLayer.strokeColor = flashColor.cgColor
         flashLayer.lineWidth = NotificationRingMetrics.lineWidth
@@ -11577,6 +11578,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func applyWorkspaceAttentionNSColor() {
         workspaceAttentionNSColor = workspaceAttentionColor.nsColor
+        workspaceAttentionFlashNSColor = workspaceAttentionColor.flashNSColor
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -12098,11 +12100,12 @@ final class GhosttySurfaceScrollView: NSView {
         updateFlashAppearance(style: style)
         flashLayer.removeAllAnimations()
         flashLayer.opacity = 0
+        let pattern = FocusFlashPattern.current
         let animation = CAKeyframeAnimation(keyPath: "opacity")
-        animation.values = FocusFlashPattern.values.map { NSNumber(value: $0) }
-        animation.keyTimes = FocusFlashPattern.keyTimes.map { NSNumber(value: $0) }
-        animation.duration = FocusFlashPattern.duration
-        animation.timingFunctions = FocusFlashPattern.curves.map { curve in
+        animation.values = pattern.values.map { NSNumber(value: $0) }
+        animation.keyTimes = pattern.keyTimes.map { NSNumber(value: $0) }
+        animation.duration = pattern.duration
+        animation.timingFunctions = pattern.curves.map { curve in
             switch curve {
             case .easeIn:
                 return CAMediaTimingFunction(name: .easeIn)
@@ -13714,8 +13717,8 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func updateFlashAppearance(style: FlashStyle) {
         let presentation = Self.flashPresentation(for: style)
-        flashLayer.strokeColor = workspaceAttentionNSColor.cgColor
-        flashLayer.shadowColor = workspaceAttentionNSColor.cgColor
+        flashLayer.strokeColor = workspaceAttentionFlashNSColor.cgColor
+        flashLayer.shadowColor = workspaceAttentionFlashNSColor.cgColor
         flashLayer.shadowOpacity = Float(presentation.glowOpacity)
         flashLayer.shadowRadius = presentation.glowRadius
     }
