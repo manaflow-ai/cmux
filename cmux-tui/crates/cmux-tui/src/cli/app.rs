@@ -787,7 +787,7 @@ mod tests {
     fn call(command: AppCommand) -> (&'static str, Value) {
         match command {
             AppCommand::Call { method, params, .. } => (method, params),
-            AppCommand::Events { .. } => panic!("expected a call"),
+            AppCommand::Events { .. } | AppCommand::Screenshot { .. } => panic!("expected a call"),
         }
     }
 
