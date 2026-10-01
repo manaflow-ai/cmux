@@ -183,8 +183,10 @@ struct CloudSidebarNativeDropTests {
         #expect(coordinator.deferredNodes == nil)
         let current = try #require(CloudSidebarOrganizationTree(nodes: coordinator.nodes).parent(of: source.id))
         #expect(current.children.map(\.searchableTitle) == (accepted ? ["fresh-2", "fresh-1"] : ["fresh-1", "fresh-2"]))
-        let indicators = outline.subviews.filter { $0.identifier?.rawValue == "sidebarReorderIndicator" }
-        #expect(indicators.isEmpty)
+        let visibleIndicators = outline.subviews.filter {
+            $0.identifier?.rawValue == "sidebarReorderIndicator" && !$0.isHidden
+        }
+        #expect(visibleIndicators.isEmpty)
         #expect(fixture.provider.moved.isEmpty && fixture.provider.projected.isEmpty)
     }
 

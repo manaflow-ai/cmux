@@ -1601,7 +1601,7 @@ struct GhostMainWindowContextLifecycleTests {
             backing: .buffered,
             defer: false
         )
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
+        window.isReleasedWhenClosed = false; window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
         return window
     }
 
@@ -2285,7 +2285,7 @@ struct FinalCloseRoutingRegressionTests {
             backing: .buffered,
             defer: false
         )
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
+        window.isReleasedWhenClosed = false; window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
         return window
     }
 
@@ -2695,7 +2695,7 @@ struct MainWindowKeyObservationOwnershipTests {
             backing: .buffered,
             defer: false
         )
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
+        window.isReleasedWhenClosed = false; window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
         return window
     }
 
