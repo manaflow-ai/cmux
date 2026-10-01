@@ -338,11 +338,14 @@ struct CloudWorkspaceLiveProjectionTests {
         let state = try graph(["first": "a"], revision: 1)
         var budget = CloudWorkspaceReconcileBudget()
         for version in 0..<UInt64(CloudWorkspaceReconcileBudget.maxPassesPerState) {
-            let admitted = budget.admit(.init(state: state, projectionVersion: version, bindings: [:])); #expect(admitted)
+            let admitted = budget.admit(.init(state: state, projectionVersion: version, bindings: [:]))
+            #expect(admitted)
         }
-        let overBudget = budget.admit(.init(state: state, projectionVersion: 1_000, bindings: [:])); #expect(!overBudget)
+        let exhausted = budget.admit(.init(state: state, projectionVersion: 1_000, bindings: [:]))
+        #expect(!exhausted)
         let next = try graph(["first": "a"], revision: 2)
-        let nextGraphAdmitted = budget.admit(.init(state: next, projectionVersion: 1_000, bindings: [:])); #expect(nextGraphAdmitted, "A new graph starts a new budget")
+        let admittedNextGraph = budget.admit(.init(state: next, projectionVersion: 1_000, bindings: [:]))
+        #expect(admittedNextGraph, "A new graph starts a new budget")
     }
 
     @Test("Lifecycle cancellation is not retained as a projection failure")

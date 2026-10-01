@@ -20,6 +20,13 @@ private let mainActorTestMainQueueSpin: TimeInterval = 0.1
 struct WorkspaceCloseTabsContextMenuTests {
     private let closeWorkspaceOnLastSurfaceKey = "closeWorkspaceOnLastSurfaceShortcut"
 
+    private func drainMainQueueForCloseTest(timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        } while Date() < deadline
+    }
+
     @Test
     func closeOthersClosesAllTargetedTabsWhenEveryPanelNeedsConfirmation() throws {
         try withCleanClosedHistory {
