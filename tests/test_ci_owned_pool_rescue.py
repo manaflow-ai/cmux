@@ -1213,6 +1213,21 @@ class SideLanes(unittest.TestCase):
         self.assertIn("rerun-failed", api.calls)
         self.assertGreaterEqual(clock.seconds, 600)
 
+    def test_a_sibling_on_a_mini_does_not_hide_a_refusal_or_a_held_job(self):
+        running = job("macos / shard 1", status="in_progress", labels=[MINI], runner="mini-2")
+        running["started_at"] = stamp(5)
+        stuck = job("macos / shard 2", labels=[MINI], created=0)
+        late = START + dt.timedelta(seconds=44 + rescue.SETUP_WAIT_SECONDS)
+        look = rescue.assess([running, stuck], now=late, budget_seconds=90)
+        self.assertEqual((look.action, look.waiting), ("watch", True))
+        self.assertIn("running on a persistent runner", look.reason)
+        look = rescue.assess([running, stuck, refused_job("macos / shard 3")], now=late, budget_seconds=90)
+        self.assertEqual(look.action, "refused")
+        closing = late + dt.timedelta(seconds=rescue.END_MARGIN_SECONDS - 1)
+        look = rescue.assess([running, stuck, setup_job()], now=late, budget_seconds=90, deadline=closing)
+        self.assertEqual(look.action, "rescue")
+        self.assertIn("runner setup", look.reason)
+
     def test_a_side_lane_retry_takes_blacksmith(self):
         target = rescue.target_from_event(side_event(), "manaflow-ai/cmux")
         self.assertIn("Blacksmith default", rescue.next_attempt(target))
