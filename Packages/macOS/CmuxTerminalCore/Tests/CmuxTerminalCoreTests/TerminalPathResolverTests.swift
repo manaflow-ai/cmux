@@ -283,6 +283,19 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(reference.column == nil)
     }
 
+    @Test func prefersLiteralPathBeforeInterpretingGitHubLineFragment() throws {
+        let literalPath = "/tmp/report#L42"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([literalPath, "/tmp/report"])).resolveOpenURLFileReference(
+                "report#L42",
+                cwd: "/tmp"
+            )
+        )
+        #expect(reference.path == literalPath)
+        #expect(reference.line == nil)
+        #expect(reference.column == nil)
+    }
+
     @Test func resolvesRelativeLiteralColonPathWhenBasePathIsMissing() throws {
         let literalPath = "/tmp/report:42"
         let reference = try #require(
