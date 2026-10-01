@@ -45,6 +45,19 @@ import Testing
         #expect(attempts.withLock { $0 } == 1)
     }
 
+    @Test func nonRetryableLaunchErrorStopsRetrying() async {
+        let attempts = Mutex(0)
+        let failure = DaemonError.launchRejected(code: "usage.invalid", message: "unknown flag")
+        let result = await DaemonStartup.shared.connect(clock: ImmediateClock()) {
+            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil)) {
+                attempts.withLock { $0 += 1 }
+                throw failure
+            }
+        } onFailure: { _ in }
+        #expect(result == nil)
+        #expect(attempts.withLock { $0 } == 1)
+    }
+
     @Test func cancellationEndsTheLoop() async {
         let task = Task {
             await DaemonStartup.shared.connect(policy: RetryPolicy(initial: .seconds(60), maximum: .seconds(60), timedRetries: 10)) {

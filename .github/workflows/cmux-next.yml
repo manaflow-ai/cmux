@@ -27,8 +27,10 @@ on:
       - scripts/cmux-next/cef-manifest.json
       - scripts/cmux-next/ensure-cef.sh
       - scripts/cmux-next/build-cef-shim.sh
+      - scripts/cmux-next/bundle-cmux-tui.sh
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
+      - tests/test_cmux_next_bundle_requires_pinned_tui.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/download-prebuilt-ghosttykit.sh
       - .github/workflows/cmux-next.yml
@@ -53,8 +55,10 @@ on:
       - scripts/cmux-next/cef-manifest.json
       - scripts/cmux-next/ensure-cef.sh
       - scripts/cmux-next/build-cef-shim.sh
+      - scripts/cmux-next/bundle-cmux-tui.sh
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
+      - tests/test_cmux_next_bundle_requires_pinned_tui.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - .github/workflows/cmux-next.yml
   workflow_dispatch:
@@ -128,6 +132,9 @@ jobs:
       - name: Module resource bundles
         run: scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      - name: Pinned cmux-tui bundle gate
+        run: bash tests/test_cmux_next_bundle_requires_pinned_tui.sh
+
   swift-test:
     if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' }}
     name: cmux-next swift test
@@ -181,11 +188,9 @@ jobs:
       # Control tests use tight request deadlines and run in their own process so
       # they do not compete with the other MainActor-isolated suites.
       # The daemon integration tests use the pinned branch build of cmux-tui
-      # (scripts/cmux-next/cmux-tui.pin) when it is in the checkout, and fall
-      # back to the release client in ~/Library/Caches/cmux/cmux-tui-client.
-      # A mini has that cache (release clients lack the cmux-next daemon
-      # flags) and Blacksmith has none (the suite skipped), so the verdict
-      # depended on the runner. The pinned binary is public and sha256-checked.
+      # (scripts/cmux-next/cmux-tui.pin). The pinned binary is public and
+      # sha256-checked, so the verdict does not depend on a runner's release
+      # client cache.
       - name: Fetch the pinned cmux-tui
         timeout-minutes: 5
         run: scripts/cmux-next/pin-cmux-tui.sh fetch

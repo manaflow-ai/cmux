@@ -37,7 +37,7 @@ public struct DaemonStartup: Sendable {
     /// Errors no retry can fix: the binary or daemon is wrong.
     public func isPermanent(_ error: DaemonError) -> Bool {
         switch error {
-        case .binaryNotFound, .wrongApp, .unsupportedProtocol, .missingCapabilities, .invalidSessionName, .endpointBlocked: true
+        case .binaryNotFound, .launchRejected, .wrongApp, .unsupportedProtocol, .missingCapabilities, .invalidSessionName, .endpointBlocked: true
         default: false
         }
     }

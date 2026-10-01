@@ -357,7 +357,7 @@ public actor DaemonConnection {
                 break
             } catch let error as DaemonError {
                 switch error {
-                case .wrongApp, .unsupportedProtocol, .missingCapabilities:
+                case .launchRejected, .wrongApp, .unsupportedProtocol, .missingCapabilities:
                     // Incompatible daemon: retrying cannot help.
                     logger.error("cmux-tui reconnect failed permanently: \(error.description, privacy: .public)")
                     reconnectTask = nil
