@@ -17,6 +17,10 @@ import { cloudDb } from "../../db/client";
 import { runWithCloudDbQuerySignal } from "../../db/queryScope";
 import { coderouterClaudeAccounts } from "../../db/schema";
 import {
+  buildCooldownWriteExpressions,
+  NON_TRANSIENT_FAILURE_CODES,
+} from "./cooldownWrite";
+import {
   decryptSecretEnvelope,
   encryptSecretEnvelope,
   type CredentialKeyService,
@@ -452,9 +456,6 @@ function retryAfter(eligible: readonly ClaudeAccountRow[], at: Date): number {
   return Math.max(1, soonest ?? DEFAULT_EXHAUSTED_RETRY_SECONDS);
 }
 
-/** A revoked or unauthorized credential needs a human, not a wait. */
-const NON_TRANSIENT_FAILURE_CODES = new Set(["invalid_credential"]);
-
 function capacityRetryAfter(eligible: readonly ClaudeAccountRow[], at: Date): number | null {
   let soonest: number | null = null;
   for (const row of eligible) {
@@ -672,20 +673,15 @@ const drizzleStore: ClaudeAccountStore = {
     return deleted.length;
   },
   async markCooldown(accountId, until, failureCode, signal) {
-    const cooldownUntilIso = until.toISOString();
     await runWithCloudDbQuerySignal(signal, () => cloudDb()
       .update(coderouterClaudeAccounts)
       .set({
-        // A late provider error must never shorten a longer cooldown already
-        // recorded by another request. Keep the database value authoritative so
-        // every web instance avoids a capacity-hit account consistently.
-        cooldownUntil: sql`GREATEST(COALESCE(${coderouterClaudeAccounts.cooldownUntil}, ${cooldownUntilIso}::timestamptz), ${cooldownUntilIso}::timestamptz)`,
-        lastFailureCode: sql`CASE
-          WHEN ${coderouterClaudeAccounts.cooldownUntil} IS NULL
-            OR ${cooldownUntilIso}::timestamptz > ${coderouterClaudeAccounts.cooldownUntil}
-          THEN ${failureCode}
-          ELSE ${coderouterClaudeAccounts.lastFailureCode}
-        END`,
+        ...buildCooldownWriteExpressions(
+          coderouterClaudeAccounts.cooldownUntil,
+          coderouterClaudeAccounts.lastFailureCode,
+          until,
+          failureCode,
+        ),
         updatedAt: new Date(),
       })
       .where(eq(coderouterClaudeAccounts.id, accountId)));

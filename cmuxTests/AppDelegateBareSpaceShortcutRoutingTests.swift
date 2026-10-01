@@ -186,6 +186,61 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(window.frame.height, savedFrame.height, accuracy: 1)
     }
 
+    /// App-host test processes share the app's standard defaults, so a
+    /// 320-point fixture closed by an earlier process used to size this
+    /// process's launch window, and every window copied from it was too narrow
+    /// for a side-by-side split. The test-process reset must restore the
+    /// default size.
+    func testTestProcessResetIgnoresWindowGeometryPersistedByEarlierProcess() throws {
+        let previousShared = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousShared }
+
+        let defaults = UserDefaults.standard
+        let persistedGeometryKey = AppDelegate.debugPersistedWindowGeometryDefaultsKey
+        let previousPersistedGeometry = defaults.object(forKey: persistedGeometryKey)
+        var windowId: UUID?
+        defer {
+            if let windowId {
+                closeWindow(withId: windowId)
+            }
+            restoreDefaultsValue(
+                previousPersistedGeometry,
+                forKey: persistedGeometryKey,
+                defaults: defaults
+            )
+        }
+
+        let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
+        let fixtureFrame = CGRect(
+            x: screen.visibleFrame.minX,
+            y: screen.visibleFrame.minY,
+            width: 320,
+            height: 268
+        )
+        let payload = AppDelegate.PersistedWindowGeometry(
+            version: AppDelegate.persistedWindowGeometrySchemaVersion,
+            frame: SessionRectSnapshot(fixtureFrame),
+            display: SessionDisplaySnapshot(
+                displayID: screen.cmuxDisplayID,
+                frame: SessionRectSnapshot(screen.frame),
+                visibleFrame: SessionRectSnapshot(screen.visibleFrame)
+            )
+        )
+        defaults.set(try JSONEncoder().encode(payload), forKey: persistedGeometryKey)
+
+        AppDelegate.forgetPersistedWindowGeometryForTestProcess()
+
+        let createdWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
+        windowId = createdWindowId
+        let window = try XCTUnwrap(window(withId: createdWindowId))
+        let styleMask = window.styleMask
+        let expectedContentSize = CmuxMainWindow.defaultContentRect(styleMask: styleMask).size
+        let contentSize = window.contentRect(forFrameRect: window.frame).size
+        XCTAssertEqual(contentSize.width, expectedContentSize.width, accuracy: 1)
+        XCTAssertEqual(contentSize.height, expectedContentSize.height, accuracy: 1)
+    }
+
     private func makeKeyDownEvent(
         key: String,
         keyCode: UInt16,

@@ -353,24 +353,26 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "pregled",
-      "team": "tim",
-      "mobileDevices": "Mobilni uređaji"
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Pregled",
+      "team": "Tim",
+      "mobileDevices": "Mobilni uređaji",
+      "settings": "Postavke",
+      "teams": "Timovi"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "Usmjeravajte LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji.",
-      "coderouterLink": "otvori coderouter",
+      "coderouterLink": "Otvori coderouter",
       "iosAppName": "iOS aplikacija",
       "iosAppDescription": "Instalirajte cmux iOS aplikaciju putem TestFlight-a (beta pristup).",
       "iosLink": "Otvori iOS aplikaciju"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Upravljajte zajedničkim AI računima i usmjeravajte zahtjeve pomoću coderoutera.",
-      "title": "coderouter",
-      "description": "coderouter usmjerava LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji.",
+      "title": "Coderouter",
+      "description": "Coderouter usmjerava LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji.",
       "machines": {
         "title": "Mašine",
         "description": "Korištenje coderoutera po mašini za {team} u posljednjih {days} dana.",
@@ -381,6 +383,20 @@
         "empty": "Nijedna mašina nije koristila coderouter u posljednjih {days} dana.",
         "unavailable": "Korištenje po mašini trenutno nije dostupno.",
         "estimateNote": "API ekvivalentna vrijednost je procjena na osnovu javnih cjenovnika, a ne stvarni trošak."
+      },
+      "metrics": {
+        "title": "Korištenje u 30 dana",
+        "scope": "Zbirno za tim {team}",
+        "period": "Posljednjih {days} dana",
+        "inputTokens": "Ulazni tokeni",
+        "outputTokens": "Izlazni tokeni",
+        "tokens": "Ukupno tokena",
+        "apiEquivalent": "API ekvivalentna vrijednost",
+        "unpriced": "{share} ovih tokena potiče od modela bez javne cijene i nije uključeno u tu vrijednost.",
+        "chartLabel": "Dnevno korištenje CodeRouter tokena",
+        "privacy": "Promptovi, izlazi, oznake računa i identiteti članova se ne bilježe niti prikazuju.",
+        "estimate": "API ekvivalentna vrijednost je iznos koji bi ovi tokeni koštali po javnim API cijenama (cjenovnik {version}). To nije iznos koji ste platili.",
+        "unavailable": "Korištenje tima je privremeno nedostupno."
       }
     },
     "accountMenu": {
@@ -391,14 +407,140 @@
       "signingOut": "Odjava…",
       "signOutError": "Odjava nije uspjela. Pokušajte ponovo.",
       "organizationSwitchError": "Nije moguće promijeniti organizaciju. Pokušajte ponovo.",
-      "signIn": "Prijavi se"
+      "signIn": "Prijavi se",
+      "upgrade": "Nadogradi"
     },
     "billing": {
       "plan": {
         "heading": "Vaš lični plan",
         "free": "Besplatno",
-        "pro": "Pro",
-        "loading": "Učitavanje…"
+        "pro": "Pro"
+      },
+      "teamPanel": {
+        "notFound": "Ovaj tim nije dostupan. Možda ste ga napustili ili je izbrisan.",
+        "unavailable": "Naplatu tima nije moguće učitati. Pokušajte ponovo uskoro.",
+        "welcome": "Team je aktivan. Pozovite saradnike sa stranice članova tima.",
+        "freeBody": "{team} koristi besplatni plan. Team svakom članu daje cloud agente uz jedan zajednički račun.",
+        "upgradeCta": "Nadogradi ovaj tim",
+        "askAdmin": "Naplatu mogu mijenjati samo administratori tima. Zamolite administratora tima {team} da ga nadogradi.",
+        "memberReadOnly": "Ovaj plan mogu mijenjati samo administratori tima.",
+        "grantedBody": "Tim cmux je timu {team} dodijelio pristup Team planu. Nema pretplate kojom treba upravljati.",
+        "seatsUsed": "Iskorišteno {members} od {seats}",
+        "overSeat": "{team}: članova {members}, plaćenih mjesta {seats}. Pridruživanje i dalje radi; dodajte mjesta da pokrijete sve.",
+        "addSeats": "Dodaj mjesta"
+      },
+      "teamList": {
+        "heading": "Opsezi naplate",
+        "personal": "Lični račun",
+        "planBadges": {
+          "free": "Besplatno",
+          "team": "Team",
+          "pro": "Pro",
+          "max": "Max",
+          "founders": "Founders"
+        }
+      },
+      "banners": {
+        "team_admin_required": "Naplatom ovog tima mogu upravljati samo njegovi administratori.",
+        "team_not_found": "Taj tim nije dostupan. Možda ste ga napustili ili je izbrisan.",
+        "authorization_unavailable": "Nije moguće provjeriti dozvole tima. Pokušajte ponovo uskoro.",
+        "personal_team_not_upgradable_to_team": "Vaš lični račun koristi Pro ili Max. Kreirajte tim da kupite Team."
+      },
+      "team": {
+        "createCta": "Kreiraj tim"
+      },
+      "title": "Plan i naplata",
+      "picker": {
+        "current": "Trenutni plan",
+        "upgradeTo": "Nadogradi na {plan}",
+        "switchTo": "Pređi na {plan}",
+        "cancelPlan": "Otkaži plan",
+        "resume": "Nastavi {plan}",
+        "renewsOn": "Obnavlja se {date}",
+        "endsOn": "Završava se {date}",
+        "perMonth": "mjesečno",
+        "perSeatMonth": "po mjestu mjesečno",
+        "paymentMethod": "Upravljaj načinom plaćanja",
+        "invoices": "Fakture",
+        "heading": "Planovi",
+        "actionError": "Plan nije moguće promijeniti. Pokušajte ponovo.",
+        "unavailable": {
+          "cancelScheduled": "Nastavite plan da biste ga promijenili.",
+          "granted": "Dodijelio cmux. Nema šta da se mijenja.",
+          "adminOnly": "Samo administratori tima mogu promijeniti plan."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "Kompletan cmux terminal za macOS",
+            "Bilo koji CLI agent s vašim ključevima",
+            "Lokalna historija sesija"
+          ],
+          "go": [
+            "1 aktivna Cloud VM",
+            "40 VM sati mjesečno",
+            "2 sačuvane VM"
+          ],
+          "pro": [
+            "Cloud agenti na Cloud VMs",
+            "24 GB RAM-a i 6 vCPU-a dijeljeno među VM-ovima",
+            "cmux aplikacija za iOS"
+          ],
+          "max": [
+            "64 GB RAM-a i 16 vCPU-a dijeljeno među VM-ovima",
+            "Veće mašine",
+            "Sve iz Pro"
+          ],
+          "team": [
+            "Sve iz Pro za svakog člana",
+            "Jedna faktura za cijeli tim",
+            "Prioritetna podrška"
+          ]
+        },
+        "billedAnnually": "naplaćuje se godišnje"
+      },
+      "change": {
+        "title": "Preći na {plan}?",
+        "upgradeBody": "{plan} počinje odmah. Danas plaćate {amount} za ostatak ovog obračunskog perioda. Od {date} plaćate {price} mjesečno.",
+        "downgradeBody": "{plan} počinje odmah. Neiskorišteni dio trenutnog plana, {credit}, uračunava se u sljedeće fakture. Sljedeća faktura, {date}, iznosi {amount}.",
+        "confirm": "Pređi na {plan}",
+        "keep": "Zadrži trenutni plan",
+        "switching": "Prelazak…",
+        "previewError": "Cijenu nije moguće izračunati. Pokušajte ponovo.",
+        "paymentFailed": "Kartica je odbijena. Ažurirajte način plaćanja pa pokušajte ponovo.",
+        "error": "Plan nije moguće promijeniti. Pokušajte ponovo."
+      },
+      "cancelDialog": {
+        "title": "Otkazati {plan}?",
+        "body": "{plan} zadržavate do {date}. Nakon toga gubite:",
+        "bodyNoDate": "{plan} zadržavate do kraja ovog obračunskog perioda. Nakon toga gubite:",
+        "reasonLabel": "Zašto otkazujete? (opcionalno)",
+        "otherPlaceholder": "Recite nam više (opcionalno)",
+        "confirm": "Otkaži plan",
+        "keep": "Zadrži {plan}",
+        "error": "Plan nije moguće otkazati. Pokušajte ponovo.",
+        "resumeError": "Plan nije moguće nastaviti. Pokušajte ponovo.",
+        "reasons": {
+          "too_expensive": "Preskupo",
+          "missing_feature": "Nedostaje funkcija koja mi treba",
+          "not_using": "Ne koristim dovoljno",
+          "other": "Drugo"
+        }
+      },
+      "welcome": {
+        "title": "Dobro došli u {plan}",
+        "body": "Vaš plan je aktivan. Isprobajte prvo:",
+        "ios": "Instalirajte iOS aplikaciju",
+        "cloud": "Otvorite Cloud",
+        "team": "Kreirajte tim",
+        "banner": "Sada koristite {plan}.",
+        "bannerLink": "Plan i naplata"
       }
     },
     "mobileDevices": {
@@ -409,7 +551,6 @@
       "loading": "Učitavanje uređaja…",
       "empty": "Nema registrovanih uređaja za ovaj tim.",
       "unavailable": "Uređaji se ne mogu učitati. Osvježite stranicu i pokušajte ponovo.",
-      "retry": "Pokušaj ponovo",
       "mutationError": "Promjena uređaja nije završena.",
       "revoke": "Opozovi pristup",
       "deviceId": "Uređaj",
@@ -420,7 +561,7 @@
       "relaySettings": "Postavke releja",
       "relaySettingsDescription": "Odaberite relejne servere koje koristi ovaj tim. Unesite jedan URL po redu.",
       "saveRelaySettings": "Sačuvaj postavke releja",
-      "eyebrow": "oblak / uređaji",
+      "eyebrow": "Oblak / uređaji",
       "scopeActive": "Prikazan je ovaj tim",
       "emptyTitle": "Još nema povezanih uređaja",
       "emptyDescription": "Kada se cmux uređaj upari s ovim timom, ovdje će se prikazati njegova platforma, verzija i kontrole pristupa.",
@@ -429,6 +570,516 @@
       "activeDevices": "Aktivni uređaji",
       "directoryRevision": "Revizija direktorija",
       "savingRelaySettings": "Spremanje…"
+    },
+    "settings": {
+      "nav": {
+        "title": "Postavke",
+        "profile": "Profil",
+        "auth": "E-pošta i prijava",
+        "notifications": "Obavještenja",
+        "sessions": "Sesije",
+        "apiKeys": "API ključevi",
+        "account": "Račun",
+        "billing": "Naplata",
+        "teamsGroup": "Timovi",
+        "createTeam": "Kreiraj tim",
+        "accountGroup": "Račun",
+        "billingGroup": "Naplata",
+        "planBilling": "Plan i naplata"
+      },
+      "ui": {
+        "save": "Sačuvaj",
+        "saving": "Čuvanje…",
+        "cancel": "Otkaži",
+        "editLabel": "Uredi: {label}",
+        "required": "Ovo polje je obavezno.",
+        "saveError": "Čuvanje nije uspjelo. Pokušajte ponovo.",
+        "actionError": "Nešto nije u redu. Pokušajte ponovo.",
+        "working": "Obrada…",
+        "typeToConfirm": "Upišite {text} za potvrdu",
+        "imageSaveError": "Slika nije sačuvana. Pokušajte ponovo.",
+        "invalidImage": "Odaberite ispravnu datoteku slike.",
+        "uploadImage": "Otpremi sliku",
+        "removeImage": "Ukloni sliku",
+        "zoom": "Zumiranje"
+      },
+      "profile": {
+        "title": "Profil",
+        "description": "Vaše ime i avatar.",
+        "displayNameTitle": "Prikazno ime",
+        "displayNameDescription": "Prikazuje se članovima tima. Ne koristi se za prijavu.",
+        "displayNameEmpty": "Nije postavljeno",
+        "imageTitle": "Profilna slika",
+        "imageDescription": "Otpremite sliku koju ćete koristiti kao avatar.",
+        "imageUpload": "Promijeni profilnu sliku"
+      },
+      "auth": {
+        "title": "E-pošta i prijava",
+        "description": "Adrese e-pošte, načini prijave i višefaktorska autentifikacija.",
+        "emails": {
+          "title": "Adrese e-pošte",
+          "description": "Potvrđene adrese mogu biti vaša primarna kontakt adresa i mogu se koristiti za prijavu.",
+          "add": "Dodaj e-poštu",
+          "addSubmit": "Dodaj",
+          "adding": "Dodavanje…",
+          "cancel": "Otkaži",
+          "inputLabel": "Nova adresa e-pošte",
+          "placeholder": "Unesite e-poštu",
+          "addError": "E-pošta nije dodana. Pokušajte ponovo.",
+          "added": "Dodano: {email}. U tom sandučetu potražite link za potvrdu.",
+          "addedVerificationFailed": "Dodano: {email}, ali e-poruku za potvrdu nije bilo moguće poslati. Pokušajte ponovo pomoću opcije Pošalji e-poruku za potvrdu.",
+          "verificationSent": "E-poruka za potvrdu poslana je na {email}.",
+          "actionError": "E-poštu nije moguće ažurirati. Pokušajte ponovo.",
+          "usedBySomeoneElse": "Ovu e-poštu za prijavu već koristi drugi korisnik.",
+          "removeTitle": "Ukloni e-poštu",
+          "removeBody": "Ukloniti {email} s vašeg računa? Kasnije je možete ponovo dodati.",
+          "remove": "Ukloni",
+          "actionsLabel": "Radnje za {email}",
+          "validation": {
+            "required": "E-pošta je obavezna.",
+            "invalid": "Unesite ispravnu adresu e-pošte.",
+            "duplicate": "Ova e-pošta je već na vašem računu."
+          },
+          "actions": {
+            "sendVerification": "Pošalji e-poruku za potvrdu",
+            "setPrimary": "Postavi kao primarnu",
+            "useForSignIn": "Koristi za prijavu",
+            "stopUsingForSignIn": "Prestani koristiti za prijavu",
+            "remove": "Ukloni"
+          },
+          "disabled": {
+            "verifyFirst": "Prvo potvrdite ovu e-poštu.",
+            "lastSignInEmail": "Ne možete ukloniti posljednju e-poštu za prijavu."
+          },
+          "badges": {
+            "primary": "Primarna",
+            "unverified": "Nepotvrđena",
+            "usedForSignIn": "Koristi se za prijavu"
+          }
+        },
+        "password": {
+          "title": "Lozinka",
+          "updateDescription": "Ažurirajte lozinku.",
+          "setDescription": "Postavite lozinku za svoj račun.",
+          "update": "Ažuriraj lozinku",
+          "set": "Postavi lozinku",
+          "updateSubmit": "Ažuriraj lozinku",
+          "setSubmit": "Postavi lozinku",
+          "saving": "Čuvanje…",
+          "cancel": "Otkaži",
+          "saved": "Lozinka je sačuvana.",
+          "needsSignInEmail": "Da postavite lozinku, prvo dodajte e-poštu za prijavu.",
+          "saveError": "Lozinku nije moguće sačuvati. Pokušajte ponovo.",
+          "oldPassword": "Stara lozinka",
+          "newPassword": "Nova lozinka",
+          "repeatPassword": "Ponovite novu lozinku",
+          "incorrect": "Pogrešna lozinka.",
+          "requirements": "Ova lozinka ne ispunjava zahtjeve.",
+          "errors": {
+            "oldPassword": {
+              "required": "Unesite staru lozinku."
+            },
+            "newPassword": {
+              "required": "Unesite novu lozinku.",
+              "tooShort": "Najmanji broj znakova: {min}.",
+              "tooLong": "Najveći broj znakova: {max}."
+            },
+            "newPasswordRepeat": {
+              "required": "Ponovite novu lozinku.",
+              "mismatch": "Lozinke se ne podudaraju."
+            }
+          }
+        },
+        "passkey": {
+          "title": "Pristupni ključ",
+          "registered": "Pristupni ključ je registrovan.",
+          "notRegistered": "Registrujte pristupni ključ da se prijavljujete bez lozinke.",
+          "add": "Dodaj pristupni ključ",
+          "registering": "Čekanje na pristupni ključ…",
+          "registerError": "Pristupni ključ nije registrovan. Zahtjev je otkazan ili nije uspio. Pokušajte ponovo.",
+          "delete": "Ukloni pristupni ključ",
+          "needsVerifiedEmail": "Da omogućite prijavu pristupnim ključem, dodajte potvrđenu e-poštu za prijavu.",
+          "onlyMethod": "Prijavu pristupnim ključem nije moguće onemogućiti jer je to vaš jedini način prijave.",
+          "disableTitle": "Onemogući prijavu pristupnim ključem",
+          "disableBody": "Više se nećete moći prijaviti pristupnim ključem.",
+          "disable": "Onemogući",
+          "disableError": "Prijavu pristupnim ključem nije moguće onemogućiti. Pokušajte ponovo."
+        },
+        "otp": {
+          "title": "Prijava jednokratnim kodom",
+          "enabledDescription": "Prijava magičnim linkom ili jednokratnim kodom je omogućena.",
+          "disabledDescription": "Prijavite se magičnim linkom ili jednokratnim kodom poslanim na vaše adrese e-pošte za prijavu.",
+          "enable": "Omogući",
+          "enableError": "Prijavu jednokratnim kodom nije moguće omogućiti. Pokušajte ponovo.",
+          "disable": "Onemogući",
+          "needsVerifiedEmail": "Da omogućite prijavu jednokratnim kodom, dodajte potvrđenu e-poštu za prijavu.",
+          "onlyMethod": "Prijavu jednokratnim kodom nije moguće onemogućiti jer je to vaš jedini način prijave.",
+          "disableTitle": "Onemogući prijavu jednokratnim kodom",
+          "disableBody": "Više se nećete moći prijaviti samo putem e-pošte.",
+          "disableConfirm": "Onemogući",
+          "disableError": "Prijavu jednokratnim kodom nije moguće onemogućiti. Pokušajte ponovo."
+        },
+        "mfa": {
+          "title": "Višefaktorska autentifikacija",
+          "enabledDescription": "Višefaktorska autentifikacija je omogućena.",
+          "disabledDescription": "Višefaktorska autentifikacija je onemogućena.",
+          "enable": "Omogući MFA",
+          "disable": "Onemogući MFA",
+          "startError": "Postavljanje MFA nije moguće pokrenuti. Pokušajte ponovo.",
+          "enableError": "MFA nije moguće omogućiti. Pokušajte ponovo.",
+          "scan": "Skenirajte ovaj QR kod aplikacijom za autentifikaciju.",
+          "qrAlt": "QR kod za višefaktorsku autentifikaciju",
+          "enterCode": "Zatim unesite šestocifreni kod:",
+          "incorrect": "Pogrešan kod. Pokušajte ponovo.",
+          "cancel": "Otkaži",
+          "disableTitle": "Onemogući višefaktorsku autentifikaciju",
+          "disableBody": "Prijava više neće tražiti kod iz aplikacije za autentifikaciju.",
+          "disableConfirm": "Onemogući MFA",
+          "disableError": "MFA nije moguće onemogućiti. Pokušajte ponovo."
+        },
+        "connected": {
+          "title": "Povezani računi",
+          "description": "Računi drugih pružalaca povezani s vašim cmux računom.",
+          "usedForSignIn": "Koristi se za prijavu",
+          "useForSignIn": "Koristi za prijavu",
+          "stopUsingForSignIn": "Prestani koristiti za prijavu",
+          "remove": "Prekini vezu",
+          "lastMethod": "Ovo je vaš jedini način prijave.",
+          "actionsLabel": "Radnje za {provider}",
+          "actionError": "Povezani račun nije moguće ažurirati. Pokušajte ponovo.",
+          "usedBySomeoneElse": "Ovaj račun za prijavu već koristi drugi korisnik.",
+          "removeTitle": "Prekini vezu s {provider}",
+          "removeBody": "Više se nećete moći prijaviti ovim računom. Možete ga ponovo povezati tako što ćete se prijaviti njime."
+        }
+      },
+      "notifications": {
+        "title": "Obavještenja",
+        "description": "Obavještenja e-poštom od cmux.",
+        "heading": "Odaberite koje e-poruke želite primati",
+        "empty": "Nema kategorija e-pošte za podešavanje.",
+        "cannotDisable": "(nije moguće onemogućiti)",
+        "saveError": "Ovu postavku nije moguće sačuvati. Pokušajte ponovo."
+      },
+      "sessions": {
+        "title": "Sesije",
+        "description": "Uređaji na kojima ste prijavljeni.",
+        "heading": "Aktivne sesije",
+        "explanation": "Ovo su uređaji na kojima ste prijavljeni. Opozovite sesiju da je odjavite.",
+        "revokeAll": "Opozovi sve ostale sesije",
+        "revokeAllTitle": "Opozovi ostale sesije",
+        "revokeAllBody": "{count, plural, one {Bit će odjavljena # druga sesija} few {Bit će odjavljene # druge sesije} other {Bit će odjavljeno # drugih sesija}}. Ova sesija ostaje prijavljena.",
+        "revokeAllConfirm": "Opozovi sesije",
+        "revokeAllError": "Nije moguće opozvati sve sesije. Na listi su one koje su preostale.",
+        "revokeError": "Sesiju nije moguće opozvati. Pokušajte ponovo.",
+        "empty": "Nema aktivnih sesija.",
+        "columns": {
+          "session": "Sesija",
+          "ip": "IP adresa",
+          "location": "Lokacija",
+          "lastUsed": "Posljednje korištenje"
+        },
+        "current": "Trenutna sesija",
+        "other": "Druga sesija",
+        "impersonation": "Oponašanje korisnika",
+        "signedIn": "Prijava: {date}",
+        "actionsLabel": "Radnje sesije",
+        "revoke": "Opozovi",
+        "cannotRevokeCurrent": "Ne možete opozvati trenutnu sesiju.",
+        "unknownIp": "-",
+        "unknownLocation": "Nepoznato",
+        "never": "Nikad"
+      },
+      "apiKeys": {
+        "title": "API ključevi",
+        "description": "Ključevi koji programima daju pristup vašem računu.",
+        "disabled": "Lični API ključevi nisu omogućeni za ovaj projekt.",
+        "create": "Kreiraj API ključ",
+        "createTitle": "Kreiraj API ključ",
+        "createDescription": "API ključevi daju programski pristup vašem računu.",
+        "descriptionLabel": "Opis",
+        "descriptionPlaceholder": "Na primjer: Development, Production, CI",
+        "descriptionRequired": "Opis je obavezan.",
+        "expiresIn": "Ističe za",
+        "expiry": {
+          "1d": "1 dan",
+          "7d": "7 dana",
+          "30d": "30 dana",
+          "90d": "90 dana",
+          "1y": "1 godina",
+          "never": "Nikad"
+        },
+        "cancel": "Otkaži",
+        "createSubmit": "Kreiraj",
+        "creating": "Kreiranje…",
+        "createError": "API ključ nije moguće kreirati. Pokušajte ponovo.",
+        "showTitle": "API ključ",
+        "showBody": "Ovo je vaš API ključ.",
+        "showWarning": "Kopirajte ga na sigurno mjesto. Nećete ga moći ponovo vidjeti.",
+        "secretLabel": "Tajni API ključ",
+        "copy": "Kopiraj",
+        "copied": "Kopirano",
+        "copyError": "Kopiranje nije uspjelo. Označite ključ i kopirajte ga ručno.",
+        "acknowledge": "Razumijem da ovaj ključ neću moći ponovo vidjeti.",
+        "close": "Zatvori",
+        "search": "Pretraži ključeve",
+        "statusFilter": "Filtriraj po statusu",
+        "status": {
+          "valid": "Važeći",
+          "expired": "Istekao",
+          "revoked": "Opozvan"
+        },
+        "empty": "Još nema API ključeva.",
+        "noMatches": "Nijedan API ključ ne odgovara ovim filterima.",
+        "columns": {
+          "description": "Opis",
+          "status": "Status",
+          "key": "Ključ",
+          "expiresAt": "Ističe",
+          "createdAt": "Kreiran"
+        },
+        "never": "Nikad",
+        "actionsLabel": "Radnje za {description}",
+        "revoke": "Opozovi",
+        "revokeTitle": "Opozovi API ključ",
+        "revokeBody": "Opozvati API ključ *****{lastFour}? Aplikacije koje ga koriste odmah gube pristup.",
+        "revokeAcknowledge": "Razumijem da će sve aplikacije koje koriste ovaj API ključ biti isključene.",
+        "revokeConfirm": "Opozovi ključ",
+        "revokeError": "API ključ nije moguće opozvati. Pokušajte ponovo."
+      },
+      "account": {
+        "title": "Račun",
+        "description": "Naplata, odjava i brisanje računa.",
+        "billingTitle": "Naplata",
+        "billingDescription": "Planovi, fakture i načini plaćanja.",
+        "billingLink": "Otvori naplatu",
+        "signOutTitle": "Odjava",
+        "signOutDescription": "Završite trenutnu sesiju.",
+        "signOut": "Odjavi se",
+        "signingOut": "Odjava…",
+        "signOutError": "Odjava nije uspjela. Pokušajte ponovo.",
+        "deleteTitle": "Izbriši račun",
+        "deleteDescription": "Trajno uklonite svoj račun i sve povezane podatke.",
+        "delete": "Izbriši račun",
+        "deleteConfirmTitle": "Izbrisati vaš račun?",
+        "deleteConfirmBody": "Ovo je nepovratno i briše sve podatke povezane s vašim računom.",
+        "deleteAcknowledge": "Razumijem da će moj račun i njegovi podaci biti trajno izbrisani.",
+        "deleteConfirm": "Izbriši račun",
+        "deleteError": "Račun nije moguće izbrisati. Pokušajte ponovo."
+      }
+    },
+    "teams": {
+      "common": {
+        "copy": "Kopiraj",
+        "copied": "Kopirano",
+        "copyFailed": "Kopiranje nije uspjelo"
+      },
+      "plan": {
+        "free": "Besplatno",
+        "go": "Go",
+        "pro": "Pro",
+        "max": "Max",
+        "team": "Team"
+      },
+      "role": {
+        "admin": "Administrator",
+        "member": "Član"
+      },
+      "errors": {
+        "generic": "Nešto nije u redu. Pokušajte ponovo.",
+        "network_error": "Nije moguće povezati se s cmux. Provjerite vezu i pokušajte ponovo.",
+        "unauthorized": "Vaša sesija je istekla. Ponovo se prijavite.",
+        "forbidden": "Nemate dozvolu za ovu radnju.",
+        "team_not_found": "Ovaj tim više ne postoji.",
+        "invalid_request": "Zahtjev nije ispravan. Provjerite polja i pokušajte ponovo.",
+        "rate_limited": "Previše zahtjeva. Sačekajte trenutak i pokušajte ponovo.",
+        "last_admin": "Tim mora imati barem jednog administratora. Prvo unaprijedite drugog člana.",
+        "member_not_found": "Ta osoba više nije član.",
+        "invitation_not_found": "Ta pozivnica više ne postoji.",
+        "invitation_invalid": "Ova pozivnica je nevažeća, istekla ili već iskorištena.",
+        "email_mismatch": "Ova pozivnica je poslana na drugu adresu e-pošte.",
+        "link_not_found": "Taj link za pozivnicu više ne postoji.",
+        "link_invalid": "Ovaj link za pozivnicu je nevažeći, istekao, opozvan ili popunjen.",
+        "team_has_active_subscription": "Prije brisanja tima otkažite njegovu pretplatu.",
+        "service_unavailable": "Usluga je privremeno nedostupna. Pokušajte ponovo uskoro."
+      },
+      "list": {
+        "title": "Timovi",
+        "description": "Timovi dijele članove, naplatu i coderouter račune. Otvorite tim da njime upravljate.",
+        "create": "Kreiraj tim",
+        "count": "{count, plural, one {# tim} few {# tima} other {# timova}}",
+        "selected": "Trenutni",
+        "emptyTitle": "Još nema timova",
+        "emptyBody": "Kreirajte tim da pozovete ljude i dijelite jedan plan."
+      },
+      "new": {
+        "title": "Kreirajte tim",
+        "description": "Imenujte tim, odaberite plan, zatim pozovite ljude.",
+        "stepsLabel": "Koraci",
+        "steps": {
+          "name": "Naziv",
+          "plan": "Plan",
+          "invite": "Pozivanje"
+        },
+        "nameTitle": "Imenujte svoj tim",
+        "nameLabel": "Naziv tima",
+        "namePlaceholder": "Acme Engineering",
+        "nameError": {
+          "empty": "Unesite naziv tima.",
+          "tooLong": "Koristite najviše {max} znakova."
+        },
+        "cancel": "Otkaži",
+        "createAction": "Kreiraj tim",
+        "creating": "Kreiranje…",
+        "planTitle": "Odaberite plan za {team}",
+        "planDescription": "Plan možete kasnije promijeniti na stranici naplate tima.",
+        "freeName": "Besplatno",
+        "freePrice": "$0",
+        "teamName": "Team",
+        "teamPrice": "${price} po mjestu mjesečno",
+        "featureMembers": "Članovi, uloge i pozivnice",
+        "featureProForEveryone": "Sve iz Pro plana za svakog člana",
+        "featureCentralBilling": "Centralizovana naplata za cijeli tim",
+        "featurePrioritySupport": "Prioritetna podrška",
+        "chooseFree": "Nastavi besplatno",
+        "chooseTeam": "Nadogradi na Team (${price}/mjesto/mjesečno)",
+        "upgradeLater": "Broj mjesta je fleksibilan: možete pozvati više ljudi nego što plaćate i kasnije dodati mjesta.",
+        "inviteTitle": "Pozovite ljude u {team}",
+        "inviteDescription": "Neobavezno. Ljude možete pozvati i kasnije sa stranice Članovi tima.",
+        "inviteByEmail": "Pozovi putem e-pošte",
+        "inviteByLink": "Link za pozivnicu",
+        "backToPlan": "Nazad na planove",
+        "finish": "Idi na tim"
+      },
+      "invite": {
+        "emailsLabel": "Adrese e-pošte",
+        "emailsPlaceholder": "name@example.com, another@example.com",
+        "invalidEmail": "Neispravna adresa e-pošte",
+        "removeEmail": "Ukloni {email}",
+        "roleLabel": "Uloga",
+        "roleMember": "Član",
+        "roleAdmin": "Administrator",
+        "count": "{count}/{max}",
+        "send": "Pošalji pozivnice",
+        "sending": "Slanje…",
+        "invalidCount": "{count, plural, one {Ispravite ili uklonite # neispravnu adresu prije slanja.} few {Ispravite ili uklonite # neispravne adrese prije slanja.} other {Ispravite ili uklonite # neispravnih adresa prije slanja.}}",
+        "overflow": "{count, plural, one {# adresa nije dodana: ograničenje je {max} po zahtjevu.} few {# adrese nisu dodane: ograničenje je {max} po zahtjevu.} other {# adresa nije dodano: ograničenje je {max} po zahtjevu.}}",
+        "sent": "{count, plural, one {Poslana je # pozivnica.} few {Poslane su # pozivnice.} other {Poslano je # pozivnica.}}"
+      },
+      "inviteFailure": {
+        "generic": "nije moguće pozvati",
+        "already_member": "je već član",
+        "invite_failed": "pozivnicu nije moguće poslati"
+      },
+      "links": {
+        "expiryLabel": "Ističe",
+        "expiry": {
+          "1": "Za 1 dan",
+          "7": "Za 7 dana",
+          "30": "Za 30 dana",
+          "never": "Nikad"
+        },
+        "maxUsesLabel": "Najviše korištenja",
+        "maxUsesPlaceholder": "Neograničeno",
+        "maxUsesInvalid": "Najveći broj korištenja mora biti cijeli broj od 1 do {max} ili prazno za neograničeno.",
+        "create": "Kreiraj link",
+        "creating": "Kreiranje…",
+        "memberOnly": "Ljudi koji se pridruže putem linka postaju članovi. Po potrebi ih kasnije unaprijedite u administratore.",
+        "showOnce": "Kopirajte ovaj link sada. Prikazuje se samo jednom.",
+        "empty": "Nema aktivnih linkova za pozivnicu.",
+        "createdAt": "Kreiran {at}",
+        "expiresAt": "Ističe {at}",
+        "neverExpires": "Nikad ne ističe",
+        "uses": "Korištenja: {count}/{max}",
+        "usesUnlimited": "{count, plural, one {# korištenje} few {# korištenja} other {# korištenja}}",
+        "revoke": "Opozovi",
+        "revokeTitle": "Opozvati ovaj link za pozivnicu?",
+        "revokeBody": "Niko s ovim linkom se više ne može pridružiti. Ljudi koji su se već pridružili ostaju članovi.",
+        "actionsFor": "Radnje za link ({created})"
+      },
+      "shell": {
+        "allTeams": "Svi timovi",
+        "tabsLabel": "Postavke tima",
+        "tabs": {
+          "general": "Općenito",
+          "members": "Članovi",
+          "apiKeys": "API ključevi",
+          "billing": "Naplata"
+        },
+        "notFoundTitle": "Tim nije pronađen",
+        "notFoundBody": "Ovaj tim ne postoji ili niste njegov član.",
+        "backToTeams": "Nazad na timove"
+      },
+      "general": {
+        "imageTitle": "Slika tima",
+        "imageDescription": "Prikazuje se pored naziva tima u cijelom cmux-u.",
+        "imageUpload": "Otpremi sliku tima",
+        "nameTitle": "Naziv tima",
+        "nameDescription": "Vidljiv svim članovima.",
+        "nameReadOnly": "Samo administratori mogu preimenovati tim.",
+        "nameError": {
+          "empty": "Unesite naziv tima.",
+          "tooLong": "Koristite najviše {max} znakova."
+        },
+        "profileTitle": "Vaše ime u ovom timu",
+        "profileDescription": "Kako vas vide drugi članovi ovog tima. Ostavite prazno da koristite ime računa.",
+        "profileLabel": "Vaše prikazno ime u timu",
+        "leaveTitle": "Napusti tim",
+        "leaveDescription": "Gubite pristup dijeljenim računima i naplati ovog tima.",
+        "leaveAction": "Napusti tim",
+        "leaveBlocked": "Vi ste jedini administrator. Prije odlaska unaprijedite drugog člana u administratora ili izbrišite tim.",
+        "leaveConfirmTitle": "Napustiti {team}?",
+        "leaveConfirmBody": "Za ponovno pridruživanje trebat će vam nova pozivnica.",
+        "deleteTitle": "Izbriši tim",
+        "deleteDescription": "Trajno uklanja tim, pristup njegovih članova i njegove linkove za pozivnicu.",
+        "deleteAction": "Izbriši tim",
+        "deleteConfirmTitle": "Izbrisati {team}?",
+        "deleteConfirmBody": "Ovo se ne može poništiti.",
+        "openBilling": "Otvori naplatu tima"
+      },
+      "members": {
+        "title": "Članovi",
+        "count": "{count, plural, one {# član} few {# člana} other {# članova}}",
+        "memberColumn": "Član",
+        "roleColumn": "Uloga",
+        "actionsColumn": "Radnje",
+        "you": "Vi",
+        "unnamed": "Član bez imena",
+        "remove": "Ukloni",
+        "removeTitle": "Ukloniti {name}?",
+        "removeBody": "Odmah gubi pristup ovom timu. Kasnije ga možete ponovo pozvati.",
+        "inviteTitle": "Pozovite ljude",
+        "inviteDescription": "Pošaljite pozivnice e-poštom. Zalijepite listu odvojenu zarezima, razmacima ili novim redovima (do 20).",
+        "pendingTitle": "Pozivnice na čekanju",
+        "pendingDescription": "Pozivnice koje još nisu prihvaćene.",
+        "pendingEmpty": "Nema pozivnica na čekanju.",
+        "unknownEmail": "Nepoznata adresa",
+        "expires": "Ističe {at}",
+        "resend": "Pošalji ponovo",
+        "resent": "Poslano",
+        "revoke": "Opozovi",
+        "linksTitle": "Linkovi za pozivnicu",
+        "linksDescription": "Link za višekratnu upotrebu kojim se svako može pridružiti kao član.",
+        "seatNudge": "Članova i pozvanih: {used}, a plan ima mjesta: {seats}. Pozivnice i dalje rade; dodajte {over, plural, one {# mjesto} few {# mjesta} other {# mjesta}} da pokrijete sve.",
+        "seatNudgeAction": "Upravljaj mjestima",
+        "actions": {
+          "makeAdmin": "Postavi za administratora",
+          "makeMember": "Postavi za člana",
+          "remove": "Ukloni iz tima",
+          "leave": "Napusti tim"
+        },
+        "actionsFor": "Radnje za {name}",
+        "lastAdminReason": "Tim mora imati barem jednog administratora. Prvo unaprijedite nekog drugog.",
+        "demoteSelfTitle": "Prestati biti administrator?",
+        "demoteSelfBody": "Gubite administratorski pristup ovom timu. Drugi administrator vam ga može vratiti.",
+        "demoteSelfConfirm": "Postavi me za člana"
+      },
+      "apiKeys": {
+        "title": "API ključevi tima",
+        "description": "Ključevi koji djeluju u ime ovog tima. Svako s ključem može koristiti pristup tima, zato ključeve čuvajte na sigurnom.",
+        "create": "Kreiraj API ključ tima",
+        "disabled": "API ključevi tima nisu omogućeni za ovaj projekat.",
+        "forbidden": "Potrebna vam je dozvola Upravljanje API ključevima u ovom timu da vidite njegove ključeve."
+      }
     },
     "coderouterAccounts": {
       "transferAction": "Prenesi",
@@ -455,18 +1106,14 @@
       "apiKeysTitle": "API ključevi",
       "apiKeysDescription": "Kreirajte dugotrajne ključeve za skripte i agente. Tajna vrijednost prikazuje se jednom.",
       "apiKeysCount": "{count, plural, one {# ključ} other {# ključeva}}",
-      "apiKeysLoading": "Učitavanje API ključeva…",
-      "apiKeysLoadError": "API ključevi se ne mogu učitati. Pokušajte ponovo uskoro.",
-      "apiKeysRetry": "Pokušaj ponovo",
-      "apiKeysEmptyBody": "Još nema API ključeva. Kreirajte ga za autentifikaciju CodeRouter klijenta.",
       "apiKeyPrefixColumn": "Ključ",
       "apiKeyStatusColumn": "Stanje",
       "apiKeySecretTitle": "Kopirajte ovaj ključ sada",
       "apiKeySecretBody": "Ova tajna vrijednost se više neće prikazati.",
       "apiKeyCopy": "Kopiraj API ključ",
       "apiKeyCopied": "Kopirano",
-      "apiKeyCreatedAt": "kreiran {at}",
-      "apiKeyLastUsed": "posljednji put korišten {at}",
+      "apiKeyCreatedAt": "Kreiran {at}",
+      "apiKeyLastUsed": "Posljednji put korišten {at}",
       "apiKeyRevoked": "Opozvan",
       "apiKeyLabelPlaceholder": "Na primjer, CI ili produkcija",
       "createApiKeyAction": "Kreiraj API ključ",
@@ -476,9 +1123,40 @@
       "revokingApiKeyAction": "Opozivanje",
       "apiKeyRevokeError": "API ključ se ne može opozvati.",
       "revokeApiKeyConfirmTitle": "Opozvati ovaj API ključ?",
-      "apiKeyUsageDetail": "posljednjih 30 dana: {completions} završetaka · {tokens} tokena ({input} ulaz / {output} izlaz) · API ekvivalent {value}",
+      "apiKeyUsageDetail": "Posljednjih 30 dana: {completions} završetaka · {tokens} tokena ({input} ulaz / {output} izlaz) · API ekvivalent {value}",
       "apiKeyUsageUnavailable": "Upotreba nije dostupna",
-      "revokeApiKeyConfirmBody": "Klijenti koji koriste ovaj ključ odmah će izgubiti autentifikaciju."
+      "revokeApiKeyConfirmBody": "Klijenti koji koriste ovaj ključ odmah će izgubiti autentifikaciju.",
+      "apiKeysEmptyTitle": "Još nema API ključeva",
+      "apiKeysEmptyHint": "Kreirajte ključ za autentifikaciju CodeRouter klijenta.",
+      "unavailableTitle": "Dijeljeni računi nisu dostupni",
+      "unavailableBody": "cmux trenutno ne može doći do usluge dijeljenih računa. Računi dodani putem cr add te Anthropic i Bedrock računi i dalje rade."
+    },
+    "notFound": {
+      "title": "Stranica nije pronađena",
+      "body": "Ova stranica kontrolne ploče ne postoji ili je premještena.",
+      "home": "Idi na kontrolnu ploču"
+    },
+    "states": {
+      "errorTitle": "Nije moguće učitati: {section}",
+      "errorTitleGeneric": "Nije moguće učitati ovaj odjeljak",
+      "reason": {
+        "network": "Provjerite vezu, pa pokušajte ponovo.",
+        "unavailable": "cmux je privremeno nedostupan. Pokušajte ponovo za trenutak.",
+        "forbidden": "Nemate pristup ovome.",
+        "notFound": "Ovo više ne postoji ili nemate pristup.",
+        "rateLimited": "Previše zahtjeva. Sačekajte trenutak, pa pokušajte ponovo.",
+        "generic": "Nešto nije u redu. Pokušajte ponovo."
+      },
+      "retry": "Pokušaj ponovo",
+      "retrying": "Ponovni pokušaj…"
+    },
+    "upgrade": {
+      "title": "Zahtijeva Pro",
+      "cloud": "Cloud VMs i cloud agenti dio su plana Pro.",
+      "testflight": "cmux aplikacija za iOS dio je plana Pro.",
+      "mobileDevices": "Povezivanje telefona i tableta dio je plana Pro.",
+      "action": "Nadogradi na Pro",
+      "comparePlans": "Uporedi planove"
     }
   },
   "community": {
@@ -1354,8 +2032,10 @@
         "automation": {
           "ampIntegration": "Uključuje ili isključuje cmux hookove za Amp. Kada su isključeni, priloženi plugin ostaje instaliran, ali neaktivan.",
           "suppressSubagentNotifications": "Sakrij vidljiva obavještenja o završetku i promjene statusa od ugniježđenih Codex ili Claude podagenata, uz zadržavanje njihovih događaja u Feed telemetriji.",
+          "agentAutoResume": "Šalje `continue`, uz postepeno odgađanje, agentu pokrenutom iz cmux-a čiji je potez završio greškom servisa koja se može ponoviti (model bez kapaciteta, preopterećen ili izgubljena veza). Potezi koji čekaju čovjeka nikada se ne nastavljaju.",
           "workspaceAutoNaming": "Opcionalno AI automatsko imenovanje radnih prostora i kartica iz sadržaja razgovora agenta. Kada je omogućeno, cmux sažima podržane sesije agenata u kratke naslove koristeći vlastiti binarni fajl svakog agenta; ručna preimenovanja uvijek imaju prednost.",
-          "autoNamingAgent": "Koji agent generiše automatska imena za svaku sesiju. \"auto\" (zadano) imenuje svaku sesiju njenim vlastitim agentom; bilo koji slug agenta (claude, codex, grok, opencode, pi, omp, …) zamjenjuje imenovanje za sve sesije, čak i za sesije drugih agenata. Agenti koji se ne mogu pokrenuti ili nisu instalirani vraćaju se na vlastiti agent sesije, tako da se imenovanje nikada ne prekida."
+          "autoNamingAgent": "Koji agent generiše automatska imena za svaku sesiju. \"auto\" (zadano) imenuje svaku sesiju njenim vlastitim agentom; bilo koji slug agenta (claude, codex, grok, opencode, pi, omp, …) zamjenjuje imenovanje za sve sesije, čak i za sesije drugih agenata. Agenti koji se ne mogu pokrenuti ili nisu instalirani vraćaju se na vlastiti agent sesije, tako da se imenovanje nikada ne prekida.",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "Određuje kada cmux traži potvrdu prije izlaska. DEV verzije se uvijek odmah zatvaraju bez obzira na ovu postavku. Naslijeđeni app.warnBeforeQuit se i dalje prihvata kao boolean rezervna opcija.",
@@ -1406,7 +2086,12 @@
           "compactAgentStatus": "Prikaži svaki radni prostor u jednom redu: jedna obojena ikona ispred naslova prikazuje stanje agenta, nepročitanog i pull requesta te zamjenjuje redove statusa agenata (na primjer Radi ili Potreban unos), red grane i direktorija i redove pull requestova, čiji detalji prelaze u opis ikone. Ostali unosi statusa zadržavaju svoje redove.",
           "compactStatusIcons": "Nazivi SF Symbols koji zamjenjuju compactAgentStatus glif za svako stanje, na primjer {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Stanja bez vrijednosti zadržavaju ugrađeni simbol, a naziv koji se ne može prikazati vraća se na njega.",
           "notificationMessageLineLimit": "Maksimalan broj redova prikazanih za najnoviju obavijest ispod naslova svakog radnog prostora.",
-          "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje."
+          "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje.",
+          "beta": {
+            "conversations": {
+              "enabled": "Prikaži objedinjeni prikaz razgovora u izborniku bočne trake."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Postavke istraživača datoteka (stabla datoteka) u desnoj bočnoj traci.",
@@ -1470,9 +2155,17 @@
       "customActionsDesc": "Unos <actions>actions</actions> je ponovo upotrebljiva stvar koju cmux izvršava. Koristite akcije kada isto ponašanje treba biti dostupno iz Command Palette, površinske trake tabova, prečica ili menija plus dugmeta. Zadržite <commands>commands</commands> za ponovo upotrebljive shell komande i rasporede radnih prostora. Postavite <palette>palette</palette> na false kada akcija ne treba biti u Command Palette.",
       "actionTypes": "Tipovi akcija",
       "actionTypeBuiltin": "Alias za ugrađenu cmux akciju kao što su cmux.newTerminal, cmux.newBrowser, cmux.splitRight ili cmux.splitDown.",
+      "actionTypeBuiltinCopy": "Ugrađene akcije kopiranja: cmux.copyWorkingDirectory kopira radni direktorij terminala, cmux.copyProjectRoot kopira korijen njegovog git repozitorija (ili radni direktorij izvan repozitorija), a cmux.copyScreen kopira vidljivi ekran.",
+      "actionTypeBuiltinCopyRemote": "U SSH, cloud ili udaljenom tmux radnom prostoru cmux.copyProjectRoot kopira udaljeni radni direktorij, jer cmux ne može pronaći git repozitorij na drugom hostu.",
       "actionTypeCommand": "Pokreće shell tekst u terminalu. Koristite target da izaberete trenutni terminal ili novi tab u trenutnom panelu.",
       "actionTypeAgent": "Pokreće podržanog programerskog agenta. Trenutno podržava codex i claude, uz opcionalne argumente.",
       "actionTypeWorkspaceCommand": "Pokreće imenovanu definiciju radnog prostora iz commands. Koristite za rasporede s više panela, prilagođene radne direktorije i početne komande.",
+      "actionTypeSetting": "Mijenja jednu postavku u vašem globalnom cmux.json, na primjer uključuje ili isključuje true/false postavku ili prolazi kroz listu vrijednosti. Pogledajte Akcije postavki ispod.",
+      "actionTypeSettingPreset": "Primjenjuje imenovanu grupu postavki iz settingPresets u jednom koraku.",
+      "settingActions": "Akcije postavki",
+      "settingActionsDesc": "Akcija postavke navodi <path>path</path> postavke i tačno jedno od: <set>set</set> (upisuje vrijednost), <toggle>toggle: true</toggle> (prebacuje true/false postavku), <cycle>cycle</cycle> (prelazi na sljedeću vrijednost u listi, a nakon posljednje kreće ispočetka) ili <unset>unset: true</unset> (uklanja ključ iz cmux.json, pa važi vrijednost iz prozora Postavke ili zadana vrijednost). toggle i cycle polaze od vrijednosti koju cmux trenutno koristi, uključujući onu postavljenu u prozoru Postavke. Akcija settingPreset primjenjuje unos iz <presets>settingPresets</presets>, djelimični cmux.json čiji se ugniježđeni objekti spajaju ključ po ključ. cmux prije spremanja provjerava svaku promjenu prema shemi, zadržava vaše komentare i ostale ključeve i odmah primjenjuje promjenu. Akcije postavki i preseti rade samo iz vašeg globalnog cmux.json i paketa na koje on upućuje; projektne konfiguracije ih ne mogu deklarisati.",
+      "settingActionsCli": "Iste promjene rade i iz terminala: <set>cmux config set terminal.scrollSpeed 1.4</set>, <toggle>cmux config toggle fileEditor.wordWrap</toggle> i <preset>cmux config preset sidebar.quiet</preset>.",
+      "settingActionsLimits": "Uz <confirm>confirm: true</confirm>, cmux pita prije spremanja i prikazuje odgovarajuću cmux config komandu. Putanje se dijele na svakoj \".\", pa se ključ koji i sam sadrži \".\" (npr. unos <byCwd>workspaceGroups.byCwd</byCwd> za ~/src/app.web) ne može promijeniti na ovaj način. Uredite ga direktno u cmux.json.",
       "actionFields": "Polja akcije",
       "actionFieldTitle": "Naslov reda u Command Palette, oznaka dugmeta, naslov stavke menija i naslov upita za povjerenje, osim ako ga unos ne nadjača.",
       "actionFieldSubtitle": "Sekundarni tekst u Command Palette. description se prihvata kao alias za subtitle.",
@@ -1604,7 +2297,8 @@
         "wn-reload": "Ponovo učitaj konfiguraciju",
         "wn-quit": "Izađi"
       },
-      "metaTitle": "Prečice na tastaturi"
+      "metaTitle": "Prečice na tastaturi",
+      "fileEditorWordWrap": "Uključi ili isključi prelamanje redova u uređivaču datoteka (Option+Z)."
     },
     "api": {
       "title": "CLI Referenca",
@@ -2044,7 +2738,8 @@
       "maxLinesSetting": "TextBox Max Lines ograničava visinu TextBoxa prije nego što se sadržaj počne skrolati.",
       "configTitle": "cmux.json",
       "configDesc": "Iste zadane vrijednosti postavite u ~/.config/cmux/cmux.json pod terminal:",
-      "focusNote": "Obnovljene sesije zadržavaju spremljenu vidljivost TextBoxa i stanje fokusa. Ove zadane vrijednosti važe samo za novokreirane terminalske površine."
+      "focusNote": "Obnovljene sesije zadržavaju spremljenu vidljivost TextBoxa i stanje fokusa. Ove zadane vrijednosti važe samo za novokreirane terminalske površine.",
+      "betaCallout": "TextBox je beta funkcija. Zadane vrijednosti i ponašanje mogu se promijeniti tokom testiranja."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode više agenata u cmux-u",
@@ -4583,5 +5278,27 @@
     "updateDetail": "Potreban je cmux {stableVersion} ili noviji, ili NIGHTLY {nightlyVersion} ili noviji. Omogućite iOS uparivanje u Postavke > Mobilni uređaji na svakom Mac računaru.",
     "rollbackTitle": "Trebate zadržati stariju Mac verziju?",
     "rollbackDetail": "Koristite cmux BETA 1.0.5 ({rollbackBuild}) iz TestFlight > Prethodne verzije dok je dostupna. Odaberite upravo tu verziju jer novije koriste noviju uslugu povezivanja."
+  },
+  "teamInvite": {
+    "loading": "Učitavanje pozivnice…",
+    "title": "Pridružite se timu {team}",
+    "titleUnknown": "Pridružite se ovom timu",
+    "body": "Pozvani ste da se pridružite ovom timu na cmux-u.",
+    "join": "Pridruži se timu",
+    "joining": "Pridruživanje…",
+    "signedInAs": "Prijavljeni ste kao {email}",
+    "alreadyMemberTitle": "Već ste član tima {team}",
+    "alreadyMemberTitleUnknown": "Već ste član ovog tima",
+    "alreadyMemberBody": "Otvorite tim da njime upravljate.",
+    "openTeam": "Otvori tim",
+    "mismatchTitle": "Ova pozivnica je za drugi račun",
+    "mismatchBody": "Prijavljeni ste kao {email}, ali je pozivnica poslana na drugu adresu. Prijavite se pozvanom adresom ili je dodajte i potvrdite na ovom računu.",
+    "mismatchBodyUnknown": "Pozivnica je poslana na drugu adresu. Prijavite se pozvanom adresom ili je dodajte i potvrdite na ovom računu.",
+    "switchAccount": "Odjavi se i promijeni račun",
+    "switching": "Odjava…",
+    "switchFailed": "Odjava nije uspjela. Pokušajte ponovo.",
+    "invalidTitle": "Ova pozivnica više nije važeća",
+    "invalidBody": "Istekla je, opozvana je ili je već iskorištena. Zamolite administratora tima za novu.",
+    "goToTeams": "Idi na svoje timove"
   }
 }
