@@ -5,6 +5,7 @@
     "runtime-core.js",
     "snapshot.js",
     "api.js",
+    "agent-tools.js",
     "sites/loader.js",
     "sites/google.js",
     "sites/google-editors.js",

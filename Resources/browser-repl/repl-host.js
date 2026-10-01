@@ -294,15 +294,28 @@
     const session = new core.Session({ driver, host });
     let gate = null;
     // Everything the runtime prints goes through the current call's gate.
+    // Registered secrets (agent-tools.js) never reach output, the output
+    // spill file or an error message.
+    const redact = (text) => (session.agentTools ? session.agentTools.redactText(text) : text);
     const gatedHost = Object.create(host, {
-      print: { value: (level, text) => (gate ? gate.print(level, text) : host.print(level, text)) },
+      print: { value: (level, text) => (gate ? gate.print(level, redact(text)) : host.print(level, redact(text))) },
     });
     const api = ns.api.createGlobals(session, gatedHost);
     const repl = createReplSession({ host: gatedHost, globals: [timerGlobals(gatedHost, api.importModule), api.globals] });
+    const redactError = (r) => {
+      if (r.ok || !session.agentTools) return r;
+      if (r.exception instanceof Error) {
+        try {
+          r.exception.message = redact(r.exception.message);
+        } catch {}
+      }
+      return Object.assign(r, { error: redact(r.error) });
+    };
     return {
       session,
       api,
       scope: repl.scope,
+      redact,
       async evaluate(code, { maxOutput } = {}) {
         const own = createOutputGate(host, { maxOutput });
         gate = own;
@@ -312,10 +325,10 @@
             try {
               api.show(r.value);
             } catch (e) {
-              return { ok: false, error: formatError(e), exception: e, ms: r.ms };
+              return redactError({ ok: false, error: formatError(e), exception: e, ms: r.ms });
             }
           }
-          return r;
+          return redactError(r);
         } finally {
           own.finish();
           if (gate === own) gate = null;
@@ -424,7 +437,7 @@
       if (!r.ok) throw r.exception || new Error(r.error);
       return undefined;
     };
-    root.__cmuxFormatError = (e) => formatError(e);
+    root.__cmuxFormatError = (e) => (repl ? repl.redact(formatError(e)) : formatError(e));
   }
 
   ns.replHost = { rewriteTopLevel, createReplSession, createBrowserRepl, createOutputGate, DEFAULT_MAX_OUTPUT, formatError, installNativeHost };

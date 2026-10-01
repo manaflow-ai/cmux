@@ -766,7 +766,15 @@
       this.errors = [];
       this._lazyCounter = 0;
       this._unsubscribe = [];
-      const route = (event, fn) => this._unsubscribe.push(driver.on(event, (payload) => fn(payload || {})));
+      // Hooks agent-tools.js installs (docs/browser-repl/browser-use-parity.md):
+      // the domain policy, secret redaction, recording and secret input.
+      this.agentTools = null;
+      const route = (event, fn) => this._unsubscribe.push(driver.on(event, (payload) => {
+        payload = payload || {};
+        if (this.agentTools) payload = this.agentTools.onEvent(event, payload);
+        fn(payload);
+        if (this.agentTools) this.agentTools.afterEvent(event, payload);
+      }));
       route("tab.created", (p) => this._onTabCreated(p));
       route("tab.closed", (p) => this._page(p.targetId, false) && this._page(p.targetId)._onClosed());
       route("tab.crashed", (p) => this._forward(p, "_onCrashed"));
@@ -798,7 +806,9 @@
         const page = this.pages.get(params.targetId);
         if (page) params = Object.assign({}, params, { targetId: await this._materialize(page) });
       }
-      return this.driver.call(method, params);
+      if (!this.agentTools) return this.driver.call(method, params);
+      this.agentTools.beforeCall(method, params);
+      return this.agentTools.afterCall(method, params, this.driver.call(method, params));
     }
     lazyPage() {
       const page = new Page(this, `lazy:${++this._lazyCounter}`);
@@ -825,7 +835,8 @@
     }
     reportError(e) {
       this.errors.push(e);
-      if (this.host.console && this.host.console.error) this.host.console.error(String((e && e.stack) || e));
+      const text = String((e && e.stack) || e);
+      if (this.host.console && this.host.console.error) this.host.console.error(this.agentTools ? this.agentTools.redactText(text) : text);
     }
     _page(targetId, create = true) {
       let page = this.pages.get(targetId);
@@ -1360,8 +1371,9 @@
       });
     }
     async fill(value, options = {}) {
-      if (typeof value !== "string") throw new Error(`locator.fill: value: expected string, got ${typeof value}`);
+      if (typeof value !== "string" && !this._page._isSecret(value)) throw new Error(`locator.fill: value: expected string, got ${typeof value}`);
       await this._withElement(options, "locator.fill", ["visible", "enabled", "editable"], async (frame, handle) => {
+        value = await this._page._inputText(frame, value, "locator.fill");
         const r = await frame._agent("fill", handle, value);
         if (r === "error:notconnected") throw Object.assign(new Error("Element is not attached to the DOM"), { code: "stale" });
         if (r === "needsinput") {
@@ -1375,17 +1387,25 @@
       return this.fill("", options);
     }
     async _focusThen(options, title, fn) {
+      let target = null;
       await this._withElement(options, title, [], async (frame, handle) => {
         await frame._agent("focus", handle, true);
+        target = frame;
       });
-      await fn();
+      await fn(target);
       await this._page._afterAction();
     }
+    // Text input that may be a secret(name) value, resolved for the frame
+    // that receives it.
+    async _typeInto(text, options, title) {
+      if (typeof text !== "string" && !this._page._isSecret(text)) throw new Error(`${title}: text: expected string, got ${typeof text}`);
+      return this._focusThen(options, title, async (frame) => this._page.keyboard.type(await this._page._inputText(frame, text, title), options));
+    }
     async type(text, options = {}) {
-      return this._focusThen(options, "locator.type", () => this._page.keyboard.type(text, options));
+      return this._typeInto(text, options, "locator.type");
     }
     async pressSequentially(text, options = {}) {
-      return this._focusThen(options, "locator.pressSequentially", () => this._page.keyboard.type(text, options));
+      return this._typeInto(text, options, "locator.pressSequentially");
     }
     async press(key, options = {}) {
       return this._focusThen(options, "locator.press", () => this._page.keyboard.press(key, options));
@@ -1777,6 +1797,7 @@
       await this._send("up", desc);
     }
     async insertText(text) {
+      if (this._page._isSecret(text)) throw new Error("keyboard.insertText: a secret is typed into an element, so its domain can be checked: use locator.fill(secret(name)) or locator.type(secret(name))");
       if (typeof text !== "string") throw new Error(`keyboard.insertText: text: expected string, got ${typeof text}`);
       await this._page._input("input.insertText", { targetId: this._page._targetId, text });
     }
@@ -1797,6 +1818,7 @@
       await this._send("up", desc, detached);
     }
     async type(text, options = {}) {
+      if (this._page._isSecret(text)) throw new Error("keyboard.type: a secret is typed into an element, so its domain can be checked: use locator.fill(secret(name)) or locator.type(secret(name))");
       if (typeof text !== "string") throw new Error(`keyboard.type: text: expected string, got ${typeof text}`);
       for (const ch of text) {
         if (KEYS[ch]) await this.press(ch, options);
@@ -2293,6 +2315,16 @@
     async _afterAction() {
       await this._syncInfo().catch(() => {});
       if (!this._heldDialog) await this._refreshFrames().catch(() => {});
+      if (this._session.agentTools) await this._session.agentTools.afterAction(this);
+    }
+    _isSecret(value) {
+      return !!(this._session.agentTools && this._session.agentTools.isSecret(value));
+    }
+    // A secret(name) value becomes its text only here, for the frame it is
+    // typed into, after its domain check; other values pass through.
+    async _inputText(frame, value, title) {
+      if (typeof value === "string" || !this._isSecret(value)) return value;
+      return this._session.agentTools.resolveSecret(value, frame, title);
     }
     async _syncInfo() {
       if (this._closed) throw new Error("Target page, context or browser has been closed");

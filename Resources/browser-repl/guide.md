@@ -55,6 +55,25 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
 - `sleep(ms)`, `display(value)`, `console`.
 - `session`: `name(label)` labels this session's tabs; `keep(page)` keeps a
   tab after a one-shot run; `id`; `guide()` returns this text.
+  `allowedDomains(["example.com", "*.example.org"], { lock })`,
+  `prohibitedDomains([...])` and `blockIPAddresses(true)` limit navigations,
+  new tabs, `fetch` and site tools (a tab that reaches a blocked URL goes to
+  `about:blank`; `blockedNavigations()` lists them). `storageState({ path })`
+  and `setStorageState(stateOrPath)` save and restore cookies and
+  localStorage (Playwright's format). `downloads()` lists downloads.
+  `record()` returns a recorder; `stop()` writes `trace.jsonl`, a PNG per
+  action and `run.png`, an animated PNG of the run.
+- `secrets.set(name, value, { domains, totp })` or `secrets.load(file)`
+  (`{ "<domain>": { name: value } }`) registers a secret; type it with
+  `locator.fill(secret("name"))` or `locator.type(secret("name"))`. It is
+  typed only into frames on its domains, and its value prints, reads and
+  saves as `<secret:name>` everywhere. `{ totp: true }` types the current
+  one-time code of a base32 seed.
+- `search(query, { engine, limit })`: `[{ title, url, snippet }]` from
+  DuckDuckGo (default), Bing or Google.
+- `tools.register(name, fn, { description, params, domains })` adds a
+  callable `tools.name(args)` to the session; `fn(args, { page, session,
+  tabs })`; `params` like `{ q: "string", n: "number?" }` are checked.
 - `page.exportContent()` writes the page as Markdown and returns the file's
   path; `{ format: "pdf" }` (or `md`, `docx`, `xlsx`, `csv`, `pptx`, ...)
   exports a Google Docs, Sheets or Slides tab; `{ transcript: true }` writes a
@@ -135,6 +154,21 @@ page cannot run script, so page calls fail with a message that says so.
   on the tab's own clipboard, which Meta+C, Meta+X and Meta+V use.
 - `page.elementAt(x, y)`: `{ ref, role, name, box }` at a viewport point.
 - `page.keep()`: keep this tab after a one-shot run.
+- `page.markdown({ main, links, images, start, maxChars })`: the page as
+  Markdown with iframes and shadow roots in place; `main: true` keeps the
+  main content; a cut ends with where to continue.
+- `page.extract({ $: ".item", name: "h3", url: "a@href", tags: ["li"] })`:
+  structured data by selectors; `"sel@attr"` reads an attribute, `["sel"]`
+  every match, `{ $: sel, ...fields }` one object per match.
+- `page.searchText(pattern, { regex, caseSensitive, context, scope, limit })`:
+  `{ total, matches: [{ match, context, ref }] }`.
+- `page.scrollToText(text)` (returns the ref), `page.scroll({ pages, target })`
+  (native wheel, negative pages scroll up), `page.scrollInfo(target?)`
+  (`{ y, pagesAbove, pagesBelow, ... }`).
+- `page.dropdownOptions(ref)`: options of a `<select>` or an open ARIA
+  combobox, listbox or menu, with refs for ARIA options.
+- `page.highlight(targets?)`, `page.hideHighlight()`, `locator.highlight()`:
+  boxes and ref labels on the page.
 
 ## Tips
 
