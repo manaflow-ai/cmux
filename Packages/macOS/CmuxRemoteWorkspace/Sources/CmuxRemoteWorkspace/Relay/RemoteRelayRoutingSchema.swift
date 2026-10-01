@@ -16,8 +16,14 @@ struct RemoteRelayRoutingSchema {
         case "workspace.equalize_splits": return workspace.union(["orientation"])
         case "surface.read_text": return terminal.union(["scrollback", "lines"])
         case "surface.read_selection": return terminal
+        case "surface.input_state": return terminal
         case "surface.close", "surface.clear_git_branch": return surface
         case "surface.send_text": return surface.union(["text"])
+        case "terminal.paste": return surface.union(["text", "submit_key"])
+        // Submit uses only these two named keys. Keeping the relay contract
+        // narrower than the local send-key command prevents arbitrary remote
+        // key injection while still allowing agent queueing and submission.
+        case "surface.send_key": return surface.union(["key"])
         case "surface.report_tty":
             return surface.union(["tty_name", "terminal_lifecycle_id", "attempt_id"])
         case "surface.report_pwd": return surface.union(["path", "directory"])

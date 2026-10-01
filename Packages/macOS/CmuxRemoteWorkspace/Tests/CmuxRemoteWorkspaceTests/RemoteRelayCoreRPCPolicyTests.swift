@@ -27,15 +27,74 @@ struct RemoteRelayCoreRPCPolicyTests {
     @Test("capabilities filter exact method names without adding unsupported grants")
     func capabilityDiscovery() {
         let methods = RemoteRelayCommandPolicy().permittedMethods(from: [
-            "system.ping", "workspace.list", "surface.send_text", "system.capabilities",
+            "system.ping", "workspace.list", "surface.send_text", "terminal.paste", "surface.input_state", "system.capabilities",
             "system.exec", "system.command_spec", "workspace.create", "surface.respawn", "browser.open",
             "workspace.list.future", "ping", "capabilities"
         ])
-        #expect(methods == ["system.ping", "workspace.list", "surface.send_text", "system.capabilities"])
+        #expect(methods == ["system.ping", "workspace.list", "surface.send_text", "terminal.paste", "surface.input_state", "system.capabilities"])
         #expect(decision("surface.send_text", [:]) != .allowed)
         #expect(decision("surface.send_text", [
             "workspace_id": owner.uuidString, "surface_id": UUID().uuidString, "text": "id\n"
         ]) != .allowed)
+    }
+
+    @Test("terminal paste is scoped and only accepts the reviewed submit intent")
+    func terminalPasteScope() throws {
+        let valid: [String: Any] = [
+            "workspace_id": owner.uuidString,
+            "surface_id": surface.uuidString,
+            "text": "hello\nworld",
+            "submit_key": "none",
+        ]
+        #expect(decision("terminal.paste", valid) == .allowed)
+        let request = try JSONSerialization.data(withJSONObject: ["method": "terminal.paste", "params": valid])
+        #expect(RemoteRelayCommandPolicy().evaluate(commandLine: request, workspaceAliases: [:], surfaceAliases: [:]) == .allow)
+        for params in [
+            ["workspace_id": owner.uuidString, "surface_id": surface.uuidString, "text": "hello"],
+            ["workspace_id": owner.uuidString, "surface_id": surface.uuidString, "text": "hello", "submit_key": "ctrl+enter"],
+            ["workspace_id": owner.uuidString, "surface_id": surface.uuidString, "text": 7, "submit_key": "none"],
+        ] as [[String: Any]] {
+            #expect(decision("terminal.paste", params) != .allowed)
+            let invalid = try JSONSerialization.data(withJSONObject: ["method": "terminal.paste", "params": params])
+            #expect(RemoteRelayCommandPolicy().evaluate(commandLine: invalid, workspaceAliases: [:], surfaceAliases: [:]) != .allow)
+        }
+    }
+
+    @Test("surface input state is scoped to an owned remote surface")
+    func surfaceInputStateScope() throws {
+        let valid: [String: Any] = [
+            "workspace_id": owner.uuidString,
+            "surface_id": surface.uuidString,
+        ]
+        #expect(decision("surface.input_state", valid) == .allowed)
+        #expect(decision("surface.input_state", ["workspace_id": owner.uuidString]) != .allowed)
+        #expect(decision("surface.input_state", [
+            "workspace_id": owner.uuidString,
+            "surface_id": UUID().uuidString,
+        ]) != .allowed)
+        let command = try JSONSerialization.data(withJSONObject: [
+            "method": "surface.input_state",
+            "params": valid.merging(["command": "id"]) { _, new in new },
+        ])
+        #expect(RemoteRelayCommandPolicy().evaluate(commandLine: command, workspaceAliases: [:], surfaceAliases: [:]) != .allow)
+    }
+
+    @Test("submit keys are scoped to owned surfaces and bounded to submit keys")
+    func submitKeyScope() throws {
+        let base: [String: Any] = [
+            "workspace_id": owner.uuidString,
+            "surface_id": surface.uuidString,
+        ]
+        #expect(decision("surface.send_key", base.merging(["key": "return"]) { _, new in new }) == .allowed)
+        #expect(decision("surface.send_key", base.merging(["key": "tab"]) { _, new in new }) == .allowed)
+        #expect(decision("surface.send_key", base.merging(["key": "ctrl+enter"]) { _, new in new }) == .allowed)
+        #expect(decision("surface.send_key", base.merging(["key": "ctrl+c"]) { _, new in new }) != .allowed)
+        #expect(decision("surface.send_key", base.merging(["surface_id": UUID().uuidString, "key": "return"]) { _, new in new }) != .allowed)
+        let command = try JSONSerialization.data(withJSONObject: [
+            "method": "surface.send_key",
+            "params": base.merging(["key": "return", "command": "id"]) { _, new in new },
+        ])
+        #expect(RemoteRelayCommandPolicy().evaluate(commandLine: command, workspaceAliases: [:], surfaceAliases: [:]) != .allow)
     }
 
     @Test("workspace discovery defaults only to authenticated provenance")
@@ -80,7 +139,7 @@ struct RemoteRelayCoreRPCPolicyTests {
 
     @Test("bare RPC aliases and local execution remain denied", arguments: [
         "ping", "capabilities", "system.exec", "system.command_spec", "system.tree",
-        "workspace.create", "workspace.close", "surface.respawn", "surface.send_key", "browser.open", "future.read"
+        "workspace.create", "workspace.close", "surface.respawn", "browser.open", "future.read"
     ])
     func unsupportedMethods(method: String) {
         #expect(decision(method, [:]) != .allowed)

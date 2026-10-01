@@ -39,6 +39,13 @@ var commandOverrides = map[string]commandOverride{
 		specialDispatch:   true,
 	},
 
+	// send consumes --submit and --force locally so a submit is two ordered
+	// writes (paste, then key) and the draft/dialog guard runs before either.
+	"send": {
+		specialDispatch: true,
+		clientOnlyFlags: []string{"submit", "force"},
+	},
+
 	// Mac CLI shows "title" as a positional arg; relay accepts --title as a
 	// flag instead, so positional args should be rejected.
 	"rename-workspace": {

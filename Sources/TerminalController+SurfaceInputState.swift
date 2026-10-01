@@ -37,6 +37,32 @@ extension TerminalController {
                 surfaceId = focused
             }
 
+            let routing = ControlRoutingSelectors(
+                hasWindowIDParam: self.v2HasNonNullParam(params, "window_id"),
+                windowID: self.v2UUID(params, "window_id"),
+                groupID: self.v2UUID(params, "group_id"),
+                workspaceID: self.v2UUID(params, "workspace_id"),
+                surfaceID: self.v2UUID(params, "surface_id")
+                    ?? self.v2UUID(params, "terminal_id")
+                    ?? self.v2UUID(params, "tab_id"),
+                paneID: self.v2UUID(params, "pane_id"),
+                remoteRelayOwnerWorkspaceID: self.v2UUID(
+                    params,
+                    WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey
+                ),
+                remoteRelayConnectionID: self.v2UUID(
+                    params,
+                    WorkspaceRemoteRelayCommandRewriter.connectionIDKey
+                )
+            )
+            guard self.remoteRelayTargetIsCurrent(
+                routing: routing,
+                workspace: workspace,
+                surfaceID: surfaceId
+            ) else {
+                return .err(code: "not_found", message: self.controlSurfaceNotFoundMessage(), data: nil)
+            }
+
             let lifecycle = workspace.agentHibernationLifecycleState(panelId: surfaceId, fallback: nil)
             let hasAgent = workspace.agentLifecycleStatesByPanelId[surfaceId]?.isEmpty == false
             var payload: [String: Any] = [
@@ -52,7 +78,14 @@ extension TerminalController {
                 return .ok(payload)
             }
             payload["terminal"] = true
-            let screen = Self.agentPromptInputState(of: panel.surface)
+            let lifecycleKind = Self.agentPromptAgentKind(
+                fromLifecycleKeys: workspace.agentLifecycleStatesByPanelId[surfaceId]?.keys ?? []
+            )
+            let snapshot = Self.agentPromptSubmissionSnapshot(
+                of: panel.surface,
+                agentKindHint: lifecycleKind
+            )
+            let screen = snapshot.state
             // Only the screen decides, and only for a surface that runs an
             // agent: the prompt glyphs and key hints also show up in other
             // programs' output, and the lifecycle can stay `needsInput` after
@@ -71,6 +104,29 @@ extension TerminalController {
                 payload["state"] = "dialog"
                 blocks = hasAgent
             }
+            if hasAgent, let agentKind = lifecycleKind?.rawValue {
+                payload["agent_kind"] = agentKind
+            }
+            let exposesComposer: Bool
+            switch screen {
+            case .draft:
+                exposesComposer = true
+            case .dialog:
+                exposesComposer = snapshot.slashCommandPopup
+            case .unknown, .empty:
+                exposesComposer = false
+            }
+            if hasAgent,
+               let composerText = snapshot.composerText,
+               exposesComposer {
+                payload["draft_length"] = composerText.count
+                if let fingerprint = snapshot.composerFingerprint {
+                    payload["composer_fingerprint"] = fingerprint
+                }
+            }
+            payload["busy"] = snapshot.busy
+            payload["queued"] = snapshot.queued
+            payload["slash_command_popup"] = snapshot.slashCommandPopup
             payload["blocks_typing"] = blocks
             return .ok(payload)
         }
@@ -80,6 +136,15 @@ extension TerminalController {
     /// span's faint attribute so placeholders don't read as drafts.
     @MainActor
     static func agentPromptInputState(of surface: TerminalSurface) -> AgentPromptInputState {
+        agentPromptSubmissionSnapshot(of: surface).state
+    }
+
+    /// Returns the richer submission observation used by `cmux send --submit`.
+    @MainActor
+    static func agentPromptSubmissionSnapshot(
+        of surface: TerminalSurface,
+        agentKindHint: AgentPromptAgentKind? = nil
+    ) -> AgentPromptSubmissionSnapshot {
         // The active screen, not the viewport: a human scrolled up in the
         // pane still has their draft at the bottom.
         guard let frame = surface.mobileRenderGridFrame(
@@ -87,7 +152,7 @@ extension TerminalController {
             includeTheme: false,
             anchor: .screen
         )?.frame else {
-            return .unknown
+            return AgentPromptSubmissionSnapshot(screenRows: [], agentKindHint: agentKindHint)
         }
         var faintStyles = Set<Int>()
         for style in frame.styles where style.faint {
@@ -101,6 +166,25 @@ extension TerminalController {
                 faint: faintStyles.contains(span.styleID)
             ))
         }
-        return AgentPromptInputState(screenRows: rows)
+        return AgentPromptSubmissionSnapshot(screenRows: rows, agentKindHint: agentKindHint)
+    }
+
+    /// Resolves only exact built-in agent lifecycle keys; prose in a pane can
+    /// mention another agent without changing the target's key policy.
+    private static func agentPromptAgentKind<S: Sequence>(
+        fromLifecycleKeys keys: S
+    ) -> AgentPromptAgentKind? where S.Element == String {
+        let kinds = Set(keys.compactMap { key -> AgentPromptAgentKind? in
+            switch key.lowercased() {
+            case "claude", "claude-code", "claude_code",
+                 "cmux.remote.agent:claude", "cmux.remote.agent:claude_code":
+                return .claude
+            case "codex", "cmux.remote.agent:codex":
+                return .codex
+            default:
+                return nil
+            }
+        })
+        return kinds.count == 1 ? kinds.first : nil
     }
 }

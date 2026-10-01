@@ -549214,14 +549214,54 @@
             "value": "Workspace Color: %@"
           }
         },
-        "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereichfarbe: %@"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Couleur de l’espace de travail : %@"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "لون مساحة العمل: %@"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Color del espacio de trabajo: %@"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "工作區顏色：%@"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "工作区颜色：%@"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "작업 공간 색상: %@"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "ワークスペースの色: %@"}}
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereichfarbe: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur de l’espace de travail : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون مساحة العمل: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color del espacio de trabajo: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區顏色：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区颜色：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 색상: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの色: %@"
+          }
+        }
       }
     },
     "fileExplorer.preview.failedTitle": {
@@ -553308,55 +553348,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux send [flags] [--] <text>\n\nيرسل نصًا إلى سطح طرفية كضغطات مفاتيح. تسلسلات الهروب: \\n و\\r ترسلان Enter، و\\t ترسل Tab.\n\nللنصوص الكبيرة (مثلًا أكثر من 4 كيلوبايت، أو عدة أسطر موجهة إلى وكيل)، استخدم --paste أو cmux paste. تضغط ضغطات المفاتيح Enter عند كل سطر جديد، مما قد يرسل كل سطر بمفرده.\n\nمع --paste، يمر النص دون تغيير عبر مسار اللصق نفسه الذي يستخدمه cmux paste وCmd+V: لا تُفسَّر تسلسلات الهروب مثل \\n، وتُستبدل أحرف التحكم مثل Esc وCtrl-C بمسافات. يجب أن يأتي --paste قبل النص.\n\nإذا كانت مطالبة الوكيل في الهدف تحتوي على نص يكتبه شخص ما، أو كان هناك سؤال أو مربع حوار أذونات مفتوح، فلن يُرسل شيء ويفشل الأمر. يرسل --force على أي حال.\n\nالخيارات:\n  --workspace <id|ref|index>   مساحة العمل المستهدفة (الافتراضي: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     السطح المستهدف (الافتراضي: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع وفهارس مساحة العمل/السطح\n  --paste                      يلصق النص بدلًا من كتابته\n  --force                      الإرسال حتى فوق مسودة أو إلى مربع حوار مفتوح\n\nمثال:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+            "value": "الاستخدام: cmux send [flags] [--] <text>\n\nيرسل نصًا إلى سطح طرفية كضغطات مفاتيح. تسلسلات الهروب: \\n و\\r ترسلان Enter، و\\t ترسل Tab.\n\nللنصوص الكبيرة (مثلًا أكثر من 4 كيلوبايت، أو عدة أسطر موجهة إلى وكيل)، استخدم --paste أو cmux paste. تضغط ضغطات المفاتيح Enter عند كل سطر جديد، مما قد يرسل كل سطر بمفرده.\n\nمع --paste، يمر النص دون تغيير عبر مسار اللصق نفسه الذي يستخدمه cmux paste وCmd+V: لا تُفسَّر تسلسلات الهروب مثل \\n، وتُستبدل أحرف التحكم مثل Esc وCtrl-C بمسافات. يجب أن يأتي --paste قبل النص.\n\nإذا كانت مطالبة الوكيل في الهدف تحتوي على نص يكتبه شخص ما، أو كان هناك سؤال أو مربع حوار أذونات مفتوح، فلن يُرسل شيء ويفشل الأمر. يرسل --force على أي حال.\n\nالخيارات:\n  --workspace <id|ref|index>   مساحة العمل المستهدفة (الافتراضي: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     السطح المستهدف (الافتراضي: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع وفهارس مساحة العمل/السطح\n  --paste                      يلصق النص بدلًا من كتابته\n  --submit                     يلصق النص ثم يرسله بمفتاح منفصل ويتحقق من التسليم\n  --force                      الإرسال حتى فوق مسودة أو إلى مربع حوار مفتوح\n\nمثال:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux send [flags] [--] <text>\n\nSendet Text als Tastatureingaben an eine Terminal-Oberfläche. Escape-Sequenzen: \\n und \\r senden Enter, \\t sendet Tab.\n\nFür große Texte (zum Beispiel über 4 KB oder mehrere Zeilen an einen Agenten) --paste oder cmux paste verwenden. Tastatureingaben drücken bei jedem Zeilenumbruch Enter, wodurch jede Zeile einzeln abgesendet werden kann.\n\nMit --paste geht der Text unverändert über denselben Einfügepfad wie cmux paste und Cmd+V: Escape-Sequenzen wie \\n werden nicht interpretiert, und Steuerzeichen wie Esc und Strg-C werden durch Leerzeichen ersetzt. --paste muss vor dem Text stehen.\n\nWenn eine Agent-Eingabe im Ziel Text enthält, den jemand gerade tippt, oder eine Frage oder ein Berechtigungsdialog offen ist, wird nichts gesendet und der Befehl schlägt fehl. --force sendet trotzdem.\n\nFlags:\n  --workspace <id|ref|index>   Ziel-Workspace (Standard: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Ziel-Oberfläche (Standard: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Fensterkontext für Workspace-/Oberflächen-Refs und -Indizes\n  --paste                      Fügt den Text ein, statt ihn zu tippen\n  --force                      Auch über einen Entwurf oder in einen offenen Dialog senden\n\nBeispiel:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+            "value": "Verwendung: cmux send [flags] [--] <text>\n\nSendet Text als Tastatureingaben an eine Terminal-Oberfläche. Escape-Sequenzen: \\n und \\r senden Enter, \\t sendet Tab.\n\nFür große Texte (zum Beispiel über 4 KB oder mehrere Zeilen an einen Agenten) --paste oder cmux paste verwenden. Tastatureingaben drücken bei jedem Zeilenumbruch Enter, wodurch jede Zeile einzeln abgesendet werden kann.\n\nMit --paste geht der Text unverändert über denselben Einfügepfad wie cmux paste und Cmd+V: Escape-Sequenzen wie \\n werden nicht interpretiert, und Steuerzeichen wie Esc und Strg-C werden durch Leerzeichen ersetzt. --paste muss vor dem Text stehen.\n\nWenn eine Agent-Eingabe im Ziel Text enthält, den jemand gerade tippt, oder eine Frage oder ein Berechtigungsdialog offen ist, wird nichts gesendet und der Befehl schlägt fehl. --force sendet trotzdem.\n\nFlags:\n  --workspace <id|ref|index>   Ziel-Workspace (Standard: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Ziel-Oberfläche (Standard: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Fensterkontext für Workspace-/Oberflächen-Refs und -Indizes\n  --paste                      Fügt den Text ein, statt ihn zu tippen\n  --submit                     Einfügen, dann mit einem separaten Tastaturereignis senden und die Zustellung prüfen\n  --force                      Auch über einen Entwurf oder in einen offenen Dialog senden\n\nBeispiel:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux send [flags] [--] <text>\n\nSend text to a terminal surface as keystrokes. Escape sequences: \\n and \\r send Enter, \\t sends Tab.\n\nFor large text (for example over 4 KB, or several lines going to an agent), use --paste or cmux paste. Keystrokes press Enter at every newline, which can submit each line on its own.\n\nWith --paste, the text goes through the same paste path as cmux paste and Cmd+V, unchanged: escape sequences such as \\n are not interpreted, and control characters such as Esc and Ctrl-C are replaced with spaces. --paste must come before the text.\n\nIf an agent prompt in the target holds text someone is typing, or a question or permission dialog is open, nothing is sent and the command fails. --force sends anyway.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n  --paste                      Paste the text instead of typing it\n  --force                      Send even over a draft or into an open dialog\n\nExample:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+            "value": "Usage: cmux send [flags] [--] <text>\n\nSend text to a terminal surface as keystrokes. Escape sequences: \\n and \\r send Enter, \\t sends Tab.\n\nFor large text (for example over 4 KB, or several lines going to an agent), use --paste or cmux paste. Keystrokes press Enter at every newline, which can submit each line on its own.\n\nWith --paste, the text goes through the same paste path as cmux paste and Cmd+V, unchanged: escape sequences such as \\n are not interpreted, and control characters such as Esc and Ctrl-C are replaced with spaces. --paste must come before the text.\n\nIf an agent prompt in the target holds text someone is typing, or a question or permission dialog is open, nothing is sent and the command fails. --force sends anyway.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n  --paste                      Paste the text instead of typing it\n  --submit                     Paste, then submit with a separate key event and verify delivery\n  --force                      Send even over a draft or into an open dialog\n\nExample:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux send [flags] [--] <text>\n\nEnvía texto a una superficie de terminal como pulsaciones de teclas. Secuencias de escape: \\n y \\r envían Intro, \\t envía Tab.\n\nPara textos grandes (por ejemplo, más de 4 KB o varias líneas dirigidas a un agente), usa --paste o cmux paste. Las pulsaciones presionan Intro en cada salto de línea, lo que puede enviar cada línea por separado.\n\nCon --paste, el texto pasa sin cambios por la misma ruta de pegado que cmux paste y Cmd+V: las secuencias de escape como \\n no se interpretan y los caracteres de control como Esc y Ctrl-C se reemplazan por espacios. --paste debe ir antes del texto.\n\nSi el prompt de un agente en el destino contiene texto que alguien está escribiendo, o hay una pregunta o un diálogo de permisos abierto, no se envía nada y el comando falla. --force lo envía de todos modos.\n\nOpciones:\n  --workspace <id|ref|index>   Espacio de trabajo de destino (predeterminado: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Superficie de destino (predeterminada: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexto de ventana para referencias e índices de espacio de trabajo/superficie\n  --paste                      Pega el texto en lugar de escribirlo\n  --force                      Enviar aunque haya un borrador o un diálogo abierto\n\nEjemplo:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+            "value": "Uso: cmux send [flags] [--] <text>\n\nEnvía texto a una superficie de terminal como pulsaciones de teclas. Secuencias de escape: \\n y \\r envían Intro, \\t envía Tab.\n\nPara textos grandes (por ejemplo, más de 4 KB o varias líneas dirigidas a un agente), usa --paste o cmux paste. Las pulsaciones presionan Intro en cada salto de línea, lo que puede enviar cada línea por separado.\n\nCon --paste, el texto pasa sin cambios por la misma ruta de pegado que cmux paste y Cmd+V: las secuencias de escape como \\n no se interpretan y los caracteres de control como Esc y Ctrl-C se reemplazan por espacios. --paste debe ir antes del texto.\n\nSi el prompt de un agente en el destino contiene texto que alguien está escribiendo, o hay una pregunta o un diálogo de permisos abierto, no se envía nada y el comando falla. --force lo envía de todos modos.\n\nOpciones:\n  --workspace <id|ref|index>   Espacio de trabajo de destino (predeterminado: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Superficie de destino (predeterminada: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexto de ventana para referencias e índices de espacio de trabajo/superficie\n  --paste                      Pega el texto en lugar de escribirlo\n  --submit                     Pega, luego envía con una tecla independiente y verifica la entrega\n  --force                      Enviar aunque haya un borrador o un diálogo abierto\n\nEjemplo:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux send [flags] [--] <text>\n\nEnvoie du texte à une surface de terminal sous forme de frappes. Séquences d’échappement : \\n et \\r envoient Entrée, \\t envoie Tab.\n\nPour un texte volumineux (par exemple plus de 4 Ko, ou plusieurs lignes destinées à un agent), utilisez --paste ou cmux paste. Les frappes appuient sur Entrée à chaque saut de ligne, ce qui peut envoyer chaque ligne séparément.\n\nAvec --paste, le texte passe tel quel par le même chemin de collage que cmux paste et Cmd+V : les séquences d’échappement comme \\n ne sont pas interprétées, et les caractères de contrôle comme Échap et Ctrl-C sont remplacés par des espaces. --paste doit précéder le texte.\n\nSi l'invite d'un agent dans la cible contient du texte en cours de saisie, ou si une question ou une boîte de dialogue d'autorisation est ouverte, rien n'est envoyé et la commande échoue. --force envoie quand même.\n\nOptions :\n  --workspace <id|ref|index>   Espace de travail cible (par défaut : $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Surface cible (par défaut : $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et index d’espace de travail/surface\n  --paste                      Colle le texte au lieu de le taper\n  --force                      Envoyer même par-dessus un brouillon ou dans une boîte de dialogue ouverte\n\nExemple :\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+            "value": "Utilisation : cmux send [flags] [--] <text>\n\nEnvoie du texte à une surface de terminal sous forme de frappes. Séquences d’échappement : \\n et \\r envoient Entrée, \\t envoie Tab.\n\nPour un texte volumineux (par exemple plus de 4 Ko, ou plusieurs lignes destinées à un agent), utilisez --paste ou cmux paste. Les frappes appuient sur Entrée à chaque saut de ligne, ce qui peut envoyer chaque ligne séparément.\n\nAvec --paste, le texte passe tel quel par le même chemin de collage que cmux paste et Cmd+V : les séquences d’échappement comme \\n ne sont pas interprétées, et les caractères de contrôle comme Échap et Ctrl-C sont remplacés par des espaces. --paste doit précéder le texte.\n\nSi l'invite d'un agent dans la cible contient du texte en cours de saisie, ou si une question ou une boîte de dialogue d'autorisation est ouverte, rien n'est envoyé et la commande échoue. --force envoie quand même.\n\nOptions :\n  --workspace <id|ref|index>   Espace de travail cible (par défaut : $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Surface cible (par défaut : $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et index d’espace de travail/surface\n  --paste                      Colle le texte au lieu de le taper\n  --submit                     Colle, puis envoie avec une touche distincte et vérifie la livraison\n  --force                      Envoyer même par-dessus un brouillon ou dans une boîte de dialogue ouverte\n\nExemple :\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法: cmux send [flags] [--] <text>\n\nテキストをキー入力としてターミナルサーフェスに送信します。エスケープシーケンス: \\n と \\r は Enter、\\t は Tab を送信します。\n\n大きなテキスト（たとえば 4 KB を超えるもの、またはエージェントに送る複数行）には --paste または cmux paste を使ってください。キー入力では改行ごとに Enter が押されるため、各行が個別に送信されることがあります。\n\n--paste を使うと、テキストはそのまま cmux paste や Cmd+V と同じ貼り付け経路で送られます。\\n などのエスケープシーケンスは解釈されず、Esc や Ctrl-C などの制御文字はスペースに置き換えられます。--paste はテキストより前に指定してください。\n\n対象のエージェントのプロンプトに誰かが入力中のテキストがある場合、または質問や権限ダイアログが開いている場合は、何も送信されずコマンドは失敗します。--force を指定すると送信します。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     対象サーフェス（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n  --paste                      テキストを入力する代わりに貼り付けます\n  --force                      下書きや開いているダイアログがあっても送信します\n\n例:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+            "value": "使用方法: cmux send [flags] [--] <text>\n\nテキストをキー入力としてターミナルサーフェスに送信します。エスケープシーケンス: \\n と \\r は Enter、\\t は Tab を送信します。\n\n大きなテキスト（たとえば 4 KB を超えるもの、またはエージェントに送る複数行）には --paste または cmux paste を使ってください。キー入力では改行ごとに Enter が押されるため、各行が個別に送信されることがあります。\n\n--paste を使うと、テキストはそのまま cmux paste や Cmd+V と同じ貼り付け経路で送られます。\\n などのエスケープシーケンスは解釈されず、Esc や Ctrl-C などの制御文字はスペースに置き換えられます。--paste はテキストより前に指定してください。\n\n対象のエージェントのプロンプトに誰かが入力中のテキストがある場合、または質問や権限ダイアログが開いている場合は、何も送信されずコマンドは失敗します。--force を指定すると送信します。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     対象サーフェス（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n  --paste                      テキストを入力する代わりに貼り付けます\n  --submit                     貼り付けた後、別のキーイベントで送信し、配信を確認します\n  --force                      下書きや開いているダイアログがあっても送信します\n\n例:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux send [flags] [--] <text>\n\n텍스트를 키 입력으로 터미널 서피스에 보냅니다. 이스케이프 시퀀스: \\n과 \\r은 Enter, \\t는 Tab을 보냅니다.\n\n큰 텍스트(예: 4 KB 초과 또는 에이전트로 보내는 여러 줄)에는 --paste 또는 cmux paste를 사용하세요. 키 입력은 줄바꿈마다 Enter를 누르므로 각 줄이 따로 제출될 수 있습니다.\n\n--paste를 쓰면 텍스트가 변경 없이 cmux paste 및 Cmd+V와 같은 붙여넣기 경로로 전달됩니다. \\n 같은 이스케이프 시퀀스는 해석되지 않으며, Esc와 Ctrl-C 같은 제어 문자는 공백으로 바뀝니다. --paste는 텍스트보다 앞에 와야 합니다.\n\n대상의 에이전트 프롬프트에 누군가 입력 중인 텍스트가 있거나 질문 또는 권한 대화상자가 열려 있으면 아무것도 보내지 않고 명령이 실패합니다. --force를 지정하면 그래도 보냅니다.\n\n플래그:\n  --workspace <id|ref|index>   대상 워크스페이스 (기본값: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     대상 서피스 (기본값: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      워크스페이스/서피스 참조와 인덱스에 사용할 창 컨텍스트\n  --paste                      텍스트를 입력하는 대신 붙여넣습니다\n  --force                      초안이 있거나 대화상자가 열려 있어도 보냅니다\n\n예:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+            "value": "사용법: cmux send [flags] [--] <text>\n\n텍스트를 키 입력으로 터미널 서피스에 보냅니다. 이스케이프 시퀀스: \\n과 \\r은 Enter, \\t는 Tab을 보냅니다.\n\n큰 텍스트(예: 4 KB 초과 또는 에이전트로 보내는 여러 줄)에는 --paste 또는 cmux paste를 사용하세요. 키 입력은 줄바꿈마다 Enter를 누르므로 각 줄이 따로 제출될 수 있습니다.\n\n--paste를 쓰면 텍스트가 변경 없이 cmux paste 및 Cmd+V와 같은 붙여넣기 경로로 전달됩니다. \\n 같은 이스케이프 시퀀스는 해석되지 않으며, Esc와 Ctrl-C 같은 제어 문자는 공백으로 바뀝니다. --paste는 텍스트보다 앞에 와야 합니다.\n\n대상의 에이전트 프롬프트에 누군가 입력 중인 텍스트가 있거나 질문 또는 권한 대화상자가 열려 있으면 아무것도 보내지 않고 명령이 실패합니다. --force를 지정하면 그래도 보냅니다.\n\n플래그:\n  --workspace <id|ref|index>   대상 워크스페이스 (기본값: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     대상 서피스 (기본값: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      워크스페이스/서피스 참조와 인덱스에 사용할 창 컨텍스트\n  --paste                      텍스트를 입력하는 대신 붙여넣습니다\n  --submit                     붙여넣은 다음 별도의 키 이벤트로 제출하고 전달을 확인합니다\n  --force                      초안이 있거나 대화상자가 열려 있어도 보냅니다\n\n예:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux send [flags] [--] <text>\n\n以按键方式将文本发送到终端表面。转义序列：\\n 和 \\r 发送 Enter，\\t 发送 Tab。\n\n对于大量文本（例如超过 4 KB，或要发给代理的多行文本），请使用 --paste 或 cmux paste。按键方式会在每个换行处按下 Enter，可能让每一行单独提交。\n\n使用 --paste 时，文本会原样通过与 cmux paste 和 Cmd+V 相同的粘贴路径发送：不会解释 \\n 等转义序列，Esc 和 Ctrl-C 等控制字符会被替换为空格。--paste 必须放在文本之前。\n\n如果目标中的代理提示里有人正在输入文本，或有问题或权限对话框处于打开状态，则不会发送任何内容，命令会失败。使用 --force 可强制发送。\n\n标志：\n  --workspace <id|ref|index>   目标工作区（默认：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目标表面（默认：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作区/表面引用与索引的窗口上下文\n  --paste                      粘贴文本，而不是逐键输入\n  --force                      即使有草稿或对话框打开也发送\n\n示例：\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+            "value": "用法：cmux send [flags] [--] <text>\n\n以按键方式将文本发送到终端表面。转义序列：\\n 和 \\r 发送 Enter，\\t 发送 Tab。\n\n对于大量文本（例如超过 4 KB，或要发给代理的多行文本），请使用 --paste 或 cmux paste。按键方式会在每个换行处按下 Enter，可能让每一行单独提交。\n\n使用 --paste 时，文本会原样通过与 cmux paste 和 Cmd+V 相同的粘贴路径发送：不会解释 \\n 等转义序列，Esc 和 Ctrl-C 等控制字符会被替换为空格。--paste 必须放在文本之前。\n\n如果目标中的代理提示里有人正在输入文本，或有问题或权限对话框处于打开状态，则不会发送任何内容，命令会失败。使用 --force 可强制发送。\n\n标志：\n  --workspace <id|ref|index>   目标工作区（默认：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目标表面（默认：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作区/表面引用与索引的窗口上下文\n  --paste                      粘贴文本，而不是逐键输入\n  --submit                     粘贴后使用单独的按键事件提交并确认传递\n  --force                      即使有草稿或对话框打开也发送\n\n示例：\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux send [flags] [--] <text>\n\n以按鍵方式將文字傳送到終端機表面。跳脫序列：\\n 和 \\r 送出 Enter，\\t 送出 Tab。\n\n若是大量文字（例如超過 4 KB，或要送給代理的多行文字），請使用 --paste 或 cmux paste。按鍵方式會在每個換行處按下 Enter，可能讓每一行各自送出。\n\n使用 --paste 時，文字會原封不動地透過與 cmux paste 和 Cmd+V 相同的貼上路徑送出：不會解譯 \\n 等跳脫序列，Esc 和 Ctrl-C 等控制字元會被替換為空格。--paste 必須放在文字之前。\n\n如果目標中的代理程式提示裡有人正在輸入文字，或有問題或權限對話框開啟，則不會傳送任何內容，指令會失敗。使用 --force 可強制傳送。\n\n旗標：\n  --workspace <id|ref|index>   目標工作區（預設：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目標表面（預設：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作區／表面參照與索引所用的視窗上下文\n  --paste                      貼上文字，而不是逐鍵輸入\n  --force                      即使有草稿或對話框開啟也傳送\n\n範例：\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+            "value": "用法：cmux send [flags] [--] <text>\n\n以按鍵方式將文字傳送到終端機表面。跳脫序列：\\n 和 \\r 送出 Enter，\\t 送出 Tab。\n\n若是大量文字（例如超過 4 KB，或要送給代理的多行文字），請使用 --paste 或 cmux paste。按鍵方式會在每個換行處按下 Enter，可能讓每一行各自送出。\n\n使用 --paste 時，文字會原封不動地透過與 cmux paste 和 Cmd+V 相同的貼上路徑送出：不會解譯 \\n 等跳脫序列，Esc 和 Ctrl-C 等控制字元會被替換為空格。--paste 必須放在文字之前。\n\n如果目標中的代理程式提示裡有人正在輸入文字，或有問題或權限對話框開啟，則不會傳送任何內容，指令會失敗。使用 --force 可強制傳送。\n\n旗標：\n  --workspace <id|ref|index>   目標工作區（預設：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目標表面（預設：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作區／表面參照與索引所用的視窗上下文\n  --paste                      貼上文字，而不是逐鍵輸入\n  --submit                     貼上後使用獨立的按鍵事件送出並確認傳遞\n  --force                      即使有草稿或對話框開啟也傳送\n\n範例：\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
           }
         }
       }
@@ -606263,6 +606303,419 @@
           "stringUnit": {
             "state": "translated",
             "value": "автор: %@"
+          }
+        }
+      }
+    },
+    "cli.send.reason.pasteNotVisible": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the pasted message never became visible in the agent composer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تظهر الرسالة الملصقة في محرر الوكيل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "die eingefügte Nachricht wurde im Agent-Composer nie sichtbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el mensaje pegado nunca apareció en el compositor del agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "le message collé n'est jamais apparu dans le compositeur de l'agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "貼り付けたメッセージがエージェントの入力欄に表示されませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "붙여넣은 메시지가 에이전트 입력창에 표시되지 않았습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴的消息未在代理编辑框中显示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "貼上的訊息未在代理編輯器中顯示"
+          }
+        }
+      }
+    },
+    "cli.send.reason.dialogRetryRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the target opened a dialog; retry was refused"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح الهدف مربع حوار؛ رُفضت إعادة المحاولة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "das Ziel öffnete einen Dialog; der erneute Versuch wurde abgelehnt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el destino abrió un diálogo; se rechazó el reintento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la cible a ouvert une boîte de dialogue ; la nouvelle tentative a été refusée"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象がダイアログを開いたため、再試行を拒否しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대상이 대화상자를 열어 재시도가 거부되었습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目标打开了对话框；已拒绝重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標開啟了對話框；已拒絕重試"
+          }
+        }
+      }
+    },
+    "cli.send.error.submitUnconfirmed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: %@; text was pasted, do not resend it without checking the target"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@؛ تم لصق النص؛ لا ترسله مرة أخرى قبل التحقق من الهدف"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: %@; der Text wurde eingefügt; senden Sie ihn nicht erneut, ohne das Ziel zu prüfen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@; es posible que el texto ya se haya enviado; no lo pegues de nuevo sin comprobar el destino"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ : %@ ; le texte a peut-être déjà été envoyé ; ne le collez pas à nouveau sans vérifier la cible"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: %@; テキストはすでに送信されている可能性があります。対象を確認せずに再度貼り付けないでください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: %@; 텍스트가 이미 전송되었을 수 있습니다. 대상을 확인하지 않고 다시 붙여넣지 마세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：%@；文本可能已提交；请先检查目标，不要再次粘贴"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：%@；文字可能已提交；請先檢查目標，不要再次貼上"
+          }
+        }
+      }
+    },
+    "cli.send.reason.composerChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the composer changed or could not be identified; retry was refused to preserve human input"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تغير محرر الكتابة أو تعذر تحديده؛ رُفضت إعادة المحاولة للحفاظ على إدخال المستخدم"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Composer wurde geändert oder konnte nicht erkannt werden; der Versuch wurde zum Schutz menschlicher Eingaben abgelehnt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el compositor cambió o no pudo identificarse; se rechazó el reintento para proteger la entrada humana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "le compositeur a changé ou n'a pas pu être identifié ; la nouvelle tentative a été refusée pour préserver la saisie humaine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力欄が変更されたか識別できないため、人の入力を保護して再試行を拒否しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력창이 변경되었거나 식별할 수 없어 사람의 입력을 보호하기 위해 재시도가 거부되었습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑框已更改或无法识别；为保护人工输入，已拒绝重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編輯器已變更或無法識別；為保護人工輸入，已拒絕重試"
+          }
+        }
+      }
+    },
+    "cli.send.reason.dialogBeforeSubmission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "text was pasted but the target opened a dialog before submission"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم لصق النص لكن الهدف فتح مربع حوار قبل الإرسال"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Text wurde eingefügt, aber das Ziel öffnete vor dem Senden einen Dialog"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El texto se pegó, pero el destino abrió un diálogo antes del envío"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le texte a été collé, mais la cible a ouvert une boîte de dialogue avant l'envoi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストは貼り付けられましたが、送信前に対象がダイアログを開きました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "텍스트를 붙여넣었지만 전송 전에 대상이 대화상자를 열었습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文本已粘贴，但目标在提交前打开了对话框"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字已貼上，但目標在提交前開啟了對話框"
+          }
+        }
+      }
+    },
+    "cli.send.reason.submitUnconfirmed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the submit key was sent but submission was not confirmed after bounded retries"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إرسال مفتاح الإرسال لكن لم يتأكد الإرسال بعد محاولات محدودة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Senden-Taste wurde gesendet, aber der Versand wurde nach begrenzten Versuchen nicht bestätigt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "se envió la tecla de envío, pero el envío no se confirmó tras reintentos limitados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la touche d'envoi a été envoyée, mais l'envoi n'a pas été confirmé après des tentatives limitées"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信キーを送信しましたが、限られた再試行後も送信を確認できませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전송 키를 보냈지만 제한된 재시도 후에도 전송이 확인되지 않았습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已发送提交键，但在有限重试后仍未确认提交"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已送出提交鍵，但在有限重試後仍未確認提交"
+          }
+        }
+      }
+    },
+    "cli.send.reason.dialogDuringSubmission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "text was pasted and the target opened a dialog while submitting"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم لصق النص وفتح الهدف مربع حوار أثناء الإرسال"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Text wurde eingefügt und das Ziel öffnete während des Sendens einen Dialog"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el texto se pegó y el destino abrió un diálogo durante el envío"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "le texte a été collé et la cible a ouvert une boîte de dialogue pendant l'envoi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストを貼り付けた後、送信中に対象がダイアログを開きました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "텍스트를 붙여넣은 뒤 전송 중 대상이 대화상자를 열었습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文本已粘贴，目标在提交时打开了对话框"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字已貼上，目標在提交時開啟了對話框"
           }
         }
       }

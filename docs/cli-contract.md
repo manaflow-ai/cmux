@@ -182,11 +182,11 @@ Environment:
 | `read-screen` | Read terminal text from a surface. `--selection` is a text-only compatibility alias for `read-selection`. |
 | `record` | Record a cmux window or a region of one to an mp4 or gif (`window.record.*`). `start` returns a recording id and the output path, `stop` closes the clip, `status` reports progress, `note` adds a caption drawn into later frames, `list` shows the current and recent recordings. One recording at a time; a recording stops itself at `--max-seconds`. The clip appears at its path when the recording ends, so an existing file there is replaced only once there is a finished clip to replace it with, and a recording that never closes leaves the path alone. Local socket only: `window.record.*` is not on the `cmux ssh` relay allowlist. |
 | `shot`, `screenshot` | Screenshot a cmux window or a region of one to a png or a jpeg (`window.screenshot`). Prints the pixel size, the byte count and the output path. `--region` takes the same four window-point numbers as `cmux record --region`, `--caption` draws a caption into the image, and `--quality` applies to jpeg only. Only cmux's own windows are captured, so no Screen Recording permission is involved and this works in a Release build and inside CI. The image is encoded beside the output path and moved into place, so an existing file there is replaced only once there is a complete image to replace it with. Local socket only: `window.screenshot` is not on the `cmux ssh` relay allowlist. |
-| `send` | Send text to a terminal surface as keystrokes (`surface.send_text`). `--paste`, before the text, sends it unchanged through the Cmd+V paste path (`terminal.paste`) instead, like `cmux paste`. Without `--paste`, large multi-line text prints a hint on stderr recommending it. Refuses to type over an agent prompt draft or into an open dialog unless `--force` comes before the text; see [Draft guard](#draft-guard). |
+| `send` | Send text to a terminal surface as keystrokes (`surface.send_text`). `--paste`, before the text, sends it unchanged through the Cmd+V paste path (`terminal.paste`) instead, like `cmux paste`. `--submit` uses the paste path, waits for the composer to show the paste, sends a separate `surface.send_key` submit event, and confirms the composer clears (or Codex queues). It prints `submitted` or `queued` for recognized agents, `sent` for an unknown agent after the key is accepted, and exits non-zero with an unconfirmed result when delivery cannot be confirmed. Without `--paste` or `--submit`, large multi-line text prints a hint on stderr recommending the paste path. Refuses to type over an agent prompt draft or into an open dialog unless `--force` comes before the text; see [Draft guard](#draft-guard).  `--force --submit` can submit over an existing draft only when the app reports or visibly exposes the existing composer text; otherwise it returns `unconfirmed` after the paste so the text is not silently duplicated. |
 | `send-key` | Send one key to a terminal surface. Refuses to send into an open agent dialog unless `--force`. |
 | `agent message` | Send a message to the agent in another workspace or surface (`agent.message.send`). Delivered through the recipient's agent hooks, never as keystrokes. `--reply-to <id>` answers a received message; `-` reads the text from stdin. |
 | `agent inbox` | List agent messages newest first (`agent.message.list`); `--mark-read` marks the listed messages read. |
-| `paste` | Paste text from an argument or stdin into a terminal surface through the Cmd+V paste path (`terminal.paste`). The CLI sends the text unchanged; Ghostty brackets it when the program enabled bracketed paste (otherwise newlines become Enter) and replaces unsafe control bytes with spaces. `--submit` presses the agent-aware submit key afterwards. Refuses to paste over an agent prompt draft or into an open dialog unless `--force`. Local socket only: `terminal.paste` is not on the `cmux ssh` relay allowlist. |
+| `paste` | Paste text from an argument or stdin into a terminal surface through the Cmd+V paste path (`terminal.paste`). The CLI sends the text unchanged; Ghostty brackets it when the program enabled bracketed paste (otherwise newlines become Enter) and replaces unsafe control bytes with spaces. `--submit` presses the agent-aware submit key afterwards. Refuses to paste over an agent prompt draft or into an open dialog unless `--force`. The relay exposes `terminal.paste` only for the internal `send --submit` flow; use `send --submit` for a remote mirrored pane. |
 | `send-panel` | Send text to a terminal surface. Same draft guard and `--force` as `send`. |
 | `send-key-panel` | Send one key to a terminal surface. Same dialog guard and `--force` as `send-key`. |
 | `notify` | Send a notification to a workspace/surface and return its notification id; `--clear` clears the resolved caller/target scope. Supports `--id-format refs\|uuids\|both` for human-readable handles. |
@@ -299,8 +299,9 @@ Enter, refuse only for an open dialog: `cmux send "text"` followed by
 `cmux send-key enter` leaves the sent text in the prompt, and the key has to
 go through. Surfaces without an agent are never blocked. A refusal writes nothing, prints the reason on stderr
 and exits non-zero. `--force`, before the text or key, skips the check. When
-the app can't answer `surface.input_state` (an older build, or a `cmux ssh`
-relay, which doesn't forward it) the commands write as before.
+an older app can't answer `surface.input_state`, the commands write as before
+and `send --submit` reports `sent` after its separate key event; current
+`cmux ssh` relays forward the host answer.
 
 `surface.input_state` is a v2 worker-lane socket method. It takes
 `surface_id`, or the usual workspace selectors for that workspace's focused
@@ -310,6 +311,7 @@ surface, and returns:
 | --- | --- |
 | `state` | `empty`, `draft`, `dialog`, or `unknown` when no agent prompt is on screen. Read from the active screen (not the scrolled viewport): Claude Code's and Codex's input rows, ignoring faint placeholder text, and key hints such as "Esc to cancel" below the input row. |
 | `draft_length` | Characters in the draft, when `state` is `draft`. The text itself is not returned. |
+| `composer_fingerprint` | SHA-256 of normalized composer text, when available. It protects a pasted message from retries over a changed draft. |
 | `agent` | Whether an agent reports lifecycle state for the surface. |
 | `lifecycle` | The agent's lifecycle: `unknown`, `running`, `idle` or `needsInput`. |
 | `waiting_on_human` | `lifecycle` is `needsInput`. Informational: it can stay set after an interrupt or an API error, so it does not block on its own. |

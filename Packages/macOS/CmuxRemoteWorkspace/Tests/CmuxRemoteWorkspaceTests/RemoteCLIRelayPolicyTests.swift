@@ -285,6 +285,146 @@ struct RemoteCLIRelayPolicyTests {
         }
     }
 
+    @Test("submit keys to an owned remote surface reach the local socket", arguments: [
+        "return", "enter", "tab", "ctrl+enter",
+    ])
+    func allowsOwnedSurfaceSubmitKey(key: String) throws {
+        let alias = (remote: UUID(), local: UUID())
+        try withServer(surfaceAliases: [alias.remote: alias.local]) { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"submit-key","method":"surface.send_key","params":{"surface_id":"\(alias.remote.uuidString)","key":"\(key)"}}
+                """
+            )
+            #expect(exchange.responseLines.first?["ok"] as? Bool == true)
+            #expect(unixServer.requests.count == 1)
+            let forwarded = try #require(unixServer.requests.first)
+            let request = try #require(JSONSerialization.jsonObject(with: forwarded) as? [String: Any])
+            let params = try #require(request["params"] as? [String: Any])
+            #expect(request["method"] as? String == "surface.send_key")
+            #expect(params["key"] as? String == key)
+            #expect(params["surface_id"] as? String == alias.remote.uuidString)
+        }
+    }
+
+    @Test("input state for an owned remote surface reaches the local socket")
+    func allowsOwnedSurfaceInputState() throws {
+        let alias = (remote: UUID(), local: UUID())
+        try withServer(surfaceAliases: [alias.remote: alias.local]) { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"input-state","method":"surface.input_state","params":{"surface_id":"\(alias.remote.uuidString)"}}
+                """
+            )
+            #expect(exchange.responseLines.first?["ok"] as? Bool == true)
+            #expect(unixServer.requests.count == 1)
+            let forwarded = try #require(unixServer.requests.first)
+            let request = try #require(JSONSerialization.jsonObject(with: forwarded) as? [String: Any])
+            let params = try #require(request["params"] as? [String: Any])
+            #expect(request["method"] as? String == "surface.input_state")
+            #expect(params["surface_id"] as? String == alias.remote.uuidString)
+        }
+    }
+
+    @Test("submit and input-state requests for an unmapped surface never reach the local socket", arguments: [
+        "surface.send_key", "surface.input_state",
+    ])
+    func deniesUnmappedSurfaceSubmitRequest(method: String) throws {
+        let alias = (remote: UUID(), local: UUID())
+        try withServer(surfaceAliases: [alias.remote: alias.local]) { port, unixServer in
+            let keyParam = method == "surface.send_key" ? ",\"key\":\"return\"" : ""
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"unmapped-submit","method":"\(method)","params":{"surface_id":"\(UUID().uuidString)"\(keyParam)}}
+                """
+            )
+            expectDenial(exchange, unixServer, "unmapped \(method)")
+        }
+    }
+
+    @Test("invalid and non-string submit keys never reach the local socket", arguments: [
+        #""ctrl+c""#, #""escape""#, #""""#, "17", "null", "true", #"["return"]"#,
+    ])
+    func deniesInvalidSurfaceSubmitKey(keyJSON: String) throws {
+        let surface = UUID()
+        try withServer(surfaceAliases: [surface: surface]) { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"invalid-submit-key","method":"surface.send_key","params":{"surface_id":"\(surface.uuidString)","key":\(keyJSON)}}
+                """
+            )
+            expectDenial(exchange, unixServer, "submit key \(keyJSON)")
+        }
+    }
+
+    @Test("submit and input-state requests with command params never reach the local socket", arguments: [
+        "surface.send_key", "surface.input_state",
+    ])
+    func deniesCommandBearingSurfaceSubmitRequest(method: String) throws {
+        let surface = UUID()
+        try withServer(surfaceAliases: [surface: surface]) { port, unixServer in
+            let keyParam = method == "surface.send_key" ? ",\"key\":\"return\"" : ""
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"command-submit","method":"\(method)","params":{"surface_id":"\(surface.uuidString)"\(keyParam),"command":"id"}}
+                """
+            )
+            expectDenial(exchange, unixServer, "command-bearing \(method)")
+        }
+    }
+
+    @Test("terminal.paste to an owned remote surface is forwarded")
+    func allowsAliasedTerminalPaste() throws {
+        let workspace = UUID()
+        let surface = UUID()
+        try withServer(workspaceAliases: [workspace: workspace], surfaceAliases: [surface: surface]) { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"paste","method":"terminal.paste","params":{"workspace_id":"\(workspace.uuidString)","surface_id":"\(surface.uuidString)","text":"line one\\nline two","submit_key":"none"}}
+                """
+            )
+            #expect(exchange.responseLines.first?["ok"] as? Bool == true)
+            #expect(unixServer.requests.count == 1)
+        }
+    }
+
+    @Test("terminal.paste rejects command parameters and arbitrary submit keys")
+    func deniesUnsafeTerminalPaste() throws {
+        let workspace = UUID()
+        let surface = UUID()
+        try withServer(workspaceAliases: [workspace: workspace], surfaceAliases: [surface: surface]) { port, unixServer in
+            for params in [
+                #"{"workspace_id":"\#(workspace.uuidString)","surface_id":"\#(surface.uuidString)","text":"x","submit_key":"none","command":"id"}"#,
+                #"{"workspace_id":"\#(workspace.uuidString)","surface_id":"\#(surface.uuidString)","text":"x","submit_key":"ctrl+enter"}"#,
+                #"{"workspace_id":"\#(workspace.uuidString)","surface_id":"\#(surface.uuidString)","text":"x"}"#,
+                #"{"workspace_id":"\#(UUID().uuidString)","surface_id":"\#(UUID().uuidString)","text":"x","submit_key":"none"}"#,
+            ] {
+                let request = #"{"id":"paste-deny","method":"terminal.paste","params":#(params)}"#
+                let exchange = try runPolicyRelayExchange(port: port, relayID: relayID,
+                    tokenHex: tokenHex, commandLine: request)
+                expectDenial(exchange, unixServer, request)
+            }
+        }
+    }
+
     @Test("methods outside the relay allowlist are denied")
     func deniesNonAllowlistedMethod() throws {
         try withServer { port, unixServer in

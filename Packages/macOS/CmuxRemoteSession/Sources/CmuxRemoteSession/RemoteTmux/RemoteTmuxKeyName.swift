@@ -41,6 +41,12 @@ public struct RemoteTmuxKeyName: Equatable, Sendable {
             switch rawBase {
             case "home": base = "Home"
             case "end": base = "End"
+            case "enter", "return": base = "Enter"
+            case "tab": base = "Tab"
+            case "escape", "esc": base = "Escape"
+            case "backspace": base = "BSpace"
+            case "shift-tab", "backtab": base = "BTab"
+            case "space": base = "Space"
             case "insert", "ic": base = "IC"
             case "delete", "del", "dc", "forward_delete": base = "DC"
             case "pageup", "page_up", "pgup", "ppage": base = "PPage"

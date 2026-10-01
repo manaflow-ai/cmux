@@ -145,4 +145,159 @@ struct AgentPromptInputDetectorTests {
         let screen = claudeScreen(input: [[span(" ", at: 6), span("\u{276F}\u{00A0}", at: 0), span("abcd", at: 2)]])
         #expect(AgentPromptInputState(screenRows: screen) == .draft("abcd"))
     }
+
+    @Test("Submission snapshot identifies Claude and preserves a long wrapped draft")
+    func submissionSnapshotClaude() {
+        let screen = claudeScreen(input: [
+            [span("\u{276F}\u{00A0}first line")],
+            [span("  second line [Pasted text #1 +2 lines]")],
+        ])
+        let snapshot = AgentPromptSubmissionSnapshot(screenRows: screen)
+        #expect(snapshot.agentKind == .claude)
+        #expect(snapshot.state == .draft("first line\n  second line [Pasted text #1 +2 lines]"))
+        #expect(snapshot.composerText == "first line\n  second line [Pasted text #1 +2 lines]")
+        #expect(snapshot.composerFingerprint == "c58163a522eec82e0197ed49dbbb2d77db9d8154a7b32ef6bcd455de11598391")
+        #expect(!snapshot.busy)
+        #expect(!snapshot.queued)
+    }
+
+    @Test("Busy Codex exposes queue state")
+    func busyCodex() {
+        let screen = [
+            [span(" Working on your request... (esc to interrupt)")],
+            [span("\u{203A}"), span(" ", at: 1), span("Ask Codex to do anything", at: 2, faint: true)],
+            [span("  Tab to queue")],
+        ]
+        let snapshot = AgentPromptSubmissionSnapshot(screenRows: screen)
+        #expect(snapshot.agentKind == .codex)
+        #expect(snapshot.busy)
+        #expect(!snapshot.queued)
+    }
+
+    @Test("Busy Claude keeps its Claude agent kind")
+    func busyClaude() {
+        let screen = [
+            [span("  quoted output")],
+            [span(" ✻ Thinking…")],
+            [span("\u{276F}\u{00A0}")],
+        ]
+        let snapshot = AgentPromptSubmissionSnapshot(screenRows: screen)
+        #expect(snapshot.agentKind == .claude)
+        #expect(snapshot.busy)
+    }
+
+    @Test("Transcript prose near a prompt does not mark an agent busy")
+    func proseNearPromptIsNotBusy() {
+        let screen = [
+            [span("The assistant is thinking about the next explanation.")],
+            [span("working directories are listed below")],
+            [span("\u{276F}\u{00A0}")],
+        ]
+        let snapshot = AgentPromptSubmissionSnapshot(screenRows: screen)
+        #expect(snapshot.agentKind == .claude)
+        #expect(!snapshot.busy)
+    }
+
+    @Test("A random Codex mention does not brand a plain screen")
+    func randomCodexMentionIsNotAnAgent() {
+        let screen = [
+            [span("I used Codex for an earlier experiment.")],
+            [span("leo@host ~ % ")],
+        ]
+        let snapshot = AgentPromptSubmissionSnapshot(screenRows: screen)
+        #expect(snapshot.agentKind == nil)
+        #expect(snapshot.state == .unknown)
+    }
+
+    @Test("Codex queued status is exposed separately from busy")
+    func queuedCodex() {
+        let screen = [
+            [span(" Working on your request...")],
+            [span("\u{203A} queued follow-up")],
+            [span("Queued")],
+        ]
+        let snapshot = AgentPromptSubmissionSnapshot(screenRows: screen)
+        #expect(snapshot.agentKind == .codex)
+        #expect(snapshot.queued)
+    }
+
+    @Test("Slash command popup is visible and remains a dialog")
+    func slashCommandPopup() {
+        let screen = [
+            [span("\u{276F}\u{00A0}/goal resume")],
+            [span("  /goal resume    Resume a goal")],
+            [span("  /help           Show help")],
+            [span("  Enter to select \u{00B7} Esc to cancel")],
+        ]
+        let snapshot = AgentPromptSubmissionSnapshot(screenRows: screen)
+        #expect(snapshot.agentKind == .claude)
+        #expect(snapshot.slashCommandPopup)
+        #expect(snapshot.state == .dialog)
+        #expect(snapshot.composerText == "/goal resume")
+        #expect(snapshot.composerFingerprint == "268cbbe5fdb0b164ce42b6ba47439fda6afc3f342fa32e57ccf1b1744d3e857b")
+    }
+
+    @Test("Composer fingerprints normalize line endings and surrounding whitespace")
+    func composerFingerprintNormalization() {
+        let snapshot = AgentPromptSubmissionSnapshot(screenRows: [[
+            span("\u{276F}\u{00A0}  hello\r\n  "),
+        ]])
+        #expect(snapshot.composerText == "hello")
+        #expect(snapshot.composerFingerprint == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
+    }
+
+    @Test("Slash command suggestions above the composer are detected")
+    func slashCommandPopupAbovePrompt() {
+        let screen = [
+            [span("  /goal resume    Resume a goal")],
+            [span("  /help           Show help")],
+            [span("\u{276F}\u{00A0}/goal resume")],
+        ]
+        let snapshot = AgentPromptSubmissionSnapshot(screenRows: screen)
+        #expect(snapshot.slashCommandPopup)
+        #expect(snapshot.state == .dialog)
+    }
+
+    @Test("Text-only screen detection is available for remote panes")
+    func textOnlyScreen() {
+        let snapshot = AgentPromptSubmissionSnapshot(screenText: "Working...\n› Ask Codex to do anything\n  Tab to queue")
+        #expect(snapshot.agentKind == .codex)
+        #expect(snapshot.busy)
+    }
+
+    @Test("Prompt shapes identify hookless panes without banners")
+    func promptShapesWithoutBanners() {
+        let claude = AgentPromptSubmissionSnapshot(screenText: "❯\u{00A0}")
+        #expect(claude.agentKind == .claude)
+        let codex = AgentPromptSubmissionSnapshot(screenText: "› Ask Codex to do anything")
+        #expect(codex.agentKind == .codex)
+        let bannerOnly = AgentPromptSubmissionSnapshot(screenText: "OpenAI Codex\nClaude Code")
+        #expect(bannerOnly.agentKind == nil)
+        #expect(bannerOnly.state == .unknown)
+    }
+
+    @Test("Real Claude and Codex prompt shapes identify hookless panes")
+    func realPromptShapesWithoutBanner() {
+        let claude = AgentPromptSubmissionSnapshot(screenText: "✻ Welcome to Claude Code!\n\u{276F}\u{00A0}")
+        #expect(claude.agentKind == .claude)
+        #expect(claude.state == .empty)
+
+        let codex = AgentPromptSubmissionSnapshot(screenText: "│ >_ OpenAI Codex (v0.154.0) │\n› Ask Codex to do anything")
+        #expect(codex.agentKind == .codex)
+        #expect(codex.state == .empty)
+    }
+
+    @Test("Real Codex bullet status reports busy")
+    func realCodexBulletStatusIsBusy() {
+        let snapshot = AgentPromptSubmissionSnapshot(screenText: "│ >_ OpenAI Codex (v0.154.0) │\n• Working (3s • esc to interrupt)\n› Ask Codex to do anything")
+        #expect(snapshot.agentKind == .codex)
+        #expect(snapshot.busy)
+    }
+
+    @Test("A queued transcript row away from the prompt is ignored")
+    func queuedTranscriptRowIsIgnored() {
+        let snapshot = AgentPromptSubmissionSnapshot(screenText: "queued message from an earlier turn\n\n\n\n\n\n› Ask Codex to do anything")
+        #expect(snapshot.agentKind == .codex)
+        #expect(!snapshot.queued)
+    }
 }

@@ -364,7 +364,17 @@ func TestSendPositional(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("send: exit %d", code)
 		}
-		req := receiveRequest(t, requests)
+		var req map[string]any
+		for i := 0; i < 3; i++ {
+			candidate := receiveRequest(t, requests)
+			if candidate["method"] == "surface.send_text" {
+				req = candidate
+				break
+			}
+		}
+		if req == nil {
+			t.Fatal("surface.send_text request was not sent")
+		}
 		if params(req)["text"] != "hello world" {
 			t.Fatalf("expected text='hello world', got %v", params(req)["text"])
 		}
