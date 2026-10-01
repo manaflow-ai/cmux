@@ -41,7 +41,7 @@ def main() -> int:
         config_json.write_text(
             json.dumps(
                 {
-                    "plugin": [
+                    "plugins": [
                         "oh-my-opencode",
                         ["existing-plugin", {"enabled": True}],
                         "cmux-session",
@@ -86,7 +86,7 @@ def main() -> int:
         except Exception as exc:
             print(f"FAIL: invalid opencode.json after install: {exc}")
             return 1
-        plugins = config.get("plugin")
+        plugins = config.get("plugins")
         if not isinstance(plugins, list):
             print(f"FAIL: expected plugin list in opencode.json, got {plugins!r}")
             return 1
@@ -99,7 +99,7 @@ def main() -> int:
         if stale:
             print(f"FAIL: expected stale cmux plugin registrations removed, got {plugins!r}")
             return 1
-        if "./plugins/cmux-session.js" not in plugins:
+        if "./plugins" not in plugins:
             print(f"FAIL: expected local cmux session plugin registration, got {plugins!r}")
             return 1
         if "oh-my-opencode" not in plugins or ["existing-plugin", {"enabled": True}] not in plugins:
@@ -168,17 +168,45 @@ const duplicateMod = await import(pluginCopyPath);
 if (typeof mod.CMUXSessionRestore !== "function") {
   throw new Error("missing CMUXSessionRestore export");
 }
-if (typeof mod.default !== "function") {
-  throw new Error("missing default export");
+if (!mod.default || typeof mod.default.setup !== "function") {
+  throw new Error("missing V2 default setup export");
 }
-const hooks = await mod.default({ directory: "/tmp/opencode-project" });
-const duplicateHooks = await duplicateMod.default({ directory: "/tmp/opencode-project" });
-if (!hooks || typeof hooks.event !== "function") {
-  throw new Error("missing event hook");
+const idleContext = {
+  directory: "/tmp/opencode-project",
+  event: {
+    subscribe({ signal }) {
+      return {
+        [Symbol.asyncIterator]() {
+          return {
+            next() {
+              return new Promise((resolve) => {
+                signal.addEventListener("abort", () => resolve({ done: true }), { once: true });
+              });
+            }
+          };
+        }
+      };
+    }
+  }
+};
+const v1Hooks = await mod.CMUXSessionRestore({ directory: "/tmp/opencode-project" });
+if (!v1Hooks || typeof v1Hooks.event !== "function") {
+  throw new Error("missing V1 event hook");
 }
-if (duplicateHooks && typeof duplicateHooks.event === "function") {
-  throw new Error("duplicate plugin returned event hook");
+const hooks = await mod.default.setup(idleContext);
+const duplicateHooks = await duplicateMod.CMUXSessionRestore({ directory: "/tmp/opencode-project" });
+if (!duplicateHooks || typeof duplicateHooks.event === "function") {
+  throw new Error("V1 duplicate plugin returned event hook");
 }
+if (typeof hooks !== "function") {
+  throw new Error("missing V2 cleanup function");
+}
+hooks();
+const secondCleanup = await mod.default.setup(idleContext);
+if (typeof secondCleanup !== "function") {
+  throw new Error("V2 setup did not recover after cleanup");
+}
+secondCleanup();
 process.argv.splice(
   0,
   process.argv.length,
@@ -187,7 +215,7 @@ process.argv.splice(
   "--model",
   "anthropic/claude-sonnet-4-6"
 );
-await hooks.event({
+await v1Hooks.event({
   event: {
     type: "session.created",
     properties: {

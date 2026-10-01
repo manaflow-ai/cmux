@@ -74,7 +74,8 @@ public struct WindowAppearanceResolver {
                 opacity: terminalAppearance.backgroundOpacity
             )
         return current(settings: WindowAppearanceUserSettingsSnapshot(
-            unifySurfaceBackdrops: defaults.object(forKey: "sidebarMatchTerminalBackground") as? Bool ?? false,
+            unifySurfaceBackdrops: defaults.object(forKey: "sidebarMatchTerminalBackground") as? Bool
+                ?? WindowChromeSidebarTintDefaults.matchesTerminalBackground,
             colorScheme: ambientScheme,
             sidebarMaterial: defaults.string(forKey: "sidebarMaterial") ?? WindowChromeSidebarMaterialOption.sidebar.rawValue,
             sidebarBlendMode: defaults.string(forKey: "sidebarBlendMode") ?? WindowChromeSidebarBlendModeOption.withinWindow.rawValue,

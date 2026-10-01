@@ -8,6 +8,7 @@ struct DevicesSidebarControls: View {
     let incomingAccessEnabled: Bool
     let discoveryManaged: Bool
     let incomingAccessManaged: Bool
+    let unavailable: Bool
     let setDiscovery: (Bool) -> Void
     let setIncomingAccess: (Bool) -> Void
 
@@ -18,6 +19,7 @@ struct DevicesSidebarControls: View {
                 incomingAccessEnabled: incomingAccessEnabled,
                 discoveryManaged: discoveryManaged,
                 incomingAccessManaged: incomingAccessManaged,
+                unavailable: unavailable,
                 identifierPrefix: "Devices",
                 setDiscovery: setDiscovery,
                 setIncomingAccess: setIncomingAccess

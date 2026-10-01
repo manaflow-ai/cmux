@@ -21,16 +21,18 @@ struct CloudTreeRevealRequest: Equatable {
 extension CloudTreeOutlineView.Coordinator {
     func deviceDiscoveryMenuItems(section: CloudTreeDevicesSection) -> [NSMenuItem] {
         let actions = nodeActions
-        let incoming = item(String(localized: "devices.incoming.toggle", defaultValue: "Make this Mac discoverable")) {
-            actions.setDeviceIncomingAccess(!section.incomingAccessEnabled)
+        let incomingControl = section.incomingControl
+        let discoveryControl = section.discoveryControl
+        let incoming = item(incomingControl.title) {
+            actions.setDeviceIncomingAccess(!incomingControl.isOn)
         }
-        incoming.state = section.incomingAccessEnabled && !section.incomingAccessManaged ? .on : .off
-        incoming.isEnabled = !section.incomingAccessManaged
-        let discovery = item(String(localized: "devices.discovery.toggle", defaultValue: "Discover other Macs")) {
-            actions.setDeviceDiscovery(!section.discoveryEnabled)
+        incoming.state = incomingControl.isOn ? .on : .off
+        incoming.isEnabled = incomingControl.isEnabled
+        let discovery = item(discoveryControl.title) {
+            actions.setDeviceDiscovery(!discoveryControl.isOn)
         }
-        discovery.state = section.discoveryEnabled && !section.discoveryManaged ? .on : .off
-        discovery.isEnabled = !section.discoveryManaged
+        discovery.state = discoveryControl.isOn ? .on : .off
+        discovery.isEnabled = discoveryControl.isEnabled
         return [incoming, discovery]
     }
 

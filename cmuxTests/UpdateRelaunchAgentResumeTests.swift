@@ -267,6 +267,199 @@ struct UpdateRelaunchAgentResumeTests {
         #expect(workspace.surfaceResumeBinding(panelId: panelId)?.command == tmuxBinding.command)
     }
 
+    /// The relaunch save uses the indexes captured just before the relaunch, so an agent the
+    /// cached index has not seen yet is still saved as running. A capture from a relaunch that
+    /// did not happen is never reused.
+    @Test("The update relaunch save uses only a recent pre-relaunch capture, once")
+    func updateRelaunchIndexCaptureIsRecentAndSingleUse() throws {
+        let fresh = ProcessDetectedResumeIndexes(
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: [:])
+        )
+        var capture = UpdateRelaunchIndexCapture()
+        // `take` is mutating, so each result is read outside the test macros.
+        let empty = capture.take(now: 100)
+        #expect(empty == nil)
+
+        capture.store(fresh, capturedAt: 100)
+        let recent = capture.take(now: 100 + UpdateRelaunchIndexCapture.lifetime)
+        let taken = try #require(recent)
+        #expect(taken.surfaceResumeBindingIndex.isAvailable)
+        let again = capture.take(now: 101)
+        #expect(again == nil)
+
+        capture.store(fresh, capturedAt: 100)
+        let stale = capture.take(now: 101 + UpdateRelaunchIndexCapture.lifetime)
+        #expect(stale == nil)
+        let afterStale = capture.take(now: 101)
+        #expect(afterStale == nil)
+    }
+
+    /// An agent the update relaunch cut off mid-task is saved marked, and only that save marks it.
+    @Test("The update relaunch save marks only mid-task agents to continue")
+    func updateRelaunchSaveMarksMidTaskAgents() throws {
+        let nudges = UpdateRelaunchContinuationNudges.shared
+        defer { nudges.arm(panelIds: [], expiresAtUptime: 0) }
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        try #require(workspace.setSurfaceResumeBinding(Self.continuationBinding, panelId: panelId))
+
+        func savedTerminal() throws -> (terminal: SessionTerminalPanelSnapshot?, json: String) {
+            let data = try JSONEncoder().encode(workspace.sessionSnapshot(includeScrollback: false))
+            let persisted = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: data)
+            return (
+                persisted.panels.first(where: { $0.id == panelId })?.terminal,
+                String(decoding: data, as: UTF8.self)
+            )
+        }
+
+        nudges.arm(panelIds: [panelId], expiresAtUptime: .infinity)
+        #expect(try savedTerminal().terminal?.resumeWithContinuation == true)
+
+        // An idle agent at the relaunch, and every ordinary save, leave the field out, so
+        // snapshots from builds without it decode the same way.
+        nudges.arm(panelIds: [UUID()], expiresAtUptime: .infinity)
+        let idle = try savedTerminal()
+        #expect(idle.terminal?.resumeWithContinuation == nil)
+        #expect(!idle.json.contains("resumeWithContinuation"))
+        nudges.arm(panelIds: [], expiresAtUptime: 0)
+        #expect(try savedTerminal().terminal?.resumeWithContinuation == nil)
+    }
+
+    /// The relaunched app resumes a marked agent with the continuation prompt, once; an unmarked
+    /// agent resumes plainly.
+    @Test("A marked agent resumes with the continuation prompt once")
+    func markedAgentResumesWithContinuationPromptOnce() throws {
+        let suiteName = "cmux-update-relaunch-continuation-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let nudges = UpdateRelaunchContinuationNudges.shared
+
+        func restoredRecord(marked: Bool) throws -> (record: ControlSurfaceRestoreRecord, panelId: UUID) {
+            let source = Workspace()
+            let sourcePanelId = try #require(source.focusedPanelId)
+            try #require(source.setSurfaceResumeBinding(Self.continuationBinding, panelId: sourcePanelId))
+            var saved = try JSONDecoder().decode(
+                SessionWorkspaceSnapshot.self,
+                from: JSONEncoder().encode(source.sessionSnapshot(includeScrollback: false))
+            )
+            source.teardownAllPanels()
+            let index = try #require(saved.panels.firstIndex(where: { $0.id == sourcePanelId }))
+            saved.panels[index].terminal?.wasAgentRunning = true
+            saved.panels[index].terminal?.resumeWithContinuation = marked ? true : nil
+
+            let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+            defer { restored.teardownAllPanels() }
+            let panelId = try #require(restored.restoreSessionSnapshot(saved)[sourcePanelId])
+            let record = try #require(TerminalController.shared.controlSurfaceRestoreRecord(
+                target: .workspace(tabManager: tabManager, workspace: restored, surfaceID: panelId),
+                binding: restored.surfaceResumeBinding(panelId: panelId)
+            ))
+            return (record, panelId)
+        }
+
+        let marked = try restoredRecord(marked: true)
+        defer { nudges.consume(panelId: marked.panelId) }
+        #expect(marked.record.continuationPrompt == UpdateRelaunchContinuationNudges.prompt)
+        let request = try Self.restoreRequest(from: marked.record)
+        let invocation = try #require(Self.planner.invocation(
+            for: request,
+            ambientEnvironment: Self.ambientEnvironment
+        ))
+        #expect(invocation.arguments == [
+            "claude", "--resume", Self.continuationBinding.checkpointId ?? "",
+            UpdateRelaunchContinuationNudges.prompt,
+        ])
+
+        // The admitted resume consumes the nudge, so a later restore resumes plainly.
+        nudges.consume(panelId: marked.panelId)
+        #expect(nudges.prompt(
+            forPanel: marked.panelId,
+            checkpointID: Self.continuationBinding.checkpointId
+        ) == nil)
+
+        #expect(try restoredRecord(marked: false).record.continuationPrompt == nil)
+    }
+
+    @Test func aNewUpdateAttemptOwnsItsContinuationExpiry() {
+        let nudges = UpdateRelaunchContinuationNudges()
+        let panel = UUID()
+        nudges.arm(panelIds: [panel], expiresAtUptime: 160)
+        #expect(nudges.marksPanel(panel, now: 150) == true)
+        nudges.arm(panelIds: [panel], expiresAtUptime: 210)
+        #expect(nudges.marksPanel(panel, now: 161) == true)
+        #expect(nudges.marksPanel(panel, now: 211) == nil)
+    }
+
+    @Test func anUnmarkedRestoreClearsAnEarlierContinuation() {
+        let nudges = UpdateRelaunchContinuationNudges()
+        let panel = UUID()
+        let marked = SessionTerminalPanelSnapshot(
+            managedAgentResumeBinding: Self.continuationBinding,
+            resumeWithContinuation: true
+        )
+        nudges.registerRestoredPanel(panel, snapshot: marked, resumesAgent: true, now: 100)
+        #expect(nudges.prompt(forPanel: panel, checkpointID: Self.continuationBinding.checkpointId, now: 101) != nil)
+        nudges.registerRestoredPanel(panel, snapshot: nil, resumesAgent: true, now: 102)
+        #expect(nudges.prompt(forPanel: panel, checkpointID: Self.continuationBinding.checkpointId, now: 103) == nil)
+    }
+
+    /// A nudge the restore never used expires, so a manual resume much later resumes plainly.
+    @Test("An unused continuation nudge expires")
+    func unusedContinuationNudgeExpires() {
+        let nudges = UpdateRelaunchContinuationNudges.shared
+        let panelId = UUID()
+        defer { nudges.consume(panelId: panelId) }
+        let marked = SessionTerminalPanelSnapshot(
+            managedAgentResumeBinding: Self.continuationBinding,
+            resumeWithContinuation: true
+        )
+
+        nudges.registerRestoredPanel(panelId, snapshot: marked, resumesAgent: false, now: 100)
+        #expect(nudges.prompt(
+            forPanel: panelId,
+            checkpointID: Self.continuationBinding.checkpointId,
+            now: 100
+        ) == nil)
+
+        nudges.registerRestoredPanel(panelId, snapshot: marked, resumesAgent: true, now: 100)
+        #expect(nudges.prompt(
+            forPanel: panelId,
+            checkpointID: Self.continuationBinding.checkpointId,
+            now: 100 + UpdateRelaunchContinuationNudges.lifetime
+        )
+            == UpdateRelaunchContinuationNudges.prompt)
+        #expect(nudges.prompt(
+            forPanel: panelId,
+            checkpointID: Self.continuationBinding.checkpointId,
+            now: 101 + UpdateRelaunchContinuationNudges.lifetime
+        ) == nil)
+        #expect(nudges.prompt(
+            forPanel: panelId,
+            checkpointID: Self.continuationBinding.checkpointId,
+            now: 100
+        ) == nil)
+    }
+
+    private static let continuationBinding = SurfaceResumeBindingSnapshot(
+        kind: "claude",
+        command: "claude --resume 0198f073-0a5b-7000-8000-00000000a0c1",
+        cwd: workingDirectory,
+        checkpointId: "0198f073-0a5b-7000-8000-00000000a0c1",
+        source: "agent-hook",
+        launchCommand: AgentLaunchCommandSnapshot(
+            executablePath: "/opt/homebrew/bin/claude",
+            arguments: ["claude"],
+            workingDirectory: workingDirectory,
+            capturedAt: 1,
+            source: "hook"
+        ),
+        autoResume: true
+    )
+
     /// Mirrors the `cmux restore` CLI mapping from a socket restore record to
     /// the planner request.
     private static func restoreRequest(from record: ControlSurfaceRestoreRecord) throws -> AgentRestoreRequest {
@@ -292,7 +485,8 @@ struct UpdateRelaunchAgentResumeTests {
             },
             preparedArguments: record.preparedArguments,
             preparedArgumentsWorkingDirectory: record.preparedArgumentsWorkingDirectory,
-            observedPermissionMode: record.permissionMode
+            observedPermissionMode: record.permissionMode,
+            continuationPrompt: record.continuationPrompt
         )
     }
 }

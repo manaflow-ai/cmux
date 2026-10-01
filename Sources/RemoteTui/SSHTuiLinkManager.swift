@@ -6,7 +6,9 @@ import CmuxCore
 /// Owns one SSH carrier and shares it between native projections and control requests.
 actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     nonisolated let operations: CloudOperationRecorder? = nil
-    private var connection: SSHTuiConnection
+    /// The current connection is internal for app-host tests that verify an
+    /// idle carrier adopts a replacement authentication agent.
+    var connection: SSHTuiConnection
     private let clientURL: URL
     private let paths: CloudTuiClientPaths
     private let isEnabled: @Sendable () -> Bool
@@ -100,7 +102,8 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     /// options it started with.
     func adopt(_ replacement: SSHTuiConnection) async {
         guard replacement.id == connection.id,
-              replacement.configuration.sshOptions != connection.configuration.sshOptions,
+              (replacement.configuration.sshOptions != connection.configuration.sshOptions
+               || replacement.configuration.agentSocketPath != connection.configuration.agentSocketPath),
               connecting == nil else { return }
         let observed = current
         if let observed, await observed.isConnected { return }

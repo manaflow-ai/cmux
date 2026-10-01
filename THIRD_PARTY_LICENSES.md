@@ -16,6 +16,34 @@ license text is in `Assets.xcassets/AgentIcons/LOBE-LICENSE.txt`.
 
 ---
 
+## Primer Octicons (selected diff viewer icons)
+
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2026 GitHub Inc.
+- **Source:** https://github.com/primer/octicons (v19.38.0)
+
+Selected 16px path data is embedded in `webviews/src/icons.tsx`.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
 ## Ghostty
 
 - **License:** MIT License
@@ -330,9 +358,10 @@ The following packages are linked into the cmux app binary.
 
 ## Diff Viewer Highlighting Assets
 
-cmux bundles compiled syntax-highlighting code and grammars under
-`Resources/markdown-viewer/diff-viewer/` so the diff viewer has no runtime CDN
-dependency.
+cmux bundles compiled syntax-highlighting code and grammars (shiki and its
+Oniguruma WASM engine, built from `webviews/` with `@pierre/diffs`) inside the
+generated `Resources/markdown-viewer/webviews-app/` bundle so the diff viewer
+has no runtime CDN dependency.
 
 ### shiki
 

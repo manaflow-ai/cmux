@@ -15,6 +15,7 @@ import {
   cloudVmLeases,
   cloudVmNotificationDeliveries,
   cloudVmNotificationEvents,
+  cloudVmObservedDestroyCleanups,
   cloudVmSessions,
   cloudVmUsageEvents,
   cloudVms,
@@ -75,6 +76,7 @@ import {
   createLegacySubrouterRetirementClient,
   legacySubrouterRetirementConfig,
 } from "../../../services/subrouter/legacyRetirementClient";
+import { OBSERVED_DESTROY_CLEANUP_METADATA_KEY } from "../../../services/vms/repository";
 import {
   destroyVm,
   listUserVms,
@@ -1459,7 +1461,9 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       .select({
         id: cloudVms.id,
         billingTeamId: cloudVms.billingTeamId,
+        provider: cloudVms.provider,
         providerVmId: cloudVms.providerVmId,
+        providerMetadata: cloudVms.providerMetadata,
         status: cloudVms.status,
       })
       .from(cloudVms)
@@ -1483,6 +1487,24 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       throw new Error(
         `Personal cloud VM provider teardown or creation is still pending for ${unsafePersonalVmRows.length} row${unsafePersonalVmRows.length === 1 ? "" : "s"}`,
       );
+    }
+    const pendingExternalCleanupRows = personalVmRows.flatMap((vm) => {
+      if (vm.status !== "destroyed") return [];
+      const cleanup = observedDestroyCleanupFromMetadata(vm.providerMetadata);
+      return cleanup ? [{ vmId: vm.id, provider: vm.provider, cleanup }] : [];
+    });
+    if (pendingExternalCleanupRows.length > 0) {
+      await tx
+        .insert(cloudVmObservedDestroyCleanups)
+        .values(pendingExternalCleanupRows)
+        .onConflictDoUpdate({
+          target: cloudVmObservedDestroyCleanups.vmId,
+          set: {
+            provider: sql`excluded.provider`,
+            cleanup: sql`${cloudVmObservedDestroyCleanups.cleanup} || excluded.cleanup`,
+            updatedAt: now,
+          },
+        });
     }
     const personalVmIds = personalVmRows.map((vm) => vm.id);
     const phonePushLeases = await tx
@@ -1631,6 +1653,26 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       eq(vaultCliAuthRequests.userId, userId),
     );
   });
+}
+
+function observedDestroyCleanupFromMetadata(
+  providerMetadata: unknown,
+): { readonly modelPlane?: true; readonly homeVolume?: string } | null {
+  if (!providerMetadata || typeof providerMetadata !== "object" || Array.isArray(providerMetadata)) {
+    return null;
+  }
+  const cleanup = (providerMetadata as Record<string, unknown>)[OBSERVED_DESTROY_CLEANUP_METADATA_KEY];
+  if (!cleanup || typeof cleanup !== "object" || Array.isArray(cleanup)) return null;
+  const marker = cleanup as Record<string, unknown>;
+  const modelPlane = marker.modelPlane === true ? true : undefined;
+  const homeVolume = typeof marker.homeVolume === "string" && marker.homeVolume.trim().length > 0
+    ? marker.homeVolume.trim()
+    : undefined;
+  if (!modelPlane && !homeVolume) return null;
+  return {
+    ...(modelPlane ? { modelPlane } : {}),
+    ...(homeVolume ? { homeVolume } : {}),
+  };
 }
 
 function assertNoActivePhonePushDeliveryLease(
