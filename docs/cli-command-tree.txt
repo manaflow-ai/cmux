@@ -1953,6 +1953,7 @@ command  workspace loading  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+  arg  state  kind=argument  completion=list(off,on)
 command  workspace reconnect  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
@@ -1969,7 +1970,9 @@ command  workspace select  aliases=-
 command  workspace status  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
+  arg  action  kind=argument  completion=list(cycle,set)
   arg  arguments  kind=argument  completion=-
+  arg  lane  kind=argument  completion=list(auto,done,needs-attention,none,review,todo,working)
 command  workspace-action  aliases=-
   arg  --action  kind=option  completion=-
   arg  --color  kind=option  completion=-

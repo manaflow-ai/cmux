@@ -154,6 +154,8 @@ struct WorkspaceSelectSubcommand: SharedLegacyFacadeCommand {
 struct WorkspaceStatusSubcommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
     @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
+    @Argument(completion: .list(["set", "cycle"])) var action: String?
+    @Argument(completion: .list(["todo", "working", "needs-attention", "review", "done", "auto", "none"])) var lane: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "status", helpNames: [])
 }
@@ -176,6 +178,7 @@ struct WorkspaceLoadingSubcommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("id")) var id: String?
     @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
     @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
+    @Argument(completion: .list(["on", "off"])) var state: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "loading", helpNames: [])
 }
