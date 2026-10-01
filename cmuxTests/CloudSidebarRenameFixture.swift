@@ -59,6 +59,17 @@ final class CloudSidebarRenameFixture {
             tabs.removeAll { ($0["id"] as? String) == "tab_main" }
             document["tabs"] = tabs
         }
+        if !includeMainTab,
+           var screens = document["screens"] as? [[String: Any]],
+           var screen = screens.first,
+           var layout = screen["layout"] as? [String: Any],
+           var layoutTabIDs = layout["tab_ids"] as? [String] {
+            layoutTabIDs.removeAll { $0 == "tab_main" }
+            layout["tab_ids"] = layoutTabIDs
+            screen["layout"] = layout
+            screens[0] = screen
+            document["screens"] = screens
+        }
         return try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: machine))
     }
 

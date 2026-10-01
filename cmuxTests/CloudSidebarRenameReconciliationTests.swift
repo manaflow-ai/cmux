@@ -47,7 +47,9 @@ struct CloudSidebarRenameReconciliationTests {
         fixture.reconcile()
         #expect(fixture.workspace.panelCustomTitles[fixture.panelID] == nil)
         #expect(fixture.workspace.panelTitle(panelId: fixture.panelID) == "terminal")
-        #expect(fixture.userName("Keep this tab"))
+        #expect(fixture.workspace.setPanelCustomTitle(
+            panelId: fixture.panelID, title: "Keep this tab", source: .user, catalog: fixture.catalog
+        ))
         fixture.install(try fixture.state(revision: 4, includeMainTab: false))
         fixture.reconcile()
         #expect(fixture.workspace.panelTitle(panelId: fixture.panelID) == "Keep this tab")

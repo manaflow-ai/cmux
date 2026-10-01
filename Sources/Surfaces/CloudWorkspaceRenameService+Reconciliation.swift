@@ -127,7 +127,8 @@ extension CloudWorkspaceRenameService {
                 // open locally after its agent tab exits, closes, detaches, or is
                 // reassigned; clear only an automatic/remote projection so an
                 // intentional local rename remains untouched.
-                if workspace.panelCustomTitleSources[projection.panelID] != .user {
+                if (workspace.panelCustomTitleSources[projection.panelID] ?? .user) != .user,
+                   catalog.pendingCloudRenameName(for: .tab(machine: machine, id: tabID)) == nil {
                     _ = workspace.setPanelCustomTitle(
                         panelId: projection.panelID, title: nil, source: .remote,
                         propagateToRemoteTmux: false, propagateToCloud: false
