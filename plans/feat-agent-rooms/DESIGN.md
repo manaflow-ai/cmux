@@ -1,8 +1,10 @@
 # Agent Rooms: provider-neutral messages between cmux agent sessions
 
 Status: in progress. The provider-neutral broker and ACP prompt seam are
-implemented under `agent-chat`; persistence, UI, remote federation, and
-external mail providers remain proposed.
+implemented under `agent-chat`. In cmux-next the durable store and the
+`cmux agent message` / `cmux agent inbox` CLI are implemented (see "cmux-next
+slices" below); hook delivery, native Codex and Claude delivery, `cmux agent
+list`, UI, remote federation, and external mail providers remain proposed.
 
 ## Problem
 
@@ -137,6 +139,36 @@ does not grant that authority.
 Remote agent discovery, cross-organization identity, arbitrary email sending,
 automatic execution of message bodies, transcript replication, and a general
 workflow engine are separate proposals.
+
+## cmux-next slices
+
+cmux-next has no long-lived TypeScript process, so the store is a Rust port of
+this envelope in the cmux-tui daemon, which already owns the `agent` scope and
+the agents' hooks and keeps its state in the session registry (SQLite). The
+TypeScript broker stays the reference for the envelope and states.
+
+| Slice | State | Where |
+| --- | --- | --- |
+| Persistence: `agent.message.send`, `list`, `mark` on `cmux.protocol/2`; one envelope and one receipt per recipient, kept across daemon restarts | implemented | `cmux-tui-core` `agent_message_store.rs`, spec `resource-api-v2.md` |
+| `cmux agent message` / `cmux agent inbox` | implemented | `cmux-tui` `cli/agent_message.rs` |
+| ACP delivery: the CLI prompts each acpmux recipient with the message id as the prompt id (acpmux runs an id once), resending older queued or failed messages first | implemented | `acpmux` `deliver.rs` |
+| Hook delivery to terminal agents (Claude and Codex `UserPromptSubmit`, Codex `Stop`) as context | proposed | |
+| Native delivery: Codex app-server `turn/start` / `turn/steer`, Claude Code peer socket (cmux #16417) | proposed | |
+| `cmux agent list` from acpmux sessions and terminal agents (cmux #16417) | proposed | |
+
+Choices in the port, compared with the TypeScript broker:
+
+- Addresses are `term_<id>` for a terminal agent and `acp:<session id>` for
+  an acpmux session; a sender may also be `cli`. The CLI resolves `agent_`
+  ids and acpmux session names to these before it sends.
+- Receipt states are `queued`, `delivered`, `acknowledged` and `failed`.
+  `acted`, `replied` and `dead-lettered` are not used yet.
+- The daemon mints `msg_<32 hex>` ids. Idempotency comes from the protocol's
+  idempotency key, not a caller-chosen message id.
+- Messages are not published on `session.events`, so bodies reach only the
+  sender and the recipients.
+- Retention: messages beyond the newest 2000 are pruned once none of their
+  receipts is queued.
 
 ## Validation status
 

@@ -907,3 +907,94 @@ fn raw_metadata_and_pin_commands_publish_the_same_state_on_session_events() {
             && change["value"]["extra"]["pinned"] == true
     }));
 }
+
+#[test]
+fn agent_messages_queue_per_recipient_reply_in_thread_and_survive_a_restart() {
+    let session = Session::new("agent-messages");
+    let terminal;
+    let first_id;
+    {
+        let mux = session.open();
+        terminal_tabs(&mux, 1);
+        let terminals = read(&mux, "terminal.list", json!({}));
+        terminal = terminals[0]["id"].as_str().unwrap().to_owned();
+        let before = revision(&mux);
+        let sent = mutate(
+            &mux,
+            "agent.message.send",
+            json!({
+                "recipients": [terminal, "acp:review"],
+                "body": "please review the diff",
+                "sender": "acp:planner",
+                "sender_name": "planner",
+            }),
+            "m1",
+        );
+        first_id = sent["id"].as_str().unwrap().to_owned();
+        assert!(first_id.starts_with("msg_"));
+        assert_eq!(sent["thread_id"], first_id.as_str());
+        assert_eq!(sent["deliveries"][0]["state"], "queued");
+        assert_eq!(sent["deliveries"][1]["recipient"], "acp:review");
+        // Message bodies are not broadcast as resource changes.
+        assert!(changes_after(&mux, before).is_empty());
+        // A retry with the same key returns the first message.
+        let replay = send(
+            &mux,
+            "agent.message.send",
+            json!({
+                "recipients": [terminal, "acp:review"],
+                "body": "please review the diff",
+                "sender": "acp:planner",
+                "sender_name": "planner",
+            }),
+            Some("m1"),
+        )
+        .unwrap();
+        assert_eq!(replay["replayed"], true);
+        assert_eq!(replay["value"]["id"], first_id.as_str());
+        assert_eq!(read(&mux, "agent.message.list", json!({})).as_array().unwrap().len(), 1);
+        let marked = mutate(
+            &mux,
+            "agent.message.mark",
+            json!({"ids": [first_id], "recipient": "acp:review", "state": "delivered", "via": "acp.prompt"}),
+            "m2",
+        );
+        assert_eq!(marked[0]["deliveries"][1]["state"], "delivered");
+        assert_eq!(marked[0]["deliveries"][0]["state"], "queued");
+        assert_eq!(
+            error_code(send(
+                &mux,
+                "agent.message.send",
+                json!({"recipients": ["term_00000000000000000000000000000000"], "body": "hi"}),
+                Some("m3"),
+            )),
+            "resource.not_found"
+        );
+        assert_eq!(
+            error_code(send(
+                &mux,
+                "agent.message.send",
+                json!({"recipients": ["workspace:1"], "body": "hi"}),
+                Some("m4"),
+            )),
+            "validation.invalid"
+        );
+    }
+    let mux = session.open();
+    let queued =
+        read(&mux, "agent.message.list", json!({"recipient": terminal, "state": "queued"}));
+    assert_eq!(queued[0]["id"], first_id.as_str());
+    assert_eq!(queued[0]["deliveries"][1]["via"], "acp.prompt");
+    let reply = mutate(
+        &mux,
+        "agent.message.send",
+        json!({"in_reply_to": first_id, "body": "looks good", "sender": "acp:review"}),
+        "m5",
+    );
+    assert_eq!(reply["thread_id"], first_id.as_str());
+    assert_eq!(reply["kind"], "reply");
+    assert_eq!(reply["recipients"], json!(["acp:planner"]));
+    let thread = read(&mux, "agent.message.list", json!({"thread_id": first_id}));
+    assert_eq!(thread.as_array().unwrap().len(), 2);
+    assert_eq!(thread[0]["id"], reply["id"]);
+}

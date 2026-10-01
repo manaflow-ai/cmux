@@ -1,6 +1,7 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+mod agent_messages;
 mod closed_history;
 mod host_close;
 mod idle_close;

@@ -118,7 +118,7 @@ fn every_public_scope_has_specific_help_instead_of_falling_back_to_root_help() {
         (&["terminal"][..], &["list", "show", "write", "keys", "history", "attach"][..]),
         (&["browser"][..], &["show", "navigate", "back", "forward", "attach"][..]),
         (&["notification"][..], &["list", "create"][..]),
-        (&["agent"][..], &["list", "report"][..]),
+        (&["agent"][..], &["list", "message", "inbox", "report"][..]),
         (&["sidebar"][..], &["view", "plugin"][..]),
         (&["pairing"][..], &["request"][..]),
         (&["projection"][..], &["show", "put"][..]),

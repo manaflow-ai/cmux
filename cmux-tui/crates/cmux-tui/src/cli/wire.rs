@@ -362,7 +362,7 @@ pub(super) fn random_request_id() -> Result<String, UsageError> {
     random_prefixed("request")
 }
 
-fn random_idempotency_key() -> Result<String, UsageError> {
+pub(super) fn random_idempotency_key() -> Result<String, UsageError> {
     random_prefixed("mutation")
 }
 

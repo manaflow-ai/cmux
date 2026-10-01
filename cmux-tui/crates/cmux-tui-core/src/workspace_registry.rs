@@ -30,6 +30,7 @@ use crate::resource::{
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
 
+pub(crate) mod agent_message_store;
 pub(crate) mod closed_history_store;
 mod effect_store;
 mod idle_policy_store;
