@@ -97,7 +97,7 @@ impl Mux {
                     error,
                     now_ms(),
                 )?;
-                Ok(StateChanges::new(serde_json::Value::Array(values), Vec::new()))
+                Ok(StateChanges::new(Value::Array(values), Vec::new()))
             },
         )
     }
@@ -108,7 +108,7 @@ impl Mux {
         selectors: &crate::ResourceSelectors,
         filter: &AgentMessageFilter,
         limit: usize,
-    ) -> Result<Vec<serde_json::Value>, ResourceError> {
+    ) -> Result<Vec<Value>, ResourceError> {
         self.resolve_resource_path(crate::ResourceTarget::Session, selectors)?;
         let session_id = self.session_public_id.as_str().to_owned();
         self.read_registry_state(|connection| {
