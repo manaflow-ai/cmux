@@ -370,7 +370,9 @@ final class CmuxTuiSurfaceProviderRegistry {
         guard access == accessEpoch, !Task.isCancelled else { return false }
         let refreshable = discovered.filter { $0.info.linkFailure == nil }
         let refreshableMachines = refreshable.map { provider in provider.machine }
-        let foreign = retainedForeignTeamMachineIDs(activeTeamID: activeTeamID()).subtracting(refreshableMachines).compactMap { id in providers[id] }
+        let retainedForeign = retainedForeignTeamMachineIDs(activeTeamID: activeTeamID())
+        let foreignIDs = retainedForeign.subtracting(refreshableMachines)
+        let foreign = foreignIDs.compactMap { id in providers[id] }
         let candidates = refreshable + foreign
         let activeMachines: Set<SurfaceMachineID>
         if force || !hasCompletedInitialRefresh {
@@ -450,8 +452,6 @@ final class CmuxTuiSurfaceProviderRegistry {
             return id
         })
     }
-    /// Restored panes of another team whose provider is not registered yet.
-    /// The selected team's page must not prune them before their own read.
     private func pendingForeignRestoredMachineIDs(activeTeamID active: String?) -> Set<String> {
         guard let catalog else { return [] }
         return catalog.pendingRestoredMachineIDs.filter { id in
