@@ -27,6 +27,9 @@ final class AgentSessionPanel: Panel {
     private(set) var displayTitle: String
     /// Composer command routing from the web renderer. The native pane does not run terminal commands.
     var onRunCommand: ((String) throws -> [String: Any])?
+#if DEBUG
+    var onWebRendererDebugAction: ((String, [String: Any]) -> [String: Any]?)?
+#endif
     var displayIcon: String? { "bubble.left.and.bubble.right" }
     private(set) var isDirty: Bool = false
     var onDisplayStateChanged: ((String, Bool) -> Void)? {
@@ -82,6 +85,10 @@ final class AgentSessionPanel: Panel {
         return pane
     }
 
+    func startChatIfNeeded() {
+        chatModel.start()
+    }
+
     private func observeChatModel() {
         withObservationTracking {
             let title = chatModel.summary?.displayTitle ?? Self.defaultTitle
@@ -117,6 +124,9 @@ final class AgentSessionPanel: Panel {
 #if DEBUG
     /// Scripted pane interactions for DEBUG animation recordings.
     func performDebugChatAction(_ action: String, params: [String: Any]) -> [String: Any]? {
+        if let onWebRendererDebugAction {
+            return onWebRendererDebugAction(action, params)
+        }
         chatPane?.performDebugAction(action, params: params)
     }
 #endif

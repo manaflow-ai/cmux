@@ -21,6 +21,7 @@
 		A5C017000000000000000007 /* AccountSignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C017000000000000000008 /* AccountSignInView.swift */; };
 		D0B102020000000000000001 /* AcknowledgmentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103020000000000000001 /* AcknowledgmentsView.swift */; };
 		D0B102010000000000000001 /* AcknowledgmentsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103010000000000000001 /* AcknowledgmentsWindowController.swift */; };
+		9B9ABEED81415993310ABFA5 /* acpmux-agent-session in Resources */ = {isa = PBXBuildFile; fileRef = 9C9ABEED81415993310ABFA5 /* acpmux-agent-session */; };
 		AE9894C2C654DA172D7F6466 /* AcpmuxBubblePath.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA48C75ACD383B75B39B9D28 /* AcpmuxBubblePath.swift */; };
 		8F50E8969074B2940650060B /* AcpmuxChatConnectorFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F6103F4CD1BBBCC136A75A4 /* AcpmuxChatConnectorFactory.swift */; };
 		E889AFF3636FAD17F9BAFF92 /* AcpmuxChatHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 680B68232C2E828EC8959222 /* AcpmuxChatHeaderView.swift */; };
@@ -28,6 +29,7 @@
 		C6F223CD8940C9B23BAFA3A6 /* AcpmuxChatPaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3966F42C70F1FB3B005D97F4 /* AcpmuxChatPaneView.swift */; };
 		28764616EBBB107A57F3CD03 /* AcpmuxChatTextRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDF66A15515094E2BA4B1511 /* AcpmuxChatTextRenderer.swift */; };
 		0FAB8E99714F862D6B33AB56 /* AcpmuxChatTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBCF4B1984E3F50A490E0E38 /* AcpmuxChatTheme.swift */; };
+		93BB8673E4EAA682F6BDF809 /* AcpmuxChatWebRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B9ABEED81415993310ABFA4 /* AcpmuxChatWebRenderer.swift */; };
 		47B46CB5997B0BEAF1485921 /* AcpmuxChipButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AE791F8DB15DA66276BBA60 /* AcpmuxChipButton.swift */; };
 		4BE4AD2B8729479CB021D9B3 /* AcpmuxComposerTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1682F8EB802F8126AA9768DE /* AcpmuxComposerTextView.swift */; };
 		4B659FCAA38B4A064E898DAD /* AcpmuxComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59A5EF06E729024F46CD1630 /* AcpmuxComposerView.swift */; };
@@ -4395,6 +4397,7 @@
 		A5C017000000000000000008 /* AccountSignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSignInView.swift; sourceTree = "<group>"; };
 		D0B103020000000000000001 /* AcknowledgmentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AcknowledgmentsView.swift; sourceTree = "<group>"; };
 		D0B103010000000000000001 /* AcknowledgmentsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AcknowledgmentsWindowController.swift; sourceTree = "<group>"; };
+		9C9ABEED81415993310ABFA5 /* acpmux-agent-session */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "acpmux-agent-session"; sourceTree = "<group>"; };
 		CA48C75ACD383B75B39B9D28 /* AcpmuxBubblePath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxBubblePath.swift; sourceTree = "<group>"; };
 		0F6103F4CD1BBBCC136A75A4 /* AcpmuxChatConnectorFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxChatConnectorFactory.swift; sourceTree = "<group>"; };
 		680B68232C2E828EC8959222 /* AcpmuxChatHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxChatHeaderView.swift; sourceTree = "<group>"; };
@@ -4402,6 +4405,7 @@
 		3966F42C70F1FB3B005D97F4 /* AcpmuxChatPaneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxChatPaneView.swift; sourceTree = "<group>"; };
 		CDF66A15515094E2BA4B1511 /* AcpmuxChatTextRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxChatTextRenderer.swift; sourceTree = "<group>"; };
 		BBCF4B1984E3F50A490E0E38 /* AcpmuxChatTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxChatTheme.swift; sourceTree = "<group>"; };
+		9B9ABEED81415993310ABFA4 /* AcpmuxChatWebRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChatWebRenderer.swift; sourceTree = "<group>"; };
 		1AE791F8DB15DA66276BBA60 /* AcpmuxChipButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxChipButton.swift; sourceTree = "<group>"; };
 		1682F8EB802F8126AA9768DE /* AcpmuxComposerTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxComposerTextView.swift; sourceTree = "<group>"; };
 		59A5EF06E729024F46CD1630 /* AcpmuxComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AcpmuxChat/AcpmuxComposerView.swift; sourceTree = "<group>"; };
@@ -8746,6 +8750,7 @@
 				A9D9000000000000000F0016 /* markdown-viewer */,
 				A9E010000000000000000006 /* agent-session-react */,
 				A9E010000000000000000007 /* agent-session-solid */,
+				9C9ABEED81415993310ABFA5 /* acpmux-agent-session */,
 
 				A5001622 /* cmux.sdef */,
 			);
@@ -11404,6 +11409,7 @@
 				2A6AE29EA7AF1FB12876663D /* UpdateRelaunchAgentClassification.swift */,
 				3E494FDF2D8061EDBCF12CE0 /* DebugWindowRecorder.swift */,
 				5B0BD23016CCA92209074B6B /* TerminalController+DebugWindowRecord.swift */,
+				9B9ABEED81415993310ABFA4 /* AcpmuxChatWebRenderer.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -13346,6 +13352,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9B9ABEED81415993310ABFA5 /* acpmux-agent-session in Resources */,
 				A9E020000000000000000006 /* agent-session-react in Resources */,
 				A9E020000000000000000007 /* agent-session-solid in Resources */,
 				A5001100 /* Assets.xcassets in Resources */,
@@ -13655,6 +13662,7 @@
 				C6F223CD8940C9B23BAFA3A6 /* AcpmuxChatPaneView.swift in Sources */,
 				28764616EBBB107A57F3CD03 /* AcpmuxChatTextRenderer.swift in Sources */,
 				0FAB8E99714F862D6B33AB56 /* AcpmuxChatTheme.swift in Sources */,
+				93BB8673E4EAA682F6BDF809 /* AcpmuxChatWebRenderer.swift in Sources */,
 				47B46CB5997B0BEAF1485921 /* AcpmuxChipButton.swift in Sources */,
 				4BE4AD2B8729479CB021D9B3 /* AcpmuxComposerTextView.swift in Sources */,
 				4B659FCAA38B4A064E898DAD /* AcpmuxComposerView.swift in Sources */,
