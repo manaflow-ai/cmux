@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9335cb699f686481f70d674b12c055858df82b4e079fd8f58405b44554e09edd. */
+/* cmux-tui mux protocol 12, IR adbfa89de5ea3e4ee601c468ebe23c608b9eb8532e62701776fa0d86a6831300. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "9335cb699f686481f70d674b12c055858df82b4e079fd8f58405b44554e09edd" as const;
+export const SDK_IR_SHA256 = "adbfa89de5ea3e4ee601c468ebe23c608b9eb8532e62701776fa0d86a6831300" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -456,6 +456,16 @@ export const COMMAND_METADATA = {
       "PTY surfaces only."
     ]
   },
+  "create-browser-profile": {
+    "authority": "control",
+    "since": 12,
+    "capability": "browser-profiles-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "create-personal-group": {
     "authority": "control",
     "since": 12,
@@ -525,6 +535,10 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "terminal-reap-v1"
       },
+      "shell_args": {
+        "since": 12,
+        "capability": "terminal-shell-args-v1"
+      },
       "terminal_id": {
         "since": 9,
         "capability": null
@@ -547,6 +561,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "workspace-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "delete-browser-profile": {
+    "authority": "control",
+    "since": 12,
+    "capability": "browser-profiles-v1",
     "fields": {},
     "stream": null,
     "constraints": [
@@ -881,6 +905,16 @@ export const COMMAND_METADATA = {
       "The terminal resource ID is resolved atomically to the live terminal-host-backed PTY before minting a one-use renderer credential."
     ]
   },
+  "move-browser-profile": {
+    "authority": "control",
+    "since": 12,
+    "capability": "browser-profiles-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "move-personal-group": {
     "authority": "control",
     "since": 12,
@@ -1117,6 +1151,10 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "terminal-reap-v1"
       },
+      "shell_args": {
+        "since": 12,
+        "capability": "terminal-shell-args-v1"
+      },
       "terminal_id": {
         "since": 12,
         "capability": "terminal-placement-env-v1"
@@ -1143,6 +1181,10 @@ export const COMMAND_METADATA = {
       "keep": {
         "since": 12,
         "capability": "terminal-reap-v1"
+      },
+      "shell_args": {
+        "since": 12,
+        "capability": "terminal-shell-args-v1"
       },
       "terminal_id": {
         "since": 12,
@@ -1176,6 +1218,10 @@ export const COMMAND_METADATA = {
       "keep": {
         "since": 12,
         "capability": "terminal-reap-v1"
+      },
+      "shell_args": {
+        "since": 12,
+        "capability": "terminal-shell-args-v1"
       },
       "terminal_id": {
         "since": 12,
@@ -1211,7 +1257,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 6,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "source": {
+        "since": 12,
+        "capability": "notification-source-v1"
+      }
+    },
     "stream": null,
     "constraints": []
   },
@@ -1704,6 +1755,16 @@ export const COMMAND_METADATA = {
       "With complete:true, absent optional values reset to built-in defaults."
     ]
   },
+  "set-personal-terminal": {
+    "authority": "control",
+    "since": 12,
+    "capability": "personal-terminals-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "set-personal-workspace": {
     "authority": "control",
     "since": 12,
@@ -1898,6 +1959,10 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "terminal-reap-v1"
       },
+      "shell_args": {
+        "since": 12,
+        "capability": "terminal-shell-args-v1"
+      },
       "terminal_id": {
         "since": 12,
         "capability": "terminal-placement-env-v1"
@@ -2085,6 +2150,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "saved-tab-groups-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "update-browser-profile": {
+    "authority": "control",
+    "since": 12,
+    "capability": "browser-profiles-v1",
     "fields": {},
     "stream": null,
     "constraints": [
@@ -4102,6 +4177,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "launch_snapshot_path": {
+        "capability": "launch-snapshot-v1",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "lifecycle_ready": {
         "default": true,
         "nullable": false,
@@ -4975,6 +5060,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "source": {
+        "capability": "notification-source-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "NotificationSource"
+        }
+      },
       "unread": {
         "nullable": false,
         "presence": "required",
@@ -4985,6 +5080,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     },
     "kind": "object"
+  },
+  "NotificationSource": {
+    "kind": "enum",
+    "values": [
+      "cli",
+      "terminal",
+      "agent",
+      "daemon"
+    ]
   },
   "NotifyResult": {
     "additional_properties": false,
@@ -9998,6 +10102,71 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "CopyResult"
     }
   },
+  "create-browser-profile": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "browser_profile": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "color": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "icon": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "index": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "name": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "source": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "create-personal-group": {
     "request": {
       "additional_properties": false,
@@ -10561,6 +10730,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "shell_args": {
+          "capability": "terminal-shell-args-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
         "terminal_id": {
           "constraints": [
             {
@@ -10718,6 +10901,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "name": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "delete-browser-profile": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "browser_profile": {
           "nullable": false,
           "presence": "required",
           "type": {
@@ -11467,6 +11670,34 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "MintTerminalRendererResult"
+    }
+  },
+  "move-browser-profile": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "browser_profile": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "index": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "move-personal-group": {
@@ -12567,6 +12798,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "shell_args": {
+          "capability": "terminal-shell-args-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
         "terminal_id": {
           "capability": "terminal-placement-env-v1",
           "constraints": [
@@ -12660,6 +12905,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint16"
+          }
+        },
+        "shell_args": {
+          "capability": "terminal-shell-args-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
           }
         },
         "terminal_id": {
@@ -12875,6 +13134,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "shell_args": {
+          "capability": "terminal-shell-args-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
         "terminal_id": {
           "capability": "terminal-placement-env-v1",
           "constraints": [
@@ -12998,6 +13271,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "NotificationLevel"
+          }
+        },
+        "source": {
+          "capability": "notification-source-v1",
+          "default": "cli",
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "NotificationSource"
           }
         },
         "surface": {
@@ -14906,6 +15190,43 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "set-personal-terminal": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "session_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "terminal_key": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "theme": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "set-personal-workspace": {
     "request": {
       "additional_properties": false,
@@ -15720,6 +16041,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "shell_args": {
+          "capability": "terminal-shell-args-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
         "terminal_id": {
           "capability": "terminal-placement-env-v1",
           "constraints": [
@@ -16014,6 +16349,53 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "group": {
           "nullable": false,
           "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "update-browser-profile": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "browser_profile": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "color": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "icon": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "name": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
           "type": {
             "kind": "scalar",
             "name": "string"
@@ -17322,6 +17704,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "source": {
+        "capability": "notification-source-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "NotificationSource"
         }
       },
       "surface": {

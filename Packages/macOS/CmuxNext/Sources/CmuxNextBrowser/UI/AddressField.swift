@@ -18,11 +18,15 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
 
     var editor: OmnibarFieldEditor? { currentEditor() as? OmnibarFieldEditor }
     private var isForwardingRightMouse = false
+    /// The last written style, so a theme change can recolor the text.
+    private var lastStyle: OmnibarPresentation.Style = .plain
 
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
         if accepted {
-            (currentEditor() as? NSTextView)?.selectedTextAttributes = [.backgroundColor: OmnibarStyle.selection]
+            performWithTheme {
+                (currentEditor() as? NSTextView)?.selectedTextAttributes = [.backgroundColor: OmnibarStyle.selection]
+            }
             onFocus?()
         }
         return accepted
@@ -64,7 +68,30 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     var currentSelection: NSRange { currentEditor()?.selectedRange ?? NSRange(location: 0, length: 0) }
     var hasMarkedText: Bool { (currentEditor() as? NSTextView)?.hasMarkedText() ?? false }
 
+    /// A theme change recolors the text in place: the field editor keeps
+    /// its text and selection, the resting text is written again.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        if let editor = currentEditor() as? NSTextView {
+            performWithTheme {
+                let color = OmnibarStyle.textPrimary
+                if let storage = editor.textStorage {
+                    storage.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: storage.length))
+                }
+                editor.typingAttributes[.foregroundColor] = color
+                editor.selectedTextAttributes = [.backgroundColor: OmnibarStyle.selection]
+            }
+        } else {
+            write(stringValue, style: lastStyle)
+        }
+    }
+
     func write(_ text: String, style: OmnibarPresentation.Style) {
+        performWithTheme { writeScoped(text, style: style) }
+    }
+
+    // theme-scoped: called only inside performWithTheme
+    private func writeScoped(_ text: String, style: OmnibarPresentation.Style) {
         let font = font ?? OmnibarStyle.font
         if let editor = currentEditor() as? NSTextView {
             let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: OmnibarStyle.textPrimary]
@@ -72,6 +99,7 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
             editor.typingAttributes = attributes
             return
         }
+        lastStyle = style
         switch style {
         case .plain:
             attributedStringValue = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: OmnibarStyle.textPrimary])

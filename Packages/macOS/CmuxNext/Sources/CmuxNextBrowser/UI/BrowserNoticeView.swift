@@ -10,11 +10,11 @@ final class BrowserNoticeView: NSView {
     var isDismissing = false
     private let label = NSTextField(labelWithString: "")
     private let density = DensityBinding()
+    private var glass: NSGlassEffectView?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         translatesAutoresizingMaskIntoConstraints = false
-        label.textColor = Palette.textSecondary
         label.lineBreakMode = .byTruncatingTail
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let close = ChromeIconButton(symbol: "xmark", label: Strings.dismissNotice, action: #selector(close), target: self)
@@ -25,6 +25,7 @@ final class BrowserNoticeView: NSView {
         content.addSubview(stack)
         let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: BrowserMetrics.overlayCornerRadius)
         addSubview(glass)
+        self.glass = glass
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -47,6 +48,23 @@ final class BrowserNoticeView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme {
+            label.textColor = Palette.textSecondary
+            glass?.tintColor = Palette.glassTint
+        }
+    }
 
     var text: String {
         get { label.stringValue }

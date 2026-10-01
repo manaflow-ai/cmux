@@ -212,6 +212,9 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_popup_windows_enabled, "cmux_set_popup_windows_enabled");
   CMUX_BIND(popup_window_bounds, "cmux_popup_window_bounds");
   CMUX_BIND(popup_window_attach, "cmux_popup_window_attach");
+  CMUX_BIND(side_panel_watch, "cmux_side_panel_watch");
+  CMUX_BIND(side_panel_state, "cmux_side_panel_state");
+  CMUX_BIND(side_panel_press, "cmux_side_panel_press");
 #undef CMUX_BIND
 }
 

@@ -14,9 +14,11 @@ final class PaletteClickView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard fillsBackground else { return }
-        Palette.selectionFill.setFill()
-        let radius = bounds.height / 2
-        NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+        performWithTheme {
+            Palette.selectionFill.setFill()
+            let radius = bounds.height / 2
+            NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+        }
     }
 }
 
@@ -29,8 +31,9 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
 
     private let magnifier = NSImageView()
     private let backChip = PaletteClickView()
-    private let backLabel = PaletteText.label(Typography.caption, color: Palette.textSecondary)
+    private let backLabel = PaletteText.label(Typography.caption, tone: .secondary)
     private let spinner = NSProgressIndicator()
+    private var placeholder = ""
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -43,8 +46,7 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         field.cell?.wraps = false
         field.delegate = self
         field.setAccessibilityIdentifier("palette.search")
-        magnifier.image = PaletteText.symbol("magnifyingglass", size: Metrics.iconSize, color: Palette.textTertiary)
-        magnifier.contentTintColor = Palette.textTertiary
+        magnifier.image = PaletteText.symbol("magnifyingglass", size: Metrics.iconSize)
         backChip.fillsBackground = true
         backChip.onClick = { [weak self] in self?.onBack?() }
         backChip.addSubview(backLabel)
@@ -63,16 +65,31 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
             // Keep a caret at the end instead of a selection.
             field.currentEditor()?.selectedRange = NSRange(location: query.utf16.count, length: 0)
         }
-        field.placeholderAttributedString = NSAttributedString(
-            string: placeholder,
-            attributes: [.font: Typography.search, .foregroundColor: Palette.textTertiary]
-        )
+        if placeholder != self.placeholder || field.placeholderAttributedString == nil {
+            self.placeholder = placeholder
+            applyColors()
+        }
         backChip.isHidden = breadcrumb == nil
         magnifier.isHidden = breadcrumb != nil
         backLabel.stringValue = breadcrumb.map { "‹ \($0)" } ?? ""
         field.font = Typography.search
         if isLoading { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
         needsLayout = true
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme {
+            magnifier.contentTintColor = Palette.textTertiary
+            field.placeholderAttributedString = NSAttributedString(
+                string: placeholder,
+                attributes: [.font: Typography.search, .foregroundColor: Palette.textTertiary]
+            )
+        }
     }
 
     func controlTextDidChange(_ notification: Notification) {
@@ -110,13 +127,13 @@ final class PaletteFooterView: NSView {
     var onActions: (() -> Void)?
 
     private let pageIcon = NSImageView()
-    private let pageLabel = PaletteText.label(Typography.caption, color: Palette.textSecondary)
+    private let pageLabel = PaletteText.label(Typography.caption, tone: .secondary)
     private let primaryButton = PaletteClickView()
     private let primaryLabel = PaletteText.label(Typography.bodyEmphasized)
     private let primaryKeys = PaletteKeycapsView()
     private let divider = NSView()
     private let actionsButton = PaletteClickView()
-    private let actionsLabel = PaletteText.label(Typography.caption, color: Palette.textSecondary)
+    private let actionsLabel = PaletteText.label(Typography.caption, tone: .secondary)
     private let actionsKeys = PaletteKeycapsView()
 
     override init(frame: NSRect) {
@@ -139,7 +156,6 @@ final class PaletteFooterView: NSView {
 
     func update(pageTitle: String, pageSymbol: String, primaryTitle: String?, actionsEnabled: Bool) {
         pageIcon.image = PaletteText.symbol(pageSymbol, size: Metrics.smallIconSize)
-        pageIcon.contentTintColor = Palette.textSecondary
         pageLabel.stringValue = pageTitle
         primaryLabel.stringValue = primaryTitle ?? ""
         primaryButton.isHidden = primaryTitle == nil
@@ -155,6 +171,10 @@ final class PaletteFooterView: NSView {
 
     override func layout() {
         super.layout()
+        performWithTheme {
+            pageIcon.contentTintColor = Palette.textSecondary
+            divider.layer?.backgroundColor = Palette.separator.cgColor
+        }
         let padding = PaletteLayout.horizontalPadding
         let midY = bounds.midY
         let iconBox = Metrics.smallIconSize + Metrics.space1 * 2
@@ -166,9 +186,6 @@ final class PaletteFooterView: NSView {
             let dividerHeight = Metrics.iconSize
             divider.frame = NSRect(x: right - Metrics.dividerThickness, y: midY - dividerHeight / 2,
                                    width: Metrics.dividerThickness, height: dividerHeight)
-            effectiveAppearance.performAsCurrentDrawingAppearance {
-                divider.layer?.backgroundColor = Palette.separator.cgColor
-            }
             right -= Metrics.dividerThickness + Metrics.space4
             right = layoutButton(primaryButton, label: primaryLabel, keys: primaryKeys, right: right)
         }

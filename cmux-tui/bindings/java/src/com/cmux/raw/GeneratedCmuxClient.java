@@ -168,6 +168,11 @@ public abstract class GeneratedCmuxClient {
         return CopyResult.fromWire(result);
     }
 
+    public final Object createBrowserProfile(CreateBrowserProfileRequest request) throws CmuxException {
+        Object result = execute(Commands.CREATE_BROWSER_PROFILE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object createPersonalGroup(CreatePersonalGroupRequest request) throws CmuxException {
         Object result = execute(Commands.CREATE_PERSONAL_GROUP, request.toWire());
         return Wire.immutableJson(result);
@@ -205,6 +210,11 @@ public abstract class GeneratedCmuxClient {
 
     public final Object createWorkspaceGroup(CreateWorkspaceGroupRequest request) throws CmuxException {
         Object result = execute(Commands.CREATE_WORKSPACE_GROUP, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object deleteBrowserProfile(DeleteBrowserProfileRequest request) throws CmuxException {
+        Object result = execute(Commands.DELETE_BROWSER_PROFILE, request.toWire());
         return Wire.immutableJson(result);
     }
 
@@ -376,6 +386,11 @@ public abstract class GeneratedCmuxClient {
     public final MintTerminalRendererResult mintTerminalRendererByTerminal(MintTerminalRendererByTerminalRequest request) throws CmuxException {
         Object result = execute(Commands.MINT_TERMINAL_RENDERER_BY_TERMINAL, request.toWire());
         return MintTerminalRendererResult.fromWire(result);
+    }
+
+    public final Object moveBrowserProfile(MoveBrowserProfileRequest request) throws CmuxException {
+        Object result = execute(Commands.MOVE_BROWSER_PROFILE, request.toWire());
+        return Wire.immutableJson(result);
     }
 
     public final Object movePersonalGroup(MovePersonalGroupRequest request) throws CmuxException {
@@ -718,6 +733,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final Object setPersonalTerminal(SetPersonalTerminalRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_PERSONAL_TERMINAL, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object setPersonalWorkspace(SetPersonalWorkspaceRequest request) throws CmuxException {
         Object result = execute(Commands.SET_PERSONAL_WORKSPACE, request.toWire());
         return Wire.immutableJson(result);
@@ -854,6 +874,11 @@ public abstract class GeneratedCmuxClient {
 
     public final Object unsaveTabGroup(UnsaveTabGroupRequest request) throws CmuxException {
         Object result = execute(Commands.UNSAVE_TAB_GROUP, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object updateBrowserProfile(UpdateBrowserProfileRequest request) throws CmuxException {
+        Object result = execute(Commands.UPDATE_BROWSER_PROFILE, request.toWire());
         return Wire.immutableJson(result);
     }
 

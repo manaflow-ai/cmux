@@ -17,11 +17,12 @@ struct VisibilityTests {
     }
 
     /// User feedback (nxdog9): the x shows only on the hovered tab, also
-    /// not on the selected tab while the pointer is elsewhere.
-    @Test func selectedTabShowsCloseOnlyWhileHovered() {
+    /// not on a wide selected tab while the pointer is elsewhere. A narrow
+    /// selected tab keeps it, as Chrome's active tab (nxdog13).
+    @Test func selectedTabShowsCloseOnlyWhileHoveredUntilItIsNarrow() {
         #expect(!resolve(200, selected: true).showsClose)
         #expect(resolve(200, selected: true, hovered: true).showsClose)
-        #expect(!resolve(m.minActiveTabWidth, selected: true).showsClose)
+        #expect(resolve(m.minActiveTabWidth, selected: true).showsClose)
     }
 
     @Test func narrowInactiveTabHidesClose() {
@@ -30,9 +31,11 @@ struct VisibilityTests {
         #expect(v.showsTitle)
     }
 
-    @Test func hoverRevealsCloseOnNarrowTab() {
-        #expect(resolve(80, hovered: true).showsClose)
-        #expect(resolve(40, hovered: true).showsClose)
+    /// Chrome's 68 pt contents threshold (10 + 68 + 6 with these metrics).
+    @Test func hoverRevealsCloseFromChromesContentsWidth() {
+        #expect(resolve(84, hovered: true).showsClose)
+        #expect(!resolve(80, hovered: true).showsClose)
+        #expect(!resolve(40, hovered: true).showsClose)
     }
 
     @Test func tinyHoveredActiveTabShowsOnlyCloseCentered() {

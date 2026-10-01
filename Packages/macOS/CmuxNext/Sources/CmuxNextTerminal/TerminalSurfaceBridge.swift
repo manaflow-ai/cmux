@@ -29,6 +29,8 @@ nonisolated enum TerminalOutgoing: Sendable {
     case bytes(Data)
     case resize(TerminalGridSize, pixelWidth: Int, pixelHeight: Int)
     case focusGained
+    /// The user clicked a disconnected terminal: re-attach.
+    case reconnect
 }
 
 /// Ordered hand-off from Ghostty's IO thread to the async `TerminalIO.write`.
@@ -47,6 +49,10 @@ nonisolated struct TerminalInputSink: Sendable {
 
     func resize(_ grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int) {
         continuation.yield(.resize(grid, pixelWidth: pixelWidth, pixelHeight: pixelHeight))
+    }
+
+    func reconnect() {
+        continuation.yield(.reconnect)
     }
 
     func focusGained() {

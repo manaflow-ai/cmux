@@ -105,6 +105,9 @@ class GeneratedClientMixin:
     def copy(self, surface: Id, mode: Literal['screen', 'selection', 'scrollback']) -> CopyResult:
         return self._invoke_command('copy', CopyRequest(surface=surface, mode=mode))
 
+    def create_browser_profile(self, name: str, *, browser_profile: Union[str, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, source: Union[JsonValue, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('create-browser-profile', CreateBrowserProfileRequest(name=name, browser_profile=browser_profile, color=color, icon=icon, index=index, source=source))
+
     def create_personal_group(self, name: str, *, collapsed: Union[bool, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, group: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, profile: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('create-personal-group', CreatePersonalGroupRequest(name=name, collapsed=collapsed, color=color, group=group, index=index, profile=profile))
 
@@ -120,14 +123,17 @@ class GeneratedClientMixin:
     def create_tab_group(self, surfaces: List[TabRef], *, color: Union[str, None, MissingType] = MISSING, group: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('create-tab-group', CreateTabGroupRequest(surfaces=surfaces, color=color, group=group, name=name, transaction=transaction))
 
-    def create_terminal(self, workspace: Union[Id, None, MissingType] = MISSING, *, key: Union[str, None, MissingType] = MISSING, argv: Union[List[str], None, MissingType] = MISSING, command: Union[str, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, terminal_id: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING) -> TerminalPlacement:
-        return self._invoke_command('create-terminal', CreateTerminalRequest(workspace=workspace, key=key, argv=argv, command=command, cwd=cwd, name=name, cols=cols, rows=rows, terminal_id=terminal_id, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id, env=env, keep=keep))
+    def create_terminal(self, workspace: Union[Id, None, MissingType] = MISSING, *, key: Union[str, None, MissingType] = MISSING, argv: Union[List[str], None, MissingType] = MISSING, command: Union[str, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, terminal_id: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, shell_args: Union[List[str], None, MissingType] = MISSING) -> TerminalPlacement:
+        return self._invoke_command('create-terminal', CreateTerminalRequest(workspace=workspace, key=key, argv=argv, command=command, cwd=cwd, name=name, cols=cols, rows=rows, terminal_id=terminal_id, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id, env=env, keep=keep, shell_args=shell_args))
 
     def create_workspace(self, *, name: Union[str, None, MissingType] = MISSING, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING) -> WorkspaceMutationResult:
         return self._invoke_command('create-workspace', CreateWorkspaceRequest(name=name, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id))
 
     def create_workspace_group(self, name: str, *, collapsed: Union[bool, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, group: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('create-workspace-group', CreateWorkspaceGroupRequest(name=name, collapsed=collapsed, color=color, group=group, index=index))
+
+    def delete_browser_profile(self, browser_profile: str) -> JsonValue:
+        return self._invoke_command('delete-browser-profile', DeleteBrowserProfileRequest(browser_profile=browser_profile))
 
     def delete_personal_group(self, group: str) -> JsonValue:
         return self._invoke_command('delete-personal-group', DeletePersonalGroupRequest(group=group))
@@ -231,6 +237,9 @@ class GeneratedClientMixin:
     def mint_terminal_renderer_by_terminal(self, terminal: str, *, ttl_ms: Union[int, MissingType] = MISSING) -> MintTerminalRendererResult:
         return self._invoke_command('mint-terminal-renderer-by-terminal', MintTerminalRendererByTerminalRequest(terminal=terminal, ttl_ms=ttl_ms))
 
+    def move_browser_profile(self, browser_profile: str, index: int) -> JsonValue:
+        return self._invoke_command('move-browser-profile', MoveBrowserProfileRequest(browser_profile=browser_profile, index=index))
+
     def move_personal_group(self, group: str, index: int) -> JsonValue:
         return self._invoke_command('move-personal-group', MovePersonalGroupRequest(group=group, index=index))
 
@@ -288,17 +297,17 @@ class GeneratedClientMixin:
     def new_frontend_browser_tab(self, engine: str, url: str, *, pane: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, favicon_url: Union[str, None, MissingType] = MISSING, profile_id: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('new-frontend-browser-tab', NewFrontendBrowserTabRequest(engine=engine, url=url, pane=pane, cols=cols, favicon_url=favicon_url, profile_id=profile_id, rows=rows, title=title))
 
-    def new_pane(self, pane: Id, *, terminal_id: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
-        return self._invoke_command('new-pane', NewPaneRequest(pane=pane, terminal_id=terminal_id, cols=cols, cwd=cwd, env=env, keep=keep, rows=rows))
+    def new_pane(self, pane: Id, *, terminal_id: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, shell_args: Union[List[str], None, MissingType] = MISSING) -> SurfaceResult:
+        return self._invoke_command('new-pane', NewPaneRequest(pane=pane, terminal_id=terminal_id, cols=cols, cwd=cwd, env=env, keep=keep, rows=rows, shell_args=shell_args))
 
-    def new_pane_right(self, pane: Id, *, terminal_id: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, width: Union[float, None, MissingType] = MISSING) -> SurfaceResult:
-        return self._invoke_command('new-pane-right', NewPaneRightRequest(pane=pane, terminal_id=terminal_id, cols=cols, cwd=cwd, env=env, keep=keep, rows=rows, width=width))
+    def new_pane_right(self, pane: Id, *, terminal_id: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, shell_args: Union[List[str], None, MissingType] = MISSING, width: Union[float, None, MissingType] = MISSING) -> SurfaceResult:
+        return self._invoke_command('new-pane-right', NewPaneRightRequest(pane=pane, terminal_id=terminal_id, cols=cols, cwd=cwd, env=env, keep=keep, rows=rows, shell_args=shell_args, width=width))
 
     def new_screen(self, workspace: Union[Id, None, MissingType] = MISSING, *, color: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, group: Union[str, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, pinned: Union[bool, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, screen_name: Union[str, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-screen', NewScreenRequest(workspace=workspace, color=color, cols=cols, cwd=cwd, group=group, icon=icon, index=index, pinned=pinned, rows=rows, screen_name=screen_name))
 
-    def new_tab(self, pane: Union[Id, None, MissingType] = MISSING, *, cwd: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, terminal_id: Union[str, None, MissingType] = MISSING) -> SurfaceResult:
-        return self._invoke_command('new-tab', NewTabRequest(pane=pane, cwd=cwd, cols=cols, rows=rows, env=env, keep=keep, terminal_id=terminal_id))
+    def new_tab(self, pane: Union[Id, None, MissingType] = MISSING, *, cwd: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, shell_args: Union[List[str], None, MissingType] = MISSING, terminal_id: Union[str, None, MissingType] = MISSING) -> SurfaceResult:
+        return self._invoke_command('new-tab', NewTabRequest(pane=pane, cwd=cwd, cols=cols, rows=rows, env=env, keep=keep, shell_args=shell_args, terminal_id=terminal_id))
 
     def new_workspace(self, *, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-workspace', NewWorkspaceRequest(name=name, cols=cols, rows=rows))
@@ -306,8 +315,8 @@ class GeneratedClientMixin:
     def note_size_activity(self, surface: Id, *, view: Union[str, None, MissingType] = MISSING) -> NoteSizeActivityResult:
         return self._invoke_command('note-size-activity', NoteSizeActivityRequest(surface=surface, view=view))
 
-    def notify(self, title: str, body: str, *, level: Union[NotificationLevel, None, MissingType] = MISSING, surface: Union[Id, None, MissingType] = MISSING) -> NotifyResult:
-        return self._invoke_command('notify', NotifyRequest(title=title, body=body, level=level, surface=surface))
+    def notify(self, title: str, body: str, *, level: Union[NotificationLevel, None, MissingType] = MISSING, surface: Union[Id, None, MissingType] = MISSING, source: Union[NotificationSource, None, MissingType] = MISSING) -> NotifyResult:
+        return self._invoke_command('notify', NotifyRequest(title=title, body=body, level=level, surface=surface, source=source))
 
     def pairing_response(self, request: int, approve: bool) -> EmptyResult:
         return self._invoke_command('pairing-response', PairingResponseRequest(request=request, approve=approve))
@@ -435,6 +444,9 @@ class GeneratedClientMixin:
     def set_default_colors(self, fg: Union[ColorHex, None, MissingType] = MISSING, *, bg: Union[ColorHex, None, MissingType] = MISSING, cursor: Union[ColorHex, None, MissingType] = MISSING, selection_bg: Union[ColorHex, None, MissingType] = MISSING, selection_fg: Union[ColorHex, None, MissingType] = MISSING, cursor_style: Union[CursorStyle, None, MissingType] = MISSING, cursor_blink: Union[bool, None, MissingType] = MISSING, palette: Union[Dict[str, ColorHex], None, MissingType] = MISSING, complete: Union[bool, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('set-default-colors', SetDefaultColorsRequest(fg=fg, bg=bg, cursor=cursor, selection_bg=selection_bg, selection_fg=selection_fg, cursor_style=cursor_style, cursor_blink=cursor_blink, palette=palette, complete=complete))
 
+    def set_personal_terminal(self, session_id: str, terminal_key: str, *, theme: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('set-personal-terminal', SetPersonalTerminalRequest(session_id=session_id, terminal_key=terminal_key, theme=theme))
+
     def set_personal_workspace(self, session_id: str, workspace_key: str, *, browser_profile_id: Union[str, None, MissingType] = MISSING, group: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, theme: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('set-personal-workspace', SetPersonalWorkspaceRequest(session_id=session_id, workspace_key=workspace_key, browser_profile_id=browser_profile_id, group=group, index=index, theme=theme))
 
@@ -483,8 +495,8 @@ class GeneratedClientMixin:
     def sidebar_plugin(self, cols: int, rows: int, *, relaunch: Union[bool, MissingType] = MISSING) -> SidebarPluginResult:
         return self._invoke_command('sidebar-plugin', SidebarPluginRequest(cols=cols, rows=rows, relaunch=relaunch))
 
-    def split(self, pane: Id, dir: SplitDirection, *, terminal_id: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
-        return self._invoke_command('split', SplitRequest(pane=pane, dir=dir, terminal_id=terminal_id, cols=cols, cwd=cwd, env=env, keep=keep, rows=rows))
+    def split(self, pane: Id, dir: SplitDirection, *, terminal_id: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, shell_args: Union[List[str], None, MissingType] = MISSING) -> SurfaceResult:
+        return self._invoke_command('split', SplitRequest(pane=pane, dir=dir, terminal_id=terminal_id, cols=cols, cwd=cwd, env=env, keep=keep, rows=rows, shell_args=shell_args))
 
     def subscribe(self, surface: Union[Id, None, MissingType] = MISSING, *, tree_events: Union[Literal['coarse', 'deltas'], None, MissingType] = MISSING) -> Any:
         return self._open_command_stream('subscribe', SubscribeRequest(surface=surface, tree_events=tree_events))
@@ -518,6 +530,9 @@ class GeneratedClientMixin:
 
     def unsave_tab_group(self, group: str) -> JsonValue:
         return self._invoke_command('unsave-tab-group', UnsaveTabGroupRequest(group=group))
+
+    def update_browser_profile(self, browser_profile: str, *, color: Union[str, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('update-browser-profile', UpdateBrowserProfileRequest(browser_profile=browser_profile, color=color, icon=icon, name=name))
 
     def update_frontend_browser_tab(self, surface: Id, *, favicon_url: Union[str, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('update-frontend-browser-tab', UpdateFrontendBrowserTabRequest(surface=surface, favicon_url=favicon_url, title=title, url=url))
@@ -590,6 +605,7 @@ GeneratedClientMixin.close_tabs.__cmux_command__ = COMMANDS['close-tabs']
 GeneratedClientMixin.close_terminal.__cmux_command__ = COMMANDS['close-terminal']
 GeneratedClientMixin.close_workspace.__cmux_command__ = COMMANDS['close-workspace']
 GeneratedClientMixin.copy.__cmux_command__ = COMMANDS['copy']
+GeneratedClientMixin.create_browser_profile.__cmux_command__ = COMMANDS['create-browser-profile']
 GeneratedClientMixin.create_personal_group.__cmux_command__ = COMMANDS['create-personal-group']
 GeneratedClientMixin.create_profile.__cmux_command__ = COMMANDS['create-profile']
 GeneratedClientMixin.create_screen_group.__cmux_command__ = COMMANDS['create-screen-group']
@@ -598,6 +614,7 @@ GeneratedClientMixin.create_tab_group.__cmux_command__ = COMMANDS['create-tab-gr
 GeneratedClientMixin.create_terminal.__cmux_command__ = COMMANDS['create-terminal']
 GeneratedClientMixin.create_workspace.__cmux_command__ = COMMANDS['create-workspace']
 GeneratedClientMixin.create_workspace_group.__cmux_command__ = COMMANDS['create-workspace-group']
+GeneratedClientMixin.delete_browser_profile.__cmux_command__ = COMMANDS['delete-browser-profile']
 GeneratedClientMixin.delete_personal_group.__cmux_command__ = COMMANDS['delete-personal-group']
 GeneratedClientMixin.delete_profile.__cmux_command__ = COMMANDS['delete-profile']
 GeneratedClientMixin.delete_saved_screen_group.__cmux_command__ = COMMANDS['delete-saved-screen-group']
@@ -632,6 +649,7 @@ GeneratedClientMixin.machine_usage.__cmux_command__ = COMMANDS['machine-usage']
 GeneratedClientMixin.mark_workspaces_provider_managed.__cmux_command__ = COMMANDS['mark-workspaces-provider-managed']
 GeneratedClientMixin.mint_terminal_renderer.__cmux_command__ = COMMANDS['mint-terminal-renderer']
 GeneratedClientMixin.mint_terminal_renderer_by_terminal.__cmux_command__ = COMMANDS['mint-terminal-renderer-by-terminal']
+GeneratedClientMixin.move_browser_profile.__cmux_command__ = COMMANDS['move-browser-profile']
 GeneratedClientMixin.move_personal_group.__cmux_command__ = COMMANDS['move-personal-group']
 GeneratedClientMixin.move_profile.__cmux_command__ = COMMANDS['move-profile']
 GeneratedClientMixin.move_screen.__cmux_command__ = COMMANDS['move-screen']
@@ -700,6 +718,7 @@ GeneratedClientMixin.set_cell_pixels.__cmux_command__ = COMMANDS['set-cell-pixel
 GeneratedClientMixin.set_client_info.__cmux_command__ = COMMANDS['set-client-info']
 GeneratedClientMixin.set_client_sizing.__cmux_command__ = COMMANDS['set-client-sizing']
 GeneratedClientMixin.set_default_colors.__cmux_command__ = COMMANDS['set-default-colors']
+GeneratedClientMixin.set_personal_terminal.__cmux_command__ = COMMANDS['set-personal-terminal']
 GeneratedClientMixin.set_personal_workspace.__cmux_command__ = COMMANDS['set-personal-workspace']
 GeneratedClientMixin.set_profile_follows.__cmux_command__ = COMMANDS['set-profile-follows']
 GeneratedClientMixin.set_ratio.__cmux_command__ = COMMANDS['set-ratio']
@@ -728,6 +747,7 @@ GeneratedClientMixin.unpin_workspace.__cmux_command__ = COMMANDS['unpin-workspac
 GeneratedClientMixin.unregister_browser_provider.__cmux_command__ = COMMANDS['unregister-browser-provider']
 GeneratedClientMixin.unsave_screen_group.__cmux_command__ = COMMANDS['unsave-screen-group']
 GeneratedClientMixin.unsave_tab_group.__cmux_command__ = COMMANDS['unsave-tab-group']
+GeneratedClientMixin.update_browser_profile.__cmux_command__ = COMMANDS['update-browser-profile']
 GeneratedClientMixin.update_frontend_browser_tab.__cmux_command__ = COMMANDS['update-frontend-browser-tab']
 GeneratedClientMixin.update_personal_group.__cmux_command__ = COMMANDS['update-personal-group']
 GeneratedClientMixin.update_profile.__cmux_command__ = COMMANDS['update-profile']

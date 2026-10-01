@@ -46,6 +46,7 @@ final class ImportSummaryView: NSView {
     private var buttons: [String: OnboardingButton] = [:]
     private var listHeight: NSLayoutConstraint?
     private var loop: RenderLoop?
+    private var scrollFit: ScrollFitElasticity?
 
     init(model: ImportStepModel) {
         self.model = model
@@ -60,6 +61,7 @@ final class ImportSummaryView: NSView {
         list.translatesAutoresizingMaskIntoConstraints = false
         document.addSubview(list)
         listScroll.documentView = document
+        scrollFit = ScrollFitElasticity(scrollView: listScroll)
         listScroll.drawsBackground = false
         listScroll.hasVerticalScroller = true
         listScroll.autohidesScrollers = true

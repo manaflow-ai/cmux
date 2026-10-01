@@ -13,7 +13,6 @@ final class UnreadBadgeView: NSView {
         layer?.cornerCurve = .continuous
         label.font = SidebarStyle.badgeFont
         label.alignment = .center
-        label.textColor = Palette.textPrimary
         addSubview(label)
     }
 
@@ -47,11 +46,14 @@ final class UnreadBadgeView: NSView {
 
     override func updateLayer() {
         guard let layer else { return }
-        switch state {
-        case .dot:
-            layer.backgroundColor = resolvedCGColor(Palette.textPrimary.withAlphaComponent(0.85))
-        default:
-            layer.backgroundColor = resolvedCGColor(Palette.badgeFill)
+        performWithTheme {
+            label.textColor = Palette.textPrimary
+            switch state {
+            case .dot:
+                layer.backgroundColor = Palette.textPrimary.withAlphaComponent(0.85).cgColor
+            default:
+                layer.backgroundColor = Palette.badgeFill.cgColor
+            }
         }
         layer.cornerRadius = bounds.height / 2
     }

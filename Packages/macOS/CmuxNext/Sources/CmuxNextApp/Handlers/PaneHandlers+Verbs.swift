@@ -71,7 +71,7 @@ extension PaneHandlers {
         ring.frame = host.bounds.insetBy(dx: 2, dy: 2)
         ring.borderWidth = 3
         ring.cornerRadius = 8
-        ring.borderColor = Palette.focusRing.cgColor
+        ring.borderColor = view.performWithTheme { Palette.focusRing.cgColor }
         ring.opacity = 0
         host.addSublayer(ring)
         CATransaction.begin()

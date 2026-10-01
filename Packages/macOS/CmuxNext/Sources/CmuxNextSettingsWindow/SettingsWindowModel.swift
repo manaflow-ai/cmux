@@ -161,6 +161,11 @@ public final class SettingsWindowModel {
     @discardableResult
     public func perform(_ id: ActionID) -> Bool { registry.perform(id) }
 
+    /// Runs a registry action with a target and arguments (a browser
+    /// profile's form).
+    @discardableResult
+    public func perform(_ id: ActionID, invocation: ActionInvocation) -> Bool { registry.perform(id, invocation: invocation) }
+
     public func actionTitle(_ id: ActionID) -> String? { registry.descriptor(for: id)?.title }
 }
 

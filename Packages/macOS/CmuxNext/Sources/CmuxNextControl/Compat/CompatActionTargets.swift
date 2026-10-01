@@ -31,8 +31,17 @@ struct CompatTargetForm {
 
     init?(_ ref: ControlTargetRef) {
         guard ["tab", "pane", "workspace", "window"].contains(ref.kind) else { return nil }
-        let text = ref.id.trimmingCharacters(in: .whitespaces)
+        var text = ref.id.trimmingCharacters(in: .whitespaces)
         kind = ref.kind
+        // `build-box:surface:3` (plans/cmux-next/data-model.md 1.3): the
+        // qualifier rides on the handle; `CompatWorld` resolves it.
+        var qualifier = ""
+        let pieces = text.split(separator: ":", omittingEmptySubsequences: false)
+        if pieces.count == 3, !pieces[0].isEmpty, Int(pieces[2]) != nil,
+           CompatRefRegistry.Kind(rawValue: pieces[1].lowercased()) != nil || pieces[1].lowercased() == "tab" {
+            qualifier = pieces[0] + ":"
+            text = pieces[1] + ":" + pieces[2]
+        }
         if CompatUUID.canonical(text) != nil {
             handle = text
             handleKind = nil
@@ -44,8 +53,8 @@ struct CompatTargetForm {
         let aliased = text.lowercased().hasPrefix("tab:") ? "surface:" + text.dropFirst(4) : text
         if let (parsed, number) = CompatRefRegistry.parse(aliased) {
             handleKind = parsed
-            handle = "\(parsed.rawValue):\(number)"
-        } else if let number = Int(text), number >= 0 {
+            handle = "\(qualifier)\(parsed.rawValue):\(number)"
+        } else if qualifier.isEmpty, let number = Int(text), number >= 0 {
             let own: CompatRefRegistry.Kind = switch ref.kind {
             case "pane": .pane
             case "workspace": .workspace

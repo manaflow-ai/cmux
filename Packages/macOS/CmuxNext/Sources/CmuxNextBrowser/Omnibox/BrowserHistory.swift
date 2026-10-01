@@ -26,8 +26,11 @@ public protocol BrowserHistoryStore: AnyObject {
 }
 
 /// History kept in memory. Good for demos, tests, and ephemeral profiles.
+/// With `persistence` set, every visit, title and removal is also handed
+/// to it (the omnibar still reads memory only).
 public final class InMemoryBrowserHistory: BrowserHistoryStore {
     private var byKey: [String: BrowserHistoryEntry] = [:]
+    public weak var persistence: (any BrowserHistoryPersistence)?
 
     public init(entries: [BrowserHistoryEntry] = []) {
         for entry in entries {
@@ -51,6 +54,7 @@ public final class InMemoryBrowserHistory: BrowserHistoryStore {
         } else {
             byKey[key] = BrowserHistoryEntry(url: url, title: title, visitCount: 1, lastVisit: date)
         }
+        persistence?.didRecordVisit(url: url, title: title, at: date)
     }
 
     /// Adds entries from elsewhere (a browser import) without counting new
@@ -74,11 +78,24 @@ public final class InMemoryBrowserHistory: BrowserHistoryStore {
 
     public func updateTitle(_ title: String, for url: URL) {
         let key = BrowserHistoryRanker.dedupeKey(for: url)
+        guard let existing = byKey[key], existing.title != title else { return }
         byKey[key]?.title = title
+        persistence?.didUpdateTitle(title, for: url)
     }
 
     public func removeEntry(for url: URL) {
         byKey[BrowserHistoryRanker.dedupeKey(for: url)] = nil
+        persistence?.didRemoveEntry(for: url)
+    }
+
+    /// Forgets entries visited at or after `since` (nil: all) without
+    /// telling `persistence` (the caller clears the durable log itself).
+    public func forget(since: Date?) {
+        guard let since else {
+            byKey.removeAll()
+            return
+        }
+        byKey = byKey.filter { $0.value.lastVisit < since }
     }
 
     /// Only web pages and local files go into history.

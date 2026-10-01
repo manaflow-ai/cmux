@@ -93,7 +93,7 @@ extension WindowManager {
     func discard(_ workspaceIDs: [String]) {
         for id in workspaceIDs {
             guard let (workspace, daemon) = services.machines.workspace(id: id), let key = workspace.key else { continue }
-            let terminals = WorkspaceClose.terminals(of: workspace, on: daemon)
+            let terminals = WorkspaceClose.closing(workspace, on: daemon)
             daemon.send("close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0) }
         }
         endIncognitoSessionIfUnused()
@@ -130,7 +130,7 @@ extension WindowManager {
         for id in ids {
             guard let (workspace, daemon) = services.machines.workspace(id: id), let key = workspace.key,
                   let connection = daemon.connection else { continue }
-            let terminals = WorkspaceClose.terminals(of: workspace, on: daemon)
+            let terminals = WorkspaceClose.closing(workspace, on: daemon)
             try? await WorkspaceClose.close(key, terminals: terminals, on: connection)
         }
     }

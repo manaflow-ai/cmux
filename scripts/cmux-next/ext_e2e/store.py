@@ -137,7 +137,14 @@ class StoreRun:
     def extension_info(self, app):
         browser = self.browser_session(app)
         try:
-            target = browser.call("Target.createTarget", {"url": "chrome://extensions"})["targetId"]
+            # In the pane tabs' profile: the default browser context may have
+            # no cmux window, and cmux refuses a tab it cannot place.
+            params = {"url": "chrome://extensions"}
+            home = next((t for t in cdp.target_infos(app.cdp_port)
+                         if t.get("type") == "page" and "/home.html" in t.get("url", "")), None)
+            if home and home.get("browserContextId"):
+                params["browserContextId"] = home["browserContextId"]
+            target = browser.call("Target.createTarget", params)["targetId"]
             page = cdp.wait_target(app.cdp_port, lambda t: t.get("id") == target, 10)
             session = cdp.Session(page["webSocketDebuggerUrl"])
             time.sleep(1)

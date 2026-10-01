@@ -28,6 +28,12 @@ import PackageDescription
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
 //   CmuxNextBrowserImport -> system frameworks only (browser detection, parsers, importer; no UI)
 //   CmuxNextOnboarding -> Design, BrowserImport (first-run window; the App supplies OnboardingServices)
+//   CmuxNextHistory -> Design (history model, SQLite visit log, cmux://history page; no daemon)
+//   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
+//     client, pasted-key Keychain store, account row state; no UI, no daemon; plans/cmux-next/coderouter.md)
+//   CmuxNextAccounts -> CodeRouter, Design (Settings > Accounts and the onboarding step; the App supplies AccountsServices)
+//   CmuxNextBookmarks -> Design (bookmark tree per browser profile, Netscape HTML, ranking, file store,
+//     cmux://bookmarks page, bookmarks bar, edit bubble; no daemon; the App supplies the store)
 //   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
 
@@ -100,10 +106,40 @@ let package = Package(
                 "CmuxNextResources",
                 "CmuxNextBrowserImport",
                 "CmuxNextOnboarding",
+                "CmuxNextHistory",
+                "CmuxNextCodeRouter",
+                "CmuxNextAccounts",
+                "CmuxNextBookmarks",
             ],
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // CodeRouter and provider accounts (plans/cmux-next/coderouter.md):
+        // presence-only detection of local sign-ins (Codex, Claude Code, API
+        // keys, clouds, local servers), the /api/coderouter control-plane
+        // client, the pasted-key Keychain store and the row state machine.
+        .target(
+            name: "CmuxNextCodeRouter",
+            dependencies: ["CmuxNextCloud"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextCodeRouterTests",
+            dependencies: ["CmuxNextCodeRouter"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // The Accounts screen (Settings > Accounts, onboarding step). The App
+        // supplies `AccountsServices`.
+        .target(
+            name: "CmuxNextAccounts",
+            dependencies: ["CmuxNextCodeRouter", "CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAccountsTests",
+            dependencies: ["CmuxNextAccounts", "CmuxNextCodeRouter"],
             swiftSettings: uiSwiftSettings
         ),
         // Browser import (onboarding step 2; data-model.md 5): source detection
@@ -140,6 +176,39 @@ let package = Package(
         // Resource usage for hover cards and `resources` (CPU and memory per
         // tab, per workspace, shared processes apart). Pure aggregation and a
         // sampler that runs only while a card is open.
+        // History (plans/cmux-next/history.md): the location trail, merged
+        // history entries, search, agent sessions from the session journal,
+        // the per-profile page visit log (SQLite), and the cmux://history page.
+        .target(
+            name: "CmuxNextHistory",
+            dependencies: ["CmuxNextDesign"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextHistoryTests",
+            dependencies: ["CmuxNextHistory"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Bookmarks (plans/cmux-next/bookmarks.md): the tree per browser
+        // profile, Netscape HTML import/export, omnibar ranking, the local
+        // file store, the cmux://bookmarks page, the bookmarks bar and the
+        // edit bubble.
+        .target(
+            name: "CmuxNextBookmarks",
+            dependencies: ["CmuxNextDesign"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextBookmarksTests",
+            dependencies: ["CmuxNextBookmarks"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextResources",
             dependencies: ["CmuxNextWakeups", "CmuxNextDesign"],
@@ -416,7 +485,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextApp", "CmuxNextActions"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory"],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),

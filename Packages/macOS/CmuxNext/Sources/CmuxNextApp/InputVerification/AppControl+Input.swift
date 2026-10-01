@@ -32,6 +32,10 @@ extension AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugMouse.send(call.params, services: services))
             },
+            .mainActor("debug.tab_drag") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugTabDrag.report(services: services))
+            },
         ])
         #endif
     }

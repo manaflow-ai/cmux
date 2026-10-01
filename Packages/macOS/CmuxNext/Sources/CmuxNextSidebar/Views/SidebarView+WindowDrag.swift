@@ -43,11 +43,15 @@ extension SidebarListView {
         case let .group(group): members = model.group(group)?.workspaces.map(\.id) ?? []
         }
         guard !members.isEmpty else { return false }
-        let rowFrame = window.convertToScreen(convert(drag.lift.frame, to: nil))
+        let lift = drag.lift.frame
+        let rowFrame = window.convertToScreen(convert(lift, to: nil))
         let screenPoint = window.convertPoint(toScreen: windowPoint)
+        // The point pressed in the row, not the pointer's offset now: it is
+        // past the sidebar's edge, outside the row (dogfood nxdog13).
+        let grabbed = CGPoint(x: lift.minX + drag.grabOffsetX, y: lift.minY + drag.grabOffsetY)
         let offer = SidebarDragHandoff(
             payload: drag.payload, workspaceIDs: members, rowScreenFrame: rowFrame,
-            grabOffset: CGPoint(x: screenPoint.x - rowFrame.minX, y: screenPoint.y - rowFrame.minY),
+            grabOffset: DragGrabPoint.screenOffset(of: grabbed, in: lift, flipped: isFlipped),
             screenPoint: screenPoint, image: drag.lift.snapshotImage()
         )
         guard handoff(offer) else { return false }

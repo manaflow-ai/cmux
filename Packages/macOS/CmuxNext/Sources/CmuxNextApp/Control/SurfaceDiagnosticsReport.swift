@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextSettings
+import CmuxNextTerminal
 
 /// `debug.surfaces`: every window's panes with their surface state, the
 /// blank-pane count, and the content cache's live counts. Main actor: it
@@ -32,7 +33,13 @@ enum SurfaceDiagnosticsReport {
                 if let tab = row.status.selectedTab { object["phase"] = .string(services.cache.phase(of: tab).rawValue) }
                 if case .terminal(let entry)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
                     object["attach"] = .string(entry.io.attachPhase.journalName)
+                    object["link"] = .string(Self.linkName(entry.session.model.connection))
                     if includeText { object["text"] = entry.session.surfaceView.viewportText().map(JSONValue.string) ?? .null }
+                }
+                if case .placeholder(let view)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
+                    // A remote-terminal tab whose session is away (data-model.md 1.4).
+                    object["placeholder"] = .string(view.statusText)
+                    if includeText { object["text"] = .string(view.snapshotText) }
                 }
                 pane = .object(object)
             }
@@ -52,6 +59,14 @@ enum SurfaceDiagnosticsReport {
             "parked_workspaces": JSONValue(services.windows.controllers.reduce(0) { $0 + $1.parked.count }),
             "hibernation": hibernation(services),
         ]
+    }
+
+    private static func linkName(_ status: TerminalConnectionStatus) -> String {
+        switch status {
+        case .connected: "connected"
+        case .exited: "exited"
+        case .disconnected(let cause, let reconnecting): "disconnected:\(cause)\(reconnecting ? ":reconnecting" : "")"
+        }
     }
 
     private static func hibernation(_ services: AppServices) -> JSONValue {

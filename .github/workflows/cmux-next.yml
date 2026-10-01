@@ -21,6 +21,7 @@ on:
       - Resources/InfoPlist.xcstrings
       - Resources/Localizable.xcstrings
       - scripts/cmux-next/check-*.sh
+      - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/download-prebuilt-ghosttykit.sh
       - .github/workflows/cmux-next.yml
   push:
@@ -38,6 +39,7 @@ on:
       - Resources/InfoPlist.xcstrings
       - Resources/Localizable.xcstrings
       - scripts/cmux-next/check-*.sh
+      - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - .github/workflows/cmux-next.yml
   workflow_dispatch:
 
@@ -115,3 +117,36 @@ jobs:
       - name: Run package tests
         working-directory: Packages/macOS/CmuxNext
         run: swift test --skip-build
+
+  release-compile:
+    name: cmux-next Release compile (Xcode 26)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    # One-architecture Release (-O, whole-module) xcodebuild of CmuxNextApp
+    # with the nightly's Xcode. Debug `swift build` and Xcode 27 accept code
+    # that this rejects; without this job such code fails only the nightly.
+    timeout-minutes: 60
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download pre-built GhosttyKit.xcframework
+        run: |
+          set -euo pipefail
+          GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Release compile
+        run: scripts/cmux-next/check-release-compile.sh "$RUNNER_TEMP/cmux-next-release-compile"

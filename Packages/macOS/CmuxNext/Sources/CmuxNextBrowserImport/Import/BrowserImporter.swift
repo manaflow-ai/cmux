@@ -8,10 +8,14 @@ import Foundation
 public actor BrowserImporter {
     private let provisioning: any BrowserProfileProvisioning
     private let store: ImportedDataStore?
+    private let cookies: CookieImporter?
 
-    public init(provisioning: any BrowserProfileProvisioning = DefaultProfileOnly(), store: ImportedDataStore? = nil) {
+    /// `cookies` nil: the cookie kind is skipped (no cookie store to write to).
+    public init(provisioning: any BrowserProfileProvisioning = DefaultProfileOnly(), store: ImportedDataStore? = nil,
+                cookies: CookieImporter? = nil) {
         self.provisioning = provisioning
         self.store = store
+        self.cookies = cookies
     }
 
     public func run(
@@ -31,11 +35,15 @@ public actor BrowserImporter {
                                         kind: kind, fraction: Double(step) / Double(steps), counts: counts))
             }
             do {
-                var batch = ImportBatch(source: try await record(for: item.profile))
+                var batch = ImportBatch(source: try await record(for: item.profile), kinds: item.kinds)
                 for kind in ImportDataKind.allCases where item.kinds.contains(kind) {
                     report(kind, running + batch.counts, done)
                     try Task.checkCancellation()
-                    try Self.read(kind, from: item.profile, historyLimit: plan.historyLimit, into: &batch)
+                    if kind == .cookies {
+                        try await importCookies(item.profile, into: &batch)
+                    } else {
+                        try Self.read(kind, from: item.profile, historyLimit: plan.historyLimit, into: &batch)
+                    }
                     done += 1
                 }
                 report(nil, running + batch.counts, done)
@@ -54,6 +62,21 @@ public actor BrowserImporter {
         progress(ImportProgress(profileIndex: plan.items.count, profileCount: plan.items.count,
                                 profile: plan.items.last?.profile ?? Self.placeholder, kind: nil, fraction: 1, counts: running))
         return ImportSummary(batches: batches, failures: failures)
+    }
+
+    /// Cookies fail on their own (a denied Keychain prompt must not lose the
+    /// profile's bookmarks); the reason is kept in the batch.
+    private func importCookies(_ profile: BrowserSourceProfile, into batch: inout ImportBatch) async throws {
+        guard let cookies else { return }
+        do {
+            batch.cookies = try await cookies.run(profile, into: batch.source.targetProfileID)
+        } catch let error as CookieImportError {
+            batch.cookieError = error
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            batch.cookieError = .malformed(String(describing: type(of: error)))
+        }
     }
 
     /// The mapping for a source: its proposed profile id (reused from an

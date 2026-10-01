@@ -53,6 +53,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case installPrompt(browser: Int32, promptID: Int32, json: String)
     /// chrome.omnibox suggestions for a keyword-session request (fork API 12).
     case omniboxSuggestions(requestID: Int32, extensionID: String, json: String)
+    /// Focus left the page past its last (`forward`) or first element.
+    case takeFocus(browser: Int32, forward: Bool)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -95,6 +97,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 28: self = .keyUnhandled(browser: browser, keyCode: Int(a))
         case 29: self = .installPrompt(browser: browser, promptID: request, json: s1)
         case 30: self = .omniboxSuggestions(requestID: request, extensionID: s1, json: s2)
+        case 31: self = .takeFocus(browser: browser, forward: a != 0)
         default: self = .unknown(kind: kind)
         }
     }
@@ -124,6 +127,9 @@ nonisolated enum CEFForkTabEvent: Int32, Sendable {
     case popupWindowCreated = 10
     /// Its bounds changed (chrome.windows.update).
     case popupWindowBounds = 11
+    /// The window's side panel was shown, hidden, resized or changed
+    /// (fork API 13); value = 1 when visible.
+    case sidePanelChanged = 12
     case unknown = -1
 }
 

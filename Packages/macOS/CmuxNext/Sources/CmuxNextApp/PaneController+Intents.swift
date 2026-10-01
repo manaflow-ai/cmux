@@ -114,9 +114,13 @@ extension PaneController {
     /// `inherited` is a reopened or duplicated tab's engine or a popup
     /// opener's (falls back instead of refusing). `adopting` is a popup page
     /// the engine already created (`BrowserPageRequests`). `background` (a
-    /// page's Cmd-click) creates the tab without selecting it.
+    /// page's Cmd-click) creates the tab without selecting it. `profile` is
+    /// an explicit browser profile (else the workspace's, the room's or
+    /// `default`); `notice` shows on the new page; `then` runs with the new
+    /// surface once the daemon made the tab.
     func newBrowserTab(url: URL? = nil, engine requested: String? = nil, inherited: String? = nil,
-                       adopting child: (any BrowserTab)? = nil, background: Bool = false) {
+                       adopting child: (any BrowserTab)? = nil, background: Bool = false, profile: String? = nil,
+                       notice: String? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) {
         let browserTabs = services.cache.browserTabs!
         if browserTabs.isAvailable() {
             var choice: BrowserEngineChoice
@@ -134,8 +138,9 @@ extension PaneController {
                     // A new tab the user asked for opens the New Tab page; an
                     // adopted page (popup, extension tab) keeps its own.
                     let address = url?.absoluteString ?? (child == nil ? newTabAddress : BrowserNewTabPage.blankURL)
-                    let surface = try await browserTabs.open(choice, in: handle, url: address)
+                    let surface = try await browserTabs.open(choice, in: handle, url: address, profile: profile, notice: notice)
                     if let child { pageRequests.adopt(child, surface: surface) }
+                    then?(surface)
                     guard !background else { return nil }
                     pendingSelectSurface = surface
                     apply(snapshot())
@@ -177,6 +182,8 @@ extension PaneController {
             pendingClosed.insert(tab.id)
             surfaces.append(tab.surface)
             commands.append(daemon.closeCommand(for: tab))
+            // Its terminal's only view closes: that session may end it.
+            if tab.kind == .remoteTerminal { services.remoteTerminals.viewClosed(tab) }
         }
         apply(snapshot())
         guard !commands.isEmpty else { return }
@@ -262,7 +269,9 @@ extension PaneController {
             }
             // A browser tab offers the engine it is not on.
             let other: ActionID = tab.browserEngine == BrowserEngineTag.cef.rawValue ? "browser.openInChromium" : "browser.openInWebKit"
-            let entries = ContextMenuCatalog.entries(for: .tab).filter { $0 != .action(other) }
+            // Terminal themes do not apply to a page.
+            let hidden: Set<ContextMenuEntry> = [.action(other), .choices("terminal.setTheme"), .action("terminal.clearTheme")]
+            let entries = ContextMenuCatalog.entries(for: .tab).filter { !hidden.contains($0) }
             return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused)
         case .group(let group), .savedGroup(let group):
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue))

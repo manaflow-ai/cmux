@@ -19,8 +19,11 @@ final class PaletteContentView: NSView {
     private let topRule = NSView()
     private let bottomRule = NSView()
     private let list = PaletteListView()
-    private let emptyTitle = PaletteText.label(Typography.bodyEmphasized, color: Palette.textSecondary)
-    private let emptyHint = PaletteText.label(Typography.caption, color: Palette.textTertiary)
+    /// Hosts the results and fades them out at the top or bottom while more
+    /// are hidden there.
+    private lazy var listHost = ScrollEdgeFadeView(scrollView: list)
+    private let emptyTitle = PaletteText.label(Typography.bodyEmphasized, tone: .secondary)
+    private let emptyHint = PaletteText.label(Typography.caption, tone: .tertiary)
     private let footer = PaletteFooterView()
     private let actionsMenuView = PaletteActionsMenuView()
     private let recorderView = PaletteShortcutRecorderView()
@@ -50,20 +53,13 @@ final class PaletteContentView: NSView {
         emptyTitle.alignment = .center
         emptyHint.alignment = .center
         [topRule, bottomRule].forEach { $0.wantsLayer = true }
-        [searchBar, topRule, list, emptyTitle, emptyHint, bottomRule, footer].forEach(body.addSubview)
+        [searchBar, topRule, listHost, emptyTitle, emptyHint, bottomRule, footer].forEach(body.addSubview)
         stage.addSubview(glass)
         stage.addSubview(actionsMenuView)
         stage.addSubview(recorderView)
         actionsMenuView.isHidden = true
         recorderView.isHidden = true
         stage.wantsLayer = true
-        stage.shadow = {
-            let shadow = NSShadow()
-            shadow.shadowColor = Palette.shadow.withAlphaComponent(0.22)
-            shadow.shadowBlurRadius = PaletteLayout.shadowRadius
-            shadow.shadowOffset = NSSize(width: 0, height: -PaletteLayout.shadowOffset)
-            return shadow
-        }()
         addSubview(stage)
         wire()
         observe()
@@ -75,9 +71,7 @@ final class PaletteContentView: NSView {
     func focusField() {
         window?.makeFirstResponder(searchBar.field)
         if let editor = searchBar.field.currentEditor() as? NSTextView {
-            // Gray selection and caret; the system accent never shows.
-            editor.selectedTextAttributes = [.backgroundColor: Palette.selectionFill]
-            editor.insertionPointColor = Palette.textPrimary
+            applyEditorColors(editor)
             // A search query is not prose: no spelling, grammar or
             // replacement checks (their text checking ran on every open).
             editor.isContinuousSpellCheckingEnabled = false
@@ -137,7 +131,7 @@ final class PaletteContentView: NSView {
             list.scrollToSelection()
         }
         let showEmpty = sections.isEmpty && !model.isLoading
-        list.isHidden = showEmpty
+        listHost.isHidden = showEmpty
         emptyTitle.isHidden = !showEmpty
         emptyHint.isHidden = !showEmpty
 
@@ -208,7 +202,7 @@ final class PaletteContentView: NSView {
         topRule.frame = NSRect(x: 0, y: y, width: width, height: Metrics.dividerThickness)
         y += Metrics.dividerThickness
         let listFrame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.listHeight)
-        list.frame = listFrame
+        listHost.frame = listFrame
         list.contentInsets = NSEdgeInsets(top: PaletteLayout.listInset, left: 0, bottom: PaletteLayout.listInset, right: 0)
         let titleHeight = emptyTitle.intrinsicContentSize.height
         let hintHeight = emptyHint.intrinsicContentSize.height
@@ -219,10 +213,6 @@ final class PaletteContentView: NSView {
         bottomRule.frame = NSRect(x: 0, y: y, width: width, height: Metrics.dividerThickness)
         y += Metrics.dividerThickness
         footer.frame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.footerHeight)
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            topRule.layer?.backgroundColor = Palette.separator.cgColor
-            bottomRule.layer?.backgroundColor = Palette.separator.cgColor
-        }
         // The recorder floats over the top of the list, under the field.
         let recorderWidth = min(PaletteLayout.width - 2 * Metrics.space6, PaletteLayout.actionsMenuWidth * 1.5)
         recorderView.frame = NSRect(x: glass.frame.midX - recorderWidth / 2, y: glass.frame.minY + PaletteLayout.searchHeight + Metrics.space4,
@@ -238,7 +228,37 @@ final class PaletteContentView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        applyColors()
         needsLayout = true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyColors()
+    }
+
+    /// Theme colors, again on every theme change (the panel adopts the
+    /// scope of the window it opens over).
+    private func applyColors() {
+        performWithTheme {
+            glass.tintColor = Palette.glassTint
+            topRule.layer?.backgroundColor = Palette.separator.cgColor
+            bottomRule.layer?.backgroundColor = Palette.separator.cgColor
+            let shadow = NSShadow()
+            shadow.shadowColor = Palette.shadow.withAlphaComponent(0.22)
+            shadow.shadowBlurRadius = PaletteLayout.shadowRadius
+            shadow.shadowOffset = NSSize(width: 0, height: -PaletteLayout.shadowOffset)
+            stage.shadow = shadow
+        }
+        if let editor = searchBar.field.currentEditor() as? NSTextView { applyEditorColors(editor) }
+    }
+
+    /// Gray selection and caret; the system accent never shows.
+    private func applyEditorColors(_ editor: NSTextView) {
+        performWithTheme {
+            editor.selectedTextAttributes = [.backgroundColor: Palette.selectionFill]
+            editor.insertionPointColor = Palette.textPrimary
+        }
     }
 
     // MARK: Animation

@@ -27,6 +27,7 @@ extension BrowserChromeView {
         case .didBeginEditing:
             break
         case .didEndEditing(.commit(let url)):
+            if loadOverride?(url) == true { return }
             tab.load(url)
         case .didEndEditing(.open(let url, let disposition)):
             onOpenURL.map { $0(url, disposition) } ?? tab.load(url)

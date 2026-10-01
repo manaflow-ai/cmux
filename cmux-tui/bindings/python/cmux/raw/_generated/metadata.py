@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '9335cb699f686481f70d674b12c055858df82b4e079fd8f58405b44554e09edd'
+IR_SHA256 = 'adbfa89de5ea3e4ee601c468ebe23c608b9eb8532e62701776fa0d86a6831300'
 
 
 @dataclass(frozen=True)
@@ -450,6 +450,22 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'create-browser-profile': CommandMetadata(
+        'create-browser-profile',
+        'control',
+        12,
+        'browser-profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'browser_profile': CommandFieldMetadata(None, None),
+            'color': CommandFieldMetadata(None, None),
+            'icon': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
+            'source': CommandFieldMetadata(None, None),
+        },
+    ),
     'create-personal-group': CommandMetadata(
         'create-personal-group',
         'control',
@@ -559,6 +575,7 @@ COMMANDS = {
             'name': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(9, None),
             'workspace': CommandFieldMetadata(None, None),
         },
@@ -592,6 +609,17 @@ COMMANDS = {
             'group': CommandFieldMetadata(None, None),
             'index': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
+        },
+    ),
+    'delete-browser-profile': CommandMetadata(
+        'delete-browser-profile',
+        'control',
+        12,
+        'browser-profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'browser_profile': CommandFieldMetadata(None, None),
         },
     ),
     'delete-personal-group': CommandMetadata(
@@ -968,6 +996,18 @@ COMMANDS = {
             'ttl_ms': CommandFieldMetadata(None, None),
         },
     ),
+    'move-browser-profile': CommandMetadata(
+        'move-browser-profile',
+        'control',
+        12,
+        'browser-profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'browser_profile': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+        },
+    ),
     'move-personal-group': CommandMetadata(
         'move-personal-group',
         'control',
@@ -1261,6 +1301,7 @@ COMMANDS = {
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
         },
     ),
@@ -1278,6 +1319,7 @@ COMMANDS = {
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'width': CommandFieldMetadata(None, None),
         },
@@ -1316,6 +1358,7 @@ COMMANDS = {
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
         },
     ),
@@ -1354,6 +1397,7 @@ COMMANDS = {
         {
             'body': CommandFieldMetadata(None, None),
             'level': CommandFieldMetadata(None, None),
+            'source': CommandFieldMetadata(12, 'notification-source-v1'),
             'surface': CommandFieldMetadata(None, None),
             'title': CommandFieldMetadata(None, None),
         },
@@ -1914,6 +1958,19 @@ COMMANDS = {
             'selection_fg': CommandFieldMetadata(9, None),
         },
     ),
+    'set-personal-terminal': CommandMetadata(
+        'set-personal-terminal',
+        'control',
+        12,
+        'personal-terminals-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'session_id': CommandFieldMetadata(None, None),
+            'terminal_key': CommandFieldMetadata(None, None),
+            'theme': CommandFieldMetadata(None, None),
+        },
+    ),
     'set-personal-workspace': CommandMetadata(
         'set-personal-workspace',
         'control',
@@ -2145,6 +2202,7 @@ COMMANDS = {
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
         },
     ),
@@ -2272,6 +2330,20 @@ COMMANDS = {
         None,
         {
             'group': CommandFieldMetadata(None, None),
+        },
+    ),
+    'update-browser-profile': CommandMetadata(
+        'update-browser-profile',
+        'control',
+        12,
+        'browser-profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'browser_profile': CommandFieldMetadata(None, None),
+            'color': CommandFieldMetadata(None, None),
+            'icon': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
         },
     ),
     'update-frontend-browser-tab': CommandMetadata(

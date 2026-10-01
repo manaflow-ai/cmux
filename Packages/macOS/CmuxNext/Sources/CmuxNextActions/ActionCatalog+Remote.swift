@@ -21,6 +21,13 @@ nonisolated extension ActionCatalog {
                 surfaces: [.palette, .contextMenu], targets: [.machine], cliName: "remote new-workspace", startsTerminal: true
             ),
             ActionDescriptor(
+                id: "remote.openTerminalHere",
+                title: String(localized: "action.remote.openTerminalHere", defaultValue: "Open Terminal on Machine Here…", table: "RemoteActions", bundle: .module),
+                keywords: ["ssh", "remote", "machine", "session", "terminal", "mixed"], category: .remote, symbol: "terminal",
+                surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.machineMachine], targets: [.pane],
+                cliName: "remote open-terminal-here", startsTerminal: true
+            ),
+            ActionDescriptor(
                 id: "remote.reconnect",
                 title: String(localized: "action.remote.reconnect", defaultValue: "Reconnect Machine", table: "RemoteActions", bundle: .module),
                 keywords: ["ssh", "remote", "retry"], category: .remote, symbol: "arrow.clockwise",

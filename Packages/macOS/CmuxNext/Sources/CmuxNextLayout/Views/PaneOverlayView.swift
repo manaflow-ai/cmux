@@ -186,7 +186,7 @@ final class PaneOverlayView: NSView {
     }
 
     private func applyColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             let ringColor = focusRing.color?.nsColor ?? Palette.focusRing.withAlphaComponent(0.55)
             ring.borderColor = ringColor.cgColor
             glow.borderColor = ringColor.withAlphaComponent(ringColor.alphaComponent * 0.6).cgColor

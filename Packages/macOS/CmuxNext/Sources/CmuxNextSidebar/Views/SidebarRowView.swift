@@ -84,10 +84,11 @@ class SidebarRowView: NSView {
         needsDisplay = true
     }
 
-    static func label(font: NSFont, color: NSColor) -> NSTextField {
+    /// A one-line label. Its color is set in the row's `updateLayer`, inside
+    /// `performWithTheme`, so it follows the row's theme scope.
+    static func label(font: NSFont) -> NSTextField {
         let field = NSTextField(labelWithString: "")
         field.font = font
-        field.textColor = color
         field.lineBreakMode = .byTruncatingTail
         field.maximumNumberOfLines = 1
         field.cell?.truncatesLastVisibleLine = true
@@ -98,7 +99,7 @@ class SidebarRowView: NSView {
 // MARK: - Workspace
 
 final class EmptySectionRowView: SidebarRowView {
-    private let label = SidebarRowView.label(font: SidebarStyle.subtitleFont, color: Palette.textTertiary)
+    private let label = SidebarRowView.label(font: SidebarStyle.subtitleFont)
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
@@ -118,5 +119,9 @@ final class EmptySectionRowView: SidebarRowView {
         let h = ceil(label.intrinsicContentSize.height)
         label.frame = NSRect(x: Metrics.space2, y: (b.height - h) / 2, width: b.width - Metrics.space4, height: h)
         needsDisplay = true
+    }
+
+    override func updateLayer() {
+        performWithTheme { label.textColor = Palette.textTertiary }
     }
 }

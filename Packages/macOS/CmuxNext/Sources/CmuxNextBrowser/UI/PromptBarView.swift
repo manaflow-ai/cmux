@@ -10,12 +10,12 @@ final class PromptBarView: NSView {
     private let buttons = NSStackView()
     private let stack = NSStackView()
     private let density = DensityBinding()
+    private var glass: NSGlassEffectView?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         translatesAutoresizingMaskIntoConstraints = false
 
-        messageLabel.textColor = Palette.textPrimary
         messageLabel.maximumNumberOfLines = 6
 
         inputField.wantsLayer = true
@@ -35,6 +35,7 @@ final class PromptBarView: NSView {
         content.addSubview(stack)
         let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: BrowserMetrics.overlayCornerRadius)
         addSubview(glass)
+        self.glass = glass
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -69,8 +70,10 @@ final class PromptBarView: NSView {
     }
 
     private func applyColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             inputField.layer?.backgroundColor = Palette.chromeBackground.cgColor
+            messageLabel.textColor = Palette.textPrimary
+            glass?.tintColor = Palette.glassTint
         }
     }
 

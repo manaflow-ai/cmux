@@ -126,7 +126,8 @@ public final class PageInfoController {
             frame.origin.x = min(max(frame.minX, screen.minX), screen.maxX - frame.width)
             frame.origin.y = max(frame.minY, screen.minY)
         }
-        panel.appearance = window.effectiveAppearance
+        // The bubble takes the omnibar's theme scope (its room or workspace).
+        panel.adoptThemeScope(of: anchor)
         panel.setFrame(frame, display: true)
         if panel.parent !== window {
             panel.parent?.removeChildWindow(panel)

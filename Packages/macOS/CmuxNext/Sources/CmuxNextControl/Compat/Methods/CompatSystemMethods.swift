@@ -11,6 +11,11 @@ enum CompatSystemMethods {
         "system.capabilities": .read(capabilities),
         "system.identify": .async(identify),
         "system.tree": .async(tree),
+        // Every federated session (plans/cmux-next/data-model.md 1.1), home first.
+        "system.sessions": .read({ call in
+            let world = try call.snapshotWorld()
+            return ["sessions": .array(world.sessions.map { .object(CompatJSON.session($0, in: world)) })]
+        }),
         "window.list": .read({ call in
             let world = try call.snapshotWorld()
             let all = call.params["include_hidden"]?.boolValue ?? false
@@ -96,16 +101,17 @@ enum CompatSystemMethods {
             })
             return .object(item)
         }
-        let scoped = world.workspaces.filter { onlyWorkspace == nil || $0.uuid == onlyWorkspace?.uuid }
+        let scoped = onlyWorkspace.map { only in world.workspaces.filter { $0.uuid == only.uuid } } ?? world.scopedWorkspaces
         var windowItems: [JSON] = windows.map { window in
             var item = CompatJSON.window(window, in: world)
-            let listed = Set(world.workspaces(in: window).map(\.uuid))
+            // An explicitly named workspace shows whatever its session.
+            let listed = Set((onlyWorkspace == nil ? world.workspaces(in: window) : world.allWorkspaces(in: window)).map(\.uuid))
             item["workspaces"] = .array(scoped.filter { listed.contains($0.uuid) }.map { workspaceItem($0, window: window) })
             return .object(item)
         }
         if windowItems.isEmpty {
             windowItems = [["id": .null, "ref": .null, "index": 0, "key": false, "visible": false,
-                            "workspace_count": JSON(world.workspaces.count),
+                            "workspace_count": JSON(world.scopedWorkspaces.count),
                             "workspaces": .array(scoped.map { workspaceItem($0, window: nil) })]]
         }
         var activeFocus: JSON = .null

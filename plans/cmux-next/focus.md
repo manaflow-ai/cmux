@@ -349,6 +349,18 @@ unbinding `nextSurface`/`prevSurface` in `cmux.json` removes these aliases. The 
 only to chords neither cmux nor Chrome defines (for example `cmd+ctrl+h`). In a
 terminal the terminal runs its own Ghostty keybinds, still after cmux's registry.
 
+Browser-only chords (user 2026-09-30: "cmd[] in terminal should do nothing.
+should only do stuff in browsers. consistency is most important for keyboard
+shortcuts"): the effective chords of `browserBack` and `browserForward`
+(Cmd-[ / Cmd-] by default, or the user's rebinding) act only in a browser
+context. Anywhere else (a terminal, the sidebar, a text field of the window)
+the app-wide interceptor consumes them and runs nothing: no Ghostty keybind
+(`super+[` is `goto_split:previous` by default), no shell input, no menu
+item (`BrowserChordTable.browserOnlyActions`, `KeyRouter.consumesBrowserOnlyChord`;
+`BrowserOnlyChordTests`). A cmux action the user binds to the same chord in
+another context still runs first. The location trail's Go Back / Go Forward
+are Ctrl-Cmd-Left / Ctrl-Cmd-Right in every context (history.md 4.2).
+
 Sidebar inline rename: Return, Escape or Tab ends it and gives the keyboard back to the
 focused content through the coordinator; a click elsewhere keeps the clicked target.
 Closing the find bar or ending address bar editing also goes through the coordinator

@@ -45,24 +45,27 @@ public struct ImportProgress: Sendable, Equatable {
     }
 }
 
-/// Items read so far (or imported, in a summary).
+/// Items read so far (or imported, in a summary). Cookies count the ones
+/// the target profile's store accepted.
 public struct ImportCounts: Sendable, Equatable, Codable {
     public var bookmarks = 0
     public var history = 0
     public var openTabs = 0
     public var extensions = 0
+    public var cookies = 0
 
-    public init(bookmarks: Int = 0, history: Int = 0, openTabs: Int = 0, extensions: Int = 0) {
+    public init(bookmarks: Int = 0, history: Int = 0, openTabs: Int = 0, extensions: Int = 0, cookies: Int = 0) {
         self.bookmarks = bookmarks
         self.history = history
         self.openTabs = openTabs
         self.extensions = extensions
+        self.cookies = cookies
     }
 
-    public var total: Int { bookmarks + history + openTabs + extensions }
+    public var total: Int { bookmarks + history + openTabs + extensions + cookies }
 
     public static func + (lhs: ImportCounts, rhs: ImportCounts) -> ImportCounts {
-        ImportCounts(bookmarks: lhs.bookmarks + rhs.bookmarks, history: lhs.history + rhs.history,
-                     openTabs: lhs.openTabs + rhs.openTabs, extensions: lhs.extensions + rhs.extensions)
+        ImportCounts(bookmarks: lhs.bookmarks + rhs.bookmarks, history: lhs.history + rhs.history, openTabs: lhs.openTabs + rhs.openTabs,
+                     extensions: lhs.extensions + rhs.extensions, cookies: lhs.cookies + rhs.cookies)
     }
 }

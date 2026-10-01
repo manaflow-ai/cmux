@@ -142,7 +142,7 @@ final class DividerHandleView: NSView {
 
     private func applyColors() {
         let isEdge = isColumnEdge
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             let active = isHovered || isDragging
             let color: NSColor
             if isEdge {

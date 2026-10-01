@@ -9,8 +9,8 @@ final class PaletteActionsMenuView: NSView {
 
     private let glass = Glass.makePanel(cornerRadius: PaletteLayout.cornerRadius)
     private let content = FlippedView()
-    private let title = PaletteText.label(Typography.header, color: Palette.textSecondary)
-    private let filter = PaletteText.label(Typography.body, color: Palette.textTertiary)
+    private let title = PaletteText.label(Typography.header, tone: .secondary)
+    private let filter = PaletteText.label(Typography.body, tone: .tertiary)
     private let separator = NSView()
     private var rowViews: [PaletteMenuRow] = []
 
@@ -36,7 +36,7 @@ final class PaletteActionsMenuView: NSView {
     func update(_ state: PaletteActionsMenuState, alternateID: String?) {
         title.stringValue = state.itemTitle
         filter.stringValue = state.filter.isEmpty ? PaletteStrings.searchActionsPlaceholder : state.filter
-        filter.textColor = state.filter.isEmpty ? Palette.textTertiary : Palette.textPrimary
+        filter.tone = state.filter.isEmpty ? .tertiary : .primary
         rowViews.forEach { $0.removeFromSuperview() }
         rowViews = state.visibleCommands.enumerated().map { index, command in
             let keycaps: [String]? = index == 0 && state.filter.isEmpty ? ["↩"] : (command.id == alternateID ? ["⌘", "↩"] : nil)
@@ -64,13 +64,23 @@ final class PaletteActionsMenuView: NSView {
         }
         y += Metrics.space2
         separator.frame = NSRect(x: 0, y: y, width: bounds.width, height: Metrics.dividerThickness)
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            separator.layer?.backgroundColor = Palette.separator.cgColor
-        }
+        applyColors()
         y += Metrics.dividerThickness
         let filterHeight = filter.intrinsicContentSize.height
         filter.frame = NSRect(x: padding, y: y + (PaletteLayout.actionsMenuRowHeight - filterHeight) / 2,
                               width: bounds.width - 2 * padding, height: filterHeight)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme {
+            glass.tintColor = Palette.glassTint
+            separator.layer?.backgroundColor = Palette.separator.cgColor
+        }
     }
 }
 
@@ -86,9 +96,8 @@ final class PaletteMenuRow: NSView {
         self.isSelected = isSelected
         super.init(frame: .zero)
         icon.image = PaletteText.symbol(command.symbol ?? "circle", size: Metrics.smallIconSize)
-        icon.contentTintColor = Palette.textSecondary
         label.stringValue = command.title
-        label.textColor = command.isDestructive ? Palette.textSecondary : Palette.textPrimary
+        label.tone = command.isDestructive ? .secondary : .primary
         keys.keycaps = keycaps ?? []
         keys.isHidden = keycaps == nil
         [icon, label, keys].forEach(addSubview)
@@ -105,8 +114,24 @@ final class PaletteMenuRow: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard isSelected else { return }
-        Palette.selectionFill.setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: PaletteLayout.rowCornerRadius, yRadius: PaletteLayout.rowCornerRadius).fill()
+        performWithTheme {
+            Palette.selectionFill.setFill()
+            NSBezierPath(roundedRect: bounds, xRadius: PaletteLayout.rowCornerRadius, yRadius: PaletteLayout.rowCornerRadius).fill()
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyColors()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme { icon.contentTintColor = Palette.textSecondary }
     }
 
     override func layout() {

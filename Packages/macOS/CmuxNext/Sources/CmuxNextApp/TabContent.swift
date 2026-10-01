@@ -1,16 +1,21 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextTerminal
 
 /// What a pane shows for its selected tab.
 enum TabContent {
     case terminal(TerminalEntry)
     case browser(BrowserEntry)
+    /// A remote-terminal tab whose session is not attached (data-model.md 1.4).
+    case placeholder(RemoteTerminalPlaceholderView)
 
     var view: NSView {
         switch self {
         case .terminal(let entry): entry.session.view
         case .browser(let entry): entry.chrome
+        case .placeholder(let view): view
         }
     }
 
@@ -19,6 +24,7 @@ enum TabContent {
         switch self {
         case .terminal(let entry): entry.session.surfaceView
         case .browser(let entry): entry.tab.contentView
+        case .placeholder(let view): view
         }
     }
 }
@@ -30,14 +36,26 @@ final class TerminalEntry {
     let validity: String
     let session: TerminalSession
     let io: DaemonTerminalIO
+    /// The key of this terminal's own theme.
+    let themeKey: TerminalThemeKey
+    /// This surface's theme scope, under its pane's workspace scope.
+    let themeScope = ThemeScope(level: .terminal)
+    let themeBinding: TerminalThemeBinding
+    /// Tab `dead` and connection changes for this view.
+    private let watch: TerminalLinkWatch
 
-    init(validity: String, session: TerminalSession, io: DaemonTerminalIO) {
+    init(validity: String, session: TerminalSession, io: DaemonTerminalIO, themeKey: TerminalThemeKey, store: DaemonStore, surface: SurfaceID) {
         self.validity = validity
         self.session = session
         self.io = io
+        self.themeKey = themeKey
+        themeBinding = TerminalThemeBinding(scope: themeScope, session: session)
+        themeScope.root(session.view)
+        watch = TerminalLinkWatch(store: store, surface: surface, io: io)
     }
 
     func close() {
+        watch.stop()
         session.close()
         io.close()
     }

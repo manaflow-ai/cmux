@@ -72,6 +72,7 @@ public:
     [[nodiscard]] Result<CloseTerminalResult> close_terminal(const CloseTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<WorkspaceMutationResult> close_workspace(const CloseWorkspaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<CopyResult> copy(const CopyRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> create_browser_profile(const CreateBrowserProfileRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> create_personal_group(const CreatePersonalGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> create_profile(const CreateProfileRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> create_screen_group(const CreateScreenGroupRequest& request, RequestOptions options = {});
@@ -80,6 +81,7 @@ public:
     [[nodiscard]] Result<TerminalPlacement> create_terminal(const CreateTerminalRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<WorkspaceMutationResult> create_workspace(const CreateWorkspaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> create_workspace_group(const CreateWorkspaceGroupRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> delete_browser_profile(const DeleteBrowserProfileRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> delete_personal_group(const DeletePersonalGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> delete_profile(const DeleteProfileRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> delete_saved_screen_group(const DeleteSavedScreenGroupRequest& request, RequestOptions options = {});
@@ -114,6 +116,7 @@ public:
     [[nodiscard]] Result<EmptyResult> mark_workspaces_provider_managed(const MarkWorkspacesProviderManagedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<MintTerminalRendererResult> mint_terminal_renderer(const MintTerminalRendererRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<MintTerminalRendererResult> mint_terminal_renderer_by_terminal(const MintTerminalRendererByTerminalRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> move_browser_profile(const MoveBrowserProfileRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_personal_group(const MovePersonalGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_profile(const MoveProfileRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_screen(const MoveScreenRequest& request, RequestOptions options = {});
@@ -182,6 +185,7 @@ public:
     [[nodiscard]] Result<EmptyResult> set_client_info(const SetClientInfoRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_client_sizing(const SetClientSizingRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_default_colors(const SetDefaultColorsRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> set_personal_terminal(const SetPersonalTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_personal_workspace(const SetPersonalWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_profile_follows(const SetProfileFollowsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_ratio(const SetRatioRequest& request, RequestOptions options = {});
@@ -210,6 +214,7 @@ public:
     [[nodiscard]] Result<BrowserProviderUnregisterResult> unregister_browser_provider(const UnregisterBrowserProviderRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> unsave_screen_group(const UnsaveScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> unsave_tab_group(const UnsaveTabGroupRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> update_browser_profile(const UpdateBrowserProfileRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> update_frontend_browser_tab(const UpdateFrontendBrowserTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> update_personal_group(const UpdatePersonalGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> update_profile(const UpdateProfileRequest& request, RequestOptions options = {});

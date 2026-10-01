@@ -155,7 +155,7 @@ final class TabStripButtonGroupView: NSView {
     }
 
     private func applyColors(scale: CGFloat) {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             for (index, slot) in slots.enumerated() {
                 let hovered = hoveredIndex == index, pressed = pressedIndex == index
                 slot.fill.backgroundColor = pressed ? Palette.selectionFill.cgColor : (hovered ? Palette.hoverFill.cgColor : nil)

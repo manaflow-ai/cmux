@@ -268,8 +268,13 @@ extension DaemonConnection {
     }
 
     @discardableResult
-    public func notify(title: String, body: String = "", level: NotificationLevel = .info, surface: SurfaceID? = nil) async throws -> NotificationID {
-        try await request(NotifyRequest(title: title, body: body, level: level, surface: surface)).notification
+    /// Posts a notification. `source` (`notification-source-v1`: `cli`,
+    /// `terminal`, `agent`, `daemon`) reaches daemons that serve it.
+    public func notify(title: String, body: String = "", level: NotificationLevel = .info, surface: SurfaceID? = nil,
+                       source: String? = nil) async throws -> NotificationID {
+        let source = identity?.supports(DaemonCapabilities.notificationSource) == true ? source : nil
+        return try await request(NotifyRequest(title: title, body: body, level: level, surface: surface, source: source))
+            .notification
     }
 
     /// Clears a tab's unread marker without selecting it (`notification-ack-v1`).
@@ -310,6 +315,34 @@ extension DaemonConnection {
         defer { transport.close() }
         return try await Self.perform(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
                                       on: transport, timeout: Self.endTerminalsTimeout)
+    }
+
+    /// Quit's end choices: stops this connection (so the daemon's exit
+    /// cannot trigger a reconnect that starts a new daemon), then ends every
+    /// terminal and stops the daemon (`shutdown-daemon end_terminals`).
+    /// With `deletingWorkspaces` (End Everything) it first closes every
+    /// workspace, so the next owner starts with none; the layout otherwise
+    /// stays and reopens with fresh shells. Both run on their own socket.
+    /// Returns the ended count.
+    @discardableResult
+    public func endSessionsAndStop(deletingWorkspaces: Bool = false) async throws -> UInt64 {
+        await close()
+        if deletingWorkspaces { try await closeEveryWorkspace() }
+        return try await shutdownDaemon(endTerminals: true).endedTerminals ?? 0
+    }
+
+    /// Closes every workspace on a short-lived socket (their terminals
+    /// detach; `shutdown-daemon end_terminals` then ends them).
+    private func closeEveryWorkspace() async throws {
+        guard let endpoint else { throw DaemonError.notConnected }
+        let transport = try LineTransport(path: endpoint.socketPath)
+        transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
+        defer { transport.close() }
+        let tree = try await Self.perform(ListWorkspacesRequest(), on: transport)
+        for workspace in tree.workspaces {
+            let ref: WorkspaceRef = workspace.key.map { .key($0) } ?? .handle(workspace.id)
+            _ = try await Self.perform(CloseWorkspaceRequest(workspace: ref, mutation: nil), on: transport)
+        }
     }
 
     /// Deadline for `shutdown-daemon end_terminals`, which awaits every host.

@@ -5,7 +5,8 @@ import os
 # Rows whose failure is a documented decision, not a bug
 # (plans/cmux-next/browser.md, "Extension APIs cmux does not support").
 INTENTIONAL = {
-    ("identity", "getAuthToken"): "needs a signed-in Google account in Chromium; cmux has no Google sign-in",
+    ("identity", "getAuthToken"): ("no Google sign-in in cmux; the web OAuth fallback (fork API 13) needs a real "
+                                   "oauth2.client_id that Google accepts, and the fixture's is not one"),
     ("omnibox", "onInputEntered"): "the cmux omnibar has no extension keyword mode",
 }
 

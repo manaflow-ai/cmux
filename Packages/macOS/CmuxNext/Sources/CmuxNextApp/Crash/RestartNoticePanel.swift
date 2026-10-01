@@ -11,7 +11,7 @@ final class RestartNoticePanel {
     private let panel: NSPanel
     /// The stack's container inside the glass: the glass view does not
     /// report its content's fitting size, so the panel is sized from this.
-    private let body = NSView()
+    private let body = ThemeChangeView()
     private weak var parent: NSWindow?
     private var observers: [any NSObjectProtocol] = []
     private let onShowLog: (() -> Void)?
@@ -20,7 +20,6 @@ final class RestartNoticePanel {
         self.onShowLog = onShowLog
         panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 420, height: 40),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        ThemeStore.shared.adopt(panel)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -35,8 +34,15 @@ final class RestartNoticePanel {
         // One line: a wrapping label reported one line of height in the
         // panel's fitting size and clipped the second.
         let label = NSTextField(labelWithString: text)
+        let content = body
+        content.onThemeChange = { [weak label, weak content] in
+            guard let label, let content else { return }
+            content.performWithTheme {
+                label.textColor = Palette.textPrimary
+                (content.superview as? NSGlassEffectView)?.tintColor = Palette.glassTint
+            }
+        }
         label.font = .systemFont(ofSize: NSFont.systemFontSize)
-        label.textColor = Palette.textPrimary
         label.setContentCompressionResistancePriority(.required, for: .horizontal)
         var views: [NSView] = [label]
         if onShowLog != nil {
@@ -53,7 +59,6 @@ final class RestartNoticePanel {
         stack.spacing = 10
         stack.edgeInsets = NSEdgeInsets(top: 8, left: 14, bottom: 8, right: 10)
         stack.translatesAutoresizingMaskIntoConstraints = false
-        let content = body
         content.addSubview(stack)
         let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: 12)
         glass.setAccessibilityIdentifier(Self.accessibilityID)
@@ -71,6 +76,7 @@ final class RestartNoticePanel {
     func show(on window: NSWindow) {
         parent = window
         window.addChildWindow(panel, ordered: .above)
+        window.themeScope.adopt(panel)
         place()
         let center = NotificationCenter.default
         for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {

@@ -119,7 +119,9 @@ final class ExtensionMenuRowView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard isHovering || enclosingMenuItem?.isHighlighted == true else { return }
-        Palette.hoverFill.setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 1), xRadius: 5, yRadius: 5).fill()
+        performWithTheme {
+            Palette.hoverFill.setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 1), xRadius: 5, yRadius: 5).fill()
+        }
     }
 }

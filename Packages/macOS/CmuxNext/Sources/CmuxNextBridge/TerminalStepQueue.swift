@@ -52,6 +52,12 @@ public nonisolated final class TerminalStepQueue: Sendable {
         enqueue(step, supersede: false)
     }
 
+    /// Queues a control step (a link status) at once, after what is queued.
+    /// Never waits: callers hold no suspension point.
+    public func pushControl(_ step: TerminalStreamPlan.Step) {
+        enqueue(step, supersede: false)
+    }
+
     /// Ends the stream after what is queued. Releases waiting producers.
     public func finish() {
         let (consumer, producers) = state.withLock { state -> (CheckedContinuation<TerminalStreamPlan.Step?, Never>?, [CheckedContinuation<Void, Never>]) in

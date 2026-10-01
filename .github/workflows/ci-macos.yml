@@ -126,6 +126,14 @@ on:
       # the jobs keep their run-start placement.
       GLAEDA_ROUTE_APP_KEY:
         required: false
+      # Read-only R2 key for the private cmux-cef bucket (Object Read on that
+      # bucket only). Only the Chromium engine fetch step below reads them.
+      CMUX_CEF_R2_ACCOUNT_ID:
+        required: false
+      CMUX_CEF_R2_ACCESS_KEY_ID:
+        required: false
+      CMUX_CEF_R2_SECRET_ACCESS_KEY:
+        required: false
 
 permissions:
   contents: read
@@ -783,15 +791,25 @@ jobs:
           cp "$OWNED_START/stamp.json" "$RUNNER_TEMP/warm-start-stamp.json" 2>/dev/null || true
           python3 scripts/ci/owned_build_state.py record "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
 
-      # The cmux-next app embeds the Chromium engine from the private
-      # manaflow-ai/cef release (scripts/cmux-next/cef-manifest.json). Admission
-      # holds no token for it: it embeds the engine only when the artifact is
-      # already cached on this Mac or publicly readable, and otherwise builds
-      # the app with CMUX_NEXT_SKIP_CEF=1 instead of retrying the download in
-      # the Embed CEF phase. The value is always set, so the build settings
-      # the phase sees stay stable between runs on one Mac.
+      # The cmux-next app embeds the Chromium engine
+      # (scripts/cmux-next/cef-manifest.json). This step fetches it into the
+      # ensure-cef cache from the private R2 bucket with the read-only key,
+      # which only this step receives and only in same-repository runs (fork
+      # pull requests get no secrets; they embed the engine only when this
+      # Mac already caches it). Without the engine the app builds with
+      # CMUX_NEXT_SKIP_CEF=1 instead of retrying the download in the Embed CEF
+      # phase; with it the phase reads the cache and needs no key. The value
+      # is always set, so the build settings the phase sees stay stable
+      # between runs on one Mac. No CI cache holds the archive: the R2 CI
+      # cache is publicly readable and fork runs read the GitHub store.
       - name: Decide whether admission embeds the Chromium engine
         if: steps.reuse-products.outputs.hit != 'true'
+        env:
+          CMUX_CEF_R2_ACCOUNT_ID: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.CMUX_CEF_R2_ACCOUNT_ID || '' }}
+          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.CMUX_CEF_R2_ACCESS_KEY_ID || '' }}
+          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY || '' }}
+          # A runner's own ~/.secrets file is never a source here.
+          CMUX_CEF_R2_ENV_FILE: /dev/null
         run: |
           set -euo pipefail
           if cef_dir="$(env -u GH_TOKEN -u GITHUB_TOKEN scripts/cmux-next/ensure-cef.sh --optional)" && [[ -n "$cef_dir" ]]; then

@@ -120,7 +120,6 @@ final class WorkspaceHoverCardPanel: NSPanel {
         glass = Glass.makePanel(content: content, cornerRadius: Metrics.panelCornerRadius)
         glass.translatesAutoresizingMaskIntoConstraints = true
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-        ThemeStore.shared.adopt(self)
         isOpaque = false
         backgroundColor = .clear
         hasShadow = true
@@ -133,10 +132,8 @@ final class WorkspaceHoverCardPanel: NSPanel {
         contentView = glass
 
         titleLabel.font = Typography.bodyEmphasized
-        titleLabel.textColor = Palette.textPrimary
         titleLabel.lineBreakMode = .byTruncatingTail
         subtitleLabel.font = Typography.caption
-        subtitleLabel.textColor = Palette.textSecondary
         subtitleLabel.lineBreakMode = .byTruncatingMiddle
         resources.style = .workspace(topConsumers: 3)
 
@@ -177,6 +174,11 @@ final class WorkspaceHoverCardPanel: NSPanel {
 
     /// Shows the card to the right of the row, top-aligned with it.
     func present(beside anchor: CGRect, parent: NSWindow, sliding: Bool) {
+        // The card draws in the parent window's theme (its room).
+        let scope = parent.themeScope
+        scope.adopt(self)
+        scope.addResponder(self)
+        themeDidChange()
         if parentWindowRef !== parent {
             parentWindowRef?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
@@ -216,5 +218,18 @@ final class WorkspaceHoverCardPanel: NSPanel {
             self.parentWindowRef = nil
             self.orderOut(nil)
         })
+    }
+}
+
+extension WorkspaceHoverCardPanel: ThemeResponsive {
+    /// Recolors the labels in the card's scope; `ThemeScope.adopt` and every
+    /// later change of that scope call it.
+    func themeDidChange() {
+        guard let content = contentView else { return }
+        content.performWithTheme {
+            titleLabel.textColor = Palette.textPrimary
+            subtitleLabel.textColor = Palette.textSecondary
+            glass.tintColor = Palette.glassTint
+        }
     }
 }

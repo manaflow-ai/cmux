@@ -39,14 +39,17 @@ extension ActionRegistry {
     }
 }
 
-/// What a menu item runs: an action and, for context menus, its target.
+/// What a menu item runs: an action and, for context menus, its target
+/// (and, for a choices submenu, the chosen argument).
 final class ActionMenuPayload: NSObject {
     let id: ActionID
     let target: ActionTargetRef?
+    let arguments: [String: ActionValue]
 
-    init(id: ActionID, target: ActionTargetRef?) {
+    init(id: ActionID, target: ActionTargetRef?, arguments: [String: ActionValue] = [:]) {
         self.id = id
         self.target = target
+        self.arguments = arguments
     }
 }
 
@@ -60,7 +63,7 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
 
     @objc func performAction(_ sender: NSMenuItem) {
         guard let registry, let payload = Self.payload(of: sender) else { return }
-        registry.perform(payload.id, invocation: ActionInvocation(target: payload.target))
+        registry.perform(payload.id, invocation: ActionInvocation(target: payload.target, arguments: payload.arguments))
     }
 
     /// A key equivalent also asks the registry's `menuKeyEquivalentGate`,

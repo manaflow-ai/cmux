@@ -1,6 +1,7 @@
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextTerminal
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -26,10 +27,17 @@ import os
 ///   sized the terminal, on its next key press or focus.
 /// - Grid reports go through `ResizeCoordinator` and reach the daemon only
 ///   after the view stops resizing.
+/// - A dropped stream or failed attach leaves the view disconnected (last
+///   screen and a status label) until an event re-attaches it: shown again,
+///   a key press, a click or focus, or the App's ``reconnect()`` (terminal or
+///   connection back). A re-attach after failed ones waits a capped backoff.
+///   ``processExited()`` ends it for good.
 nonisolated final class DaemonTerminalIO: TerminalIO {
     struct Target: Sendable {
         var attachment: TerminalAttachment.Target
         var initialSize: CellSize
+        /// The user's Ghostty cursor: a replay's cursor restore never overrides it.
+        var cursorDefault: TerminalCursorDefault = .ghostty
     }
 
     let events: AsyncStream<TerminalIOEvent>
@@ -51,7 +59,9 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             onReattach: { attempt in
                 logger.info("terminal \(surface) fell behind; reattaching for a fresh replay (open \(attempt))")
             },
-            observer: InputJournal.shared.isEnabled ? InputJournal.attachObserver(surface: String(surface)) : nil
+            observer: InputJournal.shared.isEnabled ? InputJournal.attachObserver(surface: String(surface)) : nil,
+            cursorDefault: target.cursorDefault,
+            backoffDelay: { failed in try await Self.reattachBackoff(afterFailures: failed) }
         )
         self.driver = driver
         events = AsyncStream(unfolding: { await driver.nextStep().map(Self.event(for:)) },
@@ -72,9 +82,15 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         driver.input(data)
     }
 
-    /// Focus takes geometry back after another client sized the terminal.
+    /// Focus takes geometry back after another client sized the terminal,
+    /// or re-attaches a disconnected view.
     func focusGained() async {
         driver.focused()
+    }
+
+    /// A click in a disconnected view re-attaches it.
+    func reconnectRequested() async {
+        driver.reconnect()
     }
 
     func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
@@ -94,6 +110,27 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// next visible view) owns it; shown views claim it again.
     @MainActor func setVisible(_ visible: Bool) {
         driver.setVisible(visible)
+    }
+
+    /// The terminal or the daemon connection is back: a disconnected view
+    /// re-attaches (one attempt; nothing happens otherwise).
+    @MainActor func reconnect() {
+        driver.reconnect()
+    }
+
+    /// The daemon reports the terminal's process ended: show the last screen
+    /// with "Process exited" and never re-attach.
+    @MainActor func processExited() {
+        driver.processExited()
+    }
+
+    /// Capped backoff before the `failed + 1`th re-attach in a row. Only a
+    /// user or App event starts a re-attach; this only spaces them.
+    nonisolated static func reattachBackoff(afterFailures failed: Int) async throws {
+        var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
+        for _ in 1..<max(1, failed) { _ = backoff.next() }
+        // concurrency-allow: async sleep on the attach task, only before a re-attach an event started after a failed one
+        try await backoff.wait(owner: "terminal.reattach")
     }
 
     /// Ends the attachment (or cancels the attach in flight). The terminal
@@ -118,6 +155,24 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         case .replay(let replay): replayEvent(replay)
         case .output(let data): .output(data)
         case .exited: .exited
+        case .status(let status): .status(Self.connection(status))
+        }
+    }
+
+    static func connection(_ status: TerminalLinkStatus) -> TerminalConnectionStatus {
+        switch status {
+        case .connected: .connected
+        case .exited: .exited
+        case .disconnected(let reason, let reconnecting): .disconnected(cause(reason), reconnecting: reconnecting)
+        }
+    }
+
+    private static func cause(_ reason: TerminalDisconnectReason) -> TerminalDisconnectCause {
+        switch reason {
+        case .streamEnded: .streamEnded
+        case .connectionLost: .connectionLost
+        case .attachFailed: .attachFailed
+        case .fellBehind: .fellBehind
         }
     }
 

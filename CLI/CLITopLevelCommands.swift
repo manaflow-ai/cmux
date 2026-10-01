@@ -76,6 +76,7 @@ enum CLITopLevelCommands {
         "last-window",
         "list-buffers",
         "list-log",
+        "list-machines",
         "list-notifications",
         "list-pane-surfaces",
         "list-panels",

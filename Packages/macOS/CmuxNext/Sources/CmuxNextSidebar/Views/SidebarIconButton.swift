@@ -23,7 +23,6 @@ final class SidebarIconButton: NSButton {
         renderSymbol()
         imagePosition = .imageOnly
         isBordered = false
-        contentTintColor = Palette.textSecondary
         setAccessibilityLabel(label)
         toolTip = label
         wantsLayer = true
@@ -55,7 +54,10 @@ final class SidebarIconButton: NSButton {
 
     override func updateLayer() {
         layer?.cornerRadius = Metrics.itemCornerRadius
-        layer?.backgroundColor = hovering ? resolvedCGColor(Palette.hoverFill) : nil
+        performWithTheme {
+            contentTintColor = Palette.textSecondary
+            layer?.backgroundColor = hovering ? Palette.hoverFill.cgColor : nil
+        }
     }
 
     override func updateTrackingAreas() {

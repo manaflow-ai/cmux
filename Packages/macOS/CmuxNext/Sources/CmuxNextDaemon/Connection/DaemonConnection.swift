@@ -166,6 +166,12 @@ public actor DaemonConnection {
         guard R.self is any TerminalSpawningRequest.Type else {
             return try await self.request(request, timeout: configuration.requestTimeout)
         }
+        var request = request
+        if identity?.supports(DaemonCapabilities.terminalShellArgs) == true,
+           let carrier = request as? any ShellIntegrationArgumentCarrying,
+           let integrated = carrier.addingShellIntegrationArguments() as? R {
+            request = integrated
+        }
         do {
             return try await self.request(request, timeout: configuration.spawnTimeout)
         } catch DaemonError.timedOut(let what) {

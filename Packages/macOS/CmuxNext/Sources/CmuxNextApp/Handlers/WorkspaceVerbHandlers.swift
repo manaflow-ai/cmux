@@ -155,7 +155,7 @@ enum WorkspaceVerbHandlers {
     static func close(_ ids: [String], _ context: AppActionContext) {
         for id in ids {
             guard let (workspace, daemon) = context.services.machines.workspace(id: id), let key = workspace.key else { continue }
-            let terminals = WorkspaceClose.terminals(of: workspace, on: daemon)
+            let terminals = WorkspaceClose.closing(workspace, on: daemon)
             daemon.send("close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0) }
         }
     }

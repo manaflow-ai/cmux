@@ -71,6 +71,11 @@ extension ActionRegistry {
                 childItems.forEach(submenu.addItem)
                 item.submenu = submenu
                 items.append(item)
+            case .choices(let id):
+                guard let descriptor = descriptor(for: id), Self.isAvailable(descriptor, in: context),
+                      let item = makeChoicesItem(for: descriptor, target: target)
+                else { continue }
+                items.append(item)
             }
         }
         while items.last?.isSeparatorItem == true { items.removeLast() }

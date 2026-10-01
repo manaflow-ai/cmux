@@ -792,10 +792,10 @@ Example:
 Payload:
 
 ```text
-object{event:"notification",notification:Id,title:string,body:string,level:"info"|"warning"|"error",surface:Id|null}
+object{event:"notification",notification:Id,title:string,body:string,level:"info"|"warning"|"error",surface:Id|null,source?:"cli"|"terminal"|"agent"|"daemon"}
 ```
 
-Meaning: A notification was posted. An inactive target surface receives one retained unread marker in the tree; a later notification overwrites it. Active-surface and session-wide notifications remain event-only. Selecting the target clears its marker without a notification lifecycle event.
+Meaning: A notification was posted. With `notification-source-v1`, `source` names who posted it (`notify`'s `source`, `terminal` for OSC 9/777/99 the daemon parsed from terminal output, `agent` for agent hooks); the tab's retained `notification` marker carries the same `source`. An inactive target surface receives one retained unread marker in the tree; a later notification overwrites it. Active-surface and session-wide notifications remain event-only. Selecting the target clears its marker without a notification lifecycle event.
 
 Example:
 

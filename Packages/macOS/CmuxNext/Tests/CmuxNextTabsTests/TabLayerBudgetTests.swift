@@ -71,9 +71,9 @@ import Testing
         #expect(!cell.hasSpinnerLayer && !cell.hasBadgeLayer)
     }
 
-    @Test func closeButtonLayersFollowHoverOnNarrowTabs() {
-        // Tabs show close only while hovered, the selected one too.
-        let h = Harness(count: 100)
+    @Test func closeButtonLayersFollowHoverOnWideTabs() {
+        // Wide tabs show close only while hovered, the selected one too.
+        let h = Harness(count: 4)
         let cell = h.strip.cells[TabID("t2")]!
         #expect(!cell.hasCloseLayers)
         cell.isHovered = true
@@ -81,5 +81,15 @@ import Testing
         cell.isHovered = false
         #expect(!cell.hasCloseLayers)
         #expect(!h.strip.cells[TabID("t0")]!.hasCloseLayers)
+    }
+
+    @Test func narrowTabsCreateCloseLayersOnlyOnTheSelectedTab() {
+        // Chrome: a narrow inactive tab has no x even while hovered; the
+        // narrow selected tab keeps its x.
+        let h = Harness(count: 100)
+        let cell = h.strip.cells[TabID("t2")]!
+        cell.isHovered = true
+        #expect(!cell.hasCloseLayers)
+        #expect(h.strip.cells[TabID("t0")]!.hasCloseLayers)
     }
 }

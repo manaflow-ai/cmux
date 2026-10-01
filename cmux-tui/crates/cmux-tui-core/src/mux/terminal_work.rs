@@ -171,6 +171,7 @@ impl Mux {
         self: &Arc<Self>,
         pane: Option<PaneId>,
         cwd: Option<String>,
+        command: Option<Vec<String>>,
         env: Vec<(String, String)>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Option<String>> {
@@ -188,7 +189,7 @@ impl Mux {
             };
             let Some(target) = target else { return Ok(None) };
             let cwd = cwd.or_else(|| self.pane_cwd(target));
-            let (launch_opts, cell_pixels) = self.terminal_spawn_options(cwd, None, size, &env);
+            let (launch_opts, cell_pixels) = self.terminal_spawn_options(cwd, command, size, &env);
             if launch_opts.terminal_host_root.is_none() {
                 return Ok(None);
             }
