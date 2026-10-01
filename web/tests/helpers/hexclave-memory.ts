@@ -1,5 +1,5 @@
 import type { HexclaveWebhookOutcome } from "../../db/schema";
-import type { HexclaveMirrorStore } from "../../services/auth/hexclave/mirrorStore";
+import type { HexclaveMirrorStore, HexclaveUserState } from "../../services/auth/hexclave/mirrorStore";
 import type {
   HexclaveProjectPermission,
   HexclaveServerTeam,
@@ -110,39 +110,62 @@ export class MemoryMirror implements HexclaveMirrorStore {
     for (const key of [...this.projectPermissions]) if (key.startsWith(`${userId}:`)) this.projectPermissions.delete(key);
   }
 
-  reconcileUser: HexclaveMirrorStore["reconcileUser"] = async (userId, read) => {
-    const state = await read();
+  /** `${teamId}:${userId}` */
+  pendingRevocations = new Set<string>();
+
+  private applyUser(userId: string, readState: HexclaveUserState, candidates: readonly string[]) {
+    const state: HexclaveUserState = readState.kind === "present" && this.tombstones.has(`user:${userId}`) ? { kind: "gone" } : readState;
     const previousTeamIds = this.teamIdsFor(userId);
     this.writtenAt.set(`user:${userId}`, this.clock());
+    let currentTeamIds: string[] = [];
     if (state.kind === "gone") {
       this.tombstones.add(`user:${userId}`);
       this.dropUser(userId);
-      return { state, previousTeamIds, currentTeamIds: [] };
+    } else {
+      this.dropUser(userId);
+      this.users.set(userId, state.user);
+      const live = state.teams.filter((team) => !this.tombstones.has(`team:${team.id}`));
+      for (const team of live) {
+        if (!this.teams.has(team.id)) {
+          this.teams.set(team.id, team);
+          this.writtenAt.set(`team:${team.id}`, this.clock());
+        }
+      }
+      const liveIds = new Set(live.map((team) => team.id));
+      for (const id of liveIds) this.memberships.add(`${id}:${userId}`);
+      for (const p of state.teamPermissions) if (liveIds.has(p.team_id)) this.teamPermissions.add(`${p.team_id}:${userId}:${p.id}`);
+      for (const p of state.projectPermissions) this.projectPermissions.add(`${userId}:${p.id}`);
+      currentTeamIds = [...liveIds].sort();
     }
-    this.tombstones.delete(`user:${userId}`);
-    this.dropUser(userId);
-    this.users.set(userId, state.user);
-    const live = state.teams.filter((team) => !this.tombstones.has(`team:${team.id}`));
-    for (const team of live) if (!this.teams.has(team.id)) this.teams.set(team.id, team);
-    const liveIds = new Set(live.map((team) => team.id));
-    for (const id of liveIds) this.memberships.add(`${id}:${userId}`);
-    for (const p of state.teamPermissions) if (liveIds.has(p.team_id)) this.teamPermissions.add(`${p.team_id}:${userId}:${p.id}`);
-    for (const p of state.projectPermissions) this.projectPermissions.add(`${userId}:${p.id}`);
-    return { state, previousTeamIds, currentTeamIds: [...liveIds].sort() };
+    const existing = [...this.pendingRevocations].filter((key) => key.endsWith(`:${userId}`)).map((key) => key.split(":")[0]!);
+    const current = new Set(currentTeamIds);
+    for (const teamId of current) this.pendingRevocations.delete(`${teamId}:${userId}`);
+    const pending = [...new Set([...existing, ...previousTeamIds, ...candidates])].filter((teamId) => !current.has(teamId)).sort();
+    for (const teamId of pending) this.pendingRevocations.add(`${teamId}:${userId}`);
+    return { state, previousTeamIds, currentTeamIds, pendingRevocationTeamIds: pending };
+  }
+
+  reconcileUser: HexclaveMirrorStore["reconcileUser"] = async (userId, read, options = {}) =>
+    this.applyUser(userId, await read(), options.revokeCandidateTeamIds ?? []);
+
+  isRevocationPending: HexclaveMirrorStore["isRevocationPending"] = async ({ teamId, userId }) =>
+    this.pendingRevocations.has(`${teamId}:${userId}`);
+
+  clearPendingRevocation: HexclaveMirrorStore["clearPendingRevocation"] = async ({ teamId, userId }) => {
+    this.pendingRevocations.delete(`${teamId}:${userId}`);
   };
 
   reconcileTeam: HexclaveMirrorStore["reconcileTeam"] = async (teamId, read) => {
     const team = await read();
     this.writtenAt.set(`team:${teamId}`, this.clock());
     const memberIds = [...this.memberships].filter((key) => key.startsWith(`${teamId}:`)).map((key) => key.split(":")[1]!);
-    if (!team) {
+    if (!team || this.tombstones.has(`team:${teamId}`)) {
       this.tombstones.add(`team:${teamId}`);
       this.teams.delete(teamId);
       for (const key of [...this.memberships]) if (key.startsWith(`${teamId}:`)) this.memberships.delete(key);
       for (const key of [...this.teamPermissions]) if (key.startsWith(`${teamId}:`)) this.teamPermissions.delete(key);
       return { team: null, memberIds };
     }
-    this.tombstones.delete(`team:${teamId}`);
     this.teams.set(teamId, team);
     return { team, memberIds };
   };
@@ -153,7 +176,7 @@ export class MemoryMirror implements HexclaveMirrorStore {
 
   applySnapshotTeam: HexclaveMirrorStore["applySnapshotTeam"] = async (team, since) => {
     if ((this.writtenAt.get(`team:${team.id}`) ?? -Infinity) >= since.getTime()) return false;
-    this.tombstones.delete(`team:${team.id}`);
+    if (this.tombstones.has(`team:${team.id}`)) return false;
     this.teams.set(team.id, team);
     this.writtenAt.set(`team:${team.id}`, this.clock());
     return true;
@@ -161,7 +184,8 @@ export class MemoryMirror implements HexclaveMirrorStore {
 
   applySnapshotUser: HexclaveMirrorStore["applySnapshotUser"] = async (state, since) => {
     if ((this.writtenAt.get(`user:${state.user.id}`) ?? -Infinity) >= since.getTime()) return false;
-    await this.reconcileUser(state.user.id, async () => state);
+    if (this.tombstones.has(`user:${state.user.id}`)) return false;
+    this.applyUser(state.user.id, state, []);
     return true;
   };
 

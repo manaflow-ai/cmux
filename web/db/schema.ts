@@ -2491,6 +2491,21 @@ export const hexclaveTombstones = pgTable("hexclave_tombstones", {
   check("hexclave_tombstones_entity_type_check", sql`${table.entityType} in ('user', 'team')`),
 ]);
 
+/**
+ * Membership revocations decided by a reconcile but not yet carried out.
+ * Written in the same transaction that removes the mirror membership, so a
+ * failed revoke survives the retry that no longer sees the membership; a row
+ * is deleted only after its revoke succeeds, or when the member is re-added.
+ */
+export const hexclavePendingRevocations = pgTable("hexclave_pending_revocations", {
+  teamId: text("team_id").notNull(),
+  userId: text("user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ name: "hexclave_pending_revocations_pkey", columns: [table.teamId, table.userId] }),
+  index("hexclave_pending_revocations_user_idx").on(table.userId),
+]);
+
 export type HexclaveWebhookOutcome = "processed" | "ignored" | "invalid" | "failed";
 
 /**

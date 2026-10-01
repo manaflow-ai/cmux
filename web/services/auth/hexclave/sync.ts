@@ -73,23 +73,33 @@ export async function applyHexclaveWebhookEvent(
 }
 
 /**
- * Reconcile one user, then revoke every team membership that the mirror or
- * the event named and Hexclave no longer lists, then invalidate the user's
- * cached identity.
+ * Reconcile one user, then carry out every pending membership revocation the
+ * reconcile persisted (memberships it removed, the event's candidates, and
+ * any earlier revoke that failed), then invalidate the user's cached identity.
+ * A pending row is deleted only after its revoke succeeds, so a 500 and Svix
+ * retry revoke again even though the mirror no longer lists the membership.
  */
 export async function syncHexclaveUser(
   userId: string,
   revokeCandidateTeamIds: readonly string[],
   dependencies: HexclaveSyncDependencies,
 ): Promise<HexclaveSyncResult> {
-  const result = await dependencies.store.reconcileUser(userId, () => readHexclaveUserState(dependencies.source, userId));
-  const current = new Set(result.currentTeamIds);
-  const revoke = [...new Set([...revokeCandidateTeamIds, ...result.previousTeamIds])]
-    .filter((teamId) => !current.has(teamId))
-    .sort();
-  await settleAll(revoke.map((teamId) => () => dependencies.revokeTeamMemberAccess({ teamId, userId })));
+  const { store } = dependencies;
+  const result = await store.reconcileUser(
+    userId,
+    () => readHexclaveUserState(dependencies.source, userId),
+    { revokeCandidateTeamIds },
+  );
+  const revoked: string[] = [];
+  await settleAll(result.pendingRevocationTeamIds.map((teamId) => async () => {
+    // A concurrent reconcile that saw the member re-added deleted the row.
+    if (!await store.isRevocationPending({ teamId, userId })) return;
+    await dependencies.revokeTeamMemberAccess({ teamId, userId });
+    await store.clearPendingRevocation({ teamId, userId });
+    revoked.push(teamId);
+  }));
   await dependencies.invalidateUser(userId);
-  return { entity: "user", id: userId, gone: result.state.kind === "gone", revokedTeamIds: revoke };
+  return { entity: "user", id: userId, gone: result.state.kind === "gone", revokedTeamIds: revoked.sort() };
 }
 
 /**

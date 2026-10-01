@@ -1,6 +1,7 @@
 import { and, eq, gte, inArray, isNotNull, notInArray, sql } from "drizzle-orm";
 import type { cloudDb } from "../../../db/client";
 import {
+  hexclavePendingRevocations,
   hexclaveProjectPermissions,
   hexclaveTeamMemberships,
   hexclaveTeamPermissions,
@@ -34,6 +35,13 @@ export type UserReconcileResult = {
   readonly previousTeamIds: readonly string[];
   /** Teams the mirror lists for the user after it (empty when gone). */
   readonly currentTeamIds: readonly string[];
+  /**
+   * Every team whose membership revocation is pending for this user after the
+   * reconcile, persisted in its transaction: earlier pending rows, mirror
+   * memberships this reconcile removed, and candidates the event named, minus
+   * teams the user is (again) a member of.
+   */
+  readonly pendingRevocationTeamIds: readonly string[];
 };
 
 export type TeamReconcileResult = {
@@ -52,7 +60,15 @@ export type TeamReconcileResult = {
  * source of truth.
  */
 export type HexclaveMirrorStore = {
-  readonly reconcileUser: (userId: string, read: () => Promise<HexclaveUserState>) => Promise<UserReconcileResult>;
+  readonly reconcileUser: (
+    userId: string,
+    read: () => Promise<HexclaveUserState>,
+    options?: { readonly revokeCandidateTeamIds?: readonly string[] },
+  ) => Promise<UserReconcileResult>;
+  /** Whether the revocation is still pending (a re-add since the reconcile clears it). */
+  readonly isRevocationPending: (input: { readonly teamId: string; readonly userId: string }) => Promise<boolean>;
+  /** Delete a pending revocation after its revoke succeeded. */
+  readonly clearPendingRevocation: (input: { readonly teamId: string; readonly userId: string }) => Promise<void>;
   readonly reconcileTeam: (
     teamId: string,
     read: () => Promise<HexclaveServerTeam | null>,
@@ -199,7 +215,6 @@ async function writePresentUser(
   now: Date,
 ): Promise<readonly string[]> {
   const userId = state.user.id;
-  await tx.delete(hexclaveTombstones).where(and(eq(hexclaveTombstones.entityType, "user"), eq(hexclaveTombstones.entityId, userId)));
   await tx.insert(hexclaveUsers).values(userRow(state.user, now)).onConflictDoUpdate({ target: hexclaveUsers.id, set: excludedUser });
 
   const tombstoned = await tombstonedTeamIds(tx, state.teams.map((team) => team.id));
@@ -214,6 +229,41 @@ async function writePresentUser(
   await writeUserTeamPermissions(tx, userId, state.teamPermissions, new Set(liveTeamIds), now);
   await writeUserProjectPermissions(tx, userId, state.projectPermissions, now);
   return liveTeamIds;
+}
+
+/**
+ * Persist the user's pending revocations in the reconcile transaction:
+ * (existing ∪ previous ∪ candidates) − current. A team the user belongs to
+ * again loses its pending row, so a stale revoke never runs.
+ */
+async function writePendingRevocations(
+  tx: Tx,
+  userId: string,
+  input: { readonly previousTeamIds: readonly string[]; readonly currentTeamIds: readonly string[]; readonly candidates: readonly string[] },
+): Promise<string[]> {
+  const existing = await tx
+    .select({ teamId: hexclavePendingRevocations.teamId })
+    .from(hexclavePendingRevocations)
+    .where(eq(hexclavePendingRevocations.userId, userId));
+  const current = new Set(input.currentTeamIds);
+  const pending = [...new Set([...existing.map((row) => row.teamId), ...input.previousTeamIds, ...input.candidates])]
+    .filter((teamId) => !current.has(teamId))
+    .sort();
+  if (input.currentTeamIds.length > 0) {
+    await tx.delete(hexclavePendingRevocations).where(and(
+      eq(hexclavePendingRevocations.userId, userId),
+      inArray(hexclavePendingRevocations.teamId, [...input.currentTeamIds]),
+    ));
+  }
+  if (pending.length > 0) {
+    await tx.insert(hexclavePendingRevocations).values(pending.map((teamId) => ({ teamId, userId }))).onConflictDoNothing();
+  }
+  return pending;
+}
+
+/** Fail fast instead of queueing webhooks behind a stuck reconcile; Svix retries the 5xx. */
+async function boundLockWait(tx: Tx): Promise<void> {
+  await tx.execute(sql`set local lock_timeout = '10s'`);
 }
 
 async function lockUserAndTeams(tx: Tx, userId: string, sourceTeamIds: readonly string[]): Promise<string[]> {
@@ -251,9 +301,24 @@ async function writtenSince(
   return tombstones.length > 0;
 }
 
-async function writePresentTeam(tx: Tx, team: HexclaveServerTeam, at: Date): Promise<void> {
-  await tx.delete(hexclaveTombstones).where(and(eq(hexclaveTombstones.entityType, "team"), eq(hexclaveTombstones.entityId, team.id)));
+async function isTombstoned(tx: Tx, entity: "user" | "team", id: string): Promise<boolean> {
+  const rows = await tx
+    .select({ id: hexclaveTombstones.entityId })
+    .from(hexclaveTombstones)
+    .where(and(eq(hexclaveTombstones.entityType, entity), eq(hexclaveTombstones.entityId, id)))
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
+ * Upsert a team unless it is tombstoned. Tombstones are permanent (ids are
+ * never reused), so a later "present" answer from a lagging replica cannot
+ * bring a deleted team back.
+ */
+async function writePresentTeam(tx: Tx, team: HexclaveServerTeam, at: Date): Promise<boolean> {
+  if (await isTombstoned(tx, "team", team.id)) return false;
   await tx.insert(hexclaveTeams).values(teamRow(team, at)).onConflictDoUpdate({ target: hexclaveTeams.id, set: excludedTeam });
+  return true;
 }
 
 async function mirrorTeamIdsForUser(tx: Tx, userId: string): Promise<string[]> {
@@ -266,23 +331,46 @@ async function mirrorTeamIdsForUser(tx: Tx, userId: string): Promise<string[]> {
 
 export function createDrizzleHexclaveMirrorStore(db: () => Db, now: () => Date = () => new Date()): HexclaveMirrorStore {
   return {
-    reconcileUser: (userId, read) => db().transaction(async (tx) => {
+    reconcileUser: (userId, read, options = {}) => db().transaction(async (tx) => {
+      await boundLockWait(tx);
       await lock(tx, userLockKey(userId));
-      const state = await read();
-      if (state.kind === "present" && state.user.id !== userId) throw new Error("Hexclave returned a different user");
+      const fetched = await read();
+      if (fetched.kind === "present" && fetched.user.id !== userId) throw new Error("Hexclave returned a different user");
+      // A tombstoned user stays gone: a "present" read after a confirmed deletion is stale.
+      const state: HexclaveUserState = fetched.kind === "present" && await isTombstoned(tx, "user", userId) ? { kind: "gone" } : fetched;
       const sourceTeamIds = state.kind === "present" ? state.teams.map((team) => team.id) : [];
       // Re-entrant: the user lock is already held by this transaction.
       const previousTeamIds = await lockUserAndTeams(tx, userId, sourceTeamIds);
       const at = now();
-      if (state.kind === "gone") {
-        await writeGoneUser(tx, userId, at);
-        return { state, previousTeamIds, currentTeamIds: [] };
-      }
-      const currentTeamIds = await writePresentUser(tx, state, at);
-      return { state, previousTeamIds, currentTeamIds };
+      let currentTeamIds: readonly string[] = [];
+      if (state.kind === "gone") await writeGoneUser(tx, userId, at);
+      else currentTeamIds = await writePresentUser(tx, state, at);
+      const pendingRevocationTeamIds = await writePendingRevocations(tx, userId, {
+        previousTeamIds,
+        currentTeamIds,
+        candidates: options.revokeCandidateTeamIds ?? [],
+      });
+      return { state, previousTeamIds, currentTeamIds, pendingRevocationTeamIds };
     }),
 
+    isRevocationPending: async ({ teamId, userId }) => {
+      const rows = await db()
+        .select({ teamId: hexclavePendingRevocations.teamId })
+        .from(hexclavePendingRevocations)
+        .where(and(eq(hexclavePendingRevocations.teamId, teamId), eq(hexclavePendingRevocations.userId, userId)))
+        .limit(1);
+      return rows.length > 0;
+    },
+
+    clearPendingRevocation: async ({ teamId, userId }) => {
+      await db().delete(hexclavePendingRevocations).where(and(
+        eq(hexclavePendingRevocations.teamId, teamId),
+        eq(hexclavePendingRevocations.userId, userId),
+      ));
+    },
+
     reconcileTeam: (teamId, read) => db().transaction(async (tx) => {
+      await boundLockWait(tx);
       await lock(tx, teamLockKey(teamId));
       const team = await read();
       if (team && team.id !== teamId) throw new Error("Hexclave returned a different team");
@@ -297,21 +385,26 @@ export function createDrizzleHexclaveMirrorStore(db: () => Db, now: () => Date =
         await tx.delete(hexclaveTeams).where(eq(hexclaveTeams.id, teamId));
         return { team: null, memberIds };
       }
-      await writePresentTeam(tx, team, at);
+      if (!await writePresentTeam(tx, team, at)) return { team: null, memberIds };
       return { team, memberIds };
     }),
 
     applySnapshotTeam: (team, snapshotStartedAt) => db().transaction(async (tx) => {
+      await boundLockWait(tx);
       await lock(tx, teamLockKey(team.id));
       if (await writtenSince(tx, "team", team.id, snapshotStartedAt)) return false;
-      await writePresentTeam(tx, team, now());
-      return true;
+      return writePresentTeam(tx, team, now());
     }),
 
     applySnapshotUser: (state, snapshotStartedAt) => db().transaction(async (tx) => {
-      await lockUserAndTeams(tx, state.user.id, state.teams.map((team) => team.id));
+      await boundLockWait(tx);
+      const previousTeamIds = await lockUserAndTeams(tx, state.user.id, state.teams.map((team) => team.id));
       if (await writtenSince(tx, "user", state.user.id, snapshotStartedAt)) return false;
-      await writePresentUser(tx, state, now());
+      if (await isTombstoned(tx, "user", state.user.id)) return false;
+      const currentTeamIds = await writePresentUser(tx, state, now());
+      // The backfill does not revoke, but a removal it finds is queued for the
+      // next webhook sync of this user.
+      await writePendingRevocations(tx, state.user.id, { previousTeamIds, currentTeamIds, candidates: [] });
       return true;
     }),
 

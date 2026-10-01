@@ -23,7 +23,7 @@ beforeAll(() => {
 });
 beforeEach(async () => {
   if (!enabled) return;
-  await sql`truncate hexclave_team_permissions, hexclave_project_permissions, hexclave_team_memberships, hexclave_users, hexclave_teams, hexclave_tombstones, hexclave_webhook_events`;
+  await sql`truncate hexclave_pending_revocations, hexclave_team_permissions, hexclave_project_permissions, hexclave_team_memberships, hexclave_users, hexclave_teams, hexclave_tombstones, hexclave_webhook_events`;
 });
 afterAll(async () => {
   if (!enabled) return;
@@ -81,18 +81,33 @@ dbTest("a gone user is tombstoned and its memberships and permissions cascade aw
   expect(await sql`select count(*)::int as n from hexclave_teams`).toEqual([{ n: 1 }]);
 });
 
+/** Poll pg_locks until some session waits on an advisory lock; bounded, condition-based. */
+async function waitForAdvisoryLockWaiter(timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const [row] = await sql`select count(*)::int as n from pg_locks where locktype = 'advisory' and not granted`;
+    if (row!.n > 0) return;
+    await sleep(10);
+  }
+  throw new Error("no session waited on an advisory lock");
+}
+
 dbTest("concurrent reconciles of one user apply in read order, so the later read wins", async () => {
+  const firstHoldsLock = deferred<void>();
   const slowStale = deferred<HexclaveUserState>();
-  const first = store().reconcileUser(USER_ID, () => slowStale.promise);
-  // Give the first transaction time to take the user lock.
-  await sleep(50);
-  let secondReadAt = 0;
+  const first = store().reconcileUser(USER_ID, () => {
+    // `read` runs only after pg_advisory_xact_lock returned.
+    firstHoldsLock.resolve();
+    return slowStale.promise;
+  });
+  await firstHoldsLock.promise;
+  let secondRead = false;
   const second = store().reconcileUser(USER_ID, async () => {
-    secondReadAt = Date.now();
+    secondRead = true;
     return present({ user: serverUser({ display_name: "fresh" }), teams: [], teamPermissions: [] });
   });
-  await sleep(50);
-  expect(secondReadAt).toBe(0); // blocked behind the first reconcile's lock
+  await waitForAdvisoryLockWaiter();
+  expect(secondRead).toBe(false);
   slowStale.resolve(present({ user: serverUser({ display_name: "stale" }) }));
   await Promise.all([first, second]);
   const [user] = await sql`select display_name from hexclave_users where id = ${USER_ID}`;
@@ -102,9 +117,13 @@ dbTest("concurrent reconciles of one user apply in read order, so the later read
 
 dbTest("a user read taken before a team deletion cannot write the team back", async () => {
   await store().reconcileUser(USER_ID, async () => present());
+  const holdsLock = deferred<void>();
   const staleRead = deferred<HexclaveUserState>();
-  const userReconcile = store().reconcileUser(USER_ID, () => staleRead.promise);
-  await sleep(50);
+  const userReconcile = store().reconcileUser(USER_ID, () => {
+    holdsLock.resolve();
+    return staleRead.promise;
+  });
+  await holdsLock.promise;
   // The team deletion commits while the user reconcile still holds its stale read.
   await store().reconcileTeam(TEAM_ID, async () => null);
   staleRead.resolve(present());
@@ -113,6 +132,36 @@ dbTest("a user read taken before a team deletion cannot write the team back", as
   expect(await sql`select count(*)::int as n from hexclave_teams`).toEqual([{ n: 0 }]);
   expect(await sql`select count(*)::int as n from hexclave_team_memberships`).toEqual([{ n: 0 }]);
   expect(await sql`select count(*)::int as n from hexclave_users`).toEqual([{ n: 1 }]);
+});
+
+dbTest("tombstones are permanent: a later present read does not bring a user or team back", async () => {
+  await store().reconcileUser(USER_ID, async () => present());
+  await store().reconcileUser(USER_ID, async () => ({ kind: "gone" }));
+  const user = await store().reconcileUser(USER_ID, async () => present());
+  expect(user.state.kind).toBe("gone");
+  await store().reconcileTeam(OTHER_TEAM_ID, async () => null);
+  expect((await store().reconcileTeam(OTHER_TEAM_ID, async () => serverTeam({ id: OTHER_TEAM_ID }))).team).toBeNull();
+  expect(await sql`select count(*)::int as n from hexclave_users`).toEqual([{ n: 0 }]);
+  expect(await sql`select count(*)::int as n from hexclave_teams where id = ${OTHER_TEAM_ID}`).toEqual([{ n: 0 }]);
+});
+
+dbTest("a removed membership is persisted as a pending revocation until cleared, and a re-add drops it", async () => {
+  const mirror = store();
+  await mirror.reconcileUser(USER_ID, async () => present());
+  const removed = await mirror.reconcileUser(USER_ID, async () => present({ teams: [], teamPermissions: [] }));
+  expect(removed.pendingRevocationTeamIds).toEqual([TEAM_ID]);
+  // The retry no longer sees the membership but still sees the pending row.
+  const retry = await mirror.reconcileUser(USER_ID, async () => present({ teams: [], teamPermissions: [] }));
+  expect(retry.pendingRevocationTeamIds).toEqual([TEAM_ID]);
+  expect(await mirror.isRevocationPending({ teamId: TEAM_ID, userId: USER_ID })).toBe(true);
+  await mirror.clearPendingRevocation({ teamId: TEAM_ID, userId: USER_ID });
+  expect(await mirror.isRevocationPending({ teamId: TEAM_ID, userId: USER_ID })).toBe(false);
+
+  await mirror.reconcileUser(USER_ID, async () => present({ teams: [], teamPermissions: [] }), { revokeCandidateTeamIds: [TEAM_ID] });
+  expect(await mirror.isRevocationPending({ teamId: TEAM_ID, userId: USER_ID })).toBe(true);
+  const readded = await mirror.reconcileUser(USER_ID, async () => present());
+  expect(readded.pendingRevocationTeamIds).toEqual([]);
+  expect(await sql`select count(*)::int as n from hexclave_pending_revocations`).toEqual([{ n: 0 }]);
 });
 
 dbTest("a user reconcile does not overwrite a team row with its older listing", async () => {
@@ -145,8 +194,7 @@ dbTest("event records: processed stays processed, failures and invalid bodies st
 
 dbTest("snapshot writes skip entities the mirror wrote or tombstoned after the snapshot started", async () => {
   const mirror = store();
-  const snapshotStartedAt = new Date();
-  await sleep(5);
+  const snapshotStartedAt = new Date(Date.now() - 60_000);
   await mirror.reconcileUser(USER_ID, async () => present({ user: serverUser({ display_name: "fresh" }), teams: [], teamPermissions: [] }));
   await mirror.reconcileTeam(OTHER_TEAM_ID, async () => null);
   const staleUser = present() as Extract<HexclaveUserState, { kind: "present" }>;
@@ -155,8 +203,10 @@ dbTest("snapshot writes skip entities the mirror wrote or tombstoned after the s
   const [user] = await sql`select display_name from hexclave_users where id = ${USER_ID}`;
   expect(user!.display_name).toBe("fresh");
   expect(await sql`select count(*)::int as n from hexclave_teams where id = ${OTHER_TEAM_ID}`).toEqual([{ n: 0 }]);
-  // A later snapshot is not older than those writes, so it applies.
-  expect(await mirror.applySnapshotTeam(serverTeam(), new Date())).toBe(true);
-  expect(await mirror.applySnapshotUser(staleUser, new Date())).toBe(true);
+  // A snapshot started after those writes applies (the tombstoned team still never does).
+  const laterSnapshot = new Date(Date.now() + 60_000);
+  expect(await mirror.applySnapshotTeam(serverTeam(), laterSnapshot)).toBe(true);
+  expect(await mirror.applySnapshotTeam(serverTeam({ id: OTHER_TEAM_ID }), laterSnapshot)).toBe(false);
+  expect(await mirror.applySnapshotUser(staleUser, laterSnapshot)).toBe(true);
   expect(await sql`select team_id from hexclave_team_memberships`).toEqual([{ team_id: TEAM_ID }]);
 });

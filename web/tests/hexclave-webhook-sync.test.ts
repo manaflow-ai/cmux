@@ -63,7 +63,14 @@ function seed(hexclave: FakeHexclave) {
 }
 
 describe("Hexclave webhook boundary", () => {
-  test("an unsigned request answers 401 and reads nothing", async () => {
+  test("a missing webhook secret answers 503 and reads nothing", async () => {
+    const { hexclave, calls, post } = harness({ deps: { webhookSecret: () => undefined } });
+    expect((await post("user.created", serverUser())).status).toBe(503);
+    expect(hexclave.calls).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  test("a request signed with the wrong secret answers 401 and reads nothing", async () => {
     const { hexclave, post } = harness({ deps: { webhookSecret: () => `whsec_${Buffer.from("other").toString("base64")}` } });
     expect((await post("user.created", serverUser())).status).toBe(401);
     expect(hexclave.calls).toEqual([]);
@@ -138,6 +145,50 @@ describe("Hexclave webhook boundary", () => {
     expect(revoked).toEqual([`${TEAM_ID}:${USER_ID}`]);
   });
 
+  test("a revoke that only the mirror knew about survives a failed attempt and runs on the retry", async () => {
+    let fail = true;
+    const revoked: string[] = [];
+    const { hexclave, mirror, post } = harness({
+      sync: {
+        revokeTeamMemberAccess: async ({ teamId, userId }) => {
+          if (fail) { fail = false; throw new Error("provider down"); }
+          revoked.push(`${teamId}:${userId}`);
+        },
+      },
+    });
+    seed(hexclave);
+    expect((await post("user.created", serverUser())).status).toBe(200);
+    // The removal's own webhook is lost; a user.updated (no team in its payload) finds it.
+    hexclave.removeMember(TEAM_ID, USER_ID);
+    expect((await post("user.updated", serverUser(), "msg_upd")).status).toBe(500);
+    expect(mirror.teamIdsFor(USER_ID)).toEqual([]);
+    expect([...mirror.pendingRevocations]).toEqual([`${TEAM_ID}:${USER_ID}`]);
+    expect((await post("user.updated", serverUser(), "msg_upd")).status).toBe(200);
+    expect(revoked).toEqual([`${TEAM_ID}:${USER_ID}`]);
+    expect(mirror.pendingRevocations.size).toBe(0);
+  });
+
+  test("a pending revoke is dropped, not run, when the member was added back", async () => {
+    let fail = true;
+    const { hexclave, mirror, calls, post } = harness({
+      sync: {
+        revokeTeamMemberAccess: async ({ teamId, userId }) => {
+          if (fail) { fail = false; throw new Error("provider down"); }
+          calls.push(`revoke-member:${teamId}:${userId}`);
+        },
+      },
+    });
+    seed(hexclave);
+    await post("user.created", serverUser());
+    hexclave.removeMember(TEAM_ID, USER_ID);
+    expect((await post("user.updated", serverUser())).status).toBe(500);
+    hexclave.addMember(TEAM_ID, USER_ID);
+    calls.length = 0;
+    expect((await post("team_membership.created", { team_id: TEAM_ID, user_id: USER_ID })).status).toBe(200);
+    expect(calls).toEqual([`invalidate:${USER_ID}`]);
+    expect(mirror.pendingRevocations.size).toBe(0);
+  });
+
   test("a failed snapshot invalidation answers 500", async () => {
     const { hexclave, post } = harness({ sync: { invalidateUser: async () => { throw new Error("db down"); } } });
     seed(hexclave);
@@ -198,6 +249,11 @@ describe("Hexclave mirror reconcile", () => {
     expect((await post("user.updated", serverUser({ display_name: "stale" }))).status).toBe(200);
     expect(mirror.users.has(USER_ID)).toBe(false);
     expect(mirror.tombstones.has(`user:${USER_ID}`)).toBe(true);
+
+    // Even a lagging Hexclave read that still returns the user cannot bring it back.
+    hexclave.users.set(USER_ID, serverUser({ display_name: "stale read" }));
+    expect((await post("user.updated", serverUser())).status).toBe(200);
+    expect(mirror.users.has(USER_ID)).toBe(false);
   });
 
   test("membership deleted then a late membership.created does not re-add it", async () => {
@@ -252,6 +308,11 @@ describe("Hexclave mirror reconcile", () => {
     expect(mirror.teamIdsFor(USER_ID)).toEqual([]);
 
     expect((await post("team.updated", serverTeam({ display_name: "stale" }))).status).toBe(200);
+    expect(mirror.teams.has(TEAM_ID)).toBe(false);
+
+    // A lagging read that still returns the team cannot bring it back either.
+    hexclave.teams.set(TEAM_ID, serverTeam({ display_name: "stale read" }));
+    expect((await post("team.updated", serverTeam())).status).toBe(200);
     expect(mirror.teams.has(TEAM_ID)).toBe(false);
   });
 
