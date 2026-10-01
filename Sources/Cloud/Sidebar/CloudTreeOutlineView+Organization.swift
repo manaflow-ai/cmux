@@ -60,11 +60,7 @@ extension CloudTreeOutlineView.Coordinator {
         outlineView.setDropItem(drop.parent, dropChildIndex: drop.childIndex)
         if let cloudOutline = outlineView as? CloudTreeNSOutlineView {
             cloudOutline.trackDragDestination(sequenceNumber: info.draggingSequenceNumber)
-            if case .machine = drop.operation {
-                cloudOutline.reorderPresentation.show(drop, sequence: info.draggingSequenceNumber)
-            } else {
-                cloudOutline.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
-            }
+            cloudOutline.reorderPresentation.show(drop, sequence: info.draggingSequenceNumber)
         }
         return .move
     }
