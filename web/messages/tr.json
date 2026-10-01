@@ -2039,7 +2039,6 @@
         },
         "app": {
           "confirmQuit": "cmux'un çıkmadan önce ne zaman onay isteyeceğini denetler. DEV derlemeleri bu ayardan bağımsız olarak her zaman hemen çıkar. Eski app.warnBeforeQuit boolean yedeği olarak kabul edilmeye devam eder.",
-          "whatsNew": "cmux'un bir güncellemeden sonra yenilikleri nasıl gösterdiği. off hiçbir şey göstermez, quiet özeti açana kadar kenar çubuğundaki yardım düğmesini bir noktayla işaretler, sheet ise yeni bir sürümün ilk açılışından sonra özeti bir kez açar. Yardım > What's New in cmux özeti her zaman açar.",
           "windowTitleTemplate": "İsteğe bağlı NSWindow başlık şablonu. Boş bırakılırsa geçerli dizin yedeği dahil cmux'un mevcut varsayılan başlık davranışı korunur. Desteklenen yer tutucular: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Yeni pencereler açılırken yalnızca DEBUG derlemelerinde kullanılan ekran adı. Boş değer sistem varsayılanını kullanır.",
           "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın.",

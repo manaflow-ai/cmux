@@ -31,21 +31,6 @@ struct TerminalCustomUploadRunner {
         let port: Int?
         let identityFile: String?
         let sshOptions: [String]
-        let remotePastePolicy: RemotePasteFileTransferPolicy
-
-        init(
-            destination: String,
-            port: Int?,
-            identityFile: String?,
-            sshOptions: [String],
-            remotePastePolicy: RemotePasteFileTransferPolicy = RemotePasteFileTransferPolicy()
-        ) {
-            self.destination = destination
-            self.port = port
-            self.identityFile = identityFile
-            self.sshOptions = sshOptions
-            self.remotePastePolicy = remotePastePolicy
-        }
     }
 
     private let runProcess: ProcessRunner
@@ -128,7 +113,7 @@ struct TerminalCustomUploadRunner {
                 guard normalizedLocalURL.isFileURL else {
                     throw Self.uploadError("Dropped item is not a local file.")
                 }
-                let remotePath = endpoint.remotePastePolicy.remotePath(for: normalizedLocalURL)
+                let remotePath = RemoteSessionCoordinator.remoteDropPath(for: normalizedLocalURL)
                 let env = TerminalUploadCommand.environment(
                     localPath: normalizedLocalURL.path,
                     remotePath: remotePath,
@@ -194,7 +179,7 @@ struct TerminalCustomUploadRunner {
             destination: session.destination,
             port: session.port,
             identityFile: session.identityFile,
-            sshOptions: session.sshOptions, remotePastePolicy: session.remotePastePolicy
+            sshOptions: session.sshOptions
         )
         guard let command = matchedCommand(for: endpoint) else { return false }
 
