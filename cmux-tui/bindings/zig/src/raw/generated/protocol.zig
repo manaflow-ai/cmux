@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "8956ad6492bfd776f7c94fa11ba79b6fe23de0a0df61c6baf782d7d0ecf1f4cd";
+pub const ir_sha256 = "1bfa1f45d7ba43258f2c876911eb1b1cf6a74434117e8de44a15ced5219ccafb";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -1209,6 +1209,24 @@ pub const SidebarPluginResult = struct {
 pub const Size = struct {
     cols: u16,
     rows: u16,
+};
+
+pub const SizeActivityKind = enum {
+    input,
+    focus,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "input")) return .input;
+        if (std.mem.eql(u8, value, "focus")) return .focus;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .input => "input",
+            .focus => "focus",
+        };
+    }
 };
 
 pub const SizeDetachActor = struct {
@@ -3464,6 +3482,7 @@ pub fn newWorkspace(client: anytype, request: NewWorkspaceRequest) !wire.Decoded
 }
 
 pub const NoteSizeActivityRequest = struct {
+    kind: wire.Field(SizeActivityKind) = .absent,
     surface: Id,
     view: wire.Field([]const u8) = .absent,
 };

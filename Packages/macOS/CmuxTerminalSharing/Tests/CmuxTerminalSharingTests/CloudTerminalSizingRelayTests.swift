@@ -131,13 +131,13 @@ import Testing
         #expect(relay.awaitsHost(clientID: "p1", now: sent.addingTimeInterval(0.1)))
 
         var engine = TerminalSizingEngine(initialSize: TerminalGridSize(cols: 120, rows: 40))
-        _ = engine.attach(TerminalSizingParticipant(id: "c7", deviceKind: .mac, viewport: TerminalGridSize(cols: 120, rows: 40)))
+        _ = engine.attach(TerminalSizingParticipant(id: "c7", deviceKind: .mac, viewport: TerminalGridSize(cols: 120, rows: 40)), at: 0)
         relay.receive(engine.state)
         #expect(relay.awaitsHost(clientID: "p1", now: sent.addingTimeInterval(0.1)))
 
         var joined = phone(cols: 50)
         joined.id = "c7/mobile:p1"
-        _ = engine.attach(joined)
+        _ = engine.attach(joined, at: 10_000)
         relay.receive(engine.state)
         #expect(engine.state.size == TerminalGridSize(cols: 50, rows: 30))
         #expect(!relay.awaitsHost(clientID: "p1", now: sent.addingTimeInterval(0.1)))

@@ -179,12 +179,21 @@ public struct CloudTuiManualIOCommand: Sendable {
     ///   - surfaceID: the numeric cmux-tui surface.
     ///   - view: a relay sub-view (`mobile:<client_id>`), or `nil` for this
     ///     connection's own participant.
+    ///   - kind: `.input` waits for the owner's typing hold; `.focus` (a
+    ///     focus-click or Size to My Window) takes the grid at once. Daemons
+    ///     without the field treat every activity as immediate.
     ///   - requestID: correlation id.
-    public func noteSizeActivity(surfaceID: UInt64, view: String? = nil, requestID: UInt64 = 1) -> [String: Any] {
+    public func noteSizeActivity(
+        surfaceID: UInt64,
+        view: String? = nil,
+        kind: TerminalSizingActivityKind,
+        requestID: UInt64 = 1
+    ) -> [String: Any] {
         var command: [String: Any] = [
             "id": requestID,
             "cmd": "note-size-activity",
             "surface": surfaceID,
+            "kind": kind.rawValue,
         ]
         if let view { command["view"] = view }
         return command

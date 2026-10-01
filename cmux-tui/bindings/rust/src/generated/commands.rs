@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 8956ad6492bfd776f7c94fa11ba79b6fe23de0a0df61c6baf782d7d0ecf1f4cd.
+// cmux-tui mux protocol 12, IR 1bfa1f45d7ba43258f2c876911eb1b1cf6a74434117e8de44a15ced5219ccafb.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -787,6 +787,8 @@ pub type NewWorkspaceResult = T::SurfaceResult;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NoteSizeActivityRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub kind: Optional<T::SizeActivityKind>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub view: Optional<String>,

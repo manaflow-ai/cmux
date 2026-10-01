@@ -5968,6 +5968,20 @@ Result<Size> Codec<Size>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<SizeActivityKind>::encode(const SizeActivityKind& value) {
+    switch (value) {
+        case SizeActivityKind::input: return Json(std::string("input"));
+        case SizeActivityKind::focus: return Json(std::string("focus"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<SizeActivityKind> Codec<SizeActivityKind>::decode(const Json& value) {
+    if (value == Json(std::string("input"))) return SizeActivityKind::input;
+    if (value == Json(std::string("focus"))) return SizeActivityKind::focus;
+    return make_error(ErrorCode::decode, "unknown SizeActivityKind value");
+}
+
 Result<Json> Codec<SizeDetachActor>::encode(const SizeDetachActor& value) {
     (void)value;
     Json::Object object;
@@ -11880,6 +11894,11 @@ Result<NewWorkspaceRequest> Codec<NewWorkspaceRequest>::decode(const Json& value
 Result<Json> Codec<NoteSizeActivityRequest>::encode(const NoteSizeActivityRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.kind.is_absent()) {
+        auto encoded = encode_value(value.kind);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("kind", std::move(encoded).value());
+    }
     auto encoded_surface = encode_value(value.surface);
     if (!encoded_surface) return std::move(encoded_surface).error();
     object.emplace("surface", std::move(encoded_surface).value());
@@ -11895,6 +11914,16 @@ Result<NoteSizeActivityRequest> Codec<NoteSizeActivityRequest>::decode(const Jso
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     NoteSizeActivityRequest result{};
+    const Json* field_kind = value.find("kind");
+    if (field_kind) {
+        if (field_kind->is_null()) {
+            result.kind = Field<SizeActivityKind>::null();
+        } else {
+            auto decoded = decode_value<SizeActivityKind>(*field_kind);
+            if (!decoded) return std::move(decoded).error();
+            result.kind = Field<SizeActivityKind>(std::move(decoded).value());
+        }
+    }
     const Json* field_surface = value.find("surface");
     if (!field_surface) {
         return make_error(ErrorCode::decode, "missing required field 'surface'");
