@@ -15,6 +15,13 @@ import CmuxTerminal
 /// `drainMainQueue` call spins the run loop until its timeout. Spin briefly.
 private let mainActorTestMainQueueSpin: TimeInterval = 0.1
 
+private func drainMainQueue(timeout: TimeInterval = 1.0) {
+    let deadline = Date().addingTimeInterval(timeout)
+    repeat {
+        RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+    } while Date() < deadline
+}
+
 @MainActor
 @Suite(.serialized)
 struct WorkspaceCloseTabsContextMenuTests {

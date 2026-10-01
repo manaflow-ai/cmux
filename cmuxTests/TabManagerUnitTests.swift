@@ -21,12 +21,12 @@ import CmuxSettings
 
 let lastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
 
-func drainMainQueue(timeout: TimeInterval = 1.0) {
+func drainMainQueue() {
     let expectation = XCTestExpectation(description: "drain main queue")
     DispatchQueue.main.async {
         expectation.fulfill()
     }
-    XCTWaiter().wait(for: [expectation], timeout: timeout)
+    XCTWaiter().wait(for: [expectation], timeout: 1.0)
 }
 
 @discardableResult
