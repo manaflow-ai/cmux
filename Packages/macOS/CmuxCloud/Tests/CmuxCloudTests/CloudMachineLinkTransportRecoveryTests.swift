@@ -26,18 +26,20 @@ struct CloudMachineLinkTransportRecoveryTests {
 
         _ = try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main", carrier: true)
         var failed = false
+        var expectedErrorText: String?
         do {
             _ = try await link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: socket.path))
             Issue.record("the missing daemon socket must fail the control request")
         } catch let error as NSError {
             failed = true
+            expectedErrorText = CloudMachineLink.errorText(error)
             #expect(error.domain == "cmux.cloud.manual-io")
         }
 
         #expect(failed)
         #expect(!(await link.isConnected))
         #expect(await link.state == .error)
-        #expect((await link.lastError ?? "").contains("No such file or directory"))
+        #expect(await link.lastError == expectedErrorText)
         await link.disconnect()
     }
 }
