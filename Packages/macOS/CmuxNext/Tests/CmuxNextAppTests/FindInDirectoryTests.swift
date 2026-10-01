@@ -68,11 +68,11 @@ struct FindInDirectoryTests {
         """)
         let root = rg.deletingLastPathComponent().path
         let outcome = await RipgrepSearch.run(rg, query: "hit", root: root, limit: 2)
-        guard case .matches(let matches, let limited) = outcome else { return Issue.record("\(outcome)") }
+        guard case .matches(let matches, let limited) = outcome else { Issue.record("\(outcome)"); return }
         #expect(limited)
         #expect(matches.map(\.relativePath) == ["f1", "f2"])
         let all = await RipgrepSearch.run(rg, query: "hit", root: root, limit: 10)
-        guard case .matches(let every, false) = all else { return Issue.record("\(all)") }
+        guard case .matches(let every, false) = all else { Issue.record("\(all)"); return }
         #expect(every.count == 3)
     }
 
@@ -99,7 +99,8 @@ struct FindInDirectoryTests {
         let match = RipgrepMatch(path: "/r/it's.txt", relativePath: "it's.txt", line: 1, column: 1, preview: "hit")
         let row = try #require(FindInDirectoryPage.items(for: .matches([match], limited: false)) { inserted.append($0) }.first)
         guard case .perform(let run) = try #require(row.secondary.first { $0.id == "insertPath" }).effect else {
-            return Issue.record("Insert Path should close the palette and run")
+            Issue.record("Insert Path should close the palette and run")
+            return
         }
         run()
         #expect(inserted == [#"'/r/it'\''s.txt'"#])

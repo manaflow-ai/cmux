@@ -111,9 +111,17 @@ nonisolated enum RipgrepSearch {
         let running = RunningProcess(process)
         let (matches, limited) = await withTaskCancellationHandler {
             var matches: [RipgrepMatch] = []
+            var line: [UInt8] = []
+            // Split on "\n" only: `bytes.lines` also breaks at U+2028,
+            // U+2029 and U+0085, which rg's JSON leaves unescaped.
             do {
-                for try await line in output.fileHandleForReading.bytes.lines {
-                    guard let match = parse(line, root: root) else { continue }
+                for try await byte in output.fileHandleForReading.bytes {
+                    guard byte == UInt8(ascii: "\n") else {
+                        line.append(byte)
+                        continue
+                    }
+                    defer { line.removeAll(keepingCapacity: true) }
+                    guard let match = parse(String(decoding: line, as: UTF8.self), root: root) else { continue }
                     matches.append(match)
                     if matches.count >= limit { return (matches, true) }
                 }

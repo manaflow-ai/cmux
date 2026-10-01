@@ -10,7 +10,8 @@ import Foundation
 enum FindInDirectoryHandlers {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         registry.bind("findInDirectory", invoke: { invocation in
-            guard let query = invocation["text"]?.stringValue.flatMap({ $0.isEmpty ? nil : $0 })
+            guard let query = invocation["text"]?.stringValue
+                .flatMap({ $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 })
                 ?? ctx.refuse(RefusalStrings.textArgumentRequired) else { return }
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
             guard tab.kind == .pty else { return ctx.refuse(RefusalStrings.notATerminal) }
