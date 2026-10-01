@@ -920,6 +920,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// diagnostic notification and the rare missing-primary recovery probe.
     private var pendingCrashScanTask: Task<GhosttyCrashBreadcrumb.PendingCrash?, Never>?
     private var isWaitingForStartupCrashRecoveryProbe = false
+    private let terminationSignalObserver = TerminationSignalObserver()
+    /// Set when SIGTERM started the quit; it then behaves like a logout.
+    private var isTerminatingForSignal = false
     private var deferredInitialMainWindowBootstrapDebugSource: String?
     struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
@@ -1664,6 +1667,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if !SessionRestorePolicy.isRunningUnderAutomatedTests() {
+            terminationSignalObserver.start { [weak self] in
+                self?.isTerminatingForSignal = true
+                NSApp.terminate(nil)
+            }
+        }
         // Start the one browser-availability watcher before any gated view or
         // menu mounts: it is lazy, and its consumers only observe its
         // notification, so nothing else would bring it up (#10866).
@@ -2414,7 +2423,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let quitConfirmationStore = QuitConfirmationStore(defaults: .standard)
         let hasDirtyWorkspaces = hasQuitConfirmationDirtyWorkspaces()
         let confirmQuitMode = quitConfirmationStore.confirmQuitMode
-        let quitReason = Self.currentQuitRequestReason()
+        // A signal sender expects the process to exit, like loginwindow.
+        let quitReason = isTerminatingForSignal ? .sessionEnd : Self.currentQuitRequestReason()
 
         StartupBreadcrumbLog.append(
             "appDelegate.shouldTerminate.begin",
@@ -3710,27 +3720,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !didPrepareStartupSessionSnapshot else { return }
         didPrepareStartupSessionSnapshot = true
         Self.removeLegacyPersistedWindowGeometry()
-        if shouldAwaitCrashRecoveryProbe() {
-            isWaitingForStartupCrashRecoveryProbe = true
-            let pendingCrashScanTask = pendingCrashScanTaskIfNeeded()
-            Task { @MainActor [weak self] in
-                let pendingCrash = await pendingCrashScanTask.value
-                guard let self, !Task.isCancelled, !self.isTerminatingApp else { return }
-                if pendingCrash != nil {
-                    self.previousSessionLaunchWasUnclean = true
-                }
-#if DEBUG
-                cmuxDebugLog(
-                    "session.restore.crashProbe pending=\(pendingCrash != nil ? 1 : 0)"
-                )
-#endif
-                self.isWaitingForStartupCrashRecoveryProbe = false
-                self.finishPreparingStartupSessionSnapshot()
-                self.resumeDeferredInitialMainWindowBootstrapIfNeeded()
-            }
+        let awaitsCrashProbe = shouldAwaitCrashRecoveryProbe()
+        guard awaitsCrashProbe || shouldReadAgentRecoveryBeforeRestore() else {
+            finishPreparingStartupSessionSnapshot()
             return
         }
-        finishPreparingStartupSessionSnapshot()
+        isWaitingForStartupCrashRecoveryProbe = true
+        let pendingCrashScanTask = awaitsCrashProbe ? pendingCrashScanTaskIfNeeded() : nil
+        Task { @MainActor [weak self] in
+            let pendingCrash = await pendingCrashScanTask?.value
+            guard let self, !Task.isCancelled, !self.isTerminatingApp else { return }
+            if pendingCrash != nil {
+                self.previousSessionLaunchWasUnclean = true
+            }
+#if DEBUG
+            cmuxDebugLog(
+                "session.restore.crashProbe pending=\(pendingCrash != nil ? 1 : 0)"
+            )
+#endif
+            let agentRecoveryCandidates = await self.agentRecoveryCandidatesBeforeRestore()
+            guard !Task.isCancelled, !self.isTerminatingApp else { return }
+            self.isWaitingForStartupCrashRecoveryProbe = false
+            self.finishPreparingStartupSessionSnapshot(agentRecoveryCandidates: agentRecoveryCandidates)
+            self.resumeDeferredInitialMainWindowBootstrapIfNeeded()
+        }
+    }
+
+    /// After an unclean exit the snapshot can predate the newest agent in a
+    /// panel. Startup restore waits for the journal and hook-store read that
+    /// puts those sessions back in their panels (``AgentRecoverySnapshotMerge``).
+    private func shouldReadAgentRecoveryBeforeRestore() -> Bool {
+        previousSessionLaunchWasUnclean
+            && previousSessionLaunchStartedAt != nil
+            && SessionRestorePolicy.shouldAttemptRestore()
+            && !didHandleExplicitOpenIntentAtStartup
+            && !SessionRestorePolicy.isRunningUnderAutomatedTests()
+    }
+
+    /// Sessions the journal saw running when the previous run died. Reads
+    /// SQLite and the hook stores off the main thread.
+    private func agentRecoveryCandidatesBeforeRestore() async -> [AgentRecoveryCandidate] {
+        guard shouldReadAgentRecoveryBeforeRestore(),
+              let activeSince = previousSessionLaunchStartedAt else { return [] }
+        let recovery = AgentSessionRecovery()
+        return await Task.detached(priority: .userInitiated) {
+            recovery.candidates(openSessionIds: [], activeSince: activeSince)
+        }.value
     }
 
     /// A missing primary with a backup is ambiguous until the asynchronous
@@ -3750,7 +3785,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             && FileManager.default.fileExists(atPath: backupURL.path)
     }
 
-    private func finishPreparingStartupSessionSnapshot() {
+    private func finishPreparingStartupSessionSnapshot(agentRecoveryCandidates: [AgentRecoveryCandidate] = []) {
         // Decode the primary once: the archive, the `-previous` sync, and the
         // restore below all read it, and none of them rewrites it.
         let primaryOutcome = sessionSnapshotStore.defaultSnapshotFileURL().map {
@@ -3777,6 +3812,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             startupSessionSnapshot = checkpointStore.merging(into: sanitizedStartupSnapshot)
         } else {
             startupSessionSnapshot = sanitizedStartupSnapshot
+        }
+        // Agents the 8 s autosave missed resume in the panels they ran in.
+        if let snapshot = startupSessionSnapshot {
+            startupSessionSnapshot = AgentRecoverySnapshotMerge.merging(agentRecoveryCandidates, into: snapshot)
         }
     }
 

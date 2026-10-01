@@ -22,6 +22,8 @@ public struct AgentRecoveryLaunchRecord: Equatable, Sendable {
     public var kind: String
     public var sessionId: String
     public var workspaceId: String?
+    /// The terminal panel the session ran in, when the hook recorded it.
+    public var surfaceId: String?
     public var cwd: String?
     public var launchCommand: AgentLaunchCommand?
     public var pid: Int?
@@ -35,6 +37,7 @@ public struct AgentRecoveryLaunchRecord: Equatable, Sendable {
         kind: String,
         sessionId: String,
         workspaceId: String?,
+        surfaceId: String? = nil,
         cwd: String?,
         launchCommand: AgentLaunchCommand?,
         pid: Int?,
@@ -45,6 +48,7 @@ public struct AgentRecoveryLaunchRecord: Equatable, Sendable {
         self.kind = kind
         self.sessionId = sessionId
         self.workspaceId = workspaceId
+        self.surfaceId = surfaceId
         self.cwd = cwd
         self.launchCommand = launchCommand
         self.pid = pid
@@ -59,6 +63,8 @@ public struct AgentRecoveryCandidate: Equatable, Sendable {
     public var kind: String
     public var sessionId: String
     public var workspaceId: String?
+    /// The terminal panel the session ran in, when the hook recorded it.
+    public var surfaceId: String?
     public var cwd: String?
     public var launchCommand: AgentLaunchCommand?
     /// The permission mode the session was last observed in, reapplied on resume.
@@ -69,6 +75,7 @@ public struct AgentRecoveryCandidate: Equatable, Sendable {
         kind: String,
         sessionId: String,
         workspaceId: String?,
+        surfaceId: String? = nil,
         cwd: String?,
         launchCommand: AgentLaunchCommand?,
         permissionMode: String? = nil,
@@ -77,6 +84,7 @@ public struct AgentRecoveryCandidate: Equatable, Sendable {
         self.kind = kind
         self.sessionId = sessionId
         self.workspaceId = workspaceId
+        self.surfaceId = surfaceId
         self.cwd = cwd
         self.launchCommand = launchCommand
         self.permissionMode = permissionMode
@@ -186,6 +194,7 @@ public struct AgentSessionRecoveryPlanner: Sendable {
                 kind: record.kind,
                 sessionId: session.sessionId,
                 workspaceId: record.workspaceId,
+                surfaceId: record.surfaceId,
                 cwd: record.cwd ?? record.launchCommand?.workingDirectory,
                 launchCommand: record.launchCommand,
                 permissionMode: record.permissionMode,
