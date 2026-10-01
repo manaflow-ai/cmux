@@ -583,6 +583,33 @@ import Testing
         #expect(connector.session.state.disconnected == 1)
     }
 
+    @Test func cancellingCatalogCancelsConnectionAndDisconnectsLateSession() async throws {
+        let connector = FakeConnector()
+        let started = TestSignal()
+        let release = TestSignal()
+        connector.connectGate = (started, release)
+        let controller = makeController(connector: connector)
+        controller.sectionDidAppear()
+        await settle { if case .ready = controller.tunnel { return true }; return false }
+        let connection = try #require(controller.connection(for: CloudMachine(id: "vm1", provider: "p", status: "running")))
+
+        let load = Task {
+            try await connection.loadCatalog()
+        }
+        await started.wait()
+        load.cancel()
+        await release.signal()
+
+        do {
+            _ = try await load.value
+            Issue.record("catalog unexpectedly succeeded after cancellation")
+        } catch is CancellationError {
+            // Expected: cancellation must reach the in-flight connect task.
+        }
+        await settle { connector.session.state.disconnected == 1 }
+        #expect(connector.session.state.disconnected == 1)
+    }
+
     @Test func linkFailureIsReportedOnTheCatalog() async throws {
         let connector = FakeConnector()
         connector.failure = StubError(message: "unreachable")

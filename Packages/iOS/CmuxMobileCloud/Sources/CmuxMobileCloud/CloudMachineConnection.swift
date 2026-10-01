@@ -246,12 +246,22 @@ public final class CloudMachineConnection {
         !closed && operationGeneration == generation
     }
 
+    private func awaitConnection(
+        _ task: Task<any CloudTerminalSession, any Error>
+    ) async throws -> any CloudTerminalSession {
+        try await withTaskCancellationHandler(operation: {
+            try await task.value
+        }, onCancel: {
+            task.cancel()
+        })
+    }
+
     private func connectedSession() async throws -> any CloudTerminalSession {
         guard !closed else { throw CancellationError() }
         if let session { return session }
         if let connectTask {
-            let session = try await connectTask.value
-            guard !closed else {
+            let session = try await awaitConnection(connectTask)
+            guard !closed, !Task.isCancelled else {
                 session.disconnect()
                 throw CancellationError()
             }
@@ -320,8 +330,8 @@ public final class CloudMachineConnection {
         connectTask = task
         defer { connectTask = nil }
         do {
-            let session = try await task.value
-            if closed {
+            let session = try await awaitConnection(task)
+            if closed || Task.isCancelled {
                 session.disconnect()
                 throw CancellationError()
             }
