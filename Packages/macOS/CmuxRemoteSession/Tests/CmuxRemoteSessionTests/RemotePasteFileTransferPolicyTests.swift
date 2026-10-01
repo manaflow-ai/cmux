@@ -14,7 +14,7 @@ struct RemotePasteFileTransferPolicyTests {
             uuid: UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF")!
         )
 
-        #expect(path == "~/.cache/cmux/paste/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/cmux-paste-01234567-89ab-cdef-0123-456789abcdef.png")
+        #expect(path == "~/.cache/cmux/paste/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/cmux-paste-01234567-89ab-cdef-0123-456789abcdef.pngtouch")
         #expect(!path.contains("/tmp"))
         #expect(!path.contains(";"))
     }

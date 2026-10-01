@@ -798,6 +798,29 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertEqual(completedText, "/tmp/cmux-drop-123.png")
     }
 
+    func testRemoteImagePasteFailureDoesNotInsertTheLocalClipboardPath() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("clipboard-failure.png")
+        try make1x1PNG(color: .orange).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var insertedText: String?
+        var failure: Error?
+        TerminalImageTransferPlanner.executeForTesting(
+            plan: .uploadFiles([url], .workspaceRemote),
+            uploadWorkspaceRemote: { _, _, finish in
+                finish(.failure(NSError(domain: "cmux.remote.paste", code: 1)))
+            },
+            uploadDetectedSSH: { _, _, _, finish in
+                finish(.failure(NSError(domain: "unused", code: 0)))
+            },
+            insertText: { insertedText = $0 },
+            onFailure: { failure = $0 }
+        )
+
+        XCTAssertNil(insertedText)
+        XCTAssertNotNil(failure)
+    }
+
     func testCancelledRemoteImagePasteExecutionSuppressesCompletionHandlers() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("clipboard-cancel-test.png")
         try make1x1PNG(color: .brown).write(to: url)
