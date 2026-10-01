@@ -245,7 +245,9 @@ export function createEditors() {
     const m = /^\/(document|spreadsheets|presentation)\/d\/([\w-]+)\/(edit|export|htmlview|__mock\/(\w+))$/.exec(url.pathname);
     if (!m) return null;
     const file = files.get(m[2]);
-    if (!file || file.kind !== m[1] || file.trashed) return { status: 404, html: "<p>Not found</p>" };
+    // Files the editors do not hold are the other mock fixtures'.
+    if (!file) return null;
+    if (file.kind !== m[1] || file.trashed) return { status: 404, html: "<p>Not found</p>" };
     const op = m[3];
     if (op === "edit") {
       if (file.kind === "spreadsheets") return { html: sheetEditor(file) };
