@@ -146,8 +146,6 @@ struct TitlebarControlsLayoutModelSnapshot: Equatable {
     let contentSize: NSSize
 }
 
-/// Owns the expensive shortcut/font-derived titlebar size once for every
-/// titlebar surface. Unrelated defaults and notification activity must not
 /// invalidate titlebar geometry.
 @MainActor
 @Observable
@@ -280,6 +278,8 @@ final class NotificationsAnchorRegistry {
         anchors.add(view)
     }
 
+    func visibleAnchor(in window: NSWindow) -> NSView? { anchors.allObjects.first { $0.window === window && !$0.bounds.isEmpty && notificationsPopoverAnchorIsVisible($0) } }
+
     func closestAnchor(in window: NSWindow, to pointInWindow: NSPoint) -> NSView? {
         anchors.allObjects
             .compactMap { view -> (view: NSView, distance: CGFloat)? in
@@ -296,11 +296,6 @@ final class NotificationsAnchorRegistry {
             .view
     }
 
-    func visibleAnchor(in window: NSWindow) -> NSView? {
-        anchors.allObjects.first { view in
-            view.window === window && notificationsPopoverAnchorIsVisible(view)
-        }
-    }
 }
 
 @MainActor
@@ -989,7 +984,6 @@ private final class TitlebarControlRightClickNSView: NSView {
 }
 
 private struct TitlebarNotificationBadge: View {
-    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let unreadModel: SidebarUnreadModel
     let config: TitlebarControlsStyleConfig
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
@@ -2361,9 +2355,9 @@ private func openPhoneForwardingSettings(in window: NSWindow?) {
 }
 
 private struct NotificationsPopoverView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     @ObservedObject var notificationStore: TerminalNotificationStore
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
-    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let onDismiss: () -> Void
     let onOpenPhoneForwarding: () -> Void
 

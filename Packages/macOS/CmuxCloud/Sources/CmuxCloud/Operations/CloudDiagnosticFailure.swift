@@ -3,7 +3,7 @@ import CmuxSurfaceCatalogModel
 import Foundation
 
 public enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
-    case authentication, sessionRefresh = "session_refresh", permission, plan
+    case authentication, sessionRefresh = "session_refresh", permission, plan, recreateRequired = "recreate_required"
     case rateLimit = "rate_limit", conflict, network, timeout, server, response, unsupported
     case process, `protocol`, notFound = "not_found", placement, resourceLimit = "resource_limit"
     case storage, cancelled, unknown
@@ -16,6 +16,11 @@ public enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             return String(localized: "cloud.operation.failure.permission", defaultValue: "Cloud access was denied. Check your permissions.")
         case .plan:
             return String(localized: "cloud.operation.failure.plan", defaultValue: "Your plan does not allow this Cloud operation.")
+        case .recreateRequired:
+            return String(
+                localized: "cloud.operation.failure.recreateRequired",
+                defaultValue: "This machine needs to be recreated. Use Recreate, then open the new machine."
+            )
         case .rateLimit:
             return String(localized: "cloud.operation.failure.rateLimit", defaultValue: "Cloud received too many requests. Wait before you retry.")
         case .network, .timeout, .sessionRefresh:
@@ -59,6 +64,7 @@ public enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             case .disabledByManagedPolicy, .cloudMachinesDisabled: return .permission
             case .lifecycleUnsupported: return .unsupported
             case .httpStatus(let status, _): return classify(status: status)
+            case .typedHTTPStatus(let error): return classify(error)
             }
         }
         if let error = error as? MachineUsageClientError {
@@ -98,7 +104,7 @@ public enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
         switch error {
         case .clientMissing, .wireGuardHubMissing: return .process
         case .wireGuardHubUnsupported: return .unsupported
-        case .privateRouteRequired, .retryLater: return .network
+        case .privateRouteRequired, .retryLater, .retryExhausted: return .network
         }
     }
 
@@ -115,5 +121,10 @@ public enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
         case 500...599: return .server
         default: return .response
         }
+    }
+
+    public static func classify(_ error: CloudVMHTTPError) -> Self {
+        if error.requiresRecreate { return .recreateRequired }
+        return classify(status: error.status)
     }
 }

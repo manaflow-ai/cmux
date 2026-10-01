@@ -36,235 +36,6 @@ extension URLError.Code {
 }
 
 
-public func formattedCloudVMHTTPError(status: Int, body: String) -> String {
-    let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard let data = trimmedBody.data(using: .utf8),
-          let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
-        return """
-            Cloud VM request failed (HTTP \(status)).
-
-            What to do:
-              Retry the command. If it keeps failing, copy the HTTP status and contact support.
-
-            Response body:
-              <unreadable response omitted>
-            """
-    }
-
-    let errorCode = cloudVMString(object["error"]) ?? "http_\(status)"
-    let ui = object["ui"] as? [String: Any]
-    let displayTitle = cloudVMString(ui?["title"])
-    let message = cloudVMString(object["message"])
-        ?? cloudVMString(object["reason"])
-        ?? defaultCloudVMMessage(status: status)
-    let displayMessage = cloudVMString(ui?["message"]) ?? message
-    let action = cloudVMString(object["action"])
-        ?? defaultCloudVMAction(status: status, errorCode: errorCode, response: object)
-    let retryAfterSeconds = cloudVMInt(object["retryAfterSeconds"])
-        ?? cloudVMInt(ui?["retryAfterSeconds"])
-    let details = cloudVMDetails(from: object)
-
-    var lines: [String] = [
-        "\(displayTitle ?? "Cloud VM request failed") (HTTP \(status): \(errorCode))",
-        displayMessage,
-    ]
-    if let retryAfterSeconds, retryAfterSeconds > 0 {
-        lines.append("Retrying is safe. Next automatic retry is in about \(retryAfterSeconds)s when this request is part of an attach loop.")
-    }
-    if !action.isEmpty {
-        lines.append("")
-        lines.append("What to do:")
-        lines.append(contentsOf: indentedActionLines(action))
-    }
-    if !details.isEmpty {
-        lines.append("")
-        lines.append("Details:")
-        lines.append(contentsOf: details.map { "  \($0)" })
-    }
-    if let traceId = cloudVMString(object["traceId"]) ?? cloudVMString(ui?["traceId"]) {
-        // The support reference. Operators open the exact server trace,
-        // PostHog row and Sentry event from this one id.
-        lines.append("")
-        lines.append(cloudVMReferenceLine(traceId: traceId))
-    }
-    return lines.joined(separator: "\n")
-}
-
-public func cloudVMReferenceLine(traceId: String) -> String {
-    String(
-        format: String(localized: "cloudVM.error.reference", defaultValue: "Reference: %@"),
-        traceId
-    )
-}
-
-private func defaultCloudVMMessage(status: Int) -> String {
-    switch status {
-    case 400:
-        return "The Cloud VM request was not valid."
-    case 401:
-        return "cmux could not authenticate this Cloud VM request."
-    case 402:
-        return "This team cannot create another Cloud VM with the current billing state."
-    case 403:
-        return "This Cloud VM request was not allowed."
-    case 404:
-        return "The requested Cloud VM was not found."
-    case 409:
-        return "Another Cloud VM operation is already running."
-    case 500...599:
-        return "The Cloud VM service is temporarily unavailable."
-    default:
-        return "The Cloud VM service returned an error."
-    }
-}
-
-public func defaultCloudVMAction(status: Int, errorCode: String, response: [String: Any] = [:]) -> String {
-    switch errorCode {
-    case "vm_active_limit_exceeded":
-        return "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before retrying."
-    case "vm_not_found":
-        return "Run `cmux vm ls` to see available Cloud VMs. If the VM was paused or destroyed, start a fresh one with `cmux vm new`."
-    case "vm_billing_team_required":
-        return "Select a team in cmux, then retry. You can also run `cmux auth status` to check the signed-in account."
-    case "vm_requires_pro":
-        return String(
-            localized: "cloudVM.error.requiresPro.action",
-            defaultValue: "Upgrade to cmux Pro at https://cmux.com/pricing?cmux_source=mac_vm_requires_pro_error&cmux_client=mac to create Cloud VMs."
-        )
-    case "vm_memory_requires_plan":
-        let details = response["details"] as? [String: Any]
-        let planId = cloudVMString(response["upgradePlanId"]) ?? cloudVMString(details?["upgradePlanId"]) ?? "max"
-        let plan: CheckoutPlan = planId == CheckoutPlan.pro.rawValue ? .pro : .max
-        let checkout = CheckoutAttribution.checkoutURL(source: .vmMemoryRequiresPlanError, plan: plan)
-        if plan == .pro {
-            return String(format: String(
-                localized: "cloudVM.error.memoryRequiresPlan.proAction",
-                defaultValue: "Larger machines need cmux Pro. Upgrade at %@, or choose a smaller machine."
-            ), checkout.absoluteString)
-        }
-        return String(format: String(
-            localized: "cloudVM.error.memoryRequiresPlan.action",
-            defaultValue: "Larger machines need cmux Max. Upgrade at %@, or choose a smaller machine."
-        ), checkout.absoluteString)
-    case "vm_create_credits_insufficient":
-        return "Ask a team admin to upgrade the plan or grant more Cloud VM create credits, then retry."
-    default:
-        if status == 401 {
-            return "Run `cmux auth login`, then retry."
-        }
-        if status == 403 {
-            return "Run `cmux auth status` and confirm you are using the expected team."
-        }
-        return "Retry the command. If it keeps failing, copy this error and contact support."
-    }
-}
-
-private func cloudVMDetails(from object: [String: Any]) -> [String] {
-    let allowedKeys = Set([
-        "amount",
-        "code",
-        "duration",
-        "durationMs",
-        "field",
-        "idempotencyKeySet",
-        "imageRequested",
-        "limit",
-        "operation",
-        "phase",
-        "provider",
-        "providerCode",
-        "providerMessage",
-        "retryable",
-        "retryAfterSeconds",
-        "status",
-        "type",
-        "vmId",
-    ])
-    var details: [String: Any] = [:]
-    func addAllowedDetail(key: String, value: Any) {
-        guard allowedKeys.contains(key), !cloudVMIsNull(value) else { return }
-        details[key] = value
-    }
-    if let rawDetails = object["details"] {
-        if let nestedDetails = rawDetails as? [String: Any] {
-            for (key, value) in nestedDetails {
-                addAllowedDetail(key: key, value: value)
-            }
-        }
-    }
-    for (key, value) in object {
-        addAllowedDetail(key: key, value: value)
-    }
-    return details.keys.sorted().compactMap { key in
-        guard let value = details[key], !cloudVMIsNull(value) else { return nil }
-        return "\(key): \(cloudVMValueDescription(value))"
-    }
-}
-
-private func indentedActionLines(_ action: String) -> [String] {
-    action
-        .split(separator: "\n", omittingEmptySubsequences: false)
-        .map { "  \($0)" }
-}
-
-private func cloudVMString(_ value: Any?) -> String? {
-    guard let string = value as? String else { return nil }
-    let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed.isEmpty ? nil : trimmed
-}
-
-private func cloudVMInt(_ value: Any?) -> Int? {
-    if let int = value as? Int {
-        return int
-    }
-    if let double = value as? Double, double.isFinite {
-        return Int(double)
-    }
-    if let number = value as? NSNumber {
-        return number.intValue
-    }
-    if let string = value as? String,
-       let int = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
-        return int
-    }
-    return nil
-}
-
-private func cloudVMValueDescription(_ value: Any) -> String {
-    if let string = value as? String {
-        return limitedSingleLine(string)
-    }
-    if let number = value as? NSNumber {
-        if CFGetTypeID(number) == CFBooleanGetTypeID() {
-            return number.boolValue ? "true" : "false"
-        }
-        return "\(number)"
-    }
-    if cloudVMIsNull(value) {
-        return "null"
-    }
-    if JSONSerialization.isValidJSONObject(value),
-       let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
-       let encoded = String(data: data, encoding: .utf8) {
-        return limitedSingleLine(encoded)
-    }
-    return limitedSingleLine(String(describing: value))
-}
-
-private func cloudVMIsNull(_ value: Any) -> Bool {
-    value is NSNull
-}
-
-// maxCharacters is measured in Swift Characters so truncation never splits a grapheme cluster.
-private func limitedSingleLine(_ value: String, maxCharacters: Int = 1200) -> String {
-    let singleLine = value
-        .replacingOccurrences(of: "\n", with: "\\n")
-        .replacingOccurrences(of: "\r", with: "\\r")
-    guard singleLine.count > maxCharacters else { return singleLine }
-    let index = singleLine.index(singleLine.startIndex, offsetBy: maxCharacters)
-    return String(singleLine[..<index]) + "..."
-}
-
 public struct VMSummary: Sendable {
     public init(
         id: String,
@@ -1008,6 +779,10 @@ public struct VMTunnelEndpoint: Sendable {
 ///
 /// All methods are `async throws` and run off the main actor.
 public actor VMClient {
+    /// Posted when any VM request proves that the current credentials are rejected.
+    public static let sessionRejectedNotification = Notification.Name("cmux.cloud.sessionRejected")
+    /// Posted when a new authenticated credential pair replaces a rejected pair.
+    public static let sessionRecoveredNotification = Notification.Name("cmux.cloud.sessionRecovered")
     /// Set once by `bootstrap(auth:)` during app startup (AppDelegate
     /// `configure`), before any socket/CLI path can reach the cloud VM client.
     /// Main-actor isolated so every read goes through a compiler-checked hop.
@@ -1090,6 +865,12 @@ public actor VMClient {
     private let readRequests: CloudReadRequestCoordinator
     private let isCloudEnabled: @Sendable () -> Bool
     private let isDisabledByManagedPolicy: (@Sendable () -> Bool)?
+    private var attachRetryLedger = CloudVMRetryLedger()
+    private var attachInFlight: [String: Task<VMCmuxRemoteEndpoint, Error>] = [:]
+    private var attachIdentityKey: String?
+    private var rejectedSessionIdentity: AuthenticatedSessionIdentity?
+    private var rejectedCredentialSignature: Int?
+    private var rejectedSessionError: CloudVMHTTPError?
 
     public init(
         session: URLSession = .shared,
@@ -2002,7 +1783,6 @@ public actor VMClient {
                 path: "/api/vm/\(encodedID)/attach-endpoint",
                 jsonBody: body,
                 timeoutSeconds: Self.attachTimeoutSeconds,
-                retryTransientServiceUnavailable: true,
                 teamID: teamID
             )
             try ensureOK(http, data: data)
@@ -2034,15 +1814,77 @@ public actor VMClient {
         clientCapabilities: [String] = [],
         teamID: String? = nil
     ) async throws -> VMCmuxRemoteEndpoint {
+        let identity = await auth.authenticatedSessionIdentity
+        let selectedTeamID = await auth.resolvedTeamID
+        let requestTeamID = teamID ?? selectedTeamID
+        let identityKey = "\(identity?.accountID ?? "<none>"):\(identity?.generation ?? 0)"
+        if attachIdentityKey != identityKey {
+            attachRetryLedger.removeAll()
+            attachIdentityKey = identityKey
+        }
+        let capabilities = Self.sanitizedClientCapabilities(clientCapabilities)
+        let sessionKey = "\(requestTeamID ?? "<none>"):\(id)"
+        let retryMachineID = sessionKey
+        let key = [identityKey, sessionKey, deviceFingerprint ?? "", capabilities.joined(separator: ",")].joined(separator: "\u{0}")
+        if let inFlight = attachInFlight[key] { return try await inFlight.value }
+        if case .blocked(let error) = attachRetryLedger.admission(machineID: retryMachineID, now: .now) {
+            throw VMClientError.typedHTTPStatus(error)
+        }
+        let task = Task<VMCmuxRemoteEndpoint, Error> { [weak self] in
+            guard let self else { throw CancellationError() }
+            return try await self.performOpenCmuxRemote(
+                id: id,
+                deviceFingerprint: deviceFingerprint,
+                clientCapabilities: capabilities,
+                teamID: requestTeamID
+            )
+        }
+        attachInFlight[key] = task
+        defer { if attachInFlight[key] == task { attachInFlight[key] = nil } }
+        do {
+            let endpoint = try await task.value
+            if let identity {
+                guard await auth.isAuthenticatedSessionIdentityCurrent(identity) else { throw CancellationError() }
+                if teamID == nil { guard await auth.resolvedTeamID == selectedTeamID else { throw CancellationError() } }
+            } else {
+                guard await auth.isAuthenticated else { throw CancellationError() }
+            }
+            attachRetryLedger.recordSuccess(machineID: retryMachineID)
+            return endpoint
+        } catch let VMClientError.typedHTTPStatus(error) {
+            guard attachIdentityKey == identityKey else { throw CancellationError() }
+            attachRetryLedger.recordFailure(
+                machineID: retryMachineID,
+                error: error,
+                now: .now,
+                jitter: Double.random(in: 0...0.25)
+            )
+            throw VMClientError.typedHTTPStatus(error)
+        } catch {
+            throw error
+        }
+    }
+
+    /// Explicit Reconnect/Recreate actions clear the automatic refusal window
+    /// for this machine. A list read that changes its route also calls this seam.
+    public func resetAttachRetry(machineID: String) {
+        attachRetryLedger.reset(machineID: machineID)
+    }
+
+    private func performOpenCmuxRemote(
+        id: String,
+        deviceFingerprint: String?,
+        clientCapabilities: [String],
+        teamID: String?
+    ) async throws -> VMCmuxRemoteEndpoint {
         return try await withOperation(.open, foreground: true) {
             let encodedID = try pathSegment(id, fieldName: "vm id")
             var body: [String: Any] = ["transport": "cmux-remote"]
             if let deviceFingerprint, !deviceFingerprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 body["deviceFingerprint"] = deviceFingerprint
             }
-            let capabilities = Self.sanitizedClientCapabilities(clientCapabilities)
-            if !capabilities.isEmpty {
-                body["clientCapabilities"] = capabilities
+            if !clientCapabilities.isEmpty {
+                body["clientCapabilities"] = clientCapabilities
             }
             // Terminal and metadata traffic uses the user-space WireGuard hub.
             // Do not start or require the browser Network Extension here.
@@ -2435,13 +2277,12 @@ public actor VMClient {
         jsonBody: [String: Any]? = nil,
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil,
-        retryTransientServiceUnavailable: Bool = false,
         allowedUnderManagedPolicy: Bool = false, expectedTeamScope: AuthenticatedTeamScope? = nil,
         teamID: String? = nil
     ) async throws -> (Data, HTTPURLResponse) {
         try await request(
             method, path: path, jsonBody: jsonBody, extraHeaders: extraHeaders,
-            timeoutSeconds: timeoutSeconds, retryTransientServiceUnavailable: retryTransientServiceUnavailable,
+            timeoutSeconds: timeoutSeconds,
             allowedUnderManagedPolicy: allowedUnderManagedPolicy, expectedTeamScope: expectedTeamScope,
             teamBinding: VMRequestTeamBinding(explicitTeamID: teamID)
         )
@@ -2453,7 +2294,6 @@ public actor VMClient {
         jsonBody: [String: Any]? = nil,
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil,
-        retryTransientServiceUnavailable: Bool = false,
         allowedUnderManagedPolicy: Bool = false, expectedTeamScope: AuthenticatedTeamScope? = nil,
         teamBinding: VMRequestTeamBinding
     ) async throws -> (Data, HTTPURLResponse) {
@@ -2461,12 +2301,11 @@ public actor VMClient {
             let isSharedRead = method == "GET"
                 && jsonBody == nil
                 && extraHeaders.isEmpty
-                && !retryTransientServiceUnavailable
                 && !allowedUnderManagedPolicy
                 && (path == "/api/vm" || path.hasSuffix("/stats"))
             if !isSharedRead {
                 return try await self.requestMeasured(method, path: path, jsonBody: jsonBody, extraHeaders: extraHeaders,
-                    timeoutSeconds: timeoutSeconds, retryTransientServiceUnavailable: retryTransientServiceUnavailable,
+                    timeoutSeconds: timeoutSeconds,
                     allowedUnderManagedPolicy: allowedUnderManagedPolicy, expectedTeamScope: expectedTeamScope,
                     teamBinding: teamBinding)
             }
@@ -2534,7 +2373,6 @@ public actor VMClient {
         jsonBody: [String: Any]? = nil,
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil,
-        retryTransientServiceUnavailable: Bool = false,
         allowedUnderManagedPolicy: Bool = false, expectedTeamScope: AuthenticatedTeamScope? = nil,
         teamBinding: VMRequestTeamBinding = .selected
     ) async throws -> (Data, HTTPURLResponse) {
@@ -2574,7 +2412,6 @@ public actor VMClient {
                 jsonBody: jsonBody,
                 extraHeaders: headers,
                 timeoutSeconds: timeoutSeconds,
-                retryTransientServiceUnavailable: retryTransientServiceUnavailable,
                 allowedWhenCloudDisabled: allowedUnderManagedPolicy, expectedTeamScope: expectedTeamScope,
                 teamBinding: teamBinding,
                 onRetry: { retryCount += 1 }
@@ -2606,7 +2443,7 @@ public actor VMClient {
         case .sessionRefreshFailed: return .sessionRefreshFailed
         case .backendUnreachable: return .backendUnreachable
         case .malformedResponse: return .malformedResponse
-        case .httpStatus, .lifecycleUnsupported, .disabledByManagedPolicy, .cloudMachinesDisabled: return .unknown
+        case .httpStatus, .typedHTTPStatus, .lifecycleUnsupported, .disabledByManagedPolicy, .cloudMachinesDisabled: return .unknown
         }
     }
 
@@ -2614,7 +2451,7 @@ public actor VMClient {
         switch error {
         case .backendUnreachable(let url, let detail): return "\(url): \(detail)"
         case .malformedResponse(let message): return message
-        case .notSignedIn, .sessionRefreshFailed, .httpStatus, .lifecycleUnsupported, .disabledByManagedPolicy, .cloudMachinesDisabled: return ""
+        case .notSignedIn, .sessionRefreshFailed, .httpStatus, .typedHTTPStatus, .lifecycleUnsupported, .disabledByManagedPolicy, .cloudMachinesDisabled: return ""
         }
     }
 
@@ -2648,7 +2485,6 @@ public actor VMClient {
         jsonBody: [String: Any]?,
         extraHeaders: [String: String],
         timeoutSeconds: TimeInterval?,
-        retryTransientServiceUnavailable: Bool,
         allowedWhenCloudDisabled: Bool, expectedTeamScope: AuthenticatedTeamScope?,
         teamBinding: VMRequestTeamBinding,
         onRetry: () -> Void
@@ -2680,6 +2516,18 @@ public actor VMClient {
         } catch {
             throw VMClientError.notSignedIn
         }
+        let credentialSignature = Self.credentialSignature(tokens)
+        if let rejectedSessionError {
+            if self.rejectedSessionIdentity != sessionIdentity || rejectedCredentialSignature != credentialSignature {
+                self.rejectedSessionIdentity = nil
+                rejectedCredentialSignature = nil
+                self.rejectedSessionError = nil
+                attachRetryLedger.removeAll()
+                NotificationCenter.default.post(name: Self.sessionRecoveredNotification, object: nil)
+            } else {
+                throw VMClientError.typedHTTPStatus(rejectedSessionError)
+            }
+        }
         let teamID = requestedTeamID
         guard var url = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
             throw VMClientError.malformedResponse("bad vmAPIBaseURL")
@@ -2705,11 +2553,8 @@ public actor VMClient {
         for (key, value) in extraHeaders {
             req.setValue(value, forHTTPHeaderField: key)
         }
-        // HTTP 429 from the VM API is an upstream auth throttle rejected before any work
-        // happened (rate_limited in services/vms/authErrors.ts), so every verb is safe to
-        // retry. Waiting out Retry-After here turns a transient throttle into a short pause
-        // instead of a dead-end error dialog.
-        var retriesLeft = 2
+        let retryStartedAt = DispatchTime.now().uptimeNanoseconds
+        var retryAttempt = 0
         while true {
             try Task.checkCancellation()
             if let expectedTeamScope, !(await auth.isAuthenticatedTeamScopeCurrent(expectedTeamScope)) { throw VMClientError.notSignedIn }
@@ -2721,7 +2566,7 @@ public actor VMClient {
             if !allowedWhenCloudDisabled, !isCloudEnabled() { throw VMClientError.cloudMachinesDisabled }
             let data: Data
             let response: URLResponse
-            let attempt = 3 - retriesLeft
+            let attempt = retryAttempt + 1
             let requestSpan: CloudOperationContext?
             if let context = CloudOperationContext.current {
                 requestSpan = await context.recorder.beginChild(of: context, phase: .request, attempt: attempt)
@@ -2759,35 +2604,35 @@ public actor VMClient {
                     response: .init(data: data, http: http))
                 if !canRetry { return (data, http) }
             }
-            if http.statusCode == 429, retriesLeft > 0 {
-                retriesLeft -= 1
-                onRetry()
-                let delaySeconds = Self.retryDelaySeconds(
-                    statusCode: http.statusCode,
+            if http.statusCode >= 400 {
+                let vmError = CloudVMHTTPError(
+                    status: http.statusCode,
+                    body: String(data: data, encoding: .utf8) ?? "<binary>",
                     retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
-                ) ?? 2
-                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy().sleep(seconds: delaySeconds) }
-                continue
-            }
-            if retryTransientServiceUnavailable,
-               retriesLeft > 0,
-               let delaySeconds = Self.transientVMRetryDelay(http: http, data: data) {
-                retriesLeft -= 1
-                onRetry()
-                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy().sleep(seconds: TimeInterval(delaySeconds.components.seconds)) }
-                continue
-            }
-            // The private gateway has not forwarded this request yet. Every
-            // verb is safe to retry while its tagged backend is starting.
-            if http.statusCode == 503, retriesLeft > 0,
-               resolved.host == "cmux-dev-backend-1.tail137216.ts.net",
-               Self.cloudVMErrorCode(http: http, data: data) == "dev_backend_starting" {
-                retriesLeft -= 1
-                onRetry()
-                try await CloudOperationContext.phase(.retryWait, attempt: attempt) {
-                    try await CmxRetryAfterPolicy().sleep(seconds: 2)
+                )
+                if vmError.rejectsSession {
+                    rejectedSessionIdentity = sessionIdentity
+                    rejectedCredentialSignature = credentialSignature
+                    rejectedSessionError = vmError
+                    NotificationCenter.default.post(name: Self.sessionRejectedNotification, object: nil)
                 }
-                continue
+                let elapsedSeconds = Double(DispatchTime.now().uptimeNanoseconds - retryStartedAt) / 1_000_000_000
+                let decision = CloudVMRetryPolicy.automatic.decision(
+                    for: vmError,
+                    attempt: attempt,
+                    elapsedSeconds: elapsedSeconds,
+                    jitter: Double.random(in: 0...0.25)
+                )
+                if case .retry(let delay) = decision {
+                    retryAttempt += 1
+                    onRetry()
+                    let components = delay.components
+                    let delaySeconds = Double(components.seconds) + Double(components.attoseconds) / 1_000_000_000_000_000_000
+                    try await CloudOperationContext.phase(.retryWait, attempt: attempt) {
+                        try await CmxRetryAfterPolicy().sleep(seconds: delaySeconds)
+                    }
+                    continue
+                }
             }
             if let sessionIdentity {
                 guard await auth.isAuthenticatedSessionIdentityCurrent(sessionIdentity) else {
@@ -2815,6 +2660,15 @@ public actor VMClient {
             return (data, http)
         }
     }
+
+    private static func credentialSignature(
+        _ tokens: (accessToken: String, refreshToken: String)
+    ) -> Int {
+        var hasher = Hasher()
+        hasher.combine(tokens.accessToken)
+        hasher.combine(tokens.refreshToken)
+        return hasher.finalize()
+    }
     private func pollOperationProgress(context: CloudOperationContext, request: URLRequest) async {
         struct ProgressResponse: Decodable { let steps: [CloudRemoteOperationStep] }
         var progress = request
@@ -2836,21 +2690,6 @@ public actor VMClient {
             } catch { return }
             do { try await Task.sleep(for: .seconds(2)) } catch { return }
         }
-    }
-
-    /// Returns a bounded delay only for the VM API's explicitly retryable service failures.
-    /// Attach endpoint creation is idempotent for a machine/device pair, so repeating it
-    /// avoids surfacing a transient provider 502 as a dead Cloud sidebar row.
-    private static func transientVMRetryDelay(http: HTTPURLResponse, data: Data) -> Duration? {
-        guard (502...504).contains(http.statusCode),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
-        }
-        let retryable = object["retryable"] as? Bool ?? false
-        let error = object["error"] as? String
-        guard retryable || error == "vm_cloud_service_unavailable" else { return nil }
-        let requested = cloudVMInt(object["retryAfterSeconds"]) ?? 2
-        return .seconds(max(requested, 1))
     }
 
     public nonisolated static func retryDelaySeconds(
@@ -2921,7 +2760,11 @@ public actor VMClient {
     func ensureOK(_ http: HTTPURLResponse, data: Data) throws {
         guard (200...299).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? "<binary>"
-            throw VMClientError.httpStatus(http.statusCode, body)
+            throw VMClientError.typedHTTPStatus(CloudVMHTTPError(
+                status: http.statusCode,
+                body: body,
+                retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
+            ))
         }
     }
 
@@ -3107,6 +2950,9 @@ public actor MachineUsageClient {
             }
             let (data, http) = (response.data, response.http)
             guard (200...299).contains(http.statusCode) else {
+                if http.statusCode == 401 || http.statusCode == 403 {
+                    NotificationCenter.default.post(name: VMClient.sessionRejectedNotification, object: nil)
+                }
                 throw MachineUsageClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
             }
             return try Self.decodeTeamUsage(data)
@@ -3243,6 +3089,9 @@ public actor MachineUsageClient {
                 _ = await owner.noteRetryAfter(read.key, seconds: seconds, response: .init(data: data, http: http))
             }
             guard (200...299).contains(http.statusCode) else {
+                if http.statusCode == 401 || http.statusCode == 403 {
+                    NotificationCenter.default.post(name: VMClient.sessionRejectedNotification, object: nil)
+                }
                 throw MachineUsageClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
             }
         return (data, http)

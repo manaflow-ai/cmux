@@ -3,7 +3,7 @@ import AppKit
 import CmuxSurfaceCatalogModel
 
 extension CloudTreeOutlineView.Coordinator {
-    func machineMenuItems(_ machine: MachineSnapshot) -> [NSMenuItem] {
+    func machineMenuItems(_ machine: MachineSnapshot, info: SurfaceMachineInfo?) -> [NSMenuItem] {
         var items: [NSMenuItem] = []
         let actions = machineActions
         let nodeActions = nodeActions
@@ -19,13 +19,27 @@ extension CloudTreeOutlineView.Coordinator {
             self?.applyMachineOrder(machines)
         })
         items.append(contentsOf: machineReorderMenuItems(id: id))
-        let verbs = machineMenuVerbs
-        items.append(contentsOf: CloudMenuAppKitRenderer.items(verbs.openEntries(machine)))
+        if let linkFailure = info?.linkFailure {
+            if linkFailure == .recreateRequired {
+                items.append(item(String(localized: "machines.menu.recreate", defaultValue: "Recreate")) {
+                    actions.recreate(id)
+                })
+            }
+            if machine.freeAccess == .expired {
+                items.append(item(String(localized: "machines.menu.upgradeToReconnect", defaultValue: "Upgrade to Reconnect…")) { actions.promptUpgrade() })
+            }
+        } else if machine.freeAccess == .expired {
+            items.append(item(String(localized: "machines.menu.upgradeToReconnect", defaultValue: "Upgrade to Reconnect…")) { actions.promptUpgrade() })
+        } else {
+            let verbs = machineMenuVerbs
+            items.append(contentsOf: CloudMenuAppKitRenderer.items(verbs.openEntries(machine)))
+        }
         if machine.freeAccess != .expired, machine.capabilities.sizing {
             items.append(CloudTreeResizeMenu.item(machine: machine, id: id, action: actions))
         }
         items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { nodeActions.refresh() })
         items.append(.separator())
+        let verbs = machineMenuVerbs
         items.append(contentsOf: CloudMenuAppKitRenderer.items(verbs.manageEntries(machine)))
         items.append(.separator())
         items.append(contentsOf: CloudMenuAppKitRenderer.items(verbs.deleteEntries(machine)))
@@ -62,7 +76,7 @@ extension CloudTreeOutlineView.Coordinator {
             items.append(item(String(localized: "machines.pending.cancel", defaultValue: "Cancel Create")) { create.cancel(id) })
         } else if !operation.isReconciling {
             items.append(item(String(localized: "machines.pending.retry", defaultValue: "Retry Create")) { create.retry(id) })
-            items.append(item(String(localized: "machines.pending.showError", defaultValue: "Show Error\u{2026}")) { create.showFailure(id) })
+            items.append(item(String(localized: "machines.pending.showError", defaultValue: "Show Error…")) { create.showFailure(id) })
             items.append(item(String(localized: "machines.pending.copyError", defaultValue: "Copy Error")) { create.copyFailure(id) })
             items.append(.separator())
         }

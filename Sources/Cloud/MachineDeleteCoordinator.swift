@@ -163,7 +163,7 @@ final class MachineDeleteCoordinator {
             do {
                 try await self.destroyMachine(machineID)
                 result = .deleted
-            } catch VMClientError.httpStatus(404, _) {
+            } catch let error as VMClientError where error.cloudHTTPError?.status == 404 {
                 // Delete is idempotent from the person's perspective: a machine the
                 // backend already forgot is gone, never an error sheet.
                 result = .notFound

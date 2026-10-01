@@ -5,6 +5,9 @@ public enum VMClientError: Error, CustomStringConvertible {
     case sessionRefreshFailed
     case backendUnreachable(url: String, detail: String)
     case httpStatus(Int, String)
+    /// A VM API refusal decoded once at the HTTP boundary. The legacy case is
+    /// retained for callers that construct synthetic errors in older seams.
+    case typedHTTPStatus(CloudVMHTTPError)
     case malformedResponse(String)
     /// An MDM profile forces `DisableCloud`; no request was attempted.
     case disabledByManagedPolicy
@@ -45,6 +48,8 @@ public enum VMClientError: Error, CustomStringConvertible {
                 """
         case .httpStatus(let code, let body):
             return formattedCloudVMHTTPError(status: code, body: body)
+        case .typedHTTPStatus(let error):
+            return error.displayText
         case .lifecycleUnsupported(let action):
             return """
                 This provider cannot \(action) machines.
@@ -73,6 +78,15 @@ public enum VMClientError: Error, CustomStringConvertible {
                 Details:
                   \(message)
                 """
+        }
+    }
+
+    /// The structured server contract used by Cloud control flow.
+    public var cloudHTTPError: CloudVMHTTPError? {
+        switch self {
+        case .typedHTTPStatus(let error): return error
+        case .httpStatus(let status, let body): return CloudVMHTTPError(status: status, body: body)
+        default: return nil
         }
     }
 }

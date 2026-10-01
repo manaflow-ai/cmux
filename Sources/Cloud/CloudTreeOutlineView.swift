@@ -574,7 +574,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             return nil
         }
-
+        func machineInfo(id: SurfaceMachineID) -> SurfaceMachineInfo? { CloudTreeNodeBuilder.flattened(nodes).compactMap { if case .machine(_, let info) = $0.kind, info?.id == id { info } else { nil } }.first }
         // MARK: Keyboard
 
         func moveSelection(by delta: Int) {
@@ -651,8 +651,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         private func menuItems(for node: CloudTreeNode) -> [NSMenuItem] {
             switch node.kind {
-            case .machine(let machine, _):
-                return machineMenuItems(machine)
+            case .machine(let machine, let info):
+                return machineMenuItems(machine, info: info)
             case .pendingMachine(let operation):
                 return pendingMachineMenuItems(operation)
             case .localMachine:
@@ -686,12 +686,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(openTitle) { [weak self] in self?.open(node) },
                     item(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) { [nodeActions] in nodeActions.newTerminal(machine, workspace.id) },
                     .separator(),
-                    item(String(localized: "cloudTree.menu.renameWorkspace", defaultValue: "Rename\u{2026}")) { [nodeActions] in nodeActions.renameWorkspace(machine, workspace) },
+                    item(String(localized: "cloudTree.menu.renameWorkspace", defaultValue: "Rename…")) { [nodeActions] in nodeActions.renameWorkspace(machine, workspace) },
                     item(String(localized: "cloudTree.menu.copyWorkspaceID", defaultValue: "Copy Workspace ID")) { [nodeActions] in nodeActions.copyToPasteboard(workspace.id) },
                     .separator(),
                     // One close verb, same path as the row's hover ×: the workspace and
                     // its terminals go together (nothing lingers as a pool row).
-                    item(String(localized: "cloudTree.menu.closeWorkspace", defaultValue: "Close Workspace\u{2026}")) { [nodeActions] in nodeActions.closeWorkspace(machine, workspace) },
+                    item(String(localized: "cloudTree.menu.closeWorkspace", defaultValue: "Close Workspace…")) { [nodeActions] in nodeActions.closeWorkspace(machine, workspace) },
                 ]
             case .localWorkspace(let row):
                 var items = [
@@ -721,15 +721,15 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     )
                     if canRename {
                         let title = if row.remoteView == nil {
-                            String(localized: "cloudTree.menu.renameTerminalAllViews", defaultValue: "Rename all views\u{2026}")
+                            String(localized: "cloudTree.menu.renameTerminalAllViews", defaultValue: "Rename all views…")
                         } else {
-                            String(localized: "cloudTree.menu.rename", defaultValue: "Rename\u{2026}")
+                            String(localized: "cloudTree.menu.renameTerminal", defaultValue: "Rename…")
                         }
                         items.append(item(title) { [nodeActions] in
                             nodeActions.renameTerminal(row.resource, row.remoteView)
                         })
                     }
-                    items.append(item(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal\u{2026}")) { [nodeActions] in nodeActions.closeTerminal(row.resource.id) })
+                    items.append(item(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal…")) { [nodeActions] in nodeActions.closeTerminal(row.resource.id) })
                 }
                 return items
             case .browser(let row):
@@ -763,7 +763,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return []
             case .placeholder(let machineID, _):
                 guard let machine = machine(id: machineID) else { return [] }
-                return machineMenuItems(machine)
+                return machineMenuItems(machine, info: machineInfo(id: machineID))
             case .device(let row):
                 return deviceMenuItems(machine: row.machine, canCreate: row.canCreateWorkspacesAndTerminals)
             case .devicesSection(let section), .devicesEmpty(let section):

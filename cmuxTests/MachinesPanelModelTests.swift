@@ -1166,7 +1166,14 @@ struct MachinesPanelListProblemTests {
             ) == .sessionRejected
         )
     }
-
+    @Test("A forbidden session also stops automatic Cloud reads")
+    func forbiddenSessionRoutesToReauth() {
+        #expect(
+            MachinesPanelViewModel.classifyListFailure(
+                .httpStatus(403, #"{"error":"forbidden"}"#)
+            ) == .sessionRejected
+        )
+    }
     @Test("A plan gate (402) routes to the Pro upsell")
     func planGateRoutesToPro() {
         #expect(
@@ -1175,7 +1182,6 @@ struct MachinesPanelListProblemTests {
             ) == .requiresPro
         )
     }
-
     @Test("Transient-shaped failures keep the retry-first unreachable state")
     func transientFailuresStayUnreachable() {
         #expect(
@@ -1193,7 +1199,6 @@ struct MachinesPanelListProblemTests {
             MachinesPanelViewModel.classifyListFailure(.malformedResponse("bad")) == .unreachable
         )
     }
-
     /// No "detached" pill anywhere (austin, 2026-08-31): a pool terminal with no
     /// view is just a row, one view is the normal state, and only several views
     /// earn a badge (a multiplier).
@@ -1205,7 +1210,6 @@ struct MachinesPanelListProblemTests {
         XCTAssertEqual(CloudTreeTerminalRowContent.multiplierBadge(5), 5)
     }
 }
-
 @Suite("Cloud machines paid-plan classification")
 struct MachinesPanelPaidPlanTests {
     @Test("Only plans the backend accepts for provisioning are paid", arguments: [
@@ -1215,7 +1219,6 @@ struct MachinesPanelPaidPlanTests {
     func onlyProvisioningPlansArePaid(planId: String, expected: Bool) {
         #expect(MachinePlanSnapshot.isPaidPlanID(planId) == expected)
     }
-
     @Test("A plan snapshot and the shared classifier agree")
     func planSnapshotUsesSharedClassifier() {
         let paid = MachineSnapshotBuilder.planSnapshot(
@@ -1229,7 +1232,6 @@ struct MachinesPanelPaidPlanTests {
         )
         #expect(unknown?.isPaidPlan == false)
     }
-
     @Test("vm_requires_pro without a server action still names the upgrade path")
     func requiresProErrorIncludesUpgradePathWhenServerOmitsAction() {
         let error = VMClientError.httpStatus(402, #"{"error":"vm_requires_pro"}"#)
@@ -1237,7 +1239,6 @@ struct MachinesPanelPaidPlanTests {
         #expect(error.description.contains("Upgrade to cmux Pro"))
     }
 }
-
 /// Pins the coderouter spend readout: the wire payload decodes into typed
 /// totals, rows key on the machine id the list already uses (`vmId` echoes
 /// `GET /api/vm` `id`), and an unavailable or empty readout renders nothing.
@@ -1357,7 +1358,6 @@ struct MachineUsageReadoutTests {
         var idle = machine("idle-owl")
         idle.usage = owl
         #expect(CloudTreeMachineRowContent(machine: idle).usageLine?.contains("0 tokens") == true)
-
         let fact = CloudTreeMachineRowContent(machine: withUsage, style: .compact).inlineFact
         #expect(fact?.contains(line) == true, "compact usage follows the name on the same line")
         #expect(CloudTreeMachineRowContent(machine: withUsage).toolTip.contains(line), "spend stays available on hover")

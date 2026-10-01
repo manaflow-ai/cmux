@@ -27,8 +27,8 @@ public enum CloudMachineAccessLoss: Equatable, Sendable {
     ///
     /// - Parameter error: An error thrown by ``VMClient``.
     public init?(error: Error) {
-        guard case let VMClientError.httpStatus(status, body) = error else { return nil }
-        self.init(status: status, body: body)
+        guard let typed = (error as? VMClientError)?.cloudHTTPError else { return nil }
+        self.init(status: typed.status, code: typed.code)
     }
 
     /// Classifies an HTTP status and response body; nil when transient.
@@ -37,7 +37,10 @@ public enum CloudMachineAccessLoss: Equatable, Sendable {
     ///   - status: The HTTP status code.
     ///   - body: The response body, whose JSON `error` field carries the code.
     public init?(status: Int, body: String) {
-        let code = Self.errorCode(body)
+        self.init(status: status, code: CloudVMHTTPError(status: status, body: body).code)
+    }
+
+    private init?(status: Int, code: String) {
         if code == "vm_owner_mismatch" {
             self = .ownerMismatch
         } else if status == 403 {
@@ -49,11 +52,4 @@ public enum CloudMachineAccessLoss: Equatable, Sendable {
         }
     }
 
-    private static func errorCode(_ body: String) -> String? {
-        guard let data = body.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let code = object["error"] as? String else { return nil }
-        let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
 }

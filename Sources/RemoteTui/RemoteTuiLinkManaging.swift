@@ -7,6 +7,7 @@ protocol RemoteTuiLinkManaging: Sendable {
     func connected(machineID: String) async throws -> CloudMachineLink.Connected
     func link(machineID: String) async -> CloudMachineLink?
     func status(machineID: String) async -> CloudMachineLinkManager.LinkStatus?
+    func resetRetry(machineID: String) async
     func privateAddresses(for machineID: String) async -> [String]
     func setPrivateAddresses(_ addresses: [String], for machineID: String) async
     func browserProxy(machineID: String) async throws -> CloudBrowserProxyEndpoint

@@ -13,6 +13,7 @@ public final class CloudTerminalAttachmentRetryScheduler {
     private let clock: any Clock<Duration>
     private var task: Task<Void, Never>?
     public private(set) var failures = 0
+    public private(set) var isStopped = false
 
     public init(
         policy: CloudTerminalAttachmentRetryPolicy = .background,
@@ -29,8 +30,12 @@ public final class CloudTerminalAttachmentRetryScheduler {
     /// armed retry is replaced, never duplicated. Returns the delay chosen.
     @discardableResult
     public func scheduleRetry(_ retry: @escaping @MainActor () -> Void) -> Duration {
+        guard !isStopped else { return .zero }
         failures += 1
-        let delay = policy.cappedDelay(afterFailures: failures)
+        guard let delay = policy.boundedDelay(afterFailures: failures) else {
+            stop()
+            return .zero
+        }
         task?.cancel()
         task = Task { @MainActor [weak self, clock] in
             do {
@@ -50,6 +55,14 @@ public final class CloudTerminalAttachmentRetryScheduler {
         task?.cancel()
         task = nil
         failures = 0
+        isStopped = false
+    }
+
+    /// Stops automatic attachment retries after a terminal VM/auth refusal.
+    public func stop() {
+        task?.cancel()
+        task = nil
+        isStopped = true
     }
 
     public func cancel() {

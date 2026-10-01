@@ -6,15 +6,9 @@ import CmuxFoundation
 import CmuxSettings
 import CmuxSurfaceCatalogModel
 import Foundation
-/// One cloud machine's resources: its cmux-tui terminals (over the headless link), its
-/// noVNC screen, and its forwarded ports. Terminals live in the machine's cmux-tui
-/// session, so a local pane closing never touches them (only local browser preparation is cancelled).
 @MainActor
 final class CmuxTuiSurfaceProvider: SurfaceProvider {
     let fileAccessTeamScope: AuthenticatedTeamScope?
-    /// The team that owns this machine, captured when the provider was
-    /// registered. Every control-plane call this provider makes names it, so a
-    /// Cloud surface keeps working after the selected team changes. Nil for SSH
     /// machines and legacy callers, which follow the selected team.
     let ownerTeamID: String?
     /// Set once the control plane answered that this user can no longer reach
@@ -23,7 +17,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     var hasLostAccess = false
     let machineID: String
     var machine: SurfaceMachineID { summary.machine }
-    private(set) var info: SurfaceMachineInfo
+    var info: SurfaceMachineInfo
     var summary: RemoteTuiMachine
     /// This machine's notification sync: VM rows in, local notifications and
     /// `notification.ack` round trips out. Fed after every accepted state.
@@ -267,6 +261,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             from: summary,
             linkState: linkState,
             linkError: linkError,
+            linkFailure: info.linkFailure,
             stats: nil,
             remoteWorkspaces: info.remoteWorkspaces,
             portDiscoveryState: portDiscovery.state
@@ -338,6 +333,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// One refresh pass. Sleeping machines retain their graph without being woken.
     func performRefresh(force: Bool) async -> Bool {
         guard !hasLostAccess else { return false }
+        if force { await links.resetRetry(machineID: machineID) }
         let lifecycle = lifecycleGeneration
         guard isCurrentLifecycleGeneration(lifecycle), isRegisteredInCatalog() else { return false }
         refreshGeneration &+= 1
@@ -418,6 +414,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         var linkState: SurfaceLinkState = .connected
         var linkError: String?
+        var linkFailure: SurfaceMachineLinkFailure? = info.linkFailure
         // A decoded snapshot is not automatically an authorization boundary. It
         // can lose an install race, or be older than the graph already accepted.
         // Callers must use only a graph established by this refresh as mutation
@@ -498,12 +495,19 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             ) else { return false }
         } catch {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
-            if CloudMachineAccessLoss(error: error) != nil {
+            if let typed = (error as? VMClientError)?.cloudHTTPError, typed.rejectsSession {
+                linkFailure = .sessionRejected
+                attachmentRetry.stop()
+            } else if CloudMachineAccessLoss(error: error) != nil {
                 // Retrying cannot succeed; a retry loop would only keep a frozen pane.
                 noteAccessLost()
                 return false
             }
             portDiscovery.linkFailed()
+            if let typed = (error as? VMClientError)?.cloudHTTPError {
+                linkFailure = typed.requiresRecreate ? .recreateRequired : (typed.rejectsSession ? .sessionRejected : (typed.admitsAutomaticRetry ? linkFailure : .terminal))
+                if typed.requiresRecreate || typed.rejectsSession || !typed.admitsAutomaticRetry { attachmentRetry.stop() }
+            }
             let status = await links.status(machineID: machineID)
             linkState = eventsFeedWarning == nil ? (status?.state ?? .error) : .error
             let text = eventsFeedWarning ?? status?.error ?? CloudMachineLink.errorText(error)
@@ -529,6 +533,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             from: summary,
             linkState: linkState,
             linkError: linkError,
+            linkFailure: linkFailure,
             stats: nil,
             remoteWorkspaces: remoteWorkspaces,
             portDiscoveryState: portDiscovery.state
@@ -1571,7 +1576,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         portsCache = (scan.ports, Date.now)
         return scan.ports
     }
-
     private func watchChanges(link: CloudMachineLink, generation: UInt64) {
         guard generation == lifecycleGeneration else { return }
         if let watchedLink, watchedLink === link, changeWatcher != nil { return }
@@ -1757,8 +1761,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         stateRecoveryRefreshQueued = false
         stateRecoveryCount = 0
     }
-    /// Mutations also request a snapshot as a safety check. One main-actor yield
-    /// coalesces calls made in the same transaction without adding a time guess.
+    func resetLinkFailureAfterRouteChange() { guard info.linkFailure != nil else { return }; info.linkFailure = nil; info.linkError = nil; info.linkState = .connecting; attachmentRetry.reset(); catalog.updateMachine(info, from: self) }
     func reconcileRemovedRemoteWorkspace(_ id: String) { info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }; catalog.updateMachine(info, from: self) }
     func scheduleRefresh(force: Bool = false) {
         let lifecycle = lifecycleGeneration
@@ -1810,7 +1813,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 }
-
 extension SurfaceMachineInfo {
     /// Copy for a failed remote graph refresh. State-specific failures take precedence over
     /// diagnostics because a missing graph is not necessarily a network failure. Internal
@@ -1831,7 +1833,6 @@ extension SurfaceMachineInfo {
             return message
         }
     }
-
     /// The same machine row with `previous`'s resource gauges, so a refresh that
     /// publishes before its stats read lands does not blank the sidebar gauges.
     func carryingGauges(from previous: SurfaceMachineInfo) -> SurfaceMachineInfo {
@@ -1843,7 +1844,6 @@ extension SurfaceMachineInfo {
         info.diskUsedMb = previous.diskUsedMb
         return info
     }
-
     func applyingGauges(_ stats: VMStats) -> SurfaceMachineInfo {
         var info = self
         info.memoryMb = stats.memoryTotalMb

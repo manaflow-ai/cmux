@@ -21,6 +21,7 @@ final class MachinesPanelViewModel: ObservableObject {
     @Published private(set) var isRecoveringList = false
     /// Consecutive transient failures before the first successful list read.
     private(set) var initialTransientFailureCount = 0
+    private(set) var cloudSessionRejected = false
     /// Per-machine coderouter spend from the last successful usage fetch.
     @Published private(set) var usageByMachineID: [String: MachineUsageSnapshot] = [:]
 
@@ -169,11 +170,15 @@ final class MachinesPanelViewModel: ObservableObject {
             Notification.Name.cmuxCloudVMAccessDidEnd,
             .cmuxCloudTeamScopeDidChange,
             .cmuxCloudTeamScopeReady,
+            VMClient.sessionRejectedNotification,
+            VMClient.sessionRecoveredNotification,
         ].map { name in
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    if name == .cmuxCloudVMAccessDidEnd { self.resetForAuthTransition() }
+                    if name == .cmuxCloudVMAccessDidEnd { self.cloudSessionRejected = false; self.resetForAuthTransition() }
+                    else if name == VMClient.sessionRejectedNotification { self.cloudSessionRejected = true; self.listProblem = .sessionRejected; self.pausePolling(); self.statsTask?.cancel(); self.statsTask = nil; self.usageTask?.cancel(); self.usageTask = nil }
+                    else if name == VMClient.sessionRecoveredNotification { self.cloudSessionRejected = false; self.listProblem = nil; if self.wantsPolling { self.startPolling() } }
                     else if name == .cmuxCloudTeamScopeDidChange { self.beginTeamScopeTransition() }
                     else { self.finishTeamScopeTransition() }
                 }
@@ -389,7 +394,6 @@ final class MachinesPanelViewModel: ObservableObject {
             self.scheduleFreeAccessTransition(now: now)
         }
     }
-
     /// Drop every locally cached machine and in-flight sample when auth ends.
     /// This is intentionally callable by the panel as well as the sign-out
     /// notification observer so a signed-out panel can never render a stale
@@ -417,6 +421,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Clears old-team rows as soon as auth announces a scope transition.
     private func beginTeamScopeTransition() {
         resetForAuthTransition()
+        if cloudSessionRejected { listProblem = .sessionRejected }
         machinePinStore?.refreshScope()
         awaitingCatalogScope = true
     }
@@ -426,9 +431,8 @@ final class MachinesPanelViewModel: ObservableObject {
     private func finishTeamScopeTransition() {
         awaitingCatalogScope = false
         readCatalog()
-        if wantsPolling { startPolling() }
+        if wantsPolling, !cloudSessionRejected { startPolling() }
     }
-
     /// Retire old requests before changing pin scope. Catalog discoveries are
     /// admitted again only after the shared registry refreshes the new account.
     @discardableResult
@@ -447,10 +451,9 @@ final class MachinesPanelViewModel: ObservableObject {
             self.treeTask = nil
         }
         treeTask = task
-        if wantsPolling { startPolling() }
+        if wantsPolling, !cloudSessionRejected { startPolling() }
         return task
     }
-
     func scopedCatalogSnapshot() -> SurfaceCatalogSnapshot {
         let snapshot = catalogProvider()
         guard awaitingCatalogScope else { return snapshot }
@@ -467,7 +470,6 @@ final class MachinesPanelViewModel: ObservableObject {
         scoped.pendingWorkspaceCreations = scoped.pendingWorkspaceCreations?.filter { allowed.contains($0.key) }
         return scoped
     }
-
     /// Read the current shared resource owner, retaining its resize and list fences.
     func applyResourceStats(machineIDs: Set<String>?) {
         guard isCloudEnabled(), let resourceStats else { return }
@@ -478,7 +480,6 @@ final class MachinesPanelViewModel: ObservableObject {
             if machines[index].stats != stats { machines[index].stats = stats }
         }
     }
-
     func pausePolling() {
         pollTask?.cancel(); pollTask = nil
         refreshTask?.cancel(); refreshTask = nil
@@ -495,7 +496,6 @@ final class MachinesPanelViewModel: ObservableObject {
         machineRefreshes.cancelAll()
         freeAccessTransitionTask?.cancel(); freeAccessTransitionTask = nil
     }
-
     func clearUnavailableMetrics() {
         if let resourceStats {
             for id in machineIndexByID.keys {
@@ -506,7 +506,6 @@ final class MachinesPanelViewModel: ObservableObject {
         usageByMachineID = [:]
         machines = MachineSnapshotBuilder.applyingUsage(to: machines, usage: [:])
     }
-
 
     func applyRefreshResult(_ result: Result<VMListPage, Error>, generation: UInt64, scope: String?) {
         guard generation == refreshGeneration, scope == machinePinStore?.scopeIdentifier, isCloudEnabled() else { return }
@@ -562,6 +561,7 @@ final class MachinesPanelViewModel: ObservableObject {
             }
             lastErrorDescription = String(describing: error)
             listProblem = Self.classifyListFailure(error)
+            if listProblem == .sessionRejected { pausePolling() }
         } catch {
             guard !Task.isCancelled, generation == refreshGeneration,
                   scope == machinePinStore?.scopeIdentifier else { return }

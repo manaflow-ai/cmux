@@ -160,7 +160,7 @@ struct VMClientReadCoalescingTests {
         await CloudRefreshURLProtocol.configure(.throttled)
         for _ in 0..<2 {
             do { _ = try await fixture.client.stats(id: "fixture-0"); Issue.record("throttle succeeded") }
-            catch VMClientError.httpStatus(429, _) {} catch { Issue.record("\(error)") }
+            catch let error as VMClientError where error.cloudHTTPError?.status == 429 {} catch { Issue.record("\(error)") }
         }
         #expect(await CloudRefreshURLProtocol.requestCounts().values.reduce(0, +) == 1)
         await CloudRefreshURLProtocol.configure(.normal)

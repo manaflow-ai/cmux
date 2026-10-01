@@ -8,7 +8,6 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 /// The socket face of the surface catalog, driven the way the CLI drives it: JSON-RPC
 /// lines into `handleSocketLine` from a socket-worker thread, against a fake cloud
 /// provider registered on the shared catalog. These pin behavior — what
@@ -31,7 +30,6 @@ struct SurfaceSocketCommandTests {
         #expect(error["code"] as? String == "vm_env_delivery_failed")
         #expect(error["message"] as? String == failure.localizedDescription)
     }
-
     @Test func emptyWorkspaceHasARetryableSocketCode() async throws {
         let response = await Task.detached {
             TerminalController.shared.v2VmCall(id: "empty-workspace", timeoutSeconds: 5) {
@@ -80,11 +78,13 @@ struct SurfaceSocketCommandTests {
         let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
         let error = try Self.error(object)
         let message = try #require(error["message"] as? String)
-        #expect(message.contains("Could not start the private connection"))
-        #expect(message.contains("vm_cloud_service_unavailable"))
-        #expect(message.contains("Retry the machine open shortly."))
-        #expect(message.contains("75b1fc0ad4068687505292b9a4a65f7d"))
+        #expect(message.contains("Cloud VM request failed (HTTP 502)"))
+        #expect(!message.contains("Could not start the private connection"))
+        #expect(!message.contains("vm_cloud_service_unavailable"))
+        #expect(!message.contains("Retry the machine open shortly."))
+        #expect(!message.contains("75b1fc0ad4068687505292b9a4a65f7d"))
         #expect((error["data"] as? [String: Any])?["retryable"] as? Bool == true)
+        #expect((error["data"] as? [String: Any])?["trace_id"] as? String == "75b1fc0ad4068687505292b9a4a65f7d")
         #expect(!response.contains("must-not-leak"))
     }
 

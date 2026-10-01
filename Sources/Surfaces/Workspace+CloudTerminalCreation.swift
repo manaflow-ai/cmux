@@ -19,6 +19,23 @@ import Foundation
 /// same grace a reconnect uses, and a failure is explained inside the pane with Retry.
 @MainActor
 extension Workspace {
+    /// Reuses the existing CLI fork/create path for a machine whose backend
+    /// state is terminally invalid. The attach policy is reset by the link
+    /// manager when the user acts again, so no automatic loop is reintroduced.
+    func recreateCloudMachine(_ machine: SurfaceMachineID) {
+        guard let machineID = machine.cloudMachineID, !machineID.isEmpty else { return }
+        let failureID = cloudPaneCreationFailureStore.failure?.id
+        CloudVMActionLauncher.shared.recreate(
+            machineID: machineID,
+            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+            onCompletion: { [weak self] completion in
+                guard completion.succeeded else { return }
+                guard let self, let failureID else { return }
+                self.cloudPaneCreationFailureStore.dismiss(id: failureID)
+            }
+        )
+    }
+
     /// The pane that initiated the request owns its error, regardless of later
     /// focus changes. A hidden source tab must not cover the tab replacing it.
     var cloudPaneCreationFailureSourceView: NSView? {

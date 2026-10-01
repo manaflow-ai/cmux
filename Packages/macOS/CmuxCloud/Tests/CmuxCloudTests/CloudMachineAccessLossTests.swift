@@ -10,6 +10,8 @@ struct CloudMachineAccessLossTests {
         #expect(CloudMachineAccessLoss(error: VMClientError.httpStatus(403, #"{"error":"forbidden"}"#)) == .forbidden)
         #expect(CloudMachineAccessLoss(error: VMClientError.httpStatus(403, "")) == .forbidden)
         #expect(CloudMachineAccessLoss(error: VMClientError.httpStatus(409, #"{"error":"vm_owner_mismatch"}"#)) == .ownerMismatch)
+        #expect(CloudMachineAccessLoss(error: VMClientError.typedHTTPStatus(CloudVMHTTPError(status: 404, body: #"{"error":"vm_not_found"}"#))) == .notFound)
+        #expect(CloudMachineAccessLoss(error: VMClientError.typedHTTPStatus(CloudVMHTTPError(status: 403, body: #"{"error":"forbidden"}"#))) == .forbidden)
     }
 
     @Test("Transient answers keep automatic reconnects", arguments: [

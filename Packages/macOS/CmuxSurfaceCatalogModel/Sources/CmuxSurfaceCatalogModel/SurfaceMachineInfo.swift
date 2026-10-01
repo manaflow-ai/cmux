@@ -12,6 +12,7 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
     public var diskMb: Int?
     public var linkState: SurfaceLinkState
     public var linkError: String?
+    public var linkFailure: SurfaceMachineLinkFailure?
     public var cpuPercent: Double?
     public var memoryUsedMb: Int?
     public var diskUsedMb: Int?
@@ -34,6 +35,7 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         diskMb: Int? = nil,
         linkState: SurfaceLinkState,
         linkError: String? = nil,
+        linkFailure: SurfaceMachineLinkFailure? = nil,
         cpuPercent: Double? = nil,
         memoryUsedMb: Int? = nil,
         diskUsedMb: Int? = nil,
@@ -51,6 +53,7 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         self.diskMb = diskMb
         self.linkState = linkState
         self.linkError = linkError
+        self.linkFailure = linkFailure
         self.cpuPercent = cpuPercent
         self.memoryUsedMb = memoryUsedMb
         self.diskUsedMb = diskUsedMb
@@ -61,7 +64,7 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, status, image, hasDesktop, memoryMb, diskMb, linkState, linkError
+        case id, name, status, image, hasDesktop, memoryMb, diskMb, linkState, linkError, linkFailure
         case cpuPercent, memoryUsedMb, diskUsedMb, remoteWorkspaces, privateAddress, presence
         case portDiscoveryState
     }
@@ -77,6 +80,7 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         diskMb = try values.decodeIfPresent(Int.self, forKey: .diskMb)
         linkState = try values.decode(SurfaceLinkState.self, forKey: .linkState)
         linkError = try values.decodeIfPresent(String.self, forKey: .linkError)
+        linkFailure = try values.decodeIfPresent(SurfaceMachineLinkFailure.self, forKey: .linkFailure)
         cpuPercent = try values.decodeIfPresent(Double.self, forKey: .cpuPercent)
         memoryUsedMb = try values.decodeIfPresent(Int.self, forKey: .memoryUsedMb)
         diskUsedMb = try values.decodeIfPresent(Int.self, forKey: .diskUsedMb)
@@ -97,6 +101,7 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         try values.encodeIfPresent(diskMb, forKey: .diskMb)
         try values.encode(linkState, forKey: .linkState)
         try values.encodeIfPresent(linkError, forKey: .linkError)
+        try values.encodeIfPresent(linkFailure, forKey: .linkFailure)
         try values.encodeIfPresent(cpuPercent, forKey: .cpuPercent)
         try values.encodeIfPresent(memoryUsedMb, forKey: .memoryUsedMb)
         try values.encodeIfPresent(diskUsedMb, forKey: .diskUsedMb)
@@ -106,4 +111,3 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         try values.encode(portDiscoveryState, forKey: .portDiscoveryState)
     }
 }
-

@@ -262,8 +262,6 @@ struct CloudWorkspaceLiveProjectionTests {
         #expect(catalog.projections == [first.projection])
     }
 
-    /// Reconcile reprojects through `project`, so a reuse that rewrites unchanged
-    /// coordinates would request its own next pass and spin the main actor.
     @Test("Reusing a projection at its current placement changes nothing")
     func reusingCurrentPlacementIsNoOp() async throws {
         let fixture = boundWorkspaceFixture()
@@ -287,7 +285,6 @@ struct CloudWorkspaceLiveProjectionTests {
         #expect(catalog.projectionVersions[machine] == version)
     }
 
-    /// Any consumer that requests another pass without changing the graph (the
     /// nightly b36a9b3 livelock) must end in a bounded number of passes.
     @Test("Reconciling one graph stops when every pass requests another")
     func reconcileOfOneGraphIsBounded() async throws {

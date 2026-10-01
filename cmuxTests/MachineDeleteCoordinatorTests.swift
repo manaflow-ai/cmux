@@ -181,7 +181,7 @@ struct MachineDeleteCoordinatorTests {
         let coordinator = fixture.makeCoordinator()
         let missing = Task { try await coordinator.destroy(id: "gone") }
         try await fixture.waitForRequest()
-        fixture.answer(throwing: VMClientError.httpStatus(404, "vm_not_found"))
+        fixture.answer(throwing: VMClientError.typedHTTPStatus(CloudVMHTTPError(status: 404, body: #"{"error":"vm_not_found"}"#)))
         let missingWasGone = try await missing.value
         #expect(missingWasGone, "A machine the provider forgot is gone, never an error")
         #expect(fixture.retired == ["gone"])
