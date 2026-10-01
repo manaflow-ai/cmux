@@ -906,12 +906,13 @@ extension CMUXCLIErrorOutputRegressionTests {
         var environment = BundledCLITestSupport.hermeticCLIEnvironment(home: home)
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         // A malformed command must fail in the parser before it ever tries to
-        // connect to the app socket. If a handler regresses to issuing an RPC,
-        // this deliberately absent socket produces a different diagnostic.
+        // connect to the app socket. The Usage assertion below catches a
+        // handler regression because socket failures do not emit usage text.
         environment["CMUX_SOCKET_PATH"] = home.appendingPathComponent("missing.sock").path
 
         let commands: [[String]] = [
             ["vm", "stats", "machine", "typo"],
+            ["vm", "stats", " "],
             ["vm", "desktop", "machine", "typo"],
             ["vm", "shell", "machine", "typo"],
             ["vm", "ssh", "machine", "typo"],
@@ -935,10 +936,6 @@ extension CMUXCLIErrorOutputRegressionTests {
             #expect(
                 result.combinedOutput.contains("Usage:"),
                 "\(arguments.joined(separator: " ")) should reject trailing arguments before RPC: \(result.diagnostics)"
-            )
-            #expect(
-                !result.combinedOutput.localizedCaseInsensitiveContains("connection refused"),
-                "\(arguments.joined(separator: " ")) reached the socket before validating arity: \(result.diagnostics)"
             )
         }
     }

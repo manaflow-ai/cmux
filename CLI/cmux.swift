@@ -4622,7 +4622,10 @@ struct CMUXCLI {
     /// `first` here is dangerous: a typo or an extra token would otherwise be
     /// silently ignored while the command still opens or queries a VM.
     static func requireSingleCloudVMID(_ args: [String], usage: String) throws -> String {
-        guard args.count == 1, let vmID = args.first, !isFlagToken(vmID) else {
+        guard args.count == 1,
+              let vmID = args.first,
+              !vmID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !isFlagToken(vmID) else {
             throw CLIError(message: usage)
         }
         return vmID
