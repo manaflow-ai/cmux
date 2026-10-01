@@ -142,3 +142,21 @@ dbTest("event records: processed stays processed, failures and invalid bodies st
   await mirror.recordEvent({ svixId: "msg_2", eventType: "team.created", outcome: "invalid" });
   expect(await mirror.isEventProcessed("msg_2")).toBe(false);
 });
+
+dbTest("snapshot writes skip entities the mirror wrote or tombstoned after the snapshot started", async () => {
+  const mirror = store();
+  const snapshotStartedAt = new Date();
+  await sleep(5);
+  await mirror.reconcileUser(USER_ID, async () => present({ user: serverUser({ display_name: "fresh" }), teams: [], teamPermissions: [] }));
+  await mirror.reconcileTeam(OTHER_TEAM_ID, async () => null);
+  const staleUser = present() as Extract<HexclaveUserState, { kind: "present" }>;
+  expect(await mirror.applySnapshotUser(staleUser, snapshotStartedAt)).toBe(false);
+  expect(await mirror.applySnapshotTeam(serverTeam({ id: OTHER_TEAM_ID }), snapshotStartedAt)).toBe(false);
+  const [user] = await sql`select display_name from hexclave_users where id = ${USER_ID}`;
+  expect(user!.display_name).toBe("fresh");
+  expect(await sql`select count(*)::int as n from hexclave_teams where id = ${OTHER_TEAM_ID}`).toEqual([{ n: 0 }]);
+  // A later snapshot is not older than those writes, so it applies.
+  expect(await mirror.applySnapshotTeam(serverTeam(), new Date())).toBe(true);
+  expect(await mirror.applySnapshotUser(staleUser, new Date())).toBe(true);
+  expect(await sql`select team_id from hexclave_team_memberships`).toEqual([{ team_id: TEAM_ID }]);
+});

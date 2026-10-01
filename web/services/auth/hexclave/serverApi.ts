@@ -29,6 +29,16 @@ export type HexclaveSource = {
   readonly listUserProjectPermissions: (userId: string) => Promise<readonly HexclaveProjectPermission[]>;
   readonly listUsersPage: (cursor: string | null, limit: number) => Promise<HexclavePage<HexclaveServerUser>>;
   readonly listTeamsPage: (cursor: string | null, limit: number) => Promise<HexclavePage<HexclaveServerTeam>>;
+  /** One page of a team's direct members (all users, anonymous included). */
+  readonly listTeamMembersPage: (
+    teamId: string,
+    cursor: string | null,
+    limit: number,
+  ) => Promise<HexclavePage<HexclaveServerUser>>;
+  /** Every direct team permission in the project, in one unpaged call. */
+  readonly listAllTeamPermissions: () => Promise<readonly HexclaveTeamPermission[]>;
+  /** Every direct project permission in the project, in one unpaged call. */
+  readonly listAllProjectPermissions: () => Promise<readonly HexclaveProjectPermission[]>;
 };
 
 /** A Hexclave answer that is not the expected schema, or a non-2xx status. Retryable from the webhook's view. */
@@ -90,7 +100,15 @@ export function createHexclaveServerApi(config: HexclaveServerApiConfig): Hexcla
 
   async function request(path: string, query: Record<string, string | undefined> = {}): Promise<Response> {
     for (let attempt = 0; ; attempt += 1) {
-      const response = await requestOnce(path, query);
+      let response: Response;
+      try {
+        response = await requestOnce(path, query);
+      } catch (error) {
+        // A timeout or network failure on an idempotent GET is retried like a 5xx.
+        if (attempt >= retries) throw error;
+        await sleep(Math.min(500 * 2 ** attempt, 30_000));
+        continue;
+      }
       if ((response.status !== 429 && response.status < 500) || attempt >= retries) return response;
       await response.body?.cancel();
       await sleep(hexclaveRetryDelayMs(response, attempt));
@@ -167,6 +185,19 @@ export function createHexclaveServerApi(config: HexclaveServerApiConfig): Hexcla
       });
       return { items: page.items, nextCursor: page.pagination?.next_cursor ?? null };
     },
+    listTeamMembersPage: async (teamId, cursor, limit) => {
+      const page = await readList(userListSchema, "/users", {
+        team_id: teamId,
+        limit: String(limit),
+        cursor: cursor ?? undefined,
+        include_anonymous: "true",
+      });
+      return { items: page.items, nextCursor: page.pagination?.next_cursor ?? null };
+    },
+    listAllTeamPermissions: async () =>
+      (await readList(teamPermissionListSchema, "/team-permissions", { recursive: "false" })).items,
+    listAllProjectPermissions: async () =>
+      (await readList(projectPermissionListSchema, "/project-permissions", { recursive: "false" })).items,
     listTeamsPage: async (cursor, limit) => {
       const page = await readList(teamListSchema, "/teams", { limit: String(limit), cursor: cursor ?? undefined });
       return { items: page.items, nextCursor: page.pagination?.next_cursor ?? null };

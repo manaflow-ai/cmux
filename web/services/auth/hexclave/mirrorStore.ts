@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, notInArray, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, notInArray, sql } from "drizzle-orm";
 import type { cloudDb } from "../../../db/client";
 import {
   hexclaveProjectPermissions,
@@ -59,6 +59,16 @@ export type HexclaveMirrorStore = {
   ) => Promise<TeamReconcileResult>;
   /** Every user and team id the mirror holds, for the backfill's prune pass. */
   readonly listMirroredIds: () => Promise<{ readonly userIds: readonly string[]; readonly teamIds: readonly string[] }>;
+  /**
+   * Backfill writes from a bulk snapshot read before the lock. Each skips the
+   * entity (returns false) when the mirror wrote it, or tombstoned it, at or
+   * after `snapshotStartedAt`: that write came from a fresher read.
+   */
+  readonly applySnapshotTeam: (team: HexclaveServerTeam, snapshotStartedAt: Date) => Promise<boolean>;
+  readonly applySnapshotUser: (
+    state: Extract<HexclaveUserState, { kind: "present" }>,
+    snapshotStartedAt: Date,
+  ) => Promise<boolean>;
   readonly isEventProcessed: (svixId: string) => Promise<boolean>;
   readonly recordEvent: (input: {
     readonly svixId: string;
@@ -206,6 +216,46 @@ async function writePresentUser(
   return liveTeamIds;
 }
 
+async function lockUserAndTeams(tx: Tx, userId: string, sourceTeamIds: readonly string[]): Promise<string[]> {
+  await lock(tx, userLockKey(userId));
+  const previousTeamIds = await mirrorTeamIdsForUser(tx, userId);
+  for (const teamId of [...new Set([...previousTeamIds, ...sourceTeamIds])].sort()) {
+    await lock(tx, teamLockKey(teamId));
+  }
+  return previousTeamIds;
+}
+
+/** True when the mirror wrote or tombstoned this entity at or after `since`. */
+async function writtenSince(
+  tx: Tx,
+  entity: "user" | "team",
+  id: string,
+  since: Date,
+): Promise<boolean> {
+  const table = entity === "user" ? hexclaveUsers : hexclaveTeams;
+  const rows = await tx
+    .select({ id: table.id })
+    .from(table)
+    .where(and(eq(table.id, id), gte(table.syncedAt, since)))
+    .limit(1);
+  if (rows.length > 0) return true;
+  const tombstones = await tx
+    .select({ id: hexclaveTombstones.entityId })
+    .from(hexclaveTombstones)
+    .where(and(
+      eq(hexclaveTombstones.entityType, entity),
+      eq(hexclaveTombstones.entityId, id),
+      gte(hexclaveTombstones.deletedAt, since),
+    ))
+    .limit(1);
+  return tombstones.length > 0;
+}
+
+async function writePresentTeam(tx: Tx, team: HexclaveServerTeam, at: Date): Promise<void> {
+  await tx.delete(hexclaveTombstones).where(and(eq(hexclaveTombstones.entityType, "team"), eq(hexclaveTombstones.entityId, team.id)));
+  await tx.insert(hexclaveTeams).values(teamRow(team, at)).onConflictDoUpdate({ target: hexclaveTeams.id, set: excludedTeam });
+}
+
 async function mirrorTeamIdsForUser(tx: Tx, userId: string): Promise<string[]> {
   const rows = await tx
     .select({ teamId: hexclaveTeamMemberships.teamId })
@@ -220,11 +270,9 @@ export function createDrizzleHexclaveMirrorStore(db: () => Db, now: () => Date =
       await lock(tx, userLockKey(userId));
       const state = await read();
       if (state.kind === "present" && state.user.id !== userId) throw new Error("Hexclave returned a different user");
-      const previousTeamIds = await mirrorTeamIdsForUser(tx, userId);
       const sourceTeamIds = state.kind === "present" ? state.teams.map((team) => team.id) : [];
-      for (const teamId of [...new Set([...previousTeamIds, ...sourceTeamIds])].sort()) {
-        await lock(tx, teamLockKey(teamId));
-      }
+      // Re-entrant: the user lock is already held by this transaction.
+      const previousTeamIds = await lockUserAndTeams(tx, userId, sourceTeamIds);
       const at = now();
       if (state.kind === "gone") {
         await writeGoneUser(tx, userId, at);
@@ -249,9 +297,22 @@ export function createDrizzleHexclaveMirrorStore(db: () => Db, now: () => Date =
         await tx.delete(hexclaveTeams).where(eq(hexclaveTeams.id, teamId));
         return { team: null, memberIds };
       }
-      await tx.delete(hexclaveTombstones).where(and(eq(hexclaveTombstones.entityType, "team"), eq(hexclaveTombstones.entityId, teamId)));
-      await tx.insert(hexclaveTeams).values(teamRow(team, at)).onConflictDoUpdate({ target: hexclaveTeams.id, set: excludedTeam });
+      await writePresentTeam(tx, team, at);
       return { team, memberIds };
+    }),
+
+    applySnapshotTeam: (team, snapshotStartedAt) => db().transaction(async (tx) => {
+      await lock(tx, teamLockKey(team.id));
+      if (await writtenSince(tx, "team", team.id, snapshotStartedAt)) return false;
+      await writePresentTeam(tx, team, now());
+      return true;
+    }),
+
+    applySnapshotUser: (state, snapshotStartedAt) => db().transaction(async (tx) => {
+      await lockUserAndTeams(tx, state.user.id, state.teams.map((team) => team.id));
+      if (await writtenSince(tx, "user", state.user.id, snapshotStartedAt)) return false;
+      await writePresentUser(tx, state, now());
+      return true;
     }),
 
     listMirroredIds: async () => {

@@ -62,8 +62,24 @@ export class FakeHexclave implements HexclaveSource {
     this.check(`listUserProjectPermissions:${userId}`);
     return this.projectPermissions.filter((p) => p.user_id === userId);
   };
-  listUsersPage = async (cursor: string | null, limit: number) => page([...this.users.values()], cursor, limit);
-  listTeamsPage = async (cursor: string | null, limit: number) => page([...this.teams.values()], cursor, limit);
+  listUsersPage = async (cursor: string | null, limit: number) => {
+    this.check("listUsersPage");
+    return page([...this.users.values()], cursor, limit);
+  };
+  listTeamsPage = async (cursor: string | null, limit: number) => {
+    this.check("listTeamsPage");
+    return page([...this.teams.values()], cursor, limit);
+  };
+  listTeamMembersPage = async (teamId: string, cursor: string | null, limit: number) => {
+    this.check(`listTeamMembersPage:${teamId}`);
+    const members = [...this.memberships]
+      .filter((key) => key.startsWith(`${teamId}:`))
+      .map((key) => this.users.get(key.split(":")[1]!))
+      .filter((user): user is HexclaveServerUser => !!user);
+    return page(members, cursor, limit);
+  };
+  listAllTeamPermissions = async () => { this.check("listAllTeamPermissions"); return [...this.teamPermissions]; };
+  listAllProjectPermissions = async () => { this.check("listAllProjectPermissions"); return [...this.projectPermissions]; };
 }
 
 function page<T extends { id: string }>(items: T[], cursor: string | null, limit: number) {
@@ -97,6 +113,7 @@ export class MemoryMirror implements HexclaveMirrorStore {
   reconcileUser: HexclaveMirrorStore["reconcileUser"] = async (userId, read) => {
     const state = await read();
     const previousTeamIds = this.teamIdsFor(userId);
+    this.writtenAt.set(`user:${userId}`, this.clock());
     if (state.kind === "gone") {
       this.tombstones.add(`user:${userId}`);
       this.dropUser(userId);
@@ -116,6 +133,7 @@ export class MemoryMirror implements HexclaveMirrorStore {
 
   reconcileTeam: HexclaveMirrorStore["reconcileTeam"] = async (teamId, read) => {
     const team = await read();
+    this.writtenAt.set(`team:${teamId}`, this.clock());
     const memberIds = [...this.memberships].filter((key) => key.startsWith(`${teamId}:`)).map((key) => key.split(":")[1]!);
     if (!team) {
       this.tombstones.add(`team:${teamId}`);
@@ -127,6 +145,24 @@ export class MemoryMirror implements HexclaveMirrorStore {
     this.tombstones.delete(`team:${teamId}`);
     this.teams.set(teamId, team);
     return { team, memberIds };
+  };
+
+  /** Entity id -> time the mirror last wrote or tombstoned it (for the snapshot guard). */
+  writtenAt = new Map<string, number>();
+  clock = () => Date.now();
+
+  applySnapshotTeam: HexclaveMirrorStore["applySnapshotTeam"] = async (team, since) => {
+    if ((this.writtenAt.get(`team:${team.id}`) ?? -Infinity) >= since.getTime()) return false;
+    this.tombstones.delete(`team:${team.id}`);
+    this.teams.set(team.id, team);
+    this.writtenAt.set(`team:${team.id}`, this.clock());
+    return true;
+  };
+
+  applySnapshotUser: HexclaveMirrorStore["applySnapshotUser"] = async (state, since) => {
+    if ((this.writtenAt.get(`user:${state.user.id}`) ?? -Infinity) >= since.getTime()) return false;
+    await this.reconcileUser(state.user.id, async () => state);
+    return true;
   };
 
   listMirroredIds: HexclaveMirrorStore["listMirroredIds"] = async () => ({

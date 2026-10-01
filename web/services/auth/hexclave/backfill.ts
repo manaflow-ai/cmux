@@ -1,5 +1,5 @@
 import type { HexclaveMirrorStore } from "./mirrorStore";
-import type { HexclavePage, HexclaveSource } from "./serverApi";
+import type { HexclavePage, HexclaveServerTeam, HexclaveSource } from "./serverApi";
 import { readHexclaveUserState } from "./sync";
 
 export type HexclaveBackfillOptions = {
@@ -17,53 +17,96 @@ export type HexclaveBackfillSummary = {
   readonly memberships: number;
   readonly teamPermissions: number;
   readonly projectPermissions: number;
+  /** Entities skipped because a webhook wrote them from a fresher read during the run. */
+  readonly skippedFresher: number;
   /** Mirror rows Hexclave no longer lists, reconciled (and so removed) in this run. */
   readonly pruned: number;
   readonly dryRun: boolean;
 };
 
 /**
- * Page every Hexclave team and user into the mirror through the same
- * reconcile path the webhook uses (same locks, same tombstones), so it is
- * idempotent and safe to run while webhooks arrive. Teams go first so user
- * reconciles find fresh team rows. Mirror rows Hexclave no longer lists are
- * reconciled last, which removes them. It never revokes access or
- * invalidates identity snapshots: those are webhook side effects.
+ * Fill the mirror from bulk Hexclave reads instead of per-user reads:
+ *
+ * - teams and users: their paged lists (validated server objects, written as is);
+ * - memberships: each team's paged member list (Hexclave has no bulk
+ *   membership list and users carry no team list), one call per team page;
+ * - team and project permissions: one unpaged project-wide call each.
+ *
+ * The snapshot is read before any lock, so each write skips an entity that a
+ * webhook reconcile wrote or tombstoned after the snapshot started (its read
+ * is fresher). Mirror rows Hexclave no longer lists are then reconciled one by
+ * one through the webhook path, which removes them. It is idempotent, safe
+ * while webhooks arrive, and never revokes access or invalidates snapshots.
  */
 export async function backfillHexclaveMirror(options: HexclaveBackfillOptions): Promise<HexclaveBackfillSummary> {
   const log = options.log ?? (() => {});
-  const counts = { teams: 0, users: 0, memberships: 0, teamPermissions: 0, projectPermissions: 0, pruned: 0 };
-  const seenTeams = new Set<string>();
+  const { source, store, concurrency, pageSize } = options;
+  const snapshotStartedAt = new Date();
+  const counts = { teams: 0, users: 0, memberships: 0, teamPermissions: 0, projectPermissions: 0, skippedFresher: 0, pruned: 0 };
+  const skipUnlessApplied = (applied: boolean) => { if (!applied) counts.skippedFresher += 1; };
+
+  const teams = new Map<string, HexclaveServerTeam>();
+  await forEachPage((cursor, limit) => source.listTeamsPage(cursor, limit), pageSize, async (team) => {
+    teams.set(team.id, team);
+    if (store) skipUnlessApplied(await store.applySnapshotTeam(team, snapshotStartedAt));
+  }, concurrency, (n) => log(`teams: ${n}`));
+  counts.teams = teams.size;
+
+  const teamsByUser = new Map<string, HexclaveServerTeam[]>();
+  await runBounded([...teams.values()], concurrency, (team) =>
+    forEachPage((cursor, limit) => source.listTeamMembersPage(team.id, cursor, limit), MEMBER_PAGE_SIZE, async (member) => {
+      const list = teamsByUser.get(member.id) ?? [];
+      list.push(team);
+      teamsByUser.set(member.id, list);
+      counts.memberships += 1;
+    }, 1, () => {}));
+  log(`memberships: ${counts.memberships}`);
+
+  const [teamPermissions, projectPermissions] = await Promise.all([
+    source.listAllTeamPermissions(),
+    source.listAllProjectPermissions(),
+  ]);
+  counts.teamPermissions = teamPermissions.length;
+  counts.projectPermissions = projectPermissions.length;
+  const teamPermissionsByUser = groupByUser(teamPermissions);
+  const projectPermissionsByUser = groupByUser(projectPermissions);
+
   const seenUsers = new Set<string>();
-
-  await forEachPage(options.source.listTeamsPage, options.pageSize, async (team) => {
-    seenTeams.add(team.id);
-    counts.teams += 1;
-    await options.store?.reconcileTeam(team.id, () => options.source.getTeam(team.id));
-  }, options.concurrency, (n) => log(`teams: ${n}`));
-
-  await forEachPage(options.source.listUsersPage, options.pageSize, async (user) => {
+  await forEachPage((cursor, limit) => source.listUsersPage(cursor, limit), pageSize, async (user) => {
     seenUsers.add(user.id);
-    const state = options.store
-      ? (await options.store.reconcileUser(user.id, () => readHexclaveUserState(options.source, user.id))).state
-      : await readHexclaveUserState(options.source, user.id);
-    if (state.kind !== "present") return;
-    counts.users += 1;
-    counts.memberships += state.teams.length;
-    counts.teamPermissions += state.teamPermissions.length;
-    counts.projectPermissions += state.projectPermissions.length;
-  }, options.concurrency, (n) => log(`users: ${n}`));
+    if (!store) return;
+    skipUnlessApplied(await store.applySnapshotUser({
+      kind: "present",
+      user,
+      teams: teamsByUser.get(user.id) ?? [],
+      teamPermissions: teamPermissionsByUser.get(user.id) ?? [],
+      projectPermissions: projectPermissionsByUser.get(user.id) ?? [],
+    }, snapshotStartedAt));
+  }, concurrency, (n) => log(`users: ${n}`));
+  counts.users = seenUsers.size;
 
-  if (options.store) {
-    const store = options.store;
+  if (store) {
     const mirrored = await store.listMirroredIds();
-    const staleTeams = mirrored.teamIds.filter((id) => !seenTeams.has(id));
+    const staleTeams = mirrored.teamIds.filter((id) => !teams.has(id));
     const staleUsers = mirrored.userIds.filter((id) => !seenUsers.has(id));
-    await runBounded(staleTeams, options.concurrency, (id) => store.reconcileTeam(id, () => options.source.getTeam(id)));
-    await runBounded(staleUsers, options.concurrency, (id) => store.reconcileUser(id, () => readHexclaveUserState(options.source, id)));
+    await runBounded(staleTeams, concurrency, (id) => store.reconcileTeam(id, () => source.getTeam(id)));
+    await runBounded(staleUsers, concurrency, (id) => store.reconcileUser(id, () => readHexclaveUserState(source, id)));
     counts.pruned = staleTeams.length + staleUsers.length;
   }
-  return { ...counts, dryRun: options.store === null };
+  return { ...counts, dryRun: store === null };
+}
+
+/** Hexclave's maximum page size for user lists. */
+const MEMBER_PAGE_SIZE = 1000;
+
+function groupByUser<T extends { readonly user_id: string }>(items: readonly T[]): Map<string, T[]> {
+  const grouped = new Map<string, T[]>();
+  for (const item of items) {
+    const list = grouped.get(item.user_id) ?? [];
+    list.push(item);
+    grouped.set(item.user_id, list);
+  }
+  return grouped;
 }
 
 async function forEachPage<T>(

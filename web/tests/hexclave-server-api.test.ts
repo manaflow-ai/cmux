@@ -16,6 +16,7 @@ function api(replies: Reply[], options: { retries?: number } = {}) {
     fetch: (async (input: URL, init?: RequestInit) => {
       requests.push({ url: new URL(input), headers: new Headers(init?.headers) });
       const reply = replies.shift() ?? { status: 500 };
+      if (reply.status === -1) throw new DOMException("The operation timed out.", "TimeoutError");
       return new Response(reply.body === undefined ? null : JSON.stringify(reply.body), {
         status: reply.status ?? 200,
         headers: reply.headers,
@@ -55,6 +56,8 @@ describe("Hexclave server API", () => {
     expect(await source.listUserTeams(USER_ID)).toEqual([serverTeam()]);
     expect(slept).toEqual([2_000, 1_000]);
     await expect(api([{ status: 503 }, { status: 503 }], { retries: 1 }).source.getTeam(TEAM_ID)).rejects.toThrow("failed");
+    expect(await api([{ status: -1 }, { body: serverTeam() }], { retries: 1 }).source.getTeam(TEAM_ID)).toEqual(serverTeam());
+    await expect(api([{ status: -1 }, { status: -1 }], { retries: 1 }).source.getTeam(TEAM_ID)).rejects.toThrow("timed out");
   });
 
   test("lists direct permissions and pages users with cursors", async () => {
@@ -66,5 +69,19 @@ describe("Hexclave server API", () => {
     expect(requests[0]!.url.searchParams.get("recursive")).toBe("false");
     expect(await source.listUsersPage(null, 50)).toEqual({ items: [serverUser()], nextCursor: USER_ID });
     expect(Object.fromEntries(requests[1]!.url.searchParams)).toEqual({ limit: "50", include_anonymous: "true" });
+  });
+
+  test("bulk lists: a team's members and project-wide direct permissions", async () => {
+    const { source, requests } = api([
+      { body: { items: [serverUser()], is_paginated: true, pagination: { next_cursor: null } } },
+      { body: { items: [teamPermission()], is_paginated: false } },
+      { body: { items: [], is_paginated: false } },
+    ]);
+    expect(await source.listTeamMembersPage(TEAM_ID, null, 1000)).toEqual({ items: [serverUser()], nextCursor: null });
+    expect(Object.fromEntries(requests[0]!.url.searchParams)).toEqual({ team_id: TEAM_ID, limit: "1000", include_anonymous: "true" });
+    expect(await source.listAllTeamPermissions()).toEqual([teamPermission()]);
+    expect(Object.fromEntries(requests[1]!.url.searchParams)).toEqual({ recursive: "false" });
+    expect(await source.listAllProjectPermissions()).toEqual([]);
+    expect(requests[2]!.url.pathname).toBe("/api/v1/project-permissions");
   });
 });

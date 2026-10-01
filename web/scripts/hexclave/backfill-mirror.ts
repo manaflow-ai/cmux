@@ -11,9 +11,11 @@
  *   STACK_SECRET_SERVER_KEY=<server key> \
  *   bun run hexclave:backfill-mirror -- [--dry-run] [--concurrency 2] [--page-size 200]
  *
- * It uses the webhook's reconcile path (same locks and tombstones), so it is
- * idempotent, safe to rerun, and safe while webhooks arrive. It removes mirror
- * rows Hexclave no longer lists. It never revokes access or invalidates
+ * It reads in bulk (team and user pages, one member list per team, one
+ * project-wide call each for team and project permissions) and writes under
+ * the webhook's locks, skipping any entity a webhook wrote after the snapshot
+ * started. It is idempotent, safe to rerun, and safe while webhooks arrive. It
+ * removes mirror rows Hexclave no longer lists. It never revokes access or invalidates
  * identity snapshots. `--dry-run` makes and validates every Hexclave read but
  * does not open the database. The mirror migration must be applied first.
  */
@@ -49,15 +51,25 @@ async function main(): Promise<void> {
     throw new Error("DATABASE_URL is required unless --dry-run is set");
   }
 
+  let apiRequests = 0;
+  let rateLimited = 0;
+  const countingFetch: typeof fetch = async (input, init) => {
+    apiRequests += 1;
+    const response = await fetch(input, init);
+    if (response.status === 429) rateLimited += 1;
+    return response;
+  };
+  const startedAt = performance.now();
   const summary = await backfillHexclaveMirror({
-    source: createHexclaveServerApi({ projectId, secretServerKey, retries: 8 }),
+    source: createHexclaveServerApi({ projectId, secretServerKey, retries: 8, fetch: countingFetch }),
     store: dryRun ? null : createDrizzleHexclaveMirrorStore(cloudDb),
     concurrency: boundedInteger(values.concurrency, "concurrency", 2, 16),
     // Hexclave caps team pages at 200 and user pages at 1000.
     pageSize: boundedInteger(values["page-size"], "page-size", 200, 200),
     log: (message) => console.error(`[hexclave-backfill] ${message}`),
   });
-  console.log(JSON.stringify({ projectId, ...summary }, null, 2));
+  const elapsedSeconds = Math.round((performance.now() - startedAt) / 100) / 10;
+  console.log(JSON.stringify({ projectId, ...summary, apiRequests, rateLimited, elapsedSeconds }, null, 2));
 }
 
 try {
