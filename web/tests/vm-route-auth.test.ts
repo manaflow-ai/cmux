@@ -1399,15 +1399,15 @@ describe("VM REST auth", () => {
       displayName: "Ada Lovelace",
     });
     runVmWorkflow.mockResolvedValue([
-      { providerVmId: "mine", provider: "freestyle", image: "sh-fb3dcf7b47894114889b10186626af5b", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000, createdByUserId: "user-1" },
-      { providerVmId: "theirs", provider: "freestyle", image: "sh-fb3dcf7b47894114889b10186626af5b", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000, createdByUserId: "user-2" },
+      { providerVmId: "mine", provider: "freestyle", image: "sh-fb3dcf7b47894114889b10186626af5b", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000, createdByUserId: "user-1", cmuxTuiContract: "snapshot-v2" },
+      { providerVmId: "theirs", provider: "freestyle", image: "sh-fb3dcf7b47894114889b10186626af5b", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000, createdByUserId: "user-2", cmuxTuiContract: null },
     ]);
     const response = await GET(new Request("https://cmux.test/api/vm"));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       vms: [
-        { id: "mine", createdBy: { userId: "user-1", displayName: "Ada Lovelace" } },
-        { id: "theirs", createdBy: { userId: "user-2", displayName: null } },
+        { id: "mine", createdBy: { userId: "user-1", displayName: "Ada Lovelace" }, cmuxTuiContract: "snapshot-v2" },
+        { id: "theirs", createdBy: { userId: "user-2", displayName: null }, cmuxTuiContract: null },
       ],
     });
   });
@@ -2133,6 +2133,7 @@ describe("VM REST auth", () => {
       slug: "giddy-cherry-emu",
       addressIpv4: "10.16.170.11",
       addressIpv6: null,
+      cmuxTuiContract: "snapshot-v2",
     });
     const response = await vmIdRoute.GET(
       new Request("https://cmux.test/api/vm/provider-vm-status"),
@@ -2145,6 +2146,7 @@ describe("VM REST auth", () => {
       kind: "desktop",
       capabilities: vmCapabilitiesFor("freestyle"),
       address: { ipv4: "10.16.170.11", ipv6: null },
+      cmuxTuiContract: "snapshot-v2",
     });
   });
 
