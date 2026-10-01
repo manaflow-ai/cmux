@@ -19,7 +19,14 @@ export function hexclaveSyncDependencies(config: {
 }): HexclaveSyncDependencies | null {
   if (!config.projectId || !config.secretServerKey) return null;
   return {
-    source: createHexclaveServerApi({ projectId: config.projectId, secretServerKey: config.secretServerKey }),
+    // Reads run under a mirror lock: one attempt each, short timeout, no
+    // backoff. A failure answers 500 and Svix redelivers later.
+    source: createHexclaveServerApi({
+      projectId: config.projectId,
+      secretServerKey: config.secretServerKey,
+      retries: 0,
+      timeoutMs: 5_000,
+    }),
     store: createDrizzleHexclaveMirrorStore(cloudDb),
     revokeTeamMemberAccess,
     revokeTeamAccess,

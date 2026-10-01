@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   }
   const dryRun = values["dry-run"] === true;
   if (!dryRun && !process.env.DATABASE_URL?.trim() && !process.env.DIRECT_DATABASE_URL?.trim()) {
-    throw new Error("DATABASE_URL is required unless --dry-run is set");
+    throw new Error("DATABASE_URL or DIRECT_DATABASE_URL is required unless --dry-run is set");
   }
 
   let apiRequests = 0;
@@ -62,6 +62,8 @@ async function main(): Promise<void> {
   const startedAt = performance.now();
   const summary = await backfillHexclaveMirror({
     source: createHexclaveServerApi({ projectId, secretServerKey, retries: 8, fetch: countingFetch }),
+    // The prune pass reads under a mirror lock: one attempt, no backoff.
+    reconcileSource: createHexclaveServerApi({ projectId, secretServerKey, retries: 0, timeoutMs: 5_000, fetch: countingFetch }),
     store: dryRun ? null : createDrizzleHexclaveMirrorStore(cloudDb),
     concurrency: boundedInteger(values.concurrency, "concurrency", 2, 16),
     // Hexclave caps team pages at 200 and user pages at 1000.

@@ -47,6 +47,20 @@ describe("Hexclave server API", () => {
       .rejects.toThrow("schema validation");
   });
 
+  test("a paged answer from a list read as complete is an error, never a truncated list", async () => {
+    const paged = { items: [teamPermission()], is_paginated: true, pagination: { next_cursor: USER_ID } };
+    await expect(api([{ body: paged }]).source.listUserTeamPermissions(USER_ID)).rejects.toThrow("paged");
+    await expect(api([{ body: paged }]).source.listAllTeamPermissions()).rejects.toThrow("paged");
+    await expect(api([{ body: { ...paged, items: [serverTeam()] } }]).source.listUserTeams(USER_ID)).rejects.toThrow("paged");
+  });
+
+  test("the default makes one attempt and never sleeps (reads under a lock)", async () => {
+    const { source, slept, requests } = api([{ status: 429, headers: { "retry-after": "5" } }]);
+    await expect(source.getUser(USER_ID)).rejects.toThrow("failed");
+    expect(requests.length).toBe(1);
+    expect(slept).toEqual([]);
+  });
+
   test("retries 429 and 5xx with Retry-After or backoff, then gives up", async () => {
     const { source, slept } = api([
       { status: 429, headers: { "retry-after": "2" } },

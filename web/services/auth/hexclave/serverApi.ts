@@ -59,9 +59,10 @@ export type HexclaveServerApiConfig = {
   readonly fetch?: typeof fetch;
   readonly timeoutMs?: number;
   /**
-   * Extra attempts after a 429 or 5xx answer. The webhook keeps this small and
-   * lets Svix retry the whole delivery; the backfill raises it to ride out
-   * Hexclave's rate limit.
+   * Extra attempts after a 429, 5xx, timeout or network failure. Default 0:
+   * reads made under a mirror lock must not sleep, so a failure fails the
+   * delivery and Svix retries it later. Only the backfill's bulk reads, which
+   * hold no lock, raise this.
    */
   readonly retries?: number;
   /** Bounded backoff between retries; injected so tests do not wait. */
@@ -95,23 +96,56 @@ export function createHexclaveServerApi(config: HexclaveServerApiConfig): Hexcla
     return /\/api\/v1$/u.test(root) ? root : `${root}/api/v1`;
   })();
 
-  const retries = config.retries ?? 1;
+  const retries = config.retries ?? 0;
   const sleep = config.sleep ?? defaultSleep;
 
-  async function request(path: string, query: Record<string, string | undefined> = {}): Promise<Response> {
+  type Fetched =
+    | { readonly kind: "not_found" }
+    | { readonly kind: "body"; readonly body: unknown }
+    | { readonly kind: "status"; readonly response: Response; readonly knownError: string | null };
+
+  /** One GET including its body read, so a timeout while streaming the body is retried too. */
+  async function fetchOnce(path: string, query: Record<string, string | undefined>): Promise<Fetched> {
+    const response = await requestOnce(path, query);
+    const knownError = response.headers.get("x-hexclave-known-error") ?? response.headers.get("x-stack-known-error");
+    if (response.status === 404 && knownError && NOT_FOUND_ERRORS.has(knownError)) {
+      await response.body?.cancel();
+      return { kind: "not_found" };
+    }
+    if (!response.ok) {
+      await response.body?.cancel();
+      return { kind: "status", response, knownError };
+    }
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        throw new HexclaveApiError(`Hexclave GET ${path.split("/")[1]} returned non-JSON`, { status: response.status });
+      }
+      throw error;
+    }
+    return { kind: "body", body };
+  }
+
+  /**
+   * Retries 429/5xx (honoring Retry-After) and timeouts/network failures up to
+   * `retries` times. With `retries: 0` (the webhook, which reads under a lock)
+   * it never sleeps: a failure fails the delivery and Svix retries it later.
+   */
+  async function fetchWithRetry(path: string, query: Record<string, string | undefined>): Promise<Fetched> {
     for (let attempt = 0; ; attempt += 1) {
-      let response: Response;
+      let fetched: Fetched;
       try {
-        response = await requestOnce(path, query);
+        fetched = await fetchOnce(path, query);
       } catch (error) {
-        // A timeout or network failure on an idempotent GET is retried like a 5xx.
-        if (attempt >= retries) throw error;
+        if (error instanceof HexclaveApiError || attempt >= retries) throw error;
         await sleep(Math.min(500 * 2 ** attempt, 30_000));
         continue;
       }
-      if ((response.status !== 429 && response.status < 500) || attempt >= retries) return response;
-      await response.body?.cancel();
-      await sleep(hexclaveRetryDelayMs(response, attempt));
+      if (fetched.kind !== "status" || attempt >= retries) return fetched;
+      if (fetched.response.status !== 429 && fetched.response.status < 500) return fetched;
+      await sleep(hexclaveRetryDelayMs(fetched.response, attempt));
     }
   }
 
@@ -137,22 +171,18 @@ export function createHexclaveServerApi(config: HexclaveServerApiConfig): Hexcla
   async function read<S extends ISchema<unknown>>(
     schema: S,
     path: string,
-    query?: Record<string, string | undefined>,
+    query: Record<string, string | undefined> = {},
   ): Promise<InferType<S> | null> {
-    const response = await request(path, query);
-    const knownError = response.headers.get("x-hexclave-known-error") ?? response.headers.get("x-stack-known-error");
-    if (response.status === 404 && knownError && NOT_FOUND_ERRORS.has(knownError)) return null;
-    if (!response.ok) {
+    const fetched = await fetchWithRetry(path, query);
+    if (fetched.kind === "not_found") return null;
+    if (fetched.kind === "status") {
       // No response body in the error: Hexclave can echo account data.
-      throw new HexclaveApiError(`Hexclave GET ${path.split("/")[1]} failed`, { status: response.status, knownError });
+      throw new HexclaveApiError(`Hexclave GET ${path.split("/")[1]} failed`, {
+        status: fetched.response.status,
+        knownError: fetched.knownError,
+      });
     }
-    let body: unknown;
-    try {
-      body = await response.json();
-    } catch {
-      throw new HexclaveApiError(`Hexclave GET ${path.split("/")[1]} returned non-JSON`, { status: response.status });
-    }
-    const result = await validateHexclave(schema, body);
+    const result = await validateHexclave(schema, fetched.body);
     if (!result.ok) {
       throw new HexclaveApiError(`Hexclave GET ${path.split("/")[1]} failed schema validation`, { errors: result.errors });
     }
@@ -169,14 +199,29 @@ export function createHexclaveServerApi(config: HexclaveServerApiConfig): Hexcla
     return result;
   }
 
+  /**
+   * A list this code reads as complete. Hexclave documents these endpoints as
+   * unpaged; if one ever answers with a cursor, fail rather than treat page one
+   * as everything, which would drop memberships and revoke access.
+   */
+  async function readUnpaged<T>(
+    schema: ISchema<{ items: T[]; pagination?: { next_cursor: string | null } }>,
+    path: string,
+    query: Record<string, string | undefined>,
+  ): Promise<readonly T[]> {
+    const list = await readList(schema, path, query);
+    if (list.pagination?.next_cursor) throw new HexclaveApiError(`Hexclave GET ${path.split("/")[1]} answered paged; expected the full list`);
+    return list.items;
+  }
+
   return {
     getUser: (userId) => read(usersCrud.server.readSchema, `/users/${encodeURIComponent(userId)}`),
     getTeam: (teamId) => read(teamsCrud.server.readSchema, `/teams/${encodeURIComponent(teamId)}`),
-    listUserTeams: async (userId) => (await readList(teamListSchema, "/teams", { user_id: userId })).items,
-    listUserTeamPermissions: async (userId) =>
-      (await readList(teamPermissionListSchema, "/team-permissions", { user_id: userId, recursive: "false" })).items,
-    listUserProjectPermissions: async (userId) =>
-      (await readList(projectPermissionListSchema, "/project-permissions", { user_id: userId, recursive: "false" })).items,
+    listUserTeams: (userId) => readUnpaged(teamListSchema, "/teams", { user_id: userId }),
+    listUserTeamPermissions: (userId) =>
+      readUnpaged(teamPermissionListSchema, "/team-permissions", { user_id: userId, recursive: "false" }),
+    listUserProjectPermissions: (userId) =>
+      readUnpaged(projectPermissionListSchema, "/project-permissions", { user_id: userId, recursive: "false" }),
     listUsersPage: async (cursor, limit) => {
       const page = await readList(userListSchema, "/users", {
         limit: String(limit),
@@ -194,10 +239,8 @@ export function createHexclaveServerApi(config: HexclaveServerApiConfig): Hexcla
       });
       return { items: page.items, nextCursor: page.pagination?.next_cursor ?? null };
     },
-    listAllTeamPermissions: async () =>
-      (await readList(teamPermissionListSchema, "/team-permissions", { recursive: "false" })).items,
-    listAllProjectPermissions: async () =>
-      (await readList(projectPermissionListSchema, "/project-permissions", { recursive: "false" })).items,
+    listAllTeamPermissions: () => readUnpaged(teamPermissionListSchema, "/team-permissions", { recursive: "false" }),
+    listAllProjectPermissions: () => readUnpaged(projectPermissionListSchema, "/project-permissions", { recursive: "false" }),
     listTeamsPage: async (cursor, limit) => {
       const page = await readList(teamListSchema, "/teams", { limit: String(limit), cursor: cursor ?? undefined });
       return { items: page.items, nextCursor: page.pagination?.next_cursor ?? null };

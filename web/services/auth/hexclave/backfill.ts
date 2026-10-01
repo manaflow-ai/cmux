@@ -3,7 +3,10 @@ import type { HexclavePage, HexclaveServerTeam, HexclaveSource } from "./serverA
 import { readHexclaveUserState } from "./sync";
 
 export type HexclaveBackfillOptions = {
+  /** Bulk reads, made outside any lock; may retry with backoff. */
   readonly source: HexclaveSource;
+  /** Reads made under a mirror lock (the prune pass); single attempt. Defaults to `source`. */
+  readonly reconcileSource?: HexclaveSource;
   /** Null for a dry run: every Hexclave read is still made and schema-validated, nothing is written. */
   readonly store: HexclaveMirrorStore | null;
   readonly concurrency: number;
@@ -89,8 +92,9 @@ export async function backfillHexclaveMirror(options: HexclaveBackfillOptions): 
     const mirrored = await store.listMirroredIds();
     const staleTeams = mirrored.teamIds.filter((id) => !teams.has(id));
     const staleUsers = mirrored.userIds.filter((id) => !seenUsers.has(id));
-    await runBounded(staleTeams, concurrency, (id) => store.reconcileTeam(id, () => source.getTeam(id)));
-    await runBounded(staleUsers, concurrency, (id) => store.reconcileUser(id, () => readHexclaveUserState(source, id)));
+    const locked = options.reconcileSource ?? source;
+    await runBounded(staleTeams, concurrency, (id) => store.reconcileTeam(id, () => locked.getTeam(id)));
+    await runBounded(staleUsers, concurrency, (id) => store.reconcileUser(id, () => readHexclaveUserState(locked, id)));
     counts.pruned = staleTeams.length + staleUsers.length;
   }
   return { ...counts, dryRun: store === null };
@@ -127,24 +131,28 @@ async function forEachPage<T>(
   } while (cursor);
 }
 
-/** Run `task` over `items` with at most `concurrency` in flight; the first failure stops the run. */
+/**
+ * Run `task` over `items` with at most `concurrency` in flight. The first
+ * failure stops new work; the call settles only after every in-flight task
+ * has, then throws that failure.
+ */
 export async function runBounded<T>(
   items: readonly T[],
   concurrency: number,
   task: (item: T) => Promise<unknown>,
 ): Promise<void> {
   let next = 0;
-  let failed = false;
+  let failure: { readonly error: unknown } | null = null;
   const worker = async () => {
-    while (!failed && next < items.length) {
+    while (!failure && next < items.length) {
       const item = items[next++] as T;
       try {
         await task(item);
       } catch (error) {
-        failed = true;
-        throw error;
+        failure ??= { error };
       }
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, items.length)) }, worker));
+  if (failure) throw (failure as { readonly error: unknown }).error;
 }
