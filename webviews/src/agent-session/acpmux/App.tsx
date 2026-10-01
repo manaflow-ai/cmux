@@ -167,7 +167,7 @@ export function AcpmuxApp() {
     window.cmuxAcpmuxBridge = {
       receive(next) { if (next.protocolVersion !== 1) return; const change = diffRows(rowsRef.current, next.rows); rowsRef.current = new Map(next.rows.map((row) => [row.id, row])); setSnapshot(next); void change; },
       applyTheme(theme) { applyAgentTheme(theme as never); },
-      applyCustomization(customization) { if (customization.themeCSS) { let style = document.getElementById("acpmux-user-theme") as HTMLStyleElement | null; if (!style) { style = document.createElement("style"); style.id = "acpmux-user-theme"; document.head.append(style); } style.textContent = customization.themeCSS; } if (customization.registryJS) { try { (0, eval)(customization.registryJS); setRegistry(currentRegistry()); } catch { /* a user renderer must not take down the transcript */ } } },
+      applyCustomization(customization) { if ("themeCSS" in customization) { let style = document.getElementById("acpmux-user-theme") as HTMLStyleElement | null; if (!style) { style = document.createElement("style"); style.id = "acpmux-user-theme"; document.head.append(style); } style.textContent = customization.themeCSS ?? ""; } if (customization.registryJS) { try { (0, eval)(customization.registryJS); setRegistry(currentRegistry()); } catch { /* a user renderer must not take down the transcript */ } } if (customization.layout) window.cmuxAcpmuxRegistry?.configure(customization.layout); },
     };
     window.cmuxAcpmuxDebug = createAcpmuxDebug({
       replaceRows(rows) {
