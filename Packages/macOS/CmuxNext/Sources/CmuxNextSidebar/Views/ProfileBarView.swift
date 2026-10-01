@@ -1,12 +1,15 @@
 import AppKit
 import CmuxNextDesign
 
-/// The profile dots at the bottom center of the sidebar (Arc spaces,
-/// plans/cmux-next/data-model.md 7): one dot, or the profile's icon, per
-/// profile with the current one emphasized. Click switches the window's
-/// profile, right-click asks the host for the profile menu, dragging a dot
-/// reorders, and the trailing "+" creates a profile. Low frequency chrome,
-/// drawn in `draw(_:)` from the model's `profiles`.
+/// The room dots at the bottom center of the sidebar (Arc spaces,
+/// plans/cmux-next/data-model.md 7), deliberately plain (user: "more
+/// minimal, muted, undesigned"): one small dot per room in the theme's
+/// foreground at a low alpha, the current room a little stronger; no rings,
+/// fills, colors, icons or labels (a room's emoji and name are in its
+/// tooltip, its color and icon in its menu). Each dot's hit target is a
+/// full-height slot. Click switches the window's room, right-click asks the
+/// host for the room menu, dragging a dot reorders, and the trailing muted
+/// "+" creates a room. Drawn in `draw(_:)` from the model's `profiles`.
 final class ProfileBarView: NSView {
     private let model: SidebarModel
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
@@ -32,16 +35,14 @@ final class ProfileBarView: NSView {
 
     // MARK: Geometry
 
-    private var slot: CGFloat { Metrics.iconSize + Metrics.space3 }
-    private var dotDiameter: CGFloat { Metrics.space3 }
+    private var slot: CGFloat { Metrics.roomDotSlot }
     private var slotCount: Int { model.profiles.count + 1 }
 
     /// Slot rects, the "+" last, centered horizontally.
     private func slotRects() -> [NSRect] {
         let total = slot * CGFloat(slotCount)
         let x0 = (bounds.width - total) / 2
-        let y = (bounds.height - slot) / 2
-        return (0..<slotCount).map { NSRect(x: x0 + CGFloat($0) * slot, y: y, width: slot, height: slot) }
+        return (0..<slotCount).map { NSRect(x: x0 + CGFloat($0) * slot, y: 0, width: slot, height: bounds.height) }
     }
 
     private func index(at point: NSPoint) -> Int? {
@@ -59,56 +60,31 @@ final class ProfileBarView: NSView {
                 var rect = rects[offset]
                 if let drag, drag.index == offset { rect.origin.x = drag.x - rect.width / 2 }
                 let active = profile.id == model.activeProfileID
-                if hovered == offset || active {
-                    (active ? Palette.selectionFill : Palette.hoverFill).setFill()
-                    NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 1), xRadius: Metrics.itemCornerRadius, yRadius: Metrics.itemCornerRadius).fill()
-                }
-                draw(profile, in: rect, active: active)
+                dotColor(active: active, hovered: hovered == offset).setFill()
+                let diameter = Metrics.roomDotDiameter
+                NSBezierPath(ovalIn: NSRect(x: rect.midX - diameter / 2, y: rect.midY - diameter / 2, width: diameter, height: diameter)).fill()
             }
             drawPlus(in: rects[model.profiles.count])
         }
     }
 
-    // theme-scoped: called only from draw(_:) inside performWithTheme
-    private func tint(for profile: SidebarProfile, active: Bool) -> NSColor {
-        if let color = profile.color { return active ? color.swatch : color.swatch.withAlphaComponent(0.7) }
-        return active ? Palette.textPrimary : Palette.textTertiary
-    }
-
-    private func draw(_ profile: SidebarProfile, in rect: NSRect, active: Bool) {
-        let color = tint(for: profile, active: active)
-        if let icon = profile.icon {
-            if profile.iconIsEmoji {
-                let font = NSFont.systemFont(ofSize: Metrics.smallIconSize)
-                let text = NSAttributedString(string: icon, attributes: [.font: font])
-                let size = text.size()
-                text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
-                return
-            }
-            let config = NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space1, weight: active ? .semibold : .regular)
-            if let image = NSImage(systemSymbolName: icon, accessibilityDescription: profile.name)?.withSymbolConfiguration(config) {
-                let tinted = image.tinted(color)
-                let size = tinted.size
-                tinted.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height))
-                return
-            }
-        }
-        let diameter = active ? dotDiameter + Metrics.space1 : dotDiameter
-        color.setFill()
-        NSBezierPath(ovalIn: NSRect(x: rect.midX - diameter / 2, y: rect.midY - diameter / 2, width: diameter, height: diameter)).fill()
+    /// Muted foreground: the current room a little stronger, a hovered one
+    /// between. Never the room's color. theme-scoped: called only from draw(_:)
+    private func dotColor(active: Bool, hovered: Bool) -> NSColor {
+        Palette.textPrimary.withAlphaComponent(active ? 0.55 : (hovered ? 0.38 : 0.22))
     }
 
     // theme-scoped: called only from draw(_:) inside performWithTheme
     private func drawPlus(in rect: NSRect) {
-        if hovered == Self.plusIndex {
-            Palette.hoverFill.setFill()
-            NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 1), xRadius: Metrics.itemCornerRadius, yRadius: Metrics.itemCornerRadius).fill()
-        }
-        let config = NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space2, weight: .semibold)
+        let config = NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space3, weight: .regular)
         guard let image = NSImage(systemSymbolName: "plus", accessibilityDescription: Strings.newProfile)?.withSymbolConfiguration(config) else { return }
-        let tinted = image.tinted(Palette.textTertiary)
+        // Tint opaque, then draw at the dot's alpha: a translucent tint over
+        // the black template would stay nearly black.
+        let color = dotColor(active: false, hovered: hovered == Self.plusIndex)
+        let tinted = image.tinted(color.withAlphaComponent(1))
         let size = tinted.size
-        tinted.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height))
+        tinted.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height),
+                    from: .zero, operation: .sourceOver, fraction: color.alphaComponent)
     }
 
     func refresh() {
@@ -120,7 +96,11 @@ final class ProfileBarView: NSView {
     private func rebuildToolTips() {
         removeAllToolTips()
         let rects = slotRects()
-        for (offset, profile) in model.profiles.enumerated() { addToolTip(rects[offset], owner: profile.name as NSString, userData: nil) }
+        for (offset, profile) in model.profiles.enumerated() {
+            // The emoji is shown here, not on the dot.
+            let tip = profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name
+            addToolTip(rects[offset], owner: tip as NSString, userData: nil)
+        }
         addToolTip(rects[model.profiles.count], owner: Strings.newProfile as NSString, userData: nil)
     }
 

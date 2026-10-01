@@ -68,12 +68,14 @@ public enum WindowTitlebar {
         return frames.dropFirst().reduce(first) { $0.union($1) }
     }
 
-    /// Whether `view`'s top edge is the window's top edge (a full-size
-    /// content view with no titlebar strip above it).
+    /// Whether `view` sits in the window's titlebar band (a full-size
+    /// content view in the top row, even when the layout pads it a few
+    /// points below the window's top edge).
     public static func isInTopRow(_ view: NSView) -> Bool {
-        guard let window = view.window, let content = window.contentView else { return false }
+        guard let window = view.window else { return false }
+        let band = TitlebarDragPolicy.bandRect(in: window)
         let frame = view.convert(view.bounds, to: nil)
-        return frame.maxY >= content.convert(content.bounds, to: nil).maxY - 0.5
+        return band.height > 0 && frame.maxY > band.minY && frame.minY < band.maxY
     }
 }
 

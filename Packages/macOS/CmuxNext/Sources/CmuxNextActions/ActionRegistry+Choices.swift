@@ -7,8 +7,7 @@ extension ActionRegistry {
     /// is not bound.
     func makeChoicesItem(for descriptor: ActionDescriptor, target: ActionTargetRef?) -> NSMenuItem? {
         guard let title = title(for: descriptor.id), canPerform(descriptor.id),
-              let argument = descriptor.arguments.first(where: { if case .enumeration = $0.kind { true } else { false } }),
-              case .enumeration(let cases) = argument.kind
+              let (argument, cases) = descriptor.arguments.lazy.compactMap(Self.menuChoices).first
         else { return nil }
         let current = choiceState?(descriptor.id, target)
         let submenu = NSMenu(title: title)
@@ -23,9 +22,33 @@ extension ActionRegistry {
             item.state = choice.value == current ? .on : .off
             submenu.addItem(item)
         }
+        if argument.suggestions != nil {
+            // The full list, with type-to-search, in the palette.
+            submenu.addItem(.separator())
+            let more = NSMenuItem(title: ActionSuggestionsStrings.more, action: #selector(ActionMenuTarget.performAction(_:)), keyEquivalent: "")
+            more.target = menuTarget
+            more.representedObject = ActionMenuPayload(id: descriptor.id, target: target)
+            submenu.addItem(more)
+        }
         let item = NSMenuItem(title: title.hasSuffix("…") ? String(title.dropLast()) : title, action: nil, keyEquivalent: "")
         item.submenu = submenu
         return item
+    }
+}
+
+extension ActionRegistry {
+    /// The menu items of an argument: every case of an enumeration, or the
+    /// pinned values of a suggested string.
+    nonisolated static func menuChoices(_ argument: ActionArgument) -> (ActionArgument, [ActionEnumCase])? {
+        if case .enumeration(let cases) = argument.kind { return (argument, cases) }
+        if let suggestions = argument.suggestions, !suggestions.pinned.isEmpty { return (argument, suggestions.pinned) }
+        return nil
+    }
+}
+
+nonisolated enum ActionSuggestionsStrings {
+    static var more: String {
+        String(localized: "argument.value.more", defaultValue: "More…", table: "ThemeActions", bundle: .module)
     }
 }
 

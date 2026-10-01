@@ -303,18 +303,23 @@ tab uses the profile's own store, so logins stay shared across machines; a
 navigation across the boundary re-creates the engine tab in the other store.
 Deleting a browser profile also removes its derived stores.
 
-Status (stage 4, 2026-09-30): records live in the app, in
-`<Application Support>/<bundle id>/BrowserProfiles/profiles.json`
-(`BrowserProfileBook`), because `profiles-v1` has no `browser_profiles`
-table yet. Workspace defaults use `personal_workspaces.browser_profile_id`
-when the home daemon serves `profiles-v1` and the same file otherwise; room
-defaults need `profiles-v1`. Moving the records into the home session is a
-cmux-tui follow-up (`create/update/delete-browser-profile`, listed by
-`list-personal`). A deleted profile's tabs reopen in `default`; its engine
-data goes at once when no engine opened it in this process, else at the
-next launch (`pending_cleanup`). Omnibar history is per profile (in
-memory). Onboarding imports create one profile per source with its
-proposed id; imports made before profiles moved into theirs once.
+Status (stage 4, 2026-09-30): records live in the home session's personal
+state when it serves `browser-profiles-v1` (table `browser_profiles`,
+`create/update/move/delete-browser-profile`, `browser_profiles` in
+`list-personal`; deleting one clears the workspace and room defaults naming
+it). The app copies its local records
+(`<Application Support>/<bundle id>/BrowserProfiles/profiles.json`,
+`BrowserProfileBook`) there once, then uses the daemon's; with an older home
+daemon the file stays the store. The file keeps what is this Mac's: engine
+data of deleted profiles (`pending_cleanup`, removed at once when no engine
+opened the profile in this process, else at the next launch), the import
+migration flag, and workspace defaults while `profiles-v1` is missing.
+Room defaults need `profiles-v1`. A deleted profile's tabs reopen in
+`default`. Duplicate Workspace copies each browser tab's profile. New
+Workspace with a profile starts with a terminal (coordinator decision).
+Omnibar history is per profile (in memory). Onboarding imports create one
+profile per source with its proposed id; imports made before profiles moved
+into theirs once.
 
 ## 6. Themes and colors
 
@@ -328,10 +333,15 @@ Precedence: terminal, workspace, room, Ghostty config. A theme is a Ghostty
 theme spec (`theme` syntax, `light:A,dark:B`), resolved like the global
 config: the user's config files, then `theme = <name>` for the current
 light/dark variant, so explicit config colors, opacity and blur still win.
-Room and workspace themes are personal (`profiles.theme`,
-`personal_workspaces.theme`). Terminal themes are app-local
-(`<Application Support>/<bundle id>/terminal-themes.json`, keyed
-`<machine>:<tab id>`) because `profiles-v1` has no per-terminal column.
+Room, workspace and terminal themes are personal (`profiles.theme`,
+`personal_workspaces.theme`, and `personal_terminals(session_id,
+terminal_key, theme)` with `set-personal-terminal`, capability
+`personal-terminals-v1`; the terminal key is the terminal's id on its
+session, else its tab id). Until the home daemon serves
+`personal-terminals-v1` the app keeps terminal themes in
+`<Application Support>/<bundle id>/terminal-themes.json` and moves them into
+personal state once it does. A theme is any spec Ghostty accepts: a theme
+name, an absolute path, or `light:A,dark:B`.
 
 Stage 5 (landed): `ThemeScope` in CmuxNextDesign is a tree under
 `ThemeScope.app` (the Ghostty config): each window adopts a room scope, each
@@ -346,8 +356,10 @@ cursor, selection) with no restart. A terminal with its own theme shows a
 small swatch dot on its tab icon. Actions: `room.setTheme`,
 `room.clearTheme`, `workspace.setTheme`, `workspace.clearTheme`,
 `terminal.setTheme`, `terminal.clearTheme` (palette with live preview,
-context submenus with hover preview, CLI, bindable, Settings). Pickers list
-the onboarding themes plus "Use Ghostty Config".
+context submenus with hover preview, CLI, bindable, Settings). The palette
+and the Settings theme picker list every Ghostty theme with type-to-search
+and take a typed light/dark pair; context submenus list the Ghostty config
+and the onboarding themes, then More… (the palette list).
 
 ## 7. App surfaces (action contract)
 
@@ -375,6 +387,24 @@ two-finger horizontal swipe over the sidebar switches rooms.
    order, the migration, dots, switching, actions.
 4. Browser profiles (section 5).
 5. Themes (`ThemeScope`, section 6).
+
+Status (2026-09-30, federation agent): stage 1 app side is built
+(qualified ids and `--session` in cli-compat.md "Sessions and qualified
+ids"). Stage 2 app side is built against `remote-terminal-tabs-v1`:
+`RemoteTerminalService` mounts a remote-terminal tab by attaching to the
+terminal's session by its `term_` id with no tab there (a kept terminal;
+`set-terminal-keep` reports the `term_` id), shows
+`RemoteTerminalPlaceholderView` with the saved screen while that session is
+away, saves the screen from the local mirror when the session drops and
+before quit, and saves the title. `tab move-to-workspace` across sessions
+moves the reference (keep, `new-remote-terminal-tab`, close the old tab; back
+home through `terminal.project`); "Open Terminal on Machine Here…"
+(`remote.openTerminalHere`) creates a kept terminal with no tab on the
+machine (`create-terminal {detached}`) and references it. Closing a
+remote-terminal tab ends its terminal when that has no tab on its session.
+`send`, `send-key` and `read-screen` on a remote-terminal tab reach the
+terminal on its session by its `term_` id (resource API). Not built: drag of
+a tab onto a pane of another session, browser tabs across sessions.
 
 The app work already written for rooms (dots, swipe, window switching,
 actions) carries over; its membership test changes from a workspace tag to

@@ -43,6 +43,9 @@ public final class DaemonStore {
     public internal(set) var notifications: [DaemonNotification] = []
     /// True once the first snapshot is applied.
     public internal(set) var isLoaded = false
+    /// True while the tree is the daemon's launch snapshot (drawn before
+    /// connecting) and no live snapshot has replaced it yet.
+    public internal(set) var isProvisional = false
     /// The highest event sequence the tree reflects: advanced after a batch
     /// applies without needing a resync, and to a snapshot's barrier once
     /// that snapshot is applied. Readers compare it with
@@ -59,6 +62,8 @@ public final class DaemonStore {
     /// observer or frame runs. The App keeps window membership in step here,
     /// so a window never shows after its last workspace is gone.
     @ObservationIgnored public var onWorkspaceListChanged: (() -> Void)?
+    /// A browser profile's bookmarks changed (`bookmarks-changed`), on the main actor.
+    @ObservationIgnored public var onBookmarksChanged: ((String) -> Void)?
     /// The list last reported to `onWorkspaceListChanged`.
     @ObservationIgnored var notifiedWorkspaceList: [String]?
     /// Nesting of batch applies; the hook runs when the outermost ends.
@@ -91,6 +96,11 @@ public final class DaemonStore {
     @ObservationIgnored public var resyncClock: any Clock<Duration> = ContinuousClock()
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.store")
 
+    /// Tab ids of the first snapshot of the current connection: tabs the
+    /// connection found already there (page history skips their reload).
+    @ObservationIgnored public private(set) var restoredTabIDs: Set<String> = []
+    @ObservationIgnored var restoredEpoch: Int?
+
     public init() {}
 
     // MARK: Lookup (O(1))
@@ -101,6 +111,8 @@ public final class DaemonStore {
     public func pane(_ handle: PaneID) -> PaneModel? { panesByHandle[handle] }
     public func tab(surface: SurfaceID) -> TabModel? { tabsBySurface[surface] }
     public func tab(terminal: TerminalID) -> TabModel? { tabsBySurface.values.first { $0.terminalID == terminal } }
+    /// The tab with durable id `id` (`TabModel.id`).
+    public func tab(id: String) -> TabModel? { tabsBySurface.values.first { $0.id == id } }
     public func tabGroup(_ id: TabGroupID) -> TabGroupModel? { tabGroupsByID[id] }
     public func group(_ id: WorkspaceGroupID) -> WorkspaceGroupModel? { groups.first { $0.id == id } }
     public func profile(_ id: ProfileID) -> ProfileModel? { profiles.first { $0.id == id } }
@@ -120,6 +132,39 @@ public final class DaemonStore {
     /// Replaces the tree, reusing records by durable identity, then reapplies
     /// optimistic patches still waiting for their echo.
     public func apply(snapshot tree: DaemonTree) {
+        applyTree(tree)
+        if isProvisional { isProvisional = false }
+        if !isLoaded { isLoaded = true }
+        if restoredEpoch != connectionEpoch {
+            restoredEpoch = connectionEpoch
+            restoredTabIDs = currentTabIDs
+        }
+        structureChanged()
+        reapplyPendingPatches()
+        workspaceListMayHaveChanged()
+    }
+
+    /// Shows the daemon's launch snapshot (`LaunchSnapshot`) before the
+    /// first connection: the same models as a live snapshot, reused by
+    /// durable identity when the live one arrives (so nothing is rebuilt
+    /// when the layout did not change), but `isLoaded` stays false, so
+    /// nothing that waits for the live tree (window restore, membership,
+    /// workspace-list hooks) runs from it. Ignored once a live snapshot
+    /// applied.
+    public func applyProvisional(snapshot tree: DaemonTree) {
+        guard !isLoaded else { return }
+        applyTree(tree)
+        isProvisional = true
+        // Launch snapshot tabs are restored tabs (pages made from them reload).
+        restoredTabIDs = currentTabIDs
+        structureChanged()
+    }
+
+    private var currentTabIDs: Set<String> {
+        Set(workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
+    }
+
+    private func applyTree(_ tree: DaemonTree) {
         if let value = tree.generation, generation != value { generation = value }
         if let value = tree.registryID, registryID != value { registryID = value }
         if workspaceRevision != tree.workspaceRevision { workspaceRevision = tree.workspaceRevision }
@@ -135,10 +180,6 @@ public final class DaemonStore {
                                      update: { $0.update($1) }) {
             workspaces = reordered
         }
-        if !isLoaded { isLoaded = true }
-        structureChanged()
-        reapplyPendingPatches()
-        workspaceListMayHaveChanged()
     }
 
     /// Seeds agent state (`list-agents`), e.g. after connect.

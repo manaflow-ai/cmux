@@ -10,13 +10,6 @@ public enum CompatFrontendIntent: Sendable, Hashable {
     case newWindow(workspaceID: String?)
     case focusWindow(windowID: String)
     case closeWindow(windowID: String)
-    /// A notification create is about to go to the daemon (its event may
-    /// arrive before the reply); `noteNotification` follows.
-    case expectNotification
-    /// Tags daemon notification `id` with where it came from (`cli`,
-    /// `terminal`, `agent`) for per-source notification settings; nil when
-    /// the create failed.
-    case noteNotification(id: UInt64?, source: String)
     /// Throws when a tab of workspace `from` may not move into workspace
     /// `to` (between an incognito window and a normal one).
     case checkTabMove(fromWorkspaceID: String, toWorkspaceID: String)

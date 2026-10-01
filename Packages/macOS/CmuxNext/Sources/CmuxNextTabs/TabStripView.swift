@@ -52,7 +52,6 @@ public final class TabStripView: NSView {
     public var contextMenuProvider: TabContextMenuProvider?
     /// Inline rename state (`TabStripView+InlineRename.swift`).
     let inlineRename = TabInlineRename()
-
     // MARK: Views
 
     var glassView: NSGlassEffectView?
@@ -135,10 +134,7 @@ public final class TabStripView: NSView {
     /// End-of-tracking observer of the menu the strip returned last.
     var menuEndObserver: (any NSObjectProtocol)?
 
-    struct Press {
-        var id: TabID
-        var start: CGPoint
-    }
+    struct Press { var id: TabID; var start: CGPoint }
 
     struct Drag {
         var id: TabID
@@ -149,6 +145,7 @@ public final class TabStripView: NSView {
         var lastPoint: CGPoint
         var originalGroup: TabGroupID?
         var targetGroup: TabGroupID?
+        var grabY: CGFloat = 0 // press y in the clip; with grabOffset, the grabbed point the hand-off keeps
     }
 
     var press: Press?
@@ -168,7 +165,6 @@ public final class TabStripView: NSView {
     /// Group the phantom gap belongs to (a dropped tab would join it).
     var dropPlaceholderGroup: TabGroupID?
     static let placeholderID = TabID("__cmux.tabs.drop-placeholder__")
-
     // MARK: - Init
 
     public init(model: TabStripModel, background: Background = .none) {

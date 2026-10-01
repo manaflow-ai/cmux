@@ -134,10 +134,12 @@ Recommended Swift launch path:
   | `XDG_DATA_DIRS`, `MANPATH` | `<resources>/..` and `:<resources>/../man` appended | Ghostty's macOS data and man pages, same strings as Ghostty. |
   | `GHOSTTY_BIN`, `GHOSTTY_BIN_DIR`, `PATH` | `<app>/Contents/Resources/bin/ghostty`, its directory appended to `PATH` | The `ssh-env`/`ssh-terminfo` wrapper runs `$GHOSTTY_BIN +ssh`, which installs the `xterm-ghostty` terminfo on the remote host or falls back to `xterm-256color`. Only set when the build ships the helper (`scripts/reload.sh` and the release workflows install it). |
 
-  The daemon picks the shell argv (`$SHELL`, no arguments), so the injection is
-  environment only. Bash needs Ghostty's argv rewrite (`--posix` with `ENV`)
-  and nushell its `--execute 'use ghostty *'`; both need a daemon change to
-  `new-tab`/`split`/`create-terminal` argv handling and are not done. Apple's
+  zsh, fish and elvish are integrated through the environment. Bash
+  (`--posix` with `ENV`) and nushell (`--execute 'use ghostty *'`) also need
+  arguments: `GhosttyShellIntegration.apply` writes their environment,
+  `shellArguments(for:)` reads it back, and `DaemonConnection.request` sends
+  them as `shell_args` on every terminal-creating command
+  (`terminal-shell-args-v1`; the daemon runs the env's `SHELL` with them). Apple's
   `/bin/bash` is never integrated, as in Ghostty. Cloud terminals get none of
   this (no Mac environment). A daemon started by an older app keeps its env;
   new terminals still get the identity through their per-terminal `env`, but
@@ -245,6 +247,16 @@ terminal_incarnation, kind, browser_*, url, notification{notification, unread,
 level}, name, title, size, dead`. Layout nodes (`:9485-9506`): `leaf{pane}`,
 `split{split, dir:"right"|"down", ratio, a, b}`, and `stack{panes, expanded}`.
 
+Launch snapshot (`launch-snapshot-v1`): the daemon keeps a read-only
+`launch-snapshot.json` next to its registry with the last settled
+`list-workspaces` tree and the native frontend projections, rewritten on
+settle and never while idle, and `identify` reports its path. The app
+remembers the path per session, applies the tree before connecting as a
+provisional store (`DaemonStore.applyProvisional`: `isLoaded` stays false),
+opens the frontmost saved window from the snapshot's window records, and
+lets the live snapshot replace it in place. The file is a cache, never a
+source of truth.
+
 `active*` fields are shared compatibility defaults, not user focus. Keep focus
 client-local and never send `focus-pane`/`select-*` for ordinary UI focus
 (`docs/concepts.md:17-21`, `frontends.md:56-62`).
@@ -344,8 +356,12 @@ records.
 - `list-agents {surface?, state?}` and event `agent-changed {surface, state:
   working|blocked|idle|done|unknown, source, session, agent?, updated_at_ms}`
   (`commands.md:3764-3818`, `events.md:1093-1126`).
-- `notify {title, body, level, surface?}` and event `notification {notification,
-  title, body, level, surface}` (`commands.md:3713-3762`, `events.md:679-701`).
+- `notify {title, body, level, surface?, source?}` and event `notification
+  {notification, title, body, level, surface, source}` (`commands.md`
+  "notify", `events.md` "notification"). With `notification-source-v1` the
+  source (`cli`, `terminal`, `agent`, `daemon`) is also on the tab marker, and
+  the daemon posts OSC 9/777/99 from every terminal's output as `terminal`
+  (plans/cmux-next/notifications.md).
   An inactive target surface gets one retained `tab.notification.unread`
   marker, and a later notification overwrites it. The marker clears when the
   target is "selected" (`events.md:693`). It is held in memory in `Mux`

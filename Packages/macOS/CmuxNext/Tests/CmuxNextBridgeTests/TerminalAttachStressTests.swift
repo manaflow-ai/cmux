@@ -44,7 +44,7 @@ struct TerminalAttachReducerStressTests {
         mutating func apply(_ effects: [Machine.Effect]) {
             for effect in effects {
                 switch effect {
-                case .open(let attempt, let size):
+                case .open(let attempt, let size), .openAfterBackoff(let attempt, let size, _):
                     #expect(inFlight[attempt] == nil)
                     inFlight[attempt] = size
                 case .send(let link, let data):
@@ -58,14 +58,16 @@ struct TerminalAttachReducerStressTests {
                     links[link]?.detached += 1
                 case .finish:
                     finishes += 1
+                case .status:
+                    break
                 }
             }
         }
 
         mutating func send(_ event: Machine.Event) {
-            let wasClosed = machine.isClosed
+            let wasEnded = machine.isClosed || machine.phase == .exited
             apply(machine.reduce(event))
-            if !wasClosed, machine.isClosed { ended = true }
+            if !wasEnded, machine.isClosed || machine.phase == .exited { ended = true }
         }
     }
 
@@ -80,13 +82,18 @@ struct TerminalAttachReducerStressTests {
             case 0..<35:
                 counter += 1
                 world.typed.append(counter)
-                if !world.machine.isClosed { world.typedBeforeEnd.append(counter) }
+                if !world.machine.isClosed, world.machine.phase != .exited { world.typedBeforeEnd.append(counter) }
                 world.send(.input(token(counter)))
             case 35..<45:
                 world.send(.resize(CellSize(cols: .random(in: 20...200, using: &random),
                                             rows: .random(in: 5...60, using: &random))))
-            case 45..<52:
+            case 45..<49:
                 world.send(.visibility(.random(using: &random)))
+            case 49..<51:
+                // Re-attach triggers for a disconnected view.
+                world.send(Bool.random(using: &random) ? .focused : .reconnect)
+            case 51:
+                if Int.random(in: 0..<10, using: &random) == 0 { world.send(.processExited) }
             case 52..<70:
                 // Complete an in-flight open (rarely failing).
                 guard let attempt = world.inFlight.keys.randomElement(using: &random) else { continue }

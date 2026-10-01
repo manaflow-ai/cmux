@@ -65,7 +65,8 @@ enum CompatPaneMethods {
         let other = try world.resolvePane(raw, in: world.workspace(pane.workspaceUUID), refs: call.service.refs)
         let handle = pane.handle
         let otherHandle = other.handle
-        try await call.service.daemon("swap-pane") { try await $0.swapPane(handle, with: .pane(otherHandle)) }
+        guard other.sessionID == pane.sessionID else { throw CompatErrors.notFound("pane", raw) }
+        try await call.service.daemon("swap-pane", session: pane.sessionID) { try await $0.swapPane(handle, with: .pane(otherHandle)) }
         return .object(CompatJSON.ids(window: try target.window(), workspace: world.workspace(pane.workspaceUUID), pane: pane))
     }
 }

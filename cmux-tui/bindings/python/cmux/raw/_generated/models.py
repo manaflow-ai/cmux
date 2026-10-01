@@ -86,6 +86,12 @@ class NotificationLevel(str, Enum):
     WARNING = 'warning'
     ERROR = 'error'
 
+class NotificationSource(str, Enum):
+    CLI = 'cli'
+    TERMINAL = 'terminal'
+    AGENT = 'agent'
+    DAEMON = 'daemon'
+
 class PaneDirection(str, Enum):
     LEFT = 'left'
     RIGHT = 'right'
@@ -583,6 +589,7 @@ class IdentifyResult:
     build_commit: Union[str, None, MissingType] = field(default=MISSING)
     capabilities: Union[List[str], MissingType] = field(default=MISSING)
     ghostty_commit: Union[str, None, MissingType] = field(default=MISSING)
+    launch_snapshot_path: Union[str, None, MissingType] = field(default=MISSING)
     lifecycle_ready: Union[bool, MissingType] = field(default=MISSING)
     machine_name: Union[str, MissingType] = field(default=MISSING)
     session_id: Union[str, MissingType] = field(default=MISSING)
@@ -751,6 +758,7 @@ class NotificationMarker:
     level: NotificationLevel
     notification: Id
     unread: bool
+    source: Union[NotificationSource, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1689,6 +1697,17 @@ class CopyRequest:
 
 
 @dataclass(frozen=True)
+class CreateBrowserProfileRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/create-browser-profile/request'
+    name: str
+    browser_profile: Union[str, None, MissingType] = field(default=MISSING)
+    color: Union[str, None, MissingType] = field(default=MISSING)
+    icon: Union[str, None, MissingType] = field(default=MISSING)
+    index: Union[int, None, MissingType] = field(default=MISSING)
+    source: Union[JsonValue, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class CreatePersonalGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/create-personal-group/request'
     name: str
@@ -1769,6 +1788,7 @@ class CreateTerminalRequest:
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
+    shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1790,6 +1810,12 @@ class CreateWorkspaceGroupRequest:
     color: Union[str, None, MissingType] = field(default=MISSING)
     group: Union[str, None, MissingType] = field(default=MISSING)
     index: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class DeleteBrowserProfileRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/delete-browser-profile/request'
+    browser_profile: str
 
 
 @dataclass(frozen=True)
@@ -2016,6 +2042,13 @@ class MintTerminalRendererByTerminalRequest:
 
 
 @dataclass(frozen=True)
+class MoveBrowserProfileRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-browser-profile/request'
+    browser_profile: str
+    index: int
+
+
+@dataclass(frozen=True)
 class MovePersonalGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/move-personal-group/request'
     group: str
@@ -2209,6 +2242,7 @@ class NewPaneRequest:
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+    shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2221,6 +2255,7 @@ class NewPaneRightRequest:
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+    shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
 
 
@@ -2248,6 +2283,7 @@ class NewTabRequest:
     rows: Union[int, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
+    shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -2273,6 +2309,7 @@ class NotifyRequest:
     body: str
     level: Union[NotificationLevel, None, MissingType] = field(default=MISSING)
     surface: Union[Id, None, MissingType] = field(default=MISSING)
+    source: Union[NotificationSource, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2638,6 +2675,14 @@ class SetDefaultColorsRequest:
 
 
 @dataclass(frozen=True)
+class SetPersonalTerminalRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-personal-terminal/request'
+    session_id: str
+    terminal_key: str
+    theme: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SetPersonalWorkspaceRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-personal-workspace/request'
     session_id: str
@@ -2784,6 +2829,7 @@ class SplitRequest:
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+    shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2856,6 +2902,15 @@ class UnsaveScreenGroupRequest:
 class UnsaveTabGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/unsave-tab-group/request'
     group: str
+
+
+@dataclass(frozen=True)
+class UpdateBrowserProfileRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/update-browser-profile/request'
+    browser_profile: str
+    color: Union[str, None, MissingType] = field(default=MISSING)
+    icon: Union[str, None, MissingType] = field(default=MISSING)
+    name: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3151,6 +3206,7 @@ class NotificationEvent(EventBase):
     level: NotificationLevel
     notification: Id
     title: str
+    source: Union[NotificationSource, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -3613,6 +3669,7 @@ __all__ = [
     'DetachReason',
     'FrontendFocusTarget',
     'NotificationLevel',
+    'NotificationSource',
     'PaneDirection',
     'RenderGraphicFormat',
     'RenderUnderline',
@@ -3776,6 +3833,7 @@ __all__ = [
     'CloseTerminalRequest',
     'CloseWorkspaceRequest',
     'CopyRequest',
+    'CreateBrowserProfileRequest',
     'CreatePersonalGroupRequest',
     'CreateProfileRequest',
     'CreateScreenGroupRequest',
@@ -3784,6 +3842,7 @@ __all__ = [
     'CreateTerminalRequest',
     'CreateWorkspaceRequest',
     'CreateWorkspaceGroupRequest',
+    'DeleteBrowserProfileRequest',
     'DeletePersonalGroupRequest',
     'DeleteProfileRequest',
     'DeleteSavedScreenGroupRequest',
@@ -3819,6 +3878,7 @@ __all__ = [
     'MarkWorkspacesProviderManagedRequest',
     'MintTerminalRendererRequest',
     'MintTerminalRendererByTerminalRequest',
+    'MoveBrowserProfileRequest',
     'MovePersonalGroupRequest',
     'MoveProfileRequest',
     'MoveScreenRequest',
@@ -3889,6 +3949,7 @@ __all__ = [
     'SetClientInfoRequest',
     'SetClientSizingRequest',
     'SetDefaultColorsRequest',
+    'SetPersonalTerminalRequest',
     'SetPersonalWorkspaceRequest',
     'SetProfileFollowsRequest',
     'SetRatioRequest',
@@ -3917,6 +3978,7 @@ __all__ = [
     'UnregisterBrowserProviderRequest',
     'UnsaveScreenGroupRequest',
     'UnsaveTabGroupRequest',
+    'UpdateBrowserProfileRequest',
     'UpdateFrontendBrowserTabRequest',
     'UpdatePersonalGroupRequest',
     'UpdateProfileRequest',

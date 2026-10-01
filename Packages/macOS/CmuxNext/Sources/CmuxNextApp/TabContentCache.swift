@@ -36,13 +36,16 @@ final class TabContentCache {
     let previews = PreviewImageCache()
     let webKit = WebKitEngine()
     let cef = CEFEngine()
-    /// Pages visited this session in the default browser profile, shared by
-    /// its omnibars for suggestions and inline autocomplete (in memory; not
-    /// persisted yet). Other profiles keep their own (`history(for:)`).
+    /// Pages visited in the default browser profile, shared by its omnibars for suggestions and
+    /// inline autocomplete (in memory, durable via `HistoryService`). Others: `history(for:)`.
     let history = InMemoryBrowserHistory()
-    private(set) lazy var suggestionEngine = OmniboxSuggestionEngine(providers: [HistorySuggestionProvider(store: history)])
+    private(set) lazy var suggestionEngine = OmniboxSuggestionEngine(providers: [HistorySuggestionProvider(store: history)] + (extraSuggestionProviders?(.default) ?? []))
+    var extraSuggestionProviders: ((BrowserProfileID) -> [any BrowserSuggestionProvider])? // bookmark rows per profile
     /// History and suggestions of each non-default browser profile.
     var profileHistories: [BrowserProfileID: ProfileHistory] = [:]
+    /// A profile's omnibar history was created or dropped (`HistoryService`).
+    var onProfileHistoryCreated: ((BrowserProfileID, InMemoryBrowserHistory) -> Void)?
+    var onProfileHistoryDropped: ((BrowserProfileID) -> Void)?
     /// Incognito pages' history and page installs (`TabContentCache+Incognito`).
     var incognitoMemory = IncognitoPageMemory()
     let pageInstalls = PageInstallCounter()
@@ -126,14 +129,15 @@ final class TabContentCache {
         let target = DaemonTerminalIO.Target(
             attachment: TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
                                                   generation: daemon.store.generation),
-            initialSize: tab.size ?? CellSize(cols: 80, rows: 24)
+            initialSize: tab.size ?? CellSize(cols: 80, rows: 24), cursorDefault: .user
         )
         // Paused (and not claiming geometry) until a visible pane presents it.
         let render = ledger.isRendering(tab.id)
         let io = DaemonTerminalIO(target: target, visible: render, endpoint: { try await daemon.endpoint() })
         let session = TerminalSession(io: io, ownsGeometry: true)
         session.delegate = sessionDelegate
-        let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeStore.key(machine: daemon.machineID, tab: tab.id))
+        let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
+                                  store: daemon.store, surface: tab.surface)
         terminals[tab.id] = entry
         session.isRenderingSuspended = !render
         contentDidMount(tab.id)
@@ -182,6 +186,7 @@ final class TabContentCache {
             return tracked(install(adopted, for: key), tab)
         }
         let url = recordURL(tab)
+        if let page = appPage(for: tab, url: url) { return page }
         if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.openedSurfaces.contains(tab.surface) {
             return deferred(tab, url: url)
         }
@@ -293,6 +298,7 @@ final class TabContentCache {
         let entry = BrowserEntry(tab: page, suggestionEngine: incognito?.suggestions ?? suggestions(for: page.profileID),
                                  history: incognito?.history ?? history(for: page.profileID))
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
+        serveAppPages(entry, key: key)
         entry.chrome.machineBadge = { [weak self] url in self?.machineBadge?(key, url) }
         entry.chrome.addressBar.setProfileBadge(profileBadge?(key))
         entry.chrome.addressBar.profileBadgeMenu = { [weak self] in self?.profileBadgeMenu?(key) }

@@ -11,9 +11,24 @@ public enum FirefoxProfileList {
 
     public static func entries(in firefoxDirectory: URL) -> [Entry] {
         let ini = firefoxDirectory.appending(path: "profiles.ini")
-        guard let text = try? String(contentsOf: ini, encoding: .utf8) else { return [] }
+        guard let text = try? String(contentsOf: ini, encoding: .utf8) else { return folderProfiles(in: firefoxDirectory) }
         return parse(text, base: firefoxDirectory)
             .filter { FileManager.default.fileExists(atPath: $0.path.path) }
+    }
+
+    /// No `profiles.ini` (Tor Browser keeps `profile.default` beside its
+    /// data): folders with a `prefs.js`, directly or under `Profiles/`.
+    static func folderProfiles(in base: URL) -> [Entry] {
+        let manager = FileManager.default
+        var entries: [Entry] = []
+        for prefix in ["", "Profiles/"] {
+            let parent = prefix.isEmpty ? base : base.appending(path: prefix, directoryHint: .isDirectory)
+            let names = ((try? manager.contentsOfDirectory(atPath: parent.path)) ?? []).sorted()
+            for name in names where manager.fileExists(atPath: parent.appending(path: name).appending(path: "prefs.js").path) {
+                entries.append(Entry(directoryName: prefix + name, displayName: name, path: parent.appending(path: name, directoryHint: .isDirectory)))
+            }
+        }
+        return entries
     }
 
     static func parse(_ text: String, base: URL) -> [Entry] {

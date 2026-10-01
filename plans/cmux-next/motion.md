@@ -89,6 +89,16 @@ nxmot (MacBook Pro, 120 Hz).
 | `pulse` | 1.8 s | sidebar agent-waiting pulse |
 | `flash` | 0.6 s | pane attention flash (two blinks; one 0.3 s fade under Reduce Motion) |
 
+| Marquee (`MotionMarquee`) | Value | Used by |
+| --- | --- | --- |
+| `delay` | 0.6 s pointer rest (Core Animation `beginTime`, no timer) | clipped tab and workspace titles on hover (plans/cmux-next/tabs.md) |
+| `pointsPerSecond` | 40 pt/s, at least `minimumScroll` 0.4 s, ease in and out | same |
+| `hold` | 1.2 s at the end, then back with `move`'s timed equivalent | same |
+
+Leaving stops the marquee at once; a title caught mid-scroll springs back
+with `disappear` from its presented position. `normal` scales delay,
+scroll and hold by 1.5; Reduce Motion and `off` never start it.
+
 "normal" multiplies every response and fade duration by 1.5; damping does
 not change. Loops keep their period (they show state, not transitions).
 

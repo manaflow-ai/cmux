@@ -115,8 +115,11 @@ final class KeyRouter: BrowserKeyRouting {
             return false
         }
         let (controller, kind) = focus(for: window)
-        guard let controller, kind == .content, let candidate = candidate(for: event, focus: controller.focus.state),
-              Self.intercepts(candidate, focus: controller.focus.state, keyWindow: kind) else { return false }
+        guard let controller, kind == .content else { return false }
+        guard let candidate = candidate(for: event, focus: controller.focus.state),
+              Self.intercepts(candidate, focus: controller.focus.state, keyWindow: kind) else {
+            return consumesBrowserOnlyChord(event, focus: controller.focus.state)
+        }
         lastInterception = (candidate.id, controller.state.id)
         switch candidate.source {
         case .registry(let argument):
@@ -129,6 +132,13 @@ final class KeyRouter: BrowserKeyRouting {
         return true
     }
 
+    /// A browser-only chord (page Back/Forward) outside a browser context
+    /// does nothing and reaches no view (browser focus mode is a browser
+    /// context, so it never gets here).
+    func consumesBrowserOnlyChord(_ event: NSEvent, focus: FocusState) -> Bool {
+        !BrowserChordTable.isBrowserContext(focus.resolved) && BrowserChordTable.isBrowserOnlyChord(event, registry: registry)
+    }
+
     /// The last intercepted action and window (for `debug.key`).
     private(set) var lastInterception: (action: ActionID, window: String)?
 
@@ -137,6 +147,8 @@ final class KeyRouter: BrowserKeyRouting {
             return Candidate(id: resolved.id, tier: resolved.tier, source: .registry(argument: resolved.argument))
         }
         let isBrowser = BrowserChordTable.isBrowserContext(focus.resolved)
+        // Page Back/Forward chords never fall back to a Ghostty keybind.
+        if !isBrowser, BrowserChordTable.isBrowserOnlyChord(event, registry: registry) { return nil }
         // Chrome's tab-switching chords (Ctrl-Tab, Ctrl-PageDown...) are
         // cmux's next/previous tab in a browser context. Unbinding the
         // action in cmux.json removes these aliases too.

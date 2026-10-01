@@ -84,6 +84,21 @@ import Testing
         #expect(book.engineProfile(for: "garbage") == .default)
     }
 
+    @Test func aDaemonRecordsDeletionQueuesThisMacsData() throws {
+        // The record lives in the home daemon: no local record, but the
+        // engine data and workspace defaults here are this Mac's.
+        var book = BrowserProfileBook()
+        book.workspaceDefaults["s1|w1"] = work
+        book.recordsMigrated = true
+        book.markDeleted(work)
+        book.markDeleted("default")
+        #expect(book.pendingCleanup == [work])
+        #expect(book.workspaceDefaults.isEmpty)
+        let decoded = try JSONDecoder().decode(BrowserProfileBook.self, from: JSONEncoder().encode(book))
+        #expect(decoded.recordsMigrated)
+        #expect(decoded == book)
+    }
+
     @Test func positionsFollowCreationAndMove() throws {
         var book = BrowserProfileBook()
         let a = try book.create(name: "A", color: nil, icon: nil)

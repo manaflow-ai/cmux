@@ -38,6 +38,8 @@ final class AppControl {
                                                frameSource: frames, watchdog: watchdog)
         self.service = service
         let probe = frameProbe
+        service.router.register(HistoryControl.methods(services: services))
+        service.router.register(BookmarkControl.methods(services: services))
         service.router.register([
             .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
@@ -58,7 +60,13 @@ final class AppControl {
             // without a workspace).
             .mainActor("debug.windows") { [weak services] _ in
                 guard let services, let windows = services.windows else { return .value(.null) }
-                return .value(WindowInvariants.report(windows))
+                guard case .object(var report) = WindowInvariants.report(windows) else { return .value(.null) }
+                // Every workspace the app closed or kept after it lost its
+                // last pane, with the cause (EmptyWorkspaceRepair).
+                report["emptied_workspaces"] = .array((services.emptyWorkspaces?.decisions ?? []).map {
+                    .object(["key": .string($0.key.rawValue), "cause": .string(String(describing: $0.cause))])
+                })
+                return .value(.object(report))
             },
             // Omnibar state machine vs its field editor (focus.md section 7).
             .mainActor("debug.omnibar") { [weak services] call in
@@ -93,8 +101,10 @@ final class AppControl {
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
             .async("debug.wakeups") { call in await DebugWakeups.report(call.params) },
             // Chromium start: trigger (tab or warm reason), timings, footprint.
-            .mainActor("debug.cef") { [weak services] _ in
+            .mainActor("debug.cef") { [weak services] call in
                 guard let services else { return .value(.null) }
+                // {"side_panel": "<control>"} runs a side panel header control first.
+                if let control = call.params["side_panel"]?.stringValue { DebugCEF.pressSidePanel(control, services: services) }
                 return .value(DebugCEF.report(services))
             },
             // Remote localhost proxy: port, counters, recent outcomes.

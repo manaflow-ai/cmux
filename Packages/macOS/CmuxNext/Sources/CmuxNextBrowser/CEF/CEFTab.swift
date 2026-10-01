@@ -45,6 +45,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var devToolsViews: (host: CEFHostView, divider: CEFDevToolsDivider)?
     /// The window that holds `devToolsViews.host` while DevTools is not docked.
     @ObservationIgnored var devToolsWindow: CEFDevToolsWindow?
+    /// cmux's header over Chromium's side panel, while it is open.
+    @ObservationIgnored var sidePanelHeader: SidePanelHeaderView?
+    @ObservationIgnored var sidePanelState: CEFSidePanelState?
+    @ObservationIgnored var sidePanelRefreshPending = false
     @ObservationIgnored public weak var devToolsObserver: (any BrowserDevToolsObserving)?
 
     var machine = BrowserTabStateMachine()
@@ -53,6 +57,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var nextNavigation: UInt64 = 0
     @ObservationIgnored var pendingURL: URL?
     @ObservationIgnored var pendingFocus = false
+    /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
+    @ObservationIgnored var isGrantingFocus = false
     /// Navigation state to restore once the browser exists (created with
     /// an empty URL so its history starts empty).
     @ObservationIgnored var pendingRestore: String?
@@ -121,7 +127,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // it back on screen over the pane's current tab.
         let shown = host.visibleTab === self && !isOccluded
         BrowserLifecycleTrace.record(id, "attach pendingFocus=\(pendingFocus) shown=\(shown)")
-        if pendingFocus, shown { runtime.shim?.setFocus(browser, 1) }
+        if pendingFocus, shown { grantFocus(browser) }
         if let state = pendingRestore {
             pendingRestore = nil
             // 1 = restored; fork API 10 reports why not (-1 committed entries,
@@ -293,8 +299,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         BrowserLifecycleTrace.record(id, "focus(\(focused)) created=\(browserID != nil) shown=\(shown)")
         pendingFocus = focused
         // Never activate a hidden page's window (see `attach`).
-        guard !focused || shown else { return }
-        browserID.map { runtime.shim?.setFocus($0, focused ? 1 : 0) }
+        guard !focused || shown, let browserID else { return }
+        if focused { grantFocus(browserID) } else { runtime.shim?.setFocus(browserID, 0) }
     }
 
     /// Hides the page window (and a docked DevTools) at once, or shows it.

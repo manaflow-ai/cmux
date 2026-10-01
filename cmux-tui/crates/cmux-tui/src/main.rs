@@ -66,6 +66,8 @@ mod remote_runtime;
 mod session;
 mod sidebar_files;
 mod sidebar_projection;
+#[cfg(all(test, unix))]
+mod test_exec;
 mod ui;
 
 #[cfg(target_os = "linux")]
@@ -2450,6 +2452,18 @@ fn run_server(
             None
         }
     };
+    // Keeps launch-snapshot.json (`launch-snapshot-v1`) next to the session
+    // registry so a frontend can draw the last layout before it connects.
+    let launch_snapshot_writer = match cmux_tui_core::server::start_launch_snapshot_writer(&mux) {
+        Ok(writer) => writer,
+        Err(error) => {
+            crate::client_log::stderr_log!(
+                "startup",
+                "cmux-tui: launch snapshot writer unavailable: {error}"
+            );
+            None
+        }
+    };
 
     let machine_runtime = (config.machine_sidebar.enabled
         || !config.machine_sidebar.create_sources.is_empty()
@@ -2497,6 +2511,9 @@ fn run_server(
     }
     if let Some(reaper) = terminal_reaper {
         reaper.stop();
+    }
+    if let Some(writer) = launch_snapshot_writer {
+        writer.stop();
     }
     #[cfg(unix)]
     if let Some(poller) = machine_usage_poller {

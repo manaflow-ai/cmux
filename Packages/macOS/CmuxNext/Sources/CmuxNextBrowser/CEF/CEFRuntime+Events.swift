@@ -205,6 +205,8 @@ extension CEFRuntime {
             popupWindowCreated(window: window, browser: browser)
         case .popupWindowBounds:
             popupWindowBoundsChanged(window: window)
+        case .sidePanelChanged:
+            for host in hosts.values where host.owns(window: window) { host.visibleTab?.scheduleSidePanelRefresh() }
         case .moved, .unknown:
             break
         }
@@ -298,7 +300,7 @@ extension CEFShimEvent {
              .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _),
              .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
              .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
-             .navigationReroute(let b, _, _), .keyUnhandled(let b, _), .installPrompt(let b, _, _):
+             .navigationReroute(let b, _, _), .keyUnhandled(let b, _), .installPrompt(let b, _, _), .takeFocus(let b, _):
             b
         case .contextInitialized, .omniboxSuggestions, .unknown:
             nil

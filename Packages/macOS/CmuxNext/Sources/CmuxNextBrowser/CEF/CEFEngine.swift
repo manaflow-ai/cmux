@@ -16,7 +16,7 @@ public final class CEFEngine: BrowserEngine {
         .devTools, .downloads, .snapshots, .findMatchCount,
     ]
 
-    private let layout: CEFRuntimeLayout?
+    let layout: CEFRuntimeLayout?
 
     /// `layout` defaults to the runtime embedded in the main bundle, or the
     /// directory named by `CMUX_NEXT_CEF_RUNTIME`.

@@ -200,6 +200,7 @@ extension CEFTab {
             let pageFrame = host.hostView.frame
             var rects = occlusionRects
             if !frames.grab.isEmpty { rects.append(frames.grab) }
+            if let header = sidePanelHeaderFrame { rects.append(header) }
             host.hostView.occlusionRects = Self.local(rects, in: pageFrame)
         }
         if let views = devToolsViews {

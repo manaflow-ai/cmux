@@ -40,8 +40,9 @@ extension CompatService {
             throw ControlRouter.confirmationRequired(id)
         }
         let failure = await ControlRouter.firstFailure(of: run.work)
-        // The handler's daemon replies are in: later reads wait for their events.
-        await noteWrite()
+        // The handler's daemon replies are in: later reads wait for their
+        // events on every session (an action may write to a remote one).
+        await noteWriteEverywhere()
         if let failure { throw ControlRouter.workError(failure, action: id, method: method) }
     }
 }
@@ -54,9 +55,10 @@ extension CompatWorld {
         return fresh.max { $0.handle.rawValue < $1.handle.rawValue }
     }
 
-    func createdWorkspace(since before: CompatWorld) -> Workspace? {
+    /// The workspace `before` lacked, on `session` (nil: home).
+    func createdWorkspace(since before: CompatWorld, session: String? = nil) -> Workspace? {
         let known = Set(before.workspaces.map(\.uuid))
-        return workspaces.last { !known.contains($0.uuid) }
+        return workspaces.last { !known.contains($0.uuid) && $0.sessionID == session }
     }
 }
 

@@ -145,7 +145,9 @@ final class CEFTabContentView: NSView {
         let devToolsHost = tab?.devToolsViews?.host
         for subview in subviews {
             let frame: CGRect
-            if subview === devToolsHost {
+            if subview is SidePanelHeaderView {
+                frame = tab?.sidePanelHeaderFrame ?? .zero
+            } else if subview === devToolsHost {
                 frame = frames.devTools
             } else if subview is CEFDevToolsDivider {
                 frame = frames.grab

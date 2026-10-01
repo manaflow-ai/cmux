@@ -79,6 +79,19 @@ enum BrowserChordTable {
         shortcuts(of: event).contains { chromeReserved.contains($0) }
     }
 
+    /// Actions whose chords act only in a browser context (user 2026-09-30,
+    /// "consistency is most important"): page Back and Forward. Elsewhere
+    /// their chords (Cmd-[ / Cmd-] by default, or the user's rebinding) do
+    /// nothing: cmux consumes them, so neither a Ghostty keybind nor the
+    /// shell gets them.
+    static let browserOnlyActions: [ActionID] = ["browserBack", "browserForward"]
+
+    /// Whether `event` is the effective chord of a browser-only action.
+    static func isBrowserOnlyChord(_ event: NSEvent, registry: ActionRegistry) -> Bool {
+        let chords = browserOnlyActions.compactMap(registry.effectiveShortcut(for:))
+        return shortcuts(of: event).contains { chords.contains($0) }
+    }
+
     /// The cmux tab action for a Chrome tab-switching chord, or nil.
     static func tabNavigationAction(for event: NSEvent) -> ActionID? {
         shortcuts(of: event).lazy.compactMap { tabNavigation[$0] }.first

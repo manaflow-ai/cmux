@@ -24,10 +24,10 @@ enum BrowserProfileHandlers {
             let record = try context.browserProfile(invocation)
             let id = record.id
             if let name = invocation["name"]?.stringValue, !name.isEmpty {
-                try profiles.edit { try $0.rename(id, to: name) }
+                try profiles.rename(id, to: name)
             } else if let window = context.activeWindow?.window {
                 RenamePrompt.run(title: BrowserProfileAppStrings.renameTitle, initial: record.name, in: window) { name in
-                    try? profiles.edit { try $0.rename(id, to: name) }
+                    try? profiles.rename(id, to: name)
                 }
             } else {
                 throw ActionFailure.invalidTarget(BrowserProfileAppStrings.invalidName)
@@ -36,20 +36,20 @@ enum BrowserProfileHandlers {
         bind("browserProfile.setColor") { invocation in
             let id = try context.browserProfile(invocation).id
             let color = invocation["color"]?.stringValue
-            try profiles.edit { try $0.setColor(id, color) }
+            try profiles.setColor(id, color)
         }
         bind("browserProfile.clearColor") { invocation in
             let id = try context.browserProfile(invocation).id
-            try profiles.edit { try $0.setColor(id, nil) }
+            try profiles.setColor(id, nil)
         }
         bind("browserProfile.setIcon") { invocation in
             let record = try context.browserProfile(invocation)
             let id = record.id
             if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
-                try profiles.edit { try $0.setIcon(id, icon) }
+                try profiles.setIcon(id, icon)
             } else if let window = context.activeWindow?.window {
                 RenamePrompt.run(title: BrowserProfileAppStrings.iconTitle, initial: record.icon ?? "", in: window) { icon in
-                    try? profiles.edit { try $0.setIcon(id, icon) }
+                    try? profiles.setIcon(id, icon)
                 }
             } else {
                 throw ActionFailure.invalidTarget(BrowserProfileAppStrings.invalidIcon)
@@ -57,7 +57,7 @@ enum BrowserProfileHandlers {
         }
         bind("browserProfile.clearIcon") { invocation in
             let id = try context.browserProfile(invocation).id
-            try profiles.edit { try $0.setIcon(id, nil) }
+            try profiles.setIcon(id, nil)
         }
         bind("browserProfile.delete") { invocation in
             let record = try context.browserProfile(invocation)
@@ -76,7 +76,7 @@ enum BrowserProfileHandlers {
         let color = invocation["color"]?.stringValue
             ?? GroupColor.allCases.first { !used.contains($0.rawValue) && $0 != .grey }?.rawValue
         let icon = invocation["icon"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        try profiles.edit { try $0.create(name: name, color: color, icon: icon) }
+        try profiles.createProfileNow(name: name, color: color, icon: icon)
     }
 }
 

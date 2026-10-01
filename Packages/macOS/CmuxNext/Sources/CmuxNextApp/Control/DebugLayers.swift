@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
 
@@ -45,6 +46,7 @@ enum DebugLayers {
                              "ring_in_sync": .bool(ring.ringInWindow == ring.contentInWindow)])
                 }),
                 "drop_highlight_in_window": root?.dropHighlightFrameInWindow.map(rect) ?? .null,
+                "drop_highlight_material": root.map { .string(String(describing: $0.dropHighlightMaterial)) } ?? .null,
             ])
         }
         let pageWindows = WindowOverlayLayer.contentChildWindows(of: window)
@@ -144,6 +146,11 @@ enum DebugLayers {
         guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
               let layout = controller.content?.layoutView else { return .object(["error": .string("no window")]) }
         let tab = LayoutTabID("debug-drop-highlight")
+        // "material": "liquidGlass" | "vibrancy" | "opaque" pins it; "auto" follows this Mac.
+        if let name = params["material"]?.stringValue {
+            let pinned: [String: OverlayMaterial] = ["liquidGlass": .liquidGlass, "vibrancy": .vibrancy, "opaque": .opaque]
+            layout.pinDropHighlightMaterial(pinned[name])
+        }
         if params["end"]?.boolValue == true {
             layout.cancelTabDrag()
             return .object(["ended": .bool(true)])
@@ -154,6 +161,7 @@ enum DebugLayers {
         let local = CGPoint(x: frame.minX + frame.width * (fractions.first ?? 0.5), y: frame.minY + frame.height * (fractions.last ?? 0.5))
         let target = layout.updateTabDrag(tab, locationInWindow: layout.convert(local, to: nil))
         return .object(["target": target.map { .string(String(describing: $0)) } ?? .null,
+                        "material": .string(String(describing: layout.dropHighlightMaterial)),
                         "highlight_in_window": layout.dropHighlightFrameInWindow.map(rect) ?? .null])
     }
     #endif

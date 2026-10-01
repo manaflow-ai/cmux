@@ -5,6 +5,7 @@ import GhosttyKit
 /// the config files, like `appearance.theme`), for a terminal whose room,
 /// workspace or own theme differs from the config. Colors the config sets
 /// explicitly still win, as in Ghostty. Owns its finalized config.
+@MainActor
 public final class GhosttyThemeConfig {
     let config: ghostty_config_t
     /// The theme file name.

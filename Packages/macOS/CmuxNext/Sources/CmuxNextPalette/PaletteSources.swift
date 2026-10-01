@@ -24,6 +24,9 @@ public struct PaletteSources {
     /// and with nil when the page is left without choosing. Choosing runs the
     /// action, which commits; no nil follows it.
     public var argumentPreview: PaletteArgumentPreview?
+    /// Actions the palette serves as a nested page of the App's making
+    /// (history pages): choosing the action pushes the page in place.
+    public var actionPages: [ActionID: @MainActor () -> PalettePageSpec?] = [:]
 
     public init(
         workspaces: (any PaletteWorkspaceSource)? = nil,

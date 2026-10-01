@@ -51,8 +51,8 @@ enum ActionRouting {
             return daemons.first { $0.store.workspaces.flatMap(\.screens).contains { $0.id == target.id } }
         case .screenGroup:
             return daemons.first { $0.store.workspaces.contains { $0.screenGroups.contains { $0.id.rawValue == target.id } } }
-        case .column, .browserProfile:
-            // Browser profiles are personal state of this Mac.
+        case .column, .browserProfile, .bookmark:
+            // Browser profiles and bookmarks are personal state of this Mac.
             return nil
         case .profile:
             return daemons.first { $0.store.profile(ProfileID(rawValue: target.id)) != nil }

@@ -84,22 +84,26 @@ final class OnboardingService {
         }
     }
 
-    /// A batch as omnibar history: pages as visited, bookmarks as one visit
-    /// on the day they were added (cmux-next has no bookmark list yet).
+    /// A batch's pages as omnibar history. Bookmarks reach the omnibar as
+    /// bookmark rows (`BookmarkSuggestionProvider`), not as visits.
     nonisolated static func historyEntries(_ batch: ImportBatch) -> [BrowserHistoryEntry] {
         batch.history.map { BrowserHistoryEntry(url: $0.url, title: $0.title, visitCount: $0.visitCount, lastVisit: $0.lastVisit) }
-            + batch.bookmarks.map { BrowserHistoryEntry(url: $0.url, title: $0.title, visitCount: 1, lastVisit: $0.dateAdded ?? batch.importedAt) }
     }
 }
 
 /// Saves each imported profile and adds it to the live omnibar history.
 struct AppImportDestination: ImportDestination {
     let store: ImportedDataStore
+    /// The bookmarks model (`AppServices.importedBookmarkSink`), when present.
+    var bookmarks: (any ImportedBookmarkSink)?
     /// The omnibar history of a browser profile id.
     let history: @MainActor @Sendable (String) -> InMemoryBrowserHistory
 
     func commit(_ batch: ImportBatch) async throws {
         try await store.save(batch)
+        if let bookmarks, batch.kinds.contains(.bookmarks) {
+            try await bookmarks.replaceImportedBookmarks(batch.bookmarks, source: batch.source)
+        }
         let entries = OnboardingService.historyEntries(batch)
         let target = batch.source.targetProfileID
         await MainActor.run { history(target).merge(entries) }

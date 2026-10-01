@@ -126,6 +126,34 @@ struct BrowserProfileServiceTests {
         withExtendedLifetime(services) {}
     }
 
+    /// Coordinator decision 2026-09-30: with `browser-profiles-v1` the home
+    /// daemon holds the records (after the one-time copy from the file).
+    @Test func theHomeDaemonsRecordsWinOnceCopied() throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        let identify = #"{"app":"cmux-tui","version":"0.1.0","protocol":12,"capabilities":["profiles-v1","browser-profiles-v1"],"session":"t","pid":1,"registry_id":"r","generation":"GEN","workspace_revision":0}"#
+        _ = services.daemon.store.apply(.connected(try JSONDecoder().decode(DaemonIdentity.self, from: Data(identify.utf8)),
+                                                   generationChanged: false))
+        var tree = DaemonTree(registryID: "r", workspaceRevision: 1, workspaces: [])
+        tree.personal = PersonalState(revision: 1)
+        tree.personal?.browserProfiles = [BrowserProfileSnapshot(id: "default", name: "Default", index: 0),
+                                          BrowserProfileSnapshot(id: Self.work, name: "Work", color: "green", index: 1)]
+        services.daemon.store.apply(snapshot: tree)
+        let profiles = services.browserProfiles
+        try profiles.edit { try $0.create(name: "Local only", color: nil, icon: nil) }
+        // Not copied yet: this Mac's file still answers.
+        #expect(profiles.daemonServesRecords)
+        #expect(profiles.ordered.map(\.name) == ["Default", "Local only"])
+        try profiles.edit { $0.recordsMigrated = true }
+        #expect(profiles.ordered.map(\.id) == ["default", Self.work])
+        #expect(profiles.record(Self.work)?.color == "green")
+        #expect(profiles.isKnown(Self.work))
+        // Edits are validated here before they go to the daemon.
+        #expect(throws: BrowserProfileBookError.unknownProfile) { try profiles.rename("11111111-1111-4111-8111-111111111111", to: "x") }
+        #expect(throws: BrowserProfileBookError.invalidName) { try profiles.createProfileNow(name: " ", color: nil, icon: nil) }
+        #expect(throws: BrowserProfileBookError.invalidColor) { try profiles.setColor(Self.work, "teal") }
+        withExtendedLifetime(services) {}
+    }
+
     @Test func browserProfileActionsAreBound() {
         let registry = ActionBindingCoverageTests.boundServices().registry
         let unbound = BrowserProfileActionIDs.all.filter { !registry.isBound($0) }

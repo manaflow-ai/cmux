@@ -13494,133 +13494,133 @@
         }
       }
     },
-    "handlers.refusal.themeMustBeOneOf": {
+    "handlers.refusal.unknownTheme": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "theme must be one of %@"
+            "value": "Ghostty has no theme '%@' (use a theme name, an absolute path, or light:A,dark:B)"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يجب أن تكون السمة إحدى القيم %@"
+            "value": "لا يحتوي Ghostty على السمة '%@' (استخدم اسم سمة أو مسارًا مطلقًا أو light:A,dark:B)"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "tema mora biti jedna od %@"
+            "value": "Ghostty nema temu '%@' (koristite naziv teme, apsolutnu putanju ili light:A,dark:B)"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "temaet skal være en af %@"
+            "value": "Ghostty har intet tema '%@' (brug et temanavn, en absolut sti eller light:A,dark:B)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "das Design muss eines der folgenden sein: %@"
+            "value": "Ghostty hat kein Design '%@' (einen Designnamen, einen absoluten Pfad oder light:A,dark:B verwenden)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "el tema debe ser uno de %@"
+            "value": "Ghostty no tiene el tema '%@' (usa un nombre de tema, una ruta absoluta o light:A,dark:B)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "le thème doit être l’un de %@"
+            "value": "Ghostty n’a pas de thème '%@' (utilisez un nom de thème, un chemin absolu ou light:A,dark:B)"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "il tema deve essere uno tra %@"
+            "value": "Ghostty non ha il tema '%@' (usa un nome di tema, un percorso assoluto o light:A,dark:B)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "テーマは次のいずれかにしてください: %@"
+            "value": "Ghostty にテーマ '%@' はありません (テーマ名、絶対パス、または light:A,dark:B を使用)"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "រចនាប័ទ្មត្រូវតែជាមួយក្នុងចំណោម %@"
+            "value": "Ghostty មិនមានរចនាប័ទ្ម '%@' ទេ (ប្រើឈ្មោះរចនាប័ទ្ម ផ្លូវពេញ ឬ light:A,dark:B)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "테마는 다음 중 하나여야 합니다: %@"
+            "value": "Ghostty에 '%@' 테마가 없습니다 (테마 이름, 절대 경로 또는 light:A,dark:B 사용)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "temaet må være ett av %@"
+            "value": "Ghostty har ikke temaet '%@' (bruk et temanavn, en absolutt bane eller light:A,dark:B)"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "motyw musi być jednym z %@"
+            "value": "Ghostty nie ma motywu '%@' (użyj nazwy motywu, ścieżki bezwzględnej lub light:A,dark:B)"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "o tema deve ser um de %@"
+            "value": "O Ghostty não tem o tema '%@' (use um nome de tema, um caminho absoluto ou light:A,dark:B)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "тема должна быть одной из: %@"
+            "value": "В Ghostty нет темы '%@' (укажите имя темы, абсолютный путь или light:A,dark:B)"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ธีมต้องเป็นหนึ่งใน %@"
+            "value": "Ghostty ไม่มีธีม '%@' (ใช้ชื่อธีม พาธแบบเต็ม หรือ light:A,dark:B)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "tema şunlardan biri olmalı: %@"
+            "value": "Ghostty'de '%@' teması yok (bir tema adı, mutlak yol veya light:A,dark:B kullanın)"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "тема має бути однією з: %@"
+            "value": "У Ghostty немає теми '%@' (вкажіть назву теми, абсолютний шлях або light:A,dark:B)"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "chủ đề phải là một trong %@"
+            "value": "Ghostty không có chủ đề '%@' (dùng tên chủ đề, đường dẫn tuyệt đối hoặc light:A,dark:B)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主题必须是以下之一：%@"
+            "value": "Ghostty 没有主题“%@”（请使用主题名称、绝对路径或 light:A,dark:B）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主題必須是以下其中之一：%@"
+            "value": "Ghostty 沒有主題「%@」（請使用主題名稱、絕對路徑或 light:A,dark:B）"
           }
         }
       }

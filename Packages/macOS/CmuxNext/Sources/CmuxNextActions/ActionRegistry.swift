@@ -59,6 +59,12 @@ public final class ActionRegistry {
     /// with the hovered value (action, argument name, value, target), and
     /// with a nil value when the menu closes. The App previews themes here.
     @ObservationIgnored public var choicePreview: (@MainActor (ActionID, String, String?, ActionTargetRef?) -> Void)?
+    /// Every known value of a suggested argument (`ActionSuggestions.source`),
+    /// supplied by the App.
+    @ObservationIgnored public var argumentSuggestions: (@MainActor (String) -> [ActionEnumCase])?
+    /// Whether free text is a valid value of a suggested argument (a theme
+    /// Ghostty accepts); nil accepts any non-empty text.
+    @ObservationIgnored public var argumentValidation: (@MainActor (String, String) -> Bool)?
     /// The current value of a choices submenu's argument for a target, shown
     /// with a checkmark.
     @ObservationIgnored public var choiceState: (@MainActor (ActionID, ActionTargetRef?) -> String?)?

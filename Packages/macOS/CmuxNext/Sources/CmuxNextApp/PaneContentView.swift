@@ -156,3 +156,9 @@ final class PaneContentView: NSView, PaneContentChrome {
         }
     }
 }
+
+// A terminal or page edge inside the titlebar band never moves the window;
+// the strip, hit before this view, answers for its own empty space.
+extension PaneContentView: TitlebarPressDeciding {
+    func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress { .staysPut }
+}

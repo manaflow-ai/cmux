@@ -19,6 +19,9 @@ final class PaletteContentView: NSView {
     private let topRule = NSView()
     private let bottomRule = NSView()
     private let list = PaletteListView()
+    /// Hosts the results and fades them out at the top or bottom while more
+    /// are hidden there.
+    private lazy var listHost = ScrollEdgeFadeView(scrollView: list)
     private let emptyTitle = PaletteText.label(Typography.bodyEmphasized, tone: .secondary)
     private let emptyHint = PaletteText.label(Typography.caption, tone: .tertiary)
     private let footer = PaletteFooterView()
@@ -50,7 +53,7 @@ final class PaletteContentView: NSView {
         emptyTitle.alignment = .center
         emptyHint.alignment = .center
         [topRule, bottomRule].forEach { $0.wantsLayer = true }
-        [searchBar, topRule, list, emptyTitle, emptyHint, bottomRule, footer].forEach(body.addSubview)
+        [searchBar, topRule, listHost, emptyTitle, emptyHint, bottomRule, footer].forEach(body.addSubview)
         stage.addSubview(glass)
         stage.addSubview(actionsMenuView)
         stage.addSubview(recorderView)
@@ -128,7 +131,7 @@ final class PaletteContentView: NSView {
             list.scrollToSelection()
         }
         let showEmpty = sections.isEmpty && !model.isLoading
-        list.isHidden = showEmpty
+        listHost.isHidden = showEmpty
         emptyTitle.isHidden = !showEmpty
         emptyHint.isHidden = !showEmpty
 
@@ -199,7 +202,7 @@ final class PaletteContentView: NSView {
         topRule.frame = NSRect(x: 0, y: y, width: width, height: Metrics.dividerThickness)
         y += Metrics.dividerThickness
         let listFrame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.listHeight)
-        list.frame = listFrame
+        listHost.frame = listFrame
         list.contentInsets = NSEdgeInsets(top: PaletteLayout.listInset, left: 0, bottom: PaletteLayout.listInset, right: 0)
         let titleHeight = emptyTitle.intrinsicContentSize.height
         let hintHeight = emptyHint.intrinsicContentSize.height

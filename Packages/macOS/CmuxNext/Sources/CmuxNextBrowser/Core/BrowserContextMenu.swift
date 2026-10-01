@@ -103,6 +103,7 @@ public nonisolated struct BrowserContextMenuTarget: Hashable, Sendable {
 /// A page asks for its context menu. The host shows `items` (it may add its
 /// own) at `location` and calls `complete` exactly once with the chosen
 /// item's id, or nil when the menu was dismissed.
+@MainActor
 public final class BrowserContextMenuRequest {
     public let items: [BrowserContextMenuItem]
     public let target: BrowserContextMenuTarget

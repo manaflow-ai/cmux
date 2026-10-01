@@ -21,12 +21,15 @@ extension TabContentCache {
     func dropHistory(for profile: BrowserProfileID?) {
         guard let profile, profile != .default else { return }
         profileHistories[profile] = nil
+        onProfileHistoryDropped?(profile)
     }
 
     private func profileHistory(_ profile: BrowserProfileID) -> ProfileHistory {
         if let existing = profileHistories[profile] { return existing }
         let history = InMemoryBrowserHistory()
-        let made = ProfileHistory(history: history, suggestions: OmniboxSuggestionEngine(providers: [HistorySuggestionProvider(store: history)]))
+        onProfileHistoryCreated?(profile, history)
+        let providers: [any BrowserSuggestionProvider] = [HistorySuggestionProvider(store: history)] + (extraSuggestionProviders?(profile) ?? [])
+        let made = ProfileHistory(history: history, suggestions: OmniboxSuggestionEngine(providers: providers))
         profileHistories[profile] = made
         return made
     }

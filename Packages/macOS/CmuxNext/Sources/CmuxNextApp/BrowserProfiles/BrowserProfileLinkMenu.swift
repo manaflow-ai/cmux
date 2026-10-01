@@ -3,21 +3,22 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemon
 
-/// "Open Link in Browser Profile ▸" in a page's context menu: one item per
-/// other profile, each running `browserProfile.openLink` (the action every
-/// entrypoint shares). Shown when a link was right-clicked and more than
-/// one profile exists.
+/// "Open Link in Browser Profile ▸" in a page's or a terminal's context
+/// menu: one item per profile, each running `browserProfile.openLink` (the
+/// action every entrypoint shares) at `target` (the pane or tab the link
+/// was in). Shown when a web link was right-clicked and more than one
+/// profile exists.
 @MainActor
 enum BrowserProfileLinkMenu {
-    static func items(for link: URL?, pane: PaneModel, services: AppServices) -> [NSMenuItem] {
+    static func items(for link: URL?, target: ActionTargetRef?, services: AppServices) -> [NSMenuItem] {
         let profiles = services.browserProfiles.ordered
-        guard let link, profiles.count > 1, let title = services.registry.descriptor(for: "browserProfile.openLink")?.title else { return [] }
+        guard let link, link.scheme == "http" || link.scheme == "https", profiles.count > 1, let title = services.registry.descriptor(for: "browserProfile.openLink")?.title else { return [] }
         let submenu = NSMenu()
         for record in profiles {
             let item = NSMenuItem(title: record.icon.map { "\($0)  \(record.name)" } ?? record.name, action: nil, keyEquivalent: "")
             let target = ActionMenuClosure { [weak services] in
                 services?.registry.perform("browserProfile.openLink", invocation: ActionInvocation(
-                    target: ActionTargetRef(kind: .pane, id: pane.id),
+                    target: target,
                     arguments: ["browserProfile": .string(record.id), "url": .string(link.absoluteString)]))
             }
             item.target = target

@@ -1,0 +1,181 @@
+import AppKit
+import CmuxNextDesign
+import CmuxNextBridge
+import CmuxNextDaemon
+import CmuxNextHistory
+import CmuxNextWakeups
+import Foundation
+import Observation
+
+/// Owns the app-wide location trail (plans/cmux-next/history.md 4.2):
+/// records each window's settled focus, runs Go Back / Go Forward / Go to
+/// Last Location, and keeps the trail in the home session's personal
+/// projection `history.trail` (incognito entries never leave memory).
+final class LocationTrailService {
+    nonisolated static let subject = "history.trail"
+    nonisolated static let schemaVersion: UInt32 = 1
+
+    private unowned let services: AppServices
+    private(set) var trail = LocationTrail()
+    private let saveTimer = DemandTimer(owner: "LocationTrailService.save")
+    private var loaded = false
+    private var revision: UInt64?
+    private var observation: Task<Void, Never>?
+    /// Replaces the clock (tests).
+    var now: () -> Date = Date.init
+    /// Called after every trail change (the history page, the palette).
+    var onChange: (() -> Void)?
+
+    init(services: AppServices) {
+        self.services = services
+        let store = services.daemon.store
+        observation = Task { [weak self] in
+            for await connected in Observations({ if case .connected = store.connectionState { true } else { false } }) where connected {
+                self?.loadOnce()
+            }
+        }
+    }
+
+    deinit { observation?.cancel() }
+
+    // MARK: Recording
+
+    /// A window's focus settled. Only the active window records (the key
+    /// window, else the last active one), so a background CLI change does
+    /// not move the trail.
+    func focusDidSettle(_ state: FocusState, in controller: WindowController) {
+        guard services.windows.active === controller, let location = location(of: state, in: controller) else { return }
+        if trail.record(location, at: now()) { changed() }
+    }
+
+    func location(of state: FocusState, in controller: WindowController) -> HistoryLocation? {
+        guard state.target.isPaneScoped || state.target.isSidebar, let pane = state.pane,
+              let tabID = state.topology.pane(pane)?.selectedTab?.id,
+              let (tab, paneModel) = services.locateTab(tabID) else { return nil }
+        let daemon = services.daemon(for: paneModel)
+        let workspace = daemon.store.workspace(containing: paneModel.handle)
+        let content: HistoryLocation.Content = switch tab.kind {
+        case .pty: .terminal
+        case .browser: .browser
+        default: .other
+        }
+        let workspaceID = workspace?.id ?? state.topology.workspace ?? ""
+        return HistoryLocation(
+            key: .init(machine: daemon.machineID, tab: tab.id), window: controller.state.id, workspace: workspaceID,
+            pane: paneModel.id, content: content, title: tab.displayTitle.isEmpty ? Strings.untitledTerminal : tab.displayTitle,
+            workspaceTitle: workspace?.displayName, machineName: daemon.machineID == MachineRegistry.localID ? nil : daemon.machineID,
+            url: tab.url, cwd: tab.cwd, isIncognito: services.windows.isIncognito(workspace: workspaceID))
+    }
+
+    // MARK: Navigation
+
+    /// Whether the location's tab exists on a connected machine now.
+    func isAvailable(_ location: HistoryLocation) -> Bool {
+        guard let (_, pane) = services.locateTab(location.key.tab) else { return false }
+        return services.daemon(for: pane).machineID == location.key.machine
+    }
+
+    enum Direction { case back, forward, last }
+
+    /// Moves the trail and focuses the entry. False when there is nowhere
+    /// to go.
+    @discardableResult
+    func navigate(_ direction: Direction) -> Bool {
+        let entry: LocationTrail.Entry? = switch direction {
+        case .back: trail.back(isAvailable: isAvailable)
+        case .forward: trail.forward(isAvailable: isAvailable)
+        case .last: trail.last(isAvailable: isAvailable)
+        }
+        guard let entry else { return false }
+        changed()
+        if !focus(entry.location) { trail.cancelPending() }
+        return true
+    }
+
+    /// Focuses a trail entry chosen from a list (history page, palette):
+    /// recorded like any jump, so Back returns to where the user was.
+    @discardableResult
+    func goTo(_ location: HistoryLocation) -> Bool {
+        focus(location)
+    }
+
+    /// Shows the tab: its window comes forward, its workspace and tab are
+    /// selected and its pane takes focus.
+    private func focus(_ location: HistoryLocation) -> Bool {
+        guard let (_, paneModel) = services.locateTab(location.key.tab),
+              let workspace = services.daemon(for: paneModel).store.workspace(containing: paneModel.handle),
+              let window = services.windows.reveal(workspaceID: workspace.id) else { return false }
+        window.state.selection.select(location.key.tab, in: paneModel.id)
+        window.focus.send(.selectTab(pane: paneModel.id, tab: location.key.tab, workspace: workspace.id, source: .intent))
+        services.paneController(for: paneModel)?.select(StripTabID(location.key.tab))
+        if let nsWindow = window.window { WindowActivation.show(nsWindow, .raise) }
+        return true
+    }
+
+    // MARK: Clearing
+
+    func clear(since start: Date?) {
+        trail.removeAll { entry in start.map { entry.enteredAt >= $0 } ?? true }
+        changed()
+    }
+
+    /// Removes every entry of one tab (Remove from History).
+    func remove(_ key: HistoryLocation.Key) {
+        trail.removeAll { $0.location.key == key }
+        changed()
+    }
+
+    /// The incognito session ended (its last window closed): its entries go.
+    func forgetIncognito() {
+        trail.removeAll { $0.location.isIncognito }
+        changed()
+    }
+
+    // MARK: Persistence
+
+    private func changed() {
+        onChange?()
+        guard loaded else { return }
+        saveTimer.schedule(after: .seconds(1)) { @MainActor [weak self] in self?.save() }
+    }
+
+    private func loadOnce() {
+        guard !loaded else { return }
+        services.daemon.send("history-trail-load") { [weak self] connection in
+            let projection = try await connection.frontendProjection(subject: Self.subject)
+            let stored: LocationTrail? = projection.schemaVersion == Self.schemaVersion && projection.projection != .null
+                ? try? JSONDecoder().decode(LocationTrail.self, from: JSONEncoder().encode(projection.projection)) : nil
+            await MainActor.run { self?.adopt(stored, revision: projection.projectionRevision) }
+        }
+    }
+
+    private func adopt(_ stored: LocationTrail?, revision: UInt64) {
+        loaded = true
+        self.revision = revision
+        // Entries recorded before the load stay newest.
+        if var merged = stored {
+            for entry in trail.entries { merged.record(entry.location, at: entry.enteredAt) }
+            trail = merged
+        }
+        onChange?()
+    }
+
+    private func save() {
+        let snapshot = trail.persistable
+        let revision = revision
+        services.daemon.send("history-trail-save") { [weak self] connection in
+            let value = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(snapshot))
+            // Last writer wins: the trail is this app's own; a conflict
+            // (another app instance) retries once without a revision.
+            let stored: FrontendProjection
+            do {
+                stored = try await connection.putFrontendProjection(subject: Self.subject, schemaVersion: Self.schemaVersion,
+                                                                    projection: value, expectedRevision: revision)
+            } catch DaemonError.command(_, let message, _) where message.contains("revision conflict") {
+                stored = try await connection.putFrontendProjection(subject: Self.subject, schemaVersion: Self.schemaVersion,
+                                                                    projection: value)
+            }
+            await MainActor.run { self?.revision = stored.projectionRevision }
+        }
+    }
+}

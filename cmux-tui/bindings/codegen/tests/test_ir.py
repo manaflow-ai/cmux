@@ -261,6 +261,16 @@ class IrTests(unittest.TestCase):
                         12,
                         "terminal-reap-v1",
                     ),
+                    "shell_args": (
+                        "array",
+                        None,
+                        "optional",
+                        True,
+                        True,
+                        None,
+                        12,
+                        "terminal-shell-args-v1",
+                    ),
                 },
             },
             "set-viewport-pane-width": {

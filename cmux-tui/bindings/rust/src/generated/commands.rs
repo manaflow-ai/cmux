@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 9335cb699f686481f70d674b12c055858df82b4e079fd8f58405b44554e09edd.
+// cmux-tui mux protocol 12, IR adbfa89de5ea3e4ee601c468ebe23c608b9eb8532e62701776fa0d86a6831300.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -450,6 +450,25 @@ pub struct CopyRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CreateBrowserProfileRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub browser_profile: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub color: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub icon: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub index: Optional<u64>,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub source: Optional<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type CreateBrowserProfileResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreatePersonalGroupRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub collapsed: Option<bool>,
@@ -588,6 +607,8 @@ pub struct CreateTerminalRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub shell_args: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
@@ -632,6 +653,15 @@ pub struct CreateWorkspaceGroupRequest {
 
 #[rustfmt::skip]
 pub type CreateWorkspaceGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeleteBrowserProfileRequest {
+    pub browser_profile: String,
+}
+
+#[rustfmt::skip]
+pub type DeleteBrowserProfileResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -936,6 +966,16 @@ pub struct MintTerminalRendererByTerminalRequest {
 
 #[rustfmt::skip]
 pub type MintTerminalRendererByTerminalResult = T::MintTerminalRendererResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveBrowserProfileRequest {
+    pub browser_profile: String,
+    pub index: u64,
+}
+
+#[rustfmt::skip]
+pub type MoveBrowserProfileResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1250,6 +1290,8 @@ pub struct NewPaneRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub shell_args: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
 }
 
@@ -1270,6 +1312,8 @@ pub struct NewPaneRightRequest {
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub shell_args: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1323,6 +1367,8 @@ pub struct NewTabRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub shell_args: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
 }
 
@@ -1357,6 +1403,8 @@ pub struct NotifyRequest {
     pub body: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub level: Optional<T::NotificationLevel>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub source: Optional<T::NotificationSource>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub surface: Optional<T::Id>,
     pub title: String,
@@ -1880,6 +1928,18 @@ pub type SetDefaultColorsResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetPersonalTerminalRequest {
+    pub session_id: String,
+    pub terminal_key: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub theme: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type SetPersonalTerminalResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetPersonalWorkspaceRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub browser_profile_id: Optional<String>,
@@ -2093,6 +2153,8 @@ pub struct SplitRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub shell_args: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
 }
 
@@ -2213,6 +2275,21 @@ pub struct UnsaveTabGroupRequest {
 
 #[rustfmt::skip]
 pub type UnsaveTabGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdateBrowserProfileRequest {
+    pub browser_profile: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub color: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub icon: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type UpdateBrowserProfileResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2564,6 +2641,10 @@ impl CmuxClient {
         self.execute(&COPY_METADATA, &request)
     }
 
+    pub fn create_browser_profile(&mut self, request: CreateBrowserProfileRequest) -> Result<CreateBrowserProfileResult> {
+        self.execute(&CREATE_BROWSER_PROFILE_METADATA, &request)
+    }
+
     pub fn create_personal_group(&mut self, request: CreatePersonalGroupRequest) -> Result<CreatePersonalGroupResult> {
         self.execute(&CREATE_PERSONAL_GROUP_METADATA, &request)
     }
@@ -2596,6 +2677,10 @@ impl CmuxClient {
             self.require_protocol_field("create-terminal", 12)?;
             self.require_capability_field("create-terminal", "terminal-reap-v1")?;
         }
+        if !request.shell_args.is_missing() {
+            self.require_protocol_field("create-terminal", 12)?;
+            self.require_capability_field("create-terminal", "terminal-shell-args-v1")?;
+        }
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("create-terminal", 9)?;
         }
@@ -2608,6 +2693,10 @@ impl CmuxClient {
 
     pub fn create_workspace_group(&mut self, request: CreateWorkspaceGroupRequest) -> Result<CreateWorkspaceGroupResult> {
         self.execute(&CREATE_WORKSPACE_GROUP_METADATA, &request)
+    }
+
+    pub fn delete_browser_profile(&mut self, request: DeleteBrowserProfileRequest) -> Result<DeleteBrowserProfileResult> {
+        self.execute(&DELETE_BROWSER_PROFILE_METADATA, &request)
     }
 
     pub fn delete_personal_group(&mut self, request: DeletePersonalGroupRequest) -> Result<DeletePersonalGroupResult> {
@@ -2754,6 +2843,10 @@ impl CmuxClient {
         self.execute(&MINT_TERMINAL_RENDERER_BY_TERMINAL_METADATA, &request)
     }
 
+    pub fn move_browser_profile(&mut self, request: MoveBrowserProfileRequest) -> Result<MoveBrowserProfileResult> {
+        self.execute(&MOVE_BROWSER_PROFILE_METADATA, &request)
+    }
+
     pub fn move_personal_group(&mut self, request: MovePersonalGroupRequest) -> Result<MovePersonalGroupResult> {
         self.execute(&MOVE_PERSONAL_GROUP_METADATA, &request)
     }
@@ -2867,6 +2960,10 @@ impl CmuxClient {
             self.require_protocol_field("new-pane", 12)?;
             self.require_capability_field("new-pane", "terminal-reap-v1")?;
         }
+        if !request.shell_args.is_missing() {
+            self.require_protocol_field("new-pane", 12)?;
+            self.require_capability_field("new-pane", "terminal-shell-args-v1")?;
+        }
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("new-pane", 12)?;
             self.require_capability_field("new-pane", "terminal-placement-env-v1")?;
@@ -2886,6 +2983,10 @@ impl CmuxClient {
         if request.keep.is_some() {
             self.require_protocol_field("new-pane-right", 12)?;
             self.require_capability_field("new-pane-right", "terminal-reap-v1")?;
+        }
+        if !request.shell_args.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "terminal-shell-args-v1")?;
         }
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("new-pane-right", 12)?;
@@ -2907,6 +3008,10 @@ impl CmuxClient {
             self.require_protocol_field("new-tab", 12)?;
             self.require_capability_field("new-tab", "terminal-reap-v1")?;
         }
+        if !request.shell_args.is_missing() {
+            self.require_protocol_field("new-tab", 12)?;
+            self.require_capability_field("new-tab", "terminal-shell-args-v1")?;
+        }
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("new-tab", 12)?;
             self.require_capability_field("new-tab", "terminal-placement-env-v1")?;
@@ -2923,6 +3028,10 @@ impl CmuxClient {
     }
 
     pub fn notify(&mut self, request: NotifyRequest) -> Result<T::NotifyResult> {
+        if !request.source.is_missing() {
+            self.require_protocol_field("notify", 12)?;
+            self.require_capability_field("notify", "notification-source-v1")?;
+        }
         self.execute(&NOTIFY_METADATA, &request)
     }
 
@@ -3165,6 +3274,10 @@ impl CmuxClient {
         self.execute(&SET_DEFAULT_COLORS_METADATA, &request)
     }
 
+    pub fn set_personal_terminal(&mut self, request: SetPersonalTerminalRequest) -> Result<SetPersonalTerminalResult> {
+        self.execute(&SET_PERSONAL_TERMINAL_METADATA, &request)
+    }
+
     pub fn set_personal_workspace(&mut self, request: SetPersonalWorkspaceRequest) -> Result<SetPersonalWorkspaceResult> {
         self.execute(&SET_PERSONAL_WORKSPACE_METADATA, &request)
     }
@@ -3258,6 +3371,10 @@ impl CmuxClient {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "terminal-reap-v1")?;
         }
+        if !request.shell_args.is_missing() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "terminal-shell-args-v1")?;
+        }
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "terminal-placement-env-v1")?;
@@ -3314,6 +3431,10 @@ impl CmuxClient {
 
     pub fn unsave_tab_group(&mut self, request: UnsaveTabGroupRequest) -> Result<UnsaveTabGroupResult> {
         self.execute(&UNSAVE_TAB_GROUP_METADATA, &request)
+    }
+
+    pub fn update_browser_profile(&mut self, request: UpdateBrowserProfileRequest) -> Result<UpdateBrowserProfileResult> {
+        self.execute(&UPDATE_BROWSER_PROFILE_METADATA, &request)
     }
 
     pub fn update_frontend_browser_tab(&mut self, request: UpdateFrontendBrowserTabRequest) -> Result<UpdateFrontendBrowserTabResult> {

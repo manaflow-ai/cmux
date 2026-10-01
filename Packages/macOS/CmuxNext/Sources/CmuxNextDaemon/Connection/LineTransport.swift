@@ -52,6 +52,8 @@ final class LineTransport: Sendable {
         var sawShutdown = false
         /// Events routed so far; responses capture it as their barrier.
         var eventCount: UInt64 = 0
+        /// Gets resource API stream lines (`stream_item`, `stream_end`).
+        var streamHandler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?
     }
 
     /// An `ok:true` response line plus the number of events routed before it
@@ -129,6 +131,7 @@ final class LineTransport: Sendable {
     }
 
     var isClosed: Bool { state.withLock { $0.closed != nil } }
+    func setStreamHandler(_ handler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?) { state.withLock { $0.streamHandler = handler } }
 
     /// Sends one command and returns the raw `ok:true` response line.
     /// `body` receives the allocated id and returns the encoded JSON object
@@ -261,10 +264,12 @@ final class LineTransport: Sendable {
         var event: String?
         var error: String?
         var errorCode: String?
+        var streamID: String?
 
         enum CodingKeys: String, CodingKey {
             case id, ok, event, error
             case errorCode = "error_code"
+            case streamID = "stream_id"
         }
 
         private struct ResourceError: Decodable {
@@ -280,7 +285,7 @@ final class LineTransport: Sendable {
                 id = UInt64(text)
             }
             ok = try? c.decodeIfPresent(Bool.self, forKey: .ok)
-            event = try? c.decodeIfPresent(String.self, forKey: .event)
+            (event, streamID) = (try? c.decodeIfPresent(String.self, forKey: .event), try? c.decodeIfPresent(String.self, forKey: .streamID))
             errorCode = try? c.decodeIfPresent(String.self, forKey: .errorCode)
             if let text = try? c.decodeIfPresent(String.self, forKey: .error) {
                 error = text
@@ -370,6 +375,7 @@ final class LineTransport: Sendable {
             onEvent(name, line, index)
             return
         }
+        if envelope.ok == nil, let streamID = envelope.streamID { return state.withLock { $0.streamHandler }?(streamID, line) ?? () }
         guard envelope.ok != nil || envelope.id != nil else { return }
         let waiter: (UInt64, Waiter)? = state.withLock { state in
             let id = envelope.id ?? state.order.first

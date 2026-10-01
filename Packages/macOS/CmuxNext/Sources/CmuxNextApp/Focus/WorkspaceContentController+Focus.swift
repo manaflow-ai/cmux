@@ -58,7 +58,7 @@ extension WorkspaceContentController {
 extension FocusTopology.Kind {
     static func of(_ tab: TabModel) -> FocusTopology.Kind {
         switch tab.kind {
-        case .pty: .terminal
+        case .pty, .remoteTerminal: .terminal
         case .browser where tab.isFrontendOwned: .browser
         default: .other
         }

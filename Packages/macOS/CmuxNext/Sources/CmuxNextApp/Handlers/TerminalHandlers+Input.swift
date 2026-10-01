@@ -22,6 +22,8 @@ extension TerminalHandlers {
                 guard let window = pane.view.window ?? ctx.refuse(RefusalStrings.noWindowForFind) else { return }
                 let initial = entry.session.model.search?.needle ?? selection(of: entry) ?? ""
                 findPrompt(initial: initial, in: window) { entry.session.surfaceView.search($0) }
+            case .placeholder:
+                return
             }
         })
         registry.bind("findNext", invoke: { navigate($0, forward: true, ctx) })
@@ -65,6 +67,8 @@ extension TerminalHandlers {
             let view = entry.session.surfaceView
             guard entry.session.model.search != nil else { return ctx.refuse(RefusalStrings.noActiveFind) }
             if forward { view.searchNext() } else { view.searchPrevious() }
+        case .placeholder:
+            return
         }
     }
 

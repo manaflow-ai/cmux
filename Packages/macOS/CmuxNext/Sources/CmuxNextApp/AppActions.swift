@@ -15,6 +15,8 @@ enum AppActions {
         let registry = services.registry
         let context = AppActionContext(services: services)
         WindowHandlers.bind(into: registry, context: context)
+        HistoryHandlers.bind(into: registry, context: context)
+        BookmarkHandlers.bind(into: registry, context: context)
         WorkspaceHandlers.bind(into: registry, context: context)
         WorkspaceVerbHandlers.bind(into: registry, context: context)
         WorkspaceStructureHandlers.bind(into: registry, context: context)
@@ -42,6 +44,7 @@ enum AppActions {
         NotificationHandlers.bind(into: registry, context: context)
         AgentHandlers.bind(into: registry, context: context)
         CloudHandlers.bind(into: registry, context: context)
+        AccountsHandlers.bind(into: registry, context: context)
         RemoteHandlers.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         context.observeRefusals()
@@ -57,7 +60,8 @@ enum AppActions {
         let registry = services.registry
         // Quit and the local terminals (QuitCoordinator): a keyboard, menu
         // or Dock quit may ask; a scripted run (control socket, CLI) never
-        // waits on the sheet and takes --keep-sessions / --end-sessions.
+        // waits on the sheet and takes --keep-sessions / --end-sessions /
+        // --end-everything.
         registry.bind("quit", invoke: { invocation in
             do {
                 let origin = try QuitPolicy.origin(for: invocation, scripted: registry.isCapturingRefusal)
@@ -67,7 +71,8 @@ enum AppActions {
             }
         })
         registry.bind("quitKeepSessions") { services.quit.requestQuit(.explicit(.keep)) }
-        registry.bind("quitEndSessions") { services.quit.requestQuit(.explicit(.end)) }
+        registry.bind("quitEndSessions") { services.quit.requestQuit(.explicit(.endKeepLayout)) }
+        registry.bind("quitEndEverything") { services.quit.requestQuit(.explicit(.endEverything)) }
         registry.bind("newWindow") { services.windows.newWindow() }
         registry.bind("newIncognitoWindow") { services.windows.newIncognitoWindow() }
         registry.bind("closeWindow", isEnabled: { services.windows.active != nil }) {

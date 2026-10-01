@@ -12,7 +12,7 @@ enum MainMenu {
             .separator(),
         ]
         // Quit and its two session choices go last, below Show All.
-        let quitIDs: [ActionID] = ["quit", "quitKeepSessions", "quitEndSessions"]
+        let quitIDs: [ActionID] = ["quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything"]
         let quitTitles = Set(quitIDs.compactMap { registry.title(for: $0) })
         app += registry.makeMainMenuItems(for: .app).filter { !quitTitles.contains($0.title) }
         app += [

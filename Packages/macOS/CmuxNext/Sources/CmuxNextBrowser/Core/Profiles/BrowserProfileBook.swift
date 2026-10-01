@@ -17,16 +17,21 @@ public nonisolated struct BrowserProfileBook: Codable, Hashable, Sendable {
     /// True once imports made before profiles existed moved into their own
     /// profiles (`ImportedDataStore.retarget`).
     public var importsMigrated: Bool
+    /// True once this file's records were copied into the home daemon
+    /// (`browser-profiles-v1`); the daemon's records are used from then on.
+    public var recordsMigrated: Bool
 
     public init(defaultName: String = BrowserProfileStrings.defaultName) {
         profiles = [BrowserProfileRecord(id: BrowserProfileRecord.defaultID, name: defaultName, position: 0)]
         workspaceDefaults = [:]
         pendingCleanup = []
         importsMigrated = false
+        recordsMigrated = false
     }
 
     enum CodingKeys: String, CodingKey {
-        case profiles, workspaceDefaults = "workspace_defaults", pendingCleanup = "pending_cleanup", importsMigrated = "imports_migrated"
+        case profiles, workspaceDefaults = "workspace_defaults", pendingCleanup = "pending_cleanup", importsMigrated = "imports_migrated",
+             recordsMigrated = "records_migrated"
     }
 
     /// Tolerates missing keys (an older file) and restores the default
@@ -41,6 +46,7 @@ public nonisolated struct BrowserProfileBook: Codable, Hashable, Sendable {
         workspaceDefaults = try c.decodeIfPresent([String: String].self, forKey: .workspaceDefaults) ?? [:]
         pendingCleanup = try c.decodeIfPresent([String].self, forKey: .pendingCleanup) ?? []
         importsMigrated = try c.decodeIfPresent(Bool.self, forKey: .importsMigrated) ?? false
+        recordsMigrated = try c.decodeIfPresent(Bool.self, forKey: .recordsMigrated) ?? false
     }
 
     /// Profiles in display order, the default one first unless moved.
@@ -105,6 +111,13 @@ public nonisolated struct BrowserProfileBook: Codable, Hashable, Sendable {
     public mutating func delete(_ id: String) throws {
         guard id != BrowserProfileRecord.defaultID else { throw BrowserProfileBookError.defaultProfile }
         guard contains(id) else { throw BrowserProfileBookError.unknownProfile }
+        markDeleted(id)
+    }
+
+    /// `delete` for a profile whose record lives in the home daemon: drops
+    /// any local copy and defaults, and queues its engine data (this Mac's).
+    public mutating func markDeleted(_ id: String) {
+        guard id != BrowserProfileRecord.defaultID else { return }
         profiles.removeAll { $0.id == id }
         workspaceDefaults = workspaceDefaults.filter { $0.value != id }
         if !pendingCleanup.contains(id) { pendingCleanup.append(id) }
@@ -120,20 +133,20 @@ public nonisolated struct BrowserProfileBook: Codable, Hashable, Sendable {
         change(&profiles[index])
     }
 
-    static func validName(_ name: String) throws -> String {
+    public static func validName(_ name: String) throws -> String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.count <= 64 else { throw BrowserProfileBookError.invalidName }
         return trimmed
     }
 
-    static func validColor(_ color: String?) throws -> String? {
+    public static func validColor(_ color: String?) throws -> String? {
         guard let color, !color.isEmpty else { return nil }
         guard GroupColor(rawValue: color) != nil else { throw BrowserProfileBookError.invalidColor }
         return color
     }
 
     /// An SF Symbol name (ASCII letters, digits, dots) or one grapheme (an emoji).
-    static func validIcon(_ icon: String?) throws -> String? {
+    public static func validIcon(_ icon: String?) throws -> String? {
         guard let icon = icon?.trimmingCharacters(in: .whitespaces), !icon.isEmpty else { return nil }
         let symbol = icon.count <= 64 && icon.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == ".") }
         guard symbol || icon.count == 1 else { throw BrowserProfileBookError.invalidIcon }

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "9335cb699f686481f70d674b12c055858df82b4e079fd8f58405b44554e09edd";
+pub const ir_sha256 = "adbfa89de5ea3e4ee601c468ebe23c608b9eb8532e62701776fa0d86a6831300";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -545,6 +545,7 @@ pub const IdentifyResult = struct {
     daemon_handoff: i64,
     generation: []const u8,
     ghostty_commit: wire.Field([]const u8) = .absent,
+    launch_snapshot_path: wire.Field([]const u8) = .absent,
     lifecycle_ready: ?bool = null,
     machine_name: ?[]const u8 = null,
     pid: u32,
@@ -775,7 +776,36 @@ pub const NotificationLevel = enum {
 pub const NotificationMarker = struct {
     level: NotificationLevel,
     notification: Id,
+    source: ?NotificationSource = null,
     unread: bool,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "source",
+    };
+};
+
+pub const NotificationSource = enum {
+    cli,
+    terminal,
+    agent,
+    daemon,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "cli")) return .cli;
+        if (std.mem.eql(u8, value, "terminal")) return .terminal;
+        if (std.mem.eql(u8, value, "agent")) return .agent;
+        if (std.mem.eql(u8, value, "daemon")) return .daemon;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .cli => "cli",
+            .terminal => "terminal",
+            .agent => "agent",
+            .daemon => "daemon",
+        };
+    }
 };
 
 pub const NotifyResult = struct {
@@ -2930,6 +2960,30 @@ pub fn copy(client: anytype, request: CopyRequest) !wire.Decoded(CopyResult) {
     );
 }
 
+pub const CreateBrowserProfileRequest = struct {
+    browser_profile: wire.Field([]const u8) = .absent,
+    color: wire.Field([]const u8) = .absent,
+    icon: wire.Field([]const u8) = .absent,
+    index: wire.Field(u64) = .absent,
+    name: []const u8,
+    source: wire.Field(JsonValue) = .absent,
+};
+
+pub const CreateBrowserProfileResult = JsonValue;
+
+pub fn createBrowserProfile(client: anytype, request: CreateBrowserProfileRequest) !wire.Decoded(CreateBrowserProfileResult) {
+    return client.callTyped(
+        CreateBrowserProfileResult,
+        .{
+            .name = "create-browser-profile",
+            .authority = "control",
+            .since = 12,
+            .capability = "browser-profiles-v1",
+        },
+        request,
+    );
+}
+
 pub const CreatePersonalGroupRequest = struct {
     collapsed: ?bool = null,
     color: wire.Field([]const u8) = .absent,
@@ -3083,6 +3137,7 @@ pub const CreateTerminalRequest = struct {
     name: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
+    shell_args: wire.Field([]const []const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
 
@@ -3104,6 +3159,7 @@ pub fn createTerminal(client: anytype, request: CreateTerminalRequest) !wire.Dec
             .fields = &.{
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
                 .{ .name = "terminal_id", .since = 9, .capability = null },
             },
         },
@@ -3157,6 +3213,25 @@ pub fn createWorkspaceGroup(client: anytype, request: CreateWorkspaceGroupReques
             .authority = "control",
             .since = 12,
             .capability = "workspace-groups-v1",
+        },
+        request,
+    );
+}
+
+pub const DeleteBrowserProfileRequest = struct {
+    browser_profile: []const u8,
+};
+
+pub const DeleteBrowserProfileResult = JsonValue;
+
+pub fn deleteBrowserProfile(client: anytype, request: DeleteBrowserProfileRequest) !wire.Decoded(DeleteBrowserProfileResult) {
+    return client.callTyped(
+        DeleteBrowserProfileResult,
+        .{
+            .name = "delete-browser-profile",
+            .authority = "control",
+            .since = 12,
+            .capability = "browser-profiles-v1",
         },
         request,
     );
@@ -3822,6 +3897,26 @@ pub fn mintTerminalRendererByTerminal(client: anytype, request: MintTerminalRend
     );
 }
 
+pub const MoveBrowserProfileRequest = struct {
+    browser_profile: []const u8,
+    index: u64,
+};
+
+pub const MoveBrowserProfileResult = JsonValue;
+
+pub fn moveBrowserProfile(client: anytype, request: MoveBrowserProfileRequest) !wire.Decoded(MoveBrowserProfileResult) {
+    return client.callTyped(
+        MoveBrowserProfileResult,
+        .{
+            .name = "move-browser-profile",
+            .authority = "control",
+            .since = 12,
+            .capability = "browser-profiles-v1",
+        },
+        request,
+    );
+}
+
 pub const MovePersonalGroupRequest = struct {
     group: []const u8,
     index: u64,
@@ -4279,6 +4374,7 @@ pub const NewPaneRequest = struct {
     keep: ?bool = null,
     pane: Id,
     rows: wire.Field(u16) = .absent,
+    shell_args: wire.Field([]const []const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
@@ -4300,6 +4396,7 @@ pub fn newPane(client: anytype, request: NewPaneRequest) !wire.Decoded(NewPaneRe
                 .{ .name = "cwd", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
             },
         },
@@ -4314,6 +4411,7 @@ pub const NewPaneRightRequest = struct {
     keep: ?bool = null,
     pane: Id,
     rows: wire.Field(u16) = .absent,
+    shell_args: wire.Field([]const []const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     width: wire.Field(f32) = .absent,
 
@@ -4336,6 +4434,7 @@ pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded
                 .{ .name = "cwd", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
             },
         },
@@ -4378,6 +4477,7 @@ pub const NewTabRequest = struct {
     keep: ?bool = null,
     pane: wire.Field(Id) = .absent,
     rows: wire.Field(u16) = .absent,
+    shell_args: wire.Field([]const []const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
@@ -4398,6 +4498,7 @@ pub fn newTab(client: anytype, request: NewTabRequest) !wire.Decoded(NewTabResul
             .fields = &.{
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
             },
         },
@@ -4447,6 +4548,7 @@ pub fn noteSizeActivity(client: anytype, request: NoteSizeActivityRequest) !wire
 pub const NotifyRequest = struct {
     body: []const u8,
     level: wire.Field(NotificationLevel) = .absent,
+    source: wire.Field(NotificationSource) = .absent,
     surface: wire.Field(Id) = .absent,
     title: []const u8,
 };
@@ -4459,6 +4561,9 @@ pub fn notify(client: anytype, request: NotifyRequest) !wire.Decoded(NotifyResul
             .authority = "control",
             .since = 6,
             .capability = null,
+            .fields = &.{
+                .{ .name = "source", .since = 12, .capability = "notification-source-v1" },
+            },
         },
         request,
     );
@@ -5389,6 +5494,27 @@ pub fn setDefaultColors(client: anytype, request: SetDefaultColorsRequest) !wire
     );
 }
 
+pub const SetPersonalTerminalRequest = struct {
+    session_id: []const u8,
+    terminal_key: []const u8,
+    theme: wire.Field([]const u8) = .absent,
+};
+
+pub const SetPersonalTerminalResult = JsonValue;
+
+pub fn setPersonalTerminal(client: anytype, request: SetPersonalTerminalRequest) !wire.Decoded(SetPersonalTerminalResult) {
+    return client.callTyped(
+        SetPersonalTerminalResult,
+        .{
+            .name = "set-personal-terminal",
+            .authority = "control",
+            .since = 12,
+            .capability = "personal-terminals-v1",
+        },
+        request,
+    );
+}
+
 pub const SetPersonalWorkspaceRequest = struct {
     browser_profile_id: wire.Field([]const u8) = .absent,
     group: wire.Field([]const u8) = .absent,
@@ -5748,6 +5874,7 @@ pub const SplitRequest = struct {
     keep: ?bool = null,
     pane: Id,
     rows: wire.Field(u16) = .absent,
+    shell_args: wire.Field([]const []const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
@@ -5769,6 +5896,7 @@ pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) 
                 .{ .name = "cwd", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
             },
         },
@@ -6010,6 +6138,28 @@ pub fn unsaveTabGroup(client: anytype, request: UnsaveTabGroupRequest) !wire.Dec
             .authority = "control",
             .since = 12,
             .capability = "saved-tab-groups-v1",
+        },
+        request,
+    );
+}
+
+pub const UpdateBrowserProfileRequest = struct {
+    browser_profile: []const u8,
+    color: wire.Field([]const u8) = .absent,
+    icon: wire.Field([]const u8) = .absent,
+    name: wire.Field([]const u8) = .absent,
+};
+
+pub const UpdateBrowserProfileResult = JsonValue;
+
+pub fn updateBrowserProfile(client: anytype, request: UpdateBrowserProfileRequest) !wire.Decoded(UpdateBrowserProfileResult) {
+    return client.callTyped(
+        UpdateBrowserProfileResult,
+        .{
+            .name = "update-browser-profile",
+            .authority = "control",
+            .since = 12,
+            .capability = "browser-profiles-v1",
         },
         request,
     );
@@ -6522,8 +6672,13 @@ pub const NotificationEvent = struct {
     event: []const u8,
     level: NotificationLevel,
     notification: Id,
+    source: ?NotificationSource = null,
     surface: wire.Nullable(Id),
     title: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "source",
+    };
 };
 
 pub const OutputEvent = struct {
@@ -7294,7 +7449,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 182;
+pub const command_count: usize = 187;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -7327,6 +7482,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "close-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "close-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "copy", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "create-browser-profile", .authority = "control", .since = 12, .capability = "browser-profiles-v1", .stream = null },
     .{ .name = "create-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "create-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "create-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -7335,6 +7491,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "create-terminal", .authority = "control", .since = 7, .capability = "workspace-registry-v1", .stream = null },
     .{ .name = "create-workspace", .authority = "control", .since = 7, .capability = "workspace-registry-v1", .stream = null },
     .{ .name = "create-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
+    .{ .name = "delete-browser-profile", .authority = "control", .since = 12, .capability = "browser-profiles-v1", .stream = null },
     .{ .name = "delete-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "delete-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "delete-saved-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -7369,6 +7526,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "mark-workspaces-provider-managed", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
     .{ .name = "mint-terminal-renderer", .authority = "frontend", .since = 9, .capability = null, .stream = null },
     .{ .name = "mint-terminal-renderer-by-terminal", .authority = "frontend", .since = 11, .capability = null, .stream = null },
+    .{ .name = "move-browser-profile", .authority = "control", .since = 12, .capability = "browser-profiles-v1", .stream = null },
     .{ .name = "move-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "move-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "move-screen", .authority = "control", .since = 12, .capability = "screen-metadata-v1", .stream = null },
@@ -7437,6 +7595,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-client-info", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-client-sizing", .authority = "control", .since = 10, .capability = null, .stream = null },
     .{ .name = "set-default-colors", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "set-personal-terminal", .authority = "control", .since = 12, .capability = "personal-terminals-v1", .stream = null },
     .{ .name = "set-personal-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "set-profile-follows", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "set-ratio", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -7465,6 +7624,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "unregister-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "unsave-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "unsave-tab-group", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },
+    .{ .name = "update-browser-profile", .authority = "control", .since = 12, .capability = "browser-profiles-v1", .stream = null },
     .{ .name = "update-frontend-browser-tab", .authority = "control", .since = 12, .capability = "frontend-browser-tabs-v1", .stream = null },
     .{ .name = "update-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "update-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },

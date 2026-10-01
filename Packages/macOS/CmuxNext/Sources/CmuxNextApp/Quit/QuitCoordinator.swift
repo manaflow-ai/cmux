@@ -5,13 +5,13 @@ import os
 /// Runs a quit (user decision 2026-09-30). `applicationShouldTerminate`
 /// hands every quit here: it takes the origin (`QuitOriginTracker`), reads
 /// the local terminals for an interactive quit, decides (`QuitPolicy`),
-/// shows `QuitSheet` when asked to, then completes (`QuitCompletion`):
+/// shows `QuitAlert` when asked to, then completes (`QuitCompletion`):
 /// remember the choice, save and close windows, and for End end the local
 /// terminals and stop the local daemon. Remote sessions are never ended.
 @MainActor
 final class QuitCoordinator {
     let origins = QuitOriginTracker()
-    private(set) var sheet: QuitSheet?
+    private(set) var sheet: QuitAlert?
     /// A quit is in progress (deciding, asking or completing).
     private(set) var isQuitting = false
     private unowned let services: AppServices
@@ -56,7 +56,7 @@ final class QuitCoordinator {
     }
 
     private func ask(_ prompt: QuitPrompt, _ sender: NSApplication) {
-        let sheet = QuitSheet(prompt: prompt) { [weak self] answer in
+        let sheet = QuitAlert(prompt: prompt) { [weak self] answer in
             guard let self else { return }
             self.sheet = nil
             switch answer {
@@ -83,8 +83,13 @@ final class QuitCoordinator {
                         .error("quit setting write failed: \(String(describing: error), privacy: .public)")
                 }
             },
-            prepareWindows: { await services.windows.prepareForTermination() },
-            endLocalSessions: { await services.daemon.endSessionsAndStop() }
+            prepareWindows: {
+                // Remote-terminal tabs keep their last screen for the
+                // placeholder after relaunch (data-model.md 1.4).
+                await services.remoteTerminals.saveSnapshots()
+                await services.windows.prepareForTermination()
+            },
+            endLocalSessions: { await services.daemon.endSessionsAndStop(deletingWorkspaces: $0) }
         ))
         sender.reply(toApplicationShouldTerminate: true)
     }

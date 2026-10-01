@@ -62,7 +62,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             let host = services.registry.makeContextMenu(for: .browserPage, target: target,
                                                          entries: ContextMenuCatalog.browserPageAfterEngineMenu,
                                                          implied: .browserFocused)
-            let extra = BrowserProfileLinkMenu.items(for: request.target.linkURL, pane: pane, services: services) + host.items
+            let extra = BrowserProfileLinkMenu.items(for: request.target.linkURL, target: ActionTargetRef(kind: .pane, id: pane.id),
+                                                     services: services) + host.items
             host.removeAllItems()
             BrowserContextMenuBuilder.present(request, in: page.contentView, extra: extra)
         case .notice(let text):
@@ -75,6 +76,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             openPopup(child, request: request, openerKey: key, pane: pane)
         case .unhandledEscape, .resizePopup:
             break
+        case .takeFocus:
+            services.focusAddressBarAfterPage(key)
         }
     }
 

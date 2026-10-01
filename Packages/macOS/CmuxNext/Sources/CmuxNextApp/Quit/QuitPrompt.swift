@@ -1,4 +1,4 @@
-/// The quit sheet's content.
+/// The quit alert's content.
 struct QuitPrompt: Equatable, Sendable {
     var terminals: Int
     var runningPrograms: Int
@@ -6,8 +6,9 @@ struct QuitPrompt: Equatable, Sendable {
     var busiest: [String]
     var incognitoPrograms: [String]
     var remoteSessions: Bool
-    /// False when only incognito terminals are at stake: the sheet then
-    /// offers Quit and Cancel (the incognito close confirmation).
+    /// False when only incognito terminals are at stake, or a remembered
+    /// end applies: the alert then only confirms the incognito close (Quit
+    /// and Cancel).
     var offersSessionChoice: Bool
     /// The button Return presses.
     var defaultChoice: QuitSessionsChoice

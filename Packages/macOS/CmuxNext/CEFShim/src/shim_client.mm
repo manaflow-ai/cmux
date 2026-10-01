@@ -65,6 +65,7 @@ class Client : public CefClient,
                public CefContextMenuHandler,
                public CefRequestHandler,
                public CefCommandHandler,
+               public CefFocusHandler,
                public CefDevToolsMessageObserver {
  public:
   explicit Client(int request) : request_(request) {}
@@ -77,6 +78,28 @@ class Client : public CefClient,
   CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override { return this; }
   CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
   CefRefPtr<CefCommandHandler> GetCommandHandler() override { return this; }
+  CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
+
+  // MARK: Focus
+
+  // CEF focuses a page after every navigation it starts (a new browser's
+  // first load, LoadURL); on macOS that activates the page window, which
+  // takes the keys from the host's omnibar. The host decides every
+  // request (its focus coordinator is the only owner of focus); returning
+  // true cancels it.
+  bool OnSetFocus(CefRefPtr<CefBrowser> browser, FocusSource source) override {
+    const Host& h = host();
+    if (!h.focus_request) {
+      return false;
+    }
+    return h.focus_request(h.ctx, browser->GetIdentifier(), source) == 0;
+  }
+
+  // Tab past the last element or Shift-Tab past the first: the host moves
+  // focus to its omnibar (Chrome moves it to the toolbar).
+  void OnTakeFocus(CefRefPtr<CefBrowser> browser, bool next) override {
+    Emit(CMUX_SHIM_TAKE_FOCUS, browser->GetIdentifier(), 0, next ? 1 : 0);
+  }
 
   // MARK: Chrome commands
 
@@ -103,6 +126,14 @@ class Client : public CefClient,
     if (!NavigationViolatesGuard(id, url)) return false;
     Emit(CMUX_SHIM_NAVIGATION_REROUTE, id, 0, is_redirect ? 1 : 0, 0, url);
     return true;
+  }
+
+  // MARK: Chrome Web Store
+
+  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
+                                                                 CefRefPtr<CefRequest> request, bool, bool,
+                                                                 const CefString&, bool&) override {
+    return WebStoreRequestHandler(request->GetURL().ToString());
   }
 
   // MARK: Renderer process failures
@@ -303,6 +334,10 @@ class Client : public CefClient,
   // MARK: Load
 
   void OnLoadingStateChange(CefRefPtr<CefBrowser> browser, bool loading, bool back, bool forward) override {
+    // The tab's Chromium window may not exist in OnAfterCreated or at the
+    // first activation; by its first load it does (the fork watches each
+    // window once).
+    if (fork_api().side_panel_watch) fork_api().side_panel_watch(browser->GetIdentifier());
     Emit(CMUX_SHIM_LOADING_STATE, browser->GetIdentifier(), 0, (loading ? 1 : 0) | (back ? 2 : 0) | (forward ? 4 : 0));
   }
 

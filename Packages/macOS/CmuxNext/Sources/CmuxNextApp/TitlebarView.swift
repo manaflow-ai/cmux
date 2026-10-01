@@ -3,8 +3,9 @@ import CmuxNextDesign
 
 /// The standard titlebar strip (`window.titlebar` "standard") above the
 /// content column: the workspace title, centered, secondary text. Dragging
-/// it moves the window; a double-click runs the user's titlebar action.
-final class TitlebarView: NSView {
+/// it moves the window; a double-click runs the user's titlebar action
+/// (both through `TitlebarDragPolicy`).
+final class TitlebarView: NSView, TitlebarPressDeciding {
     private let label = NSTextField(labelWithString: "")
 
     var title: String = "" {
@@ -40,9 +41,5 @@ final class TitlebarView: NSView {
         viewDidChangeEffectiveAppearance()
     }
 
-    override var mouseDownCanMoveWindow: Bool { true }
-
-    override func mouseUp(with event: NSEvent) {
-        if event.clickCount == 2 { WindowTitlebar.performDoubleClick(in: window) } else { super.mouseUp(with: event) }
-    }
+    func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress { .movesWindow }
 }

@@ -12,7 +12,9 @@ struct SettingsSectionView: View {
 
     var body: some View {
         switch section {
-        case .appearance: ThemeCard()
+        case .appearance:
+            ThemeCard()
+            ThemePickerCard(model: model)
         case .terminal: TerminalInfoCard(model: model)
         case .keyboard: KeyboardSectionView(model: model)
         case .rooms:
@@ -21,6 +23,8 @@ struct SettingsSectionView: View {
             BrowserProfilesCard(model: model)
         case .machines: ListSectionCard(rows: model.host?.machines ?? [], empty: SettingsWindowStrings.machinesEmpty, unavailable: "")
         case .advanced: AdvancedCard(model: model)
+        case .accounts:
+            if let accounts = model.host?.accountsView(tokens: SettingsTheme.shared.tokens) { accounts }
         case .general, .browser, .notifications: EmptyView()
         }
         ForEach(model.groups(in: section)) { group in

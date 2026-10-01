@@ -32,6 +32,9 @@ struct SettingsRootView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollIndicators(.automatic)
+            // No rubber band while the page fits.
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollEdgeFade()
         }
         .background(SettingsStyle.background)
         .tint(SettingsStyle.tint)

@@ -20,13 +20,15 @@ import Observation
 final class ThemeCoordinator {
     let resolver = ThemeResolver()
     let terminalThemes: TerminalThemeStore
+    /// Every Ghostty theme, for pickers and validation.
+    let catalog = ThemeCatalog()
     unowned let services: AppServices
     /// A theme shown live while a picker highlights it, not saved.
     private(set) var preview: ThemePreview?
     /// Room and workspace themes just set here and not yet echoed by the
     /// daemon (optimistic, so a picker's revert never flashes the old
     /// theme). An inner nil is "Use Ghostty Config".
-    private var pending: [ThemePreview.Target: String?] = [:]
+    var pending: [ThemePreview.Target: String?] = [:]
     /// Which room, workspace or terminal a theme action acts on, resolved
     /// like its handler (`ThemeHandlers`), for picker previews.
     var previewTarget: (@MainActor (ActionID, ActionTargetRef?) -> ThemePreview.Target?)?
@@ -44,6 +46,12 @@ final class ThemeCoordinator {
             self?.pickerPreview(action, value: value, target: target)
         }
         registry.choiceState = { [weak self] action, target in self?.currentChoice(action, target: target) }
+        catalog.load()
+        let catalog = catalog
+        registry.argumentSuggestions = { source in
+            source == ActionSuggestions.ghosttyThemes ? catalog.names.map { ActionEnumCase(value: $0, title: $0) } : []
+        }
+        registry.argumentValidation = { source, text in source != ActionSuggestions.ghosttyThemes || catalog.accepts(text) }
         let store = services.machines.local.store
         let terminalThemes = terminalThemes
         let local = services.machines.local
@@ -52,16 +60,17 @@ final class ThemeCoordinator {
             // Once per launch, after the home daemon's first tree: drop the
             // themes of its terminals that closed while the app was away.
             for await loaded in Observations({ local.store.isLoaded }) where loaded {
-                let tabs = local.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id)
-                terminalThemes.prune(machine: local.machineID, liveTabs: Set(tabs))
+                self.pruneTerminalThemes()
                 return
             }
         }
         observation = Task { [weak self] in
             for await _ in Observations({ () -> [String?] in
                 store.profiles.map(\.theme) + store.personal.workspaces.map(\.theme)
-                    + [String(terminalThemes.themes.count)] + terminalThemes.themes.values.sorted()
+                    + [String(describing: store.personal.terminalThemes), String(describing: terminalThemes.themes),
+                       String(store.identity?.supports(DaemonCapabilities.personalTerminals) ?? false)]
             }) {
+                self?.migrateTerminalThemes()
                 self?.apply()
             }
         }
@@ -82,7 +91,7 @@ final class ThemeCoordinator {
     /// A terminal surface was created for a tab.
     func terminalDidMount(_ entry: TerminalEntry) {
         entry.themeBinding.coordinator = self
-        setTheme(of: entry.themeScope, to: terminalThemes.theme(for: entry.themeKey))
+        setTheme(of: entry.themeScope, to: terminalTheme(entry.themeKey))
         entry.themeBinding.syncSurface(force: false)
     }
 
@@ -102,20 +111,20 @@ final class ThemeCoordinator {
     }
 
     /// The pending value until the daemon reports it, then the saved one.
-    private func settled(_ target: ThemePreview.Target, saved: String?) -> String? {
+    func settled(_ target: ThemePreview.Target, saved: String?) -> String? {
         guard let value = pending[target] else { return saved }
         if value == saved { pending[target] = nil }
         return value
     }
 
-    func terminalTheme(_ key: String) -> String? {
+    func terminalTheme(_ key: TerminalThemeKey) -> String? {
         if let preview, preview.target == .terminal(key) { return preview.spec }
-        return terminalThemes.theme(for: key)
+        return settled(.terminal(key), saved: savedTerminalTheme(key))
     }
 
     /// The tab indicator of a terminal with its own theme (not one it
     /// inherits from its workspace or room). Observation-tracked.
-    func badge(forTerminal key: String) -> TabThemeBadge? {
+    func badge(forTerminal key: TerminalThemeKey) -> TabThemeBadge? {
         guard let text = terminalTheme(key), let resolved = resolver.resolve(ThemeSpec(text)) else { return nil }
         return TabThemeBadge(name: resolved.spec.raw, background: resolved.input.background, foreground: resolved.input.foreground)
     }
@@ -148,7 +157,7 @@ final class ThemeCoordinator {
     /// workspace themes stay pending until the daemon echoes them.
     func commit(_ target: ThemePreview.Target, spec: String?) {
         if case .terminal(let key) = target {
-            terminalThemes.set(spec, for: key)
+            saveTerminalTheme(spec, for: key)
         } else {
             pending[target] = .some(spec)
         }
@@ -196,7 +205,7 @@ struct ThemePreview: Equatable {
     enum Target: Hashable {
         case room(ProfileID)
         case workspace(String)
-        case terminal(String)
+        case terminal(TerminalThemeKey)
     }
 
     let target: Target

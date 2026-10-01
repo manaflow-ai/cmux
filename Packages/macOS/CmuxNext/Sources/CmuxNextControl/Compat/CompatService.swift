@@ -21,8 +21,11 @@ import Synchronization
 /// Every other old method answers a typed `unsupported` error.
 public final class CompatService: Sendable {
     public typealias ConnectionProvider = @Sendable () -> DaemonConnection?
+    /// The connection of a remote session by `ControlSessionInfo.id`.
+    public typealias SessionConnectionProvider = @Sendable (String) -> DaemonConnection?
 
     let connectionProvider: ConnectionProvider
+    let sessionConnectionProvider: SessionConnectionProvider
     let frontend: any CompatFrontend
     let refs = CompatRefRegistry()
     let sidebar = CompatSidebarStore()
@@ -42,9 +45,11 @@ public final class CompatService: Sendable {
 
     public init(frontend: any CompatFrontend,
                 terminalEnvironment: @escaping @Sendable () async -> [String: String] = TerminalEnvironment.shared(),
+                sessionConnection: @escaping SessionConnectionProvider = { _ in nil },
                 connection: @escaping ConnectionProvider) {
         self.frontend = frontend
         self.terminalEnvironment = terminalEnvironment
+        self.sessionConnectionProvider = sessionConnection
         self.connectionProvider = connection
     }
 
@@ -139,8 +144,8 @@ public final class CompatService: Sendable {
 
     private func barrierSnapshot(_ snapshots: ControlSnapshotStore, deadline: ContinuousClock.Instant) async -> ControlSnapshot? {
         let current = snapshots.current
-        let barrier = writes.sequence
-        if current.reflects(daemonSequence: barrier) { return current }
+        let barrier = writes.barrier
+        if current.reflects(barrier) { return current }
         guard current.topology.isLoaded else { return nil }
         let wait = min(deadline - Self.fallbackReserve, .now + Self.barrierWait)
         return await snapshots.snapshot(reflecting: barrier, deadline: wait)
@@ -164,15 +169,38 @@ public final class CompatService: Sendable {
         return CompatWorld(topology: CompatFreshTopology.make(tree: tree, appState: router.snapshots.current.topology), refs: refs)
     }
 
-    /// Raises the write barrier to everything the daemon connection routed so
-    /// far. Call after a write's reply (or after the daemon work an action
-    /// started finished).
-    func noteWrite() async {
-        guard let connection = connectionProvider(), let sequence = await connection.eventSequence() else { return }
-        writes.raise(to: sequence)
+    /// Raises the write barrier to everything `session`'s daemon connection
+    /// routed so far (nil: the home session). Call after a write's reply (or
+    /// after the daemon work an action started finished).
+    func noteWrite(session: String? = nil) async {
+        guard let connection = try? connection(session: session), let sequence = await connection.eventSequence() else { return }
+        writes.raise(to: sequence, session: session)
+    }
+
+    /// Raises the barrier for the home session and every connected remote
+    /// session: an action may have written to any of them.
+    func noteWriteEverywhere() async {
+        await noteWrite()
+        for session in router?.snapshots.current.topology.sessions ?? [] where !session.isHome {
+            await noteWrite(session: session.id)
+        }
     }
 
     func connection() throws -> DaemonConnection {
+        try connection(session: nil)
+    }
+
+    /// The daemon connection of `session` (a `ControlSessionInfo.id`; nil
+    /// is the home session). A remote session that is not connected fails
+    /// with its name and state, never falls back to another daemon.
+    func connection(session: String?) throws -> DaemonConnection {
+        if let session {
+            if let connection = sessionConnectionProvider(session) { return connection }
+            let info = router?.snapshots.current.topology.session(id: session)
+            throw ControlError(code: "unavailable", message: ControlStrings.format(
+                "control.error.sessionNotConnected", "session %1$@ is not connected (%2$@)",
+                info?.qualifier ?? session, info?.state ?? "unknown"))
+        }
         guard let connection = connectionProvider() else {
             if let failure = router?.snapshots.current.topology.daemonFailure { throw CompatErrors.daemonUnavailable(failure) }
             throw CompatErrors.notConnected
@@ -184,17 +212,19 @@ public final class CompatService: Sendable {
     /// errors. `mutates` commands (the default) change the tree, so later
     /// reads wait for their events (`noteWrite`); pass false for reads and
     /// for input that does not change the tree.
-    func daemon<T: Sendable>(_ what: String, mutates: Bool = true,
+    /// `session` routes it to that session's daemon (nil: home); object
+    /// handles are valid only on the session that reported them.
+    func daemon<T: Sendable>(_ what: String, session: String? = nil, mutates: Bool = true,
                              _ body: @escaping @Sendable (DaemonConnection) async throws -> T) async throws -> T {
-        let connection = try connection()
+        let connection = try connection(session: session)
         let result: T
         do {
             result = try await CompatDeadline.run(what) { try await body(connection) }
         } catch {
-            if mutates { await noteWrite() }
+            if mutates { await noteWrite(session: session) }
             throw CompatErrors.from(error, doing: what)
         }
-        if mutates { await noteWrite() }
+        if mutates { await noteWrite(session: session) }
         return result
     }
 

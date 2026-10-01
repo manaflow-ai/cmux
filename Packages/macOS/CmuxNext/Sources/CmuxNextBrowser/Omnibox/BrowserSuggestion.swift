@@ -9,6 +9,8 @@ public nonisolated struct BrowserSuggestion: Hashable, Sendable, Identifiable {
         case search
         /// A page from history.
         case history
+        /// A bookmarked page (star icon; plans/cmux-next/bookmarks.md).
+        case bookmark
         /// An extension's suggestion in a keyword session (`chrome.omnibox`).
         case keyword
     }

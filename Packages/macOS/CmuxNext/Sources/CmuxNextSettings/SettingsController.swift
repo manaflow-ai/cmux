@@ -121,6 +121,12 @@ public final class SettingsController {
         try await file.set(.string(engine.rawValue), at: BrowserDefaultEngine.configPath)
     }
 
+    /// Writes `browser.showBookmarksBar`; off removes the key (the default).
+    public func setShowBookmarksBar(_ show: Bool) async throws {
+        guard show else { return try await file.remove(BookmarksBarSetting.configPath) }
+        try await file.set(.bool(true), at: BookmarksBarSetting.configPath)
+    }
+
     /// Writes `browser.hibernation` ("off", "moderate", "aggressive" or minutes).
     public func setBrowserHibernation(_ mode: BrowserHibernationSetting.Mode) async throws {
         try await file.set(BrowserHibernationSetting(mode: mode).configValue, at: BrowserHibernationSetting.configPath)

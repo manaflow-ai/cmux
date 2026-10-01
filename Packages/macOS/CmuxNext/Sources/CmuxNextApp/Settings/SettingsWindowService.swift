@@ -13,7 +13,7 @@ import Foundation
 /// is created on first show and released when it closes.
 @MainActor
 final class SettingsWindowService: SettingsWindowHost {
-    private unowned let services: AppServices
+    unowned let services: AppServices
     private var controller: SettingsWindowController?
 
     init(services: AppServices) {

@@ -33,6 +33,8 @@ public enum ContextMenuCatalog {
         case .newTab: newTab
         case .profile: profile
         case .browserProfile: browserProfile
+        case .bookmark: bookmark
+        case .bookmarksBar: bookmarksBar
         }
     }
 
@@ -102,7 +104,7 @@ public enum ContextMenuCatalog {
         actions("splitRight", "splitDown", "splitLeft", "splitUp", "newColumn", "splitBrowserRight", "splitBrowserDown")
         + [.separator] + actions("toggleSplitZoom", "equalizeSplits", "triggerFlash", "renamePane") + [.separator]
         + actions("palette.swapWithSession", "reconnectPane") + [.separator]
-        + actions("pane.moveToNewWorkspace") + [.separator]
+        + actions("pane.moveToNewWorkspace", "remote.openTerminalHere") + [.separator]
         + actions("palette.copyPaneID", "palette.copyPaneLink") + [.separator] + actions("closePane")
 
     static let column: [ContextMenuEntry] =
@@ -162,6 +164,17 @@ public enum ContextMenuCatalog {
         + actions("browserProfile.manageExtensions") + [.separator]
         + actions("browserProfile.new") + [.separator] + actions("browserProfile.delete")
 
+    /// A bookmark or folder on the bookmarks bar.
+    static let bookmark: [ContextMenuEntry] =
+        actions("bookmark.open", "bookmark.openInNewTab", "bookmark.openInBackgroundTab", "bookmark.openAll") + [.separator]
+        + actions("bookmark.edit", "bookmark.remove") + [.separator]
+        + bookmarksBar
+
+    /// The bookmarks bar's empty area.
+    static let bookmarksBar: [ContextMenuEntry] =
+        actions("bookmark.addPage", "bookmark.newFolder") + [.separator]
+        + actions("bookmark.toggleBar", "bookmark.manager")
+
     static let workspaceGroup: [ContextMenuEntry] =
         actions("workspaceGroup.newWorkspace", "workspaceGroup.rename")
         + [.submenu("workspaceGroup.setColor", colors("workspaceGroup"))]
@@ -188,7 +201,7 @@ public enum ContextMenuCatalog {
 
     static let browserPage: [ContextMenuEntry] =
         actions("browserBack", "browserForward", "browserReload") + [.separator]
-        + actions("palette.browserOpenDefault", "browserScreenshotPage", "browserScreenshotSection") + [.separator]
+        + actions("bookmark.addPage", "palette.browserOpenDefault", "browserScreenshotPage", "browserScreenshotSection") + [.separator]
         + [.submenu("browser.pageInfo", pageInfo)] + actions("toggleBrowserDeveloperTools") + [.separator]
         + actions("browser.extensions.menu", "browser.extensions.manage")
 

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9335cb699f686481f70d674b12c055858df82b4e079fd8f58405b44554e09edd. */
+/* cmux-tui mux protocol 12, IR adbfa89de5ea3e4ee601c468ebe23c608b9eb8532e62701776fa0d86a6831300. */
 
 
 import type * as T from "./types.js";
@@ -312,6 +312,18 @@ export interface CopyRequest extends CmuxRequestBase {
 }
 
 /** Protocol v12; authority: control. */
+export interface CreateBrowserProfileRequest extends CmuxRequestBase {
+  cmd: "create-browser-profile";
+  "browser_profile"?: (string) | null;
+  "color"?: (string) | null;
+  "icon"?: (string) | null;
+  "index"?: (bigint) | null;
+  "name": string;
+  "source"?: (T.JsonValue) | null;
+}
+export type CreateBrowserProfileResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
 export interface CreatePersonalGroupRequest extends CmuxRequestBase {
   cmd: "create-personal-group";
   "collapsed"?: boolean;
@@ -395,6 +407,7 @@ export interface CreateTerminalRequest extends CmuxRequestBase {
   "name"?: (string) | null;
   "origin"?: (string) | null;
   "rows"?: (number) | null;
+  "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
   "workspace"?: (T.Id) | null;
 }
@@ -422,6 +435,13 @@ export interface CreateWorkspaceGroupRequest extends CmuxRequestBase {
   "name": string;
 }
 export type CreateWorkspaceGroupResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface DeleteBrowserProfileRequest extends CmuxRequestBase {
+  cmd: "delete-browser-profile";
+  "browser_profile": string;
+}
+export type DeleteBrowserProfileResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
 export interface DeletePersonalGroupRequest extends CmuxRequestBase {
@@ -653,6 +673,14 @@ export interface MintTerminalRendererByTerminalRequest extends CmuxRequestBase {
 export type MintTerminalRendererByTerminalResult = T.MintTerminalRendererResult;
 
 /** Protocol v12; authority: control. */
+export interface MoveBrowserProfileRequest extends CmuxRequestBase {
+  cmd: "move-browser-profile";
+  "browser_profile": string;
+  "index": bigint;
+}
+export type MoveBrowserProfileResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
 export interface MovePersonalGroupRequest extends CmuxRequestBase {
   cmd: "move-personal-group";
   "group": string;
@@ -863,6 +891,7 @@ export interface NewPaneRequest extends CmuxRequestBase {
   "keep"?: boolean;
   "pane": T.Id;
   "rows"?: (number) | null;
+  "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
 }
 export type NewPaneResult = T.SurfaceResult;
@@ -876,6 +905,7 @@ export interface NewPaneRightRequest extends CmuxRequestBase {
   "keep"?: boolean;
   "pane": T.Id;
   "rows"?: (number) | null;
+  "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
   "width"?: (number) | null;
 }
@@ -906,6 +936,7 @@ export interface NewTabRequest extends CmuxRequestBase {
   "keep"?: boolean;
   "pane"?: (T.Id) | null;
   "rows"?: (number) | null;
+  "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
 }
 export type NewTabResult = T.SurfaceResult;
@@ -931,6 +962,7 @@ export interface NotifyRequest extends CmuxRequestBase {
   cmd: "notify";
   "body": string;
   "level"?: (T.NotificationLevel) | null;
+  "source"?: (T.NotificationSource) | null;
   "surface"?: (T.Id) | null;
   "title": string;
 }
@@ -1320,6 +1352,15 @@ export interface SetDefaultColorsRequest extends CmuxRequestBase {
 export type SetDefaultColorsResult = T.EmptyResult;
 
 /** Protocol v12; authority: control. */
+export interface SetPersonalTerminalRequest extends CmuxRequestBase {
+  cmd: "set-personal-terminal";
+  "session_id": string;
+  "terminal_key": string;
+  "theme"?: (string) | null;
+}
+export type SetPersonalTerminalResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
 export interface SetPersonalWorkspaceRequest extends CmuxRequestBase {
   cmd: "set-personal-workspace";
   "browser_profile_id"?: (string) | null;
@@ -1475,6 +1516,7 @@ export interface SplitRequest extends CmuxRequestBase {
   "keep"?: boolean;
   "pane": T.Id;
   "rows"?: (number) | null;
+  "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
 }
 export type SplitResult = T.SurfaceResult;
@@ -1558,6 +1600,16 @@ export interface UnsaveTabGroupRequest extends CmuxRequestBase {
   "group": string;
 }
 export type UnsaveTabGroupResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface UpdateBrowserProfileRequest extends CmuxRequestBase {
+  cmd: "update-browser-profile";
+  "browser_profile": string;
+  "color"?: (string) | null;
+  "icon"?: (string) | null;
+  "name"?: (string) | null;
+}
+export type UpdateBrowserProfileResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
 export interface UpdateFrontendBrowserTabRequest extends CmuxRequestBase {
@@ -1709,6 +1761,7 @@ export type CmuxRequest =
   | CloseTerminalRequest
   | CloseWorkspaceRequest
   | CopyRequest
+  | CreateBrowserProfileRequest
   | CreatePersonalGroupRequest
   | CreateProfileRequest
   | CreateScreenGroupRequest
@@ -1717,6 +1770,7 @@ export type CmuxRequest =
   | CreateTerminalRequest
   | CreateWorkspaceRequest
   | CreateWorkspaceGroupRequest
+  | DeleteBrowserProfileRequest
   | DeletePersonalGroupRequest
   | DeleteProfileRequest
   | DeleteSavedScreenGroupRequest
@@ -1751,6 +1805,7 @@ export type CmuxRequest =
   | MarkWorkspacesProviderManagedRequest
   | MintTerminalRendererRequest
   | MintTerminalRendererByTerminalRequest
+  | MoveBrowserProfileRequest
   | MovePersonalGroupRequest
   | MoveProfileRequest
   | MoveScreenRequest
@@ -1819,6 +1874,7 @@ export type CmuxRequest =
   | SetClientInfoRequest
   | SetClientSizingRequest
   | SetDefaultColorsRequest
+  | SetPersonalTerminalRequest
   | SetPersonalWorkspaceRequest
   | SetProfileFollowsRequest
   | SetRatioRequest
@@ -1847,6 +1903,7 @@ export type CmuxRequest =
   | UnregisterBrowserProviderRequest
   | UnsaveScreenGroupRequest
   | UnsaveTabGroupRequest
+  | UpdateBrowserProfileRequest
   | UpdateFrontendBrowserTabRequest
   | UpdatePersonalGroupRequest
   | UpdateProfileRequest
@@ -2111,6 +2168,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "create-browser-profile": {
+    request: CreateBrowserProfileRequest;
+    result: CreateBrowserProfileResult;
+    authority: "control";
+    since: 12;
+    capability: "browser-profiles-v1";
+    stream: null;
+  };
   "create-personal-group": {
     request: CreatePersonalGroupRequest;
     result: CreatePersonalGroupResult;
@@ -2173,6 +2238,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "workspace-groups-v1";
+    stream: null;
+  };
+  "delete-browser-profile": {
+    request: DeleteBrowserProfileRequest;
+    result: DeleteBrowserProfileResult;
+    authority: "control";
+    since: 12;
+    capability: "browser-profiles-v1";
     stream: null;
   };
   "delete-personal-group": {
@@ -2445,6 +2518,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "frontend";
     since: 11;
     capability: null;
+    stream: null;
+  };
+  "move-browser-profile": {
+    request: MoveBrowserProfileRequest;
+    result: MoveBrowserProfileResult;
+    authority: "control";
+    since: 12;
+    capability: "browser-profiles-v1";
     stream: null;
   };
   "move-personal-group": {
@@ -2991,6 +3072,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "set-personal-terminal": {
+    request: SetPersonalTerminalRequest;
+    result: SetPersonalTerminalResult;
+    authority: "control";
+    since: 12;
+    capability: "personal-terminals-v1";
+    stream: null;
+  };
   "set-personal-workspace": {
     request: SetPersonalWorkspaceRequest;
     result: SetPersonalWorkspaceResult;
@@ -3213,6 +3302,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "saved-tab-groups-v1";
+    stream: null;
+  };
+  "update-browser-profile": {
+    request: UpdateBrowserProfileRequest;
+    result: UpdateBrowserProfileResult;
+    authority: "control";
+    since: 12;
+    capability: "browser-profiles-v1";
     stream: null;
   };
   "update-frontend-browser-tab": {

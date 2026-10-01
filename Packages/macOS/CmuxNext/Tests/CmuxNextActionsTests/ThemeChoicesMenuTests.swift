@@ -18,9 +18,11 @@ import Testing
         registry.choiceState = { id, _ in id == "room.setTheme" ? "Nord" : nil }
         let menu = registry.makeContextMenu(for: .profile, target: ActionTargetRef(kind: .profile, id: "default"))
         let submenu = try #require(try themeItem(menu, registry, "room.setTheme").submenu)
-        #expect(submenu.items.count == 1 + ActionArgument.curatedThemes.count)
-        #expect(submenu.items.map(\.title).dropFirst().elementsEqual(ActionArgument.curatedThemes))
+        // Ghostty config, onboarding's themes, then More… (the full list).
+        #expect(submenu.items.count == 1 + ActionArgument.curatedThemes.count + 2)
+        #expect(submenu.items.map(\.title).dropFirst().prefix(ActionArgument.curatedThemes.count).elementsEqual(ActionArgument.curatedThemes))
         #expect(submenu.items.filter { $0.state == .on }.map(\.title) == ["Nord"])
+        #expect(submenu.items[submenu.items.count - 2].isSeparatorItem)
     }
 
     @Test func hoverPreviewsCloseRevertsClickCommits() throws {
@@ -48,11 +50,28 @@ import Testing
         #expect(ran.first?["theme"]?.stringValue == "Vesper")
     }
 
-    @Test func themeArgumentAcceptsOnlyListedThemes() throws {
+    /// Any text reaches the handler (it validates against every Ghostty
+    /// theme); the palette and menus offer the known ones.
+    @Test func themeArgumentTakesAnyTextWithSuggestions() throws {
         let descriptor = try #require(ActionRegistry.standard().descriptor(for: "terminal.setTheme"))
         let argument = try #require(descriptor.arguments.first)
         #expect(argument.parse("Gruvbox Dark") == .string("Gruvbox Dark"))
-        #expect(argument.parse("config") == .string("config"))
-        #expect(argument.parse("theme = evil") == nil)
+        #expect(argument.parse("light:Rose Pine Dawn,dark:Rose Pine") == .string("light:Rose Pine Dawn,dark:Rose Pine"))
+        #expect(argument.suggestions?.source == ActionSuggestions.ghosttyThemes)
+        #expect(argument.suggestions?.pinned.first?.value == ActionArgument.themeConfigValue)
+    }
+
+    @Test func moreOpensTheFullListWithTheTarget() throws {
+        let registry = ActionRegistry.standard()
+        registry.bind("terminal.setTheme") { _ in }
+        var collected: [(ActionID, ActionInvocation)] = []
+        registry.argumentCollector = { collected.append(($0, $1)) }
+        let target = ActionTargetRef(kind: .tab, id: "tab_1")
+        let menu = registry.makeContextMenu(for: .tab, target: target)
+        let submenu = try #require(try themeItem(menu, registry, "terminal.setTheme").submenu)
+        let more = try #require(submenu.items.last)
+        _ = (more.target as? NSObject)?.perform(more.action, with: more)
+        #expect(collected.first?.0 == "terminal.setTheme")
+        #expect(collected.first?.1.target == target)
     }
 }

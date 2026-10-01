@@ -1232,6 +1232,7 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
         "level": required_string(&request.fields, "level")?,
         "terminal_id": terminal_id,
         "created_at_ms": created_at_ms,
+        "source": crate::NotificationSource::Cli.as_str(),
     });
     let preparation = mux
         .prepare_resource_effect(
@@ -1355,6 +1356,11 @@ fn execute_notification_effect(
     })?;
     let session_id = mux.local_resource_context().map_err(resource_operation_error)?.session_id;
     let subtitle = intent.get("subtitle").and_then(Value::as_str).map(str::to_string);
+    let source = intent
+        .get("source")
+        .and_then(Value::as_str)
+        .and_then(crate::NotificationSource::parse)
+        .unwrap_or(crate::NotificationSource::Cli);
     mux.post_resource_notification(
         notification_id.clone(),
         title.to_string(),
@@ -1364,6 +1370,7 @@ fn execute_notification_effect(
         surface,
         terminal_id.clone(),
         created_at_ms,
+        source,
     );
     let value = mux.notification_snapshot_value(
         &crate::ResourceNotification {
@@ -1374,6 +1381,7 @@ fn execute_notification_effect(
             level,
             terminal_id,
             created_at_ms,
+            source,
             surface,
         },
         &session_id,

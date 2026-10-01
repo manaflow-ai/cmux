@@ -187,6 +187,8 @@ extension PaneController {
             pendingClosed.insert(tab.id)
             surfaces.append(tab.surface)
             commands.append(daemon.closeCommand(for: tab))
+            // Its terminal's only view closes: that session may end it.
+            if tab.kind == .remoteTerminal { services.remoteTerminals.viewClosed(tab) }
         }
         apply(snapshot())
         guard !commands.isEmpty else { return }

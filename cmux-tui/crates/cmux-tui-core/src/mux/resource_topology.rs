@@ -38,6 +38,7 @@ struct ResourceEffectIntentContext<'a> {
 
 struct PaneAddOptions<'a> {
     direction: Option<&'a str>,
+    argv: Option<Vec<String>>,
     cwd: Option<String>,
     size: Option<(u16, u16)>,
     ratio: Option<f32>,
@@ -4303,6 +4304,7 @@ impl Mux {
                         target,
                         PaneAddOptions {
                             direction: None,
+                            argv: optional_effect_command(fields)?,
                             cwd: optional_owned_string(fields, "cwd")?,
                             size: effect_cell_size(fields)?,
                             ratio: None,
@@ -4313,7 +4315,7 @@ impl Mux {
                         intent,
                         slots.workspace.expect("checked"),
                         TerminalEffectOptions {
-                            argv: None,
+                            argv: optional_effect_command(fields)?,
                             cwd: optional_owned_string(fields, "cwd")?,
                             name: None,
                             created_screen_name: None,
@@ -4325,7 +4327,7 @@ impl Mux {
                         intent,
                         None,
                         TerminalEffectOptions {
-                            argv: None,
+                            argv: optional_effect_command(fields)?,
                             cwd: optional_owned_string(fields, "cwd")?,
                             name: None,
                             created_screen_name: None,
@@ -4343,6 +4345,7 @@ impl Mux {
                     target,
                     PaneAddOptions {
                         direction: Some(required_str(fields, "direction")?),
+                        argv: optional_effect_command(fields)?,
                         cwd: optional_owned_string(fields, "cwd")?,
                         size: effect_cell_size(fields)?,
                         ratio: fields
@@ -4381,7 +4384,7 @@ impl Mux {
                     Some(pane) => self.effect_add_terminal_tab(
                         intent,
                         pane,
-                        None,
+                        optional_effect_command(fields)?,
                         optional_owned_string(fields, "cwd")?,
                         optional_owned_string(fields, "name")?,
                         effect_cell_size(fields)?,
@@ -4391,7 +4394,7 @@ impl Mux {
                         intent,
                         slots.workspace.expect("checked"),
                         TerminalEffectOptions {
-                            argv: None,
+                            argv: optional_effect_command(fields)?,
                             cwd: optional_owned_string(fields, "cwd")?,
                             name: optional_owned_string(fields, "name")?,
                             created_screen_name: None,
@@ -4403,7 +4406,7 @@ impl Mux {
                         intent,
                         None,
                         TerminalEffectOptions {
-                            argv: None,
+                            argv: optional_effect_command(fields)?,
                             cwd: optional_owned_string(fields, "cwd")?,
                             name: optional_owned_string(fields, "name")?,
                             created_screen_name: None,
@@ -4913,7 +4916,7 @@ impl Mux {
         target: PaneId,
         options: PaneAddOptions<'_>,
     ) -> anyhow::Result<CreatedTerminalEffect> {
-        let PaneAddOptions { direction, cwd, size, ratio, viewport_width } = options;
+        let PaneAddOptions { direction, argv, cwd, size, ratio, viewport_width } = options;
         let split_direction = direction
             .map(|direction| {
                 Ok(match direction {
@@ -4933,14 +4936,14 @@ impl Mux {
         let reservation = self.effect_terminal_reservation(
             intent,
             &workspace_key,
-            None,
+            argv.as_deref(),
             cwd.as_deref(),
             None,
             size,
             None,
         )?;
         let surface =
-            self.spawn_surface_in_workspace_reserved(&workspace_key, cwd, size, None, reservation)?;
+            self.spawn_surface_in_workspace_reserved(&workspace_key, cwd, size, argv, reservation)?;
         #[cfg(test)]
         if viewport_width.is_some()
             && let Some(hook) = self.viewport_split_after_spawn.lock().unwrap().clone()
@@ -5288,6 +5291,7 @@ fn validate_effect_fields(
         }
         ResourceOperation::PaneCreate | ResourceOperation::TabCreateTerminal => {
             let _ = effect_cell_size(fields)?;
+            let _ = optional_effect_command(fields)?;
         }
         ResourceOperation::PaneSplit => {
             let direction = required_str(fields, "direction")?;
@@ -5317,6 +5321,7 @@ fn validate_effect_fields(
                 );
             }
             let _ = effect_cell_size(fields)?;
+            let _ = optional_effect_command(fields)?;
         }
         ResourceOperation::TabCreateBrowser => {
             anyhow::ensure!(!required_str(fields, "url")?.is_empty(), "browser URL is empty");
@@ -5357,6 +5362,16 @@ fn effect_on_exit(fields: &Map<String, Value>) -> anyhow::Result<Option<Terminal
             TerminalOnExit::parse(value)
         })
         .transpose()
+}
+
+/// `argv` or `shell` when the creation names one, else none (the default
+/// shell). Placement verbs store `argv` for `shell_args`.
+fn optional_effect_command(fields: &Map<String, Value>) -> anyhow::Result<Option<Vec<String>>> {
+    if fields.contains_key("argv") || fields.contains_key("shell") {
+        effect_command(fields).map(Some)
+    } else {
+        Ok(None)
+    }
 }
 
 fn effect_command(fields: &Map<String, Value>) -> anyhow::Result<Vec<String>> {

@@ -1,9 +1,9 @@
 import CmuxNextActions
 import CmuxNextSettings
 
-/// A quit request that names both choices.
+/// A quit request that names more than one choice.
 struct QuitArgumentConflict: Error, Equatable {
-    static let reason = "quit takes --keep-sessions or --end-sessions, not both"
+    static let reason = "quit takes one of --keep-sessions, --end-sessions and --end-everything"
 }
 
 /// The quit rules (user decision 2026-09-30), free of AppKit and the daemon.
@@ -13,14 +13,11 @@ enum QuitPolicy {
     /// The origin of a `quit` action run: its flags, else scripted for a
     /// capturing caller (control socket, CLI), else interactive.
     static func origin(for invocation: ActionInvocation, scripted: Bool) throws(QuitArgumentConflict) -> QuitOrigin {
-        let keep = invocation["keepSessions"]?.boolValue == true
-        let end = invocation["endSessions"]?.boolValue == true
-        switch (keep, end) {
-        case (true, true): throw QuitArgumentConflict()
-        case (true, false): return .explicit(.keep)
-        case (false, true): return .explicit(.end)
-        case (false, false): return scripted ? .scripted : .interactive
-        }
+        let flags: [(String, QuitSessionsChoice)] = [("keepSessions", .keep), ("endSessions", .endKeepLayout), ("endEverything", .endEverything)]
+        let chosen = flags.filter { invocation[$0.0]?.boolValue == true }.map(\.1)
+        guard chosen.count <= 1 else { throw QuitArgumentConflict() }
+        if let choice = chosen.first { return .explicit(choice) }
+        return scripted ? .scripted : .interactive
     }
 
     /// Whether the decision needs `QuitFacts` (read from the daemon).
@@ -32,7 +29,8 @@ enum QuitPolicy {
         let remembered: QuitSessionsChoice? = switch behavior {
         case .ask: nil
         case .keep: .keep
-        case .end: .end
+        case .endKeepLayout: .endKeepLayout
+        case .endEverything: .endEverything
         }
         switch origin {
         case .powerOff: return .quit(.keep)
@@ -43,8 +41,10 @@ enum QuitPolicy {
         let hasTerminals = facts.terminals > 0
         let incognito = !facts.incognitoPrograms.isEmpty
         guard hasTerminals || incognito else { return .quit(remembered ?? .keep) }
-        // A remembered choice skips the sheet unless incognito windows would
-        // end running programs (that confirmation is not remembered).
+        // A remembered choice skips the alert unless incognito windows would
+        // end running programs (that confirmation is not remembered); the
+        // alert then only confirms the incognito close, and Quit applies the
+        // remembered choice.
         if let remembered, !incognito { return .quit(remembered) }
         return .ask(QuitPrompt(
             terminals: facts.terminals,
@@ -52,7 +52,7 @@ enum QuitPolicy {
             busiest: busiest(facts.programs),
             incognitoPrograms: facts.incognitoPrograms,
             remoteSessions: facts.remoteSessions,
-            offersSessionChoice: hasTerminals,
+            offersSessionChoice: hasTerminals && remembered == nil,
             defaultChoice: remembered ?? .keep
         ))
     }
@@ -68,7 +68,8 @@ enum QuitPolicy {
     static func remembered(_ choice: QuitSessionsChoice) -> QuitBehavior {
         switch choice {
         case .keep: .keep
-        case .end: .end
+        case .endKeepLayout: .endKeepLayout
+        case .endEverything: .endEverything
         }
     }
 }

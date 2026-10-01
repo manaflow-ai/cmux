@@ -66,6 +66,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.palette.onPresented = { DebugTimings.palettePresented($0) }
         services.browserProfiles.load(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
                                       importStore: services.onboarding.importStore)
+        services.bookmarks.start(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
+                                 importStore: services.onboarding.importStore)
+        services.history.start(supportDirectory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
+            .deletingLastPathComponent())
         services.windows.restoreWhenLoaded()
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only
@@ -103,11 +107,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.terminalTheme.follow(settings)
         services.themes.start()
         services.remoteLocalhost.follow(settings)
+        services.bookmarks.follow(settings)
         Task {
             await settings.waitForLoad(atLeast: 1)
+            // `app.quitBehavior: "end"` (first release) is now "end-keep-layout".
+            _ = try? await settings.migrateLegacyQuitBehavior()
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)
+                control.registerAccountsMethods(services)
                 control.registerRemoteMethods(services)
                 control.registerMobileMethods(services)
                 control.registerUpdateMethods(services.updater)
@@ -125,7 +133,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installCompat(on router: ControlRouter) {
         let frontend = services.compat!
         frontend.afterIntent = { [control] in control.publishSnapshotNow() }
-        let compat = CompatService(frontend: frontend, terminalEnvironment: environment.terminalEnvironmentProvider()) {
+        let compat = CompatService(frontend: frontend, terminalEnvironment: environment.terminalEnvironmentProvider(),
+                                   sessionConnection: { frontend.connection(session: $0) }) {
             frontend.currentConnection()
         }
         compat.install(on: router)

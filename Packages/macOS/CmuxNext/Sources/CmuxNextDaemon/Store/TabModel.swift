@@ -34,6 +34,8 @@ public final class TabModel: Identifiable {
     public internal(set) var isFrontendOwned: Bool
     public internal(set) var tabGroup: TabGroupID?
     public internal(set) var agent: AgentStatus?
+    /// The terminal a remote-terminal tab references (on another session).
+    public internal(set) var remote: RemoteTerminalRef?
     /// Last snapshot, for fields the record does not surface. Views should
     /// read the typed fields; this one changes whenever any field does.
     @ObservationIgnored public private(set) var snapshot: TabSnapshot
@@ -67,6 +69,7 @@ public final class TabModel: Identifiable {
         faviconURL = s.faviconURL
         isFrontendOwned = s.isFrontendOwned
         tabGroup = s.tabGroup
+        remote = s.remote
     }
 
     static func identity(_ s: TabSnapshot) -> String {
@@ -95,6 +98,7 @@ public final class TabModel: Identifiable {
         if faviconURL != s.faviconURL { faviconURL = s.faviconURL }
         if isFrontendOwned != s.isFrontendOwned { isFrontendOwned = s.isFrontendOwned }
         if tabGroup != s.tabGroup { tabGroup = s.tabGroup }
+        if remote != s.remote { remote = s.remote }
     }
 
     /// Point updates from surface events (no full snapshot).

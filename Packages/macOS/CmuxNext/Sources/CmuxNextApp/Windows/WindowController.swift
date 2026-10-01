@@ -54,6 +54,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.minSize = NSSize(width: 520, height: 320)
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
+        // Backdrop first: changing it while AppKit installs the content
+        // view puts the content above the titlebar (see WindowRootView).
+        root.applyBackdrop(to: window)
         window.contentView = root
         // contentRect grows by the titlebar; restore the saved frame exactly.
         if let frame { window.setFrame(frame, display: false) } else { window.center() }
@@ -302,6 +305,17 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
     private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
+
+    /// The window's one titlebar decision (`TitlebarDragPolicy`): a left
+    /// mouse-down in the band is delivered as usual, then moves the window
+    /// (or runs the double-click action) only when the policy says so.
+    override func sendEvent(_ event: NSEvent) {
+        guard event.type == .leftMouseDown, TitlebarDragPolicy.decide(at: event.locationInWindow, in: self) == .movesWindow else {
+            return super.sendEvent(event)
+        }
+        super.sendEvent(event)
+        WindowTitlebar.handleMouseDown(event, in: self)
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if let keyRouter, let focus, keyRouter.routeContentKeyEquivalent(event, focus: focus.state) { return true }

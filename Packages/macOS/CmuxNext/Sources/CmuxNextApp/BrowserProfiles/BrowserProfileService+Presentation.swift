@@ -21,7 +21,7 @@ extension BrowserProfileService {
     /// The omnibar avatar of tab `key`: nil while one profile exists, and
     /// for incognito tabs (their window says incognito).
     func omnibarBadge(forTab key: String) -> BrowserProfileBadge? {
-        guard BrowserProfileCascade.showsOmnibarBadge(profileCount: book.profiles.count),
+        guard BrowserProfileCascade.showsOmnibarBadge(profileCount: ordered.count),
               !services.cache.browserTabs.isIncognitoTab(key) else { return nil }
         let id = services.cache.tabModel(key).map(profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
         let record = record(id)

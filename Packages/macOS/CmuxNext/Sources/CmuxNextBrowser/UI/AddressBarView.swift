@@ -34,14 +34,17 @@ public final class AddressBarView: NSView {
     let field = AddressField()
     private let machineBadgeView = MachineBadgeView()
     private let profileBadgeView = ProfileBadgeView()
-    /// The trailing badges (browser profile, machine); hidden ones take no room.
-    private lazy var badges = NSStackView(views: [profileBadgeView, machineBadgeView])
+    let starButton = BookmarkStarButton()
+    /// The trailing badges (browser profile, machine, bookmark star); hidden ones take no room.
+    private lazy var badges = NSStackView(views: [profileBadgeView, machineBadgeView, starButton])
     private var fieldToEdge: NSLayoutConstraint!
     private var fieldToBadge: NSLayoutConstraint!
     private let panel = OmniboxSuggestionPanel()
     private let density = DensityBinding()
 
     private var reportedURL: URL?
+    /// The page's URL changed (the host refreshes the bookmark star).
+    public var onPageURLChange: ((URL?) -> Void)?
     /// Set by `focus()` for the responder change it causes.
     var pendingFocusSource: OmnibarInput.FocusSource?
     private var security: BrowserSecurityState = .none
@@ -107,6 +110,7 @@ public final class AddressBarView: NSView {
         addSubview(field)
         machineBadgeView.isHidden = true
         profileBadgeView.isHidden = true
+        starButton.isHidden = true
         badges.orientation = .horizontal
         badges.spacing = 4
         badges.translatesAutoresizingMaskIntoConstraints = false
@@ -187,8 +191,8 @@ public final class AddressBarView: NSView {
     /// The badge shown now, for diagnostics (`debug.browser`).
     public var profileBadgeName: String? { profileBadgeView.isHidden ? nil : profileBadgeView.toolTip }
 
-    private func updateBadgeSpace() {
-        let visible = !machineBadgeView.isHidden || !profileBadgeView.isHidden
+    func updateBadgeSpace() {
+        let visible = !machineBadgeView.isHidden || !profileBadgeView.isHidden || !starButton.isHidden
         guard fieldToBadge.isActive != visible else { return }
         fieldToEdge.isActive = !visible
         fieldToBadge.isActive = visible
@@ -199,6 +203,7 @@ public final class AddressBarView: NSView {
         if url != reportedURL {
             reportedURL = url
             controller.send(.pageURLChanged(url))
+            onPageURLChange?(url)
         }
         if security != self.security {
             self.security = security
@@ -309,6 +314,7 @@ public final class AddressBarView: NSView {
         backdrop.isHidden = !state.isPopupOpen
         let site = PageInfoSite(url: state.pageURL, security: security)
         chip.indicator = PageInfoIndicator.resolve(site: site, chip: OmnibarPresentation(state).chip)
+        updateStarVisibility()
     }
 
     public override func viewWillMove(toWindow newWindow: NSWindow?) {

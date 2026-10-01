@@ -4,8 +4,9 @@ import CmuxNextDesign
 
 /// Set / Reset Room, Workspace and Terminal Theme
 /// (plans/cmux-next/data-model.md 6). Room and workspace themes are
-/// personal rows of the home daemon (`profiles-v1`); terminal themes stay on
-/// this Mac (`TerminalThemeStore`). Every entrypoint (palette, context
+/// personal rows of the home daemon (`profiles-v1`), terminal themes too
+/// (`personal-terminals-v1`; an app-local file while the home daemon lacks
+/// it). The theme is any spec Ghostty accepts. Every entrypoint (palette, context
 /// menus, CLI, shortcuts, Settings) runs these handlers; the pickers preview
 /// through `ThemeCoordinator` first.
 enum ThemeHandlers {
@@ -18,19 +19,19 @@ enum ThemeHandlers {
             })
         }
         personal("room.setTheme") { invocation in
-            try setRoom(try context.room(invocation).id, to: try spec(invocation), context)
+            try setRoom(try context.room(invocation).id, to: try spec(invocation, context), context)
         }
         personal("room.clearTheme") { invocation in
             try setRoom(try context.room(invocation).id, to: nil, context)
         }
         personal("workspace.setTheme") { invocation in
-            try setWorkspace(invocation, to: try spec(invocation), context)
+            try setWorkspace(invocation, to: try spec(invocation, context), context)
         }
         personal("workspace.clearTheme") { invocation in
             try setWorkspace(invocation, to: nil, context)
         }
         registry.bind("terminal.setTheme", run: { invocation in
-            try setTerminal(invocation, to: try spec(invocation), context)
+            try setTerminal(invocation, to: try spec(invocation, context), context)
         })
         registry.bind("terminal.clearTheme", run: { invocation in
             try setTerminal(invocation, to: nil, context)
@@ -45,18 +46,20 @@ enum ThemeHandlers {
         case "room.setTheme": return (try? context.room(invocation)).map { .room($0.id) }
         case "workspace.setTheme": return (try? context.workspace(invocation)).map { .workspace($0.model.id) }
         case "terminal.setTheme":
-            guard let (pane, id) = context.tab(invocation), pane.tab(id)?.kind != .browser else { return nil }
-            return .terminal(TerminalThemeStore.key(machine: pane.daemon.machineID, tab: id.rawValue))
+            guard let (pane, id) = context.tab(invocation), let tab = pane.tab(id), tab.kind != .browser else { return nil }
+            return .terminal(TerminalThemeKey(machine: pane.daemon.machineID, tab: tab))
         default: return nil
         }
     }
 
     /// The `theme` argument as a spec; nil for "Use Ghostty Config".
-    private static func spec(_ invocation: ActionInvocation) throws -> String? {
-        guard let raw = invocation["theme"]?.stringValue, let parsed = ThemeSpec(raw) else {
-            throw ActionFailure.invalidTarget(RefusalStrings.themeMustBeOneOf(([ActionArgument.themeConfigValue] + ActionArgument.curatedThemes).joined(separator: ", ")))
+    private static func spec(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> String? {
+        let raw = invocation["theme"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
+        if raw == ActionArgument.themeConfigValue { return nil }
+        guard let parsed = ThemeSpec(raw), context.services.themes.catalog.accepts(parsed.raw) else {
+            throw ActionFailure.invalidTarget(RefusalStrings.unknownTheme(raw))
         }
-        return parsed.raw == ActionArgument.themeConfigValue ? nil : parsed.raw
+        return parsed.raw
     }
 
     private static func setRoom(_ room: ProfileID, to spec: String?, _ context: AppActionContext) throws {
@@ -80,14 +83,13 @@ enum ThemeHandlers {
 
     private static func setTerminal(_ invocation: ActionInvocation, to spec: String?, _ context: AppActionContext) throws {
         guard let (pane, id) = context.tab(invocation) else { return }
-        guard pane.tab(id)?.kind != .browser else { throw ActionFailure.invalidTarget(RefusalStrings.notATerminal) }
-        let key = TerminalThemeStore.key(machine: pane.daemon.machineID, tab: id.rawValue)
-        context.services.themes.commit(.terminal(key), spec: spec)
+        guard let tab = pane.tab(id), tab.kind != .browser else { throw ActionFailure.invalidTarget(RefusalStrings.notATerminal) }
+        context.services.themes.commit(.terminal(TerminalThemeKey(machine: pane.daemon.machineID, tab: tab)), spec: spec)
     }
 }
 
 extension RefusalStrings {
-    static func themeMustBeOneOf(_ choices: String) -> String {
-        format("handlers.refusal.themeMustBeOneOf", "theme must be one of %@", choices)
+    static func unknownTheme(_ name: String) -> String {
+        format("handlers.refusal.unknownTheme", "Ghostty has no theme '%@' (use a theme name, an absolute path, or light:A,dark:B)", name)
     }
 }

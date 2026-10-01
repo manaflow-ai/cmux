@@ -2991,6 +2991,14 @@ enum SocketPasswordResolver {
 }
 
 final class SocketClient {
+    /// The CLI's `--session`/`--machine` scope, sent as the `session` param
+    /// of every object method (`CmuxCLISessionScope.applies(toMethod:)`).
+    /// Set once in `run()` before any request.
+    nonisolated(unsafe) static var sessionScope: String?
+    /// The CLI's `--all-sessions`: lists and bulk commands include every
+    /// session (sent as `all_sessions`).
+    nonisolated(unsafe) static var allSessions = false
+
     private struct RelayEndpoint {
         let host: String
         let port: UInt16
@@ -4881,6 +4889,8 @@ struct CMUXCLI {
         var idFormatArg: String? = nil
         var windowId: String? = nil
         var socketPasswordArg: String? = nil
+        var sessionScopeArg: String? = nil
+        var allSessionsArg = false
 
         var index = 1
         while index < args.count {
@@ -4919,6 +4929,19 @@ struct CMUXCLI {
                     throw CLIError(message: "--password requires a value")
                 }
                 socketPasswordArg = args[index + 1]
+                index += 2
+                continue
+            }
+            if arg == CmuxCLISessionScope.allSessionsFlag {
+                allSessionsArg = true
+                index += 1
+                continue
+            }
+            if CmuxCLISessionScope.optionNames.contains(arg) {
+                guard index + 1 < args.count else {
+                    throw CLIError(message: "\(arg) requires a session name or id")
+                }
+                sessionScopeArg = args[index + 1]
                 index += 2
                 continue
             }
@@ -4982,7 +5005,12 @@ struct CMUXCLI {
         if let parsedIDFormat = presentationOptions.idFormat {
             idFormatArg = parsedIDFormat
         }
-        let commandArgs = presentationOptions.remaining
+        // `--session`/`--machine` (cmux-next federation): global before the
+        // command, taken after it only by commands that target app objects.
+        let sessionScope = CmuxCLISessionScope.extractScope(command: command, arguments: presentationOptions.remaining)
+        let commandArgs = sessionScope.remaining
+        SocketClient.sessionScope = sessionScope.session ?? sessionScopeArg
+        SocketClient.allSessions = sessionScope.allSessions || allSessionsArg
         if try runGuideCommand(command: command, commandArgs: commandArgs, jsonOutput: jsonOutput) {
             return
         }
@@ -6935,6 +6963,9 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowId
             )
+
+        case "list-machines":
+            try runListMachines(client: client, jsonOutput: jsonOutput)
 
         case "list-workspaces":
             Self.warnLegacyVerbDeprecated("list-workspaces", replacement: "cmux workspace list")
@@ -9149,12 +9180,9 @@ struct CMUXCLI {
         return value
     }
 
+    /// `workspace:3`, or session-qualified `build-box:workspace:3`.
     private func isHandleRef(_ value: String) -> Bool {
-        let pieces = value.split(separator: ":", omittingEmptySubsequences: false)
-        guard pieces.count == 2 else { return false }
-        let kind = String(pieces[0]).lowercased()
-        guard ["window", "workspace", "pane", "surface"].contains(kind) else { return false }
-        return Int(String(pieces[1])) != nil
+        CmuxCLISessionScope.isHandleRef(value)
     }
 
     func normalizeWindowHandle(_ raw: String?, client: SocketClient, allowCurrent: Bool = false) throws -> String? {
@@ -9294,6 +9322,7 @@ struct CMUXCLI {
 
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return nil }
+        if CmuxCLISessionScope.isQualifiedRef(trimmed) { return trimmed }
         if isUUID(trimmed) || isHandleRef(trimmed) {
             if let windowHandle {
                 return try validatePaneHandleInWindow(
@@ -9397,6 +9426,7 @@ struct CMUXCLI {
             return lhsUUID == rhsUUID
         }
         return lhs.lowercased() == rhs.lowercased()
+            || CmuxCLISessionScope.ref(rhs, matches: lhs, scoped: SocketClient.sessionScope != nil)
     }
 
     func normalizeSurfaceHandle(
@@ -9417,6 +9447,7 @@ struct CMUXCLI {
 
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return nil }
+        if CmuxCLISessionScope.isQualifiedRef(trimmed) { return trimmed }
         if isUUID(trimmed) || isHandleRef(trimmed) {
             if let windowHandle {
                 return try validateSurfaceHandleInWindow(
@@ -10302,6 +10333,26 @@ struct CMUXCLI {
     private enum WorkspaceRenameCommandMode {
         case legacy
         case namespace
+    }
+
+    /// `cmux list-machines`: every federated session (`system.sessions`).
+    private func runListMachines(client: SocketClient, jsonOutput: Bool) throws {
+        let payload = try client.sendV2(method: "system.sessions")
+        if jsonOutput {
+            print(jsonString(payload))
+            return
+        }
+        let sessions = payload["sessions"] as? [[String: Any]] ?? []
+        for session in sessions {
+            let home = (session["home"] as? Bool) == true
+            let name = home ? "home" : (session["qualifier"] as? String) ?? "?"
+            let machine = (session["machine"] as? String) ?? ""
+            let transport = (session["transport"] as? String) ?? ""
+            let state = (session["state"] as? String) ?? ""
+            let count = intFromAny(session["workspace_count"]) ?? 0
+            let id = (session["id"] as? String) ?? ""
+            print("\(home ? "* " : "  ")\(name)  \(machine)  [\(transport):\(state)]  \(count) workspaces  \(id)")
+        }
     }
 
     private func runWorkspaceListCommand(
@@ -17734,14 +17785,14 @@ struct CMUXCLI {
         responseTimeout: TimeInterval? = nil,
         deadline: Date? = nil
     ) throws -> String {
-        if let raw, isUUID(raw) {
+        if let raw, isUUID(raw) || CmuxCLISessionScope.isQualifiedRef(raw) {
             return raw
         }
         if let raw, isHandleRef(raw) {
             if let windowHandle {
                 let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowHandle], responseTimeout: responseTimeout, deadline: deadline)
                 let items = listed["workspaces"] as? [[String: Any]] ?? []
-                for item in items where (item["ref"] as? String) == raw {
+                for item in items where CmuxCLISessionScope.ref(item["ref"] as? String, matches: raw, scoped: SocketClient.sessionScope != nil) {
                     if let id = item["id"] as? String { return id }
                 }
             } else {
@@ -17753,7 +17804,7 @@ struct CMUXCLI {
                 // on both the local and the relay path.
                 if let listed = try? client.sendV2(method: "workspace.list", responseTimeout: responseTimeout, deadline: deadline) {
                     let items = listed["workspaces"] as? [[String: Any]] ?? []
-                    for item in items where (item["ref"] as? String) == raw {
+                    for item in items where CmuxCLISessionScope.ref(item["ref"] as? String, matches: raw, scoped: SocketClient.sessionScope != nil) {
                         if let id = item["id"] as? String { return id }
                     }
                 }
@@ -17783,7 +17834,7 @@ struct CMUXCLI {
                             scannedEveryWindow = false
                             continue
                         }
-                        for item in items where (item["ref"] as? String) == raw {
+                        for item in items where CmuxCLISessionScope.ref(item["ref"] as? String, matches: raw, scoped: SocketClient.sessionScope != nil) {
                             if let id = item["id"] as? String { return id }
                         }
                     }
@@ -19059,6 +19110,18 @@ struct CMUXCLI {
               cmux new-workspace --cwd ~/projects/myapp
               cmux new-workspace --cwd . --command "npm test"
               cmux new-workspace --name "Dev" --layout '{"direction":"horizontal","split":0.5,"children":[{"pane":{"surfaces":[{"type":"terminal","command":"vim"}]}},{"pane":{"surfaces":[{"type":"terminal","command":"npm run start"}]}}]}'
+            """
+        case "list-machines":
+            return """
+            Usage: cmux list-machines [--json]
+
+            List the cmux-tui sessions this app federates: this Mac (home) and each
+            SSH or Cloud machine. The qualifier prefixes that session's refs
+            (build-box:workspace:2); pass it to --session (alias --machine).
+
+            Example:
+              cmux list-machines
+              cmux --session build-box list-workspaces
             """
         case "list-workspaces":
             return """

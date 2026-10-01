@@ -7,6 +7,7 @@ public import Observation
 ///
 /// Conforming types are `@Observable`, so `state`, `favicon`, and
 /// `pendingPrompts` can be tracked with Observation.
+@MainActor
 public protocol BrowserTab: AnyObject, Observable, Sendable {
     var id: BrowserTabID { get }
     var engineKind: BrowserEngineKind { get }

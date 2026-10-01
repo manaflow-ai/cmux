@@ -27,6 +27,13 @@
 #               *Store / Cloud files): a fire-and-forget `Task {` statement.
 #               Store the handle and cancel it with its owner, or say who
 #               owns it with `// task-owner: <reason>` (plans/cmux-next/state-audit.md).
+#   isolated deinit: the class must say `@MainActor` itself or inherit it from
+#               an AppKit view, window or controller. Isolation inferred only
+#               from `.defaultIsolation(MainActor.self)` is lost when another
+#               module deserializes the class in a Release (whole-module) build
+#               on Swift 6.2 (Xcode 26): "deinit is marked isolated, but
+#               containing class ... is not isolated to an actor". Debug
+#               builds and Xcode 27 accept it, so only the nightly fails.
 #
 # Usage: scripts/cmux-next/check-concurrency.sh [package-root]
 set -euo pipefail
@@ -109,6 +116,27 @@ MAIN_ACTOR = [
     ("synchronous GPU readback on the main actor (CoreImage/Metal wait)", r"\bcreateCGImage\(|\bwaitUntilCompleted\(|\bwaitUntilScheduled\("),
 ]
 
+ISOLATED_DEINIT = re.compile(r"^\s*isolated\s+deinit\b")
+CLASS_DECL = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|open|internal|package|fileprivate|private|final)\s+)*class\s+\w+")
+# AppKit superclasses that are @MainActor in the SDK.
+MAIN_ACTOR_SUPERCLASS = re.compile(r"class\s+\w+(<[^>]*>)?\s*:\s*NS\w*(View|Window|Panel|Controller|Responder)\b")
+ATTRIBUTE_LINE = re.compile(r"^\s*@\w+")
+
+def deinit_class_lacks_main_actor(lines, index):
+    j = index - 1
+    while j >= 0 and not CLASS_DECL.match(lines[j]):
+        j -= 1
+    if j < 0:
+        return False
+    if "@MainActor" in lines[j] or MAIN_ACTOR_SUPERCLASS.search(lines[j]):
+        return False
+    k = j - 1
+    while k >= 0 and ATTRIBUTE_LINE.match(lines[k]):
+        if "@MainActor" in lines[k]:
+            return False
+        k -= 1
+    return True
+
 ALLOW = re.compile(r"//\s*concurrency-allow:\s*\S")
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
 
@@ -154,6 +182,9 @@ for dirpath, _, files in os.walk(sources):
                 hits += [name for name, rx in rules_wakeup if rx.search(code)]
             if is_service and UNOWNED_TASK.search(code) and not allowed(lines, index, TASK_OWNER):
                 hits.append("unowned Task in service code (store and cancel the handle, or `// task-owner: <reason>`)")
+            if ISOLATED_DEINIT.match(code) and deinit_class_lacks_main_actor(lines, index):
+                hits.append("isolated deinit in a class without an explicit @MainActor (Release builds on "
+                            "Xcode 26 reject it across modules; write @MainActor on the class)")
             for name in hits:
                 print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {name}")
                 print(f"    {line.strip()}")

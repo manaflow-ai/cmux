@@ -9,11 +9,16 @@ public struct NotifyRequest: DaemonRequest {
     public var body: String
     public var level: NotificationLevel?
     public var surface: SurfaceID?
-    public init(title: String, body: String = "", level: NotificationLevel? = nil, surface: SurfaceID? = nil) {
+    /// Who posts it (`notification-source-v1`): `cli`, `terminal`, `agent` or
+    /// `daemon`; the daemon's default is `cli`.
+    public var source: String?
+    public init(title: String, body: String = "", level: NotificationLevel? = nil, surface: SurfaceID? = nil,
+                source: String? = nil) {
         self.title = title
         self.body = body
         self.level = level
         self.surface = surface
+        self.source = source
     }
 }
 
