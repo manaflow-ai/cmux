@@ -107,6 +107,31 @@ class LocalizationCatalogTests(unittest.TestCase):
         self.assertEqual(MODULE.validate_localization("Count %d; name %@", unit("名前 %2$@、件数 %1$d"), "ja"), [])
         self.assertEqual(MODULE.validate_localization("%d%% of %@", unit("%2$@ の %1$d%%"), "ja"), [])
 
+    def test_dynamic_width_and_precision_consume_their_own_arguments(self):
+        self.assertEqual(MODULE.signature("Width %*d then %d"), [(1, "*"), (2, "*d"), (3, "d")])
+        self.assertEqual(MODULE.signature("%3$*1$.*2$f"), [(1, "*"), (2, "*"), (3, "*.*f")])
+        self.assertEqual(MODULE.canonical_text("Width %-*.*f"), "Width %3$-*1$.*2$f")
+        self.assertEqual(MODULE.canonical_text("Width %3$-*1$.*2$f"), "Width %3$-*1$.*2$f")
+        for english, translated in (
+            ("Width %*d then %d", "幅 %2$*1$d、%3$d"),
+            ("Width %*d then %d", "幅 %*d、%d"),
+            ("Precision %.*f", "精度 %2$.*1$f"),
+            ("Positional %3$*1$.*2$f", "精度 %3$*1$.*2$f"),
+        ):
+            with self.subTest(translated=translated):
+                self.assertEqual(MODULE.validate_localization(english, unit(translated), "ja"), [])
+
+    def test_dynamic_width_and_precision_arguments_cannot_be_dropped_or_retyped(self):
+        for english, translated in (
+            ("Width %*d", "幅 %d"),
+            ("Precision %.*f", "精度 %f"),
+            ("Positional %3$*1$.*2$f", "精度 %3$f"),
+            ("Width %*d", "幅 %1$d 値 %2$d"),
+            ("Width %*d", "幅 %2$*1$@"),
+        ):
+            with self.subTest(translated=translated):
+                self.assertTrue(MODULE.validate_localization(english, unit(translated), "ja"))
+
     def test_reordered_placeholders_still_need_every_argument_and_type(self):
         self.assertTrue(MODULE.validate_localization("Move %@ to %@", unit("%2$@ を移動"), "ja"))
         self.assertTrue(MODULE.validate_localization("Move %@ to %@", unit("%2$@ に %1$@ を %3$@ へ移動"), "ja"))
