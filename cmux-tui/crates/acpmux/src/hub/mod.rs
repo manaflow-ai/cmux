@@ -138,6 +138,10 @@ pub struct Session {
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
     pub(super) stream: StdMutex<StreamState>,
     pub(super) pending_permissions: StdMutex<HashMap<String, PendingPermission>>,
+    /// Bumped (under the `pending_permissions` lock) whenever pending
+    /// permissions are cancelled; a request that started before the bump
+    /// is answered `cancelled` instead of being registered.
+    pub(super) permission_epoch: AtomicU64,
     pub(super) rehydrate: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
@@ -382,6 +386,7 @@ impl Hub {
             queue: StdMutex::new(Vec::new()),
             stream: StdMutex::new(StreamState::default()),
             pending_permissions: StdMutex::new(HashMap::new()),
+            permission_epoch: AtomicU64::new(0),
             rehydrate: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),

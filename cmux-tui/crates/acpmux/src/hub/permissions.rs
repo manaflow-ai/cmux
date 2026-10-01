@@ -106,12 +106,15 @@ impl Hub {
         m: String,
         params: Option<Value>,
     ) {
+        // Read before the child: a cancellation after this point answers
+        // any permission this request would register.
+        let epoch = session.permission_epoch.load(Ordering::SeqCst);
         let Some(child) = session.child.lock().await.clone() else {
             return;
         };
         if m == method::SESSION_REQUEST_PERMISSION {
             let params = params.unwrap_or(Value::Null);
-            let result = self.handle_permission(&session, params).await;
+            let result = self.handle_permission(&session, params, epoch).await;
             let _ = child.respond(id, Ok(result)).await;
             return;
         }
@@ -119,12 +122,13 @@ impl Hub {
         // the client. Writes go through the permission policy like any edit
         // tool; reads are refused only by deny-all or a deny rule.
         if m == "fs/write_text_file" {
-            let result = self.handle_fs_write(&session, params.unwrap_or(Value::Null)).await;
+            let result =
+                self.handle_fs_write(&session, params.unwrap_or(Value::Null), epoch).await;
             let _ = child.respond(id, result).await;
             return;
         }
         if m == "fs/read_text_file" {
-            let result = self.handle_fs_read(&session, params.unwrap_or(Value::Null)).await;
+            let result = self.handle_fs_read(&session, params.unwrap_or(Value::Null), epoch).await;
             let _ = child.respond(id, result).await;
             return;
         }
@@ -137,16 +141,24 @@ impl Hub {
             .and_then(Value::as_str)
             .ok_or_else(|| RpcError::invalid_params("path is required"))?;
         let p = std::path::PathBuf::from(raw);
-        Ok(if p.is_absolute() { p } else { session.meta().cwd.join(p) })
+        let p = if p.is_absolute() { p } else { session.meta().cwd.join(p) };
+        // Rules match the path text: resolve `.` and `..` first so
+        // `src/../../secret` is judged (and written) as where it lands.
+        Ok(normalize_path(&p))
     }
 
     async fn handle_fs_write(
         &self,
         session: &Arc<Session>,
         params: Value,
+        epoch: u64,
     ) -> Result<Value, RpcError> {
         let path = Self::fs_path(session, &params)?;
-        let content = params.get("content").and_then(Value::as_str).unwrap_or("").to_owned();
+        let content = params
+            .get("content")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError::invalid_params("content is required"))?
+            .to_owned();
         // Show the path relative to the session directory; the harness may
         // hand back the canonical form (/private/var vs /var on macOS).
         let cwd = session.meta().cwd;
@@ -164,13 +176,8 @@ impl Hub {
                 {"optionId": "reject_once", "name": "Reject", "kind": "reject_once"}
             ]
         });
-        let outcome = self.handle_permission(session, request).await;
-        let allowed = outcome
-            .pointer("/outcome/optionId")
-            .and_then(Value::as_str)
-            .map(|o| o.starts_with("allow"))
-            .unwrap_or(false);
-        if !allowed {
+        let outcome = self.handle_permission(session, request, epoch).await;
+        if !outcome_allows(&outcome) {
             return Err(RpcError::new(
                 -32000,
                 format!("write to {shown} rejected by the acpmux permission policy"),
@@ -189,6 +196,7 @@ impl Hub {
         &self,
         session: &Arc<Session>,
         params: Value,
+        epoch: u64,
     ) -> Result<Value, RpcError> {
         let path = Self::fs_path(session, &params)?;
         let config_policy = self.config.read().await.permission_policy;
@@ -196,8 +204,20 @@ impl Hub {
         let probe = json!({"toolCall": {"title": format!("Read {}", path.display()), "kind": "read", "rawInput": {"path": path}}});
         let rule =
             session.meta().permission_rules.as_ref().and_then(|r| super::rules::decide(r, &probe));
-        let denied = matches!(rule, Some(super::rules::RuleDecision::Deny))
+        let mut denied = matches!(rule, Some(super::rules::RuleDecision::Deny))
             || (rule.is_none() && policy == PermissionPolicy::DenyAll);
+        if matches!(rule, Some(super::rules::RuleDecision::Ask)) {
+            // An `ask` rule prompts for the read like any other tool call.
+            let request = json!({
+                "sessionId": session.meta().agent_session_id.clone().unwrap_or_else(|| session.id.clone()),
+                "toolCall": {"toolCallId": format!("fs-{}", uuid::Uuid::now_v7()), "title": format!("Read {}", path.display()), "kind": "read", "status": "pending", "rawInput": {"path": path}, "locations": [{"path": path}]},
+                "options": [
+                    {"optionId": "allow_once", "name": "Allow", "kind": "allow_once"},
+                    {"optionId": "reject_once", "name": "Reject", "kind": "reject_once"}
+                ]
+            });
+            denied = !outcome_allows(&self.handle_permission(session, request, epoch).await);
+        }
         if denied {
             return Err(RpcError::new(
                 -32000,
@@ -213,7 +233,7 @@ impl Hub {
             (l, n) => {
                 let start = l.unwrap_or(1) - 1;
                 let lines: Vec<&str> = text.lines().collect();
-                let end = n.map(|n| (start + n).min(lines.len())).unwrap_or(lines.len());
+                let end = n.map_or(lines.len(), |n| start.saturating_add(n).min(lines.len()));
                 if start >= lines.len() { String::new() } else { lines[start..end].join("\n") }
             }
         };
@@ -233,7 +253,13 @@ impl Hub {
             .unwrap_or(config_policy)
     }
 
-    pub(super) async fn handle_permission(&self, session: &Arc<Session>, request: Value) -> Value {
+    /// `epoch` is `permission_epoch` read when the agent's request arrived.
+    pub(super) async fn handle_permission(
+        &self,
+        session: &Arc<Session>,
+        request: Value,
+        epoch: u64,
+    ) -> Value {
         let config_policy = self.config.read().await.permission_policy;
         let policy = self.policy_for(session, config_policy);
         let options = request.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -292,10 +318,18 @@ impl Hub {
             return json!({"outcome": {"outcome": "selected", "optionId": option_id}});
         }
         let (tx, rx) = oneshot::channel();
-        session.pending_permissions.lock().unwrap().insert(
-            permission_id.clone(),
-            PendingPermission { request: request.clone(), reply: tx },
-        );
+        {
+            let mut pending = session.pending_permissions.lock().unwrap();
+            // Cancelled (turn cancel, stop, exit) since the request arrived:
+            // registering now would wait on a session that moved on.
+            if session.permission_epoch.load(Ordering::SeqCst) != epoch {
+                return json!({"outcome": {"outcome": "cancelled"}});
+            }
+            pending.insert(
+                permission_id.clone(),
+                PendingPermission { request: request.clone(), reply: tx },
+            );
+        }
         self.append(
             session,
             "mux",
@@ -336,10 +370,23 @@ impl Hub {
         option_id: Option<String>,
         answers: Option<Value>,
     ) -> Result<(), RpcError> {
-        let pending =
-            session.pending_permissions.lock().unwrap().remove(permission_id).ok_or_else(|| {
+        let pending = {
+            let mut map = session.pending_permissions.lock().unwrap();
+            let p = map.get(permission_id).ok_or_else(|| {
                 RpcError::not_found(format!("no pending permission {permission_id}"))
             })?;
+            // Only an option the request offered may answer it.
+            if let Some(o) = &option_id
+                && let Some(offered) = p.request.get("options").and_then(Value::as_array)
+                && !offered.is_empty()
+                && !offered.iter().any(|x| x["optionId"] == *o)
+            {
+                return Err(RpcError::invalid_params(format!(
+                    "option {o:?} was not offered for permission {permission_id}"
+                )));
+            }
+            map.remove(permission_id).unwrap()
+        };
         let mut outcome = match option_id {
             Some(o) => json!({"outcome": "selected", "optionId": o}),
             None => json!({"outcome": "cancelled"}),
@@ -355,9 +402,51 @@ impl Hub {
     }
 
     pub(super) fn cancel_pending_permissions(&self, session: &Session) {
-        let drained: Vec<_> = session.pending_permissions.lock().unwrap().drain().collect();
+        let drained: Vec<_> = {
+            let mut pending = session.pending_permissions.lock().unwrap();
+            session.permission_epoch.fetch_add(1, Ordering::SeqCst);
+            pending.drain().collect()
+        };
         for (_, p) in drained {
             let _ = p.reply.send(json!({"outcome": "cancelled"}));
         }
+    }
+}
+
+/// Whether a permission outcome selected an allow option.
+fn outcome_allows(outcome: &Value) -> bool {
+    outcome
+        .pointer("/outcome/optionId")
+        .and_then(Value::as_str)
+        .map(|o| o.starts_with("allow"))
+        .unwrap_or(false)
+}
+
+/// `path` with `.` and `..` resolved lexically (`..` at the root stays there).
+fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
+    use std::path::Component;
+    let mut out = std::path::PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_path;
+    use std::path::Path;
+
+    #[test]
+    fn normalize_resolves_parent_components() {
+        assert_eq!(normalize_path(Path::new("/w/src/../../secret")), Path::new("/secret"));
+        assert_eq!(normalize_path(Path::new("/w/./src/a.rs")), Path::new("/w/src/a.rs"));
+        assert_eq!(normalize_path(Path::new("/../x")), Path::new("/x"));
     }
 }
