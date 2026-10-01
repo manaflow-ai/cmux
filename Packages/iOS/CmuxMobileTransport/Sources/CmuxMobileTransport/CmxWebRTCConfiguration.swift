@@ -57,6 +57,8 @@ public struct CmxWebRTCConfiguration: Equatable, Sendable {
 
     /// The environment key used by tagged experimental builds.
     public static let experimentEnvironmentKey = "CMUX_WEBRTC_EXPERIMENT"
+    /// The Info.plist key used by tagged builds launched without a shell environment.
+    public static let forceRelayInfoPlistKey = "CMUXWebRTCForceRelay"
 
     /// ICE servers tried by each peer connection.
     public let iceServers: [CmxWebRTCICEServer]
@@ -96,7 +98,11 @@ public struct CmxWebRTCConfiguration: Equatable, Sendable {
     /// - Parameters:
     ///   - environment: Environment values supplied by the composition root.
     ///   - userDefaults: Optional defaults store used when the environment has no ICE JSON.
-    public init(environment: [String: String], userDefaults: UserDefaults? = nil) {
+    public init(
+        environment: [String: String],
+        userDefaults: UserDefaults? = nil,
+        infoDictionary: [String: Any]? = Bundle.main.infoDictionary
+    ) {
         let defaultsJSON = userDefaults?.string(forKey: "cmux.webrtc.ice-servers-json")
         let rawJSON = environment["CMUX_WEBRTC_ICE_SERVERS_JSON"] ?? defaultsJSON
         let parsedServers = rawJSON.flatMap(Self.decodeServers)
@@ -107,6 +113,7 @@ public struct CmxWebRTCConfiguration: Equatable, Sendable {
             forceRelay: Self.boolean(
                 environment["CMUX_WEBRTC_FORCE_RELAY"]
                     ?? userDefaults?.string(forKey: "cmux.webrtc.force-relay")
+                    ?? (infoDictionary?[Self.forceRelayInfoPlistKey] as? String)
             ),
             signalingTimeoutNanoseconds: Self.nanoseconds(
                 environment["CMUX_WEBRTC_SIGNALING_TIMEOUT_NS"]

@@ -28,6 +28,8 @@
 	<string>$(CMUX_IROH_V2_FORCE_RELAY)</string>
 	<key>CMUXWebRTCExperiment</key>
 	<string>$(CMUX_WEBRTC_EXPERIMENT)</string>
+	<key>CMUXWebRTCForceRelay</key>
+	<string>$(CMUX_WEBRTC_FORCE_RELAY)</string>
 	<key>CMUXDevTag</key>
 	<string>$(CMUX_DEV_TAG)</string>
 	<key>CMUXKeychainAccessGroup</key>
