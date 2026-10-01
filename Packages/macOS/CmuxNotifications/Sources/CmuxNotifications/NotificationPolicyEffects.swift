@@ -118,6 +118,51 @@ public struct NotificationPolicyEffectsPatch: Codable, Sendable, Equatable {
         self.paneFlash = paneFlash
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case record
+        case markUnread
+        case reorderWorkspace
+        case desktop
+        case sound
+        case command
+        case paneFlash
+    }
+
+    private struct AnyKey: CodingKey {
+        var stringValue: String
+        var intValue: Int? { nil }
+        init(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+
+    /// Decodes a hook's `effects` object strictly: an unknown effect name or a
+    /// present value that is not a JSON boolean (including `null`) is a
+    /// decoding error, so a malformed hook response fails instead of being
+    /// silently dropped.
+    public init(from decoder: any Decoder) throws {
+        let names = try decoder.container(keyedBy: AnyKey.self)
+        if let unknown = names.allKeys.first(where: { CodingKeys(stringValue: $0.stringValue) == nil }) {
+            throw DecodingError.dataCorruptedError(
+                forKey: unknown,
+                in: names,
+                debugDescription: "Unknown notification effect '\(unknown.stringValue)'"
+            )
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func flag(_ key: CodingKeys) throws -> Bool? {
+            container.contains(key) ? try container.decode(Bool.self, forKey: key) : nil
+        }
+        self.init(
+            record: try flag(.record),
+            markUnread: try flag(.markUnread),
+            reorderWorkspace: try flag(.reorderWorkspace),
+            desktop: try flag(.desktop),
+            sound: try flag(.sound),
+            command: try flag(.command),
+            paneFlash: try flag(.paneFlash)
+        )
+    }
+
     /// Returns `effects` with every present field of this patch applied.
     public func merged(into effects: NotificationPolicyEffects) -> NotificationPolicyEffects {
         var merged = effects
