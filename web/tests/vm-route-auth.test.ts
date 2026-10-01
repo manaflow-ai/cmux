@@ -594,6 +594,27 @@ describe("VM REST auth", () => {
     expect(listTeams).toHaveBeenCalledTimes(1);
   });
 
+  test("hydrates the ID-only selected team even when bounded auth requests another team", async () => {
+    const listTeams = mock(async (options?: { query?: string }) => options?.query === "team-other"
+      ? [{ id: "team-other", clientReadOnlyMetadata: { cmuxVmPlan: "free" } }]
+      : [{ id: "team-1", displayName: "Paid team", clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 } }]);
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      clientReadOnlyMetadata: { cmuxPlan: "free" },
+      selectedTeam: { id: "team-1" },
+      listTeams,
+    });
+
+    const user = await verifyRequest(new Request("https://cmux.test/api/vm"), {
+      requestedTeamId: "team-other",
+      subrouterAuthorizationSignal: new AbortController().signal,
+    });
+
+    expect(user).toMatchObject({ billingTeamId: "team-1", billingPlanId: "team", billingSeats: 4 });
+    expect(listTeams).toHaveBeenNthCalledWith(1, { query: "team-other", limit: 100 });
+    expect(listTeams).toHaveBeenNthCalledWith(2, { query: "team-1", limit: 100 });
+  });
+
   test("does not borrow another paid team's details when the selected team is absent from the lookup", async () => {
     getUser.mockResolvedValue({
       ...authedStackUser(),

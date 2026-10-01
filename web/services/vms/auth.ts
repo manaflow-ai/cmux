@@ -813,15 +813,16 @@ async function resolveStackTeamMembership(
   // Stack may return only the selected team's ID. Resolve its details before
   // choosing billing, or paid members inherit the user's free plan instead.
   const selectedTeamNeedsDetails = !!selectedTeam && selectedTeam.clientReadOnlyMetadata === undefined;
-  const teamIdToLookup = requestedTeamId && requestedTeamId !== selectedTeam?.id
-    ? requestedTeamId
-    : selectedTeamNeedsDetails ? selectedTeam.id : null;
+  const teamIdsToLookup = uniqueStrings([
+    requestedTeamId && requestedTeamId !== selectedTeam?.id ? requestedTeamId : undefined,
+    selectedTeamNeedsDetails ? selectedTeam.id : undefined,
+  ]);
   // Full pagination is reserved for the explicit team-picker route. Other
   // callers resolve one requested team with Stack's exact-ID search so shared
   // VM authentication never inherits an unbounded multi-page dependency.
   const needsListedTeams = options.forceCompleteTeamList === true ||
     !selectedTeam ||
-    !!teamIdToLookup;
+    teamIdsToLookup.length > 0;
   // Whether the branch taken below enumerates every team the user belongs to.
   // Only that case may be stored as an identity snapshot.
   const completeTeamList = options.subrouterAuthorizationSignal === undefined
@@ -829,16 +830,16 @@ async function resolveStackTeamMembership(
     : options.listAllTeams === true;
   const listedTeamRaw = options.subrouterAuthorizationSignal === undefined
     ? completeTeamList
-      ? await user.listTeams!()
+      ? await listAllStackTeams(user, undefined)
       : []
     : options.listAllTeams === true
     ? await listAllStackTeams(user, options.subrouterAuthorizationSignal)
-    : teamIdToLookup
-    ? await findStackTeam(
+    : teamIdsToLookup.length > 0
+    ? (await Promise.all(teamIdsToLookup.map((teamId) => findStackTeam(
       user,
-      teamIdToLookup,
+      teamId,
       options.subrouterAuthorizationSignal,
-    )
+    )))).flat()
     : [];
   const listedTeams = listedTeamRaw
     .map(billingTeamFromUnknown)
