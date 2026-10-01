@@ -137,6 +137,7 @@ export function VirtualTranscript({ rows, onToggleActivity, expanded, registry =
       const delta = layout.tops[range.first] - old.tops[range.first];
       if (Math.abs(delta) > 0.5) node.scrollTop += delta;
     }
+    // Runs on height too: rows that fit and then overflow on a height-only shrink keep the same memoized layout.
     if (!didOpenAtLatest.current && node && layout.totalHeight > node.clientHeight) {
       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
       node.scrollTop = latest;
@@ -144,7 +145,7 @@ export function VirtualTranscript({ rows, onToggleActivity, expanded, registry =
       didOpenAtLatest.current = true;
     }
     previousLayout.current = layout;
-  }, [layout, range.first]);
+  }, [layout, range.first, height]);
   const scheduleScroll = useRef<number | null>(null);
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => { const next = event.currentTarget.scrollTop; if (scheduleScroll.current !== null) return; scheduleScroll.current = requestAnimationFrame(() => { scheduleScroll.current = null; setScrollTop(next); }); };
   return <div ref={ref} className="acpmux-scroll" onScroll={onScroll}><div className="acpmux-spacer" style={{ height: layout.totalHeight }}><div className="acpmux-thread">{rows.slice(range.first, range.last).map((row, index) => { const absoluteIndex = range.first + index; const kind = rowKind(row); const Component = registry[kind] ?? NoticeRow; const rendered = <Component row={row} onToggleActivity={onToggleActivity} expanded={expanded.has(row.id)} />; return <article className={`acpmux-row acpmux-${kind}`} style={{ transform: `translateY(${layout.tops[absoluteIndex]}px)` }} key={row.id}>{Component.measure || defaultRegistry[kind] ? rendered : <MeasuredCustomRow onHeight={(value) => setMeasuredHeights((current) => { if (current.get(row.id) === value) return current; const next = new Map(current); next.set(row.id, value); return next; })}>{rendered}</MeasuredCustomRow>}</article>; })}</div></div></div>;
@@ -162,7 +163,7 @@ export function AcpmuxApp() {
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   useEffect(() => {
     window.React = React;
-    window.cmuxAcpmuxRegistry = { register(kind, renderer, options) { if (options?.measure) renderer.measure = options.measure; (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown>)[kind] = renderer; setRegistry(currentRegistry()); }, configure() { setRegistry(currentRegistry()); } };
+    window.cmuxAcpmuxRegistry = { register(kind, renderer, options) { const registered = window.cmuxAcpmuxRegistry as unknown as Record<string, unknown>; if (registered[kind] === renderer && (!options?.measure || options.measure === renderer.measure)) return; if (options?.measure) renderer.measure = options.measure; registered[kind] = renderer; setRegistry(currentRegistry()); }, configure() { setRegistry(currentRegistry()); } };
     window.cmuxAcpmuxBridge = {
       receive(next) { if (next.protocolVersion !== 1) return; const change = diffRows(rowsRef.current, next.rows); rowsRef.current = new Map(next.rows.map((row) => [row.id, row])); setSnapshot(next); void change; },
       applyTheme(theme) { applyAgentTheme(theme as never); },
