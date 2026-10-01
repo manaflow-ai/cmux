@@ -1043,6 +1043,10 @@ extension MobileShellComposite {
             connectedClientIDs.insert(ObjectIdentifier(remoteClient))
         }
         guard !connectedClientIDs.isEmpty else { return .unavailable }
+        // A cached workstream snapshot is still a usable Feed when the current
+        // connection only advertises older capabilities. Keep the retained
+        // rows visible without labeling them as an upgrade prompt.
+        if !agentFeedItems.isEmpty { return .ready }
         let targets = agentFeedTargets()
         guard !targets.isEmpty else { return .requiresMacUpdate }
         let targetOwnerKeys = Set(targets.map(\.ownerKey))

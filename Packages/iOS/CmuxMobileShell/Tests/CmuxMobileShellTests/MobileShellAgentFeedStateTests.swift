@@ -204,6 +204,26 @@ struct MobileShellAgentFeedStateTests {
         #expect(store.resolvedAgentFeedStatus() == .ready)
     }
 
+    @Test("Cached Feed rows do not turn into an upgrade banner")
+    func cachedRowsStayReadyWhenCapabilityDisappears() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            hostCapabilities: [MobileShellComposite.agentFeedCapability]
+        )
+        #expect(store.applyAgentFeedSnapshot(
+            try response(revision: 1, rows: [row(id: "cached")]),
+            macDeviceID: "test-mac",
+            displayName: "Desk Mac"
+        ))
+
+        // The connection remains present but has fallen back to a Mac build
+        // that cannot refresh the Feed. Retained agent rows still render as a
+        // normal Feed, rather than an inline "Update cmux" prompt.
+        store.supportedHostCapabilities = []
+        #expect(store.resolvedAgentFeedStatus() == .ready)
+    }
+
     @Test("Recorded terminal replies mark their row and survive refreshes")
     func recordedRepliesSurviveRefresh() throws {
         let store = MobileShellComposite()
