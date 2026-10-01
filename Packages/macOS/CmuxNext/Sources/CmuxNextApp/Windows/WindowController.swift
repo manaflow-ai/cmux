@@ -227,8 +227,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func windowWillBeginSheet(_ notification: Notification) { focus.send(.overlayOpened(.sheet)) }
     func windowDidEndSheet(_ notification: Notification) { focus.send(.overlayClosed(.sheet)) }
 
-    func windowDidMove(_ notification: Notification) { services.windows.stateDidChange(state) }
-    func windowDidEndLiveResize(_ notification: Notification) { services.windows.stateDidChange(state) }
+    func windowDidMove(_ notification: Notification) { services.windows.geometryDidChange(state) }
+    func windowDidEndLiveResize(_ notification: Notification) { services.windows.geometryDidChange(state) }
 
     private var badgeObservation: Task<Void, Never>?
 

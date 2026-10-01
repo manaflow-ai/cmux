@@ -46,6 +46,24 @@ extension ActionRegistry {
         refusalObserver?(reason)
     }
 
+    /// Like ``refuse(_:)`` for an explicit target that names nothing: the
+    /// control socket answers `not_found` instead of `unavailable`.
+    public func refuseNotFound(_ reason: String) {
+        if isCapturingRefusal, capturedRefusal == nil { capturedRefusalIsNotFound = true }
+        refuse(reason)
+    }
+
+    /// ``capturingRefusal(_:)`` that also says whether the refusal was
+    /// ``refuseNotFound(_:)``.
+    public func capturingTypedRefusal(_ body: () -> Void) -> (reason: String, isNotFound: Bool)? {
+        let previous = capturedRefusalIsNotFound
+        capturedRefusalIsNotFound = false
+        let reason = capturingRefusal(body)
+        let notFound = capturedRefusalIsNotFound
+        capturedRefusalIsNotFound = previous
+        return reason.map { ($0, notFound) }
+    }
+
     /// A caller receives this refusal (capturing or reporting): the App
     /// neither beeps nor needs to, the caller shows or returns the reason.
     public var refusalHasCaller: Bool { isCapturingRefusal || isReportingRefusal }

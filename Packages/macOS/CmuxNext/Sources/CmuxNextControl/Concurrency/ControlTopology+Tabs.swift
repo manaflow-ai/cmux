@@ -28,6 +28,8 @@ public struct ControlTabInfo: Sendable, Hashable {
     public var title: String
     public var name: String?
     public var terminalID: String?
+    /// Public terminal id (`term_…`) on registry daemons.
+    public var terminalResourceID: String?
     public var columns: Int?
     public var rows: Int?
     public var cwd: String?

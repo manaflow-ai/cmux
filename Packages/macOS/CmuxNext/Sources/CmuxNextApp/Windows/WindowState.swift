@@ -64,6 +64,9 @@ final class WindowState {
     /// Durable id of the screen shown in this window's workspace, so a
     /// relaunch returns to it. Persisted.
     var activeScreenID: String?
+    /// The focused pane last written to this window's record (or restored
+    /// from it), so a focus change saves the record once.
+    var savedFocusedPane: String?
 
     init(id: String = UUID().uuidString.lowercased(), workspaceID: String? = nil, machineID: String? = nil) {
         self.id = id
@@ -89,6 +92,7 @@ extension WindowState {
         sidebarWidth = record.sidebarWidth
         sidebarHidden = record.sidebarHidden
         activeScreenID = record.screenID?.rawValue
+        savedFocusedPane = record.focusedPane
         profileID = record.profile ?? .defaultProfile
         profileWorkspaces = Dictionary(record.profileWorkspaces.map { (ProfileID(rawValue: $0.key), $0.value.rawValue) },
                                        uniquingKeysWith: { first, _ in first })

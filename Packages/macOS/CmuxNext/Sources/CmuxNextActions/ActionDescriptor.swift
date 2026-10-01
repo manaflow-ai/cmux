@@ -54,6 +54,13 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     /// compat layer) uses the terminal start deadline instead of the
     /// control-plane one.
     public var startsTerminal: Bool
+    /// Has a purpose outside the GUI (creating, closing, renaming, moving or
+    /// pinning objects; opening a page; headless settings; scriptable agent
+    /// and Cloud work), so the `cmux` CLI offers it by `cliName`. GUI-only
+    /// actions (focus moves, palette navigation, zoom) stay reachable by id
+    /// through `cmux action run` (plans/cmux-next/state-ownership.md 5).
+    /// The catalog marks these in `ActionCatalog.cliActionIDs`.
+    public var cli: Bool
 
     public init(
         id: ActionID,
@@ -72,7 +79,8 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
         mainMenu: ActionMainMenu? = nil,
         isDebugOnly: Bool = false,
         destructive: Bool = false,
-        startsTerminal: Bool = false
+        startsTerminal: Bool = false,
+        cli: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -90,6 +98,7 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
         }
         self.isDestructive = destructive
         self.startsTerminal = startsTerminal
+        self.cli = cli
         self.targets = targets
         self.cliName = cliName ?? Self.defaultCLIName(for: id)
         self.mainMenu = mainMenu

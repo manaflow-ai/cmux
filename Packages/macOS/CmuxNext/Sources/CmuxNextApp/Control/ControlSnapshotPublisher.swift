@@ -98,6 +98,15 @@ final class ControlSnapshotPublisher {
         // read waiting on its write barrier wakes (CompatWriteBarrier).
         topology.daemonSequence = services.daemon.store.appliedSequence
         let machines = services.machines
+        // Workspaces on Cloud and SSH machines, so their public ids resolve
+        // and the CLI sees every workspace a window lists.
+        for daemon in machines.remoteDaemons where daemon.store.isLoaded {
+            topology.workspaces += daemon.store.workspaces.map { model in
+                var info = ControlTopologyMapper.workspace(from: model) { [services] pane in services.paneController(for: pane)?.selectedTab?.id }
+                info.machine = daemon.machineID
+                return info
+            }
+        }
         topology.windows = windows.controllers.map { controller in
             let members = windows.registry.members(of: controller.state.id)
             var info = ControlWindowInfo(

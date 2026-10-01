@@ -64,6 +64,12 @@ nonisolated extension ActionCatalog {
                 arguments: [CatalogArgument.nameString], targets: [.tab], cliName: "tab rename"
             ),
             ActionDescriptor(
+                id: "tab.focus",
+                title: String(localized: "action.tab.focus", defaultValue: "Show Tab", bundle: .module),
+                keywords: ["tab", "focus", "select", "switch"], category: .tab, symbol: "scope",
+                surfaces: [.palette], targets: [.tab], cliName: "tab focus"
+            ),
+            ActionDescriptor(
                 id: "palette.clearTabName",
                 title: String(localized: "action.palette.clearTabName", defaultValue: "Clear Tab Name", bundle: .module),
                 keywords: ["tab", "title", "reset"], category: .tab, symbol: "pencil.slash",

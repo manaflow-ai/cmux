@@ -47,6 +47,7 @@ public nonisolated enum ActionCatalog {
         all += settingsActions()
         all += hibernationActions()
         all += layoutActions()
+        for index in all.indices where cliActionIDs.contains(all[index].id) { all[index].cli = true }
         return all
     }
 }

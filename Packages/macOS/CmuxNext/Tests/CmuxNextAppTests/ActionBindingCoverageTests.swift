@@ -52,7 +52,7 @@ struct ActionBindingCoverageTests {
         #expect(Self.run(services, "keepMacAwake") == .ran)
         #expect(Self.run(services, "keepMacAwake") == .ran)
         let missing = ActionTargetRef(kind: .workspace, id: "missing")
-        #expect(Self.run(services, "palette.copyWorkspaceID", target: missing) == .refused("no workspace to act on"))
+        #expect(Self.run(services, "palette.copyWorkspaceID", target: missing) == .notFound("no workspace missing"))
     }
 
     @Test func documentationTopicIsSanitized() {

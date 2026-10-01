@@ -33,7 +33,7 @@ import Testing
         #expect(identify["result"]?["app"] == "cmux-next")
         #expect(identify["result"]?["socket_path"] == .string(server.configuration.path))
         #expect(identify["result"]?["access_mode"] == "allowAll")
-        let run = try client.call("action.run", ["action": "tab-group create", "args": ["name": "X", "color": "green"]])
+        let run = try client.call("action.run", ["action": "tab-group create", "args": ["name": "X", "color": "green"], "wait": false])
         #expect(run["ok"] == true)
         // The CLI's capability and automation envelopes are unwrapped.
         #expect(client.send("_cmux_capability_v1 abc ping") == "PONG")

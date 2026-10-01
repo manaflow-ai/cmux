@@ -19,7 +19,8 @@ import Observation
 /// the launch window, which shows the daemon's connecting state before any
 /// membership exists and is registered once it receives workspaces. Both persist in
 /// the daemon's `personal` frontend projection (architecture.md 1), written
-/// 500 ms after the last change and flushed on quit.
+/// on every selection or focus change (geometry 500 ms after it settles)
+/// and flushed on quit (WindowManager+Saving).
 final class WindowManager {
     unowned let services: AppServices
     let registry = WindowRegistryStore()
@@ -30,7 +31,9 @@ final class WindowManager {
     /// Called after a window is ordered in (the restart notice attaches).
     var onPresent: ((WindowController) -> Void)?
     /// Debounced save of window geometry (architecture.md 1: 500 ms).
-    private let saveTimer = DemandTimer(owner: "WindowManager.save")
+    let geometryTimer = DemandTimer(owner: "WindowManager.geometry")
+    /// Coalesced saves of the window records (WindowManager+Saving).
+    var saves = WindowRecordSaves()
     private var loadObservation: Task<Void, Never>?
     var membershipObservation: Task<Void, Never>?
     /// Records connected sessions in the home session (rooms, data-model.md 1.1).
@@ -300,39 +303,9 @@ final class WindowManager {
         userClosed(id)
     }
 
-    // MARK: Persistence
-
-    func stateDidChange(_ state: WindowState) {
-        guard restored, !isTerminating else { return }
-        saveTimer.schedule(after: .milliseconds(500)) { @MainActor [weak self] in await self?.saveNow() }
-    }
-
-    func scheduleSave() {
-        guard let any = states.values.first else { return }
-        stateDidChange(any)
-    }
-
-    func saveNow() async {
-        guard let windowState = services.daemon.windowState else { return }
-        captureGeometry()
-        let records = currentRecords()
-        // Keys on every machine, plus those whose machine has not loaded yet
-        // (they must survive until it reconnects).
-        let live = Set(services.machines.allWorkspaces.compactMap(\.0.key))
-            .union(records.flatMap(\.workspaceKeys).filter { !isDead($0.rawValue) })
-        do {
-            try await windowState.update { document in
-                document.windows = records
-                document.prune(liveWorkspaces: live)
-            }
-        } catch {
-            services.daemon.logger.error("window state save failed: \(String(describing: error), privacy: .public)")
-        }
-    }
-
     /// Flushes state and stops saving (quit).
     func prepareForTermination() async {
-        saveTimer.cancel()
+        geometryTimer.cancel()
         await closeIncognitoWindowsForTermination()
         await saveNow()
         isTerminating = true
@@ -351,30 +324,5 @@ final class WindowManager {
                 return WindowRegistry.Changes()
             }
         }
-    }
-
-    private func currentRecords() -> [WindowRecord] {
-        let ordered = NSApp.orderedWindows
-        let value = registry.value
-        return value.windows.compactMap { window in
-            let controller = controller(for: window.id)
-            let order = controller?.window.flatMap { ordered.firstIndex(of: $0) }
-                ?? (value.recency.firstIndex(of: window.id) ?? 0) + ordered.count
-            return value.record(window.id, state: states[window.id], order: order,
-                                isFullScreen: controller?.window?.styleMask.contains(.fullScreen) ?? false,
-                                selectedTabs: selectedTabs(window: window))
-        }
-    }
-
-    /// Remembered tab per pane across the window's workspaces.
-    private func selectedTabs(window: WindowRegistry.Window) -> [String: String] {
-        guard let state = states[window.id] else { return [:] }
-        var selected: [String: String] = [:]
-        for id in window.workspaceIDs {
-            for pane in services.workspace(id: id)?.screens.flatMap(\.panes) ?? [] {
-                if let tab = state.selection.selection(in: pane.id) { selected[pane.id] = tab }
-            }
-        }
-        return selected
     }
 }

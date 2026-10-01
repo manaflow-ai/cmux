@@ -25,6 +25,11 @@ public struct ControlWorkspaceInfo: Sendable, Hashable {
     public var groupID: String?
     public var unreadCount: Int
     public var screens: [ControlScreenInfo]
+    /// The machine whose daemon holds the workspace; nil for the local daemon.
+    public var machine: String?
+
+    /// The id clients print and pass: `ws_…` on registry daemons, else the key.
+    public var publicID: String { resourceID ?? id }
 
     public init(id: String, handle: String, name: String, title: String? = nil, color: String? = nil, icon: String? = nil,
                 groupID: String? = nil, unreadCount: Int = 0, screens: [ControlScreenInfo] = []) {
