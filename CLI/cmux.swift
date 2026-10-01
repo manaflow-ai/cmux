@@ -28693,12 +28693,13 @@ struct CMUXCLI {
                 // the ~60s-later idle_prompt Notification can consult it, and forwarded
                 // to the app so it can suppress the done-ping until work truly drains.
                 let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
-                // Claude sets stop_hook_active on a re-entry after a Stop hook
-                // blocked once. That flag describes hook recursion, not pending
-                // work: it must not mark the turn pending, but it does keep the
-                // sidebar pill in Running. Only authoritative background-work
-                // signals mark the turn pending and show Waiting.
-                let isReentrantStop = parsedInput.rawObject?["stop_hook_active"] as? Bool == true
+                // Claude sets stop_hook_active on the Stop that ends the
+                // continuation it ran after a Stop hook blocked once. That flag
+                // describes hook recursion, not work still running: this Stop
+                // is the turn's last hook, so it settles Idle like any other
+                // final Stop (#15595). If another Stop hook blocks again, the
+                // continuation's own hooks set Running. Only authoritative
+                // background-work signals mark the turn pending and show Waiting.
                 let hasUnsettledWork = stopFailure == nil && hasPendingBackgroundWork
 
                 // Update session with transcript summary and send completion notification.
@@ -28766,9 +28767,7 @@ struct CMUXCLI {
                     // generic-agent status strings so the pill stays localized.
                     //
                     // A background task or cron is a deterministic wakeup the pane
-                    // is parked on, which reads as Waiting. A re-entrant Stop
-                    // (`stop_hook_active`) keeps the pill on Running separately
-                    // because it does not represent pending background work.
+                    // is parked on, which reads as Waiting.
                     try? setClaudeStatus(
                         client: client,
                         workspaceId: workspaceId,
@@ -28777,16 +28776,6 @@ struct CMUXCLI {
                         icon: "hourglass",
                         color: "#8E8E93",
                         workState: .waiting
-                    )
-                } else if isReentrantStop {
-                    try? setClaudeStatus(
-                        client: client,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
-                        icon: "bolt.fill",
-                        color: "#4C8DFF",
-                        workState: .running
                     )
                 } else {
                     try? setClaudeStatus(
