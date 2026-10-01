@@ -4588,3 +4588,185 @@ fn wg_hub_refuses_a_readable_config_and_missing_options() {
     assert!(help.status.success());
     assert!(String::from_utf8(help.stdout).unwrap().starts_with("USAGE: cmux wg hub"));
 }
+
+/// Runs the CLI against `server` with `--json` and returns its JSON result.
+/// `caller` runs it as a cmux terminal would: routed by `CMUX_TUI_SOCKET`
+/// with `CMUX_TUI_TERMINAL_ID` naming the caller's terminal.
+fn state_cli(server: &HeadlessServer, caller: Option<&str>, args: &[&str]) -> serde_json::Value {
+    let mut command = Command::new(bin());
+    command
+        .arg("--json")
+        .args(args)
+        .env("LC_ALL", "C")
+        .env_remove("CMUX_TUI_TERMINAL_ID")
+        .env_remove("CMUX_SOCKET_PATH")
+        .env_remove("CMUX_BUNDLE_ID")
+        .env_remove("CMUX_TAG");
+    match caller {
+        Some(terminal) => {
+            command.env("CMUX_TUI_SOCKET", &server.socket).env("CMUX_TUI_TERMINAL_ID", terminal);
+        }
+        None => {
+            command.env_remove("CMUX_TUI_SOCKET").arg("--socket").arg(&server.socket);
+        }
+    }
+    let output = command.output().unwrap();
+    assert_success(&output);
+    json_output(&output)
+}
+
+/// Terminal, tab, screen and workspace ids from one session snapshot.
+fn state_cli_topology(server: &HeadlessServer) -> serde_json::Value {
+    state_cli(server, None, &["session", "current", "snapshot"])
+}
+
+fn workspace_of_terminal(snapshot: &serde_json::Value, terminal: &str) -> String {
+    let find = |kind: &str, id: &str| {
+        snapshot[kind]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == id)
+            .unwrap_or_else(|| panic!("no {kind} {id}"))
+            .clone()
+    };
+    let tab = find("terminals", terminal)["tab_id"].as_str().unwrap().to_string();
+    let pane = find("tabs", &tab)["pane_id"].as_str().unwrap().to_string();
+    let screen = find("panes", &pane)["screen_id"].as_str().unwrap().to_string();
+    find("screens", &screen)["workspace_id"].as_str().unwrap().to_string()
+}
+
+fn workspace_id_named(server: &HeadlessServer, name: &str) -> String {
+    state_cli(server, None, &["workspace", "list"])
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|workspace| workspace["name"] == name)
+        .and_then(|workspace| workspace["id"].as_str())
+        .unwrap_or_else(|| panic!("no workspace named {name}"))
+        .to_string()
+}
+
+#[cfg(unix)]
+#[test]
+fn state_cli_rooms_status_and_closed_history_round_trip_through_a_real_daemon() {
+    let server = HeadlessServer::start("state-cli-rooms");
+    state_cli(&server, None, &["workspace", "create", "--name", "alpha", "--empty"]);
+    state_cli(&server, None, &["workspace", "create", "--name", "beta", "--empty"]);
+    let alpha = workspace_id_named(&server, "alpha");
+    let beta = workspace_id_named(&server, "beta");
+
+    // Rooms: created by name, then addressed by that name.
+    state_cli(&server, None, &["room", "create", "--name", "Work", "--color", "blue"]);
+    state_cli(&server, None, &["room", "Work", "pin", "--workspace", &alpha]);
+    let rooms = state_cli(&server, None, &["room", "list"]);
+    let work = rooms.as_array().unwrap().iter().find(|room| room["name"] == "Work").unwrap();
+    assert_eq!(work["color"], "blue");
+    assert!(
+        work["pins"].as_array().unwrap().iter().any(|pin| pin["workspace_id"] == alpha),
+        "{work}"
+    );
+    state_cli(&server, None, &["room", "Work", "update", "--clear-color", "--icon", "briefcase"]);
+    let rooms = state_cli(&server, None, &["room", "list"]);
+    let work = rooms.as_array().unwrap().iter().find(|room| room["name"] == "Work").unwrap();
+    assert_eq!(work["color"], serde_json::Value::Null);
+    assert_eq!(work["icon"], "briefcase");
+
+    // Workspace identity, status, progress and log.
+    state_cli(
+        &server,
+        None,
+        &["workspace", &alpha, "update", "--title", "API", "--color", "#336699"],
+    );
+    let shown = state_cli(&server, None, &["workspace", &alpha, "show"]);
+    assert_eq!(shown["extra"]["title"], "API", "{shown}");
+    assert_eq!(shown["extra"]["color"], "#336699", "{shown}");
+    state_cli(&server, None, &["workspace", &alpha, "status", "set", "build", "green"]);
+    state_cli(&server, None, &["workspace", &alpha, "progress", "set", "0.5", "--label", "tests"]);
+    state_cli(
+        &server,
+        None,
+        &["workspace", &alpha, "log", "append", "hello", "--level", "success"],
+    );
+    let status = state_cli(&server, None, &["workspace", &alpha, "status", "list"]);
+    let entry = &status.as_array().unwrap()[0];
+    assert_eq!(entry["workspace_id"], alpha);
+    assert_eq!(entry["entries"][0]["key"], "build");
+    assert_eq!(entry["entries"][0]["text"], "green");
+    assert_eq!(entry["progress"]["value"], 0.5);
+    let log = state_cli(&server, None, &["workspace", &alpha, "log", "list"]);
+    assert_eq!(log[0]["text"], "hello");
+    assert_eq!(log[0]["level"], "success");
+
+    // Closed history: a closed workspace is listed and reopens.
+    state_cli(&server, None, &["workspace", &beta, "close"]);
+    let closed = state_cli(&server, None, &["closed", "list"]);
+    let item = closed
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["kind"] == "workspace" && item["name"] == "beta")
+        .unwrap_or_else(|| panic!("beta is not in closed history: {closed}"));
+    let reopened = state_cli(&server, None, &["closed", item["id"].as_str().unwrap(), "reopen"]);
+    assert!(reopened.to_string().contains("\"kind\":\"workspace\""), "{reopened}");
+    workspace_id_named(&server, "beta");
+}
+
+#[cfg(unix)]
+#[test]
+fn state_cli_tab_groups_and_caller_workspace_through_a_real_daemon() {
+    let server = HeadlessServer::start("state-cli-groups");
+    state_cli(&server, None, &["workspace", "create", "--name", "alpha"]);
+    state_cli(&server, None, &["workspace", "create", "--name", "beta", "--empty"]);
+    let alpha = workspace_id_named(&server, "alpha");
+    let beta = workspace_id_named(&server, "beta");
+    let snapshot = state_cli_topology(&server);
+    let terminal = snapshot["terminals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|terminal| terminal["id"].as_str())
+        .find(|terminal| workspace_of_terminal(&snapshot, terminal) == alpha)
+        .expect("alpha has a terminal")
+        .to_string();
+    let tab = snapshot["terminals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == terminal.as_str())
+        .unwrap()["tab_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Without a selector, status lands in the caller's workspace even when
+    // another workspace is focused.
+    state_cli(&server, None, &["workspace", &beta, "focus"]);
+    state_cli(&server, Some(&terminal), &["workspace", "status", "set", "caller", "yes"]);
+    let mine = state_cli(&server, Some(&terminal), &["workspace", "status", "list"]);
+    assert_eq!(mine[0]["workspace_id"], alpha, "{mine}");
+    assert_eq!(mine[0]["entries"][0]["key"], "caller");
+    let focused = state_cli(&server, None, &["workspace", "current", "status", "list"]);
+    assert!(
+        focused.as_array().unwrap().iter().all(|entry| entry["workspace_id"] != alpha),
+        "{focused}"
+    );
+
+    // Tab groups: created over v2, then addressed by name.
+    state_cli(&server, None, &["tab", &tab, "pin"]);
+    state_cli(&server, None, &["tab", &tab, "unpin"]);
+    state_cli(
+        &server,
+        None,
+        &["tab", "group", "create", "--tabs", &tab, "--name", "agents", "--color", "green"],
+    );
+    let group = state_cli(&server, None, &["tab", "group", "agents", "show"]);
+    assert_eq!(group["name"], "agents");
+    assert_eq!(group["color"], "green");
+    assert_eq!(group["tab_ids"], serde_json::json!([tab]));
+    state_cli(&server, None, &["tab", "group", "agents", "update", "--collapse"]);
+    let groups = state_cli(&server, None, &["tab", "group", "list"]);
+    assert_eq!(groups[0]["collapsed"], true, "{groups}");
+    state_cli(&server, None, &["tab", "group", "agents", "ungroup"]);
+    assert_eq!(state_cli(&server, None, &["tab", "group", "list"]), serde_json::json!([]));
+}
