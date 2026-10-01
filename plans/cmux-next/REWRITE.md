@@ -166,3 +166,7 @@ Shortcut editing in the palette: Cmd-K on a highlighted action opens an inline r
 
 User: Incognito is a palette "New Incognito Window" only; a whole window is off-the-record, and incognito and normal windows never mix. Sized popups (OAuth, payment, extension popup windows) open in a floating cmux panel. Production Cloud VM image: bake the new cmux-tui from a separate PR to main, merged before feat-cmux-next. Dev backend cleanup approved. New tab = chrome://newtab (themed); native messaging reads Chrome's folders; Web Store works like Brave/Arc; omnibox keyword mode; getAuthToken researched first.
 Coordinator (reversible): WebKit inspector uses Safari's own dock controls (WebKit owns its frames; a second owner caused the flicker); Chromium keeps the cmux divider. SIGPIPE ignored process-wide; `kill <pid>` counts as a clean quit; a second crash within 60 s skips browser restore. No out-of-process CEF now (spike in browser-isolation.md). Hibernation default "moderate", pinned tabs exempt. Daemon parses OSC 9/777/99 with a `source` field; daemon takes shell args for bash/nushell integration; closed workspaces keep terminals 30 s; daemon writes a launch snapshot for instant startup. A Settings window generated from the settings schema. niri: default column width 1/2; a lone full-width column shrinks to 1/2 when a second column opens.
+
+## mux: Cmd+1 (user 2026-09-30)
+
+Cmd+1 opens Messages with humans and **muxes** (orchestrator agents). Design and interview decisions: [mux/DESIGN.md](../../mux/DESIGN.md).

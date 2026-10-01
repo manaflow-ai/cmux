@@ -37,6 +37,9 @@ final class WindowState {
     var workspaceID: String? {
         didSet { if workspaceID != oldValue { noteShown(workspaceID, after: oldValue) } }
     }
+    /// Home (the mux Messages screen) is shown instead of `workspaceID`,
+    /// which stays mounted underneath. Selecting a workspace clears it.
+    var showsHome = false
     /// Workspaces this window showed, most recent first (Switch to Last Used
     /// Workspace, Sort by Last Used). In memory only, at most 64.
     private(set) var workspaceRecency: [String] = []

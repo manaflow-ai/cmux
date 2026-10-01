@@ -1,0 +1,291 @@
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #111111;
+  --muted: #6b6b70;
+  --line: #e5e5ea;
+  --incoming: #e9e9eb;
+  --outgoing: #0a84ff;
+  --field: #f2f2f7;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 15px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1c1e;
+    --fg: #f2f2f7;
+    --muted: #8e8e93;
+    --line: #38383a;
+    --incoming: #3a3a3c;
+    --field: #2c2c2e;
+  }
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+.app {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  height: 100dvh;
+}
+.list {
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+.list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px;
+}
+.list-title {
+  font-weight: 700;
+  font-size: 17px;
+}
+.compose-button {
+  background: none;
+  border: none;
+  color: var(--outgoing);
+  font-size: 18px;
+  cursor: pointer;
+}
+.row {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 14px;
+  color: inherit;
+  text-decoration: none;
+  border-radius: 10px;
+  margin: 0 6px;
+}
+.row[data-status="active"] {
+  background: var(--outgoing);
+  color: #fff;
+}
+.row[data-status="active"] .preview {
+  color: rgb(255 255 255 / 0.8);
+}
+.title {
+  font-weight: 600;
+}
+.preview {
+  color: var(--muted);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thread {
+  overflow: hidden;
+}
+.conversation {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.thread-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.thread-title {
+  font-weight: 600;
+}
+.thread-subtitle {
+  color: var(--muted);
+  font-size: 12px;
+}
+.empty {
+  color: var(--muted);
+  text-align: center;
+  margin-top: 40vh;
+}
+.messages {
+  list-style: none;
+  margin: 0;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  overflow-y: auto;
+}
+.bubble-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.bubble-row.mine {
+  align-items: flex-end;
+}
+.sender {
+  color: var(--muted);
+  font-size: 11px;
+  margin: 6px 12px 2px;
+}
+.bubble {
+  max-width: min(70%, 560px);
+  padding: 7px 12px;
+  border-radius: 18px;
+  background: var(--incoming);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+.mine .bubble {
+  background: var(--outgoing);
+  color: #fff;
+}
+.bubble.sending {
+  opacity: 0.6;
+}
+.bubble.typing {
+  color: var(--muted);
+  letter-spacing: 2px;
+}
+.composer {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+}
+.composer textarea {
+  flex: 1;
+  resize: none;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 8px 14px;
+  font: inherit;
+  background: var(--field);
+  color: inherit;
+}
+.composer button {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: var(--outgoing);
+  color: #fff;
+  font-size: 16px;
+  cursor: pointer;
+  align-self: flex-end;
+}
+.composer button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+@media (max-width: 640px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+  .list {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    max-height: 30dvh;
+  }
+}
+.list {
+  display: flex;
+  flex-direction: column;
+}
+.rows {
+  flex: 1;
+  overflow-y: auto;
+}
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+.link-button {
+  background: none;
+  border: none;
+  color: var(--outgoing);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 0;
+}
+.list-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+}
+.machines {
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.machines-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.machine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.dot.online {
+  background: #30d158;
+}
+.command code {
+  display: block;
+  font-size: 11px;
+  word-break: break-all;
+  background: var(--field);
+  padding: 6px;
+  border-radius: 6px;
+  margin: 4px 0;
+}
+.sign-in {
+  max-width: 320px;
+  margin: 18vh auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 16px;
+}
+.sign-in h1 {
+  margin: 0;
+}
+.sign-in input {
+  font: inherit;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--field);
+  color: inherit;
+}
+.sign-in button {
+  font: inherit;
+  padding: 9px;
+  border-radius: 10px;
+  border: none;
+  background: var(--outgoing);
+  color: #fff;
+  cursor: pointer;
+}
+.error {
+  color: #ff453a;
+  font-size: 13px;
+  margin: 0;
+}
