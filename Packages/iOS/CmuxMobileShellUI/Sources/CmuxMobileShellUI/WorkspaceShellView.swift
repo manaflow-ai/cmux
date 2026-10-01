@@ -206,8 +206,10 @@ private struct WorkspaceShellRenderPresentation {
 #endif
 
 struct WorkspaceShellView: View {
-    #if os(iOS) && DEBUG
+    #if os(iOS)
+    #if DEBUG
     @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    #endif
     /// The Cloud tab's content, supplied by the composition root.
     @Environment(\.mobileCloudTabContent) private var cloudTabContent
     #endif
