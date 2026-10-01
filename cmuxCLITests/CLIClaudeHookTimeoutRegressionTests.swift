@@ -186,7 +186,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
         )
         // Agent messages: a background wake hook after every start and stop,
         // and a synchronous prompt hook that fails open to `{}`.
-        for event in ["SessionStart", "Stop"] {
+        for event in ["SessionStart", "Stop", "StopFailure"] {
             try expectDirectHook(
                 hooks,
                 event: event,

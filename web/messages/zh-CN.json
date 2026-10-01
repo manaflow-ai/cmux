@@ -426,8 +426,7 @@
         "memberReadOnly": "只有团队管理员可以更改此方案。",
         "grantedBody": "cmux 团队已向 {team} 授予 Team 访问权限，没有需要管理的订阅。",
         "seatsUsed": "已使用 {members}/{seats}",
-        "overSeat": "{team} 有 {members} 名成员，但只有 {seats} 个付费席位。成员仍可加入；请添加席位以覆盖所有人。",
-        "addSeats": "添加席位"
+        "overSeat": "{team} 有 {members} 名成员和 {seats} 个付费席位。席位数跟随成员数，订阅会自动更新。"
       },
       "teamList": {
         "heading": "账单范围",
@@ -942,7 +941,7 @@
         "featurePrioritySupport": "优先支持",
         "chooseFree": "继续使用免费方案",
         "chooseTeam": "升级到 Team（${price}/席位/月）",
-        "upgradeLater": "席位是弹性的：邀请人数可以超过已付费席位数，之后再添加席位即可。",
+        "upgradeLater": "席位数跟随成员数：每位成员都计费，有人加入或离开时总数会更新。",
         "inviteTitle": "邀请成员加入 {team}",
         "inviteDescription": "可选。你也可以稍后在团队的成员页面邀请成员。",
         "inviteByEmail": "通过邮箱邀请",
@@ -1059,8 +1058,6 @@
         "revoke": "撤销",
         "linksTitle": "邀请链接",
         "linksDescription": "任何人都可通过此可重复使用的链接以成员身份加入。",
-        "seatNudge": "已有 {used} 人是成员或已受邀，但方案只有 {seats} 个席位。邀请仍然有效；请添加 {over, plural, other {# 个席位}}以覆盖所有人。",
-        "seatNudgeAction": "管理席位",
         "actions": {
           "makeAdmin": "设为管理员",
           "makeMember": "设为成员",

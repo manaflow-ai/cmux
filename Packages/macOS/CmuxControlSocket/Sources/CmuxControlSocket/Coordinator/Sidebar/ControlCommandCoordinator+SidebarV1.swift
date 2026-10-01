@@ -60,6 +60,8 @@ extension ControlCommandCoordinator {
         case "reload_config": return sidebarReloadConfig(args)
         case "refresh_surfaces": return sidebarRefreshSurfaces()
         case "surface_health": return sidebarSurfaceHealth(args)
+        case "report_workspace_pr": return sidebarReportWorkspacePullRequest(args, context: context)
+        case "clear_workspace_pr": return sidebarClearWorkspacePullRequest(args, context: context)
         default: return nil
         }
     }

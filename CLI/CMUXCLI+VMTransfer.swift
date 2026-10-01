@@ -840,19 +840,11 @@ extension CMUXCLI {
         }
     }
 
-    /// Seconds between `vm.status` polls. `CMUX_VM_WAIT_POLL_SECONDS` overrides the
-    /// default so tests against a mock socket do not wait out the real cadence.
+    /// Seconds between `vm.status` polls; see ``VMReadyPollInterval``.
     static func vmReadyPollInterval(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> TimeInterval {
-        guard let raw = environment["CMUX_VM_WAIT_POLL_SECONDS"],
-              let parsed = TimeInterval(raw),
-              parsed.isFinite,
-              parsed >= 0.01,
-              parsed <= 3 else {
-            return 3
-        }
-        return parsed
+        VMReadyPollInterval.resolve(environment: environment)
     }
 
     // MARK: - transfer plumbing
@@ -1176,14 +1168,6 @@ extension CMUXCLI {
         let updatedAtUnix: Int
     }
 
-    /// The in-flight pool create key is separate from the normal `vm new`
-    /// store: a timed-out `vm run` must be able to join its own unknown create.
-    /// There is one pool create admission at a time, so concurrent routers
-    /// always converge on the same backend idempotency key.
-    struct VMRunCreateIdempotency: Codable {
-        let key: String
-    }
-
     static let vmRunBindingTTLSeconds = 14 * 24 * 3600
 
     /// The home the router keeps its state under. `$HOME` first: NSHomeDirectory()
@@ -1202,53 +1186,6 @@ extension CMUXCLI {
         URL(fileURLWithPath: vmRunStateHomeDirectory(), isDirectory: true)
             .appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("vm-run-bindings.json", isDirectory: false)
-    }
-
-    static func vmRunCreateIdempotencyURL() -> URL {
-        URL(fileURLWithPath: vmRunStateHomeDirectory(), isDirectory: true)
-            .appendingPathComponent(".cmuxterm", isDirectory: true)
-            .appendingPathComponent("vm-run-create-idempotency.json", isDirectory: false)
-    }
-
-    static func activeVMRunCreateIdempotency(to url: URL? = nil) throws -> VMRunCreateIdempotency {
-        let storeURL = url ?? vmRunCreateIdempotencyURL()
-        try FileManager.default.createDirectory(
-            at: storeURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let lockPath = storeURL.path + ".lock"
-        let lockFD = open(lockPath, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
-        guard lockFD >= 0 else {
-            throw CLIError(message: "vm run: could not open the create lock at \(lockPath): \(String(cString: strerror(errno)))")
-        }
-        defer { close(lockFD) }
-        guard flock(lockFD, LOCK_EX) == 0 else {
-            throw CLIError(message: "vm run: could not lock the create store at \(lockPath): \(String(cString: strerror(errno)))")
-        }
-        defer { _ = flock(lockFD, LOCK_UN) }
-        if let data = try? Data(contentsOf: storeURL),
-           let existing = try? JSONDecoder().decode(VMRunCreateIdempotency.self, from: data),
-           !existing.key.isEmpty {
-            return existing
-        }
-        let created = VMRunCreateIdempotency(key: UUID().uuidString.lowercased())
-        let data = try JSONEncoder().encode(created)
-        try data.write(to: storeURL, options: [.atomic])
-        return created
-    }
-
-    static func clearVMRunCreateIdempotency(_ active: VMRunCreateIdempotency, at url: URL? = nil) {
-        let storeURL = url ?? vmRunCreateIdempotencyURL()
-        let lockPath = storeURL.path + ".lock"
-        let lockFD = open(lockPath, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
-        guard lockFD >= 0 else { return }
-        defer { close(lockFD) }
-        guard flock(lockFD, LOCK_EX) == 0 else { return }
-        defer { _ = flock(lockFD, LOCK_UN) }
-        guard let data = try? Data(contentsOf: storeURL),
-              let current = try? JSONDecoder().decode(VMRunCreateIdempotency.self, from: data),
-              current.key == active.key else { return }
-        try? FileManager.default.removeItem(at: storeURL)
     }
 
     static func vmRunWorkKey(forDirectory path: String) -> String {
@@ -1443,14 +1380,32 @@ extension CMUXCLI {
         }
     }
 
+    private struct ActiveVMRunCreateIdempotency {
+        let signature: String
+        let key: String
+    }
+
+    private struct VMRunCreateIdempotencyRecord: Codable {
+        let key: String
+        var createdAt: TimeInterval
+        var ownerPID: Int32
+        var uncertain: Bool
+    }
+
+    private struct VMRunCreateIdempotencyStore: Codable {
+        var records: [String: [VMRunCreateIdempotencyRecord]] = [:]
+    }
+
+    private static let vmRunCreateIdempotencyTTLSeconds: TimeInterval = 30 * 60
+
     private func createPoolVM(memoryMb: Int?, client: SocketClient) throws -> String {
-        let idempotency = try Self.activeVMRunCreateIdempotency()
+        let idempotency = try activeVMRunCreateIdempotency(memoryMb: memoryMb)
         var params: [String: Any] = [
             // Pool machines are shell boxes; the backend maps the kind to its image.
             "kind": VMMachineKind.base.rawValue,
             // Freestyle has no persistent-volume capability; keep pool creation usable.
-            // Keep the key on disk until success or a definite backend failure so
-            // a timeout, Ctrl-C, or dropped socket can join the original create.
+            // The key survives an unknown response so a retry joins the same backend
+            // create instead of charging for a second pool machine.
             "idempotency_key": idempotency.key,
         ]
         if let memoryMb { params["memory_mb"] = memoryMb }
@@ -1461,11 +1416,18 @@ extension CMUXCLI {
                 params: params,
                 responseTimeout: Self.vmCreateResponseTimeoutSeconds
             )
-        } catch let error as CLIError {
-            // A transport failure has an unknown outcome, so keep the key for
-            // the next invocation. Backend validation/rejection is definitive.
-            if let backendCode = error.vmBackendCode, backendCode != "vm_create_in_progress" {
-                Self.clearVMRunCreateIdempotency(idempotency)
+        } catch {
+            // A structured response is definitive: the backend rejected this key,
+            // so retaining it would replay a permanent failure. A transport or
+            // malformed-response error is ambiguous because the create may have
+            // reached the backend; retain the key for the next invocation.
+            if let cliError = error as? CLIError,
+               cliError.vmBackendCode == "vm_create_in_progress" {
+                markVMRunCreateIdempotencyUncertain(idempotency)
+            } else if let cliError = error as? CLIError, cliError.isStructuredProtocolResponse {
+                clearVMRunCreateIdempotency(idempotency)
+            } else {
+                markVMRunCreateIdempotencyUncertain(idempotency)
             }
             throw error
         }
@@ -1487,7 +1449,10 @@ extension CMUXCLI {
             )
             throw CLIError(message: String(format: template, id))
         }
-        Self.clearVMRunCreateIdempotency(idempotency)
+        // The machine is now recoverable through the pool store. Clear the create
+        // key before cosmetic labeling/readiness work so a later invocation cannot
+        // replay a machine that is already recorded and reusable.
+        clearVMRunCreateIdempotency(idempotency)
         // The label is cosmetic (membership is already recorded), but without it
         // the machine is not recognizable as pool in `vm ls`, so say so.
         do {
@@ -1501,6 +1466,119 @@ extension CMUXCLI {
         }
         try waitForVMReady(vmID: id, timeoutSeconds: Self.vmRunCreateWaitSeconds, client: client)
         return id
+    }
+
+    private func activeVMRunCreateIdempotency(memoryMb: Int?) throws -> ActiveVMRunCreateIdempotency {
+        let url = Self.vmRunCreateIdempotencyStoreURL()
+        let lockURL = url.appendingPathExtension("lock")
+        let directory = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let lockFD = open(lockURL.path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        guard lockFD >= 0 else {
+            throw CLIError(message: "vm run: could not open the create idempotency lock")
+        }
+        defer { close(lockFD) }
+        guard flock(lockFD, LOCK_EX) == 0 else {
+            throw CLIError(message: "vm run: could not lock the create idempotency store")
+        }
+        defer { _ = flock(lockFD, LOCK_UN) }
+
+        let signature = "kind=\(VMMachineKind.base.rawValue)\u{1f}memory=\(memoryMb.map(String.init) ?? "default")"
+        let now = Date().timeIntervalSince1970
+        var store = try Self.loadVMRunCreateIdempotencyStore(from: url)
+        store.records = store.records.mapValues { records in
+            records.filter { !$0.key.isEmpty && now - $0.createdAt < Self.vmRunCreateIdempotencyTTLSeconds }
+        }.filter { !$0.value.isEmpty }
+
+        if var reusable = store.records[signature]?.first(where: { $0.uncertain || !Self.processExists($0.ownerPID) }) {
+            reusable.createdAt = now
+            reusable.ownerPID = getpid()
+            reusable.uncertain = false
+            store.records[signature] = (store.records[signature] ?? []).map { record in
+                record.key == reusable.key ? reusable : record
+            }
+            try Self.saveVMRunCreateIdempotencyStore(store, to: url)
+            return ActiveVMRunCreateIdempotency(signature: signature, key: reusable.key)
+        }
+
+        let record = VMRunCreateIdempotencyRecord(
+            key: UUID().uuidString.lowercased(),
+            createdAt: now,
+            ownerPID: getpid(),
+            uncertain: false
+        )
+        store.records[signature, default: []].append(record)
+        try Self.saveVMRunCreateIdempotencyStore(store, to: url)
+        return ActiveVMRunCreateIdempotency(signature: signature, key: record.key)
+    }
+
+    private func markVMRunCreateIdempotencyUncertain(_ active: ActiveVMRunCreateIdempotency) {
+        Self.updateVMRunCreateIdempotency(active) { record in
+            record.uncertain = true
+            return true
+        }
+    }
+
+    private func clearVMRunCreateIdempotency(_ active: ActiveVMRunCreateIdempotency) {
+        Self.updateVMRunCreateIdempotency(active) { _ in false }
+    }
+
+    private static func updateVMRunCreateIdempotency(
+        _ active: ActiveVMRunCreateIdempotency,
+        _ mutate: (inout VMRunCreateIdempotencyRecord) -> Bool
+    ) {
+        let url = vmRunCreateIdempotencyStoreURL()
+        let lockURL = url.appendingPathExtension("lock")
+        let directory = url.deletingLastPathComponent()
+        guard (try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)) != nil else { return }
+        let lockFD = open(lockURL.path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        guard lockFD >= 0 else { return }
+        defer { close(lockFD) }
+        guard flock(lockFD, LOCK_EX) == 0 else { return }
+        defer { _ = flock(lockFD, LOCK_UN) }
+        guard var store = try? loadVMRunCreateIdempotencyStore(from: url) else { return }
+        guard var records = store.records[active.signature],
+              let index = records.firstIndex(where: { $0.key == active.key }) else { return }
+        if !mutate(&records[index]) {
+            records.remove(at: index)
+        }
+        if records.isEmpty {
+            store.records.removeValue(forKey: active.signature)
+        } else {
+            store.records[active.signature] = records
+        }
+        try? saveVMRunCreateIdempotencyStore(store, to: url)
+    }
+
+    private static func processExists(_ pid: Int32) -> Bool {
+        guard pid > 0 else { return false }
+        return Darwin.kill(pid, 0) == 0 || errno == EPERM
+    }
+
+    private static func vmRunCreateIdempotencyStoreURL() -> URL {
+        URL(fileURLWithPath: vmRunStateHomeDirectory(), isDirectory: true)
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("vm-run-create-idempotency.json", isDirectory: false)
+    }
+
+    private static func loadVMRunCreateIdempotencyStore(from url: URL) throws -> VMRunCreateIdempotencyStore {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return VMRunCreateIdempotencyStore()
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode(VMRunCreateIdempotencyStore.self, from: data)
+        } catch {
+            throw CLIError(message: "vm run: could not read the create idempotency store")
+        }
+    }
+
+    private static func saveVMRunCreateIdempotencyStore(_ store: VMRunCreateIdempotencyStore, to url: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(store)
+        try data.write(to: url, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
     /// `report` is either `"<sha256hex>  <path>"` (sha256sum) or a bare byte

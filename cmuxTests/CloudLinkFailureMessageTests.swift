@@ -15,8 +15,14 @@ struct CloudLinkFailureMessageTests {
         let asleep = machineInfo(linkState: .asleep)
         #expect(asleep.linkFailureMessage == "This machine is asleep. Wake it to connect.")
 
+        let asleepError = CloudMachineLink.LinkError.failureMessage(asleep.linkFailureMessage)
+        #expect(CloudMachineLink.errorText(asleepError) == asleep.linkFailureMessage)
+
         let unavailable = machineInfo(linkState: .unavailable, linkError: "cloud_api_unavailable")
         #expect(unavailable.linkFailureMessage == "cmux cannot reach the Cloud service for this machine right now.")
+
+        let unavailableError = CloudMachineLink.LinkError.failureMessage(unavailable.linkFailureMessage)
+        #expect(CloudMachineLink.errorText(unavailableError) == unavailable.linkFailureMessage)
 
         let reasonCode = machineInfo(linkState: .error, linkError: "daemon_not_ready")
         #expect(reasonCode.linkFailureMessage == CloudDiagnosticFailure.network.label)
