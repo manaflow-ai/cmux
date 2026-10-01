@@ -629,15 +629,17 @@ extension CMUXCLI {
                 // the user edit the file again. Other failures remain fatal so
                 // host-key, policy, and malformed-response errors stay visible.
                 let delay = retryDelaySeconds
+                let errorDescription = String(describing: error)
                 if jsonOutput {
                     print(jsonString([
                         "event": "retrying",
+                        "error": errorDescription,
                         "files": current.count,
                         "delay_seconds": delay,
                     ], prettyPrinted: false))
                     fflush(stdout)
                 } else {
-                    cliWriteStderr("Cloud transfer paused; retrying in \(String(format: "%.1f", delay))s.\n")
+                    cliWriteStderr("Cloud transfer failed (\(errorDescription)); retrying in \(String(format: "%.1f", delay))s.\n")
                 }
                 Thread.sleep(forTimeInterval: delay)
                 retryDelaySeconds = min(delay * 2, 10.0)
