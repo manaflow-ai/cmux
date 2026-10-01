@@ -4,7 +4,7 @@ import CmuxNextCloud
 import CmuxNextDaemon
 
 // Per-machine actions: open, terminal, rename, kill, copy, resize, status,
-// ports, snapshot, restore, fork.
+// ports, tools, snapshot, restore, fork.
 extension CloudHandlers {
     static func bindMachineActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
         let cloud = context.services.cloud!
@@ -68,6 +68,13 @@ extension CloudHandlers {
                 CloudPresenter.show(CloudStrings.portsTitle, body, copyable: !ports.isEmpty, in: window(context))
             }
         }
+        bind("palette.cloud.tools", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            run("machine tools", context) {
+                let result = try await cloud.api.exec(session.machineID, command: toolsProbe)
+                CloudPresenter.show(CloudStrings.toolsTitle, result.stdout, copyable: true, in: window(context))
+            }
+        }
         bind("palette.cloud.snapshot", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             run("snapshot machine", context) {
@@ -90,6 +97,15 @@ extension CloudHandlers {
             }
         }
     }
+
+    /// What `cmux vm tools` ran: the login shell, where each common tool is
+    /// (or "missing"), and the zsh and gh versions.
+    static let toolsProbe = [
+        "printf 'shell: '; printf '%s\\n' \"$SHELL\"",
+        "for tool in zsh git gh htop btop node bun python3; do if command -v \"$tool\" >/dev/null 2>&1; then printf '%-8s %s\\n' \"$tool\" \"$(command -v \"$tool\")\"; else printf '%-8s missing\\n' \"$tool\"; fi; done",
+        "zsh --version 2>/dev/null || true",
+        "gh --version 2>/dev/null | head -n 1 || true"
+    ].joined(separator: "; ")
 
     /// `size` choices -> (vCPUs, MiB). Pro allows up to 24 GiB.
     static let sizes: [String: (Int, Int)] = ["small": (2, 4096), "medium": (4, 8192), "large": (8, 16384), "xlarge": (16, 24576)]

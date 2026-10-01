@@ -3669,6 +3669,137 @@
         }
       }
     },
+    "cloud.result.toolsTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine Tools"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンのツール"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أدوات الجهاز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alati mašine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinværktøjer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maschinenwerkzeuge"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Herramientas de la máquina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Outils de la machine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strumenti della macchina"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឧបករណ៍ម៉ាស៊ីន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "머신 도구"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinverktøy"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Narzędzia maszyny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ferramentas da máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Инструменты машины"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องมือของเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makine Araçları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інструменти машини"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Công cụ của máy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "机器工具"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "機器工具"
+          }
+        }
+      }
+    },
     "cloud.unavailable.handoff": {
       "extractionState": "manual",
       "localizations": {
@@ -4320,137 +4451,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Web API 尚無將機器升級為樣板的路由。"
-          }
-        }
-      }
-    },
-    "cloud.unavailable.tools": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The machine tools panel is not ported to cmux-next yet; use Machine Status, Ports, or Diagnostics."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マシンツールパネルは cmux-next にまだ移植されていません。マシンの状態、ポート、診断を使ってください。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لم تُنقل لوحة أدوات الجهاز إلى cmux-next بعد؛ استخدم حالة الجهاز أو المنافذ أو التشخيص."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Panel alata mašine još nije prenesen u cmux-next; koristite Status mašine, Portove ili Dijagnostiku."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Maskinværktøjspanelet er endnu ikke porteret til cmux-next. Brug Maskinstatus, Porte eller Diagnostik."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Das Maschinen-Tools-Panel ist noch nicht nach cmux-next portiert; verwenden Sie Maschinenstatus, Ports oder Diagnose."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "El panel de herramientas de la máquina aún no está portado a cmux-next; usa Estado de la máquina, Puertos o Diagnóstico."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le panneau d’outils de la machine n’est pas encore porté dans cmux-next ; utilisez État de la machine, Ports ou Diagnostics."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Il pannello strumenti della macchina non è ancora portato in cmux-next; usa Stato della macchina, Porte o Diagnostica."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្ទាំងឧបករណ៍ម៉ាស៊ីនមិនទាន់បានផ្ទេរទៅ cmux-next នៅឡើយទេ។ សូមប្រើ ស្ថានភាពម៉ាស៊ីន ច្រក ឬការវិនិច្ឆ័យ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "기기 도구 패널은 아직 cmux-next로 이식되지 않았습니다. 기기 상태, 포트 또는 진단을 사용하십시오."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Maskinverktøypanelet er ikke overført til cmux-next ennå. Bruk Maskinstatus, Porter eller Diagnostikk."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Panelu narzędzi maszyny nie przeniesiono jeszcze do cmux-next; użyj opcji Status maszyny, Porty lub Diagnostyka."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O painel de ferramentas da máquina ainda não foi portado para o cmux-next; use Status da Máquina, Portas ou Diagnóstico."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Панель инструментов машины еще не перенесена в cmux-next; используйте «Статус машины», «Порты» или «Диагностику»."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แผงเครื่องมือเครื่องยังไม่ได้พอร์ตมายัง cmux-next ใช้สถานะเครื่อง พอร์ต หรือการวินิจฉัยแทน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Makine araçları paneli henüz cmux-next’e taşınmadı; Makine Durumu, Portlar veya Tanılama’yı kullanın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Панель інструментів машини ще не перенесено в cmux-next; скористайтеся станом машини, портами або діагностикою."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bảng công cụ máy chưa được chuyển sang cmux-next; hãy dùng Trạng thái máy, Cổng hoặc Chẩn đoán."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "机器工具面板尚未移植到 cmux-next；请使用机器状态、端口或诊断。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "機器工具面板尚未移植至 cmux-next；請使用「機器狀態」、「埠」或「診斷」。"
           }
         }
       }

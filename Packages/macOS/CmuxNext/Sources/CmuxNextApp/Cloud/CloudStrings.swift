@@ -26,7 +26,6 @@ enum CloudStrings {
     static var alreadySignedIn: String { String(localized: "cloud.failed.alreadySignedIn", defaultValue: "Already signed in.", table: "Cloud", bundle: .module) }
     static var noTeams: String { String(localized: "cloud.failed.noTeams", defaultValue: "This account has no teams.", table: "Cloud", bundle: .module) }
     static var promoteTemplate: String { String(localized: "cloud.unavailable.promoteTemplate", defaultValue: "The web API has no route to promote a machine to a template yet.", table: "Cloud", bundle: .module) }
-    static var tools: String { String(localized: "cloud.unavailable.tools", defaultValue: "The machine tools panel is not ported to cmux-next yet; use Machine Status, Ports, or Diagnostics.", table: "Cloud", bundle: .module) }
     static var handoff: String { String(localized: "cloud.unavailable.handoff", defaultValue: "Handing off a machine needs the session sharing flow, which is not ported to cmux-next yet.", table: "Cloud", bundle: .module) }
     static var mobilePairing: String { String(localized: "cloud.unavailable.mobilePairing", defaultValue: "Mobile pairing arrives with the iOS phase of cmux-next (plans/cmux-next/cloud-ios.md).", table: "Cloud", bundle: .module) }
     static var invalidPort: String { String(localized: "cloud.failed.invalidPort", defaultValue: "Port must be between 1 and 65535.", table: "Cloud", bundle: .module) }
@@ -43,6 +42,7 @@ enum CloudStrings {
     static var teamPickerTitle: String { String(localized: "cloud.prompt.teamPicker", defaultValue: "Choose a Team", table: "Cloud", bundle: .module) }
     static var statusTitle: String { String(localized: "cloud.result.statusTitle", defaultValue: "Machine Status", table: "Cloud", bundle: .module) }
     static var portsTitle: String { String(localized: "cloud.result.portsTitle", defaultValue: "Listening Ports", table: "Cloud", bundle: .module) }
+    static var toolsTitle: String { String(localized: "cloud.result.toolsTitle", defaultValue: "Machine Tools", table: "Cloud", bundle: .module) }
     static var noPorts: String { String(localized: "cloud.result.noPorts", defaultValue: "No TCP ports are listening on this machine.", table: "Cloud", bundle: .module) }
     static var diagnosticsTitle: String { String(localized: "cloud.result.diagnosticsTitle", defaultValue: "Cloud Diagnostics", table: "Cloud", bundle: .module) }
     static var snapshotTitle: String { String(localized: "cloud.result.snapshotTitle", defaultValue: "Snapshot Created", table: "Cloud", bundle: .module) }
