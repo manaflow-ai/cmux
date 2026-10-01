@@ -50,7 +50,6 @@ final class ManagedPolicyEnforcementObserver {
     private let enforceCloudPolicy: () -> Void
     private let enforceRemoteConnectionsPolicy: () -> Void
     private let enforceComputerUsePolicy: () -> Void
-    private let enforceUpdatePolicy: () -> Void
     private let enforceSocketControlPolicy: () -> Void
     /// Keys whose runtime effect is a per-call read, a launch-time read, or a
     /// Settings lock: a transition only needs the change signal — except
@@ -106,7 +105,6 @@ final class ManagedPolicyEnforcementObserver {
         enforceCloudPolicy: @escaping () -> Void = {},
         enforceRemoteConnectionsPolicy: @escaping () -> Void = {},
         enforceComputerUsePolicy: @escaping () -> Void = {},
-        enforceUpdatePolicy: @escaping () -> Void = {},
         enforceSocketControlPolicy: @escaping () -> Void = {}
     ) {
         self.notificationCenter = notificationCenter
@@ -127,7 +125,6 @@ final class ManagedPolicyEnforcementObserver {
         self.enforceCloudPolicy = enforceCloudPolicy
         self.enforceRemoteConnectionsPolicy = enforceRemoteConnectionsPolicy
         self.enforceComputerUsePolicy = enforceComputerUsePolicy
-        self.enforceUpdatePolicy = enforceUpdatePolicy
         self.enforceSocketControlPolicy = enforceSocketControlPolicy
         settingsVisiblePolicyStates = Self.settingsVisibleStates(capabilityPolicy)
         browserPolicyActive = isBrowserDisabledByPolicy()
@@ -272,12 +269,9 @@ final class ManagedPolicyEnforcementObserver {
         if settingsVisibleNow != settingsVisiblePolicyStates {
             let computerUseChanged =
                 settingsVisibleNow[.disableComputerUse] != settingsVisiblePolicyStates[.disableComputerUse]
-            let updatePolicyChanged =
-                settingsVisibleNow[.disableAutoUpdate] != settingsVisiblePolicyStates[.disableAutoUpdate]
             settingsVisiblePolicyStates = settingsVisibleNow
             anyTransition = true
             if computerUseChanged { enforceComputerUsePolicy() }
-            if updatePolicyChanged { enforceUpdatePolicy() }
         }
         if anyTransition {
             // Settings UI re-reads the resolver on this signal.

@@ -2481,11 +2481,9 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
             )
         )
     }
-
     func testNilRequestedWindowFallsBackToKeyWindow() {
         let key = makeWindow()
         let other = makeWindow()
-
         XCTAssertTrue(
             ContentView.shouldHandleCommandPaletteRequest(
                 observedWindow: key,
@@ -2503,11 +2501,9 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
             )
         )
     }
-
     func testNilRequestedAndKeyFallsBackToMainWindow() {
         let main = makeWindow()
         let other = makeWindow()
-
         XCTAssertTrue(
             ContentView.shouldHandleCommandPaletteRequest(
                 observedWindow: main,
@@ -2525,7 +2521,6 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
             )
         )
     }
-
     func testNoObservedWindowNeverHandlesRequest() {
         XCTAssertFalse(
             ContentView.shouldHandleCommandPaletteRequest(
@@ -2537,7 +2532,6 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
         )
     }
 }
-
 final class CommandPaletteBackNavigationTests: XCTestCase {
     func testBackspaceOnEmptyRenameInputReturnsToCommandList() {
         XCTAssertTrue(
@@ -2547,7 +2541,6 @@ final class CommandPaletteBackNavigationTests: XCTestCase {
             )
         )
     }
-
     func testBackspaceWithRenameTextDoesNotReturnToCommandList() {
         XCTAssertFalse(
             ContentView.commandPaletteShouldPopRenameInputOnDelete(
@@ -2556,7 +2549,6 @@ final class CommandPaletteBackNavigationTests: XCTestCase {
             )
         )
     }
-
     func testModifiedBackspaceDoesNotReturnToCommandList() {
         XCTAssertFalse(
             ContentView.commandPaletteShouldPopRenameInputOnDelete(

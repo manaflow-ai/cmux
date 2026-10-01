@@ -2006,7 +2006,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         )
         hostingView = NonDraggableHostingView(
             rootView: AnyView(
-                rootView.environment(\.settingsRuntime, settingsRuntime).cmuxAccentColorEnvironment()
+                rootView
+                    .environment(\.settingsRuntime, settingsRuntime)
+                    .cmuxAccentColorEnvironment()
             )
         )
 
@@ -3132,7 +3134,6 @@ final class UpdateTitlebarAccessoryController {
         anchorView.superview?.layoutSubtreeIfNeeded()
         let anchorRect = anchorView.convert(anchorView.bounds, to: contentView)
         guard !anchorRect.isEmpty else { return }
-
         detachedNotificationsPopover = popover
         detachedNotificationsPopoverDelegate = delegate
         popover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
@@ -3142,12 +3143,10 @@ final class UpdateTitlebarAccessoryController {
             windowNumber: window.windowNumber
         )
     }
-
     func isNotificationsPopoverShown() -> Bool {
         detachedNotificationsPopover?.isShown == true ||
             controlsControllers.allObjects.contains(where: { $0.popoverIsShownForTesting })
     }
-
     @discardableResult
     func dismissNotificationsPopoverIfShown() -> Bool {
         let controllers = controlsControllers.allObjects
@@ -3162,11 +3161,9 @@ final class UpdateTitlebarAccessoryController {
         }
         return dismissed
     }
-
     func showNotificationsPopover(animated: Bool = true) {
         let controllers = controlsControllers.allObjects
         guard !controllers.isEmpty else { return }
-
         let target = preferredNotificationsController(from: controllers, preferShownPopover: false)
         for controller in controllers {
             if controller !== target {

@@ -143,9 +143,10 @@ struct CloudSidebarNativeDropTests {
         expectNoSidebarHints(outline)
         #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: 0) == .move)
         outline.draggingExited(info)
-        #expect(outline.subviews.filter {
+        let hasVisibleReorderIndicator = outline.subviews.contains {
             $0.identifier?.rawValue == "sidebarReorderIndicator" && !$0.isHidden
-        }.isEmpty)
+        }
+        #expect(!hasVisibleReorderIndicator)
         expectNoSidebarHints(outline)
     }
 
