@@ -188,8 +188,14 @@ final class FileSearchQueryBar: NSView {
             includeRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             excludeRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             errorLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -4),
-            queryField.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
         ])
+        // Prefer a usable query field, but never force the host wider than it is:
+        // the Find panel stays in the layout while Files is shown, and the Files
+        // panel can be narrower than the toggles plus 80 points (an "open as pane"
+        // split, or a narrow window).
+        let queryFieldPreferredWidth = queryField.widthAnchor.constraint(greaterThanOrEqualToConstant: 80)
+        queryFieldPreferredWidth.priority = .defaultHigh
+        queryFieldPreferredWidth.isActive = true
         setDetailsVisible(false)
         applyFontScale()
     }
