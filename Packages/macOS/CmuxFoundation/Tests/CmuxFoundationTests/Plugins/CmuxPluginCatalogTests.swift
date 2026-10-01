@@ -60,6 +60,13 @@ struct CmuxPluginCatalogTests {
         #expect(plugin.directory.path == source.resolvingSymlinksInPath().path)
         #expect(throws: CmuxPluginManifestError.self) { try installer.link(source, replacing: false) }
 
+        try CmuxPluginEnablementStore(fileURL: paths.enablementFile).enable("demo", fingerprint: plugin.fingerprint)
+        let replacement = home.appendingPathComponent("src/replacement", isDirectory: true)
+        try writePlugin(named: "demo", at: replacement)
+        _ = try installer.link(replacement, replacing: true)
+        #expect(CmuxPluginCatalog.load(paths: paths).plugin(named: "demo")?.status == .disabled)
+        #expect(CmuxPluginEnablementStore(fileURL: paths.enablementFile).load()["demo"] == nil)
+
         try installer.remove("demo")
         #expect(CmuxPluginCatalog.load(paths: paths).plugins.isEmpty)
         #expect(FileManager.default.fileExists(atPath: source.appendingPathComponent("cmux-plugin.toml").path))
@@ -76,18 +83,33 @@ struct CmuxPluginCatalogTests {
         let staging = try installer.makeStagingDirectory()
         let checkout = staging.appendingPathComponent("checkout", isDirectory: true)
         try writePlugin(named: "demo", at: checkout)
+        try "#!/bin/sh\necho first\n".write(
+            to: checkout.appendingPathComponent("run.sh"),
+            atomically: true,
+            encoding: .utf8
+        )
         #expect(CmuxPluginCatalog.load(paths: paths).plugins.isEmpty)
 
         let (manifest, _) = try installer.inspect(checkout)
         _ = try installer.commit(checkout, name: manifest.name, replacing: false)
-        #expect(CmuxPluginCatalog.load(paths: paths).plugin(named: "demo") != nil)
+        let installed = try #require(CmuxPluginCatalog.load(paths: paths).plugin(named: "demo"))
+        try CmuxPluginEnablementStore(fileURL: paths.enablementFile).enable("demo", fingerprint: installed.fingerprint)
 
         let second = try installer.makeStagingDirectory().appendingPathComponent("checkout", isDirectory: true)
+        // Keep the manifest byte-identical while changing the executable
+        // payload, which the manifest fingerprint cannot detect.
         try writePlugin(named: "demo", at: second)
+        try "#!/bin/sh\necho second\n".write(
+            to: second.appendingPathComponent("run.sh"),
+            atomically: true,
+            encoding: .utf8
+        )
         #expect(throws: CmuxPluginManifestError.self) {
             try installer.commit(second, name: "demo", replacing: false)
         }
         _ = try installer.commit(second, name: "demo", replacing: true)
+        #expect(CmuxPluginCatalog.load(paths: paths).plugin(named: "demo")?.status == .disabled)
+        #expect(CmuxPluginEnablementStore(fileURL: paths.enablementFile).load()["demo"] == nil)
     }
 
     @Test("Invocation resolves relative argv, quotes arguments, and exports context")

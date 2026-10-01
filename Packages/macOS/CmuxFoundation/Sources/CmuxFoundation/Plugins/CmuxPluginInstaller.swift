@@ -75,6 +75,10 @@ public struct CmuxPluginInstaller {
                 "plugin '\(destination.lastPathComponent)' is already installed; pass --force to replace it"
             )
         }
+        // Replacing the payload requires a fresh review even when the manifest
+        // bytes are unchanged. The manifest fingerprint alone cannot detect
+        // executable changes in a linked or installed plugin.
+        try CmuxPluginEnablementStore(fileURL: paths.enablementFile).disable(destination.lastPathComponent)
         try fileManager.removeItem(at: destination)
     }
 
