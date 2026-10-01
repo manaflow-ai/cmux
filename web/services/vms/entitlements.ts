@@ -324,6 +324,23 @@ export function maxActiveVmsForPlan(
 }
 
 /**
+ * Active-VM ceiling applied when RESUMING an existing paused machine, as
+ * opposed to creating a new one. Resume is not create: a machine the caller
+ * already owns must stay usable inside its free access window
+ * (https://github.com/manaflow-ai/cmux/issues/11094), so the ceiling is
+ * floored at 1 even when the plan's create limit is 0. Access verbs still
+ * refuse expired free machines via requireAccessibleUserVm, so this floor
+ * never outlives the window, and it never raises a paid plan's limit.
+ */
+export function maxResumeActiveVmsForPlan(
+  planId: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): number | null {
+  const limit = maxActiveVmsForPlan(planId, env);
+  return limit === null ? null : Math.max(1, limit);
+}
+
+/**
  * How long a free-plan machine stays reachable after it is created, in days.
  * After the window the machine (and its data) is preserved, but every access
  * verb (attach, ssh, exec, ports, sessions) requires a paid plan; list/status/
