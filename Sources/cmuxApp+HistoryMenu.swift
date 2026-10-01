@@ -46,6 +46,17 @@ extension cmuxApp {
                 snapshot: recentlyClosedSnapshot
             )
 
+            Button(String(localized: "command.openVaultPane.title", defaultValue: "Open History as Pane")) {
+                guard AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                    mode: .sessions,
+                    focusFirstItem: true,
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                ) == true else {
+                    NSSound.beep()
+                    return
+                }
+            }
+
             Divider()
 
             splitCommandButton(title: String(localized: "menu.file.restorePreviousAppLaunch", defaultValue: "Restore Previous Launch"), shortcut: menuShortcut(for: .reopenPreviousSession)) {

@@ -354,6 +354,7 @@ struct VaultHistoryWorkspaceTimelineProjection: Sendable {
         [
             workspace.stableId.map { "workspace-stable:\($0.uuidString)" },
             workspace.workspaceId.map { "workspace:\($0.uuidString)" },
+            workspace.windowId.map { "window:\($0.uuidString)" },
         ].compactMap { $0 }
     }
 
@@ -361,6 +362,7 @@ struct VaultHistoryWorkspaceTimelineProjection: Sendable {
         [
             event.subject.workspaceStableId.map { "workspace-stable:\($0.uuidString)" },
             event.subject.workspaceId.map { "workspace:\($0.uuidString)" },
+            event.subject.windowId.map { "window:\($0.uuidString)" },
         ].compactMap { $0 }
     }
 
