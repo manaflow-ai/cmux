@@ -31,7 +31,21 @@ struct TerminalCustomUploadRunner {
         let port: Int?
         let identityFile: String?
         let sshOptions: [String]
-        let remotePastePolicy: RemotePasteFileTransferPolicy = RemotePasteFileTransferPolicy()
+        let remotePastePolicy: RemotePasteFileTransferPolicy
+
+        init(
+            destination: String,
+            port: Int?,
+            identityFile: String?,
+            sshOptions: [String],
+            remotePastePolicy: RemotePasteFileTransferPolicy = RemotePasteFileTransferPolicy()
+        ) {
+            self.destination = destination
+            self.port = port
+            self.identityFile = identityFile
+            self.sshOptions = sshOptions
+            self.remotePastePolicy = remotePastePolicy
+        }
     }
 
     private let runProcess: ProcessRunner
