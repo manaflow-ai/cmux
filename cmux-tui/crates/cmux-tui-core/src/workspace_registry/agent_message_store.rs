@@ -90,6 +90,8 @@ pub(crate) struct AgentMessageFilter {
     pub(crate) sender: Option<String>,
     pub(crate) thread_id: Option<String>,
     pub(crate) state: Option<String>,
+    /// The oldest messages first instead of the newest.
+    pub(crate) oldest_first: bool,
 }
 
 /// Whether `value` names a recipient: a terminal agent (`term_<32 hex>`) or
@@ -358,7 +360,7 @@ pub(crate) fn mark(
     Ok(values)
 }
 
-/// Newest messages first.
+/// Newest messages first, or oldest first with [`AgentMessageFilter::oldest_first`].
 pub(crate) fn list(
     connection: &Connection,
     session_id: &str,
@@ -370,7 +372,8 @@ pub(crate) fn list(
     {
         return Err(bad_request("state must be queued, delivered, acknowledged or failed"));
     }
-    let mut statement = connection.prepare(
+    let order = if filter.oldest_first { "ASC" } else { "DESC" };
+    let mut statement = connection.prepare(&format!(
         "SELECT m.message_id FROM agent_messages AS m
          WHERE (?1 IS NULL OR m.sender = ?1)
            AND (?2 IS NULL OR m.thread_id = ?2)
@@ -383,9 +386,9 @@ pub(crate) fn list(
                  AND (?4 IS NULL OR d.state = ?4)
              )
            )
-         ORDER BY m.sequence DESC
-         LIMIT ?5",
-    )?;
+         ORDER BY m.sequence {order}
+         LIMIT ?5"
+    ))?;
     let ids = statement
         .query_map(
             params![
@@ -741,6 +744,10 @@ mod tests {
                 .collect()
         };
         assert_eq!(ids(AgentMessageFilter::default()), ["msg_3", "msg_2", "msg_1"]);
+        assert_eq!(
+            ids(AgentMessageFilter { oldest_first: true, ..Default::default() }),
+            ["msg_1", "msg_2", "msg_3"]
+        );
         let to_b = AgentMessageFilter { recipient: Some(TERM_B.into()), ..Default::default() };
         assert_eq!(ids(to_b.clone()), ["msg_3", "msg_1"]);
         assert_eq!(ids(AgentMessageFilter { state: Some("queued".into()), ..to_b }), ["msg_3"]);

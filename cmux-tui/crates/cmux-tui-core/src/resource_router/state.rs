@@ -543,6 +543,7 @@ pub(super) fn dispatch(
                 sender: string(fields, "sender"),
                 thread_id: string(fields, "thread_id"),
                 state: string(fields, "state"),
+                oldest_first: fields.get("oldest_first").and_then(Value::as_bool).unwrap_or(false),
             };
             let limit = index(fields, "limit").unwrap_or(50);
             mux.agent_message_list(selectors, &filter, limit).map(Value::Array)
