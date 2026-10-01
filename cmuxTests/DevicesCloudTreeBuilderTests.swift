@@ -23,13 +23,13 @@ struct DevicesCloudTreeBuilderTests {
     @Test("A Cloud workspace reveal is scoped by machine and remote workspace id")
     func cloudWorkspaceRevealIsMachineScoped() {
         let request = CloudTreeRevealRequest.cloudWorkspace(machineID: "machine-a", remoteWorkspaceID: "ws-7")
-        #expect(request.nodeID == CloudTreeNodeBuilder.nodeID(workspace: "ws-7", machine: .cloud("machine-a")))
+        #expect(request.nodeID == "machine:machine-a/ws/ws-7")
 
         let machineFallback = CloudTreeRevealRequest.cloudWorkspace(machineID: "machine-a", remoteWorkspaceID: nil)
-        #expect(machineFallback.nodeID == CloudTreeNodeBuilder.nodeID(machine: .cloud("machine-a")))
+        #expect(machineFallback.nodeID == "machine:machine-a")
 
         let blankFallback = CloudTreeRevealRequest.cloudWorkspace(machineID: "machine-a", remoteWorkspaceID: "   ")
-        #expect(blankFallback.nodeID == CloudTreeNodeBuilder.nodeID(machine: .cloud("machine-a")))
+        #expect(blankFallback.nodeID == "machine:machine-a")
     }
 
     @MainActor

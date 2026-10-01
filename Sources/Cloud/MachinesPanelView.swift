@@ -30,6 +30,7 @@ struct MachinesPanelView: View {
     /// only when the selected-workspace publisher emits, so routine catalog refreshes
     /// do not override an explicit tree selection.
     @State private var selectedCloudWorkspaceReveal: CloudTreeRevealRequest?
+    @State private var selectedWorkspaceID: UUID?
     @State private var selectedWorkspacePublisher: AnyPublisher<UUID?, Never>
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
@@ -153,6 +154,7 @@ struct MachinesPanelView: View {
             viewModel.refreshAccountScope()
         }
         .onReceive(selectedWorkspacePublisher) { selectedWorkspaceID in
+            self.selectedWorkspaceID = selectedWorkspaceID
             let workspace = selectedWorkspaceID.flatMap { id in
                 tabManager?.workspacesById[id]
             }
@@ -174,6 +176,19 @@ struct MachinesPanelView: View {
         .task(id: devBackend.attempt) {
             await devBackend.observe()
             if devBackend.status?.isReady == true { viewModel.refresh() }
+        }
+        .task(id: selectedWorkspaceID) {
+            guard let selectedWorkspaceID,
+                  let workspace = tabManager?.workspacesById[selectedWorkspaceID] else { return }
+            var isInitialRevision = true
+            for await _ in workspace.cloudBindingState.changes() {
+                if Task.isCancelled { break }
+                if isInitialRevision {
+                    isInitialRevision = false
+                    continue
+                }
+                selectedCloudWorkspaceReveal = cloudWorkspaceRevealRequest(for: workspace)
+            }
         }
         .accessibilityIdentifier("CloudMachinesPanel")
     }
