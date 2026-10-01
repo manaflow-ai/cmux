@@ -644,7 +644,8 @@ extension ControlCommandCoordinator {
         let resolution = context.controlSurfaceClose(
             routing: routing,
             surfaceID: surfaceID,
-            hasSurfaceIDParam: hasSurfaceIDParam
+            hasSurfaceIDParam: hasSurfaceIDParam,
+            force: bool(params, "force") ?? false
         )
         switch resolution {
         case .tabManagerUnavailable:
@@ -663,10 +664,16 @@ extension ControlCommandCoordinator {
             )
         case .lastSurface:
             return .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
+        case .confirmationRequired(let id):
+            return .err(
+                code: "confirmation_required",
+                message: context.controlSurfaceCloseStrings().confirmationRequired,
+                data: .object(["surface_id": .string(id.uuidString)])
+            )
         case .closeFailed(let id):
             return .err(
                 code: "internal_error",
-                message: "Failed to close surface",
+                message: context.controlSurfaceCloseStrings().failed,
                 data: .object(["surface_id": .string(id.uuidString)])
             )
         case .closed(let windowID, let workspaceID, let closedSurfaceID):

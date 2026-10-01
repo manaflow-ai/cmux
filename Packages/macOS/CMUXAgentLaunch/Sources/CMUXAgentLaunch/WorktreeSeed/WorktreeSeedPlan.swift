@@ -72,6 +72,12 @@ public struct WorktreeSeedPlan: Sendable, Equatable {
     public var alreadyPresent: [WorktreeSeedDecision]
     /// Patterns that matched nothing, so their author can delete or fix them.
     public var unmatched: [WorktreeSeedPattern]
+    /// Patterns whose walk ran out of directory budget before it finished.
+    ///
+    /// Kept apart from `unmatched`: a pattern that was cut short may well match
+    /// something, and telling its author it matched nothing reads as advice to
+    /// delete the line.
+    public var truncated: [WorktreeSeedPattern]
     /// `!` patterns whose only matches sit inside a wholesale-selected directory.
     ///
     /// Those cannot be honored, and a silent no-op would read as an exclusion
@@ -88,6 +94,7 @@ public struct WorktreeSeedPlan: Sendable, Equatable {
         shadowed: [WorktreeSeedShadow] = [],
         alreadyPresent: [WorktreeSeedDecision] = [],
         unmatched: [WorktreeSeedPattern] = [],
+        truncated: [WorktreeSeedPattern] = [],
         ineffectiveNegations: [WorktreeSeedShadow] = [],
         reachedWalkLimit: Bool = false
     ) {
@@ -97,6 +104,7 @@ public struct WorktreeSeedPlan: Sendable, Equatable {
         self.shadowed = shadowed
         self.alreadyPresent = alreadyPresent
         self.unmatched = unmatched
+        self.truncated = truncated
         self.ineffectiveNegations = ineffectiveNegations
         self.reachedWalkLimit = reachedWalkLimit
     }
