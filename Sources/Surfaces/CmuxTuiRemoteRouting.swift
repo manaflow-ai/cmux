@@ -20,22 +20,6 @@ enum CmuxTuiRemoteRouting {
         }
     }
 
-    /// Returns the bounded polling cadence used by VM readiness tests and routing fixtures.
-    ///
-    /// Invalid or oversized environment overrides fall back to the command-safe cadence.
-    static func vmReadyPollInterval(
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> TimeInterval {
-        guard let raw = environment["CMUX_VM_WAIT_POLL_SECONDS"],
-              let parsed = TimeInterval(raw),
-              parsed.isFinite,
-              parsed >= 0.01,
-              parsed <= 3 else {
-            return 3
-        }
-        return parsed
-    }
-
     static func isAgentSubcommand(_ raw: String?) -> Bool {
         raw?.lowercased() == "agent"
     }
