@@ -17,7 +17,7 @@ nonisolated private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app
 /// Routes Settings actions to app-owned services, keeping the package independent.
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
-    let customSidebarTemplateGalleryRequest = CustomSidebarTemplateGalleryRequest()
+    let customSidebarTemplateGalleryRequest: CustomSidebarTemplateGalleryRequest
     let computersActions: ComputersSettingsActions
     private let configFileURL: URL
     private let browserDataImportCoordinator: BrowserDataImportCoordinator
