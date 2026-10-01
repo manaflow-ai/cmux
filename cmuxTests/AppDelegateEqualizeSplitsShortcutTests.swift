@@ -499,10 +499,8 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
         window.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
         let seededSplits = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
         XCTAssertGreaterThanOrEqual(seededSplits.count, 2, "Expected nested splits")
-
         var seededTargetsBySplitId: [String: Double] = [:]
         for (index, split) in seededSplits.enumerated() {
             guard let splitId = UUID(uuidString: split.id) else {
@@ -513,7 +511,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             seededTargetsBySplitId[split.id] = Double(targetPosition)
             XCTAssertTrue(workspace.bonsplitController.setDividerPosition(targetPosition, forSplit: splitId))
         }
-
         let postSeedSplits = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
         XCTAssertEqual(postSeedSplits.count, seededSplits.count)
         for split in postSeedSplits {
@@ -524,7 +521,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             XCTAssertEqual(split.dividerPosition, targetPosition, accuracy: 0.000_1)
             XCTAssertNotEqual(split.dividerPosition, 0.5, accuracy: 0.000_1)
         }
-
         workspace.splitTabBar(workspace.bonsplitController, didChangeGeometry: workspace.bonsplitController.layoutSnapshot())
         guard let seededLayoutSnapshot = await shortcutRoutingAwaitPublishedLayout(workspace, until: {
             $0.panes == workspace.bonsplitController.layoutSnapshot().panes
@@ -535,12 +531,10 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         let expectedEqualizedPositions = shortcutRoutingExpectedEqualizedDividerPositions(
             in: workspace.bonsplitController.treeSnapshot()
         )
-
         guard let event = makeKeyDownEvent(key: "=", modifiers: [.command, .control, .shift], keyCode: 24, windowNumber: window.windowNumber) else {
             XCTFail("Failed to construct Cmd+Ctrl+Shift+= event")
             return
         }
-
 #if DEBUG
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
 #else
@@ -548,7 +542,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         return
 #endif
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.35))
-
         let equalizedSplits = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
         XCTAssertEqual(equalizedSplits.count, seededSplits.count)
         let equalizedLeafCount = shortcutRoutingAssertProportionalEqualizedTree(
@@ -562,7 +555,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             }
             XCTAssertEqual(split.dividerPosition, expectedPosition, accuracy: 0.000_1)
         }
-
         // Wait for the equalize to be published rather than for the cache to
         // match the live tree: waiting on equality would make the frame
         // comparison below true by construction. Waiting for the cache to
@@ -688,19 +680,13 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return
             }
 
-            // A new window takes its right sidebar mode and visibility from
-            // standard defaults, and a visible Dock mode mounts the Dock while
-            // the window is created. Tests that drive the Dock (for example
-            // DockSocketLifecycleTests) save exactly that state, so start this
-            // window with the Dock hidden, as the assertions below require.
+            // Keep this window's right sidebar hidden; app-host processes share
+            // persisted Dock state with other tests.
             let defaults = UserDefaults.standard
-            let previousRightSidebarMode = defaults.object(forKey: "rightSidebar.mode")
-            let previousRightSidebarVisibility = defaults.object(forKey: "fileExplorer.isVisible")
-            defaults.set(RightSidebarMode.files.rawValue, forKey: "rightSidebar.mode")
-            defaults.set(false, forKey: "fileExplorer.isVisible")
+            let previousRightSidebarMode = defaults.object(forKey: "rightSidebar.mode"); let previousRightSidebarVisibility = defaults.object(forKey: "fileExplorer.isVisible")
+            defaults.set(RightSidebarMode.files.rawValue, forKey: "rightSidebar.mode"); defaults.set(false, forKey: "fileExplorer.isVisible")
             defer {
-                defaults.set(previousRightSidebarMode, forKey: "rightSidebar.mode")
-                defaults.set(previousRightSidebarVisibility, forKey: "fileExplorer.isVisible")
+                defaults.set(previousRightSidebarMode, forKey: "rightSidebar.mode"); defaults.set(previousRightSidebarVisibility, forKey: "fileExplorer.isVisible")
             }
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
@@ -718,10 +704,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return
             }
 
-            XCTAssertNil(
-                appDelegate.existingWindowDock(forWindowId: windowId),
-                "A new window with a hidden right sidebar must not have a Dock yet"
-            )
+            XCTAssertNil(appDelegate.existingWindowDock(forWindowId: windowId), "A new window with a hidden right sidebar must not have a Dock yet")
             window.makeKeyAndOrderFront(nil)
             window.displayIfNeeded()
 
