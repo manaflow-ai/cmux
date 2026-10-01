@@ -5292,7 +5292,7 @@
     "haveAccount": "Har du allerede en konto?",
     "signInLink": "Logg inn",
     "checkEmailTitle": "Sjekk e-posten din",
-    "checkEmailBody": "Skriv inn den 6-tegns koden vi sendte til {email}.",
+    "checkEmailBody": "Skriv inn koden på 6 tegn som vi sendte til {email}.",
     "codeLabel": "Kode",
     "back": "Tilbake",
     "resendCode": "Send koden på nytt",

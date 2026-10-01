@@ -5277,7 +5277,7 @@
     "signUpTitle": "建立 cmux 帳號",
     "signUpSubtitle": "一個帳號即可使用應用程式、Cloud 和主控台。",
     "continueWithProvider": "使用 {provider} 繼續",
-    "signInWithPasskey": "使用密碼金鑰登入",
+    "signInWithPasskey": "使用通行密鑰登入",
     "or": "或",
     "emailLabel": "電子郵件",
     "emailPlaceholder": "you@company.com",
@@ -5294,7 +5294,7 @@
     "haveAccount": "已有帳號？",
     "signInLink": "登入",
     "checkEmailTitle": "查看你的電子郵件",
-    "checkEmailBody": "輸入我們寄到 {email} 的 6 位驗證碼。",
+    "checkEmailBody": "輸入我們寄到 {email} 的 6 個字元驗證碼。",
     "codeLabel": "驗證碼",
     "back": "返回",
     "resendCode": "重新寄送驗證碼",
@@ -5322,7 +5322,7 @@
     "errorInvalidCode": "驗證碼無效。請檢查電子郵件後再試一次。",
     "errorInvalidTotp": "雙重驗證碼無效。",
     "errorSignUpNotAllowed": "目前無法建立新帳號。",
-    "errorPasskey": "密碼金鑰登入未完成。請再試一次或改用其他方式。",
+    "errorPasskey": "通行密鑰登入未完成。請再試一次或改用其他方式。",
     "errorGeneric": "發生問題，請再試一次。"
   },
   "MobileRelease106": {

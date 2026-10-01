@@ -5306,7 +5306,7 @@
     "signingInAs": "Iniciando sesión como {account}…",
     "sessionEnded": "Se cerró la sesión de esta cuenta. Vuelve a iniciar sesión para continuar.",
     "redirecting": "Iniciando sesión…",
-    "lastUsed": "último usado",
+    "lastUsed": "último uso",
     "legal": "Al continuar aceptas los {terms} y la {privacy}.",
     "termsOfService": "Términos de servicio",
     "privacyPolicy": "Política de privacidad",

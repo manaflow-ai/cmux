@@ -169,7 +169,9 @@ describe("accounts this browser has used", () => {
     const history = rememberAccount(rememberAccount([], a, 1), b, 2);
     expect(forgetAccount(history, "a").map((entry) => entry.id)).toEqual(["b"]);
     expect(otherAccounts(history, "b").map((entry) => entry.id)).toEqual(["a"]);
-    expect(otherAccounts([{ id: "c", email: null, displayName: "No email", lastSeenAt: 1 }], "a")).toEqual([]);
+    // A name is enough to show the row; with neither name nor email there's nothing to show.
+    expect(otherAccounts([{ id: "c", email: null, displayName: "No email", lastSeenAt: 1 }], "a").map((entry) => entry.id)).toEqual(["c"]);
+    expect(otherAccounts([{ id: "d", email: null, displayName: null, lastSeenAt: 1 }], "a")).toEqual([]);
   });
 
   test("a damaged or foreign stored value reads as an empty or cleaned list", () => {
@@ -234,6 +236,10 @@ describe("hosted error pages", () => {
   test("any other failure maps to the generic page, and a normal return is left alone", () => {
     expect(hostedAuthErrorRedirect("oauth-callback", q("error=access_denied"))).toBe("/handler/auth-error");
     expect(hostedAuthErrorRedirect("oauth-callback", q("code=abc&state=xyz"))).toBeNull();
+    // The return target survives, so "back to sign in" still finishes the original sign-in.
+    const kept = new URL(hostedAuthErrorRedirect("error", q("errorCode=X&after_auth_return_to=%2Fdashboard&other=1"))!, "https://cmux.test");
+    expect(kept.searchParams.get("after_auth_return_to")).toBe("/dashboard");
+    expect(kept.searchParams.has("other")).toBe(false);
     expect(hostedAuthErrorRedirect("sign-in", q("error=x"))).toBeNull();
   });
 });

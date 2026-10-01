@@ -5308,7 +5308,7 @@
     "sessionEnded": "Questo account è stato disconnesso. Accedi di nuovo per continuare.",
     "redirecting": "Accesso in corso…",
     "lastUsed": "ultimo usato",
-    "legal": "Continuando accetti i {terms} e la {privacy}.",
+    "legal": "Continuando accetti i {terms} e l'{privacy}.",
     "termsOfService": "Termini di servizio",
     "privacyPolicy": "Informativa sulla privacy",
     "signUpDisabled": "Al momento non è possibile creare nuovi account.",

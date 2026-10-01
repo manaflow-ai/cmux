@@ -191,9 +191,9 @@ export function forgetAccount(history: RememberedAccount[], id: string): Remembe
   return history.filter((entry) => entry.id !== id);
 }
 
-/** The chooser's other rows: every remembered account except the signed-in one. */
+/** The chooser's other rows: every remembered account except the signed-in one, if it has a name or email to show. */
 export function otherAccounts(history: RememberedAccount[], currentId: string): RememberedAccount[] {
-  return history.filter((entry) => entry.id !== currentId && entry.email);
+  return history.filter((entry) => entry.id !== currentId && (entry.email || entry.displayName));
 }
 
 // MARK: Hosted error pages
@@ -223,8 +223,18 @@ export function hostedAuthErrorRedirect(
   const emailInUse =
     /CONTACT_CHANNEL_ALREADY_USED_FOR_AUTH_BY_SOMEONE_ELSE/.test(detail) ||
     /already used for authentication by another account/i.test(detail);
-  return emailInUse ? "/handler/auth-error?code=email-unverified" : "/handler/auth-error";
+  const target = new URL("/handler/auth-error", "https://cmux.com");
+  if (emailInUse) target.searchParams.set("code", "email-unverified");
+  // The recovery page's "back to sign in" keeps whatever return target this
+  // URL carries, so a retry still finishes the original web or app sign-in.
+  for (const name of RETURN_PARAMS) {
+    const value = params.get(name);
+    if (value) target.searchParams.set(name, value);
+  }
+  return `${target.pathname}${target.search}`;
 }
+
+const RETURN_PARAMS = ["after_auth_return_to", "web_return_to", "native_app_return_to"] as const;
 
 // MARK: How a remembered account signs in
 

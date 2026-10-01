@@ -31,6 +31,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .hosted :global(.stack-scope:has(> svg.animate-spin))::before {
-    animation-duration: 2.4s;
+    animation: none;
   }
 }

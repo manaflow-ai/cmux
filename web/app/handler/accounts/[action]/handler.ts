@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   dropSession,
   findSession,
+  fitToCookie,
   isAccountId,
   readSessions,
   saveSession,
@@ -54,7 +55,9 @@ export function makeAccountsHandler(dependencies: AccountsDependencies) {
 
     async function keepCurrent(list: SavedSession[]): Promise<SavedSession[]> {
       const current = await dependencies.currentSession(request).catch(() => null);
-      return current ? saveSession(list, { id: current.id, refreshToken: current.refreshToken, savedAt: now() }) : list;
+      const next = current ? saveSession(list, { id: current.id, refreshToken: current.refreshToken, savedAt: now() }) : list;
+      // Newest first, so anything that doesn't fit in one cookie is the oldest.
+      return fitToCookie(next, secret!);
     }
 
     // A session pushed off the end of the list, or replaced by a newer one
@@ -80,18 +83,26 @@ export function makeAccountsHandler(dependencies: AccountsDependencies) {
       }
 
       case "check": {
-        const results = await Promise.all(
-          sessions.map(async (session) => {
+        const checked = await Promise.all(
+          sessions.map(async (session): Promise<SavedSession | null> => {
+            let result: SessionLookup;
             try {
-              const result = await dependencies.lookup(session.refreshToken);
-              return result.status === "valid" && result.id === session.id;
+              result = await dependencies.lookup(session.refreshToken);
             } catch {
               // The service did not answer: keep it, and let a switch decide.
-              return true;
+              return session;
             }
+            if (result.status !== "valid") return null;
+            if (result.id !== session.id) {
+              // Live but someone else's: end it rather than strand it.
+              await dependencies.revoke(session.refreshToken).catch(() => {});
+              return null;
+            }
+            // Follow a rotated refresh token, so the next switch uses the live one.
+            return { ...session, refreshToken: result.tokens.refreshToken };
           }),
         );
-        const next = sessions.filter((_, index) => results[index]);
+        const next = checked.filter((session): session is SavedSession => session !== null);
         return reply({ signedIn: next.map((session) => session.id) }, next);
       }
 
@@ -109,9 +120,11 @@ export function makeAccountsHandler(dependencies: AccountsDependencies) {
         // The saved token must still be that same account's. Anything else is
         // dropped and never handed back.
         if (result.status !== "valid" || result.id !== accountId) {
+          // A live token for someone else is ended, not just forgotten.
+          if (result.status === "valid") await dependencies.revoke(saved.refreshToken).catch(() => {});
           return reply({ status: "signed-out" }, dropSession(sessions, accountId));
         }
-        const next = saveSession(await keepCurrent(sessions), { id: accountId, refreshToken: result.tokens.refreshToken, savedAt: now() });
+        const next = fitToCookie(saveSession(await keepCurrent(sessions), { id: accountId, refreshToken: result.tokens.refreshToken, savedAt: now() }), secret);
         await endEvicted(next);
         const response = reply({ status: "ok", tokens: result.tokens }, next);
         response.headers.set("cache-control", "no-store");

@@ -5295,7 +5295,7 @@
     "haveAccount": "已有账号？",
     "signInLink": "登录",
     "checkEmailTitle": "查看你的邮箱",
-    "checkEmailBody": "输入我们发送到 {email} 的 6 位验证码。",
+    "checkEmailBody": "输入我们发送到 {email} 的 6 个字符的验证码。",
     "codeLabel": "验证码",
     "back": "返回",
     "resendCode": "重新发送验证码",

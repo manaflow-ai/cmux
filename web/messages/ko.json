@@ -5292,7 +5292,7 @@
     "haveAccount": "이미 계정이 있으신가요?",
     "signInLink": "로그인",
     "checkEmailTitle": "이메일을 확인하세요",
-    "checkEmailBody": "{email}(으)로 보낸 6자리 코드를 입력하세요.",
+    "checkEmailBody": "{email}(으)로 보낸 6자 영숫자 코드를 입력하세요.",
     "codeLabel": "코드",
     "back": "뒤로",
     "resendCode": "코드 다시 보내기",

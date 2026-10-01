@@ -20,8 +20,9 @@ function post(action: string, body: Record<string, unknown> = {}, keepalive = fa
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
       keepalive,
-      // A keepalive request outlives the page; it can't be timed out from it.
-      signal: keepalive ? undefined : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      // Every request holds the queue, so every request gets a deadline,
+      // keepalive ones included.
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   const next = queue.then(run, run);
   queue = next.catch(() => {});
@@ -83,10 +84,10 @@ export function forgetSession(accountId: string): Promise<void> {
 }
 
 /**
- * Ends every saved session on this browser: part of an explicit sign-out,
- * before the SDK ends the current one. Tried twice; a sign-out still goes
- * ahead if both fail, since keeping someone signed in is worse. Use
- * `keepalive` when the page may leave before the answer comes back.
+ * Ends every saved session on this browser: part of an explicit sign-out.
+ * Tried twice. Use `keepalive` when the page may leave before the answer
+ * comes back. Callers sign out first and never wait on this, so a slow
+ * cleanup can't hold up the sign-out itself.
  */
 export async function forgetAllSessions(options: { keepalive?: boolean } = {}): Promise<void> {
   for (let attempt = 0; attempt < 2; attempt += 1) {

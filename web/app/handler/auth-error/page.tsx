@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { preferredLocaleFromAcceptLanguage } from "../../../i18n/accept-language";
 import { loadMessages } from "../../../i18n/messages";
 import type { Locale } from "../../../i18n/routing";
+import { DemoteFailedProvider } from "../demote-failed-provider";
 
 type AuthErrorMessageKey = "emailUnverified" | "signupPending" | "generic";
 
@@ -54,6 +55,7 @@ export default async function AuthErrorPage({
       className="flex min-h-screen items-center justify-center bg-background px-4 py-12 text-foreground"
       dir={direction}
     >
+      {key !== "signupPending" && <DemoteFailedProvider />}
       <section
         className="w-full max-w-[340px]"
         data-auth-error={key}

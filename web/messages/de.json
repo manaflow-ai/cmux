@@ -5295,7 +5295,7 @@
     "haveAccount": "Bereits ein Konto?",
     "signInLink": "Anmelden",
     "checkEmailTitle": "Prüfe deine E-Mails",
-    "checkEmailBody": "Gib den 6-stelligen Code ein, den wir an {email} gesendet haben.",
+    "checkEmailBody": "Gib den 6 Zeichen langen Code ein, den wir an {email} gesendet haben.",
     "codeLabel": "Code",
     "back": "Zurück",
     "resendCode": "Code erneut senden",

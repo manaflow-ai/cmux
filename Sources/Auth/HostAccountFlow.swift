@@ -199,11 +199,15 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// account. The browser may still hold a cmux session; the page's chooser
     /// offers "continue as" that account or a different one.
     func switchAccount() async {
-        // Clicking again while a switch is open (its window may be behind
-        // other windows) replaces that attempt with a fresh window. The
-        // sign-out already happened, so it is not repeated.
+        // Clicking again while a switch's window is open (it may be behind
+        // other windows) replaces that attempt with a fresh window; the
+        // sign-out already happened, so it is not repeated. A click while the
+        // sign-out is still running is dropped: there is no window yet, and
+        // starting one would race the sign-out.
         if isSwitchingAccount {
-            switchAttempt = browserSignIn.beginSignIn(selectAccount: true)
+            if switchAttempt != nil {
+                switchAttempt = browserSignIn.beginSignIn(selectAccount: true)
+            }
             return
         }
         isSwitchingAccount = true

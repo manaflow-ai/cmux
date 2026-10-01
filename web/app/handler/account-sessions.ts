@@ -58,6 +58,21 @@ export function sealSessions(sessions: SavedSession[], secret: string): string {
   return `${VAULT_VERSION}.${Buffer.concat([iv, sealed, cipher.getAuthTag()]).toString("base64url")}`;
 }
 
+/**
+ * Browsers drop a cookie over about 4 KB, which would lose every saved
+ * session at once. The list is newest first, so this keeps the newest
+ * sessions that fit and leaves the rest for the caller to end.
+ */
+export const ACCOUNT_SESSIONS_MAX_COOKIE_BYTES = 3800;
+
+export function fitToCookie(sessions: SavedSession[], secret: string): SavedSession[] {
+  let kept = sessions;
+  while (kept.length > 1 && sealSessions(kept, secret).length > ACCOUNT_SESSIONS_MAX_COOKIE_BYTES) {
+    kept = kept.slice(0, -1);
+  }
+  return kept;
+}
+
 /** The sessions in a sealed value. Anything damaged, foreign or from an old key reads as none. */
 export function openSessions(value: string | null | undefined, secret: string): SavedSession[] {
   if (!value?.startsWith(`${VAULT_VERSION}.`)) return [];

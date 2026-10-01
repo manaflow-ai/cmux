@@ -5,8 +5,10 @@ process.env.SKIP_ENV_VALIDATION = "1";
 
 const {
   ACCOUNT_SESSIONS_COOKIE,
+  ACCOUNT_SESSIONS_MAX_COOKIE_BYTES,
   ACCOUNT_SESSIONS_PATH,
   dropSession,
+  fitToCookie,
   openSessions,
   saveSession,
   sealSessions,
@@ -235,5 +237,34 @@ describe("account session routes: housekeeping", () => {
     const replaced = harness({ sessions: [a], current: { id: "user-a", refreshToken: "refresh-a-new" } });
     await replaced.call("save");
     expect(replaced.revoke.mock.calls.map(([token]) => token)).toEqual(["refresh-a"]);
+  });
+});
+
+describe("account session routes: review follow-ups", () => {
+  test("check follows a rotated refresh token", async () => {
+    const { saved } = await harness({
+      sessions: [a],
+      lookup: async () => ({ status: "valid", id: "user-a", tokens: { accessToken: "x", refreshToken: "refresh-a-rotated" } }),
+    }).call("check");
+    expect(saved?.[0].refreshToken).toBe("refresh-a-rotated");
+  });
+
+  test("a live token that resolves to someone else is revoked, in check and in switch", async () => {
+    const elsewhere = async () => ({ status: "valid" as const, id: "user-z", tokens: { accessToken: "z", refreshToken: "refresh-b" } });
+    const checked = harness({ sessions: [b], lookup: elsewhere });
+    await checked.call("check");
+    expect(checked.revoke).toHaveBeenCalledWith("refresh-b");
+    const switched = harness({ sessions: [b], lookup: elsewhere });
+    await switched.call("switch", { accountId: "user-b" });
+    expect(switched.revoke).toHaveBeenCalledWith("refresh-b");
+  });
+
+  test("the list is trimmed, oldest first, to what one cookie can hold", () => {
+    const long = Array.from({ length: 5 }, (_, index) => ({ id: `user-${index}`, refreshToken: "r".repeat(900) + index, savedAt: index }));
+    const kept = fitToCookie(long, SECRET);
+    expect(kept.length).toBeLessThan(long.length);
+    expect(kept.map((entry) => entry.id)).toEqual(long.slice(0, kept.length).map((entry) => entry.id));
+    expect(sealSessions(kept, SECRET).length).toBeLessThanOrEqual(ACCOUNT_SESSIONS_MAX_COOKIE_BYTES);
+    expect(fitToCookie([a, b], SECRET)).toEqual([a, b]);
   });
 });

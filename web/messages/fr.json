@@ -5307,7 +5307,7 @@
     "forgetAccount": "Retirer {account} de cette liste",
     "signedOut": "Déconnecté",
     "signingInAs": "Connexion en tant que {account}…",
-    "sessionEnded": "Ce compte a été déconnecté. Reconnecte-toi pour continuer.",
+    "sessionEnded": "Ce compte a été déconnecté. Reconnectez-vous pour continuer.",
     "redirecting": "Connexion en cours…",
     "lastUsed": "dernière utilisation",
     "legal": "En continuant, vous acceptez les {terms} et la {privacy}.",
