@@ -38,6 +38,7 @@ struct BrowserPanelWindowPresenceProbe: NSViewRepresentable {
 
     func updateNSView(_ nsView: BrowserPanelWindowPresenceView, context: Context) {
         presence.probeView = nsView
+        let panel = panel
         nsView.onLeaveWindow = {
             panel.noteWebViewVisibility(false, reason: "view.leftWindow")
         }
@@ -46,7 +47,6 @@ struct BrowserPanelWindowPresenceProbe: NSViewRepresentable {
             nsView.onLeaveWindow = nil
             return
         }
-        let panel = panel
         nsView.onEnterWindow = {
             panel.noteWebViewVisibility(true, reason: "view.enteredWindow")
         }
