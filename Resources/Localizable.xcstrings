@@ -511132,6 +511132,20 @@
         }
       }
     },
+    "cloud.link.transportLost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The Cloud VM service connection was lost. Refresh to reconnect."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Cloud-VM-Dienstverbindung wurde getrennt. Aktualisieren Sie zum erneuten Verbinden."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La connexion au service de la VM Cloud a été interrompue. Actualisez pour vous reconnecter."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "انقطع اتصال خدمة الجهاز الافتراضي السحابي. حدّث الصفحة لإعادة الاتصال."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Se perdió la conexión con el servicio de la máquina virtual de Cloud. Actualiza para volver a conectarte."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Cloud 虛擬機器服務連線已中斷。請重新整理以重新連線。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Cloud 虚拟机服务连接已断开。请刷新以重新连接。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Cloud VM 서비스 연결이 끊겼습니다. 새로 고침하여 다시 연결하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud VM サービスへの接続が失われました。更新して再接続してください。"}}
+      }
+    },
     "cloud.link.inputTooLarge": {
       "extractionState": "manual",
       "localizations": {

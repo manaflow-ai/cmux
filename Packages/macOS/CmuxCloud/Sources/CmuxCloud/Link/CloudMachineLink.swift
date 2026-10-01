@@ -97,7 +97,10 @@ public actor CloudMachineLink {
                 let tail = output.split(separator: "\n").suffix(3).joined(separator: " · ")
                 return "cmux-tui link exited with status \(status)" + (tail.isEmpty ? "" : ": \(tail)")
             case .transportLost:
-                return "The Cloud VM service connection was lost. Refresh to reconnect."
+                return String(
+                    localized: "cloud.link.transportLost",
+                    defaultValue: "The Cloud VM service connection was lost. Refresh to reconnect."
+                )
             case .timedOut:
                 return "cmux-tui link did not report a socket within the connect timeout."
             }
