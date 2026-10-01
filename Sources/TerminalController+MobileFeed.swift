@@ -18,14 +18,25 @@ extension TerminalController {
               let offset = params["offset"] as? Int, offset >= 0 else {
             return .err(code: "invalid_params", message: "Expected item_id and a nonnegative offset", data: nil)
         }
-        guard let item = FeedCoordinator.shared.snapshot(pendingOnly: false).first(where: { $0.id == id }) else {
+        let item = FeedCoordinator.shared.snapshot(pendingOnly: false).first(where: { $0.id == id })
+        // Older phones can retain a notification row from the former mixed
+        // Feed after this Mac stops listing notification history. Keep the
+        // text read compatible with those cached rows; new list responses
+        // never create or refresh them.
+        let notification = item == nil
+            ? TerminalNotificationStore.shared.notificationFeedHistory.notifications.first(where: { $0.id == id })
+            : nil
+        guard item != nil || notification != nil else {
             return .err(code: "not_found", message: "Feed item is no longer available", data: nil)
         }
-        let version = item.updatedAt.timeIntervalSinceReferenceDate
+        let version = (item?.updatedAt ?? notification!.createdAt).timeIntervalSinceReferenceDate
         if offset > 0, (params["version"] as? Double) != version {
             return .err(code: "stale_item", message: "Feed item changed while reading", data: nil)
         }
-        guard let page = WorkstreamTextPage(text: item.fullText, offset: offset) else {
+        let fullText = item?.fullText ?? [notification!.title, notification!.subtitle, notification!.body]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        guard let page = WorkstreamTextPage(text: fullText, offset: offset) else {
             return .err(code: "invalid_params", message: "Invalid text offset", data: nil)
         }
         var result: [String: Any] = ["text": page.text, "version": version]

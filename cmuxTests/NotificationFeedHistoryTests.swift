@@ -822,11 +822,12 @@ struct NotificationFeedHistoryTests {
         let textResponse = TerminalController.shared.v2MobileFeedText(
             params: ["item_id": notification.id.uuidString, "offset": 0]
         )
-        guard case let .err(code, _, _) = textResponse else {
-            Issue.record("Expected notification history item to be absent from feed.text")
+        guard case let .ok(rawTextPayload) = textResponse,
+              let textPayload = rawTextPayload as? [String: Any] else {
+            Issue.record("Expected cached notification row to remain readable by feed.text")
             return
         }
-        #expect(code == "not_found")
+        #expect(textPayload["text"] as? String == "Notification said\nAgent\nHello from Codex")
     }
 
     @Test func feedListBoundsOversizedLeadingRowWithoutDroppingFeed() async throws {
