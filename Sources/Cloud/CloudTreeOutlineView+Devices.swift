@@ -13,6 +13,17 @@ struct CloudTreeRevealRequest: Equatable {
         CloudTreeRevealRequest(token: UUID(), nodeID: CloudTreeNodeBuilder.nodeID(machine: machine))
     }
 
+    /// Reveals a Cloud workspace by its machine and daemon workspace ids.
+    /// Legacy bindings without a remote workspace id fall back to the machine row.
+    static func cloudWorkspace(machineID: String, remoteWorkspaceID: String?) -> CloudTreeRevealRequest {
+        let machine = SurfaceMachineID.cloud(machineID)
+        let workspaceID = remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nodeID = workspaceID.flatMap { value in
+            value.isEmpty ? nil : CloudTreeNodeBuilder.nodeID(workspace: value, machine: machine)
+        } ?? CloudTreeNodeBuilder.nodeID(machine: machine)
+        return CloudTreeRevealRequest(token: UUID(), nodeID: nodeID)
+    }
+
     func path(in nodes: [CloudTreeNode]) -> [CloudTreeNode]? {
         CloudTreeNode.path(to: nodeID, in: nodes)
     }

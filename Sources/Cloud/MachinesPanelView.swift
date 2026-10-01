@@ -5,6 +5,7 @@ import CmuxCloudMachines
 import CmuxSettings
 import CmuxSurfaceCatalogModel
 import SwiftUI
+import Combine
 
 /// Right-sidebar Machines tab: the user's cloud machine fleet as a Finder-like
 /// tree (machine → Workspaces → terminals, Ports, Displays, Terminals). Matches the
@@ -25,6 +26,11 @@ struct MachinesPanelView: View {
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
     @State private var bannerDismissals: CloudBannerDismissalStore
+    /// Latest main-workspace selection to reveal in this panel. The token changes
+    /// only when the selected-workspace publisher emits, so routine catalog refreshes
+    /// do not override an explicit tree selection.
+    @State private var selectedCloudWorkspaceReveal: CloudTreeRevealRequest?
+    @State private var selectedWorkspacePublisher: AnyPublisher<UUID?, Never>
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
@@ -43,6 +49,10 @@ struct MachinesPanelView: View {
         self.chromeBackgroundColor = chromeBackgroundColor
         self.tabManager = tabManager
         self.teamPickerPresentation = teamPickerPresentation
+        _selectedWorkspacePublisher = State(initialValue:
+            tabManager?.selectedTabIdPublisher.eraseToAnyPublisher()
+                ?? Just(nil).eraseToAnyPublisher()
+        )
         _bannerDismissals = State(
             initialValue: AppDelegate.shared?.cloudBannerDismissalStore
                 ?? CloudBannerDismissalStore(defaults: .standard)
@@ -141,6 +151,9 @@ struct MachinesPanelView: View {
         }
         .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
             viewModel.refreshAccountScope()
+        }
+        .onReceive(selectedWorkspacePublisher) { _ in
+            selectedCloudWorkspaceReveal = cloudWorkspaceRevealRequest(for: tabManager?.selectedWorkspace)
         }
         .onDisappear {
             viewModel.stopPolling()
@@ -459,9 +472,18 @@ struct MachinesPanelView: View {
             canCreateCloudMachine: includesCloud,
             cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
             reveal: devicesModel.revealRequest,
+            cloudWorkspaceReveal: selectedCloudWorkspaceReveal,
             creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
         )
         .accessibilityIdentifier("CloudMachinesTree")
+    }
+
+    private func cloudWorkspaceRevealRequest(for workspace: Workspace?) -> CloudTreeRevealRequest? {
+        guard let workspace, let machineID = workspace.cloudVMID else { return nil }
+        return CloudTreeRevealRequest.cloudWorkspace(
+            machineID: machineID,
+            remoteWorkspaceID: workspace.cloudVMBinding?.remoteWorkspaceID
+        )
     }
 
     @ViewBuilder

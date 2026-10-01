@@ -34,6 +34,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var source: CloudTreeMachineSource = .cloud
     var devicesSection: CloudTreeDevicesSection = .init()
     var showsCloudVPNWarning = false
+    /// Main-workspace selection to mirror in the Cloud tree when this panel is mounted.
+    var cloudWorkspaceReveal: CloudTreeRevealRequest? = nil
     /// The Cloud Machines header's New Machine "+" and its plan count (nil until the plan loads).
     var canCreateCloudMachine: Bool = false
     var cloudMachinesUsage: CloudMachinesUsage? = nil
@@ -79,6 +81,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             cloudMachinesUsage: cloudMachinesUsage
         ))
         context.coordinator.reveal(reveal)
+        context.coordinator.reveal(cloudWorkspaceReveal)
         context.coordinator.reveal(creation: creationReveal)
     }
     // MARK: - Coordinator
