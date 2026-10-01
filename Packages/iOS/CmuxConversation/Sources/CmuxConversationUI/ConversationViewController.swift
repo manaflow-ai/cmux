@@ -170,6 +170,7 @@ public final class ConversationViewController: UIViewController {
         updateInsets()
         let available = composerContainer.frame.maxY - header.frame.maxY - 8
         composer.maximumFieldHeight = max(ConversationTheme.composerMinHeight, available - 8)
+        layoutReplyOverlay()
     }
 
     public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {

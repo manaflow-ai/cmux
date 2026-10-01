@@ -16,6 +16,8 @@ final class ConversationHeaderView: UIView {
     private let unreadLabel = UILabel()
     private let unreadPill = UIView()
     private var avatars: [ConversationAvatarView] = []
+    /// Group chats seat their avatar cluster on a 60 pt glass disc.
+    private let clusterDisc = makeGlassView(cornerRadius: 30)
     let namePillGlass = makeGlassView(cornerRadius: 16.5, interactive: true)
     let nameButton = UIButton(type: .system)
     private let nameLabel = UILabel()
@@ -49,6 +51,9 @@ final class ConversationHeaderView: UIView {
         unreadPill.addSubview(unreadLabel)
         unreadPill.isUserInteractionEnabled = false
 
+        clusterDisc.isUserInteractionEnabled = false
+        clusterDisc.isHidden = true
+        addSubview(clusterDisc)
         addSubview(avatarTapButton)
         avatarTapButton.addAction(UIAction { [weak self] _ in self?.onInfo?() }, for: .touchUpInside)
 
@@ -93,6 +98,7 @@ final class ConversationHeaderView: UIView {
             insertSubview(view, belowSubview: namePillGlass)
             return view
         }
+        clusterDisc.isHidden = info.kind != .group
         unreadLabel.text = unreadCount > 0 ? "\(unreadCount)" : nil
         unreadPill.isHidden = unreadCount <= 0
         setNeedsLayout()
@@ -139,10 +145,10 @@ final class ConversationHeaderView: UIView {
             avatars.first?.frame = CGRect(x: centerX - avatarSize / 2, y: top, width: avatarSize, height: avatarSize)
         } else {
             // Cluster: the first large, the rest small and offset.
-            let main = avatars[0]
-            main.frame = CGRect(x: centerX - 26, y: top + 2, width: 36, height: 36)
-            if avatars.count > 1 { avatars[1].frame = CGRect(x: centerX + 6, y: top + 16, width: 28, height: 28) }
-            if avatars.count > 2 { avatars[2].frame = CGRect(x: centerX - 13, y: top + 32, width: 20, height: 20) }
+            clusterDisc.frame = CGRect(x: centerX - 30, y: top, width: 60, height: 60)
+            avatars[0].frame = CGRect(x: centerX - 25, y: top + 6, width: 32, height: 32)
+            if avatars.count > 1 { avatars[1].frame = CGRect(x: centerX + 2, y: top + 18, width: 24, height: 24) }
+            if avatars.count > 2 { avatars[2].frame = CGRect(x: centerX - 14, y: top + 36, width: 18, height: 18) }
         }
         let clusterBottom = avatars.map(\.frame.maxY).max() ?? top + 60
         avatarTapButton.frame = CGRect(x: centerX - 40, y: top, width: 80, height: clusterBottom - top)

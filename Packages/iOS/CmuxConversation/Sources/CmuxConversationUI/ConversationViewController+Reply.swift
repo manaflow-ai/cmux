@@ -8,6 +8,7 @@ import UIKit
 final class ReplyThreadOverlay: UIView {
     let blur = UIVisualEffectView(effect: nil)
     let content = UIScrollView()
+    var contentHeight: CGFloat = 0
     var onClose: (() -> Void)?
 
     override init(frame: CGRect) {
@@ -79,6 +80,7 @@ extension ConversationViewController {
             model.message.replyCount = 0
             return model
         }
+        overlay.contentHeight = 0
         let width = view.bounds.width
         var y: CGFloat = 0
         var cells: [MessageCell] = []
@@ -90,11 +92,21 @@ extension ConversationViewController {
             cells.append(cell)
             y += cellLayout.height + 10
         }
+        overlay.contentHeight = y
+        layoutReplyOverlay()
+    }
+
+    /// Keeps the thread bottom-aligned just above the composer as the keyboard moves.
+    func layoutReplyOverlay() {
+        guard let overlay = replyOverlay else { return }
+        overlay.frame = view.bounds
+        overlay.blur.frame = overlay.bounds
+        let width = view.bounds.width
+        let y = overlay.contentHeight
         let headerBottom = header.frame.maxY
         let available = composerContainer.frame.minY - headerBottom - 12
         overlay.content.frame = CGRect(x: 0, y: headerBottom, width: width, height: available)
         overlay.content.contentSize = CGSize(width: width, height: y)
-        // Bottom-align short threads just above the composer.
         let inset = max(0, available - y)
         overlay.content.contentInset = UIEdgeInsets(top: inset, left: 0, bottom: 0, right: 0)
         overlay.content.contentOffset = CGPoint(x: 0, y: max(-inset, y - available))
