@@ -116,6 +116,9 @@ fn detached_hook_without_a_listener_fails_immediately() {
     // child gives up at once and the provider-facing process reports it,
     // without spending the retry deadline.
     assert!(!output.status.success(), "{output:?}");
+    // Nothing on stdout: the installed command's fallback prints the one
+    // object the provider reads.
+    assert!(output.stdout.is_empty(), "{output:?}");
     assert!(started.elapsed() < Duration::from_secs(2));
 }
 

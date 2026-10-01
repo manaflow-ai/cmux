@@ -120,17 +120,14 @@ fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
                 handoff.as_millis()
             )),
         };
-    // Messages for this terminal's agent ride on the hook's own output,
-    // whether or not the journal event made it. Once that output is written
-    // the helper succeeds, so the installed command adds no second object.
+    // Messages for this terminal's agent ride on the hook's own output. A
+    // failed handoff means the daemon is not answering, so the helper fails
+    // without output and the installed command prints the empty object.
+    handed_off?;
     if let Some(inbox) = inbox {
         inbox::deliver(inbox, &socket, terminal.as_deref());
-        if let Err(error) = handed_off {
-            eprintln!("cmux-tui-hook: {error:#}");
-        }
-        return Ok(());
     }
-    handed_off
+    Ok(())
 }
 
 /// Agent messages (`cmux agent message`) for the agent in this terminal,
