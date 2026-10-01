@@ -22,7 +22,7 @@ final class MobileHostService {
 
     /// Starts (or restarts for a new account) the phone listener. The Mac's
     /// display name is read off the main actor first (`MacName`).
-    func start(auth: any MobileHostAuth, launch: LaunchIdentity, daemon: DaemonService) {
+    func start(auth: any MobileHostAuth, launch: LaunchIdentity, daemon: DaemonService, agents: AgentService) {
         generation += 1
         let current = generation
         let previous = host
@@ -32,7 +32,7 @@ final class MobileHostService {
             await previous?.stop()
             let displayName = await MacName.computerName()
             guard let self, self.generation == current, !Task.isCancelled else { return }
-            guard let configuration = Self.configuration(launch: launch, daemon: daemon, displayName: displayName) else {
+            guard let configuration = Self.configuration(launch: launch, daemon: daemon, agents: agents, displayName: displayName) else {
                 logger.error("phone access disabled: no v2 control-plane URL for this environment")
                 return
             }
@@ -58,7 +58,7 @@ final class MobileHostService {
         Task { await host?.stop() }
     }
 
-    static func configuration(launch: LaunchIdentity, daemon: DaemonService, displayName: String,
+    static func configuration(launch: LaunchIdentity, daemon: DaemonService, agents: AgentService, displayName: String,
                               environment: [String: String] = ProcessInfo.processInfo.environment)
         -> MobileHostConfiguration? {
         let namespace = launch.bundleID ?? "com.cmuxterm.app.next"
@@ -79,6 +79,7 @@ final class MobileHostService {
             displayName: displayName,
             appVersion: info["CFBundleShortVersionString"] as? String ?? "0",
             appBuild: info["CFBundleVersion"] as? String ?? "0",
-            daemonSocketPath: { @MainActor in try? await daemon.endpoint().socketPath })
+            daemonSocketPath: { @MainActor in try? await daemon.endpoint().socketPath },
+            acpmuxSocketPath: { @MainActor in await agents.socketPath() })
     }
 }

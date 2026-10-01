@@ -44,6 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WindowActivation.activateApp()
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider())
+        // The agent GUI's acpmux runs as this app's child (--exit-with-parent).
+        services.agents.start(launch: environment.launch)
         cloudContext = services.startCloud()
         services.ssh.start()
         services.updater.start()
@@ -118,6 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerAccountsMethods(services)
                 control.registerRemoteMethods(services)
                 control.registerMobileMethods(services)
+                control.registerAgentMethods(services)
                 control.registerUpdateMethods(services.updater)
                 control.registerInputMethods(services)
                 control.registerSettingsDebugMethods(services)

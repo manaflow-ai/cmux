@@ -15,6 +15,7 @@ enum AppActions {
         let registry = services.registry
         let context = AppActionContext(services: services)
         WindowHandlers.bind(into: registry, context: context)
+        AgentGUIHandlers.bind(into: registry, context: context)
         HistoryHandlers.bind(into: registry, context: context)
         BookmarkHandlers.bind(into: registry, context: context)
         WorkspaceHandlers.bind(into: registry, context: context)

@@ -47,6 +47,7 @@ public nonisolated enum ActionCatalog {
         all += sidebarActions()
         all += notificationsActions()
         all += agentsActions()
+        all += agentGUIActions()
         all += cloudActions()
         all += accountsActions()
         all += remoteActions()

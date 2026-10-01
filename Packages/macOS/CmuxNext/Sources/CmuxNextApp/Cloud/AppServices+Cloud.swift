@@ -42,7 +42,7 @@ extension AppServices {
                 guard current != account else { continue }
                 account = current
                 if let auth = CloudMobileAuth(auth: cloud.auth) {
-                    self.mobile.start(auth: auth, launch: self.environment.launch, daemon: self.daemon)
+                    self.mobile.start(auth: auth, launch: self.environment.launch, daemon: self.daemon, agents: self.agents)
                 } else {
                     self.mobile.stop()
                 }

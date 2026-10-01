@@ -28,6 +28,8 @@ final class AppServices {
     private(set) var ssh: SSHService!
     /// Phone access; started by the account layer once signed in.
     let mobile = MobileHostService()
+    /// The agent GUI: the app's acpmux daemon, its backend and window.
+    let agents = AgentService()
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()

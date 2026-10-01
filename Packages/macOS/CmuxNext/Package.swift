@@ -23,6 +23,8 @@ import PackageDescription
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
 //   CmuxNextRemote -> CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; no UI, no daemon)
 //   CmuxNextMobile -> Daemon, CMUXMobileCore, CmuxIrxTransport (phone host; no UI)
+//   CmuxNextAcpmux -> Cloud (ChildProcess), Wakeups (runs the app's acpmux daemon; no UI)
+//   CmuxNextConversationUI -> CmuxConversation (the agent window, AppKit; the App supplies the backend)
 //   CmuxNextUpdater -> Design, CmuxUpdater, Sparkle (update checks, appcast probe, update sheet; no daemon)
 //   CmuxNextMallocZone -> libSystem only (C: the delegating default malloc zone that lets the
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
@@ -71,6 +73,9 @@ let package = Package(
         .package(path: "../../Shared/CmuxAuthRuntime"),
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxIrxTransport"),
+        // The agent GUI's backend-agnostic core and its acpmux backend.
+        .package(path: "../../Shared/CmuxConversation"),
+        .package(path: "../../Shared/CmuxAcpmux"),
         // Sparkle driver shared with the legacy app (no bonsplit, no legacy deps).
         .package(path: "../CmuxUpdater"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.0"),
@@ -110,6 +115,10 @@ let package = Package(
                 "CmuxNextCodeRouter",
                 "CmuxNextAccounts",
                 "CmuxNextBookmarks",
+                "CmuxNextAcpmux",
+                "CmuxNextConversationUI",
+                .product(name: "CmuxConversation", package: "CmuxConversation"),
+                .product(name: "CmuxAcpmux", package: "CmuxAcpmux"),
             ],
             resources: [
                 .process("Resources"),
@@ -509,6 +518,22 @@ let package = Package(
                 .product(name: "CmuxIrxTransport", package: "CmuxIrxTransport"),
             ],
             swiftSettings: daemonSwiftSettings
+        ),
+        .target(
+            name: "CmuxNextAcpmux",
+            dependencies: ["CmuxNextCloud", "CmuxNextWakeups"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAcpmuxTests",
+            dependencies: ["CmuxNextAcpmux"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .target(
+            name: "CmuxNextConversationUI",
+            dependencies: [.product(name: "CmuxConversation", package: "CmuxConversation")],
+            resources: [.process("Resources")],
+            swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextMobileTests",

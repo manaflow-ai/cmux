@@ -1428,6 +1428,12 @@ if [[ -n "${CMUX_NEXT_TUI_BIN:-}" ]]; then
 else
   "$PWD/scripts/cmux-next/pin-cmux-tui.sh" fetch || exit 1
 fi
+# The agent GUI's acpmux: a local build via CMUX_NEXT_ACPMUX_BIN, else the pin.
+if [[ -n "${CMUX_NEXT_ACPMUX_BIN:-}" ]]; then
+  echo "==> cmux-next: bundling acpmux from CMUX_NEXT_ACPMUX_BIN=$CMUX_NEXT_ACPMUX_BIN"
+else
+  "$PWD/scripts/cmux-next/pin-acpmux.sh" fetch || exit 1
+fi
 
 CMUX_DEV_PORT="$(choose_cmux_dev_port)"
 CMUX_DEV_PORT_RANGE="$(choose_cmux_dev_port_range)"
