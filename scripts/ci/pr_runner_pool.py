@@ -103,7 +103,8 @@ offline machine still counts toward capacity; what that gets wrong,
 ci-owned-pool-rescue.yml catches: a run whose
 job waits on an owned pool past its budget is re-run on Blacksmith. A re-run
 of failed jobs reuses this run's outputs, so a persistent choice also names
-`retry_runner`, the Blacksmith pool every macOS job takes from attempt 2 on. The owned order is `std` (48 GB minis),
+`retry_runner`, the Blacksmith pool every macOS job of such a re-run takes
+from attempt 3 on (LAST_OWNED_ATTEMPT). The owned order is `std` (48 GB minis),
 then `light` (16 GB), then the Blacksmith pools: one order for every job type.
 
 Per-job placement (`vars.CI_PR_POOL_OWNED_SPLIT == '1'`): without it, a run
@@ -254,20 +255,19 @@ selects the newest SDK 26 Xcode on the pool it lands on, and the product
 consumers restate compile admission's empty pin), and only lands on
 ephemeral Blacksmith pools.
 
-Re-runs are routed by cause (RESCUE_ACTOR below). github-actions[bot]'s re-run
-follows a host fault (a refusal, a stuck queue, a machine failure) and never
-takes a persistent pool: owned_pool_rescue.py cancels a run stuck on one and
-re-runs it, and that re-run has to land somewhere with capacity. Anyone
-else's re-run of a pull request follows a code failure and picks like
-attempt 1, without queueing. One exception for the bot, off unless
-`vars.CI_OWNED_LIGHT_RETRY == '1'`: attempt 2 (LIGHT_RETRY_ATTEMPT) may take
-a `light` owned pool, the next fleet tier, when its whole owned peak is free
-there by the same rule as attempt 1, and only when github-actions[bot]
-started it (GITHUB_TRIGGERING_ACTOR). That attempt is the full re-run the
-rescue starts for a job stuck queued on `std`, which picks again; the rescue
-watches it, and a job stuck or refused there goes to Blacksmith on attempt
-3. The order is std, then light, then Blacksmith. The `persistent` output
-tells ci.yml to publish the marker the rescue watcher looks for.
+Re-runs (LAST_OWNED_ATTEMPT below): attempt 2 is placed like attempt 1,
+whoever started it, and a person's re-run of a pull request on any attempt.
+A full re-run picks here again without queueing (rounds 0): the owned pools
+only for the jobs that fit on machines free now, Blacksmith for the rest. A
+re-run of failed jobs keeps this attempt's outputs and its owned jobs take the
+owned labels again. github-actions[bot]'s attempt 2 follows a host fault on
+one mini (a refusal, a stuck queue, a machine failure), not on the fleet:
+until 2026-09-28 it took Blacksmith, where from 09-27 to 09-28 its macOS jobs
+queued a p50 of 9 and a p90 of 61 minutes while the minis ran about half
+busy. The rescue watches attempt 2 like attempt 1, and its re-run of a job
+stuck or refused there is the bot's attempt 3, which takes Blacksmith.
+The `persistent` output tells ci.yml to publish the marker the rescue
+watcher looks for.
 
 Main's full suite: ci-main-full-suite.yml dispatches ci.yml on main about
 32 times a day, each a full suite (compile admission, 7 app-host shards,
@@ -359,24 +359,28 @@ OWNED_VARIABLE = "CI_PR_POOL_OWNED"
 SPLIT_VARIABLE = "CI_PR_POOL_OWNED_SPLIT"
 GUI_VARIABLE = "CI_PR_POOL_OWNED_GUI"
 SLOTS_VARIABLE = "CI_OWNED_POOL_SLOTS"
-LIGHT_RETRY_VARIABLE = "CI_OWNED_LIGHT_RETRY"
-# The one retry attempt that may take the light tier (owned_pool_rescue.py's
-# LAST_OWNED_ATTEMPT): later attempts always go to Blacksmith.
-LIGHT_RETRY_ATTEMPT = 2
 LIGHT_CLASS = "light"
-# Re-runs are routed by cause. github-actions[bot] re-runs a run only after a host fault on a mini: the
-# rescue after a refusal or a stuck queue (owned_pool_rescue.py), the failure attribution when every failed
-# job is a machine failure (classify_failures.py). Every runs-on sends such a re-run to retry_runner
-# (Blacksmith), so it never lands on the mini that refused or failed it. Anyone else's re-run follows a
-# code or test failure, so it goes back to the owned pool: a re-run of failed jobs keeps attempt 1's
-# outputs and takes the owned label, and a full re-run picks here like attempt 1 (without queueing).
-# The light tier, which the rescue's full re-run may claim, stays the rescue's.
+# github-actions[bot] re-runs a run only after a host fault on a mini: the rescue after a refusal or a
+# stuck queue (owned_pool_rescue.py), the failure attribution when every failed job is a machine failure
+# (classify_failures.py). Its attempt 2 still goes to the owned pool first, like attempt 1: a runner that
+# lost communication is offline, and a busy mini's gui runner stops listening, so the label hands the job
+# to another mini; a pinned runner (admission's) is never reused across attempts (ci-macos.yml). Its later
+# attempts are the rescue moving a job that was stuck or refused on attempt 2, and every runs-on sends
+# them to retry_runner (Blacksmith), which ends the loop. Anyone else's re-run follows a code or test
+# failure and goes back to the owned pool on any attempt.
 RESCUE_ACTOR = "github-actions[bot]"
+# The last attempt of the bot's re-runs that may take an owned pool (owned_pool_rescue.LAST_OWNED_ATTEMPT).
+LAST_OWNED_ATTEMPT = 2
 
 
 def host_fault_retry(run_attempt: int, triggering_actor: str | None) -> bool:
-    """A re-run started after a host fault on a mini (see RESCUE_ACTOR): it goes to Blacksmith."""
-    return run_attempt > 1 and (triggering_actor or "").strip() == RESCUE_ACTOR
+    """The bot's re-run past LAST_OWNED_ATTEMPT (see RESCUE_ACTOR): it goes to Blacksmith."""
+    return run_attempt > LAST_OWNED_ATTEMPT and (triggering_actor or "").strip() == RESCUE_ACTOR
+MAIN_RESERVE_VARIABLE = "CI_OWNED_MAIN_RESERVE"
+# Machines and root runners main's full suite leaves free for pull requests.
+# 0: main takes the minis like a pull request. Its run holds 9 root runners
+# at peak, so a reserve only lets it in whole when the fleet is nearly idle.
+DEFAULT_MAIN_RESERVE = 0
 # The ref of main's full-suite dispatch (ci-main-full-suite.yml).
 MAIN_REF = "refs/heads/main"
 MAIN_BRANCH = "main"
@@ -1755,7 +1759,6 @@ def choose(
     jobs: int = MAX_RUN_JOBS,
     split: str | None = None,
     root_jobs: int = 0,
-    light_retry: str | None = None,
     triggering_actor: str | None = None,
     fetch: Callable[[], Mapping[str, Any] | None],
     count_routed: Callable[[str], "int | Routed"] = lambda since: 0,
@@ -1834,14 +1837,11 @@ def choose(
     retry = run_attempt > 1
     if retry:
         host_fault = host_fault_retry(run_attempt, triggering_actor)
-        light = (not fork and host_fault and run_attempt == LIGHT_RETRY_ATTEMPT
-                 and (light_retry or "").strip() == "1")
         # A retry does not queue (rounds 0): the owned pools only with its peak
-        # free now, Blacksmith rolling over at a full pool. After a host fault
-        # it takes no owned pool, bar the light tier the rescue may claim.
+        # free now, Blacksmith rolling over at a full pool. The bot's re-run
+        # past LAST_OWNED_ATTEMPT takes no owned pool.
         limits = dataclasses.replace(limits, queue_rounds=0, order=tuple(
-            label for label in limits.order
-            if not persistent(label) or not host_fault or light and label.startswith(f"glaeda-{LIGHT_CLASS}-")))
+            label for label in limits.order if not persistent(label) or not host_fault))
         if not limits.order:
             return Choice("", "", f"retry attempt {run_attempt}; no ephemeral pool in the order"), snapshot
     live = live_owned is not None and not fork
@@ -1983,19 +1983,18 @@ def routed_run(run: Mapping[str, Any]) -> bool:
     return run.get("event") == "pull_request" or main_dispatch(run)
 
 
-def may_hold_owned_pool(run: Mapping[str, Any], *, light_retry: bool = False) -> bool:
-    """A same-repository pull request run (or main's dispatch) can take an owned pool, except on a host-fault
-    re-run (host_fault_retry()), and then only attempt 2 while CI_OWNED_LIGHT_RETRY is 1 (`light_retry`).
+def may_hold_owned_pool(run: Mapping[str, Any]) -> bool:
+    """A same-repository pull request run (or main's dispatch) can take an owned pool on attempt 1 or 2, and a
+    person's re-run of a pull request on any attempt; the bot's later attempts (host_fault_retry()) cannot.
 
-    Attempt 2 then may hold the light tier; with the variable off it is not looked up,
-    so no request is spent on it. The same rule as
+    The same rule as
     queue_janitor.may_hold_owned_pool: a fork runs its own ci.yml and could
     upload any marker, so its markers are never read.
     """
     attempt = int(run.get("run_attempt") or 1)
     actor = str((run.get("triggering_actor") or {}).get("login") or "")
     code_retry = run.get("event") == "pull_request" and not host_fault_retry(attempt, actor)
-    if attempt > (LIGHT_RETRY_ATTEMPT if light_retry else 1) and not code_retry:
+    if attempt > LAST_OWNED_ATTEMPT and not code_retry:
         return False
     head, base = (run.get("head_repository") or {}).get("id"), (run.get("repository") or {}).get("id")
     return head is not None and head == base
@@ -2104,14 +2103,14 @@ class GitHub:
         return [run for run in runs if isinstance(run, Mapping)]
 
     def pull_request_routes_since(self, since: str, *, exclude_run_id: int | None,
-                                  light_retry: bool = False, now: dt.datetime | None = None) -> Routed:
+                                  now: dt.datetime | None = None) -> Routed:
         """Where the pull request runs (and main's dispatches) since `since` went, so they are not all guessed.
 
         One unfiltered page of CI runs, kept to the routed ones (routed_run()),
         so main's full-suite dispatch is counted at no extra request.
 
-        A fork run or a retry attempt never takes an owned pool, so it is off
-        them without a lookup (and a fork's own marker is never trusted). For
+        A fork run or the bot's re-run past LAST_OWNED_ATTEMPT never takes an
+        owned pool, so it is off them without a lookup (and a fork's own marker is never trusted). For
         the rest, a marker names the owned pool and peak the run took; a
         finished `changes` job whose marker step was skipped means the pick
         was not an owned pool. Any other run (still picking, a lost marker
@@ -2131,7 +2130,7 @@ class GitHub:
             age = run_age_minutes(run, clock)
             return age is not None and age < LIVE_WINDOW_MINUTES
         for run in runs:
-            if not may_hold_owned_pool(run, light_retry=light_retry):
+            if not may_hold_owned_pool(run):
                 ephemeral += 1
                 continue
             if looked_up >= ROUTE_LOOKUPS:
@@ -2285,8 +2284,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         if args.snapshot:
             return 0
         return client().pull_request_routes_since(
-            since, exclude_run_id=int(run_id) if run_id.isdigit() else None,
-            light_retry=(env.get("OWNED_LIGHT_RETRY") or "").strip() == "1", now=now)
+            since, exclude_run_id=int(run_id) if run_id.isdigit() else None, now=now)
 
     event = env.get("EVENT_NAME") or ""
     ref = env.get("GITHUB_REF") or ""
@@ -2355,7 +2353,6 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         jobs=jobs,
         split=env.get("POOL_OWNED_SPLIT"),
         root_jobs=root_peak(plan, gui, gui_runners),
-        light_retry=env.get("OWNED_LIGHT_RETRY"),
         triggering_actor=env.get("GITHUB_TRIGGERING_ACTOR"),
         xcode_pins={variable: env.get(variable) or ""
                     for variable in {*POOLS.values(), PR_XCODE_VARIABLE} if variable},

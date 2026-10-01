@@ -1374,8 +1374,8 @@
           "sessionContentAlignment": "Горизонтальное расположение содержимого терминала и встроенного чата агента при включённом sessionContentMaxWidth.",
           "copyOnSelect": "Если значение true, выбранный текст терминала копируется в системный буфер обмена после подтверждения выделения. Если значение false, cmux не выводит переопределение Ghostty copy-on-select; конфигурация и значения по умолчанию Ghostty управляют поведением буфера выделения.",
           "scrollSpeed": "Определяет, насколько далеко сдвигается терминал при каждом событии прокрутки колесом мыши или трекпадом. Значения больше 1 ускоряют прокрутку, значения меньше 1 замедляют её.",
-          "showTextBoxOnNewTerminals": "По умолчанию показывает бета-ввод TextBox для новых рабочих пространств, вкладок терминала и разделений.",
-          "focusTextBoxOnNewTerminals": "По умолчанию фокусирует бета-ввод TextBox для новых рабочих пространств, вкладок терминала и разделений. Фокус также показывает TextBox."
+          "showTextBoxOnNewTerminals": "По умолчанию показывает ввод TextBox для новых рабочих пространств, вкладок терминала и разделений.",
+          "focusTextBoxOnNewTerminals": "По умолчанию фокусирует ввод TextBox для новых рабочих пространств, вкладок терминала и разделений. Фокус также показывает TextBox."
         },
         "notifications": {
           "soundWhenFocused": "Воспроизводить звук уведомления, даже если панель, отправившая уведомление, уже в фокусе. По умолчанию выключено: панель в фокусе показывает только кольцо и вспышку.",
@@ -1416,7 +1416,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Необязательные контекстные предикаты для каждой операции (условия `when` в стиле VS Code), заданные по идентификатору операции cmux. Каждое значение — булево выражение над ключами контекста, объединенными с помощью !, &&, || и скобок. Булевы ключи: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Типизированные ключи поддерживают сравнения: строка sidebarMode (files, find, sessions, feed или dock) и целые числа paneCount и workspaceCount. Операторы сравнения: ==, !=, =~ (регулярное выражение), <, <=, >, >= и `in [a, b]`; неизвестный или отсутствующий ключ считается false. Также принимаются булевы литералы true и false; `key == false` эквивалентно `!key`. Сочетание клавиш операции срабатывает (и конфликтует с другими сочетаниями) только когда условие истинно. Примеры: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } выбирает рабочие области с помощью Ctrl+1–9 везде, кроме случаев, когда в фокусе правая боковая панель; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ограничивает привязку боковой панелью поиска, когда в рабочей области несколько панелей.",
+          "when": "Необязательные контекстные предикаты для каждой операции (условия `when` в стиле VS Code), заданные по идентификатору операции cmux. Каждое значение — булево выражение над ключами контекста, объединенными с помощью !, &&, || и скобок. Булевы ключи: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, terminalAlternateScreen, workspaceCanvasLayout. Типизированные ключи поддерживают сравнения: строка sidebarMode (files, find, sessions, feed или dock) и целые числа paneCount и workspaceCount. Операторы сравнения: ==, !=, =~ (регулярное выражение), <, <=, >, >= и `in [a, b]`; неизвестный или отсутствующий ключ считается false. Также принимаются булевы литералы true и false; `key == false` эквивалентно `!key`. Сочетание клавиш операции срабатывает (и конфликтует с другими сочетаниями) только когда условие истинно. Примеры: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } выбирает рабочие области с помощью Ctrl+1–9 везде, кроме случаев, когда в фокусе правая боковая панель; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ограничивает привязку боковой панелью поиска, когда в рабочей области несколько панелей.",
           "showModifierHoldHints": "Показывать подсказки сочетаний клавиш, пока удерживается Cmd или Control."
         },
         "fileEditor": {
@@ -1868,7 +1868,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (бета)",
+      "textBox": "TextBox",
       "ios": "Приложение для iOS",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "Обзор",
@@ -2032,11 +2032,10 @@
       "daemonPath": "Двоичный файл демона хранится в ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote на удаленном хосте и проверяется на соответствие манифесту SHA-256, встроенному в приложение."
     },
     "textBox": {
-      "title": "TextBox (бета)",
-      "metaTitle": "TextBox (бета)",
-      "metaDescription": "Настройте бета-ввод TextBox в cmux для новых вкладок терминала, разделений и рабочих пространств.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "Настройте ввод TextBox в cmux для новых вкладок терминала, разделений и рабочих пространств.",
       "intro": "TextBox — это расширенная область ввода cmux для составления промптов перед отправкой в терминал.",
-      "betaCallout": "TextBox — бета-функция. Во время тестирования значения по умолчанию и поведение могут измениться.",
       "defaultsTitle": "Значения по умолчанию",
       "defaultsDesc": "Настройки TextBox находятся в Settings > TextBox:",
       "showSetting": "Show TextBox on New Terminals открывает новые рабочие пространства, вкладки и разделения терминала с видимым TextBox, оставляя фокус в терминале.",

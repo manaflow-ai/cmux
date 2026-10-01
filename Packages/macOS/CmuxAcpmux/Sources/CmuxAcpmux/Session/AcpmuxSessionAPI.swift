@@ -3,6 +3,8 @@ import Foundation
 /// The acpmux requests the chat pane uses, as a seam so the session model can be tested
 /// against a fake daemon.
 public protocol AcpmuxSessionAPI: Sendable {
+    /// The authenticated loopback WebSocket endpoint for browser clients.
+    func webSocketEndpoint() async throws -> AcpmuxWebSocketEndpoint
     /// Daemon notifications. Finishes when the connection closes.
     var notifications: AsyncStream<JSONRPCNotification> { get }
     /// `_acpmux/watch {enabled:true}`; returns the current session list.
@@ -32,8 +34,37 @@ public protocol AcpmuxSessionAPI: Sendable {
     func harnessCatalog() async throws -> AcpmuxHarnessCatalog
     /// `session/set_model`.
     func setModel(sessionId: String, modelId: String) async throws
+    /// `session/set_mode`, when the harness exposes ACP modes.
+    func setMode(sessionId: String, modeId: String) async throws
+    /// `session/set_config_option`, used for reasoning effort and similar options.
+    func setConfigOption(sessionId: String, configId: String, value: JSONValue) async throws
     /// Closes the connection.
     func close() async
+}
+
+/// A daemon WebSocket endpoint safe to hand to a local web view for one launch.
+public struct AcpmuxWebSocketEndpoint: Sendable, Equatable, Codable {
+    public let endpoint: String
+    public let token: String
+
+    public init(endpoint: String, token: String) {
+        self.endpoint = endpoint
+        self.token = token
+    }
+}
+
+public extension AcpmuxSessionAPI {
+    func webSocketEndpoint() async throws -> AcpmuxWebSocketEndpoint {
+        throw JSONRPCError(code: -32601, message: "WebSocket endpoint is unavailable")
+    }
+
+    func setMode(sessionId _: String, modeId _: String) async throws {
+        throw JSONRPCError(code: -32601, message: "session/set_mode is unavailable")
+    }
+
+    func setConfigOption(sessionId _: String, configId _: String, value _: JSONValue) async throws {
+        throw JSONRPCError(code: -32601, message: "session/set_config_option is unavailable")
+    }
 }
 
 /// ``AcpmuxSessionAPI`` over a live ``JSONRPCClient``.
@@ -46,6 +77,23 @@ public struct AcpmuxRPCSessionAPI: AcpmuxSessionAPI {
     }
 
     public var notifications: AsyncStream<JSONRPCNotification> { client.notifications }
+
+    public func webSocketEndpoint() async throws -> AcpmuxWebSocketEndpoint {
+        let status = try await client.request("_acpmux/status", params: [String: String](), as: StatusResult.self)
+        guard let webURL = status.webURL,
+              var components = URLComponents(string: webURL),
+              let token = components.queryItems?.first(where: { $0.name == "token" })?.value,
+              !token.isEmpty,
+              let scheme = components.scheme else {
+            throw JSONRPCError(code: -32001, message: "acpmux did not publish an authenticated WebSocket endpoint")
+        }
+        components.scheme = scheme == "https" ? "wss" : "ws"
+        components.queryItems = components.queryItems?.filter { $0.name != "token" }
+        guard let endpoint = components.url?.absoluteString else {
+            throw JSONRPCError(code: -32001, message: "acpmux published an invalid WebSocket endpoint")
+        }
+        return AcpmuxWebSocketEndpoint(endpoint: endpoint, token: token)
+    }
 
     /// Sends `initialize`.
     public func initialize(clientName: String, version: String) async throws {
@@ -142,6 +190,18 @@ public struct AcpmuxRPCSessionAPI: AcpmuxSessionAPI {
         _ = try await client.request("session/set_model", params: ["sessionId": sessionId, "modelId": modelId])
     }
 
+    public func setMode(sessionId: String, modeId: String) async throws {
+        _ = try await client.request("session/set_mode", params: ["sessionId": sessionId, "modeId": modeId])
+    }
+
+    public func setConfigOption(sessionId: String, configId: String, value: JSONValue) async throws {
+        _ = try await client.request("session/set_config_option", params: JSONValue.object([
+            "sessionId": .string(sessionId),
+            "configId": .string(configId),
+            "value": value,
+        ]))
+    }
+
     public func close() async {
         await client.close()
     }
@@ -166,6 +226,11 @@ public struct AcpmuxRPCSessionAPI: AcpmuxSessionAPI {
 
     private struct SessionsResult: Decodable, Sendable {
         var sessions: [AcpmuxSessionSummary]
+    }
+
+    private struct StatusResult: Decodable, Sendable {
+        var webURL: String?
+        enum CodingKeys: String, CodingKey { case webURL = "webUrl" }
     }
 
     private struct EventsResult: Decodable, Sendable {

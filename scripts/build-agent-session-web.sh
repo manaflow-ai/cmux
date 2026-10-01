@@ -4,6 +4,7 @@ set -eu
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 OUT_REACT="$ROOT/Resources/agent-session-react"
 OUT_SOLID="$ROOT/Resources/agent-session-solid"
+OUT_ACPMUX="$ROOT/Resources/acpmux-agent-session"
 MARKED_JS="$ROOT/Resources/markdown-viewer/marked.min.js"
 
 if ! command -v bun >/dev/null 2>&1; then
@@ -21,8 +22,10 @@ if [ ! -f "$MARKED_JS" ]; then
   exit 1
 fi
 
-rm -rf "$OUT_REACT" "$OUT_SOLID"
-mkdir -p "$OUT_REACT/assets" "$OUT_SOLID/assets"
+cd "$ROOT/webviews"
+
+rm -rf "$OUT_REACT" "$OUT_SOLID" "$OUT_ACPMUX"
+mkdir -p "$OUT_REACT/assets" "$OUT_SOLID/assets" "$OUT_ACPMUX/assets"
 
 bunx esbuild "$ROOT/webviews/src/agent-session/react/standalone.ts" \
   --bundle \
@@ -42,11 +45,19 @@ bunx esbuild "$ROOT/webviews/src/agent-session/solid/main.ts" \
   --minify \
   --outfile="$OUT_SOLID/assets/app.js"
 
-bunx tailwindcss \
-  -i "$ROOT/webviews/src/agent-session/shared/styles.css" \
-  -o "$OUT_REACT/assets/styles.css" \
-  --minify
+bunx esbuild "$ROOT/webviews/src/agent-session/acpmux/main.tsx" \
+  --bundle \
+  --format=esm \
+  --platform=browser \
+  --target=es2022 \
+  '--define:process.env.NODE_ENV="production"' \
+  --minify \
+  --outfile="$OUT_ACPMUX/assets/app.js"
+
+cp "$ROOT/webviews/src/agent-session/shared/styles.css" "$OUT_REACT/assets/styles.css"
 cp "$OUT_REACT/assets/styles.css" "$OUT_SOLID/assets/styles.css"
+cp "$ROOT/webviews/src/agent-session/shared/styles.css" "$OUT_ACPMUX/assets/styles.css"
+cat "$ROOT/webviews/src/agent-session/acpmux/styles.css" >> "$OUT_ACPMUX/assets/styles.css"
 
 strip_trailing_line_whitespace() {
   /usr/bin/perl -0pi -e 's/[ \t]+(?=\r?\n)//g; s/[ \t]+\z//' "$@"
@@ -55,8 +66,10 @@ strip_trailing_line_whitespace() {
 strip_trailing_line_whitespace \
   "$OUT_REACT/assets/app.js" \
   "$OUT_SOLID/assets/app.js" \
+  "$OUT_ACPMUX/assets/app.js" \
   "$OUT_REACT/assets/styles.css" \
-  "$OUT_SOLID/assets/styles.css"
+  "$OUT_SOLID/assets/styles.css" \
+  "$OUT_ACPMUX/assets/styles.css"
 
 write_index() {
   out_dir="$1"
@@ -89,5 +102,6 @@ write_index() {
 
 write_index "$OUT_REACT"
 write_index "$OUT_SOLID"
+write_index "$OUT_ACPMUX"
 
-strip_trailing_line_whitespace "$OUT_REACT/index.html" "$OUT_SOLID/index.html"
+strip_trailing_line_whitespace "$OUT_REACT/index.html" "$OUT_SOLID/index.html" "$OUT_ACPMUX/index.html"

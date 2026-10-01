@@ -195,7 +195,8 @@ struct CloudMachinesHeaderCountTests {
         activeOperation: String? = nil, listStatus: MachineListStatus? = nil, treeError: String? = nil
     ) -> MachinesCloudStatus {
         MachinesCloudStatus(activeOperation: activeOperation, listStatus: listStatus, listError: nil,
-                            treeError: treeError, onDismissStale: { _ in }, performListStatusAction: { _ in })
+                            treeError: treeError, onDismissStale: { _ in }, onDismissTreeError: { _ in },
+                            performListStatusAction: { _ in })
     }
 
     private func headerHeight<Status: View>(@ViewBuilder status: @escaping () -> Status) -> CGFloat {

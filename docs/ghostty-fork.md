@@ -125,7 +125,13 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `9961d09be`, the Cloud VT replay
+The submodule pinned by this branch is `e1b8bf5f4`, the OSC 133;A prompt
+line fix (section 15, manaflow-ai/ghostty#245) on top of `9d8d40319`, which
+corrects the styled blank row test. Artifact
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e1b8bf5f478c6aadbf70e51cdbb41930e92fda10-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+has SHA-256 `d18c7ddcc9f503cf2b03dff07b7001f4fc04f60d3d22bf84b2b4d5d5ce9ec885`,
+pinned in `scripts/ghosttykit-checksums.txt`. The previous pin was `9961d09be`,
+the Cloud VT replay
 styled-blank-row fix on top of fork `main`, Ghostty #241's carried trailing
 row state, and the exact #239 startup-input commits. The previous pin was
 `e168fd31c0`, the startup-input bytes change on top of `edefce7785`. The
@@ -2021,6 +2027,26 @@ tend to conflict together during rebases.
   - Any upstream change to `App.addSurface`, `App.deleteSurface`,
     `App.focusedSurface`, or the embedded surface close path should preserve
     serialization of registry/focus mutation across create and free.
+
+### 15) OSC 133;A prompt starts its own logical line
+
+- Commits:
+  - `315d78b99` (test: a prompt after a padded partial line must stay at column 0 across resize)
+  - `e1b8bf5f4` (terminal: start an OSC 133;A prompt on its own logical line)
+- Files:
+  - `src/terminal/Terminal.zig`
+  - `src/terminal/Screen.zig`
+- Summary:
+  - zsh PROMPT_SP pads a partial output line with spaces past the right edge,
+    which soft-wraps into the row where the prompt starts. Reflow joined the
+    two rows on every resize, so zsh's SIGWINCH redraw from column 0 left
+    prompt fragments behind.
+  - When OSC 133;A starts a prompt at column 0 of a soft-wrap continuation
+    row, `Screen.cursorBreakWrapIntoRow` resets the wrap from the row above.
+- Conflict notes:
+  - Any upstream change to the `fresh_line_new_prompt` handler or to
+    semantic-prompt reflow should keep a prompt at column 0 of its own
+    logical line.
 
 The current cmux pin is the merged head `34cbf180d`, which merges the surface
 registry serialization (`e5c962a72`, section 14, landed on cmux `main` via

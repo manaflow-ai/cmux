@@ -12,28 +12,36 @@ import java.util.Objects;
 
 /** Immutable detach-client request. Protocol v6; authority: control. */
 public final class DetachClientRequest implements WireValue {
-    private final UInt64 client;
+    private final Field<SizeDetachActor> by;
+    private final Object client;
 
     private DetachClientRequest(Builder builder) {
+        this.by = builder.by;
         if (!builder.clientSet) throw new IllegalArgumentException("client is required");
         this.client = Wire.nonNull(builder.client, "client");
     }
 
     public static Builder builder() { return new Builder(); }
 
-    public UInt64 client() { return client; }
+    public Field<SizeDetachActor> by() { return by; }
+    public Object client() { return client; }
 
     public static DetachClientRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "DetachClientRequest");
         Builder builder = builder();
+        Object rawBy = Wire.optional(object, "by");
+        if (!Wire.isMissing(rawBy)) {
+            builder.by(rawBy == null ? null : SizeDetachActor.fromWire(rawBy));
+        }
         Object rawClient = Wire.required(object, "client");
-        builder.client(Wire.uint64(rawClient, "DetachClientRequest.client"));
+        builder.client(Wire.immutableJson(rawClient));
         return builder.build();
     }
 
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "by", by);
         Wire.put(object, "client", client);
         return Collections.unmodifiableMap(object);
     }
@@ -41,20 +49,25 @@ public final class DetachClientRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof DetachClientRequest that)) return false;
-        return Objects.equals(client, that.client);
+        return Objects.equals(by, that.by) && Objects.equals(client, that.client);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(client); }
+    public int hashCode() { return Objects.hash(by, client); }
 
     @Override
     public String toString() { return "DetachClientRequest" + toWire(); }
 
     public static final class Builder {
-        private UInt64 client;
+        private Field<SizeDetachActor> by = Field.omitted();
+        private Object client;
         private boolean clientSet;
 
-        public Builder client(UInt64 value) {
+        public Builder by(SizeDetachActor value) {
+            this.by = Field.ofNullable(value);
+            return this;
+        }
+        public Builder client(Object value) {
             this.client = value;
             this.clientSet = true;
             return this;

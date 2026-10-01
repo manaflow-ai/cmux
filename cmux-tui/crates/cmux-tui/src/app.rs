@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use cmux_tui_cdp::CDP_CONNECTION_UNAVAILABLE_MESSAGE;
 use cmux_tui_core::resource::FrontendProjectionPublicId;
+use cmux_tui_core::sizing_policy::{TerminalSizingMode, TerminalSizingPolicy};
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
     DEFAULT_VIEWPORT_PANE_WIDTH, Direction, FrontendFocusTarget, FrontendJournalEvent,
@@ -82,7 +83,7 @@ use crate::pty_input::{
 use crate::session::tree::{PaneView, ScreenView};
 use crate::session::{
     AgentInfo, AmbiguousCreation, CLEAR_HISTORY_UNSUPPORTED_ERROR, ClientInfo, CreationReceipt,
-    Session, SidebarPluginSurface, SurfaceAttach, SurfaceHandle, TreeView,
+    Session, SidebarPluginSurface, SurfaceAttach, SurfaceHandle, SurfaceSizeState, TreeView,
     is_remote_surface_unavailable, is_remote_timeout, is_remote_transport_failure,
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
@@ -2420,6 +2421,38 @@ impl OrderedSession {
         );
     }
 
+    fn size_state(&self, surface: SurfaceId) -> Option<SurfaceSizeState> {
+        self.inner.size_state(surface)
+    }
+
+    fn set_size_policy(&self, surface: SurfaceId, policy: TerminalSizingPolicy) {
+        self.enqueue_client_sizing_mutation(
+            "set size policy",
+            ("set size policy", surface, 0),
+            move |session| session.set_size_policy(surface, policy),
+        );
+    }
+
+    fn set_size_counts(&self, surface: SurfaceId, participant: String, counts: Option<bool>) {
+        self.enqueue_client_sizing_mutation(
+            "set size counts",
+            ("set size counts", surface, participant_key(&participant)),
+            move |session| session.set_size_counts(surface, &participant, counts),
+        );
+    }
+
+    fn disconnect_size_participant(&self, participant: String) {
+        self.enqueue_coalescing_pointer_mutation(
+            "disconnect participant",
+            ("disconnect participant", participant_key(&participant)),
+            move |session| match session.disconnect_size_participant(&participant) {
+                // The menu is a snapshot; a participant that already left is done.
+                Err(error) if error.to_string().contains("unknown participant") => Ok(()),
+                result => result,
+            },
+        );
+    }
+
     fn disconnect_client(&self, client: u64) {
         self.enqueue_coalescing_pointer_mutation(
             "disconnect client",
@@ -4499,6 +4532,25 @@ pub enum MenuAction {
     },
     RestoreAllClientSizing(SurfaceId),
     DisconnectClient(u64),
+    /// Shared sizing (docs/shared-terminal-sizing.md): the terminal's mode.
+    SetSizeMode {
+        surface: SurfaceId,
+        mode: TerminalSizingMode,
+    },
+    /// Toggle one participant's counts-toward-size choice. `participant`
+    /// indexes the size state of `generation`, the one the menu showed.
+    SetSizeCounts {
+        surface: SurfaceId,
+        generation: u64,
+        participant: usize,
+        counts: bool,
+    },
+    /// Disconnect one participant of the size state of `generation`.
+    DisconnectSizeParticipant {
+        surface: SurfaceId,
+        generation: u64,
+        participant: usize,
+    },
     SelectProviderScope(usize),
     InvokeProviderAction(usize),
     CreateMachineFrom(usize),
@@ -4597,6 +4649,9 @@ impl MenuAction {
             MenuAction::UseClientSize { .. } => menu.use_only_client_size,
             MenuAction::RestoreAllClientSizing(_) => menu.restore_all_client_sizing,
             MenuAction::DisconnectClient(_) => menu.disconnect_client,
+            MenuAction::SetSizeMode { mode, .. } => size_mode_label(*mode),
+            MenuAction::SetSizeCounts { .. } => menu.size_counts,
+            MenuAction::DisconnectSizeParticipant { .. } => menu.size_disconnect,
             MenuAction::SelectProviderScope(_) | MenuAction::InvokeProviderAction(_) => {
                 localization::catalog().sidebar.provider_actions
             }
@@ -5313,6 +5368,103 @@ fn pane_context_menu_groups(
         ],
         vec![MenuAction::CopyTabId(pane), MenuAction::CopyPaneId(pane)],
     ]
+}
+
+/// A coalescing key for one participant id (FNV-1a).
+fn participant_key(participant: &str) -> u64 {
+    participant.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
+/// The mode names of the size menu, in menu order (Fit everyone first, the default).
+const SIZE_MENU_MODES: [TerminalSizingMode; 5] = [
+    TerminalSizingMode::Smallest,
+    TerminalSizingMode::Latest,
+    TerminalSizingMode::Largest,
+    TerminalSizingMode::Priority,
+    TerminalSizingMode::Fixed,
+];
+
+fn size_mode_label(mode: TerminalSizingMode) -> &'static str {
+    let menu = &localization::catalog().menu;
+    match mode {
+        TerminalSizingMode::Smallest => menu.size_mode_fit_everyone,
+        TerminalSizingMode::Latest => menu.size_mode_follow_latest,
+        TerminalSizingMode::Largest => menu.size_mode_largest,
+        TerminalSizingMode::Priority => menu.size_mode_priority,
+        TerminalSizingMode::Fixed => menu.size_mode_fixed,
+    }
+}
+
+/// The shared-sizing menu for a terminal (the Mac size panel's controls):
+/// the five modes with the current one checked, then one submenu per
+/// participant with Counts toward size and Disconnect.
+fn size_menu_item(size: &SurfaceSizeState, surface: SurfaceId) -> MenuItem {
+    let menu = &localization::catalog().menu;
+    let state = &size.state;
+    let self_id = size.self_participant.as_deref();
+    let check = |on: bool| if on { "✓ " } else { "  " };
+    let mut items = SIZE_MENU_MODES
+        .into_iter()
+        .map(|mode| MenuItem::LabeledAction {
+            label: format!("{}{}", check(state.policy.mode == mode), size_mode_label(mode)),
+            action: MenuAction::SetSizeMode { surface, mode },
+        })
+        .collect::<Vec<_>>();
+    items.push(MenuItem::Separator);
+    for (index, row) in state.participants.iter().enumerate() {
+        let participant = &row.participant;
+        let is_self = Some(participant.id.as_str()) == self_id;
+        let mut label = if is_self {
+            menu.this_client.to_string()
+        } else {
+            crate::ui::sizing::participant_label(participant, menu)
+        };
+        if let Some(viewport) = participant.viewport {
+            label.push_str(&format!(" · {}×{}", viewport.cols, viewport.rows));
+        }
+        if state.owners.contains(&participant.id) {
+            label.push_str(&format!(" · {}", menu.size_sets_size));
+        } else if !row.counts {
+            label.push_str(&format!(" · {}", menu.size_not_counted));
+        }
+        let generation = state.generation;
+        items.push(MenuItem::Submenu {
+            label,
+            items: vec![
+                MenuItem::LabeledAction {
+                    label: format!("{}{}", check(row.counts), menu.size_counts),
+                    action: MenuAction::SetSizeCounts {
+                        surface,
+                        generation,
+                        participant: index,
+                        counts: !row.counts,
+                    },
+                },
+                MenuItem::Separator,
+                MenuItem::Action(MenuAction::DisconnectSizeParticipant {
+                    surface,
+                    generation,
+                    participant: index,
+                }),
+            ],
+        });
+    }
+    MenuItem::Submenu { label: menu.terminal_size.to_string(), items }
+}
+
+/// The size menu when the host publishes shared sizing, else the legacy
+/// per-client menu for hosts without `shared-sizing-v1`.
+fn terminal_size_menu_item(
+    size: Option<&SurfaceSizeState>,
+    clients: &[ClientInfo],
+    surface: SurfaceId,
+) -> Option<MenuItem> {
+    match size {
+        Some(size) => Some(size_menu_item(size, surface)),
+        None => client_menu_item(clients, surface),
+    }
 }
 
 fn client_menu_item(clients: &[ClientInfo], surface: SurfaceId) -> Option<MenuItem> {
@@ -7341,6 +7493,9 @@ pub struct App {
     pub menu: Option<ContextMenu>,
     pub clients: Vec<ClientInfo>,
     pub client_border_labels: HashMap<SurfaceId, String>,
+    /// Shared-sizing border labels by terminal; `None` hides the label.
+    /// Takes precedence over `client_border_labels` for its terminals.
+    pub size_state_labels: HashMap<SurfaceId, Option<String>>,
     pub prompt: Option<Prompt>,
     pub(crate) connection_transaction: Option<ConnectionTransaction>,
     next_connection_attempt: u64,
@@ -9602,6 +9757,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         menu: None,
         clients: Vec::new(),
         client_border_labels: HashMap::new(),
+        size_state_labels: HashMap::new(),
         prompt: None,
         connection_transaction: None,
         next_connection_attempt: 1,
@@ -12056,6 +12212,7 @@ impl App {
         self.menu = None;
         self.clients.clear();
         self.client_border_labels.clear();
+        self.size_state_labels.clear();
         self.prompt = None;
         self.pairing_dialog = None;
         self.pairing_queue.clear();
@@ -15626,6 +15783,10 @@ impl App {
                 | MuxEvent::ClientListInvalidated,
             ) => {
                 self.session.refresh_clients_background();
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::SizeStateChanged { surface, .. }) => {
+                self.refresh_size_state_label(surface);
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
@@ -20530,6 +20691,42 @@ impl App {
             MenuAction::RestoreAllClientSizing(surface) => {
                 self.session.use_all_client_sizing(surface);
             }
+            MenuAction::SetSizeMode { surface, mode } => {
+                if let Some(size) = self.session.size_state(surface) {
+                    let state = &size.state;
+                    let priority = if mode == TerminalSizingMode::Priority {
+                        crate::ui::sizing::priority_with_self_first(
+                            state,
+                            size.self_participant.as_deref(),
+                        )
+                    } else {
+                        state.policy.priority.clone()
+                    };
+                    // Fixed keeps the current grid; the Mac and iPhone edit it.
+                    let fixed = state.policy.fixed.or(Some(state.size()));
+                    self.session
+                        .set_size_policy(surface, TerminalSizingPolicy::new(mode, priority, fixed));
+                }
+            }
+            MenuAction::SetSizeCounts { surface, generation, participant, counts } => {
+                if let Some((id, _)) = self.size_menu_participant(surface, generation, participant)
+                {
+                    self.session.set_size_counts(surface, id, Some(counts));
+                }
+            }
+            MenuAction::DisconnectSizeParticipant { surface, generation, participant } => {
+                if let Some((id, is_self)) =
+                    self.size_menu_participant(surface, generation, participant)
+                {
+                    if is_self {
+                        // Same as disconnecting this client from the legacy menu:
+                        // leave through the local detach lifecycle.
+                        self.run_action(Action::Detach)?;
+                    } else {
+                        self.session.disconnect_size_participant(id);
+                    }
+                }
+            }
             MenuAction::DisconnectClient(client) => {
                 if self.clients.iter().any(|info| info.client == client && info.is_self) {
                     // Disconnecting this control connection would close the socket that must
@@ -24108,7 +24305,11 @@ impl App {
                     groups.push(self.menu_group([MenuAction::TogglePaneZoom { pane, zoomed }]));
                 }
                 if self.surface_only.is_none()
-                    && let Some(clients) = client_menu_item(&self.clients, surface)
+                    && let Some(clients) = terminal_size_menu_item(
+                        self.session.size_state(surface).as_ref(),
+                        &self.clients,
+                        surface,
+                    )
                 {
                     groups.push(vec![clients]);
                 }
@@ -24154,7 +24355,11 @@ impl App {
                 );
             }
             if self.surface_only.is_none()
-                && let Some(clients) = client_menu_item(&self.clients, area.surface)
+                && let Some(clients) = terminal_size_menu_item(
+                    self.session.size_state(area.surface).as_ref(),
+                    &self.clients,
+                    area.surface,
+                )
             {
                 groups.push(vec![clients]);
             }
@@ -24170,10 +24375,47 @@ impl App {
         self.clients = clients;
     }
 
+    /// Recomputes a terminal's shared-sizing border label from the session's
+    /// latest size state. A terminal with a size state uses it instead of the
+    /// legacy client label, including when it hides the label.
+    fn refresh_size_state_label(&mut self, surface: SurfaceId) {
+        match self.session.size_state(surface) {
+            Some(size) => {
+                let label = crate::ui::sizing::border_label(&size, &localization::catalog().menu);
+                self.size_state_labels.insert(surface, label);
+            }
+            None => {
+                self.size_state_labels.remove(&surface);
+            }
+        }
+    }
+
+    /// Resolves a size-menu participant index against the state the menu
+    /// showed; a newer state means the menu is stale.
+    fn size_menu_participant(
+        &mut self,
+        surface: SurfaceId,
+        generation: u64,
+        participant: usize,
+    ) -> Option<(String, bool)> {
+        let size = self.session.size_state(surface)?;
+        if size.state.generation != generation {
+            self.status_message =
+                Some(localization::catalog().menu.terminal_size_changed.to_string());
+            return None;
+        }
+        let row = size.state.participants.get(participant)?;
+        let is_self = size.self_participant.as_deref() == Some(row.participant.id.as_str());
+        Some((row.participant.id.clone(), is_self))
+    }
+
     fn open_clients_menu(&mut self, x: u16, y: u16, surface: SurfaceId) {
         self.session.refresh_clients_background();
         let mut groups = Vec::new();
-        if let Some(MenuItem::Submenu { items, .. }) = client_menu_item(&self.clients, surface) {
+        let size = self.session.size_state(surface);
+        if let Some(MenuItem::Submenu { items, .. }) =
+            terminal_size_menu_item(size.as_ref(), &self.clients, surface)
+        {
             groups.push(items);
         }
         groups.push(self.global_menu_items());
@@ -31076,6 +31318,142 @@ mod tests {
         assert!(app.handle(event).is_ok());
         assert!(!app.quit);
         assert!(app.status_message.is_none());
+    }
+
+    use super::size_menu_item;
+    use crate::session::SurfaceSizeState;
+    use cmux_tui_core::sizing_policy::{TerminalSizingMode, TerminalSizingPolicy};
+
+    fn sizing_test_state(mode: TerminalSizingMode) -> SurfaceSizeState {
+        use cmux_tui_core::sizing_policy::{
+            TerminalDeviceKind, TerminalGridSize, TerminalSizingEngine, TerminalSizingParticipant,
+        };
+        let mut engine = TerminalSizingEngine::new(
+            TerminalGridSize::new(80, 24),
+            TerminalSizingPolicy::new(mode, Vec::new(), None),
+        );
+        engine.attach(TerminalSizingParticipant {
+            viewport: Some(TerminalGridSize::new(100, 40)),
+            ..TerminalSizingParticipant::new("c0", TerminalDeviceKind::Tui)
+        });
+        engine.attach(TerminalSizingParticipant {
+            display_name: Some("Maya Ortiz".into()),
+            device_name: Some("Mac Studio".into()),
+            viewport: Some(TerminalGridSize::new(118, 30)),
+            ..TerminalSizingParticipant::new("c7", TerminalDeviceKind::Mac)
+        });
+        SurfaceSizeState { state: engine.state().clone(), self_participant: Some("c0".into()) }
+    }
+
+    #[test]
+    fn shared_size_menu_offers_the_five_modes_and_per_participant_controls() {
+        let size = sizing_test_state(TerminalSizingMode::Smallest);
+        let MenuItem::Submenu { label, items } = size_menu_item(&size, 31) else {
+            panic!("expected the terminal size submenu");
+        };
+        assert_eq!(label, "Terminal size");
+        let modes = items[..5]
+            .iter()
+            .map(|item| match item {
+                MenuItem::LabeledAction {
+                    label,
+                    action: MenuAction::SetSizeMode { surface: 31, mode },
+                } => (label.as_str(), *mode),
+                other => panic!("expected a mode action, got {other:?}"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            modes,
+            [
+                ("✓ Fit everyone", TerminalSizingMode::Smallest),
+                ("  Follow latest", TerminalSizingMode::Latest),
+                ("  Largest window", TerminalSizingMode::Largest),
+                ("  Priority", TerminalSizingMode::Priority),
+                ("  Fixed", TerminalSizingMode::Fixed),
+            ]
+        );
+        assert_eq!(items[5], MenuItem::Separator);
+        let generation = size.state.generation;
+        let MenuItem::Submenu { label, items: row } = &items[7] else {
+            panic!("expected the Mac participant row");
+        };
+        assert_eq!(label, "Maya Ortiz · Mac Studio · 118×30 · sets size");
+        assert_eq!(
+            row,
+            &vec![
+                MenuItem::LabeledAction {
+                    label: "✓ Counts toward size".into(),
+                    action: MenuAction::SetSizeCounts {
+                        surface: 31,
+                        generation,
+                        participant: 1,
+                        counts: false,
+                    },
+                },
+                MenuItem::Separator,
+                MenuItem::Action(MenuAction::DisconnectSizeParticipant {
+                    surface: 31,
+                    generation,
+                    participant: 1,
+                }),
+            ]
+        );
+        let MenuItem::Submenu { label, .. } = &items[6] else {
+            panic!("expected this client's row");
+        };
+        assert_eq!(label, "this client · 100×40 · sets size");
+    }
+
+    #[test]
+    fn size_menu_commands_reach_the_shared_sizing_host() {
+        let mux = Mux::new("size-menu-commands-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.resize_surface_for_client(surface.id, 0, 100, 40).unwrap();
+        mux.resize_surface_for_client(surface.id, 7, 118, 30).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        let settle = |app: &mut App| {
+            loop {
+                let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+                let settled = matches!(event, AppEvent::SessionMutationSettled { .. });
+                assert!(app.handle(event).is_ok());
+                if settled {
+                    break;
+                }
+            }
+        };
+
+        app.activate_menu(MenuAction::SetSizeMode {
+            surface: surface.id,
+            mode: TerminalSizingMode::Latest,
+        })
+        .unwrap();
+        settle(&mut app);
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert_eq!(state.policy.mode, TerminalSizingMode::Latest);
+
+        let mac = state.participants.iter().position(|row| row.participant.id == "c7").unwrap();
+        app.activate_menu(MenuAction::SetSizeCounts {
+            surface: surface.id,
+            generation: state.generation,
+            participant: mac,
+            counts: false,
+        })
+        .unwrap();
+        settle(&mut app);
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert!(!state.participant("c7").unwrap().counts);
+        assert_eq!(state.size(), cmux_tui_core::sizing_policy::TerminalGridSize::new(100, 40));
+
+        // A menu opened on an older state is stale and changes nothing.
+        app.activate_menu(MenuAction::SetSizeCounts {
+            surface: surface.id,
+            generation: state.generation - 1,
+            participant: mac,
+            counts: true,
+        })
+        .unwrap();
+        assert!(app.status_message.is_some());
+        assert!(!mux.terminal_size_state(surface.id).unwrap().participant("c7").unwrap().counts);
     }
 
     #[test]
@@ -46499,6 +46877,7 @@ mod tests {
             menu: None,
             clients: Vec::new(),
             client_border_labels: HashMap::new(),
+            size_state_labels: HashMap::new(),
             prompt: None,
             connection_transaction: None,
             next_connection_attempt: 1,

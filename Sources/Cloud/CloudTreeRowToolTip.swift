@@ -95,6 +95,8 @@ enum CloudTreeRowToolTip {
                 toolTip: CloudTreeGroupCount(usage: usage).help,
                 accessibilityLabel: [node.searchableTitle, usage.countLabel].joined(separator: ", ")
             )
+        case .createAction:
+            return .init(toolTip: nil, accessibilityLabel: node.searchableTitle)
         case .terminalsPool, .displaysPool, .workspacesGroup, .browsersGroup, .portsGroup,
              .resourcesPool, .devicesSection, .cloudMachinesSection, .devicesEmpty:
             // Fixed section labels: they never truncate, so hover text would only

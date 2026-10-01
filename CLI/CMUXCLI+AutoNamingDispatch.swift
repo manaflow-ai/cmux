@@ -148,25 +148,17 @@ extension CMUXCLI {
             try? FileManager.default.removeItem(at: outputFile)
             try? FileManager.default.removeItem(at: workingDirectory)
         }
+        var arguments = CodexAutoNamingArguments.build(
+            configToml: codexConfigToml(from: summarizerEnv)
+        )
+        arguments += [
+            "--cd", workingDirectory.path,
+            "--output-last-message", outputFile.path,
+            "-"
+        ]
         guard runAutoNamingSummarizer(
             executable: executable,
-            arguments: [
-                "exec",
-                "-c", "default_tools_enabled=false",
-                "-c", "tools={}",
-                "-c", "mcp_servers={}",
-                "-c", "web_search=false",
-                "-c", "approval_policy=never",
-                "-c", "shell_environment_policy.inherit=none",
-                "--skip-git-repo-check",
-                "--ephemeral",
-                "--ignore-user-config",
-                "--ignore-rules",
-                "--sandbox", "read-only",
-                "--cd", workingDirectory.path,
-                "--output-last-message", outputFile.path,
-                "-"
-            ],
+            arguments: arguments,
             prompt: prompt,
             environment: summarizerEnv,
             timeout: timeout
@@ -174,5 +166,12 @@ extension CMUXCLI {
             return nil
         }
         return (try? String(contentsOf: outputFile, encoding: .utf8)) ?? ""
+    }
+
+    private func codexConfigToml(from env: [String: String]) -> String? {
+        let home = env["CODEX_HOME"] ??
+            ((env["HOME"].map { $0 + "/.codex" }) ?? "")
+        guard !home.isEmpty else { return nil }
+        return try? String(contentsOfFile: home + "/config.toml", encoding: .utf8)
     }
 }

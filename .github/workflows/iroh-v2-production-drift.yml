@@ -78,7 +78,7 @@ jobs:
               await github.rest.issues.createLabel({ owner, repo, name: label, color: 'b60205', description: 'Production IROH v2 Worker is behind main' });
             }
             if (open.data.length > 0) {
-              await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body });
+              await github.rest.issues.update({ owner, repo, issue_number: open.data[0].number, body });
             } else {
               await github.rest.issues.create({ owner, repo, title: 'IROH v2 production Worker is behind main', labels: [label], body });
             }

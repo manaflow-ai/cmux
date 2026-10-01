@@ -386,6 +386,7 @@ jobs:
       - name: Build and test Agent Session web resources
         run: |
           set -euo pipefail
+          bun install --cwd webviews --frozen-lockfile
           bun install --frozen-lockfile
           bun run agent-session-web:build
           bun run agent-session-web:test

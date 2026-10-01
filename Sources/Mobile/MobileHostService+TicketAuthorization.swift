@@ -114,7 +114,9 @@ extension MobileHostService {
              "mobile.terminal.artifact.fetch",
              "mobile.terminal.artifact.thumbnail",
              "mobile.terminal.artifact.list",
-             "mobile.terminal.close", "mobile.terminal.rename":
+             "mobile.terminal.close", "mobile.terminal.rename",
+             "mobile.terminal.reattach", "mobile.terminal.size_policy.set",
+             "mobile.terminal.participant.disconnect":
             return ticketTerminalAuthorizationError(
                 authorization: authorization,
                 workspaceSelection: workspaceSelection.value,

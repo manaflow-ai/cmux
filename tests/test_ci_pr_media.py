@@ -603,7 +603,7 @@ class PublishTests(StubbedTest):
 
             @staticmethod
             def put_file(repo, branch, path, local, message):
-                stub.uploads.append((repo, branch, path, local.read_bytes()))
+                stub.uploads.append((repo, branch, path, local.read_bytes(), message))
 
         original = media.uploader
         media.uploader = lambda: Tool
@@ -616,9 +616,11 @@ class PublishTests(StubbedTest):
         with tempfile.TemporaryDirectory() as tmp:
             stub = self.publish(Path(tmp), HEAD, self.comment(f"{media.DOGFOOD_MARKER}\nof `{HEAD}`"),
                                 log_url="https://x/runs/1")
-        uploaded = [path for _, _, path, _ in stub.uploads]
+        uploaded = [path for _, _, path, _, _ in stub.uploads]
         self.assertEqual(uploaded, [f"1/{HEAD[:8]}/sidebar-and-chrome-tour/tour.gif"])
-        self.assertEqual({branch for _, branch, _, _ in stub.uploads}, {"pr-media"})
+        self.assertEqual({branch for _, branch, _, _, _ in stub.uploads}, {"pr-media"})
+        self.assertEqual(stub.uploads[0][4], f"pr-media: sidebar-and-chrome-tour at {HEAD[:8]}")
+        self.assertNotIn("PR #1", stub.uploads[0][4])
         self.assertTrue(any(w[:4] == ["gh", "api", "-X", "PATCH"] for w in stub.writes))
 
     @staticmethod

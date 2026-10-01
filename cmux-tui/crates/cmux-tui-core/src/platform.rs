@@ -1419,7 +1419,7 @@ fn terminal_pwd_host_is_local(host: &str) -> bool {
 }
 
 #[cfg(unix)]
-fn local_hostname() -> Option<String> {
+pub(crate) fn local_hostname() -> Option<String> {
     let mut hostname = [0_u8; 256];
     if unsafe { libc::gethostname(hostname.as_mut_ptr().cast(), hostname.len()) } != 0 {
         return None;
@@ -1435,7 +1435,7 @@ fn decode_local_hostname(bytes: &[u8]) -> Option<String> {
 }
 
 #[cfg(windows)]
-fn local_hostname() -> Option<String> {
+pub(crate) fn local_hostname() -> Option<String> {
     std::env::var("COMPUTERNAME").ok().filter(|value| !value.is_empty())
 }
 

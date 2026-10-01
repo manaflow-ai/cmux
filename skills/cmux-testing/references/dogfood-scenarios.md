@@ -68,11 +68,19 @@ whose CI reused main's build tours main's build. For evidence no tour can produc
 (a drag, a recording from a fleet dogfood), upload it with `scripts/pr-media.py`;
 the workflow uploads through the same tool.
 
-`pr-media-prune.yml` keeps the branch small: weekly it drops the folders of
-pull requests closed over 30 days ago (unless an upload touched them since)
-and squashes the branch to one commit, so images in those old comments stop
-loading. It is a dry run unless dispatched with `-f apply=true` or
-`CI_PR_MEDIA_PRUNE_APPLY` is 1.
+`pr-media-prune.yml` keeps the branch small. For open PRs it keeps the current
+head, every revision referenced in the PR body or comments, and up to three
+other revisions uploaded within 30 days. If the head has no published media,
+the latest available revision remains. Flat manual assets, unknown PRs,
+incomplete comment lists, and legacy revisions without reliable upload ages
+are kept. `<!-- cmux:pr-media:keep -->` in a PR body/comment preserves its
+whole root; append an exact branch path to preserve particular evidence.
+
+PRs closed over 30 days ago are dropped unless recently uploaded, explicitly
+kept, or referenced by a live PR. The branch is squashed to one commit; a small
+timestamp index preserves upload ages through that rewrite. Images in old
+closed PR comments can stop loading. It is a dry run unless dispatched with
+`-f apply=true` or `CI_PR_MEDIA_PRUNE_APPLY` is 1.
 
 Give a new tour a `paths` list of `fnmatch` globs (`*` crosses directories),
 for example `"paths": ["Sources/*Browser*", "Packages/macOS/CmuxBrowser/*"]`.

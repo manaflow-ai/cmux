@@ -182,6 +182,28 @@ import Testing
         #expect(snapshot.resolvedColorScheme == terminalScheme)
     }
 
+    /// A user who never chose keeps the sidebar and titlebar on the terminal
+    /// background, so a light terminal theme never sits beside dark chrome.
+    @Test func sidebarMatchesTerminalBackgroundUntilTheUserOptsOut() throws {
+        let suiteName = "cmux.tests.match-terminal-default"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let resolver = WindowAppearanceResolver(
+            terminalAppearance: WindowTerminalAppearanceSnapshot(
+                backgroundColor: NSColor(hex: "#FFFFFF") ?? .white,
+                backgroundOpacity: 1,
+                backgroundBlur: .disabled,
+                usesHostLayerBackground: true
+            )
+        )
+
+        #expect(resolver.currentFromUserDefaults(defaults: defaults).unifySurfaceBackdrops)
+
+        defaults.set(false, forKey: "sidebarMatchTerminalBackground")
+        #expect(!resolver.currentFromUserDefaults(defaults: defaults).unifySurfaceBackdrops)
+    }
+
     @Test func ghosttyMacOSGlassStyleForcesClearRootAndTerminalTintedGlass() {
         let resolver = WindowAppearanceResolver(
             terminalAppearance: WindowTerminalAppearanceSnapshot(

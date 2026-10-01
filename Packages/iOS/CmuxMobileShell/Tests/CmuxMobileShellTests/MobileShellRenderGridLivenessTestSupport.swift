@@ -32,6 +32,8 @@ actor LivenessHostRouter {
         var title: String?
         var attachToken: String?
         var stackAccessToken: String?
+        var deviceKind: String?
+        var deviceName: String?
     }
 
     private var recorded: [RecordedRequest] = []
@@ -133,7 +135,9 @@ actor LivenessHostRouter {
         action: String? = nil,
         title: String? = nil,
         attachToken: String? = nil,
-        stackAccessToken: String? = nil
+        stackAccessToken: String? = nil,
+        deviceKind: String? = nil,
+        deviceName: String? = nil
     ) {
         recorded.append(RecordedRequest(
             method: method,
@@ -148,7 +152,9 @@ actor LivenessHostRouter {
             action: action,
             title: title,
             attachToken: attachToken,
-            stackAccessToken: stackAccessToken
+            stackAccessToken: stackAccessToken,
+            deviceKind: deviceKind,
+            deviceName: deviceName
         ))
         resumeSatisfiedCountWaiters()
     }
@@ -890,7 +896,9 @@ actor LivenessTransport: CmxByteTransport, CmxByteTransportLivenessObserving {
                 action: params?["action"] as? String,
                 title: params?["title"] as? String,
                 attachToken: auth?["attach_token"] as? String,
-                stackAccessToken: auth?["stack_access_token"] as? String
+                stackAccessToken: auth?["stack_access_token"] as? String,
+                deviceKind: params?["device_kind"] as? String,
+                deviceName: params?["device_name"] as? String
             )
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's

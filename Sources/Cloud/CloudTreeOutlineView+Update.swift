@@ -14,6 +14,6 @@ extension CloudTreeOutlineView.Coordinator {
     /// The representable and native tests enter through the same update boundary.
     func update(inputs: CloudTreeBuildInputs, now: Date = .now) {
         guard let nodes = nodeCache.nodes(ifChanged: inputs, now: now) else { return }
-        apply(nodes: nodes)
+        apply(nodes: CloudTreeCreateActionBuilder.add(to: nodes))
     }
 }

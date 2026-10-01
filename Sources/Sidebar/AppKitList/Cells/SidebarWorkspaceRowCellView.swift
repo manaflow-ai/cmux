@@ -725,6 +725,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             text: model.shortcutHintText,
             fontSize: model.scaled(9),
             emphasis: model.isActive ? 1.0 : 0.9,
+            colorScheme: palette.colorScheme,
             representedIdentity: model.workspaceId
         )
         topDropIndicator.accentColor = palette.accent

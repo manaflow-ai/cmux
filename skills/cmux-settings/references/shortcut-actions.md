@@ -175,6 +175,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.hideFind`
 - `shortcuts.bindings.pasteLastScreenshot`
 - `shortcuts.bindings.sendCtrlFToTerminal`
+- `shortcuts.bindings.sizeTerminalToMyWindow`
 - `shortcuts.bindings.useSelectionForFind`
 
 ## Files and React Grab

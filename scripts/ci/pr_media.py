@@ -824,7 +824,7 @@ def publish(repository: str, pr: int, head_sha: str, tours: list[str], media: Pa
                 if not re.fullmatch(r"[A-Za-z0-9._-]+", file) or not (folder / file).is_file():
                     continue
                 upload(tool, repository, f"{prefix}/{tour_name}/{file}", folder / file,
-                       f"PR #{pr} media: {tour_name} at {head_sha[:8]}")
+                       f"pr-media: {tour_name} at {head_sha[:8]}")
         else:
             manifest = published(repository, pr, head_sha, tour_name)
         if not manifest:

@@ -432,22 +432,19 @@ def capability_marker(run: Mapping[str, Any], names: Iterable[str]) -> tuple[str
     return None
 
 
-def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]], *,
-                        light_retry: bool = False) -> bool:
+def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) -> bool:
     """A run whose marker is worth an artifact listing: it may hold an owned pool.
 
-    Only attempt 1 of a same-repository pull request run of CI, of main's
-    full-suite dispatch of CI (pr_runner_pool.py routes it too), or of an
-    E2E, iOS or Iroh release gate dispatch (the runner job of test-e2e.yml,
-    test-ios.yml, ios-screenshots.yml and iroh-release-gate.yml uploads the
-    same marker), can. While
-    CI_OWNED_LIGHT_RETRY is 1 (`light_retry`), attempt 2 can too: the
-    rescue's full re-run picks again and may take the light tier
-    (pr_runner_pool.LIGHT_RETRY_ATTEMPT), publishing its own marker. A re-run
-    of failed jobs publishes none, so with the variable off attempt 2 costs
-    no listing. A pull request run's re-run someone other than
-    github-actions[bot] started follows a code failure and picks like attempt
-    1 (pr_runner_pool.host_fault_retry()), so any attempt of it can too; the
+    Only attempts 1 and 2 (pr_runner_pool.LAST_OWNED_ATTEMPT) of a
+    same-repository pull request run of CI, of main's full-suite dispatch of
+    CI (pr_runner_pool.py routes it too), or of an E2E, iOS or Iroh release
+    gate dispatch (the runner job of test-e2e.yml, test-ios.yml,
+    ios-screenshots.yml and iroh-release-gate.yml uploads the same marker),
+    can: a full re-run picks again like attempt 1 and publishes its own
+    marker, and a re-run of failed jobs publishes none, costing one listing.
+    A pull request run's re-run someone other than github-actions[bot]
+    started follows a code failure and picks like attempt 1
+    (pr_runner_pool.host_fault_retry()), so any attempt of it can too; the
     bot's later attempts never hold one. Its other macOS jobs say nothing:
     swift-package-tests usually runs on a Blacksmith pool beside a run on an
     owned one (only a run that builds no Release helper places it there).
@@ -455,7 +452,7 @@ def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]
     path = str(run.get("path") or "")
     code_retry = (run.get("event") == "pull_request" and path.endswith("/ci.yml")
                   and str((run.get("triggering_actor") or {}).get("login") or "") != "github-actions[bot]")
-    if (run.get("run_attempt") or 1) > (2 if light_retry else 1) and not code_retry:
+    if (run.get("run_attempt") or 1) > 2 and not code_retry:
         return False
     if (run.get("head_repository") or {}).get("id") != (run.get("repository") or {}).get("id"):
         return False
@@ -1445,10 +1442,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         markers: dict[int, tuple[str, int, int]] = {}
         capability_markers: dict[int, tuple[str, int]] = {}
         if os.environ.get("PR_POOL_OWNED", "").strip() == "1":
-            light_retry = os.environ.get("OWNED_LIGHT_RETRY", "").strip() == "1"
             for run in runs:
-                if run.get("id") in jobs_by_run and may_hold_owned_pool(run, jobs_by_run[run["id"]],
-                                                                        light_retry=light_retry):
+                if run.get("id") in jobs_by_run and may_hold_owned_pool(run, jobs_by_run[run["id"]]):
                     try:
                         names = github.artifact_names(
                             run["id"], stop=f"macos-pool-persistent-{run['id']}-{run.get('run_attempt') or 1}-")

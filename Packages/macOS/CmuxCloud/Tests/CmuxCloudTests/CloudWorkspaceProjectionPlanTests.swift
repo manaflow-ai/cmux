@@ -29,6 +29,39 @@ struct CloudWorkspaceProjectionPlanTests {
         #expect(plan.missing == [desired])
     }
 
+    @Test("A local Desktop preview satisfies an exact frontend membership view")
+    func localDisplayPreviewSatisfiesMembership() {
+        let display = SurfaceResourceID(machine: machine, kind: .display, key: "display:1")
+        let preview = SurfaceProjection(
+            resource: display,
+            workspaceID: UUID(),
+            panelID: UUID(),
+            remoteWorkspaceID: "remote-workspace"
+        )
+        let remoteWorkspace = SurfaceRemoteWorkspace(
+            id: "remote-workspace", name: "Cloud", index: 0, focused: true
+        )
+        let desired = SurfaceResourcePlacement(
+            resource: display,
+            remoteView: SurfaceRemoteView(
+                tabID: SurfaceRemoteView.cloudDisplayMembershipViewPrefix + "view-a",
+                workspace: remoteWorkspace
+            )
+        )
+        let secondView = SurfaceResourcePlacement(
+            resource: display,
+            remoteView: SurfaceRemoteView(
+                tabID: SurfaceRemoteView.cloudDisplayMembershipViewPrefix + "view-b",
+                workspace: remoteWorkspace
+            )
+        )
+
+        let plan = CloudWorkspaceProjectionPlan(desired: [desired, secondView], existing: [preview])
+
+        #expect(plan.obsolete.isEmpty)
+        #expect(plan.missing.isEmpty)
+    }
+
     @Test("A preview whose remote placement was deleted is retired")
     func deletedRemotePlacementIsNotMistakenForPreview() {
         let display = SurfaceResourceID(machine: machine, kind: .display, key: "display:1")
