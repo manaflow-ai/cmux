@@ -11,6 +11,8 @@ struct MachineRowActions {
     let openDesktop: @MainActor (String) -> Void
     let runCommand: @MainActor (String, [String]) -> Void
     let confirmDelete: @MainActor (String) -> Void
+    /// Presents deletion with a human-facing name while retaining the stable id for the command.
+    var confirmDeleteNamed: (@MainActor (String, String?) -> Void)? = nil
     let promptRename: @MainActor (String, String?) -> Void
     /// Grow the machine through the shared `cmux vm resize` command.
     let resizeDisk: @MainActor (String, Int) -> Void
@@ -60,7 +62,10 @@ struct MachineRowActions {
                 }
             },
             confirmDelete: { id in
-                presentDeleteConfirmation(id: id, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
+                presentDeleteConfirmation(id: id, displayName: nil, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
+            },
+            confirmDeleteNamed: { id, displayName in
+                presentDeleteConfirmation(id: id, displayName: displayName, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
             },
             promptRename: { id, currentLabel in
                 presentRenamePrompt(id: id, currentLabel: currentLabel, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
@@ -223,18 +228,16 @@ struct MachineRowActions {
     }
 
     @MainActor
-    private static func presentDeleteConfirmation(
-        id: String,
-        onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
-        onDidMutate: @escaping @MainActor () -> Void
-    ) {
+    static func deleteConfirmationAlert(id: String, displayName: String?) -> NSAlert {
         let alert = NSAlert()
         alert.alertStyle = .warning
         let format = String(
             localized: "machines.delete.title",
             defaultValue: "Delete machine “%@”?"
         )
-        alert.messageText = String(format: format, id)
+        let confirmationName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .flatMap { $0.isEmpty ? nil : $0 } ?? id
+        alert.messageText = String(format: format, confirmationName)
         alert.informativeText = String(
             localized: "machines.delete.message",
             defaultValue: "This permanently deletes the machine and everything stored on it. This cannot be undone."
@@ -242,6 +245,17 @@ struct MachineRowActions {
         alert.addButton(withTitle: String(localized: "machines.delete.confirm", defaultValue: "Delete"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         alert.buttons.first?.hasDestructiveAction = true
+        return alert
+    }
+
+    @MainActor
+    private static func presentDeleteConfirmation(
+        id: String,
+        displayName: String?,
+        onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
+        onDidMutate: @escaping @MainActor () -> Void
+    ) {
+        let alert = deleteConfirmationAlert(id: id, displayName: displayName)
         let respond: (NSApplication.ModalResponse) -> Void = { response in
             // A second confirm while the first delete runs is a no-op, never a second `vm rm`.
             guard response == .alertFirstButtonReturn, MachineDeleteCoordinator.shared.canBegin(id) else { return }
