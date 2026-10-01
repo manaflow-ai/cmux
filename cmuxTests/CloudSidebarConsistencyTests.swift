@@ -1,5 +1,3 @@
-import CmuxCloud
-import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -102,7 +100,7 @@ struct CloudSidebarConsistencyTests {
         var titles: [String] = []
         let workspaceID = live.id()
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { title, _ in titles.append(title); return (workspaceID, nil) },
+            create: { title in titles.append(title); return (workspaceID, nil) },
             paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in }
         )
         let opened = try await catalog.projectGroupAsNewLocalWorkspace(
@@ -124,7 +122,7 @@ struct CloudSidebarConsistencyTests {
         let selection = SurfaceResourceGroup(title: "Selection", placements: [all.placements[0]], remoteWorkspaceID: "ws_main")
         let workspaceID = live.id()
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { _, _ in (workspaceID, nil) }, paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in }
+            create: { _ in (workspaceID, nil) }, paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in }
         )
         let opened = try await catalog.projectGroupAsNewLocalWorkspace(selection, title: selection.title, focus: false, host: host)
         #expect(opened.projections.map(\.resource.key) == ["term_a"])
@@ -250,6 +248,27 @@ struct CloudSidebarConsistencyTests {
         }
         #expect(TerminalTabAgentIconResolver().assetName(forStatusKey: "codex") == "AgentIcons/Codex")
         #expect(TerminalTabAgentIconResolver().assetName(forStatusKey: "gemini") == "AgentIcons/Gemini")
+    }
+
+    @Test("A Cloud tab opened after its process title shows that title immediately")
+    func titleAppliesWhenProjectionRecorded() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelID = try #require(workspace.focusedPanelId)
+        let catalog = SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(environment: .init(
+            workspace: { id in manager.workspacesById[id] },
+            tabManager: { _ in manager }, workspaces: { manager.tabs }
+        )))
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "ws_main")
+        // The title is already current when the tab opens, and no later title
+        // change arrives to deliver it through remote-state reconciliation.
+        install(try state(tabs: ["a"], named: false), in: catalog)
+        catalog.record(SurfaceProjection(
+            resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_a"),
+            workspaceID: workspace.id, panelID: panelID, remoteWorkspaceID: "ws_main", remoteTabID: "tab_a"
+        ))
+        let nativeTab = try #require(workspace.surfaceIdFromPanelId(panelID))
+        #expect(workspace.bonsplitController.tab(nativeTab)?.title == "Process a r1")
     }
 
     @Test("A bound native tab receives canonical names, process titles, and ignores delayed graph callbacks", arguments: [false, true])
