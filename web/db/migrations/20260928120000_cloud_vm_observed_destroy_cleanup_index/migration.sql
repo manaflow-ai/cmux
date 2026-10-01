@@ -1,4 +1,4 @@
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "cloud_vms_observed_destroy_cleanup_idx"
+CREATE INDEX IF NOT EXISTS "cloud_vms_observed_destroy_cleanup_idx"
   ON "cloud_vms" ("updated_at", "id")
   WHERE "status" = 'destroyed'
     AND "provider_metadata" ? 'cmuxObservedDestroyCleanup'
