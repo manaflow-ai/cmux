@@ -126,6 +126,14 @@ class CaptureRect(unittest.TestCase):
         screen.follow([5000, 200, 800, 600])
         self.assertIsNone(screen.rect)
 
+    def test_a_window_that_disappears_stops_the_capture(self) -> None:
+        for gone in (None, [0, 0, 10, 10], [1, 2]):
+            with self.subTest(gone=gone):
+                screen = self.screen()
+                screen.follow([100, 200, 800, 600])
+                screen.follow(gone)
+                self.assertIsNone(screen.rect)
+
     def test_no_window_means_no_rect_and_no_shot(self) -> None:
         screen = self.screen()
         screen.follow(None)

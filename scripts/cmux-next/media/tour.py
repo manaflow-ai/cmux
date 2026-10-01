@@ -206,8 +206,9 @@ class Session:
 class Screen:
     """Screenshots of a rectangle in global top-left coordinates (screencapture -R)."""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, scratch: Path | None = None) -> None:
         self.session = session
+        self.scratch = scratch or Path(tempfile.gettempdir())
         self.rect: tuple[int, int, int, int] | None = None
         self.primary_height: float | None = None
         self.primary_width: float | None = None
@@ -222,13 +223,14 @@ class Screen:
 
     def follow(self, frame: list[float] | None) -> None:
         """Aim at a window frame (NSWindow coordinates: bottom-left origin on the primary screen)."""
+        # Without a usable window frame (none, gone, too small, off the
+        # display) nothing is captured: the old rect would show what is behind.
+        self.rect = None
         if not frame or self.primary_height is None or len(frame) != 4:
             return
         x, y, width, height = frame
         if width < 50 or height < 50:
             return
-        # Until a usable rect is known again, nothing is captured.
-        self.rect = None
         top = self.primary_height - (y + height)
         left, right = max(0.0, x), x + width
         bottom = min(self.primary_height, top + height)
@@ -261,8 +263,9 @@ class Screen:
 
     def helper_capture(self, path: Path, kind: str) -> str | None:
         """The whole display through the helper, cropped to the rect with sips."""
-        # The whole desktop lands outside shots/ and frames/, so a kill mid-capture cannot publish it.
-        raw = Path(tempfile.gettempdir()) / f"cmux-tour-raw-{os.getpid()}-{threading.get_ident()}.png"
+        # The whole desktop lands outside shots/ and frames/, so a kill
+        # mid-capture cannot publish it, in a directory the helper's user can write.
+        raw = self.scratch / f"raw-{threading.get_ident()}.png"
         problem = self.session.helper_capture(self.session.helper, ["desktop"], raw)
         if problem:
             return problem
@@ -492,7 +495,7 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session) 
                                 "capture_mode": session.capture_mode}
     workdir = Path(tempfile.mkdtemp(prefix="cmux-tour.", dir="/tmp"))
     app = App(app_path, session, workdir)
-    screen = Screen(session)
+    screen = Screen(session, session.shareable(workdir / "raw"))
     recorder = Recorder(screen, frames)
     try:
         try:
