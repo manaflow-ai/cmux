@@ -91,7 +91,10 @@ enum WorkspaceGroupHandlers {
         registry.bind("workspaceGroup.editConfig", run: { _ in try SettingsHandlers.openCmuxConfig(context) })
 
         registry.bindUnavailable(["workspaceGroup.togglePin"], ActionFailure.needsDaemonCapability("workspace-group-pin-v1"))
-        registry.bindUnavailable(["workspaceGroup.markUnread"], ActionFailure.needsDaemonCapability("notification-mark-unread-v1"))
+        registry.bind("workspaceGroup.markUnread", requires: DaemonCapabilities.notificationMarkUnread, daemon: context.services.activeDaemon, run: { invocation in
+            try context.require(DaemonCapabilities.notificationMarkUnread)
+            WorkspaceUnreadMark.set(true, on: try members(invocation, context), daemon: context.services.activeDaemon)
+        })
     }
 
     /// New workspace in the window's room, then into personal group `id`.
@@ -140,8 +143,12 @@ enum WorkspaceGroupHandlers {
     }
 
     private static func acknowledge(_ invocation: ActionInvocation, _ context: AppActionContext) throws {
+        try WorkspaceMetadataHandlers.acknowledge(try members(invocation, context), context)
+    }
+
+    /// The workspaces of the targeted group.
+    private static func members(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> [WorkspaceModel] {
         let id = try context.group(invocation).id
-        let members = context.usesPersonalGroups ? context.workspaces(inPersonalGroup: id) : context.store.workspaces.filter { $0.group == id }
-        try WorkspaceMetadataHandlers.acknowledge(members, context)
+        return context.usesPersonalGroups ? context.workspaces(inPersonalGroup: id) : context.store.workspaces.filter { $0.group == id }
     }
 }

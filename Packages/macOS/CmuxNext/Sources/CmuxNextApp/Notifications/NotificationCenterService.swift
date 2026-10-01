@@ -19,6 +19,9 @@ final class NotificationCenterService {
     @ObservationIgnored weak var services: AppServices?
     @ObservationIgnored let desktop = DesktopNotifier()
     @ObservationIgnored private var lastKeystroke: [String: ContinuousClock.Instant] = [:]
+    /// The workspace that last held focus, so a manual unread mark clears
+    /// only when focus arrives in its workspace.
+    @ObservationIgnored private var focusedWorkspace: String?
     /// `timeout` dismissal deadlines per tab id (one-shot `DemandTimer`s).
     @ObservationIgnored private var timeouts: [String: DemandTimer] = [:]
     /// Banner ids posted per tab id, withdrawn once the tab is read.
@@ -101,6 +104,7 @@ final class NotificationCenterService {
     /// window is key and cmux is active.
     func focusDidSettle(_ state: FocusState) {
         guard state.windowKey, state.appActive, let tab = Self.contentTab(state.resolved) else { return }
+        clearUnreadMark(ofTab: tab, onlyOnArrival: true)
         interacted(.focus, tabID: tab)
     }
 
@@ -118,10 +122,22 @@ final class NotificationCenterService {
     }
 
     func interacted(_ trigger: NotificationTrigger, tabID: String) {
+        if trigger == .open { clearUnreadMark(ofTab: tabID, onlyOnArrival: false) }
         guard let services, let tab = Self.tab(id: tabID, in: services.daemon.store), tab.hasUnread else { return }
         guard NotificationPolicy.clears(trigger, mode: preferences.dismissal(for: source(of: tab))) else { return }
         note("\(trigger.rawValue) read \(tabID)")
         acknowledge(tab)
+    }
+
+    /// Clears the manual unread mark of `tab`'s workspace. On focus only
+    /// when focus arrives from another workspace, so marking the focused
+    /// workspace unread survives the palette or menu handing focus back.
+    private func clearUnreadMark(ofTab tab: String, onlyOnArrival: Bool) {
+        guard let services, let workspace = WorkspaceUnreadMark.workspace(ofTab: tab, in: services.daemon.store) else { return }
+        let arrived = workspace.id != focusedWorkspace
+        focusedWorkspace = workspace.id
+        guard workspace.markedUnread, arrived || !onlyOnArrival else { return }
+        WorkspaceUnreadMark.set(false, on: [workspace], daemon: services.daemon)
     }
 
     /// Acknowledges `tab` in the daemon (a dismiss verb, or a policy trigger).
