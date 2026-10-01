@@ -28,6 +28,7 @@ import os
 ///
 /// Process-wide per daemon, so two windows showing the same workspace send
 /// one command, and a workspace no window shows closes too.
+@MainActor
 final class EmptyWorkspaceRepair {
     /// Who is giving a workspace its first terminal.
     enum FirstTerminal: Equatable {

@@ -4,6 +4,7 @@ public import Observation
 public import WebKit
 
 /// A browser tab backed by one `WKWebView`.
+@MainActor
 @Observable
 public final class WebKitTab: NSObject, BrowserTab {
     public let id: BrowserTabID

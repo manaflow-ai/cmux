@@ -23,6 +23,7 @@ import GhosttyKit
 /// (another client holds geometry) never shows as a grid the PTY does not
 /// have. An IO that never sends `.resize` (a bare PTY, resized by the
 /// request itself) keeps the surface sized to the view.
+@MainActor
 public final class TerminalSession {
     public let model = TerminalSurfaceModel()
     public let view: TerminalHostView

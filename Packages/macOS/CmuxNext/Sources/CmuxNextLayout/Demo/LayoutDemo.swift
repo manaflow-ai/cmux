@@ -8,6 +8,7 @@ import CmuxNextDesign
 /// Cmd-W close pane, Cmd-1...9 screens,
 /// Cmd-I toggle inactive dimming, Cmd-E toggle centered focus.
 /// Drag the "Tab" chip onto panes or column gaps.
+@MainActor
 public final class LayoutDemoController: NSObject {
     public let source: MockLayoutSource
     public let provider = MockPaneContentProvider()
