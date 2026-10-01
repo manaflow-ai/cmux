@@ -853,6 +853,11 @@
           "default": false,
           "description": "When the password input badge is shown, also draw one dot per typed character. cmux keeps only a count, never the typed characters. Backspace removes a dot; Enter or echo turning back on clears them. Pasted text is not counted."
         },
+        "showJumpToBottomButton": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a Jump to Bottom button at the bottom center of a terminal while its viewport is scrolled up into scrollback. Clicking it scrolls to the bottom and focuses the terminal. A dot marks output that arrived below the viewport. Programs on the alternate screen (vim, less, full-screen agent modes) never get the button because they draw their own scrolling."
+        },
         "predictiveLocalEcho": {
           "type": "boolean",
           "default": true,
