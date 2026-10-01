@@ -199,8 +199,8 @@ struct cmuxApp: App {
                 configFileURL: configFileURL,
                 computerUseRuntimeService: computerUseRuntimeService,
                 browserDataImportCoordinator: browserDataImportCoordinator,
-                computersActions: devices.settingsActions,
                 customSidebarTemplateGalleryRequest: CmuxExtensionSidebarSelection.templateGalleryRequest,
+                computersActions: devices.settingsActions,
                 runComputerUseOnboardingAction: { startingPoint in
                     AppDelegate.shared?.computerUseUXCoordinator.presentOnboardingFromSettings(
                         startingAt: startingPoint
