@@ -53,6 +53,8 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let panelBrowserFocusModeActive = CommandPaletteContextKeys(rawValue: "panel.browserFocusModeActive")
     /// Whether the browser omnibar is visible.
     public static let panelBrowserOmnibarVisible = CommandPaletteContextKeys(rawValue: "panel.browser.omnibarVisible")
+    /// Whether the browser page is pinned to stay active while hidden.
+    public static let panelBrowserKeepsPageActive = CommandPaletteContextKeys(rawValue: "panel.browser.keepsPageActive")
     /// Whether the focused panel is markdown.
     public static let panelIsMarkdown = CommandPaletteContextKeys(rawValue: "panel.isMarkdown")
     /// Whether the focused panel is a native Simulator.
