@@ -143,6 +143,21 @@ struct CloudTreeRowHoverButtons: View {
         }
     }
 
+    /// True when the row's faded buttons stay hit-testable and in the
+    /// accessibility tree while the row is not hovered. Section-header actions
+    /// (My Devices' options menu, Cloud Machines' New Machine) are the header's
+    /// own controls, so a click or VoiceOver press must reach them at rest.
+    /// Every other row hides its buttons at rest so an idle click on the row's
+    /// trailing edge selects or opens the row instead of an invisible button.
+    static func staysReachableAtRest(for kind: CloudTreeNode.Kind) -> Bool {
+        switch kind {
+        case .devicesSection, .cloudMachinesSection:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// The Displays affordance remains visible while guest discovery is pending
     /// so its unavailable state can explain itself on hover. Keep that visual
     /// affordance from dispatching a create operation until the snapshot says

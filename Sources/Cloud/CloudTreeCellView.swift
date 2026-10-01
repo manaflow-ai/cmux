@@ -10,8 +10,10 @@ import SwiftUI
 /// double-click, drag, and the context menu are handled natively. Rows with
 /// actions (machines, groups, section headers) add a second, hit-testable host
 /// for their hover buttons, faded in while the outline reports the row hovered.
-/// The buttons are always laid out, so hovering never reflows the row, and a
-/// faded button keeps its hit area and its place in the accessibility tree.
+/// The buttons are always laid out, so hovering never reflows the row. At rest,
+/// section-header actions stay hit-testable and accessible while faded; every
+/// other row hides its buttons so the idle row keeps its full click target
+/// (see ``CloudTreeRowHoverButtons/staysReachableAtRest(for:)``).
 final class CloudTreeCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("CloudTreeCell")
     var machineReorderAccessibilityActions: (() -> [NSAccessibilityCustomAction])?
@@ -35,14 +37,19 @@ final class CloudTreeCellView: NSTableCellView {
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
     private var showsHoverButtons = false
+    private var hoverButtonsStayReachableAtRest = false
     private var hovered = false {
-        didSet {
-            // An invisible overlay still participates in AppKit hit testing.
-            // Keep the row's full click target available until the pointer is
-            // actually over the row, then reveal the accessory controls.
-            buttonsHost?.alphaValue = hovered ? 1 : 0
-            buttonsHost?.isHidden = !hovered || !showsHoverButtons
-        }
+        didSet { applyHoverButtonsVisibility() }
+    }
+
+    /// An invisible overlay still participates in AppKit hit testing. A row
+    /// keeps its full click target until the pointer is over it, so its
+    /// buttons are hidden at rest. Section headers are the exception: their
+    /// faded actions keep their hit area and accessibility element at rest.
+    private func applyHoverButtonsVisibility() {
+        guard let buttonsHost else { return }
+        buttonsHost.alphaValue = hovered ? 1 : 0
+        buttonsHost.isHidden = !showsHoverButtons || (!hovered && !hoverButtonsStayReachableAtRest)
     }
 
     override convenience init(frame frameRect: NSRect) {
@@ -177,11 +184,11 @@ final class CloudTreeCellView: NSTableCellView {
         displayHost.invalidateIntrinsicContentSize()
         needsLayout = true
         showsHoverButtons = CloudTreeRowHoverButtons.hasButtons(for: node.kind)
+        hoverButtonsStayReachableAtRest = CloudTreeRowHoverButtons.staysReachableAtRest(for: node.kind)
         if showsHoverButtons {
             let buttons = buttonsHost ?? makeButtonsHost(style: style)
             buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions))
-            buttons.isHidden = !hovered || !showsHoverButtons
-            buttons.alphaValue = hovered ? 1 : 0
+            applyHoverButtonsVisibility()
             buttonsLeadingConstraint?.constant = -style.rowGrid.trailingGap
             buttonsTrailingConstraint?.constant = -style.rowGrid.trailingPadding
             buttonsLeadingConstraint?.isActive = true
