@@ -55,6 +55,7 @@ export const teamDetailSchema = z.object({
     planId: z.string().nullable(),
     seats: z.number().nullable(),
     memberCount: z.number(),
+    memberLimit: z.number().nullable(),
     hasActiveSubscription: z.boolean(),
   }),
 }) satisfies z.ZodType<TeamDetail>;
