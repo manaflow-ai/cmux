@@ -725,6 +725,15 @@ test("physical-device mint accepts the authenticated Tailscale fallback", async 
   assert.equal(result.callCount, 1);
 });
 
+test("physical-device mint accepts an experimental WebRTC ticket", async () => {
+  const payload = attachPayload("webrtc");
+  const result = await mintAttachURL("physical_device", payload);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, payload.attach_url);
+  assert.equal(result.callCount, 1);
+  assert.equal(result.stderr, "");
+});
+
 test("physical-device mint waits when no route is published yet", async () => {
   const payload = attachPayload("iroh");
   const result = await mintAttachURL(
