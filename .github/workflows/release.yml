@@ -270,8 +270,8 @@ jobs:
       # (scripts/cmux-next/cef-manifest.json) from the ensure-cef cache. This
       # step fills the cache from the private R2 bucket with the read-only key
       # (the GitHub release with CMUX_CEF_READ_TOKEN is the fallback); only
-      # this step gets the key. The artifact is arm64 only: x86_64 Macs run
-      # without the engine. With no readable source the app ships the browser
+      # this step gets the key. x86_64 Macs get the engine only when the
+      # manifest has an x86_64 artifact. With no readable source the app ships the browser
       # as unavailable (warned below).
       - name: Fetch the Chromium engine
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -281,7 +281,12 @@ jobs:
           CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
           CMUX_CEF_R2_ENV_FILE: /dev/null
           GH_TOKEN: ${{ secrets.CMUX_CEF_READ_TOKEN }}
-        run: scripts/cmux-next/ensure-cef.sh --optional
+        # The x86_64 engine (a manifest "x86_64" object) lets a universal
+        # build embed both slices (embed-cef.sh); without it this prints
+        # nothing and the universal app keeps the arm64 engine.
+        run: |
+          scripts/cmux-next/ensure-cef.sh --optional
+          scripts/cmux-next/ensure-cef.sh --optional --arch x86_64
 
       - name: Build universal app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
