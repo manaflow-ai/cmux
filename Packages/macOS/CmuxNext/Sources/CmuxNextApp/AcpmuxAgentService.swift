@@ -33,6 +33,14 @@ actor AcpmuxAgentService {
         let status: String
         let lastPrompt: String
 
+        init(id: String, name: String, harness: String, status: String, lastPrompt: String) {
+            self.id = id
+            self.name = name
+            self.harness = harness
+            self.status = status
+            self.lastPrompt = lastPrompt
+        }
+
         init?(json: JSONValue) {
             guard case .object(let object) = json,
                   let id = object["sessionId"]?.stringValue,
