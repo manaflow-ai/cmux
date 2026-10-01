@@ -1542,8 +1542,6 @@ extension CMUXCLI {
             facts.append(String(format: String(localized: "cli.vm.tree.disk", defaultValue: "%.0f GB disk"), diskMb / 1024))
         }
         let linkState = (machine["link_state"] as? String) ?? ((machine["link"] as? [String: Any])?["state"] as? String) ?? ""
-        let linkError = ((machine["link_error"] as? String) ?? ((machine["link"] as? [String: Any])?["error"] as? String))
-            .flatMap { $0.isEmpty ? nil : $0 }
         let linkErrorMessage = ((machine["link_error_message"] as? String)
             ?? ((machine["link"] as? [String: Any])?["error_message"] as? String))
             .flatMap { $0.isEmpty ? nil : $0 }
@@ -1635,7 +1633,7 @@ extension CMUXCLI {
             lines.append("    " + String(
                 format: String(localized: "cli.vm.tree.link.error", defaultValue: "⚠ link %@: %@"),
                 linkState,
-                linkErrorMessage ?? linkError ?? String(localized: "cli.vm.tree.link.unavailable", defaultValue: "Cloud link is unavailable. Refresh to reconnect.")
+                linkErrorMessage ?? String(localized: "cli.vm.tree.link.unavailable", defaultValue: "Cloud link is unavailable. Refresh to reconnect.")
             ))
             lines.append("    " + String(
                 format: String(localized: "cli.vm.tree.link.retry", defaultValue: "retry: cmux vm tree %@ --refresh"),

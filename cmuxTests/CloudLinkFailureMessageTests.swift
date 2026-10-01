@@ -40,17 +40,24 @@ struct CloudLinkFailureMessageTests {
 
     @Test("vm tree never prints a raw link failure token")
     func vmTreeUsesLinkFailureMessage() {
-        let message = "cmux cannot reach the Cloud service for this machine right now."
-        let lines = CMUXCLI.vmTreeLines(
-            machine: [
-                "id": "link-copy-test", "local": false, "status": "running",
-                "link_state": "unavailable", "link_error": "cloud_api_unavailable",
-                "link_error_message": message, "remote_workspaces": [[String: Any]]()
-            ],
-            resources: []
-        )
+        let info = machineInfo(linkState: .unavailable, linkError: "cloud_api_unavailable")
+        let message = info.linkFailureMessage
+        var machine = TerminalController.surfaceMachinePayload(info)
+        machine["remote_workspaces"] = [[String: Any]]()
+        let lines = CMUXCLI.vmTreeLines(machine: machine, resources: [])
         let output = lines.joined(separator: "\n")
         #expect(output.contains(message))
+        #expect(!output.contains("cloud_api_unavailable"))
+    }
+
+    @Test("vm tree uses readable fallback for legacy link payloads")
+    func vmTreeUsesReadableLegacyFallback() {
+        let info = machineInfo(linkState: .unavailable, linkError: "cloud_api_unavailable")
+        var machine = TerminalController.surfaceMachinePayload(info)
+        machine.removeValue(forKey: "link_error_message")
+        machine["remote_workspaces"] = [[String: Any]]()
+        let output = CMUXCLI.vmTreeLines(machine: machine, resources: []).joined(separator: "\n")
+        #expect(output.contains("Cloud link is unavailable. Refresh to reconnect."))
         #expect(!output.contains("cloud_api_unavailable"))
     }
 

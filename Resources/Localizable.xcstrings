@@ -117216,6 +117216,65 @@
         }
       }
     },
+    "cli.vm.tree.link.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud link is unavailable. Refresh to reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud リンクを利用できません。更新して再接続してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 链路不可用。请刷新以重新连接。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Link ist nicht verfügbar. Aktualisieren Sie die Verbindung."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le lien Cloud est indisponible. Actualisez pour vous reconnecter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رابط Cloud غير متاح. حدّث الصفحة لإعادة الاتصال."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El enlace de Cloud no está disponible. Actualiza para volver a conectarte."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 連結無法使用。請重新整理以重新連線。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 링크를 사용할 수 없습니다. 새로 고쳐 다시 연결하세요."
+          }
+        }
+      }
+    },
     "cli.vm.tree.link.retry": {
       "extractionState": "manual",
       "localizations": {
