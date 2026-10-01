@@ -44,6 +44,20 @@ struct CloudTreeCategoryCreateActionTests {
         #expect(fixture.events.resolvedWorkspaceActionCalled)
     }
 
+    @Test("Persistent create rows expose the shared hover treatment")
+    func persistentCreateRowsUseHoverHighlight() {
+        #expect(CloudTreeCellView.isPersistentActionRow(.createAction(.newCloudVM)))
+        #expect(CloudTreeCellView.isPersistentActionRow(.createAction(.newWorkspaceOnResolvedMachine)))
+        #expect(CloudTreeCellView.isPersistentActionRow(.placeholder(
+            machine: .cloud("empty"),
+            CloudTreePlaceholder(text: "New Machine", style: .createMachine)
+        )))
+        #expect(!CloudTreeCellView.isPersistentActionRow(.placeholder(
+            machine: .cloud("offline"),
+            CloudTreePlaceholder(text: "Connecting", style: .connecting)
+        )))
+    }
+
     @Test("Disabled Cloud omits the no-machine workspace fallback")
     func disabledCloudOmitsResolvedWorkspaceAction() throws {
         let fixture = Fixture()
