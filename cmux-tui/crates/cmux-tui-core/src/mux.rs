@@ -7664,7 +7664,10 @@ impl Mux {
     /// Replace the shared-sizing clock (milliseconds) to control the typing
     /// hold in tests.
     #[cfg(test)]
-    pub(crate) fn set_sizing_clock_for_test(&self, now_ms: impl Fn() -> u64 + Send + Sync + 'static) {
+    pub(crate) fn set_sizing_clock_for_test(
+        &self,
+        now_ms: impl Fn() -> u64 + Send + Sync + 'static,
+    ) {
         self.client_sizing.lock().unwrap().clock = SizingClock(Arc::new(now_ms));
     }
 
@@ -9051,7 +9054,8 @@ impl Mux {
     /// [`Self::claim_terminal_geometry`] it never adds a participant, so a
     /// one-shot `send` from an unattached connection cannot take the grid.
     pub(crate) fn note_terminal_input(&self, surface: SurfaceId, client: u64) {
-        let _ = self.note_terminal_activity(surface, client, None, TerminalSizingActivityKind::Input);
+        let _ =
+            self.note_terminal_activity(surface, client, None, TerminalSizingActivityKind::Input);
     }
 
     /// Activity of the caller's own view (`view:None`) or of one of its relay

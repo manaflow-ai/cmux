@@ -372,8 +372,7 @@ impl TerminalSizingEngine {
             let mut next = self.entries.clone();
             next[index].activity = self.activity_clock + 1;
             next[index].active_at = at;
-            let counting =
-                next.iter().filter(|entry| self.entry_counts(entry)).collect::<Vec<_>>();
+            let counting = next.iter().filter(|entry| self.entry_counts(entry)).collect::<Vec<_>>();
             if self.decide(&counting).1 != self.state.owners {
                 return false;
             }
@@ -717,15 +716,18 @@ mod tests {
             TerminalGridSize::new(80, 24),
             TerminalSizingPolicy::new(TerminalSizingMode::Latest, Vec::new(), None),
         );
-        engine.attach(TerminalSizingParticipant {
-            id: "c3".into(),
-            user_id: Some("u_maya".into()),
-            display_name: Some("Maya Ortiz".into()),
-            device_kind: TerminalDeviceKind::Mac,
-            device_name: Some("Mac Studio".into()),
-            viewport: Some(TerminalGridSize::new(118, 38)),
-            ..TerminalSizingParticipant::default()
-        }, 0);
+        engine.attach(
+            TerminalSizingParticipant {
+                id: "c3".into(),
+                user_id: Some("u_maya".into()),
+                display_name: Some("Maya Ortiz".into()),
+                device_kind: TerminalDeviceKind::Mac,
+                device_name: Some("Mac Studio".into()),
+                viewport: Some(TerminalGridSize::new(118, 38)),
+                ..TerminalSizingParticipant::default()
+            },
+            0,
+        );
         let wire = serde_json::to_value(engine.state()).unwrap();
         assert_eq!(
             wire,

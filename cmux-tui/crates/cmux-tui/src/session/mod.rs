@@ -647,7 +647,9 @@ impl Session {
             Session::Remote(remote) if remote.supports_capability(SHARED_SIZING_CAPABILITY) => {
                 // Focus skips the typing hold; an older daemon ignores `kind`.
                 remote
-                    .request(json!({"cmd": "note-size-activity", "surface": surface, "kind": "focus"}))
+                    .request(
+                        json!({"cmd": "note-size-activity", "surface": surface, "kind": "focus"}),
+                    )
                     .map(|_| ())
             }
             Session::Remote(remote) => remote

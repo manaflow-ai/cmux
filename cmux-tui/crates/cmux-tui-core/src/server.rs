@@ -20633,12 +20633,12 @@ mod tests {
         mux.pin_latest_size_policy_for_test(surface.id);
         let writer = test_writer();
         let relay = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-        let now = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let now = Arc::new(AtomicU64::new(0));
         mux.set_sizing_clock_for_test({
             let now = now.clone();
-            move || now.load(std::sync::atomic::Ordering::SeqCst)
+            move || now.load(Ordering::SeqCst)
         });
-        let at = |ms: u64| now.store(ms, std::sync::atomic::Ordering::SeqCst);
+        let at = |ms: u64| now.store(ms, Ordering::SeqCst);
         let activity_kind = |view: Option<&str>, kind: Option<&str>| {
             let mut request = json!({"cmd": "note-size-activity", "surface": surface.id});
             if let Some(view) = view {
@@ -20696,7 +20696,7 @@ mod tests {
         let response = activity(Some("mobile:p1")).unwrap();
         assert_eq!(response["changed"], true);
         assert_eq!(surface.size(), (54, 26));
-        assert_eq!(mux.terminal_size_state(surface.id).unwrap().owners, [phone.clone()]);
+        assert_eq!(mux.terminal_size_state(surface.id).unwrap().owners, [phone]);
 
         // An explicit focus takes it back at once; `kind` is optional.
         at(12_100);
