@@ -974,7 +974,7 @@ private final class CloudLinkProcess: @unchecked Sendable {
         defer { posix_spawnattr_destroy(&attributes) }
         var defaultSignals = sigset_t()
         var signalMask = sigset_t()
-        sigemptyset(&defaultSignals)
+        sigfillset(&defaultSignals)
         sigemptyset(&signalMask)
         guard posix_spawnattr_setpgroup(&attributes, 0) == 0,
               posix_spawnattr_setsigdefault(&attributes, &defaultSignals) == 0,
