@@ -1,10 +1,16 @@
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
+import { cmuxCheckConfig } from "../config/vite-plus/check";
 
 const outDir = process.env.CMUX_WEBVIEWS_OUT_DIR ?? "../Resources/markdown-viewer/webviews-app";
 
 export default defineConfig({
+  // `vp check` reads `lint` and `fmt` from here; `vite build` ignores them.
+  // ts-rs emits src/diff/generated; scripts/generate-diff-sidecar-types.sh --check
+  // owns it. Stylesheets are inlined verbatim into the shipped agent pane, so
+  // reformatting them would change the bundle for no behavior change.
+  ...cmuxCheckConfig({ fmtIgnorePatterns: ["src/diff/generated/**", "**/*.css"] }),
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
   },
@@ -50,7 +56,7 @@ export default defineConfig({
         format: "es",
         // `main.mjs` is the page entry the host HTML loads; the worker entry
         // sits under `chunks/` so `diffSurface.mjs` can spawn it as a sibling.
-        entryFileNames: (chunk) => (chunk.name === "main" ? "main.mjs" : "chunks/[name].mjs"),
+        entryFileNames: (chunk: { name: string }) => (chunk.name === "main" ? "main.mjs" : "chunks/[name].mjs"),
         // Stable (un-hashed) chunk names. The diff viewer copies these into its
         // long-lived `/tmp/cmux-diff-viewer-$uid/assets/cmux-webviews-app`
         // cache and overwrites in place via a size+mtime check; content hashes
@@ -76,7 +82,7 @@ export default defineConfig({
         // shiki core lives once in `shiki-core` (imported by both threads)
         // and the WASM chunk is one file shared by the page and every worker.
         // Grammars are resolved on the main thread and posted to the workers.
-        manualChunks(id) {
+        manualChunks(id: string) {
           const shikiLanguage = id.match(/\/@shikijs\/langs\/dist\/([^/]+)\.mjs$/);
           if (shikiLanguage) {
             return `shiki-lang-${shikiLanguage[1]}`;

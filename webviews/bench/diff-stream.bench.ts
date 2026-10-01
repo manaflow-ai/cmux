@@ -1,4 +1,5 @@
 import { parsePatchFiles, processFile } from "@pierre/diffs";
+import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -21,7 +22,7 @@ const patchOutputPath = process.env.CMUX_DIFF_BENCH_PATCH_OUTPUT == null
   ? undefined
   : resolve(process.env.CMUX_DIFF_BENCH_PATCH_OUTPUT);
 if (patchOutputPath != null) {
-  await Bun.write(patchOutputPath, patch);
+  writeFileSync(patchOutputPath, patch);
 }
 const originalFetch = globalThis.fetch;
 const originalDocument = globalThis.document;
@@ -37,8 +38,9 @@ Object.assign(globalThis, {
 });
 
 const samples: number[] = [];
-let lastMetrics: StreamMetrics | null = null;
-let lastAppMetrics: ReturnType<typeof createAppRenderMetrics> | null = null;
+// Assigned inside callbacks, so keep TypeScript from narrowing it to `null`.
+let lastMetrics = null as StreamMetrics | null;
+let lastAppMetrics = null as ReturnType<typeof createAppRenderMetrics> | null;
 for (let index = 0; index < iterations; index += 1) {
   const appMetrics = createAppRenderMetrics();
   const started = performance.now();
@@ -107,7 +109,7 @@ if (!Number.isFinite(maxP95Ms) && maxP95Ms !== Number.POSITIVE_INFINITY) {
 if (p95Ms > maxP95Ms) {
   throw new Error(`diff stream p95 was ${p95Ms.toFixed(2)} ms, budget is ${maxP95Ms.toFixed(2)} ms`);
 }
-await Bun.write(Bun.stdout, `${JSON.stringify(report, null, 2)}\n`);
+process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 process.exit(0);
 
 function percentile(values: number[], target: number): number {
