@@ -275,7 +275,7 @@ Debug menu (~12 items), Debug Windows ▸ (~24 labs and galleries), Update Pill 
 | tmux compat | `__tmux-compat`, `tmux`, inner verbs (`capture-pane`, `split-window`, …) | FORWARD via shim |
 | browser | `browser …` tree, `open-browser`, `navigate`, `get-url`, … | APP-OWNED. App registers as cmux-tui browser provider. |
 | notify | `notify`, `list/dismiss/open-notification`, `jump-to-unread`, `clear-notifications` | APP-OWNED (cmux-tui `notify` only proposed) |
-| sidebar status | `set-status`, `set-progress`, `log`, `report_pwd`, `report_git_branch`, `report_pr_action`, `sidebar`, `right-sidebar` | REWRITE, keyed on cmux-tui surface ids |
+| sidebar status | `set-status`, `set-progress`, `log`, `report_pwd`, `report_git_branch`, `report_pr_action`, `sidebar`, `right-sidebar` | REWRITE. Status, progress and log: `cmux workspace [<sel>] status\|progress\|log` (daemon `workspace_status.*`), drawn in the workspace row from the app's `session.events` stream. The rest open. |
 | hooks/agents | `hooks`, `claude-hook`, `codex-hook`, `feed-hook`, `setup-hooks`, `agent`, `agent-hibernation`, `claude-teams`, `codex-teams`, per-agent wrappers | REWRITE onto cmux-tui hooks |
 | feed, settings, config, themes, import, docs, feedback | — | APP-OWNED KEEP |
 | cloud/vm | `vm`/`cloud`, `vm-*-attach`, `remote(s)`, `vpn`, `billing`, `coderouter` | KEEP (overlaps `cmux-tui/crates/cmux-cloud-cli`) |

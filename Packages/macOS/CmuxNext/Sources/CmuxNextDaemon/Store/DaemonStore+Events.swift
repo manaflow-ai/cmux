@@ -37,7 +37,7 @@ extension DaemonStore {
         }
         var followup = Followup.none
         for envelope in batch {
-            if envelope.sequence > snapshotBarrier || isLifecycle(envelope.event) {
+            if envelope.sequence > snapshotBarrier || bypassesSnapshotBarrier(envelope.event) {
                 if apply(envelope.event) == .resync { followup = .resync }
             } else if let transaction = envelope.event.clientTransactionID {
                 // Superseded by the snapshot, but its echo still settles the patch.
@@ -54,9 +54,10 @@ extension DaemonStore {
         if sequence > appliedSequence { appliedSequence = sequence }
     }
 
-    private func isLifecycle(_ event: DaemonEvent) -> Bool {
+    /// Lifecycle events, and status, which `list-workspaces` does not carry.
+    private func bypassesSnapshotBarrier(_ event: DaemonEvent) -> Bool {
         switch event {
-        case .connected, .disconnected, .daemonShutdown: true
+        case .connected, .disconnected, .daemonShutdown, .workspaceStatus: true
         default: false
         }
     }
@@ -67,6 +68,9 @@ extension DaemonStore {
             connectionEpoch += 1
             connectionState = .connected(identity)
             noteHandshake(identity)
+            // The new connection's stream snapshot follows; a daemon without
+            // one has no status to show.
+            if !workspaceStatus.isEmpty { workspaceStatus = [:] }
             return .resync
         case .disconnected(let reason):
             connectionEpoch += 1
@@ -199,7 +203,12 @@ extension DaemonStore {
             tabsBySurface[status.surface]?.setAgent(status)
             return .none
 
-        case .scrollChanged, .bell, .frontendProjectionChanged, .terminalRegistryChanged, .client, .unknown:
+        case .workspaceStatus(let change, _):
+            applyWorkspaceStatus(change)
+            return .none
+
+        case .scrollChanged, .bell, .frontendProjectionChanged, .terminalRegistryChanged, .client, .unknown,
+             .sessionEventsEnded:
             return .none
         }
     }

@@ -53,7 +53,7 @@ public nonisolated enum SidebarFilter {
         guard !tokens.isEmpty else { return nil }
         var result = Set<WorkspaceID>()
         for ws in sections.flatMap(\.workspaces) {
-            let haystack = normalize([ws.title, ws.subtitle ?? "", ws.status ?? ""].joined(separator: " "))
+            let haystack = normalize([ws.title, ws.subtitle ?? "", ws.status?.searchText ?? ""].joined(separator: " "))
             if tokens.allSatisfy({ haystack.contains($0) }) { result.insert(ws.id) }
         }
         return result

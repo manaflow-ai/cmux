@@ -81,7 +81,7 @@ public enum SidebarMock {
             let isAgentLine = subtitle.map { $0.hasPrefix("Claude:") || $0.hasPrefix("Codex:") } ?? false
             return SidebarWorkspace(
                 id: WorkspaceID(id), machineID: machine, title: title,
-                subtitle: isAgentLine ? nil : subtitle, status: isAgentLine ? subtitle : nil,
+                subtitle: isAgentLine ? nil : subtitle, status: isAgentLine ? subtitle.map { SidebarWorkspaceStatus(entries: [.init(key: "agent", text: $0)]) } : nil,
                 icon: icon, unread: unread, activity: activity
             )
         }

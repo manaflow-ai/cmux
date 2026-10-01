@@ -17,6 +17,8 @@ final class EventInbox: Sendable {
         /// Set once the buffer collapsed; cleared by `take()`.
         var collapsed = false
         var echoes: Set<ClientTransactionID> = []
+        /// A `.stale` status marker is buffered since the collapse.
+        var statusStale = false
     }
 
     /// Matches the daemon's own per-client mailbox.
@@ -49,12 +51,17 @@ final class EventInbox: Sendable {
         }
     }
 
-    /// While collapsed: keep lifecycle events and one echo per transaction
-    /// (as a `tree-changed` carrying it), drop the rest.
+    /// While collapsed: keep lifecycle events, one echo per transaction (as
+    /// a `tree-changed` carrying it), and one `.stale` marker for dropped
+    /// status (the snapshot does not carry it); drop the rest.
     private static func keep(_ envelope: DaemonEventEnvelope, in state: inout State) {
         switch envelope.event {
         case .connected, .disconnected, .daemonShutdown:
             state.events.append(envelope)
+        case .workspaceStatus(_, let stream):
+            guard !state.statusStale else { return }
+            state.statusStale = true
+            state.events.append(DaemonEventEnvelope(sequence: envelope.sequence, event: .workspaceStatus(.stale, stream: stream)))
         default:
             guard let transaction = envelope.event.clientTransactionID, state.echoes.insert(transaction).inserted else { return }
             state.events.append(DaemonEventEnvelope(sequence: envelope.sequence, event: .treeChanged(transaction: transaction)))
@@ -66,6 +73,7 @@ final class EventInbox: Sendable {
         state.withLock { state in
             state.framePending = false
             state.collapsed = false
+            state.statusStale = false
             state.echoes.removeAll(keepingCapacity: true)
             defer { state.events.removeAll(keepingCapacity: true) }
             return state.events

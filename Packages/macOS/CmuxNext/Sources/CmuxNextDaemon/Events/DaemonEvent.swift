@@ -43,6 +43,12 @@ public enum DaemonEvent: Sendable, Hashable {
     case bell(surface: SurfaceID)
     case notification(DaemonNotification)
     case agentChanged(AgentStatus)
+    /// Workspace status from the connection's `session.events` stream
+    /// (resource API v2). Not part of `list-workspaces`, so a tree snapshot
+    /// never supersedes it.
+    case workspaceStatus(WorkspaceStatusChange, stream: String)
+    /// That stream ended (`stream_end`); the connection opens a new one.
+    case sessionEventsEnded(stream: String)
 
     // Registries and clients.
     case frontendProjectionChanged(ProjectionChange)

@@ -9,6 +9,8 @@ import Testing
     static func server(identify: String, _ log: PlacementTests.Log) throws -> FakeDaemonServer {
         try FakeDaemonServer(handler: { request in
             if request["protocol"]?.stringValue == "cmux.protocol/2" {
+                // The handshake's status stream is not what these tests count.
+                if PlacementTests.isSessionStream(request) { return [] }
                 log.append(request)
                 let id = request["id"]?.stringValue ?? ""
                 if case .string(let terminal)? = PlacementTests.object(request["params"])?["terminal"], terminal == "term_gone" {

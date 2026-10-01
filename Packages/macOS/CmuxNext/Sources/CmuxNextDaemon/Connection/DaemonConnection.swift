@@ -97,6 +97,8 @@ public actor DaemonConnection {
     private var pacer: RetryPacer
     private let wake: RetryWake
     private let healthy: DemandTimer
+    /// The `session.events` stream that carries workspace status.
+    let sessionEvents = SessionEventsTracker()
 
     /// Identity of the current (or last) daemon.
     public private(set) var identity: DaemonIdentity?
@@ -204,6 +206,14 @@ public actor DaemonConnection {
         return try ResourceRequestEnvelope.decodeResult(R.self, from: response.line)
     }
 
+    /// Opens a new `session.events` stream on the current socket, whose
+    /// snapshot replaces the store's workspace status. `serial` limits it to
+    /// the connection that asked (nil: whichever is up).
+    public func reopenSessionEvents(serial: UInt64? = nil, resetBudget: Bool = true) {
+        guard case .ready(let transport, let current) = phase, serial == nil || serial == current else { return }
+        Self.openSessionEvents(on: transport, tracker: sessionEvents, resetBudget: resetBudget)
+    }
+
     /// `list-workspaces` plus the sequence of the last event it supersedes.
     public func snapshot() async throws -> (tree: DaemonTree, barrier: UInt64) {
         guard case .ready(let transport, let serial) = phase else { throw DaemonError.notConnected }
@@ -245,11 +255,15 @@ public actor DaemonConnection {
             let transport = try LineTransport(path: endpoint.socketPath)
             let gate = EventGate()
             let continuation = continuation
+            let sessionEvents = sessionEvents
             transport.start(
-                onEvent: { name, line, index in
-                    let envelope = DaemonEventEnvelope(
-                        sequence: DaemonEventEnvelope.sequence(serial: serial, index: index),
-                        event: DaemonEvent.decode(name: name, line: line))
+                onEvent: { [weak self] name, line, index in
+                    let event = DaemonEvent.decode(name: name, line: line)
+                    guard sessionEvents.admit(event, reopen: {
+                        // task-owner: hop onto the actor; reopenSessionEvents ignores a stale serial
+                        Task { await self?.reopenSessionEvents(serial: serial, resetBudget: false) }
+                    }) else { return }
+                    let envelope = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: index), event: event)
                     gate.deliver(envelope) { continuation.yield($0) }
                 },
                 onClose: { [weak self] reason in
@@ -307,6 +321,11 @@ public actor DaemonConnection {
         )
         _ = try await Self.perform(SubscribeRequest(treeEvents: configuration.treeEvents), on: transport,
                                    timeout: configuration.requestTimeout)
+        // A daemon this new speaks `cmux.protocol/2` (`terminal.project` has
+        // the same gate), so it answers the open by id even when it fails.
+        if identity.supports(DaemonCapabilities.terminalReap) {
+            Self.openSessionEvents(on: transport, tracker: sessionEvents, resetBudget: true)
+        }
         return identity
     }
 
@@ -316,6 +335,7 @@ public actor DaemonConnection {
         if case .ready = phase {} else if case .connecting = phase {} else { return }
         phase = .waiting
         healthy.cancel()
+        sessionEvents.forget()
         let detail: String = switch reason {
         case .closedByClient: "closed"
         case .daemonShutdown: "daemon shut down"

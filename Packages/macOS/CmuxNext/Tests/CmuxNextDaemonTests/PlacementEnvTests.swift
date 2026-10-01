@@ -23,6 +23,8 @@ import Testing
                 let terminal = request["terminal_id"]?.stringValue ?? ""
                 return [#"{"id":\#(id),"ok":true,"data":{"surface":41,"terminal_id":"\#(terminal)","terminal_incarnation":"i1"}}"#]
             default:
+                // The handshake's status stream is not what these tests count.
+                if PlacementTests.isSessionStream(request) { return [] }
                 log.append(request)
                 return [#"{"id":\#(id),"ok":false,"error":"unexpected \#(request["cmd"]?.stringValue ?? "")"}"#]
             }

@@ -39,14 +39,15 @@ import Testing
         #expect(target == .position(DropPosition(section: local, index: 0)))
     }
 
-    @Test func onlyLiveStatusEarnsASecondLine() {
+    @Test func onlyLiveStatusEarnsMoreLines() {
         let m = SidebarLayoutMetrics.standard
         let passive = SidebarWorkspace(id: id("a"), title: "a", subtitle: "~")
-        let live = SidebarWorkspace(id: id("b"), title: "b", subtitle: "~", status: "Claude: running tests")
-        let blank = SidebarWorkspace(id: id("c"), title: "c", status: "")
-        #expect(passive.liveDetail == nil)
-        #expect(blank.liveDetail == nil)
-        #expect(live.liveDetail == "Claude: running tests")
+        let live = SidebarWorkspace(id: id("b"), title: "b", subtitle: "~",
+                                    status: SidebarWorkspaceStatus(entries: [.init(key: "agent", text: "Claude: running tests")]))
+        let blank = SidebarWorkspace(id: id("c"), title: "c", status: SidebarWorkspaceStatus())
+        #expect(passive.liveStatus == nil)
+        #expect(blank.liveStatus == nil)
+        #expect(live.liveStatus?.lines == [.entry(.init(key: "agent", text: "Claude: running tests"))])
         #expect(m.height(for: passive) == m.rowHeight)
         #expect(m.height(for: blank) == m.rowHeight)
         #expect(m.height(for: live) == m.rowHeightWithSubtitle)

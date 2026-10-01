@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextDesign
 import CoreGraphics
 
@@ -12,6 +13,8 @@ extension SidebarLayoutMetrics {
             groupHeaderHeight: Metrics.sidebarRowHeight,
             rowHeight: Metrics.sidebarRowHeight,
             rowHeightWithSubtitle: Metrics.sidebarRowHeightWithSubtitle,
+            progressBarHeight: Metrics.space3,
+            minimumStatusLineHeight: ceil(Typography.caption.pointSize) + 1,
             rowSpacing: Metrics.space1,
             groupBottomPadding: Metrics.space3,
             emptySectionHeight: Metrics.sidebarRowHeight

@@ -11,16 +11,22 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     public var groupHeaderHeight: CGFloat
     /// Workspace row with one line.
     public var rowHeight: CGFloat
-    /// Workspace row with a live status line.
+    /// Workspace row with one live status line.
     public var rowHeightWithSubtitle: CGFloat
+    /// Height of the status progress bar, its gap included.
+    public var progressBarHeight: CGFloat
+    /// The least a status line may take, from its font: a custom row height
+    /// can bring the step between the two row heights below a line.
+    public var minimumStatusLineHeight: CGFloat
     public var rowSpacing: CGFloat
     public var groupBottomPadding: CGFloat
     public var emptySectionHeight: CGFloat
 
     public init(
         topPadding: CGFloat, bottomPadding: CGFloat, sectionHeaderHeight: CGFloat, sectionSpacing: CGFloat,
-        groupHeaderHeight: CGFloat, rowHeight: CGFloat, rowHeightWithSubtitle: CGFloat, rowSpacing: CGFloat,
-        groupBottomPadding: CGFloat, emptySectionHeight: CGFloat
+        groupHeaderHeight: CGFloat, rowHeight: CGFloat, rowHeightWithSubtitle: CGFloat, progressBarHeight: CGFloat = 6,
+        minimumStatusLineHeight: CGFloat = 0,
+        rowSpacing: CGFloat, groupBottomPadding: CGFloat, emptySectionHeight: CGFloat
     ) {
         self.topPadding = topPadding
         self.bottomPadding = bottomPadding
@@ -29,13 +35,22 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         self.groupHeaderHeight = groupHeaderHeight
         self.rowHeight = rowHeight
         self.rowHeightWithSubtitle = rowHeightWithSubtitle
+        self.progressBarHeight = progressBarHeight
+        self.minimumStatusLineHeight = minimumStatusLineHeight
         self.rowSpacing = rowSpacing
         self.groupBottomPadding = groupBottomPadding
         self.emptySectionHeight = emptySectionHeight
     }
 
-    func height(for ws: SidebarWorkspace) -> CGFloat {
-        ws.liveDetail == nil ? rowHeight : rowHeightWithSubtitle
+    /// One status line: the step from a one-line row to a two-line row, at
+    /// least `minimumStatusLineHeight`.
+    public var statusLineHeight: CGFloat { max(rowHeightWithSubtitle - rowHeight, minimumStatusLineHeight) }
+
+    /// The title line plus the status block: one `statusLineHeight` per
+    /// status line and the progress bar.
+    public func height(for ws: SidebarWorkspace) -> CGFloat {
+        guard let status = ws.liveStatus else { return rowHeight }
+        return rowHeight + CGFloat(status.lines.count) * statusLineHeight + (status.showsProgressBar ? progressBarHeight : 0)
     }
 }
 

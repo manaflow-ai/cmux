@@ -18,6 +18,12 @@ import Testing
         return nil
     }
 
+    /// The `session.events` stream (and its cancel) a `terminal-reap-v1`
+    /// connection opens after its handshake.
+    static func isSessionStream(_ request: [String: JSONValue]) -> Bool {
+        ["session.events", "stream.cancel"].contains(request["operation"]?.stringValue ?? "")
+    }
+
     static let key = WorkspaceKey(rawValue: "0b6c4a52-6d3f-4c55-9d53-8f1f4e0f1a31")
 
     /// Records create-terminal / move commands; create-terminal lands in pane 5.

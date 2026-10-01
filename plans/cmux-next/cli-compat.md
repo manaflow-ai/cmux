@@ -82,7 +82,7 @@ Usage columns: tests_v2 calls/files, skills mentions (via the CLI verb), and whe
 | feed.push | 0 | 3 | yes (every hook) | hooks feed | unsup: the agent feed is not in cmux-next yet |
 | agent.resolve_delivery_target | 0 | 0 | yes | hooks | impl by surface_id; pid routing answers "No live delivery target" |
 | agent.hook.*, surface.resume.*, workspace.set_auto_title, surface.sync_codex_native_title, agent.hibernation.* | 0 | 0 | yes | hooks | unsup: agent state moves to cmux-tui report-agent |
-| v1 set_status / clear_status / list_status | 3/1 (CLI) | 2 | yes | set-status, … | impl: in-memory per workspace (bounded), not rendered in the sidebar yet |
+| v1 set_status / clear_status / list_status | 3/1 (CLI) | 2 | yes | set-status, … | superseded: `cmux workspace status\|progress\|log` (daemon state), rendered in the sidebar row |
 | v1 set_progress / clear_progress / log / clear_log / list_log / sidebar_state | CLI | 1–2 | | set-progress, log, sidebar-state | impl (same store; sidebar_state reads cwd/branch from cmux-tui) |
 | v1 set_agent_pid / clear_agent_pid | 0 | 0 | yes | hooks | impl (stored) |
 | v1 report_pwd / report_git_branch / report_pr / report_tty / ports_kick | 0 | 0 | shell integration | none | accepted (`OK`): cmux-tui derives cwd (OSC 7) and branch per tab itself |
@@ -243,7 +243,7 @@ tests_v2 files whose oracles are old-app `debug.*` methods, `app.focus_override`
 - App intents publish the snapshot synchronously before replying, so `select-workspace` followed by `current-workspace` agrees.
 - The `closeWorkspace` action ends each terminal before `close-workspace`: cmux-tui keeps a closed workspace's terminal hosts and PTYs alive (one tests_v2 run leaked 251 hosts). This fixes the App's own close too; a daemon-side fix is still better.
 - Tabs and splits get `CMUX_SOCKET_PATH`/`CMUX_TAG` from `LaunchIdentity`, but no `CMUX_WORKSPACE_ID`/`CMUX_SURFACE_ID`: `new-tab` and `split` cannot reserve a terminal id. Only a new workspace's first terminal gets them. Hooks inside App-created terminals fall back to the focused surface. Fix: daemon-injected placement env, or `terminal_id` on `new-tab`/`split`.
-- Sidebar status/progress/log is stored and queryable but not rendered by the cmux-next sidebar yet.
+- Sidebar status/progress/log is daemon state (`workspace_status.*`) and is drawn in the workspace row: entries (3, then "N more"), the newest log line, and the progress bar.
 - Agent hooks: `feed.push` attention events and `agent_journal_append` events that carry `attention.notification` become daemon notifications on the hook's surface (tagged `agent`, plans/cmux-next/notifications.md); journal lifecycle events set the daemon agent state (`report-agent`). `agent.hook.*` and permission replies still answer typed unsupported.
 - `select-workspace` once exceeded the 2 s deadline while the App rebuilt a workspace's content on the main thread (later switches took 80-500 ms). The watchdog (`debug.hangs`) should show whether content switching stalls the main thread.
 - A new split moves the daemon's active pane; the old app kept focus unless `--focus true`.
