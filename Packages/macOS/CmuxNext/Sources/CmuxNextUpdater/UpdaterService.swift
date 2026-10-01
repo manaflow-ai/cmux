@@ -75,7 +75,7 @@ public final class UpdaterService {
         return policy.disablesUpdates ? .managedPolicy : nil
     }
 
-    /// Starts Sparkle (scheduled checks and the launch probe honor
+    /// Starts Sparkle (scheduled checks and launch staging honor
     /// `SUEnableAutomaticChecks`). Idempotent; no-op without a driver.
     public func start() {
         guard !started else { return }

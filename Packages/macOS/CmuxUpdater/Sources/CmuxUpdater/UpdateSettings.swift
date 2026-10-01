@@ -1,8 +1,8 @@
 public import Foundation
 
-/// Registers cmux's Sparkle preference defaults and performs the one-time migration that
-/// repairs older installs whose automatic-check defaults predate the Info.plist-embedded
-/// values.
+/// Registers cmux's Sparkle preference defaults and repairs older installs whose automatic-check
+/// defaults predate the Info.plist-embedded values. Hosts that opt into background downloads
+/// reassert that setting when they start so the latest release stays staged.
 ///
 /// The `SU…` keys are the standard Sparkle `UserDefaults` keys. The check intervals are
 /// configuration, so this is a value type constructed with them (defaulting to cmux's
@@ -48,7 +48,7 @@ public struct UpdateSettings: Sendable {
         self.automaticallyDownloadsByDefault = automaticallyDownloadsByDefault
     }
 
-    /// Registers the update defaults on `defaults` and runs the one-time migration.
+    /// Registers the update defaults on `defaults` and runs the required migrations.
     ///
     /// Registration is idempotent. The migration (guarded by ``migrationKey``) re-enables
     /// automatic checks and upgrades the legacy 24h interval to ``scheduledCheckInterval`` for
