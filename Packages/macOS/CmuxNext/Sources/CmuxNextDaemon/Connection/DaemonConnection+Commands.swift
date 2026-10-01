@@ -338,7 +338,7 @@ extension DaemonConnection {
     /// were kept.
     @discardableResult
     public func endSessionsAndStop(deletingWorkspaces: Bool = false, keepingLayout: Bool = false) async throws -> EndedSessions {
-        let keepsLayout = false && keepingLayout  // not implemented yet
+        let keepsLayout = keepingLayout && !deletingWorkspaces && identity?.supports(DaemonCapabilities.shared.endTerminalsKeepLayout) == true
         await close()
         if deletingWorkspaces { try await closeEveryWorkspace() }
         let reply = try await shutdownDaemon(endTerminals: true, keepLayout: keepsLayout)

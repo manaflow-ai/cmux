@@ -27,8 +27,6 @@ public struct KeptLayoutPlan: Codable, Sendable, Equatable {
 
     /// Every live terminal tab of `tree`, with its current directory.
     public init(tree: DaemonTree) {
-        self.tabs = [:]  // not implemented yet
-        return
         var tabs: [String: Tab] = [:]
         for tab in tree.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs) where tab.kind == .pty && !tab.dead {
             guard let id = tab.tabResourceID?.rawValue else { continue }
@@ -54,7 +52,6 @@ public struct KeptTabRelaunch: Sendable, Equatable {
     /// The relaunches `plan` asks for in `tree`: dead terminal tabs whose
     /// tab resource id the plan lists, in tree order.
     public static func steps(tree: DaemonTree, plan: KeptLayoutPlan) -> [KeptTabRelaunch] {
-        return []  // not implemented yet
         var steps: [KeptTabRelaunch] = []
         for workspace in tree.workspaces {
             for pane in workspace.screens.flatMap(\.panes) {

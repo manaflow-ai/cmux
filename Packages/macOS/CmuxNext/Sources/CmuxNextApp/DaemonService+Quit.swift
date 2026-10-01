@@ -23,17 +23,17 @@ extension DaemonService {
         }
         let keepLayout = choice == .endKeepLayout && supports(DaemonCapabilities.shared.endTerminalsKeepLayout)
         if keepLayout, let tree = try? await connection.listWorkspaces() {
-            KeptLayoutPlanFile.forApplication().write(KeptLayoutPlan(tree: tree))
+            await KeptLayoutPlanFile.forApplication().write(KeptLayoutPlan(tree: tree))
         }
         shutdownConnection()
         do {
             let ended = try await connection.endSessionsAndStop(deletingWorkspaces: choice == .endEverything,
                                                                 keepingLayout: keepLayout)
             logger.info("end sessions: ended \(ended.endedTerminals) terminals, kept layout \(ended.keptLayout), daemon stopped")
-            if !ended.keptLayout { KeptLayoutPlanFile.forApplication().remove() }
+            if !ended.keptLayout { await KeptLayoutPlanFile.forApplication().remove() }
         } catch {
             logger.error("end sessions failed: \(String(describing: error), privacy: .public)")
-            KeptLayoutPlanFile.forApplication().remove()
+            await KeptLayoutPlanFile.forApplication().remove()
         }
     }
 
@@ -42,11 +42,11 @@ extension DaemonService {
     func relaunchKeptLayoutIfNeeded(_ connection: DaemonConnection) {
         guard isLocal else { return }
         let file = KeptLayoutPlanFile.forApplication()
-        guard let plan = file.read() else { return }
         let logger = logger
         // task-owner: one-shot relaunch after connect; the file is removed first so a crash never repeats it
         Task {
-            file.remove()
+            guard let plan = await file.read() else { return }
+            await file.remove()
             do {
                 let relaunched = try await connection.relaunchKeptTabs(plan)
                 logger.info("kept layout: restarted \(relaunched) of \(plan.tabs.count) terminals")
@@ -54,34 +54,5 @@ extension DaemonService {
                 logger.error("kept layout relaunch failed: \(String(describing: error), privacy: .public)")
             }
         }
-    }
-}
-
-/// `<Application Support>/<bundle id>/kept-layout.json`: the plan End
-/// Sessions, Keep Layout writes for the next launch.
-struct KeptLayoutPlanFile {
-    let url: URL
-
-    static func forApplication(bundleIdentifier: String? = Bundle.main.bundleIdentifier) -> KeptLayoutPlanFile {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(filePath: NSTemporaryDirectory())
-        let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
-        return KeptLayoutPlanFile(url: support.appending(path: bundle).appending(path: "kept-layout.json"))
-    }
-
-    func write(_ plan: KeptLayoutPlan) {
-        return  // not implemented yet
-        guard let data = try? JSONEncoder().encode(plan) else { return }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: url, options: .atomic)
-    }
-
-    func read() -> KeptLayoutPlan? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(KeptLayoutPlan.self, from: data)
-    }
-
-    func remove() {
-        try? FileManager.default.removeItem(at: url)
     }
 }

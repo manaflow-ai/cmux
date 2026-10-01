@@ -117,11 +117,10 @@ struct QuitSessionsTests {
             let kept = try await next.listWorkspaces()
             let keptTabs = kept.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
             #expect(keptTabs.count == 2 && keptTabs.allSatisfy(\.dead), "\(keptTabs)")
-            #expect(kept.workspaces.first?.screens.first?.layout == before.workspaces.first?.screens.first?.layout)
+            #expect(Self.shape(kept) == Self.shape(before))
             #expect(try await next.relaunchKeptTabs(plan) == 2)
             let after = try await next.listWorkspaces()
-            #expect(after.workspaces.first?.screens.first?.layout == before.workspaces.first?.screens.first?.layout,
-                    "the relaunch changed the layout")
+            #expect(Self.shape(after) == Self.shape(before), "the relaunch changed the layout")
             let tabs = after.workspaces.flatMap(\.screens).flatMap(\.panes).map(\.tabs)
             #expect(tabs.map(\.count) == [1, 1], "\(tabs)")
             #expect(tabs.flatMap { $0 }.allSatisfy { !$0.dead })
@@ -131,5 +130,17 @@ struct QuitSessionsTests {
             throw error
         }
         await BranchDaemonHarness.shutDown(next)
+    }
+
+    /// The first screen's split kind, direction and ratio and its panes'
+    /// resource ids: numeric pane and split handles are per daemon owner.
+    static func shape(_ tree: DaemonTree) -> String {
+        guard let screen = tree.workspaces.first?.screens.first else { return "none" }
+        let panes = screen.panes.map { $0.resourceID?.rawValue ?? "?" }.joined(separator: ",")
+        let layout: String = switch screen.layout {
+        case .split(_, let direction, let ratio, _, _): "split \(direction) \(ratio)"
+        default: "leaf"
+        }
+        return "\(layout) [\(panes)]"
     }
 }
