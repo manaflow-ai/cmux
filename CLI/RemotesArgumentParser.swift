@@ -19,14 +19,25 @@ enum RemotesArgumentParser {
         _ args: [String],
         expectedCount: Int
     ) throws -> [String] {
-        let remaining = args.filter { $0 != "--json" }
-        if let unknown = remaining.first(where: { $0.hasPrefix("-") }) {
-            throw RemotesArgumentError.unknownFlag(unknown)
+        var positionals: [String] = []
+        var afterTerminator = false
+        for argument in args {
+            if !afterTerminator, argument == "--json" {
+                continue
+            }
+            if !afterTerminator, argument == "--" {
+                afterTerminator = true
+                continue
+            }
+            if !afterTerminator, argument.hasPrefix("-") {
+                throw RemotesArgumentError.unknownFlag(argument)
+            }
+            positionals.append(argument)
         }
-        if remaining.count > expectedCount,
-           let extra = remaining.dropFirst(expectedCount).first {
+        if positionals.count > expectedCount,
+           let extra = positionals.dropFirst(expectedCount).first {
             throw RemotesArgumentError.unexpectedArgument(extra)
         }
-        return remaining
+        return positionals
     }
 }
