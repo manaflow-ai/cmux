@@ -4786,9 +4786,14 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(picker.waitForExistence(timeout: 3))
         XCTAssertTrue(app.tabBars.buttons["Notifications"].isSelected)
 
-        let workspacesPhase = app.staticTexts["MobileNotificationFeedPreviewWorkspacesActive"]
+        let workspacesTab = app.tabBars.buttons["Workspaces"]
+        XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
+        let workspacesDeadline = Date().addingTimeInterval(5)
+        while !workspacesTab.isSelected && Date() < workspacesDeadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+        }
         XCTAssertTrue(
-            workspacesPhase.waitForExistence(timeout: 5),
+            workspacesTab.isSelected,
             "The repeated-switch fixture never reached its Workspaces phase"
         )
 
