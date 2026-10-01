@@ -39,6 +39,9 @@ public final class DaemonStore {
     public internal(set) var generation: DaemonGeneration?
     public internal(set) var registryID: String?
     public internal(set) var workspaceRevision: UInt64 = 0
+    /// Workspace status by public workspace id (`ws_…`), from the
+    /// connection's `session.events` stream. Only workspaces with status.
+    public internal(set) var workspaceStatus: [ResourceID: WorkspaceStatusSnapshot] = [:]
     /// Recent notifications, newest last (bounded).
     public internal(set) var notifications: [DaemonNotification] = []
     /// True once the first snapshot is applied.

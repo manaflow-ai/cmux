@@ -34,9 +34,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// accessibility label, never as a second line: it rarely changes and
     /// repeats on every row.
     public var subtitle: String?
-    /// Live status (agent status line, hook `set_status`). The only text
-    /// that earns the row a second line.
-    public var status: String?
+    /// Live status (`cmux workspace status|progress|log`). The only detail
+    /// that earns the row more lines.
+    public var status: SidebarWorkspaceStatus?
     /// Set only when the user chose an icon or color. Rows are text-first:
     /// nil shows no icon.
     public var icon: WorkspaceIcon?
@@ -48,7 +48,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         machineID: MachineID = .local,
         title: String,
         subtitle: String? = nil,
-        status: String? = nil,
+        status: SidebarWorkspaceStatus? = nil,
         icon: WorkspaceIcon? = nil,
         unread: UnreadState = .none,
         activity: AgentActivity = .idle
@@ -65,8 +65,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
 }
 
 nonisolated extension SidebarWorkspace {
-    /// The second line, when the row carries live information.
-    public var liveDetail: String? {
+    /// The status block, when the row carries live information.
+    public var liveStatus: SidebarWorkspaceStatus? {
         guard let status, !status.isEmpty else { return nil }
         return status
     }

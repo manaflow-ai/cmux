@@ -11,7 +11,7 @@ public enum SidebarDemoMock {
 
     public static func makeSections() -> [SidebarSection] {
         func ws(
-            _ n: Int, _ title: String, cwd: String, status: String? = nil, icon: WorkspaceIcon? = nil,
+            _ n: Int, _ title: String, cwd: String, status: SidebarWorkspaceStatus? = nil, icon: WorkspaceIcon? = nil,
             unread: UnreadState = .none, activity: AgentActivity = .idle
         ) -> SidebarWorkspace {
             SidebarWorkspace(
@@ -22,8 +22,11 @@ public enum SidebarDemoMock {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         return [SidebarSection(kind: .machine(machine), nodes: [
             .workspace(ws(1, "cmux", cwd: "~/fun/cmux", icon: .swatch(.purple))),
-            .workspace(ws(2, "sidebar agent", cwd: "~", status: "Claude: editing SidebarView.swift", unread: .count(2), activity: .running)),
-            .workspace(ws(3, "tabs agent", cwd: "~", status: "Codex: waiting for approval", unread: .dot, activity: .needsInput)),
+            .workspace(ws(2, "sidebar agent", cwd: "~", status: SidebarWorkspaceStatus(
+                entries: [.init(key: "claude", text: "Editing SidebarView.swift", icon: "sparkle")],
+                progress: .init(value: 0.6, label: "Tests 6/10"), log: .init(level: .success, text: "Build succeeded")), unread: .count(2), activity: .running)),
+            .workspace(ws(3, "tabs agent", cwd: "~", status: SidebarWorkspaceStatus(
+                entries: [.init(key: "codex", text: "Waiting for approval", icon: "hand.raised", tint: .palette(.yellow))]), unread: .dot, activity: .needsInput)),
             .workspace(ws(4, "notes", cwd: "~/notes")),
             .group(SidebarGroup(id: GroupID("demo-g1"), name: "cmux-next", color: .purple, workspaces: [
                 ws(5, "daemon", cwd: "~/fun/cmux-tui"),

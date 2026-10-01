@@ -63,6 +63,9 @@ extension DaemonEvent {
                 return .client(name: name, payload: payload())
             case "overflow": return .overflow(try d(EventPayload.OverflowEvent.self).error ?? "overflow")
             case "daemon-shutdown": return .daemonShutdown
+            // `cmux.protocol/2` stream lines (LineTransport routes them by `type`).
+            case "stream_item", "stream_end":
+                return try d(SessionEventsLine.self).event ?? .unknown(name: name, payload: .null)
             default: return .unknown(name: name, payload: payload())
             }
         } catch {

@@ -164,6 +164,15 @@ final class LineTransport: Sendable {
         if case .failure(let error) = submit(.discard(cmd: cmd, onError: onError), body) { throw error }
     }
 
+    /// `sendNoReply` for a `cmux.protocol/2` request. Its response always
+    /// carries the request id, so it never joins the FIFO that id-less raw
+    /// errors resolve against; a daemon that never answers it leaves that
+    /// order intact.
+    func sendResourceNoReply(cmd: String, onError: (@Sendable (DaemonError) -> Void)? = nil,
+                             _ body: (UInt64) throws -> Data) throws {
+        if case .failure(let error) = submit(.discard(cmd: cmd, onError: onError), ordered: false, body) { throw error }
+    }
+
     /// Writes one line that has no `id` and gets no reply (`loopback-data`
     /// and the other stream lines of `loopback-forward-v1`). Ordered with
     /// every other write. False once the socket failed or closed.
@@ -181,7 +190,7 @@ final class LineTransport: Sendable {
     /// registration the waiter is resumed here; after it, `failAll` owns it.
     /// Returns the request id once the waiter is registered.
     @discardableResult
-    private func submit(_ waiter: Waiter, _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
+    private func submit(_ waiter: Waiter, ordered: Bool = true, _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
         var writeFailure: String?
         var submittedID: UInt64 = 0
         let early: (any Error)? = socket.withLock { socket -> (any Error)? in
@@ -198,7 +207,7 @@ final class LineTransport: Sendable {
             do { payload = try body(id) } catch { return error }
             state.withLock { state in
                 state.pending[id] = waiter
-                state.order.append(id)
+                if ordered { state.order.append(id) }
             }
             submittedID = id
             var line = payload
@@ -259,11 +268,13 @@ final class LineTransport: Sendable {
         var id: UInt64?
         var ok: Bool?
         var event: String?
+        /// `cmux.protocol/2` envelope type (`response`, `stream_item`, `stream_end`).
+        var type: String?
         var error: String?
         var errorCode: String?
 
         enum CodingKeys: String, CodingKey {
-            case id, ok, event, error
+            case id, ok, event, error, type
             case errorCode = "error_code"
         }
 
@@ -281,6 +292,7 @@ final class LineTransport: Sendable {
             }
             ok = try? c.decodeIfPresent(Bool.self, forKey: .ok)
             event = try? c.decodeIfPresent(String.self, forKey: .event)
+            type = try? c.decodeIfPresent(String.self, forKey: .type)
             errorCode = try? c.decodeIfPresent(String.self, forKey: .errorCode)
             if let text = try? c.decodeIfPresent(String.self, forKey: .error) {
                 error = text
@@ -339,7 +351,10 @@ final class LineTransport: Sendable {
 
     private func route(_ line: Data, decoder: JSONDecoder, onEvent: EventHandler) {
         guard let envelope = try? decoder.decode(Envelope.self, from: line) else { return }
-        if let name = envelope.event {
+        // A resource stream line is an event named by its type, ordered with
+        // the raw events around it.
+        let streamLine = envelope.type == "stream_item" || envelope.type == "stream_end"
+        if let name = envelope.event ?? (streamLine ? envelope.type : nil) {
             let index = state.withLock { state -> UInt64 in
                 if name == "daemon-shutdown" { state.sawShutdown = true }
                 state.eventCount += 1
