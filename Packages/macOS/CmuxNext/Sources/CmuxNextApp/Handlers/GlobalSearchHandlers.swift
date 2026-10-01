@@ -1,7 +1,5 @@
 import CmuxNextActions
-import CmuxNextBridge
 import CmuxNextDaemon
-import CmuxNextDesign
 import Foundation
 
 /// Search All Windows (⌥⌘F): the query's words across the text of every
@@ -31,15 +29,14 @@ enum GlobalSearchHandlers {
     private static func show(_ located: LocatedTab, find needle: String, _ registry: ActionRegistry, _ ctx: AppActionContext) {
         guard let controller = ctx.window(showing: located.workspace.id) else { return }
         controller.state.selection.select(located.tab.id, in: located.pane.id)
-        if let window = controller.window { WindowActivation.show(window, .raise) }
+        ctx.services.windows.bringToFront(controller)
         let find = {
-            ctx.services.paneController(for: located.pane)?.select(StripTabID(located.tab.id))
             let target = ActionInvocation(target: ActionTargetRef(kind: .tab, id: located.tab.id),
                                           arguments: needle.isEmpty ? [:] : ["text": .string(needle)])
             _ = registry.perform("find", invocation: target)
         }
         if ctx.services.paneController(for: located.pane) != nil { return find() }
-        ctx.services.windows.afterNextContent(in: controller, find)
+        ctx.services.windows.afterNextContent(in: controller, showing: located.workspace.id, find)
     }
 
     /// Live terminal tabs whose daemon is connected, in workspace, screen,

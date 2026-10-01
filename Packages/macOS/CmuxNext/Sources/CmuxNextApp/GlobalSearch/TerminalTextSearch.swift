@@ -69,7 +69,8 @@ nonisolated enum TerminalTextSearch {
             }
             for await (index, lines) in group {
                 found[index] = lines
-                if let next = queue.next() {
+                // A dismissed palette cancels the search: stop queueing reads.
+                if !Task.isCancelled, let next = queue.next() {
                     group.addTask { (next.offset, await read(next.element).map { matches(in: $0, words: words) }) }
                 }
             }
