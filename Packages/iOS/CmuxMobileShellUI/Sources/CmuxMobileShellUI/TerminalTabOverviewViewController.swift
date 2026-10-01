@@ -1124,6 +1124,7 @@ private final class TerminalTabOverviewSearchOverlay: UIView {
 
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterialLight))
     private let searchContainer = UIView()
+    private let searchMaterial = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
     private let searchIcon = UIImageView(image: UIImage(systemName: "magnifyingglass"))
     private let microphoneButton = UIButton(type: .system)
     private let closeButton = UIButton(type: .system)
@@ -1139,15 +1140,16 @@ private final class TerminalTabOverviewSearchOverlay: UIView {
         blurView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         addSubview(blurView)
 
-        searchContainer.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.88)
+        searchContainer.backgroundColor = .clear
         searchContainer.layer.cornerRadius = 23
-        searchContainer.layer.borderColor = UIColor.separator.withAlphaComponent(0.28).cgColor
-        searchContainer.layer.borderWidth = 0.7
-        searchContainer.layer.shadowColor = UIColor.black.cgColor
-        searchContainer.layer.shadowOpacity = 0.08
-        searchContainer.layer.shadowRadius = 8
-        searchContainer.layer.shadowOffset = CGSize(width: 0, height: 3)
+        searchContainer.clipsToBounds = true
         addSubview(searchContainer)
+
+        searchMaterial.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        searchMaterial.layer.cornerRadius = 23
+        searchMaterial.clipsToBounds = true
+        searchMaterial.contentView.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.18)
+        searchContainer.addSubview(searchMaterial)
 
         searchIcon.tintColor = .label
         searchIcon.contentMode = .scaleAspectFit
@@ -1223,6 +1225,7 @@ private final class TerminalTabOverviewSearchOverlay: UIView {
         let closeSize: CGFloat = 45
         closeButton.frame = CGRect(x: bounds.width - 61, y: bounds.height - bottom - closeSize, width: closeSize, height: closeSize)
         searchContainer.frame = CGRect(x: 16, y: bounds.height - bottom - 45, width: max(0, bounds.width - 85), height: 45)
+        searchMaterial.frame = searchContainer.bounds
         searchIcon.frame = CGRect(x: 15, y: 9, width: 28, height: 28)
         microphoneButton.frame = CGRect(x: searchContainer.bounds.width - 48, y: 0, width: 44, height: 45)
         searchField.frame = CGRect(x: 49, y: 0, width: max(0, searchContainer.bounds.width - 96), height: 45)
