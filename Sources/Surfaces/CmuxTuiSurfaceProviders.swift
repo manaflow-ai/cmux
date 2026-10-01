@@ -335,7 +335,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         info.linkError = detail
         catalog.updateMachine(info, from: self)
     }
-
     /// One refresh pass. Sleeping machines retain their graph without being woken.
     func performRefresh(force: Bool) async -> Bool {
         guard !hasLostAccess else { return false }
@@ -497,7 +496,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard await reconcileManualMirrorAttachments(
                 connected: connected, link: link, lifecycle: lifecycle, refresh: generation
             ) else { return false }
-
         } catch {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             if CloudMachineAccessLoss(error: error) != nil {
@@ -1773,6 +1771,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             let requestedForce = self.scheduledRefreshForce
             self.scheduledRefreshForce = false
             guard self.lifecycleGeneration == lifecycle, self.isRegisteredInCatalog() else { return }
+            if requestedForce { await self.refreshDisplays() }
             await self.refreshCurrentGraph(force: requestedForce)
         }
     }
