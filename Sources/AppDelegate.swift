@@ -8634,7 +8634,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialSurface: .terminal,
             preferredTabManager: tabManager,
             event: nil,
-            debugSource: debugSource
+            debugSource: debugSource,
+            skipConfiguredAction: true
         )
     }
 
@@ -8857,7 +8858,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialBrowserTransparentBackground: Bool = false,
         applyCreationTitleAsCustomTitle: Bool = true,
         focusInitialBrowserAddressBarOnCreate: Bool = true,
-        createdWorkspaceHandler: ((Workspace) -> Void)? = nil
+        createdWorkspaceHandler: ((Workspace) -> Void)? = nil,
+        skipConfiguredAction: Bool = false
     ) -> Bool {
         let preferredContext = preferredTabManager.flatMap { mainWindowContext(for: $0) }
         let livePreferredContext: MainWindowContext? = {
@@ -8938,6 +8940,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // plain New Workspace behavior; the browser variant keeps its own
         // fixed semantics and skips it.
         if initialSurface == .terminal,
+           !skipConfiguredAction,
            let context,
            executeConfiguredNewWorkspaceActionIfAvailable(
                in: context,
