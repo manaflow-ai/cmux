@@ -69,6 +69,7 @@ struct CloudTreeMachineRowContent: View {
         var parts = [machine.displayName, machine.activityLabel, metrics.summary]
         parts.append(subtitle)
         parts.append(usageSummary)
+        parts.append(contractDiagnostics)
         return parts.joined(separator: ", ")
     }
 
@@ -84,6 +85,7 @@ struct CloudTreeMachineRowContent: View {
         lines.append(subtitle)
         lines.append(machine.image)
         lines.append(usageSummary)
+        lines.append(contractDiagnostics)
         // A machine the catalog found before the fleet list named it is built
         // with `image: info.image ?? ""`, and an empty line in the middle of a
         // popup reads as a missing fact rather than an absent one.
@@ -96,6 +98,20 @@ struct CloudTreeMachineRowContent: View {
     /// A missing backend report remains visible instead of looking like a removed feature.
     var usageSummary: String {
         resources?.usageSummary ?? usageLine ?? String(localized: "machines.usage.unavailable", defaultValue: "Token usage unavailable")
+    }
+
+    /// A recorded marker is useful for support, but cannot establish which
+    /// daemon build is running: upgrades and metadata backfills are separate.
+    var contractDiagnostics: String {
+        let recorded = machine.cmuxTuiContract.flatMap { $0.isEmpty ? nil : $0 }
+            ?? String(localized: "machines.cmuxTuiContract.notRecorded", defaultValue: "Not recorded")
+        return String(
+            format: String(
+                localized: "machines.cmuxTuiContract.recorded",
+                defaultValue: "Recorded attach contract: %@ (not a live daemon version)"
+            ),
+            recorded
+        )
     }
 
     private var metrics: CloudMachineResourcePresentation {

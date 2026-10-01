@@ -606365,6 +606365,124 @@
           }
         }
       }
+    },
+    "machines.cmuxTuiContract.notRecorded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not recorded"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير مسجّل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht erfasst"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No registrado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non enregistré"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記録なし"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기록되지 않음"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未记录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未記錄"
+          }
+        }
+      }
+    },
+    "machines.cmuxTuiContract.recorded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recorded attach contract: %@ (not a live daemon version)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عقد الاتصال المسجّل: %@ (ليس إصدار الخدمة الخفية الجاري تشغيلها)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erfasster Verbindungsvertrag: %@ (keine Live-Version des Daemons)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrato de conexión registrado: %@ (no es la versión del daemon en ejecución)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrat de connexion enregistré : %@ (pas la version actuelle du daemon)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記録された接続契約：%@（稼働中のデーモンのバージョンではありません）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기록된 연결 규약: %@ (실행 중인 데몬의 버전이 아님)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已记录的连接协议：%@（非运行中守护进程的版本）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已記錄的連線協定：%@（非執行中常駐程式的版本）"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

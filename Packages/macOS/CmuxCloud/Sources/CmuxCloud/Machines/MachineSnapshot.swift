@@ -18,6 +18,7 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         stats: VMStats? = nil,
         usage: MachineUsageSnapshot? = nil,
         privateAddress: String? = nil,
+        cmuxTuiContract: String? = nil,
         isPinned: Bool = false
     ) {
         self.id = id
@@ -34,6 +35,7 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         self.stats = stats
         self.usage = usage
         self.privateAddress = privateAddress
+        self.cmuxTuiContract = cmuxTuiContract
         self.isPinned = isPinned
     }
 
@@ -86,6 +88,9 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
     /// created before private networking. v4 preferred for copy (pasteable
     /// anywhere), v6 is the fallback.
     public var privateAddress: String?
+    /// Recorded attach-contract metadata, not a live daemon version probe.
+    /// Nil can mean missing metadata or an older API; it does not prove staleness.
+    public let cmuxTuiContract: String?
     /// True when the user explicitly pinned this machine in the Cloud tree.
     public var isPinned: Bool = false
 

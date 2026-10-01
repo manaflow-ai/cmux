@@ -50,7 +50,8 @@ public enum MachineSnapshotBuilder: Sendable {
             slug: summary.slug,
             freeAccess: freeAccess,
             stats: summary.capabilities.stats ? previousStats : nil,
-            privateAddress: summary.preferredPrivateAddress
+            privateAddress: summary.preferredPrivateAddress,
+            cmuxTuiContract: summary.cmuxTuiContract
         )
     }
 
