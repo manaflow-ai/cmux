@@ -197,15 +197,22 @@ struct MachinesListStatusEmptyState: View {
 /// The toolbar's one-line status while cached machines stay on screen.
 struct MachinesListStatusToolbarRow: View {
     let status: MachineListStatus
-    let error: String?
+    /// Stable dismissal identity only; upstream details are never presented.
+    let dismissalSignature: String?
     let onDismiss: (String) -> Void
     let perform: (MachineListStatusPresentation.Action) -> Void
 
+    /// Safe next steps shared by hover help and Copy Error.
+    var errorMessage: String? {
+        let presentation = MachineListStatusPresentation(status)
+        return presentation.isFailure ? (presentation.subtitle ?? presentation.title) : nil
+    }
+
     var body: some View {
         let presentation = MachineListStatusPresentation(status)
-        // Only a failure is orange, carries the raw error on hover, and can be
-        // dismissed. Waiting and reconnecting stay quiet.
-        let failure = presentation.isFailure ? error : nil
+        // Only a failure is orange, carries safe recovery copy on hover, and
+        // can be dismissed. Upstream response details stay out of the view.
+        let failure = presentation.isFailure ? dismissalSignature : nil
         let row = HStack(spacing: 5) {
             if let symbolName = presentation.symbolName {
                 Image(systemName: symbolName)
@@ -232,8 +239,8 @@ struct MachinesListStatusToolbarRow: View {
         // must not run for waiting or reconnecting.
         if let failure {
             row
-                .help(failure)
-                .cloudErrorCopyMenu(failure)
+                .help(errorMessage ?? presentation.title)
+                .cloudErrorCopyMenu(errorMessage)
             CloudBannerDismissButton { onDismiss(failure) }
         } else {
             row

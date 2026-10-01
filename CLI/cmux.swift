@@ -8124,6 +8124,13 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
+        case "pr":
+            try await runPullRequestCommand(
+                commandArgs: commandArgs,
+                client: client,
+                windowOverride: windowId,
+                jsonOutput: jsonOutput
+            )
         case "right-sidebar":
             try forwardRightSidebarCommand(
                 commandArgs: commandArgs,
@@ -20922,6 +20929,8 @@ struct CMUXCLI {
               cmux sidebar-state
               cmux sidebar-state --workspace workspace:2
             """
+        case "pr":
+            return Self.pullRequestUsage
         case "right-sidebar":
             return String(localized: "cli.rightSidebar.usage", defaultValue: """
             Usage: cmux right-sidebar <command> [flags]
@@ -28145,10 +28154,13 @@ struct CMUXCLI {
             }
 
         case "clear-history":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride)
-            let surfaceArg = optionValue(commandArgs, name: "--surface")
+            let parsed = try TmuxCompatArgumentParser.parseClearHistory(commandArgs)
+            let effectiveWindowRaw = parsed.window ?? windowOverride
+            let workspaceArg = parsed.workspace
+                ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let surfaceArg = parsed.surface
             var params: [String: Any] = [:]
-            let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
+            let winId = try normalizeWindowHandle(effectiveWindowRaw, client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
             if let wsId { params["workspace_id"] = wsId }
@@ -28233,9 +28245,12 @@ struct CMUXCLI {
             }
 
         case "paste-buffer":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride)
-            let surfaceArg = optionValue(commandArgs, name: "--surface")
-            let name = optionValue(commandArgs, name: "--name") ?? "default"
+            let parsed = try TmuxCompatArgumentParser.parsePasteBuffer(commandArgs)
+            let effectiveWindowRaw = parsed.window ?? windowOverride
+            let workspaceArg = parsed.workspace
+                ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let surfaceArg = parsed.surface
+            let name = parsed.name ?? "default"
             let store = try loadTmuxCompatStore()
             guard let buffer = store.buffers[name] else {
                 throw CLIError(message: "Buffer not found: \(name)")
@@ -28244,10 +28259,10 @@ struct CMUXCLI {
             // of keystrokes, so newlines stay in the text and vim-mode prompts
             // do not eat the first character.
             try Self.ensureTextFitsSocketRequest(buffer, command: "paste-buffer")
-            let bracketed = hasFlag(commandArgs, name: "--bracketed")
+            let bracketed = parsed.bracketed
             var params: [String: Any] = ["text": buffer]
             if bracketed { params["submit_key"] = "none" }
-            let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
+            let winId = try normalizeWindowHandle(effectiveWindowRaw, client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId, allowCurrent: winId == nil)
             if let wsId { params["workspace_id"] = wsId }
@@ -28257,13 +28272,11 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
         case "respawn-pane":
-            let (workspaceOpt, respawnRem0) = parseOption(commandArgs, name: "--workspace")
-            let (surfaceArg, respawnRem1) = parseOption(respawnRem0, name: "--surface")
-            let (windowOpt, respawnRem2) = parseOption(respawnRem1, name: "--window")
-            let (commandOpt, respawnRem3) = parseOption(respawnRem2, name: "--command")
-            let effectiveWindowRaw = windowOpt ?? windowOverride
-            let workspaceArg = workspaceOpt ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            let commandText = (commandOpt ?? respawnRem3.dropFirst(respawnRem3.first == "--" ? 1 : 0).joined(separator: " ")).trimmingCharacters(in: .whitespacesAndNewlines)
+            let parsed = try TmuxCompatArgumentParser.parseRespawnPane(commandArgs)
+            let effectiveWindowRaw = parsed.window ?? windowOverride
+            let workspaceArg = parsed.workspace
+                ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let commandText = parsed.commandText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let finalCommand = commandText.isEmpty ? "exec ${SHELL:-/bin/zsh} -l" : commandText
             var params: [String: Any] = [
                 "command": tmuxShellInvokedStartCommand(finalCommand),
@@ -28274,7 +28287,7 @@ struct CMUXCLI {
             let wsHandle = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId, allowCurrent: winId == nil)
             let wsId = try wsHandle.map { try resolveWorkspaceId($0, client: client, windowHandle: winId) }
             if let wsId { params["workspace_id"] = wsId }
-            let sfHandle = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId, allowFocused: true)
+            let sfHandle = try normalizeSurfaceHandle(parsed.surface, client: client, workspaceHandle: wsId, windowHandle: winId, allowFocused: true)
             if let sfHandle {
                 if let wsId {
                     params["surface_id"] = try resolveSurfaceId(sfHandle, workspaceId: wsId, client: client)
@@ -28286,15 +28299,11 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
         case "display-message":
-            let printOnly = commandArgs.contains("-p") || commandArgs.contains("--print")
-            let message = commandArgs
-                .filter { !$0.hasPrefix("-") }
-                .joined(separator: " ")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !message.isEmpty else {
+            let parsed = try TmuxCompatArgumentParser.parseDisplayMessage(commandArgs)
+            guard let message = parsed.message else {
                 throw CLIError(message: "display-message requires text")
             }
-            if printOnly {
+            if parsed.printOnly {
                 print(message)
                 return
             }
@@ -40490,7 +40499,7 @@ export default {
     private static let openCodePluginFileName = "cmux-feed.js"
 
     private func openCodeConfigDirPath() -> String {
-        OpenCodePaths.configDirectory(environment: ProcessInfo.processInfo.environment).path
+        OpenCodePaths(environment: ProcessInfo.processInfo.environment).configDirectory.path
     }
 
     private func openCodePluginPath(projectLocal: Bool) -> String {
@@ -42569,13 +42578,11 @@ export default {
             }
             current = parent
         }
-
         // If we already found an ancestor bundle or repo Info.plist, avoid scanning
         // sibling app bundles. Large Resources directories can otherwise balloon RSS.
         guard candidates.isEmpty else {
             return candidates
         }
-
         let searchRoots = [
             executableURL.deletingLastPathComponent().standardizedFileURL,
             executableURL.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL
@@ -42593,10 +42600,8 @@ export default {
                 appendIfExisting(entry.appendingPathComponent("Contents/Info.plist"))
             }
         }
-
         return candidates
     }
-
     private func currentExecutablePath() -> String? {
         if let path = CLIExecutableLocator.currentExecutableURL()?.path
             .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -42605,28 +42610,23 @@ export default {
         }
         return args.first
     }
-
     func resolvedExecutableURL() -> URL? {
         guard let executable = currentExecutablePath(), !executable.isEmpty else {
             return nil
         }
-
         let expanded = (executable as NSString).expandingTildeInPath
         if let resolvedPath = realpath(expanded, nil) {
             defer { free(resolvedPath) }
             return URL(fileURLWithPath: String(cString: resolvedPath)).standardizedFileURL
         }
-
         return URL(fileURLWithPath: expanded).standardizedFileURL
     }
 }
-
 private enum CMUXCLIOutput {
     static func writeStandardError(_ message: String) {
         cliWriteStderr(message)
     }
 }
-
 @main
 struct CMUXTermMain {
     static func main() async {

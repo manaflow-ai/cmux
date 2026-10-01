@@ -119,6 +119,7 @@ Values for `shortcuts.bindings.<action>`:
 
 ## Command palette
 
+- `shortcuts.bindings.agentInbox`
 - `shortcuts.bindings.commandPalette`
 - `shortcuts.bindings.commandPaletteNext`
 - `shortcuts.bindings.commandPalettePrevious`
