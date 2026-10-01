@@ -9,6 +9,7 @@ final class CertificateDetailsView: NSView, NSTableViewDataSource, NSTableViewDe
     private let table = NSTableView()
     private let valueView = NSTextView()
     private var fields: [(String, String)] = []
+    private var scrollFit: ScrollFitElasticity?
 
     init(chain: [PageInfoCertificate]) {
         self.chain = chain
@@ -30,6 +31,7 @@ final class CertificateDetailsView: NSView, NSTableViewDataSource, NSTableViewDe
         table.backgroundColor = .clear
         let tableScroll = NSScrollView()
         tableScroll.documentView = table
+        scrollFit = ScrollFitElasticity(scrollView: tableScroll)
         tableScroll.hasVerticalScroller = true
         tableScroll.drawsBackground = false
 

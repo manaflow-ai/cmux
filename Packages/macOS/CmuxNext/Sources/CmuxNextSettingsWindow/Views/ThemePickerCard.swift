@@ -49,6 +49,7 @@ struct ThemePickerCard: View {
                 }
             }
         }
+        .scrollBounceBehavior(.basedOnSize)
         .scrollEdgeFade()
         .frame(height: 240)
     }

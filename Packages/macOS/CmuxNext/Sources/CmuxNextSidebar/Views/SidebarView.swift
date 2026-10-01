@@ -29,6 +29,8 @@ public final class SidebarView: NSView {
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
     private var edgeFade: ScrollEdgeFadeView!
+    /// No rubber band while every row fits (Finder's sidebar).
+    private var scrollFit: ScrollFitElasticity?
     let profileBar: ProfileBarView
     let newButton = SidebarIconButton(symbol: "plus", label: Strings.newWorkspace)
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
@@ -153,7 +155,6 @@ public final class SidebarView: NSView {
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay
         scrollView.automaticallyAdjustsContentInsets = false
-        scrollView.verticalScrollElasticity = .allowed
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
         scrollView.contentView.postsBoundsChangedNotifications = true
@@ -166,6 +167,7 @@ public final class SidebarView: NSView {
         scrollView.onHorizontalSwipe = { [weak self] delta in self?.model.stepProfile(by: delta) }
         edgeFade = ScrollEdgeFadeView(scrollView: scrollView)
         addSubview(edgeFade)
+        scrollFit = ScrollFitElasticity(scrollView: scrollView)
 
         addSubview(footer)
         footer.addSubview(profileBar)
