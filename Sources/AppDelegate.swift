@@ -1351,6 +1351,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         saveCurrentSnapshot: { [weak self] in
             guard let self else { return false }
             return self.saveSessionSnapshotUsingCachedProcessDetectedIndexes(includeScrollback: false)
+        },
+        onTimerTick: { [weak self] in
+            self?.sessionScrollbackCheckpointCoordinator?.tickIfDue()
         }
     )
     /// Accessibility window-hierarchy cache (CmuxWindowing); composition-root
@@ -1372,6 +1375,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         launchServicesRegistrationQueue.async(execute: work)
     }
     private var lastPersistedSessionWindowIds: [UUID] = []
+    var lastTypingActivityAt: TimeInterval { sessionAutosaveCoordinator.lastTypingActivityAt }
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
@@ -2721,6 +2725,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .trustedTopologySignature(of: currentDisplayGeometries().available)
         prepareStartupSessionSnapshotIfNeeded()
         sessionAutosaveCoordinator.startIfNeeded()
+        if !isRunningUnderXCTest(ProcessInfo.processInfo.environment) {
+            startSessionScrollbackCheckpointsIfNeeded(environment: ProcessInfo.processInfo.environment)
+        }
 #if DEBUG
         setupJumpUnreadUITestIfNeeded()
         setupTerminalCmdClickUITestIfNeeded()

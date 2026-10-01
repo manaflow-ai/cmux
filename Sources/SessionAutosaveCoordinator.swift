@@ -26,6 +26,7 @@ final class SessionAutosaveCoordinator {
     private let fingerprint: Fingerprint
     private let save: Save
     private let saveCurrentSnapshot: SaveCurrentSnapshot
+    private let onTimerTick: @MainActor () -> Void
 
     private static let typingQuietPeriod: TimeInterval = 0.65
 
@@ -40,7 +41,7 @@ final class SessionAutosaveCoordinator {
     private var processDetectedSaveGeneration: UInt64 = 0
     private var lastFingerprint: Int?
     private var lastPersistedAt = Date.distantPast
-    private var lastTypingActivityAt: TimeInterval = 0
+    private(set) var lastTypingActivityAt: TimeInterval = 0
     private var todoStatePersistenceCoordinator: SessionTodoStatePersistenceCoordinator?
 
     init(
@@ -49,7 +50,8 @@ final class SessionAutosaveCoordinator {
         currentTTYDeviceBindings: @escaping TTYDeviceBindings,
         fingerprint: @escaping Fingerprint,
         save: @escaping Save,
-        saveCurrentSnapshot: @escaping SaveCurrentSnapshot
+        saveCurrentSnapshot: @escaping SaveCurrentSnapshot,
+        onTimerTick: @escaping @MainActor () -> Void = {}
     ) {
         self.isTerminatingApp = isTerminatingApp
         self.isStartupSessionRestorePending = isStartupSessionRestorePending
@@ -57,6 +59,7 @@ final class SessionAutosaveCoordinator {
         self.fingerprint = fingerprint
         self.save = save
         self.saveCurrentSnapshot = saveCurrentSnapshot
+        self.onTimerTick = onTimerTick
     }
 
     deinit {
@@ -110,6 +113,7 @@ final class SessionAutosaveCoordinator {
                 return
             }
             self.run(source: "timer")
+            self.onTimerTick()
         }
         self.timer = timer
         timer.resume()
