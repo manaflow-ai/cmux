@@ -8,7 +8,8 @@ public import AppKit
 /// The live policy combines `DesignSettings.shared.animationSpeed`
 /// (`ui.animationSpeed`) with the system Reduce Motion setting. Reading it
 /// inside an Observation-tracked scope registers a dependency on the speed.
-public enum Motion {
+public struct Motion {
+    public init() {}
     /// Tests set this to pin Reduce Motion; nil reads the system setting.
     public static var reduceMotionOverride: Bool?
 

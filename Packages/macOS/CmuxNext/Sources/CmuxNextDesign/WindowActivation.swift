@@ -6,7 +6,8 @@ public import AppKit
 /// focus from the user's current app. Every call site that shows, raises or
 /// focuses a window, or activates the app, goes through here.
 @MainActor
-public enum WindowActivation {
+public struct WindowActivation {
+    public init() {}
     /// Why a window is ordered in.
     public nonisolated enum Intent: Sendable, Equatable {
         /// A window appears (launch, restore, new window).

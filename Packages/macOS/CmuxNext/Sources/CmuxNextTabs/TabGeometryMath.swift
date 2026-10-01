@@ -1,7 +1,8 @@
 public import CoreGraphics
 
 /// Drag reorder math.
-public enum TabReorderMath {
+public struct TabReorderMath {
+    public init() {}
     /// Index at which a dragged tab lands among `otherWidths` (the tabs of its
     /// group in order, without the dragged tab). Picks the slot whose leading
     /// edge is nearest to the dragged tab's leading edge.
@@ -22,7 +23,8 @@ public enum TabReorderMath {
 }
 
 /// Horizontal overflow scrolling math.
-public enum TabScrollMath {
+public struct TabScrollMath {
+    public init() {}
     public static func maxOffset(contentWidth: CGFloat, viewportWidth: CGFloat) -> CGFloat {
         max(0, contentWidth - viewportWidth)
     }

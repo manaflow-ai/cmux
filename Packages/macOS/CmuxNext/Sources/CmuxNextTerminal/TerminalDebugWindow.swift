@@ -4,7 +4,8 @@ import CmuxNextDesign
 /// Development window: one terminal surface on a local shell PTY, with a
 /// live hover-preview mirror in the corner. Lets the terminal module be
 /// exercised before the daemon client exists. Not reachable in release UI.
-public enum TerminalDebugWindow {
+public struct TerminalDebugWindow {
+    public init() {}
     private static var controllers: [NSWindowController] = []
 
     /// Opens the local-shell window. `initialInput` is sent through the

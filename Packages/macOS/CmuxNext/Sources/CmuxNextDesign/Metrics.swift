@@ -11,7 +11,8 @@ public enum Density: String, Sendable, CaseIterable, Codable {
     case comfortable
 }
 
-public enum Metrics {
+public struct Metrics {
+    public init() {}
     /// Active density, read from `DesignSettings.shared`. Reading any metric
     /// inside an Observation-tracked scope (view layout, `withObservationTracking`)
     /// registers a dependency, so a density or override change re-lays out live.
@@ -145,7 +146,8 @@ public enum Metrics {
 
 /// Type scale. Compact uses 12 pt body in chrome (terminal fonts come from
 /// the Ghostty config and are not affected).
-public enum Typography {
+public struct Typography {
+    public init() {}
     private static var compact: Bool { Metrics.density == .compact }
     /// User override for chrome body size; other styles scale from it.
     private static var scale: CGFloat {

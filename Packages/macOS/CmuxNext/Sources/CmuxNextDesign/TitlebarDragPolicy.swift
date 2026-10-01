@@ -38,7 +38,8 @@ public protocol TitlebarPressDeciding: AnyObject {
 /// when no view on the way is a control and every one has
 /// `mouseDownCanMoveWindow` true (plain backgrounds, gaps between panes).
 @MainActor
-public enum TitlebarDragPolicy {
+public struct TitlebarDragPolicy {
+    public init() {}
     /// The titlebar band in window coordinates: the content view's area
     /// above `contentLayoutRect` (empty in fullscreen or without a titlebar).
     public static func bandRect(in window: NSWindow) -> CGRect {
