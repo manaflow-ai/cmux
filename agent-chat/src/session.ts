@@ -1,6 +1,8 @@
+import { draftStorage } from "./browser-storage";
 // Client-side session state: one WebSocket, one session per page.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyThemeVars } from "./theme";
+import { agentChatText } from "./i18n";
 import { openSessionConnection } from "./connection";
 import type { HarnessRecommendation, HarnessCatalogs } from "../harness-contract";
 import { latestRouteStatus, normalizeRouteStatus, type RouteHealth, type RoutePhase, type RouteStatus } from "../route-status";
@@ -26,6 +28,7 @@ export type AgentEvent =
   | { kind: "options"; options: SessionOption[]; actions?: SessionActions }
   | { kind: "commands"; trigger: CommandTrigger; commands: CommandEntry[] }
   | { kind: "user"; text: string }
+  | { kind: "agent-message"; id: string; from: string; body: string }
   | { kind: "status"; text: string }
   | { kind: "plan"; entries: AgentPlanEntry[] }
   | { kind: "delta"; text: string }
@@ -89,6 +92,7 @@ function nextFilesRevision(blocks: Block[]): string {
 
 export type Block =
   | { kind: "user"; text: string }
+  | { kind: "message"; id: string; from: string; body: string }
   | { kind: "assistant"; text: string; open: boolean }
   | { kind: "thinking"; text: string; open: boolean }
   | { kind: "tool"; toolId: string; name: string; detail?: string; status: "running" | "ok" | "fail"; out?: string }
@@ -164,7 +168,19 @@ export interface SessionSummary {
   mode?: "transcript";
   /** What that agent is waiting on in the terminal (permission, question). */
   attention?: string | null;
+  /** cmux agent messages waiting for that agent. */
+  queuedMessages?: QueuedAgentMessage[];
 }
+
+export interface QueuedAgentMessage { id: string; from: string; body: string }
+
+/** Whether a terminal-backed chat must be answered in the terminal itself. */
+export function transcriptComposerLocked(
+  session: Pick<SessionSummary, "mode" | "attention"> | null,
+): boolean {
+  return session?.mode === "transcript" && Boolean(session.attention?.trim());
+}
+
 export type CtrlJMode = "newline" | "menu";
 
 function closeStreaming(blocks: Block[]): Block[] {
@@ -180,6 +196,8 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
   switch (evt.kind) {
     case "user":
       return [...closeStreaming(blocks), { kind: "user", text: evt.text }];
+    case "agent-message":
+      return [...closeStreaming(blocks), { kind: "message", id: evt.id, from: evt.from, body: evt.body }];
     case "delta":
       if (last && last.kind === "assistant" && last.open) {
         return [...blocks.slice(0, -1), { ...last, text: last.text + evt.text }];
@@ -253,14 +271,16 @@ export interface SessionState {
   providerOptions: Record<string, SessionOption[]>;
   providerCommands: Record<string, CommandGroup[]>;
   filesByCwd: Record<string, string[]>;
-  cwdChecks: Record<string, { ok: boolean; message?: string }>;
+  cwdChecks: Record<string, { ok: boolean; message?: string; repositorySlug?: string }>;
   fileDiffs: Record<string, string>;
+  fileDiffErrors: Record<string, string>;
   lastError: string;
   forkPending: boolean;
   handoffPending: boolean;
   start(opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }): boolean;
   compose(): void;
-  reply(text: string): void;
+  /** Sends a reply, returning false when the WebSocket is not ready. */
+  reply(text: string): boolean;
   stop(): void;
   /** Focuses the terminal pane behind a terminal chat view. */
   focusTerminal(): void;
@@ -302,6 +322,7 @@ const routedSessionId = (routePath().match(/^\/s\/([\w-]+)/) || [])[1] || null;
 export const routedToTranscript = routedSessionId?.startsWith("t-") ?? false;
 export const composerDraftKey = "agentui.draft";
 const PENDING_START_TIMEOUT_MS = 30_000;
+const FILE_DIFF_TIMEOUT_MS = 30_000;
 
 function newClientRequestId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -320,7 +341,7 @@ export function consumeOptimisticUserEcho(queue: string[], text: string): boolea
   return true;
 }
 
-export function shouldAcceptHandoffResponse(
+export function shouldAcceptSessionActionResponse(
   sourceSessionId: string | undefined,
   pendingSourceSessionId: string | null,
   currentSessionId: string | null,
@@ -350,9 +371,11 @@ export function useSession(): SessionState {
   const [commands, setCommands] = useState<CommandGroup[]>([]);
   const [providerOptions, setProviderOptions] = useState<Record<string, SessionOption[]>>({});
   const [providerCommands, setProviderCommands] = useState<Record<string, CommandGroup[]>>({});
+  const latestCommandRequestsRef = useRef(new Map<string, { requestId: string; cwd: string; pending: boolean }>());
   const [filesByCwd, setFilesByCwd] = useState<Record<string, string[]>>({});
-  const [cwdChecks, setCwdChecks] = useState<Record<string, { ok: boolean; message?: string }>>({});
+  const [cwdChecks, setCwdChecks] = useState<Record<string, { ok: boolean; message?: string; repositorySlug?: string }>>({});
   const [fileDiffs, setFileDiffs] = useState<Record<string, string>>({});
+  const [fileDiffErrors, setFileDiffErrors] = useState<Record<string, string>>({});
   const [lastError, setLastError] = useState("");
   const [forkPending, setForkPending] = useState(false);
   const [handoffPending, setHandoffPending] = useState(false);
@@ -361,9 +384,13 @@ export function useSession(): SessionState {
   // be rejected as a popup by the browser.
   const handoffWindowRef = useRef<Window | null>(null);
   const pendingHandoffSourceSessionRef = useRef<string | null>(null);
+  const pendingHandoffRequestRef = useRef<string | null>(null);
+  const forkWindowRef = useRef<Window | null>(null);
+  const pendingForkSourceSessionRef = useRef<string | null>(null);
+  const pendingForkRequestRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | null>(routedSessionId);
-  const pendingFileDiffKeysRef = useRef<Record<string, string[]>>({});
+  const pendingFileDiffRequestsRef = useRef(new Map<string, { sessionId: string; key: string; timer: number }>());
   const pendingStartRef = useRef<{
     requestId: string;
     conversationId: string;
@@ -377,6 +404,26 @@ export function useSession(): SessionState {
   } | null>(null);
   const pendingStartTimeoutRef = useRef<number | null>(null);
   const pendingStartStopsRef = useRef(new Set<string>());
+  const discardFileDiffRequests = useCallback(() => {
+    for (const request of pendingFileDiffRequestsRef.current.values()) window.clearTimeout(request.timer);
+    pendingFileDiffRequestsRef.current.clear();
+  }, []);
+  const failFileDiffRequests = useCallback(() => {
+    const errors: Record<string, string> = {};
+    for (const request of pendingFileDiffRequestsRef.current.values()) {
+      if (request.sessionId === sessionIdRef.current) errors[request.key] = agentChatText("diffUnavailable");
+    }
+    discardFileDiffRequests();
+    if (Object.keys(errors).length) setFileDiffErrors((current) => ({ ...current, ...errors }));
+  }, [discardFileDiffRequests]);
+  const takeFileDiffRequest = useCallback((msg: { requestId?: unknown; sessionId?: unknown }) => {
+    if (typeof msg.requestId !== "string" || msg.sessionId !== sessionIdRef.current) return null;
+    const request = pendingFileDiffRequestsRef.current.get(msg.requestId);
+    if (!request || request.sessionId !== msg.sessionId) return null;
+    window.clearTimeout(request.timer);
+    pendingFileDiffRequestsRef.current.delete(msg.requestId);
+    return request;
+  }, []);
   const optimisticUsersRef = useRef<string[]>([]);
   // The last status the server sent: reply() shows "running" before the server
   // knows, and a send that fails puts this back.
@@ -391,8 +438,24 @@ export function useSession(): SessionState {
     const popup = handoffWindowRef.current;
     handoffWindowRef.current = null;
     pendingHandoffSourceSessionRef.current = null;
+    pendingHandoffRequestRef.current = null;
     if (popup && !popup.closed) popup.close();
   }, []);
+
+  const closeForkWindow = useCallback(() => {
+    const popup = forkWindowRef.current;
+    forkWindowRef.current = null;
+    pendingForkSourceSessionRef.current = null;
+    pendingForkRequestRef.current = null;
+    if (popup && !popup.closed) popup.close();
+  }, []);
+
+  const resetSessionActions = useCallback(() => {
+    closeForkWindow();
+    closeHandoffWindow();
+    setForkPending(false);
+    setHandoffPending(false);
+  }, [closeForkWindow, closeHandoffWindow]);
 
   const clearPendingStartTimeout = useCallback(() => {
     if (pendingStartTimeoutRef.current !== null) window.clearTimeout(pendingStartTimeoutRef.current);
@@ -417,7 +480,7 @@ export function useSession(): SessionState {
     sendRaw({ op: "stop", requestId: pending.requestId });
     clearPendingStartTimeout();
     pendingStartRef.current = null;
-    restoreComposerDraft(sessionStorage, [pending.prompt, ...pending.queuedReplies.map((reply) => reply.prompt)].join("\n\n"));
+    restoreComposerDraft(draftStorage, [pending.prompt, ...pending.queuedReplies.map((reply) => reply.prompt)].join("\n\n"));
     history.replaceState(null, "", appPath("/"));
     document.title = "cmux agent";
     sessionIdRef.current = null;
@@ -428,11 +491,12 @@ export function useSession(): SessionState {
     setOptions([]);
     setActions({});
     setCommands([]);
-    pendingFileDiffKeysRef.current = {};
+    discardFileDiffRequests();
     setFileDiffs({});
+    setFileDiffErrors({});
     setLastError(message);
     setPhase("composer");
-  }, [clearPendingStartTimeout, sendRaw]);
+  }, [clearPendingStartTimeout, discardFileDiffRequests, sendRaw]);
 
   const armPendingStartTimeout = useCallback(() => {
     clearPendingStartTimeout();
@@ -450,7 +514,11 @@ export function useSession(): SessionState {
   useEffect(() => {
     const disconnect = openSessionConnection({
       createSocket: () => new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws")),
-      onSocket: (ws) => { wsRef.current = ws; },
+      onSocket: (ws) => {
+        wsRef.current = ws;
+        if (!ws) failFileDiffRequests();
+        if (!ws) latestCommandRequestsRef.current.clear();
+      },
       onOpen: () => {
         for (const requestId of pendingStartStopsRef.current) sendRaw({ op: "stop", requestId });
         const pending = pendingStartRef.current;
@@ -458,6 +526,12 @@ export function useSession(): SessionState {
         else if (pending && !pending.failed) {
           sendRaw({ op: "start", requestId: pending.requestId, conversationId: pending.conversationId, provider: pending.provider, cwd: pending.cwd, prompt: pending.prompt, options: pending.options });
           armPendingStartTimeout();
+        }
+        if (sessionIdRef.current && pendingForkSourceSessionRef.current === sessionIdRef.current && pendingForkRequestRef.current) {
+          sendRaw({ op: "fork", sessionId: sessionIdRef.current, requestId: pendingForkRequestRef.current });
+        }
+        if (sessionIdRef.current && pendingHandoffSourceSessionRef.current === sessionIdRef.current && pendingHandoffRequestRef.current) {
+          sendRaw({ op: "handoff", sessionId: sessionIdRef.current, requestId: pendingHandoffRequestRef.current });
         }
       },
       onMessage: (e) => {
@@ -498,6 +572,7 @@ export function useSession(): SessionState {
               closeHandoffWindow();
               setHandoffPending(false);
             }
+            if (sessionIdRef.current !== msg.session.id) resetSessionActions();
             sessionIdRef.current = msg.session.id;
             history.replaceState(null, "", appPath("/s/" + msg.session.id));
             document.title = msg.session.title || "cmux agent";
@@ -512,8 +587,9 @@ export function useSession(): SessionState {
             setOptions([]);
             setActions({});
             setCommands([]);
-            pendingFileDiffKeysRef.current = {};
+            discardFileDiffRequests();
             setFileDiffs({});
+            setFileDiffErrors({});
             setPhase("chat");
             break;
           }
@@ -526,6 +602,7 @@ export function useSession(): SessionState {
               closeHandoffWindow();
               setHandoffPending(false);
             }
+            if (sessionIdRef.current !== msg.session.id) resetSessionActions();
             sessionIdRef.current = msg.session.id;
             document.title = msg.session.title || "cmux agent";
             serverStatusRef.current = msg.session.status;
@@ -536,14 +613,16 @@ export function useSession(): SessionState {
             setOptions(latestOptions(msg.events as AgentEvent[]));
             setActions(latestActions(msg.events as AgentEvent[]));
             setCommands(latestCommands(msg.events as AgentEvent[]));
-            pendingFileDiffKeysRef.current = {};
+            discardFileDiffRequests();
             setFileDiffs({});
+            setFileDiffErrors({});
             setPhase("chat");
             break;
           case "no-session":
             if (!sessionIdRef.current || msg.sessionId !== sessionIdRef.current) break;
             closeHandoffWindow();
             setHandoffPending(false);
+            resetSessionActions();
             history.replaceState(null, "", appPath("/"));
             sessionIdRef.current = null;
             setSession(null);
@@ -551,8 +630,9 @@ export function useSession(): SessionState {
             setOptions([]);
             setActions({});
             setCommands([]);
-            pendingFileDiffKeysRef.current = {};
+            discardFileDiffRequests();
             setFileDiffs({});
+            setFileDiffErrors({});
             setPhase("composer");
             optimisticUsersRef.current = [];
             break;
@@ -560,6 +640,11 @@ export function useSession(): SessionState {
             if (msg.sessionId === sessionIdRef.current) {
               serverStatusRef.current = msg.status;
               setSession((s) => (s ? { ...s, status: msg.status } : s));
+            }
+            break;
+          case "session-queued-messages":
+            if (msg.sessionId === sessionIdRef.current) {
+              setSession((s) => (s ? { ...s, queuedMessages: Array.isArray(msg.messages) ? msg.messages : [] } : s));
             }
             break;
           case "session-attention":
@@ -584,7 +669,6 @@ export function useSession(): SessionState {
               if (evt.kind === "options") setOptions(evt.options);
               if (evt.kind === "options") setActions(evt.actions ?? {});
               if (evt.kind === "commands") setCommands((gs) => upsertCommands(gs, evt));
-              if (evt.kind === "error") setForkPending(false);
               if (evt.kind === "error" && evt.prompt !== undefined) {
                 // The prompt never reached the terminal: its echo will not
                 // come, and the agent is as busy as the server last said.
@@ -594,27 +678,46 @@ export function useSession(): SessionState {
               }
             }
             break;
-          case "session-forked":
+          case "session-forked": {
+            if (!shouldAcceptSessionActionResponse(
+              msg.session?.parentSessionId,
+              pendingForkSourceSessionRef.current,
+              sessionIdRef.current,
+            )) break;
+            if (msg.requestId && msg.requestId !== pendingForkRequestRef.current) break;
             setForkPending(false);
-            window.open(appPath("/s/" + msg.session.id), "_blank");
+            const target = appPath("/s/" + msg.session.id);
+            const popup = forkWindowRef.current;
+            forkWindowRef.current = null;
+            pendingForkSourceSessionRef.current = null;
+            pendingForkRequestRef.current = null;
+            if (popup && !popup.closed) {
+              popup.location.href = target;
+              popup.focus();
+            } else {
+              window.location.assign(target);
+            }
             break;
+          }
           case "session-handoff":
             {
               const sourceSessionId = typeof msg.sourceSessionId === "string"
                 ? msg.sourceSessionId
                 : undefined;
-              if (!shouldAcceptHandoffResponse(
+              if (!shouldAcceptSessionActionResponse(
                 sourceSessionId,
                 pendingHandoffSourceSessionRef.current,
                 sessionIdRef.current,
               )) {
                 break;
               }
+              if (msg.requestId && msg.requestId !== pendingHandoffRequestRef.current) break;
               setHandoffPending(false);
               const target = appPath("/s/" + msg.session.id);
               const popup = handoffWindowRef.current;
               handoffWindowRef.current = null;
               pendingHandoffSourceSessionRef.current = null;
+              pendingHandoffRequestRef.current = null;
               if (popup && !popup.closed) {
                 popup.location.href = target;
                 popup.focus();
@@ -633,14 +736,18 @@ export function useSession(): SessionState {
               setProviderOptions((current) => ({ ...current, ...msg.options }));
             }
             break;
-          case "commands-list":
+          case "commands-list": {
+            const request = latestCommandRequestsRef.current.get(msg.provider);
+            if (!request?.pending || request.requestId !== msg.requestId || request.cwd !== msg.cwd) break;
+            request.pending = false;
             setProviderCommands((m) => ({ ...m, [msg.provider]: msg.groups ?? [] }));
             break;
+          }
           case "files-list":
             setFilesByCwd((m) => ({ ...m, [msg.cwd]: msg.files ?? [] }));
             break;
           case "cwd-check":
-            setCwdChecks((m) => ({ ...m, [msg.cwd]: { ok: Boolean(msg.ok), message: msg.message } }));
+            setCwdChecks((m) => ({ ...m, [msg.cwd]: { ok: Boolean(msg.ok), message: msg.message, repositorySlug: typeof msg.repositorySlug === "string" ? msg.repositorySlug : undefined } }));
             if (Array.isArray(msg.harnesses) && acceptsCwdHarnessResponse(latestCwdRequestRef.current, msg)) {
               setHarnessSnapshot({ cwd: String(msg.cwd), harnesses: msg.harnesses as HarnessRecommendation[] });
             }
@@ -649,15 +756,17 @@ export function useSession(): SessionState {
             if (msg.vars && typeof msg.vars === "object") applyThemeVars(msg.vars, msg.theme);
             break;
           case "file-diff":
-            if (msg.sessionId === sessionIdRef.current) {
-              const path = String(msg.path);
-              const queue = pendingFileDiffKeysRef.current[path];
-              const key = queue?.shift() ?? path;
-              if (queue && !queue.length) delete pendingFileDiffKeysRef.current[path];
-              setFileDiffs((m) => ({ ...m, [key]: String(msg.diff ?? "") }));
+            {
+              const request = takeFileDiffRequest(msg);
+              if (request) setFileDiffs((m) => ({ ...m, [request.key]: String(msg.diff ?? "") }));
             }
             break;
           case "error":
+            if (msg.op === "list-commands") {
+              for (const request of latestCommandRequestsRef.current.values()) {
+                if (request.requestId === msg.requestId && request.cwd === msg.cwd) request.pending = false;
+              }
+            }
             if (msg.op === "start") {
               const message = String(msg.message ?? "");
               const pending = pendingStartRef.current;
@@ -665,28 +774,29 @@ export function useSession(): SessionState {
                 failPendingStart(message);
               }
             }
-            if (msg.op === "fork") setForkPending(false);
-            if (msg.op === "handoff") {
+            if (msg.op === "fork" && shouldAcceptSessionActionResponse(msg.sessionId, pendingForkSourceSessionRef.current, sessionIdRef.current)) {
+              closeForkWindow();
+              setForkPending(false);
+            }
+            if (msg.op === "handoff" && shouldAcceptSessionActionResponse(msg.sessionId, pendingHandoffSourceSessionRef.current, sessionIdRef.current)) {
               closeHandoffWindow();
               setHandoffPending(false);
             }
-            if (msg.op === "get-file-diff" && typeof msg.path === "string" && msg.path) {
-              const path = String(msg.path);
-              const queue = pendingFileDiffKeysRef.current[path];
-              const key = queue?.shift() ?? path;
-              if (queue && !queue.length) delete pendingFileDiffKeysRef.current[path];
-              setFileDiffs((m) => ({ ...m, [key]: String(msg.message ?? "Failed to load diff") }));
+            if (msg.op === "get-file-diff") {
+              const request = takeFileDiffRequest(msg);
+              if (request) setFileDiffErrors((m) => ({ ...m, [request.key]: String(msg.message ?? agentChatText("diffUnavailable")) }));
             }
             break;
         }
       },
     });
     return () => {
+      discardFileDiffRequests();
       disconnect();
       clearPendingStartTimeout();
-      closeHandoffWindow();
+      resetSessionActions();
     };
-  }, [armPendingStartTimeout, clearPendingStartTimeout, closeHandoffWindow, failPendingStart, sendRaw]);
+  }, [armPendingStartTimeout, clearPendingStartTimeout, closeForkWindow, closeHandoffWindow, discardFileDiffRequests, failFileDiffRequests, failPendingStart, resetSessionActions, sendRaw, takeFileDiffRequest]);
 
   const start = useCallback((opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }) => {
     const key = JSON.stringify([opts.provider, opts.cwd, opts.prompt, opts.options ?? {}]);
@@ -695,6 +805,7 @@ export function useSession(): SessionState {
     const requestId = newClientRequestId("start");
     const conversationId = crypto.randomUUID();
     if (!sendRaw({ op: "start", requestId, conversationId, ...opts })) return false;
+    resetSessionActions();
     pendingStartRef.current = { requestId, conversationId, key, queuedReplies: [], ...opts };
     armPendingStartTimeout();
     optimisticUsersRef.current = [opts.prompt];
@@ -716,15 +827,15 @@ export function useSession(): SessionState {
     setOptions([]);
     setActions({});
     setCommands([]);
-    pendingFileDiffKeysRef.current = {};
+    discardFileDiffRequests();
     setFileDiffs({});
+    setFileDiffErrors({});
     setPhase("chat");
     return true;
-  }, [armPendingStartTimeout, sendRaw]);
+  }, [armPendingStartTimeout, discardFileDiffRequests, resetSessionActions, sendRaw]);
   const compose = useCallback(() => {
     clearPendingStartTimeout();
-    closeHandoffWindow();
-    setHandoffPending(false);
+    resetSessionActions();
     pendingStartRef.current = null;
     history.replaceState(null, "", appPath("/"));
     document.title = "cmux agent";
@@ -735,33 +846,35 @@ export function useSession(): SessionState {
     setOptions([]);
     setActions({});
     setCommands([]);
-    pendingFileDiffKeysRef.current = {};
+    discardFileDiffRequests();
     setFileDiffs({});
+    setFileDiffErrors({});
     setPhase("composer");
-  }, [clearPendingStartTimeout, closeHandoffWindow]);
+  }, [clearPendingStartTimeout, discardFileDiffRequests, resetSessionActions]);
   const reply = useCallback((text: string) => {
     const pending = pendingStartRef.current;
     if (!sessionIdRef.current && pending?.failed) {
-      start({ provider: pending.provider, cwd: pending.cwd, prompt: text, options: pending.options });
-      return;
+      return start({ provider: pending.provider, cwd: pending.cwd, prompt: text, options: pending.options });
     }
     if (!sessionIdRef.current && pending && !pending.failed) {
       pending.queuedReplies.push({ requestId: newClientRequestId("turn"), prompt: text });
       optimisticUsersRef.current.push(text);
       setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
-      return;
+      return true;
     }
     if (sessionIdRef.current) {
-      if (sendRaw({ op: "send", sessionId: sessionIdRef.current, requestId: newClientRequestId("turn"), prompt: text })) {
-        setSession((s) => (s ? { ...s, status: "running" } : s));
-        // A terminal view's prompt only reaches the event log when the agent's
-        // transcript records it; show it now and drop that echo when it lands.
-        if (sessionModeRef.current === "transcript") {
-          optimisticUsersRef.current.push(text);
-          setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
-        }
+      const sent = sendRaw({ op: "send", sessionId: sessionIdRef.current, requestId: newClientRequestId("turn"), prompt: text });
+      if (!sent) return false;
+      setSession((s) => (s ? { ...s, status: "running" } : s));
+      // A terminal view's prompt only reaches the event log when the agent's
+      // transcript records it; show it now and drop that echo when it lands.
+      if (sessionModeRef.current === "transcript") {
+        optimisticUsersRef.current.push(text);
+        setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
       }
+      return true;
     }
+    return false;
   }, [sendRaw, start]);
   const focusTerminal = useCallback(() => {
     if (sessionIdRef.current) sendRaw({ op: "focus-terminal", sessionId: sessionIdRef.current });
@@ -778,21 +891,33 @@ export function useSession(): SessionState {
     if (sessionIdRef.current) sendRaw({ op: "set-option", sessionId: sessionIdRef.current, id, value });
   }, [sendRaw]);
   const fork = useCallback(() => {
-    if (sessionIdRef.current) {
-      if (sendRaw({ op: "fork", sessionId: sessionIdRef.current })) setForkPending(true);
+    const sourceSessionId = sessionIdRef.current;
+    if (sourceSessionId && !pendingForkSourceSessionRef.current) {
+      const popup = window.open("about:blank", "_blank");
+      const requestId = newClientRequestId("fork");
+      forkWindowRef.current = popup;
+      pendingForkSourceSessionRef.current = sourceSessionId;
+      pendingForkRequestRef.current = requestId;
+      if (sendRaw({ op: "fork", sessionId: sourceSessionId, requestId })) {
+        setForkPending(true);
+      } else {
+        closeForkWindow();
+      }
     }
-  }, [sendRaw]);
+  }, [closeForkWindow, sendRaw]);
   const handoff = useCallback(() => {
     const sourceSessionId = sessionIdRef.current;
-    if (sourceSessionId) {
+    if (sourceSessionId && !pendingHandoffSourceSessionRef.current) {
       closeHandoffWindow();
       const popup = window.open("about:blank", "_blank");
-      if (sendRaw({ op: "handoff", sessionId: sourceSessionId })) {
-        handoffWindowRef.current = popup;
-        pendingHandoffSourceSessionRef.current = sourceSessionId;
+      const requestId = newClientRequestId("handoff");
+      handoffWindowRef.current = popup;
+      pendingHandoffSourceSessionRef.current = sourceSessionId;
+      pendingHandoffRequestRef.current = requestId;
+      if (sendRaw({ op: "handoff", sessionId: sourceSessionId, requestId })) {
         setHandoffPending(true);
       } else {
-        popup?.close();
+        closeHandoffWindow();
       }
     }
   }, [closeHandoffWindow, sendRaw]);
@@ -800,16 +925,43 @@ export function useSession(): SessionState {
     sendRaw({ op: "list-options", provider, cwd });
   }, [sendRaw]);
   const requestProviderCommands = useCallback((provider: string, cwd: string) => {
-    sendRaw({ op: "list-commands", provider, cwd });
+    const previous = latestCommandRequestsRef.current.get(provider);
+    const request = { requestId: newClientRequestId("commands"), cwd, pending: true };
+    latestCommandRequestsRef.current.set(provider, request);
+    // Commands are discovered per cwd, but the menu is stored per provider.
+    // Never show the old project's commands while a new discovery is pending.
+    if (previous?.cwd !== cwd) setProviderCommands((m) => ({ ...m, [provider]: [] }));
+    if (!sendRaw({ op: "list-commands", provider, cwd, requestId: request.requestId })) request.pending = false;
   }, [sendRaw]);
   const requestFiles = useCallback((cwd: string, query?: string) => {
     sendRaw({ op: "list-files", cwd, query });
   }, [sendRaw]);
   const requestFileDiff = useCallback((sessionId: string, path: string) => {
+    if (sessionId !== sessionIdRef.current) return;
     const request = decodeFileDiffRequest(path);
-    if (sendRaw({ op: "get-file-diff", sessionId, path: request.path })) {
-      pendingFileDiffKeysRef.current[request.path] = [...(pendingFileDiffKeysRef.current[request.path] ?? []), request.key];
+    for (const pending of pendingFileDiffRequestsRef.current.values()) {
+      if (pending.sessionId === sessionId && pending.key === request.key) return;
     }
+    const requestId = newClientRequestId("diff");
+    if (!sendRaw({ op: "get-file-diff", sessionId, path: request.path, requestId })) {
+      setFileDiffErrors((current) => ({ ...current, [request.key]: agentChatText("diffUnavailable") }));
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const pending = pendingFileDiffRequestsRef.current.get(requestId);
+      if (!pending) return;
+      pendingFileDiffRequestsRef.current.delete(requestId);
+      if (pending.sessionId === sessionIdRef.current) {
+        setFileDiffErrors((current) => ({ ...current, [pending.key]: agentChatText("diffUnavailable") }));
+      }
+    }, FILE_DIFF_TIMEOUT_MS);
+    pendingFileDiffRequestsRef.current.set(requestId, { sessionId, key: request.key, timer });
+    setFileDiffErrors((current) => {
+      if (!Object.prototype.hasOwnProperty.call(current, request.key)) return current;
+      const next = { ...current };
+      delete next[request.key];
+      return next;
+    });
   }, [sendRaw]);
   const checkCwd = useCallback((cwd: string) => {
     const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -841,6 +993,7 @@ export function useSession(): SessionState {
     filesByCwd,
     cwdChecks,
     fileDiffs,
+    fileDiffErrors,
     lastError,
     forkPending,
     handoffPending,

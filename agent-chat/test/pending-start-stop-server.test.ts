@@ -82,6 +82,14 @@ try {
   assert.equal(sends[1].prompt, "a later prompt still runs");
   handleSessionMessage(ws, { op: "stop", sessionId: next.session.id });
   assert.deepEqual(stops, [created.session.id, next.session.id]);
+  const expiredId = crypto.randomUUID();
+  const expired = await bounded(start("stop after request retention", expiredId));
+  assert.equal(expired.kind, "session-created");
+  for (const callback of expiryTimers.values()) callback();
+  handleSessionMessage(ws, { op: "stop", requestId: expiredId });
+  assert.deepEqual(stops, [created.session.id, next.session.id, expired.session.id], "an expired request ID must still stop its created session");
+  handleSessionMessage(ws, { op: "stop", requestId: expiredId });
+  assert.equal(stops.length, 3, "expired request retries must remain idempotent");
   const slowId = crypto.randomUUID();
   const slow = start("canceled preflight must survive cache pruning", slowId);
   handleSessionMessage(ws, { op: "stop", requestId: slowId });
@@ -90,12 +98,12 @@ try {
   Date.now = originalDateNow;
   assert.equal((await bounded(slow)).kind, "start-stopped");
   assert.equal((await bounded(independent)).kind, "session-created");
-  assert.equal(sends.length, 3, "request retention must not forget cancellation while preflight is still pending");
-  assert.equal(sends[2].prompt, "another startup triggers cache pruning");
+  assert.equal(sends.length, 4, "request retention must not forget cancellation while preflight is still pending");
+  assert.equal(sends[3].prompt, "another startup triggers cache pruning");
   const missingId = crypto.randomUUID();
   handleSessionMessage(ws, { op: "stop", requestId: missingId });
   assert.deepEqual(replies.at(-1), { kind: "start-stopped", requestId: missingId }, "expired or unknown startup IDs settle the retry queue");
-  assert.equal(stops.length, 2);
+  assert.equal(stops.length, 3);
   console.log("Server startup cancellation prevents dispatch, reaches created sessions, deduplicates retries, and permits later starts: OK");
 } finally {
   // Prompt attribution reads real local Git state; finish those owned reads

@@ -353,6 +353,68 @@ struct SidebarWorkspaceRowSuspensionTests {
     }
 
     @Test
+    func checklistPopoverThatSurvivesReparentAnimatesItsLaterClose() async throws {
+        let application = NSApplication.shared
+        let model = Self.makeModel(
+            checklistAddFieldActivationToken: 1,
+            checklistItems: [WorkspaceChecklistItem(text: "Draft item")],
+            isChecklistPopoverPresented: true,
+            checklistStyle: .popover
+        )
+        var presentationChanges: [Bool] = []
+        let cell = SidebarWorkspaceRowTableCellView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 100)
+        )
+        let window = NSWindow(
+            contentRect: cell.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = cell
+        window.orderFront(nil)
+        defer { window.close() }
+        let existingWindowIds = Set(application.windows.map(ObjectIdentifier.init))
+        cell.configure(
+            model: model,
+            actions: Self.makeActions(
+                model: model,
+                onChecklistPopoverPresentedChange: { presentationChanges.append($0) }
+            ),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        _ = cell.layoutContent(model: model, width: cell.bounds.width, apply: true)
+        cell.layoutSubtreeIfNeeded()
+        let popoverWindow = try #require(
+            application.windows.first {
+                !existingWindowIds.contains(ObjectIdentifier($0)) && $0.isVisible
+            }
+        )
+        let section = try #require(
+            Self.descendants(of: cell).compactMap { $0 as? SidebarRowChecklistSection }.first
+        )
+        #expect(section.popoverPresenter.popover?.animates == true)
+
+        // A reparent the popover survives: the anchor announces that it is
+        // leaving its window and then that it is back, and AppKit never
+        // closes the popover in between.
+        section.viewWillMove(toWindow: nil)
+        #expect(section.popoverPresenter.popover?.animates == false)
+        section.viewDidMoveToWindow()
+
+        let restored = await AppKitTestEventPump().waitUntil {
+            section.popoverPresenter.popover?.animates == true
+        }
+        #expect(restored, "A popover that survives a reparent should animate its later close again")
+        #expect(popoverWindow.isVisible)
+        #expect(presentationChanges.isEmpty)
+        section.popoverPresenter.onExternalDismiss = nil
+        section.popoverPresenter.close()
+    }
+
+    @Test
     func checklistDraftCommitsOnlyOnceWhenFocusEndsBeforeSuspension() async throws {
         let model = Self.makeModel(checklistAddFieldActivationToken: 1, checklistStyle: .inline)
         var additions: [String] = []
