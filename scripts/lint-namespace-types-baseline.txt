@@ -47,5 +47,3 @@ Packages/macOS/CmuxSettings/Sources/CmuxSettings/SocketControl/SocketControlSett
 Packages/macOS/CmuxSettings/Sources/CmuxSettings/SocketControl/SocketPathMarkerFiles.swift:SocketPathMarkerFiles
 Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateTiming.swift:UpdateTiming
 
-# feat-cmux-next: CmuxNext offenders that predate this rule gating the branch
-# (it first ran on feat-cmux-next PRs in #16206, 2026-10-01). Same rule: shrink only.
