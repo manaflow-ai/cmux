@@ -16,6 +16,7 @@ final class CloudWorkspaceCreationCoordinator {
     func create(
         provider: any SurfaceProvider, name: String?, focus: Bool, host: CloudWorkspaceCreationHost?, reuseFailedCreation: Bool,
         existingWorkspace: SurfaceRemoteWorkspace?, existingTerminal: SurfaceResource?,
+        existingRemoteView: SurfaceRemoteView? = nil,
         validateOperation: @escaping @MainActor () throws -> Void = { try Task.checkCancellation() }
     ) async throws -> (workspace: SurfaceRemoteWorkspace, terminal: SurfaceResource, opened: (workspaceID: UUID, projections: [SurfaceProjection])?) {
         guard let catalog, catalog.provider(for: provider.machine) === provider else { throw CancellationError() }
@@ -32,6 +33,7 @@ final class CloudWorkspaceCreationCoordinator {
             validateOperation: validateOperation
         )
         operation.validateOperation = validateOperation
+        operation.existingRemoteView = existingRemoteView
         operations[operation.id] = operation
         return try await withTaskCancellationHandler {
             try await perform(operation, name: name, focus: focus, existingWorkspace: existingWorkspace,
@@ -40,6 +42,241 @@ final class CloudWorkspaceCreationCoordinator {
             // The synchronous cancellation callback only hops to this actor;
             // perform's catch also owns the same idempotent cleanup on unwind.
             Task { @MainActor [weak self] in self?.cancel(operation.id) }
+        }
+    }
+
+    /// Opens an already-authoritative Cloud workspace through the same local
+    /// admission owner as workspace creation. The local loading pane and
+    /// binding are published before the first materialization await; terminal
+    /// rows use the exact placement when one is available, while display or
+    /// browser-only workspaces project their whole group behind that pane.
+    func openExistingWorkspace(
+        provider: any SurfaceProvider,
+        workspace: SurfaceRemoteWorkspace,
+        group: SurfaceResourceGroup,
+        focus: Bool,
+        host: CloudWorkspaceCreationHost,
+        existingRemoteView: SurfaceRemoteView? = nil,
+        validateOperation: @escaping @MainActor () throws -> Void = { try Task.checkCancellation() }
+    ) async throws -> (workspaceID: UUID, projections: [SurfaceProjection]) {
+        guard let catalog, catalog.provider(for: provider.machine) === provider else { throw CancellationError() }
+        guard group.representsWorkspace,
+              group.remoteWorkspaceID == workspace.id,
+              group.placements.allSatisfy({ placement in
+                  placement.resource.machine == provider.machine
+                      && (placement.remoteWorkspaceID == nil || placement.remoteWorkspaceID == workspace.id)
+        }) else { throw CancellationError() }
+        try validateOperation()
+        if let local = host.manager?.tabs.first(where: { candidate in
+            candidate.cloudVMBinding?.vmID == provider.machine.rawValue
+                && candidate.cloudVMBinding?.remoteWorkspaceID == workspace.id
+        }) {
+            let projections = catalog.projections.filter { $0.workspaceID == local.id }
+            if !projections.isEmpty {
+                if focus, let manager = host.manager {
+                    manager.selectWorkspace(local)
+                }
+                return (local.id, Array(projections))
+            }
+        }
+        if let existing = catalog.cloudWorkspaceProjectionCoordinator.environment.bindings().first(where: { localID, binding in
+            binding.vmID == provider.machine.rawValue
+                && binding.remoteWorkspaceID == workspace.id
+                && Workspace.liveWorkspace(id: localID)?.owningTabManager === host.manager
+        }) {
+            let projections = catalog.projections.filter { $0.workspaceID == existing.key }
+            if !projections.isEmpty {
+                if focus, let local = Workspace.liveWorkspace(id: existing.key), let manager = host.manager {
+                    manager.selectWorkspace(local)
+                }
+                return (existing.key, Array(projections))
+            }
+        }
+        if let pending = operations.values.first(where: {
+            $0.isExistingWorkspaceOpen && $0.provider === provider
+                && $0.receipt?.workspace.id == workspace.id
+                && $0.host?.manager === host.manager
+        }), let reservation = pending.reservation {
+            if focus, let local = Workspace.liveWorkspace(id: reservation.workspaceID) {
+                pending.host?.manager?.selectWorkspace(local)
+            }
+            return (reservation.workspaceID, pending.openedProjections)
+        }
+        let operation = CloudWorkspaceCreationOperation(
+            provider: provider,
+            host: host,
+            allowsActionRetry: false,
+            validateOperation: validateOperation
+        )
+        operation.isExistingWorkspaceOpen = true
+        operation.existingRemoteView = existingRemoteView
+        operation.pendingWorkspaceGroup = group
+        operation.receipt = SurfaceWorkspaceCreationReceipt(workspace: workspace, terminal: nil, cursor: nil)
+        operations[operation.id] = operation
+        return try await withTaskCancellationHandler {
+            try await performExistingWorkspaceOpen(operation, focus: focus, catalog: catalog)
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancel(operation.id) }
+        }
+    }
+
+    /// The pending local identity is the row's projection fence. Callers use
+    /// it to make a repeated activation a navigation, even before the next
+    /// catalog notification repaints the tree.
+    func pendingLocalWorkspaceID(
+        machine: SurfaceMachineID,
+        remoteWorkspaceID: String,
+        manager: TabManager?
+    ) -> UUID? {
+        operations.values.first {
+            $0.isExistingWorkspaceOpen && $0.machine == machine && $0.receipt?.workspace.id == remoteWorkspaceID
+                && $0.host?.manager === manager
+        }?.reservation?.workspaceID
+    }
+
+    /// Performs one existing-workspace admission and reconciles its first projection.
+    private func performExistingWorkspaceOpen(
+        _ operation: CloudWorkspaceCreationOperation,
+        focus: Bool,
+        catalog: SurfaceCatalog
+    ) async throws -> (workspaceID: UUID, projections: [SurfaceProjection]) {
+        operation.isRunning = true
+        operation.failure = nil
+        defer { operation.isRunning = false }
+        do {
+            try check(operation, catalog: catalog)
+            guard let host = operation.host,
+                  let receipt = operation.receipt,
+                  let group = operation.pendingWorkspaceGroup else { throw CancellationError() }
+            let resourcesByID = Dictionary(
+                uniqueKeysWithValues: catalog.snapshot.resources.map { ($0.id, $0) }
+            )
+            let firstTerminal: (resource: SurfaceResource, placement: SurfaceResourcePlacement, view: SurfaceRemoteView?)? = group.placements.compactMap { placement in
+                guard let resource = resourcesByID[placement.resource],
+                      resource.kind == .terminal else { return nil }
+                let view = operation.existingRemoteView ?? (try? catalog.remoteView(
+                    for: resource.id,
+                    tabID: placement.remoteTabID,
+                    workspaceID: placement.remoteWorkspaceID ?? receipt.workspace.id
+                )) ?? placement.remoteTabID.flatMap { tabID in resource.remoteViews?.first { $0.tabID == tabID } }
+                return (resource, placement, view)
+            }.first
+            let reservationReceipt = SurfaceWorkspaceCreationReceipt(
+                workspace: receipt.workspace,
+                terminal: firstTerminal?.resource,
+                cursor: nil
+            )
+            let reservation = try host.reserve(
+                title: String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM"),
+                machine: operation.machine,
+                receipt: reservationReceipt,
+                focus: focus,
+                remoteView: firstTerminal?.view
+            )
+            operation.reservation = reservation
+            let operationID = operation.id
+            reservation.cancel = { [weak self] in self?.cancel(operationID, discardLocal: true) }
+            let generatedTitle = CloudTreeNodeActions.localWorkspaceTitle(
+                hostName: CloudTreeNodeActions.resolvedMachineName(operation.machine, snapshot: catalog.snapshot),
+                group: group
+            )
+            catalog.bindCloudWorkspace(
+                localWorkspaceID: reservation.workspaceID,
+                machine: operation.machine,
+                remoteWorkspaceID: receipt.workspace.id,
+                generatedTitle: generatedTitle
+            )
+            catalog.notifyChange()
+            try check(operation, catalog: catalog)
+
+            var projections: [SurfaceProjection] = []
+            if let firstTerminal {
+                let opened = try await catalog.project(
+                    firstTerminal.resource.id,
+                    into: .workspace(id: reservation.workspaceID, placement: .tab),
+                    focus: false,
+                    reuseExisting: false,
+                    remoteView: firstTerminal.view,
+                    adopting: reservation
+                )
+                operation.terminal = firstTerminal.resource
+                projections.append(opened.projection)
+                // Publish each accepted placement to the transaction before the
+                // next await. If a later placement fails, rollback must retire
+                // the panes already materialized in this local workspace.
+                operation.openedProjections = projections
+                try check(operation, catalog: catalog)
+                operation.reservation?.creationReceipt.finish(.success(firstTerminal.resource))
+                let remaining = group.placements.filter { $0 != firstTerminal.placement }
+                if !remaining.isEmpty {
+                    let rest = try await catalog.projectGroup(
+                        SurfaceResourceGroup(
+                            title: group.title,
+                            placements: remaining,
+                            remoteWorkspaceID: group.remoteWorkspaceID,
+                            // This is an intentional subset after the first
+                            // terminal adopted the reservation. Re-resolving it
+                            // as a whole workspace would project the first tab
+                            // again and defeat stable placement identity.
+                            representsWorkspace: false
+                        ),
+                        into: .workspace(id: reservation.workspaceID, placement: .tab),
+                        focus: false
+                    )
+                    guard rest.count == remaining.count else {
+                        throw SurfaceCatalogError.destinationNotFound("workspace placement incomplete")
+                    }
+                    projections.append(contentsOf: rest)
+                    operation.openedProjections = projections
+                }
+            } else {
+                projections = try await catalog.projectGroup(
+                    group,
+                    into: .workspace(id: reservation.workspaceID, placement: .split),
+                    focus: false
+                )
+            }
+            guard !projections.isEmpty else { throw SurfaceCatalogError.destinationNotFound("empty group") }
+            operation.openedProjections = projections
+            try check(operation, catalog: catalog)
+            // Commit the request before retiring its loading reservation. A
+            // synchronous pane teardown must never cancel an accepted open.
+            operation.isComplete = true
+            operations[operation.id] = nil
+            catalog.notifyChange()
+            host.complete(reservation, projection: projections[0])
+            catalog.requestCloudWorkspaceProjection(reservation.workspaceID)
+            await catalog.cloudWorkspaceProjectionCoordinator.waitForIdle()
+            return (reservation.workspaceID, projections)
+        } catch {
+            // Existing Cloud resources are never owned by this local-open
+            // request. Remove any partial projections with the replacement
+            // reason before closing the admitted workspace, so rollback does
+            // not send remote close-tab mutations.
+            let partial = operation.openedProjections
+            let reservation = operation.reservation
+            let wasInvalidated = operations[operation.id] !== operation
+                || operation.host?.isAvailable == false
+                || catalog.provider(for: operation.machine) !== operation.provider
+            operations[operation.id] = nil
+            if let reservation {
+                // Retire the reserved pane first. Closing its last panel can
+                // otherwise create a replacement local shell before the host
+                // gets a chance to remove the admitted workspace.
+                operation.host?.discard(reservation, catalog: catalog)
+            }
+            for projection in partial {
+                catalog.endProjections(panelID: projection.panelID, reason: .replaced)
+                if let workspace = Workspace.liveWorkspace(id: projection.workspaceID),
+                   workspace.panels[projection.panelID] != nil {
+                    catalog.withProjectionEndReason(for: [projection.panelID], reason: .replaced) {
+                        _ = workspace.closePanel(projection.panelID, force: true)
+                    }
+                }
+            }
+            catalog.notifyChange()
+            if wasInvalidated || error is CancellationError || Task.isCancelled { throw CancellationError() }
+            throw error
         }
     }
 
@@ -55,7 +292,8 @@ final class CloudWorkspaceCreationCoordinator {
             return try await run(operation, name: name, focus: focus, existingWorkspace: existingWorkspace,
                                  existingTerminal: existingTerminal, catalog: catalog)
         } catch {
-            let canRetainForRetry = !(error is CancellationError)
+            let canRetainForRetry = !operation.isExistingWorkspaceOpen
+                && !(error is CancellationError)
                 && !Task.isCancelled
                 && operations[operation.id] === operation
                 && operation.reservation.map { operation.host?.isLive($0) == true } == true
@@ -110,10 +348,17 @@ final class CloudWorkspaceCreationCoordinator {
             // the request's early-input owner while the daemon allocates the
             // workspace and starter terminal behind it.
             let provisionalTitle = String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
+            let provisionalReceipt = operation.isExistingWorkspaceOpen
+                ? operation.receipt ?? existingWorkspace.map {
+                    SurfaceWorkspaceCreationReceipt(workspace: $0, terminal: existingTerminal, cursor: nil)
+                }
+                : nil
             let reservation = try host.reserve(
                 title: provisionalTitle,
                 machine: operation.machine,
-                focus: focus
+                receipt: provisionalReceipt,
+                focus: focus,
+                remoteView: operation.existingRemoteView
             )
             operation.reservation = reservation
             if focus, let manager = host.manager, manager.selectedTabId == reservation.workspaceID {
@@ -208,7 +453,8 @@ final class CloudWorkspaceCreationCoordinator {
             finish(operation, catalog: catalog)
             return (receipt.workspace, terminal, nil)
         }
-        let view = terminal.remoteViews?.first { $0.workspace.id == receipt.workspace.id }
+        let view = operation.existingRemoteView
+            ?? terminal.remoteViews?.first { $0.workspace.id == receipt.workspace.id }
         let opened = try await catalog.project(
             terminal.id, into: .workspace(id: reservation.workspaceID, placement: .tab),
             focus: false, reuseExisting: false, remoteView: view, adopting: reservation
@@ -235,6 +481,12 @@ final class CloudWorkspaceCreationCoordinator {
         if let host = operation.host, !host.isAvailable { throw CancellationError() }
         if let receipt = operation.receipt {
             try catalog.checkCloudWorkspaceNavigation(machine: operation.machine, workspaceID: receipt.workspace.id)
+            if operation.isExistingWorkspaceOpen,
+               let state = catalog.cloudStates[operation.machine],
+               catalog.cloudStateObservations[operation.machine]?.freshness == .current,
+               !state.workspaceIDs.contains(receipt.workspace.id) {
+                throw CancellationError()
+            }
         }
         if let reservation = operation.reservation, operation.host?.isLive(reservation) != true { throw CancellationError() }
     }
@@ -258,7 +510,11 @@ final class CloudWorkspaceCreationCoordinator {
         for operation in Array(operations.values) where operation.machine == state.machine {
             guard let receipt = operation.receipt else { continue }
             guard let fence = receipt.cursor else {
-                if operation.isComplete, operation.isConfirmed(in: state) { operations[operation.id] = nil }
+                if operation.isExistingWorkspaceOpen && !state.workspaceIDs.contains(receipt.workspace.id) {
+                    reject(operation)
+                } else if operation.isComplete, operation.isConfirmed(in: state) {
+                    operations[operation.id] = nil
+                }
                 continue
             }
             guard let cursor = state.cursor else { reject(operation); continue }
