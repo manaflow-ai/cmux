@@ -87,7 +87,9 @@ public enum DaemonCapabilities {
     public static let personalTerminals = "personal-terminals-v1"
     /// Browser profile records in personal state (plans/cmux-next/data-model.md 5).
     public static let browserProfiles = "browser-profiles-v1"
-    public static let homeOnly: [String] = [profiles, personalTerminals, browserProfiles]
+    /// Bookmarks per browser profile in personal state (plans/cmux-next/bookmarks.md).
+    public static let bookmarks = "bookmarks-v1"
+    public static let homeOnly: [String] = [profiles, personalTerminals, browserProfiles, bookmarks]
     /// Written to the local daemon's personal rows instead of each machine's
     /// daemon once the local daemon serves `profiles-v1`.
     public static let personalOnHome: [String] = [workspaceGroups, savedTabGroups]
@@ -107,7 +109,7 @@ public enum DaemonCapabilities {
     /// but they are not in `optional` (the pinned daemon must serve every
     /// `optional` capability, BranchDaemonTests). The pin commit that brings
     /// one moves it into `optional`.
-    public static let awaitingPin: [String] = [remoteTerminalTabs, detachedTerminals]
+    public static let awaitingPin: [String] = [remoteTerminalTabs, detachedTerminals, bookmarks]
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     public static let advertised: [String] = required + optional + awaitingPin + [
