@@ -1,8 +1,8 @@
 import React, { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { lexer, type Token } from "marked";
+import type { Token } from "marked";
 import { applyAgentTheme } from "../shared/theme";
-import { diffRows, layoutConversation, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
+import { diffRows, layoutConversation, markdownBlocks, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { startMockHost } from "./mock";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
@@ -53,9 +53,7 @@ function renderInline(tokens: Token[] | undefined, fallback: string): React.Reac
 }
 
 function MarkdownBlocks({ source }: { source: string }) {
-  let blocks: Token[];
-  try { blocks = lexer(source, { gfm: true, breaks: true }); } catch { blocks = [{ type: "text", raw: source, text: source } as Token]; }
-  return <>{blocks.map((token, index) => {
+  return <>{markdownBlocks(source).map((token, index) => {
     if (token.type === "code") return <pre key={index}><code>{token.text}</code></pre>;
     if (token.type === "heading") return <div className={`acpmux-heading acpmux-heading-${token.depth}`} key={index}>{renderInline(token.tokens, token.text)}</div>;
     if (token.type === "paragraph" || token.type === "text") return <p key={index}>{renderInline(token.tokens, token.text)}</p>;
@@ -122,7 +120,7 @@ export function VirtualTranscript({ rows, onToggleActivity, expanded, registry =
   // heights or the registry can move a row.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
-    const layout = layoutConversation(rows, Math.max(120, width - 36), measurementCache.current, (row, rowWidth) => registry[rowKind(row)]?.measure?.(row, rowWidth) ?? measuredHeights.get(row.id));
+    const layout = layoutConversation(rows, transcriptRowWidth(width), measurementCache.current, (row, rowWidth) => registry[rowKind(row)]?.measure?.(row, rowWidth) ?? measuredHeights.get(row.id));
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [rows, width, measuredHeights, registry]);
   const layout = measured.layout;

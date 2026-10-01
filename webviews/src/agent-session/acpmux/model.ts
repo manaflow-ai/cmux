@@ -48,10 +48,11 @@ export type AcpmuxSnapshot = {
 export type RowChange = { added: AcpmuxRow[]; updated: AcpmuxRow[]; removed: string[] };
 
 export type PreparedRow = {
-  version: number;
   text: string;
-  prepared: PreparedText | null;
-  blocks: Map<string, PreparedText>;
+  /// The row's markdown blocks, as `MarkdownBlocks` in App.tsx renders them.
+  blocks: Token[];
+  /// Measured text by its source, kept across a streaming row's versions; null where it can't be measured.
+  prepared: Map<string, PreparedText | null>;
 };
 
 export type ConversationLayout = {
@@ -65,6 +66,28 @@ const MESSAGE_LINE_HEIGHT = 20;
 /// Vertical padding of a user bubble (`.acpmux-user-bubble` in styles.css).
 const USER_BUBBLE_PADDING = 18;
 const chromeHeight = (row: AcpmuxRow) => row.kind === "user" ? USER_BUBBLE_PADDING : 0;
+/// The bubble's share of its row and its side padding, which sits inside that share (border-box).
+const USER_BUBBLE_SHARE = 0.78;
+const USER_BUBBLE_SIDES = 24;
+/// Space between a row's markdown blocks, the browser's list indent and the quote's rule and padding.
+const BLOCK_GAP = 8;
+const LIST_INDENT = 40;
+const QUOTE_INDENT = 14;
+/// Code blocks: 12px monospace that never wraps, in a pre with 9px padding.
+const CODE_LINE_HEIGHT = 16;
+const CODE_PADDING = 18;
+const CODE_CHAR_WIDTH = 7.3;
+const SCROLLBAR_HEIGHT = 15;
+/// Where text can't be measured (no canvas), a generous character width.
+const FALLBACK_CHAR_WIDTH = 8;
+/// Rows are at most 760px wide, inside 18px side gutters (`.acpmux-row` in styles.css).
+const MAX_ROW_WIDTH = 760;
+export const transcriptRowWidth = (paneWidth: number) => Math.max(120, Math.min(MAX_ROW_WIDTH, paneWidth - 36));
+
+/// A message's markdown blocks. Blank lines between blocks are only spacing, never blocks of their own.
+export function markdownBlocks(source: string): Token[] {
+  try { return lexer(source, { gfm: true, breaks: true }).filter((token) => token.type !== "space"); } catch { return [{ type: "text", raw: source, text: source } as Token]; }
+}
 
 export function diffRows(previous: Map<string, AcpmuxRow>, next: AcpmuxRow[]): RowChange {
   const nextById = new Map(next.map((row) => [row.id, row]));
@@ -92,28 +115,46 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   return 24 + chromeHeight(row) + textLines * MESSAGE_LINE_HEIGHT;
 }
 
+function textHeight(text: string, width: number, prepared: Map<string, PreparedText | null>): number {
+  let measured = prepared.get(text);
+  if (measured === undefined) {
+    try { measured = prepare(text, MEASURE_FONT, { whiteSpace: "pre-wrap" }); } catch { measured = null; }
+    prepared.set(text, measured);
+  }
+  if (measured) return layout(measured, width, MESSAGE_LINE_HEIGHT).height;
+  const perLine = Math.max(24, Math.floor(width / FALLBACK_CHAR_WIDTH));
+  return text.split("\n").reduce((lines, line) => lines + Math.max(1, Math.ceil(line.length / perLine)), 0) * MESSAGE_LINE_HEIGHT;
+}
+
+function blockHeight(block: Token, width: number, prepared: Map<string, PreparedText | null>): number {
+  switch (block.type) {
+    case "list": return (block as Tokens.List).items.reduce((sum, item) => sum + textHeight(item.text, width - LIST_INDENT, prepared), 0);
+    case "blockquote": return textHeight((block as Tokens.Blockquote).text, width - QUOTE_INDENT, prepared);
+    case "hr": return 2;
+    case "code": {
+      const lines = (block as Tokens.Code).text.split("\n");
+      const scrolls = lines.some((line) => line.length * CODE_CHAR_WIDTH > width - CODE_PADDING);
+      return CODE_PADDING + lines.length * CODE_LINE_HEIGHT + (scrolls ? SCROLLBAR_HEIGHT : 0);
+    }
+    default: return textHeight("text" in block && typeof block.text === "string" ? block.text : block.raw, width, prepared);
+  }
+}
+
 function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>): number {
   if (!row.text) return fallbackRowHeight(row, width);
-  const previous = cache.get(row.id);
-  let entry = previous ?? { version: row.version, text: row.text, prepared: null, blocks: new Map<string, PreparedText>() };
-  entry.version = row.version;
-  entry.text = row.text;
-  if (!entry.blocks.size) {
-    try { entry.prepared = prepare(row.text, MEASURE_FONT, { whiteSpace: "pre-wrap" }); } catch { entry.prepared = null; }
+  let entry = cache.get(row.id);
+  if (!entry) {
+    entry = { text: row.text, blocks: markdownBlocks(row.text), prepared: new Map() };
+    cache.set(row.id, entry);
+  } else if (entry.text !== row.text) {
+    entry.text = row.text;
+    entry.blocks = markdownBlocks(row.text);
   }
-  cache.set(row.id, entry);
-  const contentWidth = Math.max(80, width - (row.kind === "user" ? 120 : 0));
-  const blocks = row.text.split(/\n{2,}/).filter(Boolean);
-  if (blocks.length === 0) return fallbackRowHeight(row, width);
-  let contentHeight = 0;
-  for (const block of blocks) {
-    let prepared = entry.blocks.get(block);
-    if (!prepared) {
-      try { prepared = prepare(block, MEASURE_FONT, { whiteSpace: "pre-wrap" }); entry.blocks.set(block, prepared); } catch { return fallbackRowHeight(row, width); }
-    }
-    contentHeight += layout(prepared, contentWidth, MESSAGE_LINE_HEIGHT).height;
-  }
-  return Math.max(34, 16 + chromeHeight(row) + contentHeight + Math.max(0, blocks.length - 1) * 8);
+  if (entry.blocks.length === 0) return fallbackRowHeight(row, width);
+  const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES : width);
+  let contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
+  for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared);
+  return Math.max(34, 16 + chromeHeight(row) + contentHeight);
 }
 
 /** DOM-free row geometry. Only visible rows need their React elements painted. */
@@ -149,3 +190,4 @@ export function visibleLayoutRange(layoutModel: ConversationLayout, scrollTop: n
   return { first, last };
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
+import { lexer, type Token, type Tokens } from "marked";
