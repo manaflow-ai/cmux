@@ -304,7 +304,7 @@ final class TerminalNotificationStore: ObservableObject {
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown {
         didSet {
             guard authorizationState != oldValue else { return }
-            NotificationCenter.default.post(
+            authorizationNotificationCenter.post(
                 name: Self.authorizationStatusDidChangeNotification,
                 object: nil
             )
@@ -313,6 +313,10 @@ final class TerminalNotificationStore: ObservableObject {
     private var suppressNotificationDiffPublishing = false
 
     let userNotificationCenter: UserNotificationCenterService
+    private let authorizationNotificationCenter: NotificationCenter
+    private let authorizationStatusProvider: @MainActor () async -> Result<UserNotificationAuthorizationStatus, UserNotificationCenterFailure>
+    /// Defer the first authorization publication past launch constraint setup (#2757).
+    private static let initialAuthCheckDelay: TimeInterval = 0.2
     private var hasRequestedAutomaticAuthorization = false
     private var hasDeferredAuthorizationRequest = false
     private var hasUpgradedBadgeAuthorization = false
@@ -373,8 +377,19 @@ final class TerminalNotificationStore: ObservableObject {
     /// that was already waiting on the same surface.
     private var agentAttentionSupersessionSuppressed = Set<TabSurfaceKey>()
     private let inFlightPolicyRequests = TerminalNotificationPolicyInFlightStore()
-    private init(userNotificationCenter: UserNotificationCenterService) {
+    init(
+        userNotificationCenter: UserNotificationCenterService,
+        initialAuthorizationScheduler: @MainActor (_ delay: TimeInterval, _ block: @escaping @MainActor @Sendable () -> Void) -> Void = { delay, block in
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: block)
+        },
+        authorizationStatusProvider: (@MainActor () async -> Result<UserNotificationAuthorizationStatus, UserNotificationCenterFailure>)? = nil,
+        authorizationNotificationCenter: NotificationCenter = .default
+    ) {
         self.userNotificationCenter = userNotificationCenter
+        self.authorizationNotificationCenter = authorizationNotificationCenter
+        self.authorizationStatusProvider = authorizationStatusProvider ?? {
+            await userNotificationCenter.authorizationStatus()
+        }
         nativeNotificationDeliveryHooks = NativeNotificationDeliveryHooks(
             userNotificationCenter: userNotificationCenter
         )
@@ -404,7 +419,10 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         refreshDockBadge()
-        refreshAuthorizationStatus()
+        // Avoid publishing authorization changes during the launch constraint pass (#2757).
+        initialAuthorizationScheduler(Self.initialAuthCheckDelay) { [weak self] in
+            self?.refreshAuthorizationStatus()
+        }
     }
 
     deinit {
@@ -697,16 +715,24 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    func refreshAuthorizationStatus() {
-        Task { @MainActor [weak self, userNotificationCenter] in
-            let result = await userNotificationCenter.authorizationStatus()
+    @discardableResult
+    func refreshAuthorizationStatus() -> Task<Void, Never> {
+        Task { @MainActor [weak self, userNotificationCenter, authorizationStatusProvider] in
+            let result = await authorizationStatusProvider()
             guard let self else { return }
             switch result {
             case .success(let status):
-                authorizationState = Self.authorizationState(from: status)
-                logAuthorization(
-                    "refresh status=\(Self.authorizationStatusLabel(status)) mapped=\(authorizationState.statusLabel)"
-                )
+                let newState = Self.authorizationState(from: status)
+                if newState != authorizationState {
+                    authorizationState = newState
+                    logAuthorization(
+                        "refresh status=\(Self.authorizationStatusLabel(status)) mapped=\(authorizationState.statusLabel)"
+                    )
+                } else {
+                    logAuthorization(
+                        "refresh status=\(Self.authorizationStatusLabel(status)) mapped=\(newState.statusLabel) (no change)"
+                    )
+                }
                 // Installs authorized before `.badge` was requested have no Dock badge
                 // setting, so macOS drops `badgeLabel`. Re-requesting while authorized
                 // adds the setting without a prompt. Once per launch: the request
@@ -716,8 +742,12 @@ final class TerminalNotificationStore: ObservableObject {
                     _ = await userNotificationCenter.requestAuthorization(options: [.alert, .sound, .badge])
                 }
             case .failure(let error):
-                authorizationState = .unknown
-                logAuthorization("refresh failed error=\(String(describing: error))")
+                if authorizationState != .unknown {
+                    authorizationState = .unknown
+                    logAuthorization("refresh failed error=\(String(describing: error))")
+                } else {
+                    logAuthorization("refresh failed error=\(String(describing: error)) (no change)")
+                }
             }
         }
     }
