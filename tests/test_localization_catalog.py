@@ -212,6 +212,23 @@ class LocalizationCatalogTests(unittest.TestCase):
                 MODULE.merge(path, "de", [{"key": "example", "source": "Open %@", "value": "Öffnen"}], {})
             self.assertEqual(json.loads(path.read_text(encoding="utf-8")), original)
 
+    def test_merge_accepts_reordered_numbered_placeholders(self):
+        original = {
+            "sourceLanguage": "en",
+            "strings": {
+                "example": {
+                    "extractionState": "manual",
+                    "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Move %@ to %@"}}},
+                }
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Localizable.xcstrings"
+            path.write_text(json.dumps(original, indent=2) + "\n", encoding="utf-8")
+            MODULE.merge(path, "ja", [{"key": "example", "source": "Move %@ to %@", "value": "%2$@ に %1$@ を移動"}], {})
+            updated = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(updated["strings"]["example"]["localizations"]["ja"]["stringUnit"]["value"], "%2$@ に %1$@ を移動")
+
     def test_merge_preserves_other_locales_and_updates_only_target(self):
         original = {
             "sourceLanguage": "en",
