@@ -71,3 +71,34 @@ def test_compound_case_reports_missing_second_label():
         )
         assert result.returncode != 0
         assert "vm.only-second-label" in result.stdout
+
+
+def test_advertised_mobile_and_simulator_methods_cannot_be_excluded():
+    for method in (
+        "mobile.terminal.mouse",
+        "mobile.terminal.paste_image",
+        "mobile.terminal.scroll",
+        "simulator.type",
+    ):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "Sources"))
+            with open(os.path.join(root, "Sources", "TerminalController.swift"), "w", encoding="utf-8") as handle:
+                handle.write(f'switch request.method {{\ncase "vm.pause", "{method}": break\n}}\n')
+            with open(os.path.join(root, "Sources", "TerminalController+Capabilities.swift"), "w", encoding="utf-8") as handle:
+                handle.write('var methods: [String] = [\n        "vm.pause"\n        ]\n')
+            result = subprocess.run(
+                [sys.executable, GUARD, "--root", root],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            assert result.returncode != 0, f"Dropping {method} passed: {result.stdout}"
+            assert method in result.stdout
+
+
+if __name__ == "__main__":
+    test_public_dispatcher_methods_are_advertised()
+    test_compound_case_labels_are_all_checked()
+    test_compound_case_reports_missing_second_label()
+    test_advertised_mobile_and_simulator_methods_cannot_be_excluded()
+    print("test_ci_socket_capability_guard: ok (4 tests)")
