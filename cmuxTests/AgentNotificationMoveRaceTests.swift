@@ -32,16 +32,15 @@ struct AgentNotificationRegressionTests {
         // stale clear cannot erase the next test's first notification.
         TerminalMutationBus.shared.discardAllMutationsForTesting()
         let store = TerminalNotificationStore.shared
-        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
         let manager = TabManager()
+        let originalControllerTabManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
         let originalAppFocusOverride = AppFocusState.overrideIsFocused; let agentPermissionKey = NotificationsCatalogSection().agentPermissionPrompt.userDefaultsKey; let originalAgentPermission = UserDefaults.standard.object(forKey: agentPermissionKey)
 
-        let configRoot = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-notification-move-race-\(UUID().uuidString)",
-            isDirectory: true
-        )
+        let configRoot = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-notification-move-race-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: configRoot, withIntermediateDirectories: true)
         let configURL = configRoot.appendingPathComponent("cmux.json")
         if let policyHookCommand {
@@ -50,17 +49,16 @@ struct AgentNotificationRegressionTests {
             try #"{"notifications":{"hooks":[{"id":"move-race","command":\#(encodedCommand ?? "\"cat\"")\#(timeoutJSON)}]}}"#
                 .write(to: configURL, atomically: true, encoding: .utf8)
         }
-        let configStore = CmuxConfigStore(
-            globalConfigPath: configURL.path,
-            startFileWatchers: false
-        )
+        let configStore = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
         configStore.loadAll()
 
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }
         store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        AppDelegate.shared = appDelegate
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
+        TerminalController.shared.setActiveTabManager(manager)
         AppFocusState.overrideIsFocused = false; NotificationsCatalogSection().agentPermissionPrompt.set(true, in: .standard)
 
         let windowId = appDelegate.registerMainWindowContextForTesting(
@@ -89,6 +87,8 @@ struct AgentNotificationRegressionTests {
                 store.resetSuppressedNotificationFeedbackHandlerForTesting()
                 appDelegate.tabManager = originalTabManager
                 appDelegate.notificationStore = originalNotificationStore
+                TerminalController.shared.setActiveTabManager(originalControllerTabManager)
+                AppDelegate.shared = previousAppDelegate
                 AppFocusState.overrideIsFocused = originalAppFocusOverride; if let originalAgentPermission { UserDefaults.standard.set(originalAgentPermission, forKey: agentPermissionKey) } else { UserDefaults.standard.removeObject(forKey: agentPermissionKey) }
                 try? FileManager.default.removeItem(at: configRoot)
             }
