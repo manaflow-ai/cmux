@@ -26,7 +26,7 @@ pub(super) enum CommandPlan {
     Plugin(PluginPlan),
     ProviderAuthority(ProviderAuthorityPlan),
     RawCommand(super::raw::RawCommandPlan),
-    AgentMessage(super::agent_message::MessagePlan),
+    AgentMessage(Box<super::agent_message::MessagePlan>),
     AgentInbox(super::agent_message::InboxPlan),
 }
 
@@ -1580,9 +1580,9 @@ fn parse_agent(
             let from = flags.take("from");
             let thread = flags.take("thread");
             let reply_to = flags.take("reply-to");
-            Ok(CommandPlan::AgentMessage(super::agent_message::parse_message(
+            Ok(CommandPlan::AgentMessage(Box::new(super::agent_message::parse_message(
                 rest, argv, from, thread, reply_to,
-            )?))
+            )?)))
         }
         ["inbox", rest @ ..] => {
             let state = flags.take("state");
