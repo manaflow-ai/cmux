@@ -41,6 +41,54 @@ private actor CloudConnectionCancellation {
     }
 }
 
+private actor CloudConnectionHandshake {
+    private let continuation: AsyncThrowingStream<any CloudTerminalSession, any Error>.Continuation
+    private var session: (any CloudTerminalSession)?
+    private var approvalGranted = false
+    private var finished = false
+
+    init(continuation: AsyncThrowingStream<any CloudTerminalSession, any Error>.Continuation) {
+        self.continuation = continuation
+    }
+
+    func sessionConnected(_ session: any CloudTerminalSession) {
+        guard !finished else {
+            session.disconnect()
+            return
+        }
+        if self.session != nil {
+            session.disconnect()
+            return
+        }
+        self.session = session
+        finishIfReady()
+    }
+
+    func approvalSucceeded() {
+        guard !finished else { return }
+        approvalGranted = true
+        finishIfReady()
+    }
+
+    func fail(_ error: any Error) {
+        guard !finished else { return }
+        finished = true
+        session?.disconnect()
+        session = nil
+        continuation.finish(throwing: error)
+    }
+
+    private func finishIfReady() {
+        guard !finished, approvalGranted, let session else { return }
+        finished = true
+        self.session = nil
+        if case .terminated = continuation.yield(session) {
+            session.disconnect()
+        }
+        continuation.finish()
+    }
+}
+
 /// One machine's daemon link and terminal catalog.
 ///
 /// The link opens lazily on the first catalog load. First contact hands the
@@ -274,6 +322,7 @@ public final class CloudMachineConnection {
             // A session returned after the stream ends is closed immediately.
             let cancellation = CloudConnectionCancellation()
             let sessions = AsyncThrowingStream<any CloudTerminalSession, any Error> { continuation in
+                let handshake = CloudConnectionHandshake(continuation: continuation)
                 let connectorTask = Task<any CloudTerminalSession, any Error> {
                     do {
                         let session = try await connector.connect(
@@ -284,27 +333,26 @@ public final class CloudMachineConnection {
                             trustedCarrier: endpoint.trustedCarrier,
                             tunnel: tunnel
                         )
-                        if case .terminated = continuation.yield(session) {
-                            session.disconnect()
-                        }
-                        continuation.finish()
+                        await handshake.sessionConnected(session)
                         return session
                     } catch {
-                        continuation.finish(throwing: error)
+                        await handshake.fail(error)
                         throw error
                     }
                 }
                 let approvalTask = Task<Void, any Error> {
-                    guard !endpoint.trustedCarrier, let invitation = endpoint.invitation else { return }
                     do {
-                        try await Self.approveUntilGranted(
-                            service: service,
-                            machineID: machine.id,
-                            invitationId: invitation.invitationId,
-                            clock: approvalClock
-                        )
+                        if !endpoint.trustedCarrier, let invitation = endpoint.invitation {
+                            try await Self.approveUntilGranted(
+                                service: service,
+                                machineID: machine.id,
+                                invitationId: invitation.invitationId,
+                                clock: approvalClock
+                            )
+                        }
+                        await handshake.approvalSucceeded()
                     } catch {
-                        continuation.finish(throwing: error)
+                        await handshake.fail(error)
                     }
                 }
                 Task {

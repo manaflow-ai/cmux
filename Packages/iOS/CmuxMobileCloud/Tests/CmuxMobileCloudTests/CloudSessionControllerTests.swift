@@ -396,7 +396,13 @@ import Testing
         #expect(controller.connection(for: machine) === connection)
 
         connection.refreshTerminals()
+        await settle { clock.sleepers == 1 }
+        clock.advance(by: .seconds(2))
+        await settle { service.calls.approve.count == 1 && clock.sleepers == 1 }
+        #expect(connector.session.loadCatalogCalls == 0)
+        clock.advance(by: .seconds(2))
         await settle { connection.terminals == .loaded([CloudTerminalSummary(id: "t1", name: "shell")]) }
+        #expect(service.calls.approve.count == 2)
         #expect(connector.connects.count == 1)
         #expect(connector.connects[0].route == "ws://[fd00::10]:1337/v1/link")
         #expect(connector.connects[0].invitation == "cmux-remote+invite://abc")
@@ -579,6 +585,40 @@ import Testing
         #expect(connector.session.loadCatalogCalls == 0)
 
         await release.signal()
+        await settle { connector.session.state.disconnected == 1 }
+        #expect(connector.session.state.disconnected == 1)
+    }
+
+    @Test func approvalFailureAfterConnectionStillRejectsTheSession() async throws {
+        let service = FakeCloudVMService()
+        service.machines = .success([CloudMachine(id: "vm1", provider: "p", status: "running")])
+        service.attach = .success(CloudAttachEndpoint(
+            route: "ws://[fd00::10]:1337/v1/link", session: "s1",
+            invitation: .init(uri: "cmux-remote+invite://abc", invitationId: "inv1")
+        ))
+        service.approvalFailure = CloudAPIError.httpStatus(404, message: nil, action: nil)
+        let connector = FakeConnector()
+        let clock = TestClock()
+        let controller = makeController(service: service, connector: connector, clock: clock)
+        controller.sectionDidAppear()
+        defer { controller.sectionDidDisappear() }
+        await settle { if case .ready = controller.tunnel { return true }; return false }
+        let connection = try #require(controller.connection(for: CloudMachine(id: "vm1", provider: "p", status: "running")))
+
+        let load = Task {
+            try await connection.loadCatalog()
+        }
+        await settle { clock.sleepers == 1 && connector.connects.count == 1 }
+        #expect(connector.session.loadCatalogCalls == 0)
+        clock.advance(by: .seconds(2))
+
+        do {
+            _ = try await load.value
+            Issue.record("catalog unexpectedly succeeded after approval failure")
+        } catch {
+            #expect(String(describing: error) == "cloud invitation expired")
+        }
+        #expect(connector.session.loadCatalogCalls == 0)
         await settle { connector.session.state.disconnected == 1 }
         #expect(connector.session.state.disconnected == 1)
     }
