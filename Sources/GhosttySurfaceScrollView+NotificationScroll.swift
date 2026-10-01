@@ -377,6 +377,18 @@ extension GhosttySurfaceScrollView {
         cancelPendingNotificationScrollRestoreForUserInput()
     }
 
+    func terminalSurfaceDidAcceptExplicitInput() {
+        guard let geometry = surfaceView.authoritativeScrollbarGeometry() else { return }
+        let nextIntent = scrollbackViewportIntent.resolvingAcceptedExplicitInput(
+            isAtBottom: geometry.scrollbar.isAtBottom
+        )
+        guard nextIntent != scrollbackViewportIntent else { return }
+
+        scrollbackViewportIntent = nextIntent
+        surfaceView.scrollbar = geometry.scrollbar
+        synchronizeScrollView(forceViewportSync: nextIntent == .followingOutput)
+    }
+
     func restorePendingNotificationScrollPositionAfterScrollbarUpdate() {
         _ = restorePendingNotificationScrollPositionIfReady()
     }
