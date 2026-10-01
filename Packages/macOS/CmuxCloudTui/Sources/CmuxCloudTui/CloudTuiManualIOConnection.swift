@@ -360,8 +360,11 @@ public final class CloudTuiManualIOConnection: @unchecked Sendable {
     /// Reclaims consumed queue storage without shifting on every frame.
     private func compactPendingWritesLocked() {
         guard pendingWriteHead > 0 else { return }
+        // Compact only after the consumed prefix owns at least half of the
+        // array (or the queue is drained). This makes each queued frame move
+        // at most amortized once instead of repeatedly shifting a large
+        // backlog after an arbitrary fixed number of writes.
         guard pendingWriteHead == pendingWrites.count
-                || pendingWriteHead >= 64
                 || pendingWriteHead * 2 >= pendingWrites.count else { return }
         pendingWrites.removeFirst(pendingWriteHead)
         pendingWriteHead = 0
