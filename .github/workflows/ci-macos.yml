@@ -2643,7 +2643,8 @@ jobs:
           FINGERPRINT: ${{ needs.swift-package-tests.outputs.interface_fingerprint }}
           PACKAGE_TESTS: ${{ needs.swift-package-tests.result }}
           APP_COMPILE: ${{ needs.macos-compile-admission.result }}
-          CHANGED_SUITES: ${{ needs.macos-compile-admission.outputs.changed_suites }}
+          # cmux-next deleted the changed-suites step, so there is no outcome to compare.
+          CHANGED_SUITES: ""
         run: |
           python3 - <<'PY'
           import json
