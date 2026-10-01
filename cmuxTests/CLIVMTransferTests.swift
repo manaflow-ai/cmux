@@ -693,7 +693,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    func testVMWaitBoundsOversizedPollIntervalToCommandDeadline() throws {
+    func testVMWaitPollsAtShortOverrideWithinDeadline() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-wait-infinite-delay")
         let listenerFD = try bindUnixSocket(at: socketPath)

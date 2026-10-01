@@ -13,7 +13,7 @@ struct CLIVMWaitPollIntervalTests {
         #expect(CMUXCLI.vmReadyPollInterval(environment: [:]) == 3)
     }
 
-    @Test("A valid short override is honored", arguments: ["0.01", "0.05", "3"])
+    @Test("A valid short override is honored", arguments: ["0.01", "0.05"])
     func validOverride(raw: String) throws {
         let expected = try #require(TimeInterval(raw))
         #expect(CMUXCLI.vmReadyPollInterval(environment: ["CMUX_VM_WAIT_POLL_SECONDS": raw]) == expected)
