@@ -42,12 +42,6 @@ EXPECTED_NOTIFY = {
     "category": "needs-permission", "pending_work": False,
     "request_identity": "approval-tool-1",
 }
-EXPECTED_RESOLUTION = {
-    "workspace_id": FAKE_WORKSPACE_ID, "surface_id": FAKE_SURFACE_ID,
-    "request_identity": "approval-tool-1",
-}
-
-
 def codex_payload(event: str) -> dict:
     return {
         "session_id": "codex-permission-prompt",
@@ -444,7 +438,7 @@ def main() -> int:
         try:
             test_native_permission_request_does_not_replay_previous_completion(cli_path, root)
             test_permission_request_sends_gated_notification_before_feed_push(cli_path, root)
-            test_post_tool_use_resolves_exact_request_before_feed_push(cli_path, root)
+            test_post_tool_use_sends_ordered_feed_for_host_side_resolution(cli_path, root)
             test_pre_tool_use_sends_no_attention_command(cli_path, root)
             test_native_request_identity_aliases_share_semantic_key(cli_path, root)
             test_permission_notification_is_acknowledged_before_hook_returns(cli_path, root)
