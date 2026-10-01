@@ -19,10 +19,14 @@ public struct CloudAPIResponseDecoding: Sendable {
         guard let items = object["vms"] as? [[String: Any]] else {
             throw CloudAPIError.malformedResponse("missing `vms` array")
         }
+        var seenIDs = Set<String>()
         let machines = try items.enumerated().map { index, dict in
             guard let id = dict["id"] as? String, !id.isEmpty,
                   let provider = dict["provider"] as? String, !provider.isEmpty else {
                 throw CloudAPIError.malformedResponse("machine \(index) is missing id or provider")
+            }
+            guard seenIDs.insert(id).inserted else {
+                throw CloudAPIError.malformedResponse("machine \(index) duplicates id \(id)")
             }
             let rawStatus = (dict["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             let status = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"

@@ -435,6 +435,7 @@ public struct CMUXMobileRootScene: View {
                 cloudWorkspaceBridge?.setAdmittedMachines(machines)
             }
             .onChange(of: cloudAccountScope, initial: true) { _, scope in
+                cloudSessionController?.setVisibilityScope(scope)
                 // Keyed on the signed-in account and team, not on session
                 // restore: a fresh sign-in never toggles restore, so a
                 // restore-keyed fetch would run once while signed out and never
@@ -452,6 +453,7 @@ public struct CMUXMobileRootScene: View {
             }
             .onChange(of: auth.coordinator.isAuthenticated) { _, authenticated in
                 guard !authenticated, !auth.coordinator.isRestoringSession else { return }
+                cloudSessionController?.setVisibilityScope(nil)
                 cloudSessionController?.resetForSignOut()
                 cloudWorkspaceBridge?.resetForSignOut()
                 // Signed out: one account's private routes never outlive its
@@ -463,11 +465,13 @@ public struct CMUXMobileRootScene: View {
                 // key when the user was already known, so fetch here as well.
                 guard !restoring else { return }
                 guard auth.coordinator.isAuthenticated else {
+                    cloudSessionController?.setVisibilityScope(nil)
                     cloudSessionController?.resetForSignOut()
                     cloudWorkspaceBridge?.resetForSignOut()
                     cloudSystemVPNController?.setScope(nil)
                     return
                 }
+                cloudSessionController?.setVisibilityScope(cloudAccountScope)
                 cloudSessionController?.refreshMachines()
                 cloudSystemVPNController?.setScope(
                     cloudAccountScope,

@@ -10,7 +10,8 @@ import Testing
     private func makeController(
         service: FakeCloudVMService,
         connector: FakeConnector = FakeConnector(),
-        visibilityDefaults: UserDefaults = .standard
+        visibilityDefaults: UserDefaults = .standard,
+        visibilityScope: String? = nil
     ) -> CloudSessionController {
         CloudSessionController(
             service: service,
@@ -19,7 +20,8 @@ import Testing
             connector: connector,
             stateDirectory: Fixtures.stateDirectory(),
             deviceName: "iPhone",
-            visibilityDefaults: visibilityDefaults
+            visibilityDefaults: visibilityDefaults,
+            visibilityScope: visibilityScope
         )
     }
 
@@ -212,6 +214,26 @@ import Testing
 
         #expect(didInvalidate)
         #expect(controller.hiddenMachineIDs == ["vm-1"])
+    }
+
+    @Test func hiddenMachineIDsStaySeparateWhenTheAccountScopeChanges() throws {
+        let suite = "cmux-cloud-visibility-scope-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let service = FakeCloudVMService()
+        let controller = makeController(
+            service: service,
+            visibilityDefaults: defaults,
+            visibilityScope: "https://cmux.example|account-a|team-a"
+        )
+
+        controller.setMachine(id: "vm-a", hidden: true)
+        controller.setVisibilityScope("https://cmux.example|account-b|team-b")
+        #expect(controller.hiddenMachineIDs.isEmpty)
+
+        controller.setMachine(id: "vm-b", hidden: true)
+        controller.setVisibilityScope("https://cmux.example|account-a|team-a")
+        #expect(controller.hiddenMachineIDs == ["vm-a"])
     }
 
     @Test func aProvisioningMachineIsReReadUntilItSettles() async {

@@ -217,6 +217,12 @@ import Testing
         }
     }
 
+    @Test func rejectsDuplicateMachineIDs() {
+        #expect(throws: CloudAPIError.self) {
+            try decoding.machines(from: Data(#"{"vms":[{"id":"vm-1","provider":"freestyle"},{"id":"vm-1","provider":"freestyle"}]}"#.utf8))
+        }
+    }
+
     @Test func decodesEnrollment() throws {
         let enrollment = try decoding.tunnelEnrollment(from: Data(Fixtures.enrollmentJSON.utf8))
         #expect(enrollment.tunnelId == "tun_1")

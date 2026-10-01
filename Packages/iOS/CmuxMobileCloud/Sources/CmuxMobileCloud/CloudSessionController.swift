@@ -47,7 +47,8 @@ public final class CloudSessionController {
     private let deviceName: String
     private let approvalClock: any Clock<Duration>
     private let visibilityDefaults: UserDefaults
-    private let visibilityDefaultsKey = "mobile.cloud.hiddenMachineIDs.v2"
+    private static let legacyVisibilityDefaultsKey = "mobile.cloud.hiddenMachineIDs.v2"
+    private var visibilityScope: String?
     public private(set) var hiddenMachineIDs: Set<String>
 
     private var liveTunnel: (any CloudTunnel)?
@@ -101,6 +102,7 @@ public final class CloudSessionController {
         deviceName: String,
         approvalClock: any Clock<Duration> = ContinuousClock(),
         visibilityDefaults: UserDefaults = .standard,
+        visibilityScope: String? = nil,
         tunnelStartupTimeout: Duration = .seconds(30),
         provisioningPollLimit: Int = 60,
         listRetryLimit: Int = 8
@@ -113,8 +115,10 @@ public final class CloudSessionController {
         self.deviceName = deviceName
         self.approvalClock = approvalClock
         self.visibilityDefaults = visibilityDefaults
-        self.hiddenMachineIDs = Set(
-            (visibilityDefaults.array(forKey: visibilityDefaultsKey) as? [String]) ?? []
+        self.visibilityScope = Self.normalizedVisibilityScope(visibilityScope)
+        self.hiddenMachineIDs = Self.loadHiddenMachineIDs(
+            from: visibilityDefaults,
+            scope: self.visibilityScope
         )
         self.tunnelStartupTimeout = max(.milliseconds(1), tunnelStartupTimeout)
         self.provisioningPollLimit = max(1, provisioningPollLimit)
@@ -199,6 +203,7 @@ public final class CloudSessionController {
         isCreatingMachine = false
         machineActionsInFlight = []
         lastMachineActionFailure = nil
+        setVisibilityScope(nil)
     }
 
     // MARK: - Machine lifecycle
@@ -401,7 +406,48 @@ public final class CloudSessionController {
         if hidden { ids.insert(id) } else { ids.remove(id) }
         guard ids != hiddenMachineIDs else { return }
         hiddenMachineIDs = ids
-        visibilityDefaults.set(Array(ids).sorted(), forKey: visibilityDefaultsKey)
+        visibilityDefaults.set(
+            Array(ids).sorted(),
+            forKey: Self.visibilityDefaultsKey(for: visibilityScope)
+        )
+    }
+
+    /// Switches the persisted visibility partition when the signed-in account
+    /// or selected team changes. The nil partition is retained for older
+    /// installs and tests that have not established an account scope yet.
+    public func setVisibilityScope(_ scope: String?) {
+        let normalizedScope = Self.normalizedVisibilityScope(scope)
+        guard visibilityScope != normalizedScope else { return }
+        visibilityScope = normalizedScope
+        hiddenMachineIDs = Self.loadHiddenMachineIDs(
+            from: visibilityDefaults,
+            scope: normalizedScope
+        )
+    }
+
+    private static func normalizedVisibilityScope(_ scope: String?) -> String? {
+        guard let scope = scope?.trimmingCharacters(in: .whitespacesAndNewlines), !scope.isEmpty else {
+            return nil
+        }
+        return scope
+    }
+
+    private static func visibilityDefaultsKey(for scope: String?) -> String {
+        guard let scope = normalizedVisibilityScope(scope) else {
+            return legacyVisibilityDefaultsKey
+        }
+        let encodedScope = Data(scope.utf8)
+            .base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+        return "mobile.cloud.hiddenMachineIDs.v3.\(encodedScope)"
+    }
+
+    private static func loadHiddenMachineIDs(
+        from defaults: UserDefaults,
+        scope: String?
+    ) -> Set<String> {
+        Set((defaults.array(forKey: visibilityDefaultsKey(for: scope)) as? [String]) ?? [])
     }
 
     /// Reload the machine list.
@@ -414,7 +460,8 @@ public final class CloudSessionController {
             provisioningPollCount = 0
         }
         let previouslyKnownMachines = Dictionary(
-            uniqueKeysWithValues: machines.elements.map { ($0.id, $0) }
+            machines.elements.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
         )
         listTask?.cancel()
         machineListGeneration &+= 1
@@ -476,7 +523,10 @@ public final class CloudSessionController {
         let reconciledHiddenIDs = storedHiddenIDs.intersection(liveMachineIDs)
         guard storedHiddenIDs != reconciledHiddenIDs else { return }
         hiddenMachineIDs = reconciledHiddenIDs
-        visibilityDefaults.set(Array(reconciledHiddenIDs).sorted(), forKey: visibilityDefaultsKey)
+        visibilityDefaults.set(
+            Array(reconciledHiddenIDs).sorted(),
+            forKey: Self.visibilityDefaultsKey(for: visibilityScope)
+        )
     }
 
     /// Schedules one more list read while any machine is still provisioning

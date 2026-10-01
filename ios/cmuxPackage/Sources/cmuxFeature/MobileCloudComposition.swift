@@ -36,13 +36,20 @@ struct MobileCloudComposition {
     @MainActor
     func makeController() -> CloudSessionController? {
         guard let service = makeService(), let identityStore = makeIdentityStore() else { return nil }
+        let visibilityScope: String?
+        if let userID = auth.coordinator.currentUser?.id {
+            visibilityScope = [auth.config.apiBaseURL, userID, auth.coordinator.resolvedTeamID ?? ""].joined(separator: "|")
+        } else {
+            visibilityScope = nil
+        }
         return CloudSessionController(
             service: service,
             identityStore: identityStore,
             tunnelStarter: CmuxTerminalClientCloudTunnelStarter(),
             connector: CmuxTerminalClientCloudConnector(),
             stateDirectory: stateDirectory(),
-            deviceName: UIDevice.current.name
+            deviceName: UIDevice.current.name,
+            visibilityScope: visibilityScope
         )
     }
 
