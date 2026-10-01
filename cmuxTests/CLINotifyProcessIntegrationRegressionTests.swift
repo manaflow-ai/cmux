@@ -15,6 +15,29 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         super.tearDown()
     }
 
+    /// Completion notifications are journal events on the semantic hook path;
+    /// older providers still emit the legacy v1 command directly.
+    private func containsCompletionNotification(
+        _ commands: [String],
+        workspaceID: String,
+        surfaceID: String
+    ) -> Bool {
+        if commands.contains(where: {
+            $0.hasPrefix("notify_target_async \(workspaceID) \(surfaceID) Codex|")
+        }) {
+            return true
+        }
+        let prefix = "agent_journal_append "
+        return commands.contains { command in
+            guard command.hasPrefix(prefix),
+                  let event = jsonObject(String(command.dropFirst(prefix.count))),
+                  event["kind"] as? String == "agent.turn.completed",
+                  event["workspace_id"] as? String == workspaceID,
+                  event["surface_id"] as? String == surfaceID else { return false }
+            return (event["attention"] as? [String: Any])?["notification"] != nil
+        }
+    }
+
     func testLocalTmuxHelpExposesPersistentSessionContract() throws {
         let cliPath = try bundledCLIPath()
         var environment = ProcessInfo.processInfo.environment
@@ -2792,7 +2815,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
 
         XCTAssertTrue(
-            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            containsCompletionNotification(
+                currentStopCommands,
+                workspaceID: context.workspaceId,
+                surfaceID: context.surfaceId
+            ),
             "A late terminal prior turn must not suppress the current top-level completion notification, saw \(currentStopCommands)"
         )
         XCTAssertTrue(
@@ -3571,7 +3598,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(terminalObservations.allSatisfy { ($0["attention"] as? [String: Any])?["notification"] == nil })
 
         XCTAssertTrue(
-            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            containsCompletionNotification(
+                currentStopCommands,
+                workspaceID: context.workspaceId,
+                surfaceID: context.surfaceId
+            ),
             "A Stop after a missed prompt-submit must clear terminal stale turns and notify, saw \(currentStopCommands)"
         )
         XCTAssertTrue(

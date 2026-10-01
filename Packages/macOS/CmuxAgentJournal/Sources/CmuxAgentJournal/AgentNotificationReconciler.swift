@@ -174,17 +174,30 @@ public struct AgentNotificationReconciler: Sendable {
             let key = context?.requestIdentity ?? context?.eventIdentity ?? draft.eventId
             return .init(.accepted, identity: Self.key([sessionKey, "message", key]))
         }
+        let isProvenTranscriptTerminal = draft.kind == .idleObserved
+            && draft.source == "codex"
+            && draft.nativeEvent == "transcript-terminal"
+            && context?.notification == nil
         if (draft.kind == .turnCompleted || draft.kind == .idleObserved), let incomingTurn,
            let nativeTurn = session.nativeTurn, incomingTurn != nativeTurn {
-            guard session.phase != .running, session.phase != .needsInput,
-                  !session.seenTurns.contains(incomingTurn) else { return .init(.stale) }
-            session.turn = incomingTurn
-            session.nativeTurn = incomingTurn
-            session.completionIdentity = nil
+            guard isProvenTranscriptTerminal
+                || (session.phase != .running && session.phase != .needsInput
+                    && !session.seenTurns.contains(incomingTurn)) else {
+                return .init(.stale)
+            }
+            // A transcript-terminal observation can refer to a prior turn that
+            // the hook never reported. Retire that evidence without moving the
+            // session's current native turn backward; the following current-turn
+            // completion must still be admitted.
+            if !isProvenTranscriptTerminal {
+                session.turn = incomingTurn
+                session.nativeTurn = incomingTurn
+                session.completionIdentity = nil
+            }
         }
         if draft.kind == .idleObserved {
             guard !draft.pendingWork, session.attentionIdentities.isEmpty, session.children.isEmpty,
-                  session.phase == .idle || session.phase == .unknown,
+                  session.phase == .idle || session.phase == .unknown || isProvenTranscriptTerminal,
                   !session.ended else { return .init(.delayed, projectsLifecycle: false) }
             session.phase = .idle
             session.rootStopped = true

@@ -14,8 +14,8 @@ import Testing
 
 /// The Cloud tab's section headers carry hover-only trailing actions: My
 /// Devices' ⋯ options menu and Cloud Machines' New Machine "+". The action
-/// host is always laid out and stays in the hit-test and accessibility trees;
-/// only its alpha follows hover, so the header title and count never shift.
+/// host is always laid out, but is hidden at rest so the row keeps its click
+/// target; hovering reveals it without shifting the header title or count.
 @MainActor
 @Suite("Cloud sidebar: hover-only section header actions")
 struct CloudTreeHeaderActionsTests {
@@ -120,7 +120,7 @@ struct CloudTreeHeaderActionsTests {
 
     /// Hovered header actions stay in the accessibility tree with their roles.
     @Test("Hovered header actions stay in the accessibility tree with their labels")
-    func fadedHeaderActionsStayAccessible() async throws {
+    func hoveredHeaderActionsStayAccessible() async throws {
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         let tree = try Tree(fixture: fixture, width: 380, canCreateCloudMachine: true)
@@ -148,7 +148,7 @@ struct CloudTreeHeaderActionsTests {
             menu = Self.accessibilityElement("DevicesOptionsMenu", in: devicesHeader)
             return plus != nil && menu != nil
         }
-        try #require(published, "Faded header controls must stay in the accessibility tree")
+        try #require(published, "Hovered header controls must stay in the accessibility tree")
         let plusElement = try #require(plus)
         let menuElement = try #require(menu)
         #expect(Self.accessibilityAttribute(.role, getter: "accessibilityRole", of: plusElement) as? String == NSAccessibility.Role.button.rawValue)

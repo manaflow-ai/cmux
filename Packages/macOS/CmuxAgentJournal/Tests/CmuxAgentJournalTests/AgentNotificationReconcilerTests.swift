@@ -324,6 +324,25 @@ struct AgentNotificationReconcilerTests {
         #expect(reconciler.lifecycleEvent(idlePrompt).draft.declaredPhase == .running)
     }
 
+    @Test
+    func codexTranscriptTerminalObservationRetiresPriorTurnBeforeCurrentCompletion() {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnStarted, source: "codex", turn: "old-turn", notify: false))
+        _ = reconciler.apply(event(2, .turnStarted, source: "codex", turn: "current-turn", notify: false))
+
+        let priorTurnTerminal = event(
+            3, .idleObserved, source: "codex", turn: "old-turn", notify: false,
+            nativeEvent: "transcript-terminal", occurredAt: 30
+        )
+        #expect(reconciler.apply(priorTurnTerminal).disposition == .observation)
+
+        let currentCompletion = event(
+            4, .turnCompleted, source: "codex", turn: "current-turn", notify: true,
+            occurredAt: 40
+        )
+        #expect(reconciler.apply(currentCompletion).disposition == .accepted)
+    }
+
     @Test(arguments: ["claude", "codex"])
     func lateStopCannotSettleAContinuationReopenedByActivity(source: String) {
         var reconciler = AgentNotificationReconciler()
