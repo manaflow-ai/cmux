@@ -106,6 +106,23 @@
           }
           return (r.issues || []).map((i) => summary(origin, i));
         },
+        // Jira Cloud sites of the signed-in Atlassian account, from
+        // Atlassian's own site list (home.atlassian.com): [{ url, name, products }].
+        async sites() {
+          const r = await t.inOrigin("https://home.atlassian.com", async () => {
+            const res = await fetch("/gateway/api/available-sites", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ products: ["jira-software.ondemand", "jira-core.ondemand", "jira-servicedesk.ondemand", "jira-product-discovery"] }) });
+            let json = null;
+            try {
+              json = await res.json();
+            } catch (e) {}
+            return { status: res.status, json };
+          });
+          if (r.status === 401 || r.status === 403) throw new S.SiteError("not_signed_in", "jira.sites: the cmux browser is not signed in to Atlassian; open https://home.atlassian.com with tabs.open() and ask the user to sign in");
+          if (r.status !== 200 || !r.json) throw new S.SiteError("http", `jira.sites: HTTP ${r.status}`);
+          return (r.json.sites || [])
+            .map((x) => ({ url: x.url, name: x.displayName || x.name || null, products: x.products || x.availableProducts || [] }))
+            .filter((x) => /^https:\/\/[\w-]+\.atlassian\.net\/?$/.test(x.url || "") && JSON.stringify(x.products).includes("jira"));
+        },
         // The signed-in user: { accountId, displayName, email }.
         async me(options = {}) {
           const { origin } = target("", options, "jira.me");

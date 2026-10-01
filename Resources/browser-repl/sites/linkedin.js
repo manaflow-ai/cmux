@@ -27,13 +27,27 @@
     const out = [];
     const seen = new Set();
     if (arg.kind === "feed") {
+      const actor = (el) => el.querySelector('a[href*="/in/"], a[href*="/company/"]');
+      // Older markup: posts carry their activity URN.
       for (const el of document.querySelectorAll('[data-urn^="urn:li:activity"], [data-id^="urn:li:activity"]')) {
         const urn = el.getAttribute("data-urn") || el.getAttribute("data-id");
         if (seen.has(urn)) continue;
         seen.add(urn);
         const lines = el.innerText.split("\n").map(clean).filter(Boolean);
-        const text = el.querySelector(".update-components-text, .feed-shared-update-v2__description, [data-test-id='main-feed-activity-card__commentary']");
-        out.push({ urn, url: `https://www.linkedin.com/feed/update/${urn}/`, author: lines[0] || null, text: text ? clean(text.innerText) : lines.slice(1, 6).join(" ") });
+        const text = el.querySelector(".update-components-text, .feed-shared-update-v2__description, [data-testid='expandable-text-box']");
+        const a = actor(el);
+        out.push({ id: urn, url: `https://www.linkedin.com/feed/update/${urn}/`, author: a ? clean(a.innerText) : lines[0] || null, authorUrl: a ? new URL(a.getAttribute("href"), location.href).origin + new URL(a.getAttribute("href"), location.href).pathname : null, text: text ? clean(text.innerText) : lines.slice(1, 6).join(" ") });
+        if (out.length >= arg.limit) return out;
+      }
+      // 2026 markup: each post is a list item with a componentkey and an expandable text box.
+      for (const el of document.querySelectorAll('main [role="listitem"][componentkey]')) {
+        const box = el.querySelector('[data-testid="expandable-text-box"]');
+        const key = el.getAttribute("componentkey");
+        if (!box || seen.has(key)) continue;
+        seen.add(key);
+        const a = actor(el);
+        const href = a ? new URL(a.getAttribute("href"), location.href) : null;
+        out.push({ id: key, url: null, author: a ? clean(a.innerText) : null, authorUrl: href ? href.origin + href.pathname : null, text: clean(box.innerText) });
         if (out.length >= arg.limit) break;
       }
       return out;
@@ -72,7 +86,7 @@
       async function cards(url, kind, limit) {
         return t.withTab(url, async (page) => {
           t.assertSignedIn("linkedin", page, SIGN_IN);
-          await t.waitIn(page, (k) => (k === "feed" ? !!document.querySelector('[data-urn^="urn:li:activity"], [data-id^="urn:li:activity"]') : !!document.querySelector("main a[href*='/in/'], main a[href*='/company/']") || /No results/i.test(document.body.innerText)), kind, { signIn: SIGN_IN, name: "linkedin", what: "LinkedIn results", timeout: 30000 });
+          await t.waitIn(page, (k) => (k === "feed" ? !!document.querySelector('[data-urn^="urn:li:activity"], [data-id^="urn:li:activity"], main [role="listitem"] [data-testid="expandable-text-box"]') : !!document.querySelector("main a[href*='/in/'], main a[href*='/company/']") || /No results/i.test(document.body.innerText)), kind, { signIn: SIGN_IN, name: "linkedin", what: "LinkedIn results", timeout: 30000 });
           let got = await page.evaluate(readCards, { kind, limit });
           for (let i = 0; i < 6 && got.length < limit; i++) {
             await page.mouse.wheel(0, 2400);
@@ -104,7 +118,7 @@
           if (!["people", "companies"].includes(type)) throw new S.SiteError("invalid", `linkedin.search: type: expected people or companies, got ${JSON.stringify(type)}`);
           return cards(`${ORIGIN}/search/results/${type}/?keywords=${encodeURIComponent(query)}`, type, options.limit || 10);
         },
-        // [{ urn, url, author, text }] from the home feed.
+        // [{ id, url, author, authorUrl, text }] from the home feed (url when the markup carries the activity URN).
         feed(options = {}) {
           return cards(`${ORIGIN}/feed/`, "feed", options.limit || 10);
         },

@@ -9,7 +9,14 @@
   const API = "https://client-api.linear.app/graphql";
 
   async function graphql(arg) {
-    const r = await fetch(arg.api, { method: "POST", headers: { "content-type": "application/json" }, credentials: "include", body: JSON.stringify({ query: arg.query, variables: arg.variables || {} }) });
+    // Linear's web client names the signed-in user in a "user" header, from
+    // the ApplicationStore it keeps in localStorage.
+    const headers = { "content-type": "application/json" };
+    try {
+      const store = JSON.parse(localStorage.getItem("ApplicationStore") || "null");
+      if (store && store.currentUserId) headers.user = store.currentUserId;
+    } catch (e) {}
+    const r = await fetch(arg.api, { method: "POST", headers, credentials: "include", body: JSON.stringify({ query: arg.query, variables: arg.variables || {} }) });
     let json = null;
     try {
       json = await r.json();

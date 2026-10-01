@@ -96,7 +96,11 @@
   async function exportText(t, name, ref, format) {
     const url = exportURL(ref, format, name);
     const { response, title } = await fetchFile(t, name, url, { expectHTML: format === "html" });
-    return { title, text: await response.text() };
+    let text = await response.text();
+    // Google's Markdown export embeds each image as a data: reference
+    // definition (most of a document with images); keep the references.
+    if (format === "md") text = text.replace(/^[ \t]*\[[^\]]+\]:[ \t]*<data:[^>]*>[ \t]*\n?/gm, "").replace(/\n{3,}/g, "\n\n").replace(/\n+$/, "\n");
+    return { title, text };
   }
 
   S.shared.google = { FORMATS, parse, exportURL, dispositionName, fetchFile, exportTo, exportText };

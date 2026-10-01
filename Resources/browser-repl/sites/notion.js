@@ -141,8 +141,18 @@
     "notion",
     (t) => {
       const origin = (o) => (o && o.origin) || ORIGIN;
+      // Notion's app and session live on app.notion.com; older sessions on www.notion.so.
+      const API_ORIGINS = ["https://app.notion.com", ORIGIN];
+      let apiOrigin = null;
       async function calls(list, options = {}) {
-        const rs = await t.inOrigin(origin(options), notionCall, { calls: list, userId: options.userId });
+        let rs;
+        for (const o of options.origin ? [options.origin] : apiOrigin ? [apiOrigin] : API_ORIGINS) {
+          rs = await t.inOrigin(o, notionCall, { calls: list, userId: options.userId });
+          if (rs[0] && rs[0].status !== 401) {
+            if (!options.origin) apiOrigin = o;
+            break;
+          }
+        }
         for (let i = 0; i < rs.length; i++) {
           const r = rs[i];
           if (r.status === 401 || (r.json && /unauthorized|not logged in/i.test(r.json.name || r.json.message || ""))) throw new S.SiteError("not_signed_in", "notion: the cmux browser is not signed in to Notion; open https://www.notion.so with tabs.open() and ask the user to sign in");

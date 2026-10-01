@@ -22,8 +22,9 @@
     const body = new FormData();
     body.append("token", team.token);
     for (const [k, v] of Object.entries(arg.params || {})) if (v !== undefined && v !== null) body.append(k, typeof v === "object" ? JSON.stringify(v) : String(v));
-    const base = (team.url || "https://" + team.domain + ".slack.com/").replace(/\/?$/, "/");
-    const r = await fetch(base + "api/" + arg.method, { method: "POST", body, credentials: "include" });
+    // Same-origin, as the web client calls it; the token selects the
+    // workspace (workspace hosts refuse cross-origin calls).
+    const r = await fetch(location.origin + "/api/" + arg.method, { method: "POST", body, credentials: "include" });
     let json = null;
     try {
       json = await r.json();
@@ -38,8 +39,26 @@
     "slack",
     (t) => {
       // body(call) runs with one app.slack.com tab; call(team, method, params) -> JSON.
+      // A fresh profile has no workspace config until Slack's web client
+      // boots once; load it in the background tab when it is missing.
+      const hasConfig = () => {
+        try {
+          const c = JSON.parse(localStorage.getItem("localConfig_v2") || "null");
+          return !!(c && c.teams && Object.keys(c.teams).length);
+        } catch (e) {
+          return false;
+        }
+      };
+      const slackPage = (body) =>
+        t.withTab(APP + "/robots.txt", async (page) => {
+          if (!(await page.evaluate(hasConfig))) {
+            await page.goto(APP + "/client", { waitUntil: "load", timeout: 45000 });
+            await t.waitIn(page, hasConfig, undefined, { timeout: 30000, what: "Slack's web client to load the workspaces", name: "slack" }).catch(() => {});
+          }
+          return body((fn, arg) => page.evaluate(fn, arg));
+        });
       const withSlack = (body) =>
-        t.withOrigin(APP, (run) =>
+        slackPage((run) =>
           body(async (team, method, params) => {
             const r = await run(slackCall, { team, method, params });
             if (r.error === "not_signed_in") throw new S.SiteError("not_signed_in", "slack: the cmux browser is not signed in to Slack; open https://app.slack.com with tabs.open() and ask the user to sign in");
@@ -65,7 +84,7 @@
       return {
         // [{ teamId, name, domain, url, userId, enterpriseId, lastActive }]
         async workspaces() {
-          const r = await t.inOrigin(APP, slackCall, { list: true });
+          const r = await slackPage((run) => run(slackCall, { list: true }));
           if (r.error) throw new S.SiteError("not_signed_in", "slack.workspaces: the cmux browser is not signed in to Slack; open https://app.slack.com and ask the user to sign in");
           return r.teams;
         },

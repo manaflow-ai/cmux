@@ -9,6 +9,36 @@
     "googleDrive",
     (t) => {
       const g = S.shared.google;
+      // Rows of a Drive list view (Recent, search) in a background tab.
+      async function driveRows(name, view, options) {
+        const uid = options.uid === undefined ? 0 : options.uid;
+        if (!Number.isInteger(uid) || uid < 0) throw new S.SiteError("invalid", `${name}: uid: expected a non-negative integer, got ${JSON.stringify(options.uid)}`);
+        const SIGN_IN = [/^https:\/\/accounts\.google\.com\//, /^https:\/\/workspace\.google\.com\//, /\/drive\/about/];
+        return t.withTab(`https://drive.google.com/drive/u/${uid}/${view}`, async (page) => {
+          await t.waitIn(page, () => !!document.querySelector('[role="row"][data-id], [data-id][role="gridcell"], [data-id] [role="gridcell"]') || /No files|Nothing in Recent|Files you open|No results/i.test(document.body.innerText), undefined, { signIn: SIGN_IN, name, what: "the Drive list", timeout: 30000 });
+            const rows = await page.evaluate((limit) => {
+              const clean = (x) => (x || "").replace(/\s+/g, " ").trim();
+              const out = [];
+              const seen = new Set();
+              for (const el of document.querySelectorAll("[data-id]")) {
+                const id = el.getAttribute("data-id");
+                if (!/^[\w-]{25,}$/.test(id) || seen.has(id) || !el.querySelector('[role="gridcell"]') && el.getAttribute("role") !== "row") continue;
+                seen.add(id);
+                // The row's tooltip is "<name> <type>"; the type is one of Drive's labels.
+                const TYPES = ["Google Docs", "Google Sheets", "Google Slides", "Google Forms", "Google Drawings", "Google Sites", "Google Apps Script", "Shared folder", "Folder", "PDF", "Image", "Video", "Audio", "Microsoft Word", "Microsoft Excel", "Microsoft PowerPoint", "Text", "Archive", "Unknown"];
+                const tip = clean((el.querySelector("[data-tooltip]") || {}).getAttribute ? el.querySelector("[data-tooltip]").getAttribute("data-tooltip") : "");
+                const type = TYPES.find((x) => tip === x || tip.endsWith(" " + x)) || null;
+                let title = type ? clean(tip.slice(0, tip.length - type.length)) : tip;
+                if (!title) title = clean((el.innerText || "").split("\n")[0]);
+                out.push({ id, title, type, url: "https://drive.google.com/open?id=" + id });
+                if (out.length >= limit) break;
+              }
+              return out;
+            }, options.limit || 50);
+            return rows;
+          });
+      }
+
       return {
         // Downloads an uploaded file (PDF, image, zip, ...) by Drive URL or id; { path, title, contentType }.
         async download(file, options = {}) {
@@ -26,32 +56,14 @@
         },
         // Files in Drive's Recent view: [{ id, title, type, url }] (the view
         // in a background tab; rows carry the file id as data-id).
-        async recent(options = {}) {
-          const uid = options.uid === undefined ? 0 : options.uid;
-          if (!Number.isInteger(uid) || uid < 0) throw new S.SiteError("invalid", `googleDrive.recent: uid: expected a non-negative integer, got ${JSON.stringify(options.uid)}`);
-          const SIGN_IN = [/^https:\/\/accounts\.google\.com\//, /^https:\/\/workspace\.google\.com\//, /\/drive\/about/];
-          return t.withTab(`https://drive.google.com/drive/u/${uid}/recent`, async (page) => {
-            await t.waitIn(page, () => !!document.querySelector('[role="row"][data-id], [data-id][role="gridcell"], [data-id] [role="gridcell"]') || /No files|Nothing in Recent|Files you open/i.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "googleDrive.recent", what: "Drive's Recent view", timeout: 30000 });
-            const rows = await page.evaluate((limit) => {
-              const clean = (x) => (x || "").replace(/\s+/g, " ").trim();
-              const out = [];
-              const seen = new Set();
-              for (const el of document.querySelectorAll("[data-id]")) {
-                const id = el.getAttribute("data-id");
-                if (!/^[\w-]{25,}$/.test(id) || seen.has(id) || !el.querySelector('[role="gridcell"]') && el.getAttribute("role") !== "row") continue;
-                seen.add(id);
-                const typeEl = el.querySelector("[data-tooltip]");
-                const type = typeEl ? clean(typeEl.getAttribute("data-tooltip")) : null;
-                const nameEl = el.querySelector(".name, [data-column-field='6'], strong") || null;
-                let title = nameEl ? clean(nameEl.textContent) : clean((el.innerText || "").split("\n")[0]);
-                if (!title) title = clean(el.getAttribute("aria-label")).replace(type ? new RegExp("\\s*" + type.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*$") : /$^/, "");
-                out.push({ id, title, type, url: "https://drive.google.com/open?id=" + id });
-                if (out.length >= limit) break;
-              }
-              return out;
-            }, options.limit || 50);
-            return rows;
-          });
+        recent(options = {}) {
+          return driveRows("googleDrive.recent", "recent", options);
+        },
+        // Drive search with its operators ("type:spreadsheet owner:me",
+        // "budget"), the same rows as recent().
+        search(query, options = {}) {
+          if (typeof query !== "string" || !query.trim()) throw new S.SiteError("invalid", `googleDrive.search: query: expected Drive search text, got ${JSON.stringify(query)}`);
+          return driveRows("googleDrive.search", `search?q=${encodeURIComponent(query)}`, options);
         },
         // Exports a Docs/Sheets/Slides file given by any Drive or Docs URL; { path, title, format }.
         async export(file, options = {}) {

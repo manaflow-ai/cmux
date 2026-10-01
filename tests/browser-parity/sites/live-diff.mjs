@@ -136,6 +136,19 @@ const OPS = [
       if (kind && !ctx.files[kind]) ctx.files[kind] = `https://docs.google.com/${kind}/d/${id}/edit`;
     }
   } },
+  {
+    op: "googleDrive.search (own Sheets, Slides)",
+    cmux: `Promise.all([sites.googleDrive.search("type:spreadsheet owner:me", { uid: ${UID}, limit: 5 }), sites.googleDrive.search("type:presentation owner:me", { uid: ${UID}, limit: 5 })]).then(([a, b]) => a.concat(b))`,
+    aside: null,
+    cx: list("v", "(x.type || '') + '|' + x.id", "x.title"),
+    keep: (c) => {
+      const kinds = { "Google Docs": "document", "Google Sheets": "spreadsheets", "Google Slides": "presentation" };
+      for (const entry of c) {
+        const [type, id] = String(entry).split("|");
+        if (kinds[type] && !ctx.files[kinds[type]]) ctx.files[kinds[type]] = `https://docs.google.com/${kinds[type]}/d/${id}/edit`;
+      }
+    },
+  },
   ...["document", "spreadsheets", "presentation"].map((kind) => ({
     op: `google ${kind} read`,
     needs: () => ctx.files && ctx.files[kind],
