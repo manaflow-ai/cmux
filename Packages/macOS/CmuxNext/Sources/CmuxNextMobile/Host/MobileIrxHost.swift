@@ -1,5 +1,5 @@
 public import CmuxIrxTransport
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import CmuxNextWakeups
 public import Foundation
 
