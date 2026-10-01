@@ -6,6 +6,8 @@ struct CLIChildEnvironment {
 
     func normalizing(_ environment: [String: String]) -> [String: String] {
         // Callers scrub CMUX_* from the child; isolation belongs to the host.
+        // The runtime source root is the one controlled fixture path that must
+        // cross that boundary so a restored CLI can read source-backed assets.
         // A host is isolated exactly when its own CFFIXED_USER_HOME is pinned
         // to its HOME -- what every CI lane sets, and what a developer's
         // machine never has. Reading that condition rather than a lane marker
@@ -21,6 +23,11 @@ struct CLIChildEnvironment {
         resolved["CFFIXED_USER_HOME"] = rawHome
         resolved["XDG_CONFIG_HOME"] = URL(fileURLWithPath: rawHome, isDirectory: true)
             .appendingPathComponent(".config", isDirectory: true).path
+        if resolved["CMUX_CI_RUNTIME_SOURCE_ROOT"] == nil,
+           let runtimeSourceRoot = appHostEnvironment["CMUX_CI_RUNTIME_SOURCE_ROOT"],
+           !runtimeSourceRoot.isEmpty {
+            resolved["CMUX_CI_RUNTIME_SOURCE_ROOT"] = runtimeSourceRoot
+        }
         return resolved
     }
 }
