@@ -817,9 +817,9 @@ async function resolveStackTeamMembership(
     requestedTeamId && requestedTeamId !== selectedTeam?.id ? requestedTeamId : undefined,
     selectedTeamNeedsDetails ? selectedTeam.id : undefined,
   ]);
-  // Full pagination is reserved for the explicit team-picker route. Other
-  // callers resolve one requested team with Stack's exact-ID search so shared
-  // VM authentication never inherits an unbounded multi-page dependency.
+  // Snapshot-capable callers need a complete paginated list. Bounded
+  // subrouter callers resolve only the requested and selected IDs so shared VM
+  // authentication does not inherit an unbounded multi-page dependency.
   const needsListedTeams = options.forceCompleteTeamList === true ||
     !selectedTeam ||
     teamIdsToLookup.length > 0;
