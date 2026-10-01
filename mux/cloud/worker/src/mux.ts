@@ -1,4 +1,5 @@
 import {
+  CachedMemoryStore,
   compact,
   conversationInput,
   DEFAULT_MODEL,
@@ -15,6 +16,7 @@ import {
   toLines,
   wake,
   zoom,
+  type MemoryStore,
   type ModelConfig,
   type RunResult,
   type Summarize,
@@ -22,7 +24,8 @@ import {
 } from "@mux/brain";
 import type { Conversation, ID, LinkEvent, Message, Participant } from "@mux/protocol";
 import { DurableObject } from "cloudflare:workers";
-import { conversation, type Env } from "./env.ts";
+import { account, conversation, type Env } from "./env.ts";
+import { GitExecMemoryStore } from "./git-memory-store.ts";
 import { SqliteMemoryStore } from "./memory-store.ts";
 import type { MuxApi, MuxApiProps } from "./mux-api.ts";
 
@@ -50,11 +53,12 @@ interface Identity {
  */
 export class MuxDO extends DurableObject<Env> {
   private sql = this.ctx.storage.sql;
-  private memory: SqliteMemoryStore;
+  private cache: SqliteMemoryStore;
+  private memoryStore?: Promise<MemoryStore>;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.memory = new SqliteMemoryStore(this.sql);
+    this.cache = new SqliteMemoryStore(this.sql);
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS inbox (
@@ -123,33 +127,56 @@ export class MuxDO extends DurableObject<Env> {
     if (more || this.compactionDue()) await this.ctx.storage.setAlarm(Date.now());
   }
 
+  /**
+   * The mux's memory: a git repo on the owner's memory VM behind this object's
+   * SQLite cache, or the SQLite store alone when no Freestyle key is set.
+   */
+  private memory(): Promise<MemoryStore> {
+    this.memoryStore ??= (async () => {
+      const apiKey = this.env.FREESTYLE_API_KEY;
+      const { participant, ownerId } = this.identity();
+      const vmId = apiKey ? await account(this.env, ownerId).memoryVm() : undefined;
+      if (!apiKey || !vmId) return this.cache;
+      return new CachedMemoryStore(
+        new GitExecMemoryStore(apiKey, vmId, participant.id),
+        this.cache,
+      );
+    })().catch((error) => {
+      this.memoryStore = undefined;
+      throw error;
+    });
+    return this.memoryStore;
+  }
+
   // Memory, for the MuxApi entrypoint.
 
   async memoryRecall(pattern: string, limit: number) {
-    return this.memory.recall(pattern, Math.min(Math.max(limit, 1), 200));
+    return (await this.memory()).recall(pattern, Math.min(Math.max(limit, 1), 200));
   }
 
   async memoryZoom(lo: number, hi: number) {
-    return zoom(this.memory, { lo, hi });
+    return zoom(await this.memory(), { lo, hi });
   }
 
   async memoryNote(text: string) {
-    const index = await this.memory.length();
-    await this.memory.append(toLines(`${new Date().toISOString().slice(0, 16)} note: ${text}`));
+    const memory = await this.memory();
+    const index = await memory.length();
+    await memory.append(toLines(`${new Date().toISOString().slice(0, 16)} note: ${text}`));
     return { index };
   }
 
   /** One bounded compaction step off the critical path; re-arms itself while work remains. */
   private async compactStep(): Promise<void> {
     if (!this.compactionDue()) return;
-    const { missing } = await wake(this.memory, WAKE_BUDGET);
+    const memory = await this.memory();
+    const { missing } = await wake(memory, WAKE_BUDGET);
     if (missing.length === 0) {
       this.sql.exec("DELETE FROM meta WHERE key = 'compact'");
       console.log(JSON.stringify({ at: "mux.compact.done" }));
       return;
     }
     try {
-      const written = await compact(this.memory, missing, this.summarizer(), 8);
+      const written = await compact(memory, missing, this.summarizer(), 8);
       console.log(JSON.stringify({ at: "mux.compact", written, missing: missing.length }));
       await this.ctx.storage.setAlarm(Date.now() + 500);
     } catch (error) {
@@ -182,7 +209,9 @@ export class MuxDO extends DurableObject<Env> {
       const sender = snapshot.participants.find(
         (p) => p.id === pending.message.senderId,
       )?.displayName;
-      await this.memory.append(
+      await (
+        await this.memory()
+      ).append(
         toLines(
           `${stamp} ${where} ${sender ?? pending.message.senderId}: ${messageText(pending.message)}`,
         ),
@@ -193,7 +222,7 @@ export class MuxDO extends DurableObject<Env> {
         e.kind === "turn_end"
           ? `agent ${e.name} ${e.status}: ${e.reply}`
           : `agent ${e.name} asks permission: ${e.title}`;
-      await this.memory.append(toLines(`${stamp} ${where} ${text}`));
+      await (await this.memory()).append(toLines(`${stamp} ${where} ${text}`));
     }
   }
 
@@ -209,7 +238,7 @@ export class MuxDO extends DurableObject<Env> {
     try {
       const snapshot = await room.snapshot();
       await this.remember(snapshot, pending);
-      const memory = await wake(this.memory, WAKE_BUDGET);
+      const memory = await wake(await this.memory(), WAKE_BUDGET);
       if (memory.missing.length > 0)
         this.sql.exec("INSERT OR IGNORE INTO meta (key, value) VALUES ('compact', '1')");
       const context = { muxId: me.id, conversation: snapshot, memory: memory.text };
@@ -227,7 +256,9 @@ export class MuxDO extends DurableObject<Env> {
       if (result.text) {
         await room.post(me.id, [{ type: "text", text: result.text }]);
         const stamp = new Date().toISOString().slice(0, 16);
-        await this.memory.append(toLines(`${stamp} [${snapshot.title}] me: ${result.text}`));
+        await (
+          await this.memory()
+        ).append(toLines(`${stamp} [${snapshot.title}] me: ${result.text}`));
       }
     } finally {
       await room.setTyping(me.id, false);

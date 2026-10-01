@@ -11,6 +11,7 @@ import type {
 } from "@mux/protocol";
 import { DurableObject } from "cloudflare:workers";
 import { mux, type Env } from "./env.ts";
+import { ensureVm } from "./freestyle.ts";
 
 /** Header the Worker sets on link WebSocket upgrades after checking the token. */
 export const LINK_HEADER = "x-mux-link";
@@ -79,6 +80,27 @@ export class AccountDO extends DurableObject<Env> {
       summary.preview,
       summary.lastAt,
     );
+  }
+
+  /** The account's memory VM (Freestyle), created on first use. Undefined without a Freestyle key. */
+  async memoryVm(): Promise<string | undefined> {
+    const apiKey = this.env.FREESTYLE_API_KEY;
+    if (!apiKey) return undefined;
+    const row = this.sql
+      .exec<{ value: string }>("SELECT value FROM meta WHERE key = 'memory_vm'")
+      .toArray()[0];
+    if (row) return row.value;
+    const viewer = this.sql
+      .exec<{ value: string }>("SELECT value FROM meta WHERE key = 'viewer'")
+      .toArray()[0];
+    const owner = viewer ? (JSON.parse(viewer.value) as Viewer).id : this.ctx.id.toString();
+    const vmId = await ensureVm(
+      apiKey,
+      `mux-mem-${(await sha256(owner)).slice(0, 20)}`,
+      "mux memory",
+    );
+    this.sql.exec("INSERT OR REPLACE INTO meta (key, value) VALUES ('memory_vm', ?)", vmId);
+    return vmId;
   }
 
   // Links

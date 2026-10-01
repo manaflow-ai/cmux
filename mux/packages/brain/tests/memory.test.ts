@@ -1,6 +1,7 @@
 import { expect, test } from "vite-plus/test";
 import {
   ArrayMemoryStore,
+  CachedMemoryStore,
   compact,
   decompose,
   MAX_LINE_BYTES,
@@ -100,4 +101,30 @@ test("recall finds lines newest first", async () => {
     { index: 2, line: "Lawrence moved to SF" },
     { index: 0, line: "Lawrence prefers short replies" },
   ]);
+});
+
+test("a cached store fills a cold cache from the primary and writes through", async () => {
+  const primary = new ArrayMemoryStore();
+  await primary.append(["a", "b", "c"]);
+  await primary.putNode({ lo: 0, hi: 1 }, "a+b");
+  const cache = new ArrayMemoryStore();
+  const store = new CachedMemoryStore(primary, cache);
+
+  expect(await store.read(0, 3)).toEqual(["a", "b", "c"]);
+  expect(cache.lines).toEqual(["a", "b", "c"]);
+  expect((await store.getNodes([{ lo: 0, hi: 1 }])).get("0-1")).toBe("a+b");
+  expect(cache.nodes.get("0-1")).toBe("a+b");
+
+  expect(await store.append(["d"])).toBe(4);
+  expect(primary.lines).toEqual(["a", "b", "c", "d"]);
+  expect(cache.lines).toEqual(["a", "b", "c", "d"]);
+});
+
+test("a cached store moves lines only the cache has up to a new primary", async () => {
+  const primary = new ArrayMemoryStore();
+  const cache = new ArrayMemoryStore();
+  await cache.append(["old 1", "old 2"]);
+  const store = new CachedMemoryStore(primary, cache);
+  expect(await store.append(["new"])).toBe(3);
+  expect(primary.lines).toEqual(["old 1", "old 2", "new"]);
 });

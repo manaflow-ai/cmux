@@ -14,6 +14,8 @@ export interface Env {
   /** Stack publishable client key, served to the web app for sign-in. */
   MUX_STACK_PUBLISHABLE_CLIENT_KEY?: string;
   CODEROUTER_API_KEY?: string;
+  /** Freestyle API key for memory VMs; without it memory stays in Durable Object SQLite. */
+  FREESTYLE_API_KEY?: string;
   CODEROUTER_BASE_URL?: string;
 }
 
