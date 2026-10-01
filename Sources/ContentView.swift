@@ -8414,6 +8414,7 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
+        contributions.append(contentsOf: Self.commandPaletteTerminalScrollContributions(subtitle: terminalPanelSubtitle))
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitRight",
@@ -9406,6 +9407,7 @@ struct ContentView: View {
                 NSSound.beep()
             }
         }
+        registerTerminalScrollCommandPaletteHandlers(&registry)
         registry.register(commandId: "palette.terminalClearScreenKeepScrollback") {
             if !tabManager.clearFocusedTerminalKeepingScrollback() {
                 NSSound.beep()

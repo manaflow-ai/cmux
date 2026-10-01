@@ -247,6 +247,14 @@ extension Array where Element == CuratedSettingEntry {
             ),
             .init(
                 section: .terminal,
+                id: "jump-to-bottom-button",
+                title: String(localized: "settings.terminal.showJumpToBottomButton", defaultValue: "Jump to Bottom Button"),
+                detailText: String(localized: "settings.terminal.showJumpToBottomButton.subtitle", defaultValue: "Shows a Jump to Bottom button while you scroll a terminal up into its scrollback. Full-screen programs such as vim, less, or an agent's fullscreen mode handle their own scrolling and never show it."),
+                paths: ["terminal.showJumpToBottomButton"],
+                synonyms: "terminal.showJumpToBottomButton jump to bottom button scroll to bottom scrollback follow output latest newest pill arrow down agent codex claude"
+            ),
+            .init(
+                section: .terminal,
                 id: "predictive-local-echo",
                 title: String(localized: "settings.terminal.predictiveLocalEcho", defaultValue: "Predictive Local Echo"),
                 detailText: String(localized: "settings.terminal.predictiveLocalEcho.subtitle", defaultValue: "In terminals on another machine, typed characters appear right away when the connection is slow. They stay underlined until the remote host confirms them. Local terminals, password prompts and full-screen apps are excluded."),
