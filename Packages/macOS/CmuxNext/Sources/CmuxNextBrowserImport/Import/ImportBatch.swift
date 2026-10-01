@@ -10,6 +10,10 @@ public struct ImportBatch: Sendable, Codable, Equatable {
     /// The kinds the user picked for this profile (an empty list then means
     /// "the source has none", not "not imported").
     public var kinds: Set<ImportDataKind> = []
+    /// Cookie counts (never the cookies: they go straight to the profile's store).
+    public var cookies: CookieImportReport?
+    /// Why the profile's cookies could not be read, when they could not.
+    public var cookieError: CookieImportError?
     public var importedAt: Date
 
     public init(source: ImportSourceRecord, kinds: Set<ImportDataKind> = [], importedAt: Date = Date()) {
@@ -19,7 +23,7 @@ public struct ImportBatch: Sendable, Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case source, bookmarks, history, openTabs, extensions, kinds, importedAt
+        case source, bookmarks, history, openTabs, extensions, kinds, cookies, cookieError, importedAt
     }
 
     /// Files saved before `kinds` existed decode with the kinds that hold data.
@@ -31,6 +35,8 @@ public struct ImportBatch: Sendable, Codable, Equatable {
         openTabs = try container.decodeIfPresent([ImportedTab].self, forKey: .openTabs) ?? []
         extensions = try container.decodeIfPresent([ImportedExtension].self, forKey: .extensions) ?? []
         importedAt = try container.decode(Date.self, forKey: .importedAt)
+        cookies = try container.decodeIfPresent(CookieImportReport.self, forKey: .cookies)
+        cookieError = try container.decodeIfPresent(CookieImportError.self, forKey: .cookieError)
         kinds = try container.decodeIfPresent(Set<ImportDataKind>.self, forKey: .kinds) ?? Self.kindsWithData(
             bookmarks: !bookmarks.isEmpty, history: !history.isEmpty, openTabs: !openTabs.isEmpty, extensions: !extensions.isEmpty)
     }
@@ -45,7 +51,8 @@ public struct ImportBatch: Sendable, Codable, Equatable {
     }
 
     public var counts: ImportCounts {
-        ImportCounts(bookmarks: bookmarks.count, history: history.count, openTabs: openTabs.count, extensions: extensions.count)
+        ImportCounts(bookmarks: bookmarks.count, history: history.count, openTabs: openTabs.count, extensions: extensions.count,
+                     cookies: cookies?.written ?? 0)
     }
 }
 
