@@ -3,6 +3,29 @@ import CMUXMobileCore
 import CmuxSettings
 import Foundation
 
+/// Posted by the host when a sidebar menu or command-palette action should open the template gallery.
+public extension Notification.Name {
+    static let customSidebarTemplateGalleryRequested = Notification.Name("cmux.settings.customSidebarTemplateGalleryRequested")
+}
+
+/// Holds a gallery request until the progressively mounted Custom Sidebars
+/// section is ready to present it.
+@MainActor
+public enum CustomSidebarTemplateGalleryRequest {
+    private static var pending = false
+
+    public static func request() {
+        pending = true
+        NotificationCenter.default.post(name: .customSidebarTemplateGalleryRequested)
+    }
+
+    public static func consume() -> Bool {
+        guard pending else { return false }
+        pending = false
+        return true
+    }
+}
+
 /// Host-supplied callbacks the package's section views invoke for
 /// actions that live outside the catalog — clearing browser history,
 /// opening the user's editor on cmux.json, sending feedback, posting
@@ -56,6 +79,19 @@ public protocol SettingsHostActions: AnyObject {
 
     /// Creates a starter custom sidebar and opens it in the preferred editor.
     func createCustomSidebar() -> CustomSidebarOnboardingResult
+
+    /// Copies one bundled template into the custom-sidebar directory, selects it, and opens it.
+    func installCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult
+
+    /// Installs a template and selects it without opening the editor.
+    func useCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult
+
+    /// Temporarily selects a template for gallery preview.
+    func previewCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult
+
+    /// Keeps or discards the active gallery preview.
+    func keepCustomSidebarPreview() -> CustomSidebarOnboardingResult
+    func revertCustomSidebarPreview()
 
     /// Copies one bundled example into the custom-sidebar directory and opens it.
     func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult
@@ -534,9 +570,23 @@ public extension SettingsHostActions {
     func createCustomSidebar() -> CustomSidebarOnboardingResult {
         .writeFailed
     }
-    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
+    func installCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
         _ = id
         return .writeFailed
+    }
+    func useCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
+        _ = id
+        return .writeFailed
+    }
+    func previewCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
+        _ = id
+        return .writeFailed
+    }
+    func keepCustomSidebarPreview() -> CustomSidebarOnboardingResult { .templateUnavailable }
+    func revertCustomSidebarPreview() {}
+
+    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
+        installCustomSidebarTemplate(id: id)
     }
     func openCustomSidebarInExternalEditor(named name: String) { _ = name }
     func openCustomSidebarsFolder() {}
