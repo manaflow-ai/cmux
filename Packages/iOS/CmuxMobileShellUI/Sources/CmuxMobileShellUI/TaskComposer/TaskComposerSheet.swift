@@ -268,10 +268,22 @@ struct TaskComposerSheet: View {
         }
         let matchingRememberedPickers = rememberedPickers?.templateID == selectedTemplateID
             ? rememberedPickers : nil
+        let initialDefaultModel: MobileTaskAgentModel?
+        if let initialModelResult {
+            if let defaultModel = initialModelResult.defaultModel {
+                initialDefaultModel = defaultModel
+            } else if initialModelResult.error != nil || initialModelResult.models.isEmpty {
+                initialDefaultModel = matchingRememberedPickers?.defaultModel
+            } else {
+                initialDefaultModel = nil
+            }
+        } else {
+            initialDefaultModel = matchingRememberedPickers?.defaultModel
+        }
         let initialModelAvailability = MobileTaskModelAvailability(
             template: selectedTemplate,
             discoveredModels: initialModelResult?.models,
-            defaultModel: initialModelResult?.defaultModel ?? matchingRememberedPickers?.defaultModel
+            defaultModel: initialDefaultModel
         )
         // A model persisted by this composer was already validated when the
         // user selected it. Preserve that explicit choice across a cold cache
