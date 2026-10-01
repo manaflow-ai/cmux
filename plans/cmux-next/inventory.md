@@ -111,7 +111,8 @@ Registry rule for the new palette: one row below = one registered action with a 
 
 | id | title | default | src | file |
 |---|---|---|---|---|
-| newSurface | New Tab (Terminal) | ⌘T | PKC | KSS:152, CV:7596, TIV |
+| newSurface | New Tab (Terminal) | none in cmux-next (⌘T is `newTab.sameKind`) | PKC | KSS:152, CV:7596, TIV |
+| newTab.sameKind (cmux-next) | New Tab: same kind as the focused pane (browser pane: browser tab on its engine; else terminal) | ⌘T | PKMC, CLI `tab new` | user decision 2026-09-30 |
 | openBrowser | New Tab (Browser) | ⇧⌘L | PKC | KSS:202, CV:7605, TIV |
 | closeTab | Close Tab | ⌘W | PKM | KSS:144, CV:7618 |
 | closeOtherTabsInPane | Close Other Tabs | ⌥⌘T | KMC | KSS:145, TIV |

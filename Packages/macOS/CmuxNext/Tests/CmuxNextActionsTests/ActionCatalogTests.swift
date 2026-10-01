@@ -73,7 +73,7 @@ import Testing
         .workspace: 139, // 80 + 29 room actions (plans/cmux-next/data-model.md 7) + showResources + 25 workspace verbs + 4 room/workspace theme actions
         .pane: 67, // + Move Pane to New Workspace, Undo Layout Change
         .screen: 62,
-        .tab: 74,
+        .tab: 75,
         .terminal: 35, // + Set / Reset Terminal Theme
         .browser: 95, // 78 - 2 profile placeholders + 18 browser profile actions (data-model.md 5) + Show History (Cmd-Y in a page)
         .sidebar: 30,
