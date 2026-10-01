@@ -109,8 +109,8 @@ struct AgentHookDeliveryQueueTests {
         #expect(await probe.completedPayloads() == [activePayload, latestPayload])
     }
 
-    @Test("Terminal lifecycle admission replaces stale actor-resident state")
-    func terminalLifecycleReplacesActorResidentState() async throws {
+    @Test("Session end replaces stale state but preserves stop completion")
+    func sessionEndReplacesStaleStateButPreservesStopCompletion() async throws {
         let activePayload = #"{"session_id":"session-a","state":"active"}"#
         let stalePrompt = #"{"session_id":"session-a","state":"stale-prompt"}"#
         let staleStop = #"{"session_id":"session-a","state":"stale-stop"}"#
@@ -147,8 +147,45 @@ struct AgentHookDeliveryQueueTests {
         )))
 
         await probe.release(payload: activePayload)
-        try await probe.waitUntilCompleted(count: 2)
-        #expect(await probe.completedPayloads() == [activePayload, latestPayload])
+        try await probe.waitUntilCompleted(count: 3)
+        #expect(await probe.completedPayloads() == [activePayload, staleStop, latestPayload])
+    }
+
+    @Test("Session end preserves a buffered stop completion")
+    func sessionEndPreservesBufferedStopCompletion() async throws {
+        let activePayload = #"{"session_id":"session-a","state":"active"}"#
+        let stopPayload = #"{"session_id":"session-a","state":"stopped"}"#
+        let endPayload = #"{"session_id":"session-a","state":"ended"}"#
+        let probe = AgentHookDeliveryTestProbe(blockedPayloads: [activePayload])
+        let queue = AgentHookDeliveryQueue(
+            maximumConcurrentDeliveries: 1,
+            maximumResidentEvents: 4,
+            maximumIngressEvents: 4,
+            maximumTerminalIngressEvents: 2
+        ) { event in
+            await probe.deliver(event)
+        }
+
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "prompt-submit",
+            payload: activePayload,
+            surfaceID: "surface-a"
+        )))
+        try await probe.waitUntilStarted(count: 1)
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "stop",
+            payload: stopPayload,
+            surfaceID: "surface-a"
+        )))
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "session-end",
+            payload: endPayload,
+            surfaceID: "surface-a"
+        )))
+
+        await probe.release(payload: activePayload)
+        try await probe.waitUntilCompleted(count: 3)
+        #expect(await probe.completedPayloads() == [activePayload, stopPayload, endPayload])
     }
 
     @Test("Terminal lifecycle has reserved execution capacity")

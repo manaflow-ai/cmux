@@ -186,6 +186,61 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(window.frame.height, savedFrame.height, accuracy: 1)
     }
 
+    /// A 320-point fixture closed by an earlier app-host test process used to
+    /// size this process's launch window through the app's shared preferences
+    /// domain, and every window copied from it was too narrow for a
+    /// side-by-side split. The frame is planted in that shared domain the way
+    /// an earlier process saved it; this process's own domain must not see it.
+    func testWindowGeometrySavedByEarlierTestProcessDoesNotSizeNewWindow() throws {
+        let previousShared = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousShared }
+
+        let sharedDomain = try XCTUnwrap(Bundle.main.bundleIdentifier) as CFString
+        let persistedGeometryKey = AppDelegate.debugPersistedWindowGeometryDefaultsKey as CFString
+        let previousSharedGeometry = CFPreferencesCopyAppValue(persistedGeometryKey, sharedDomain)
+        var windowId: UUID?
+        defer {
+            if let windowId {
+                closeWindow(withId: windowId)
+            }
+            CFPreferencesSetAppValue(persistedGeometryKey, previousSharedGeometry, sharedDomain)
+            CFPreferencesAppSynchronize(sharedDomain)
+        }
+
+        let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
+        let fixtureFrame = CGRect(
+            x: screen.visibleFrame.minX,
+            y: screen.visibleFrame.minY,
+            width: 320,
+            height: 268
+        )
+        let payload = AppDelegate.PersistedWindowGeometry(
+            version: AppDelegate.persistedWindowGeometrySchemaVersion,
+            frame: SessionRectSnapshot(fixtureFrame),
+            display: SessionDisplaySnapshot(
+                displayID: screen.cmuxDisplayID,
+                frame: SessionRectSnapshot(screen.frame),
+                visibleFrame: SessionRectSnapshot(screen.visibleFrame)
+            )
+        )
+        CFPreferencesSetAppValue(
+            persistedGeometryKey,
+            try JSONEncoder().encode(payload) as CFData,
+            sharedDomain
+        )
+        CFPreferencesAppSynchronize(sharedDomain)
+
+        let createdWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
+        windowId = createdWindowId
+        let window = try XCTUnwrap(window(withId: createdWindowId))
+        let styleMask = window.styleMask
+        let expectedContentSize = CmuxMainWindow.defaultContentRect(styleMask: styleMask).size
+        let contentSize = window.contentRect(forFrameRect: window.frame).size
+        XCTAssertEqual(contentSize.width, expectedContentSize.width, accuracy: 1)
+        XCTAssertEqual(contentSize.height, expectedContentSize.height, accuracy: 1)
+    }
+
     private func makeKeyDownEvent(
         key: String,
         keyCode: UInt16,

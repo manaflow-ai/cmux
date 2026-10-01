@@ -39,6 +39,7 @@ public actor CloudTelemetryUploader: CloudTelemetrySending {
     private let baseURL: URL
     private let client: CloudTelemetryClient
     private let queueURL: URL
+    private let batchDelay: Duration
     private let logger = Logger(subsystem: "com.cmuxterm.app", category: "CloudDiagnostics")
     private var entries: [Entry] = []
     private var loaded = false
@@ -51,12 +52,14 @@ public actor CloudTelemetryUploader: CloudTelemetrySending {
         baseURL: URL,
         client: CloudTelemetryClient,
         session: URLSession = URLSession(configuration: .ephemeral),
-        queueURL: URL? = nil
+        queueURL: URL? = nil,
+        batchDelay: Duration = .seconds(2)
     ) {
         self.auth = auth
         self.baseURL = baseURL
         self.client = client
         self.session = session
+        self.batchDelay = batchDelay
         self.queueURL = queueURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.cmuxterm.app")
             .appendingPathComponent("cloud-diagnostics.json")
@@ -99,9 +102,10 @@ public actor CloudTelemetryUploader: CloudTelemetrySending {
     private func schedule() {
         guard uploadTask == nil else { return }
         let currentGeneration = generation
+        let batchDelay = batchDelay
         uploadTask = Task { [weak self] in
             // Batch cadence, not a UI synchronization delay.
-            try? await Task.sleep(for: .seconds(2))
+            try? await Task.sleep(for: batchDelay)
             await self?.drain(generation: currentGeneration)
         }
     }

@@ -11,7 +11,7 @@ cmux hooks setup --agent <agent>
 cmux hooks uninstall <agent>
 ```
 
-Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, `amp`, `cursor`, `gemini`, `kimi`, `kiro`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
+Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, `amp`, `cursor`, `gemini`, `kiro`, `antigravity` (or `agy`), `rovodev` (or `rovo`), `hermes-agent`, `copilot`, `codebuddy`, `factory`, `qoder`, and `kimi`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
 
 ## Remote hosts
 
@@ -46,8 +46,12 @@ Inside tmux, these hooks report to the cmux workspace attached to the tmux sessi
 | CodeBuddy | `codebuddy` | `~/.codebuddy/settings.json` | `codebuddy --resume <id>` | PreToolUse |
 | Factory | `droid` | `~/.factory/settings.json` | `droid --resume <id>` | PreToolUse |
 | Qoder | `qodercli` | `~/.qoder/settings.json` | `qodercli --resume <id>` | PreToolUse |
-| Kimi Code | `kimi` | `~/.kimi-code/config.toml` or `~/.kimi/config.toml` | not yet | PreToolUse, PostToolUse |
+| Kimi Code | `kimi` | `~/.kimi-code/config.toml` or `~/.kimi/config.toml` | `kimi --resume <id>` | PreToolUse, PostToolUse |
 | Antigravity | `agy` | `~/.gemini/config/hooks.json` (`cmux` hook group) | `agy --conversation <id>` | none |
+
+Kimi Code resumes with the captured executable and working directory, preserving supported
+model and configuration options. Prompts, old session selectors, and noninteractive commands
+are omitted by the sanitizer described below.
 
 OpenCode also supports project-local Feed installation:
 
@@ -79,11 +83,12 @@ Agent Hibernation kills idle background agent processes to free their RAM and CP
 
 For routine hibernation, a live terminal is only a candidate when all of these hold:
 
-- it has a saved restorable agent session, and the saved launch data can build a resume command
+- it has a saved restorable agent session, and the saved launch data can relaunch it the way it was started (a Claude session needs its captured launch arguments, so a `sr claude proxy` launch resumes through `sr`; a declared `agents.launchers` entry must still resolve)
 - the agent lifecycle is `idle` (not running, not waiting on input)
 - the terminal is in the background (its panel is not currently visible)
 - you have more live restorable agent terminals than the live-terminal limit (`maxLiveTerminals`, default `12`)
 - the terminal has had no output, input, or lifecycle change for at least the idle window (`idleSeconds`, default `5`)
+- the agent has no background work still running: no shell it started after launch is alive, and its Claude transcript shows no unfinished `run_in_background` command, Monitor, or async subagent
 
 The live-terminal limit is the first gate. Under the limit, nothing hibernates no matter how long it sits idle. Once you are over the limit, cmux frees only the oldest-idle background terminals, just enough to get back under the limit. Visible terminals are never touched.
 
@@ -98,6 +103,17 @@ Under memory pressure, cmux can run the same protected teardown path independent
 ### What gets killed and how it comes back
 
 cmux sends `SIGTERM` to the agent's process group (scoped to that workspace and surface), then swaps the live terminal for a lightweight placeholder, releasing the terminal's memory and CPU. When you visit the tab again, cmux runs the agent's native resume command with the saved session ID, so the session continues where it left off. The placeholder also shows a Resume button as a manual fallback.
+
+### Hibernate or wake one agent
+
+```bash
+cmux agent hibernate surface:3     # or: cmux agent-hibernation hibernate surface:3
+cmux agent wake surface:3
+```
+
+`hibernate` stops one agent now, whether or not routine hibernation is on. It skips the idle delay, the live-terminal limit and the confirmation window, and keeps every other check. The agent must be off screen and idle, with no unsent input and no background work. cmux still snapshots the transcript and revalidates the process before it signals anything. When a check fails, the command exits non-zero and says why. `wake` resumes a hibernated agent in place without moving focus. Both accept a surface UUID, a ref, or an index with `--workspace`, and `--json`. Over the socket they are `agent.hibernate` and `agent.wake` with `surface_id`.
+
+After a wake, cmux checks that the agent actually came back. The wake counts as working as soon as either the agent's own hooks report in for that terminal or a live process of that agent is found running in it (cmux looks every few seconds, which covers agents without hooks). If the resume command exits before either happens, or neither happens within 90 seconds, the terminal shows a banner saying the agent didn't resume, with **Retry** (types the resume command again), **Show command** (shows the command so you can copy it) and a close button. The workspace's sidebar row shows "Agent didn't resume" until the failure is retried, dismissed, or the agent reports in, and one entry is added to the notification feed. The sidebar row is not saved with the session.
 
 ### Enable and configure
 
