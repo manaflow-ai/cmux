@@ -5,7 +5,6 @@ import SwiftUI
 /// Its row exists only while there is something to say; plan usage lives on the
 /// Cloud Machines header instead.
 struct MachinesCloudStatus: View {
-    let activeOperation: String?
     /// The machine-list status, only while cached machines stay on screen.
     let listStatus: MachineListStatus?
     let listError: String?
@@ -17,43 +16,14 @@ struct MachinesCloudStatus: View {
     let performListStatusAction: (MachineListStatusPresentation.Action) -> Void
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            if listStatus != nil || treeError != nil {
-                HStack(spacing: 6) {
-                    persistentMessage
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
-                .padding(.vertical, RightSidebarChromeMetrics.barVerticalPadding)
+        if listStatus != nil || treeError != nil {
+            HStack(spacing: 6) {
+                persistentMessage
+                Spacer(minLength: 0)
             }
-            if let activeOperation {
-                // Opening a Cloud surface is usually fast enough that a status row
-                // would only flash. Keep the progress affordance at the status row's
-                // origin, but give it no layout height so the tree never jumps.
-                Color.clear
-                    .frame(maxWidth: .infinity, height: 0)
-                    .overlay(alignment: .topLeading) {
-                        operationMessage(activeOperation)
-                            .allowsHitTesting(false)
-                            .zIndex(1)
-                    }
-            }
+            .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
+            .padding(.vertical, RightSidebarChromeMetrics.barVerticalPadding)
         }
-    }
-
-    private func operationMessage(_ operation: String) -> some View {
-        HStack(spacing: 5) {
-            ProgressView().controlSize(.mini)
-            Text(operation)
-                .cmuxFont(size: 11)
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
-        .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
-        .padding(.vertical, RightSidebarChromeMetrics.barVerticalPadding)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial)
     }
 
     @ViewBuilder

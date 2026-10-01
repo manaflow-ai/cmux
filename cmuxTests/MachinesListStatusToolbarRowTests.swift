@@ -242,9 +242,9 @@ struct MachinesCloudStatusTests {
         activeOperation: String? = nil,
         onDismissTreeError: @escaping (String) -> Void
     ) -> Hosted {
+        _ = activeOperation
         let view = NSHostingView(
             rootView: MachinesCloudStatus(
-                activeOperation: activeOperation,
                 listStatus: nil,
                 listError: nil,
                 treeError: treeError,
