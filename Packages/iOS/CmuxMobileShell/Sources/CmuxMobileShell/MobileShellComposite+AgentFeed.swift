@@ -1042,7 +1042,11 @@ extension MobileShellComposite {
            agentFeedSuccessfulMacIDs.isDisjoint(with: targetOwnerKeys) {
             return .unavailable
         }
-        return targets.count < connectedClientIDs.count ? .requiresMacUpdate : .ready
+        // The Feed is scoped to Macs that advertise `feed.v1`. An older paired
+        // Mac has no bearing on the rows already available from capable Macs,
+        // so partial capability must remain a usable Feed rather than an
+        // inline update warning.
+        return .ready
     }
 
     // MARK: - Normalization

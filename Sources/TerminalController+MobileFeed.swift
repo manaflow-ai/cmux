@@ -18,21 +18,14 @@ extension TerminalController {
               let offset = params["offset"] as? Int, offset >= 0 else {
             return .err(code: "invalid_params", message: "Expected item_id and a nonnegative offset", data: nil)
         }
-        let item = FeedCoordinator.shared.snapshot(pendingOnly: false).first(where: { $0.id == id })
-        let notification = item == nil
-            ? TerminalNotificationStore.shared.notificationFeedHistory.notifications.first(where: { $0.id == id })
-            : nil
-        guard item != nil || notification != nil else {
+        guard let item = FeedCoordinator.shared.snapshot(pendingOnly: false).first(where: { $0.id == id }) else {
             return .err(code: "not_found", message: "Feed item is no longer available", data: nil)
         }
-        let version = (item?.updatedAt ?? notification!.createdAt).timeIntervalSinceReferenceDate
+        let version = item.updatedAt.timeIntervalSinceReferenceDate
         if offset > 0, (params["version"] as? Double) != version {
             return .err(code: "stale_item", message: "Feed item changed while reading", data: nil)
         }
-        let fullText = item?.fullText ?? [notification!.title, notification!.subtitle, notification!.body]
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
-        guard let page = WorkstreamTextPage(text: fullText, offset: offset) else {
+        guard let page = WorkstreamTextPage(text: item.fullText, offset: offset) else {
             return .err(code: "invalid_params", message: "Invalid text offset", data: nil)
         }
         var result: [String: Any] = ["text": page.text, "version": version]
@@ -54,13 +47,6 @@ extension TerminalController {
     ) async -> V2CallResult {
         let pendingOnly = params["pending_only"] as? Bool ?? false
         let workstreamRevision = FeedCoordinator.shared.store?.revision ?? 0
-        let notificationHistory = TerminalNotificationStore.shared.notificationFeedHistory
-        notificationHistory.reconcileActiveNotifications(TerminalNotificationStore.shared.notifications)
-        let notificationSnapshot = notificationHistory.snapshot
-        let revision = FeedCoordinator.combinedMobileFeedRevision(
-            workstream: workstreamRevision,
-            notifications: notificationSnapshot.revision
-        )
         let items = FeedCoordinator.shared.snapshot(pendingOnly: pendingOnly)
 
         // The phone Feed is a decision surface, not a raw event log: session
@@ -89,30 +75,10 @@ extension TerminalController {
         // The store appends chronologically; encode the newest rows first so
         // the frame-fitting cut drops the oldest rows.
         var datedRows: [(date: Date, id: String, row: [String: Any])] = []
-        datedRows.reserveCapacity(min(
-            visibleItems.count + notificationSnapshot.notifications.count,
-            Self.mobileFeedMaximumItemCount
-        ))
+        datedRows.reserveCapacity(min(visibleItems.count, Self.mobileFeedMaximumItemCount))
         var resolvedTargets: [String: FeedJumpResolver.Target?] = [:]
-        let workstreamIDs = Set(visibleItems.map { $0.id })
         for item in visibleItems {
             datedRows.append((item.createdAt, item.id.uuidString, mobileFeedRow(for: item, resolvedTargets: &resolvedTargets)))
-        }
-        if !pendingOnly {
-            // Agent-hook notifications (permission, plan, question, and
-            // turn-completion banners) mirror workstream rows the Feed already
-            // shows, so only notifications explicitly known to be human-facing
-            // (cmux notify, watchers) join as their own rows. Records from
-            // before the flag existed (nil) are excluded too: they are mostly
-            // agent echoes, and every notification stays in the Notifications
-            // tab regardless.
-            for notification in notificationSnapshot.notifications
-            where !workstreamIDs.contains(notification.id) && notification.isAgentEvent == false {
-                let hasText = [notification.title, notification.subtitle, notification.body]
-                    .contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                guard hasText else { continue }
-                datedRows.append((notification.createdAt, notification.id.uuidString, mobileNotificationFeedRow(notification)))
-            }
         }
         datedRows.sort {
             if $0.date != $1.date { return $0.date > $1.date }
@@ -129,33 +95,6 @@ extension TerminalController {
             "revision": revision,
             "items": fittedRows,
         ])
-    }
-
-    private func mobileNotificationFeedRow(
-        _ notification: NotificationFeedHistoryRecord
-    ) -> [String: Any] {
-        let fullText = [notification.title, notification.subtitle, notification.body]
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
-        var row: [String: Any] = [
-            "id": notification.id.uuidString,
-            "event_id": notification.id.uuidString,
-            "workstream_id": "notification-\(notification.id.uuidString)",
-            "source": "notification",
-            "kind": "assistantMessage",
-            "status": "telemetry",
-            "created_at": ISO8601DateFormatter().string(from: notification.createdAt),
-            "updated_at": ISO8601DateFormatter().string(from: notification.createdAt),
-            "title": notification.title,
-            "text": fullText,
-            "workspace_id": notification.tabId.uuidString,
-            "full_text_preview": fullText,
-            "full_text_truncated": false,
-        ]
-        if let surfaceID = notification.surfaceId {
-            row["surface_id"] = surfaceID.uuidString
-        }
-        return row
     }
 
     /// One wire row: the control-socket item encoding plus the mobile-only
