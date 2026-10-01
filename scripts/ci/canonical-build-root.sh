@@ -31,6 +31,8 @@ if [ "${1:-}" = --runtime-source ]; then
   shift
 fi
 workspace="${1:-${GITHUB_WORKSPACE:-$PWD}}"
+runtime_root="${CMUX_CI_RUNTIME_SOURCE_ROOT:-$root}"
+runtime_src="$runtime_root/src"
 
 if [ ! -d "$workspace" ]; then
   echo "canonical-build-root: workspace $workspace does not exist" >&2
@@ -61,13 +63,14 @@ mkdir -p "$root"
 # A later producer removes this alias below before building a real source tree.
 if [ "$runtime_source" = true ]; then
   case "$workspace/" in
-    "$src/"*)
-      echo "canonical-build-root: runtime workspace must live outside $src" >&2
+    "$runtime_src/"*)
+      echo "canonical-build-root: runtime workspace must live outside $runtime_src" >&2
       exit 1
       ;;
   esac
-  rm -rf "$src"
-  ln -s "$workspace" "$src"
+  mkdir -p "$runtime_root"
+  rm -rf "$runtime_src"
+  ln -s "$workspace" "$runtime_src"
   exit 0
 fi
 

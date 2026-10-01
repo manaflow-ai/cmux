@@ -178,11 +178,10 @@ struct CloudMachinesHeaderCountTests {
                 "Header is \(height)pt; the toolbar alone is \(RightSidebarChromeMetrics.secondaryBarHeight)pt")
     }
 
-    @Test("Operations, list status and tree errors keep their row", arguments: ["operation", "listStatus", "treeError"])
+    @Test("Persistent list status and tree errors keep their row", arguments: ["listStatus", "treeError"])
     func fleetStatusStillShows(message: String) {
         let height = headerHeight {
             fleetStatus(
-                activeOperation: message == "operation" ? "Creating machine" : nil,
                 listStatus: message == "listStatus" ? .reconnecting : nil,
                 treeError: message == "treeError" ? "Cloud tree unavailable" : nil
             )
@@ -192,18 +191,16 @@ struct CloudMachinesHeaderCountTests {
     }
 
     private func fleetStatus(
-        activeOperation: String? = nil, listStatus: MachineListStatus? = nil, treeError: String? = nil
+        listStatus: MachineListStatus? = nil, treeError: String? = nil
     ) -> MachinesCloudStatus {
-        MachinesCloudStatus(activeOperation: activeOperation, listStatus: listStatus, listError: nil,
+        MachinesCloudStatus(listStatus: listStatus, listError: nil,
                             treeError: treeError, onDismissStale: { _ in }, onDismissTreeError: { _ in },
                             performListStatusAction: { _ in })
     }
 
     private func headerHeight<Status: View>(@ViewBuilder status: @escaping () -> Status) -> CGFloat {
         NSHostingView(rootView: CloudTeamPickerHeader(
-            accountFlow: nil, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
-            isRefreshing: false, onRefresh: {}, onNewMachine: {},
-            agentMenu: { EmptyView() }, status: status
+            accountFlow: nil, presentation: nil, chromeBackgroundColor: .windowBackgroundColor, status: status
         )).fittingSize.height
     }
 
