@@ -23,6 +23,14 @@ extension NotificationCenterService {
         return controller.flatMap { Self.contentTab($0.focus.state.resolved) }
     }
 
+    /// `window`'s focus is a terminal (not a page, address bar, or find bar).
+    func isTerminalFocused(in window: NSWindow?) -> Bool {
+        guard let services, let window = CmuxApplication.accessibilityWindow(for: window),
+              let controller = services.windows.controllers.first(where: { $0.window === window }) else { return false }
+        if case .terminal = controller.focus.state.resolved { return true }
+        return false
+    }
+
     /// The tab is the focused content of the key window while cmux is active.
     func isViewed(_ tabID: String) -> Bool {
         guard let services, NSApp.isActive else { return false }
@@ -48,8 +56,14 @@ extension NotificationCenterService {
         return LocatedTab(tab: tab, pane: pane, workspace: workspace)
     }
 
+    /// Each workspace adds its unread tab count, or 1 when that count is 0
+    /// and the workspace is marked unread by hand: a mark adds nothing to a
+    /// workspace that already has unread tabs (roughly the old app's count).
     static func unreadCount(_ store: DaemonStore?) -> Int {
-        store?.workspaces.reduce(0) { $0 + $1.unreadCount } ?? 0
+        store?.workspaces.reduce(0) { total, workspace in
+            let count = workspace.unreadCount
+            return total + (count == 0 && workspace.markedUnread ? 1 : count)
+        } ?? 0
     }
 
     /// Sets the Dock tile's unread count. Compares with the label it set

@@ -6,7 +6,8 @@ import Synchronization
 /// `follow:false`, the primitive behind `cmux session current journal
 /// read`; cmux-tui/spec/resource-api-v2.md) on a dedicated short-lived
 /// connection, so the control connection never carries a long replay.
-public enum SessionJournalRead {
+public struct SessionJournalRead: Sendable {
+    public static let shared = Self()
     public struct Result: Sendable {
         /// Each record's JSON (the stream item), in journal order.
         public var records: [Data]
@@ -20,7 +21,7 @@ public enum SessionJournalRead {
 
     /// Reads records of `kinds` after `cursor` (nil: from the beginning),
     /// at most `limit` of them, giving up after `deadline`.
-    public static func read(socketPath: String, kinds: [String], cursor: (generation: String, sequence: UInt64)?,
+    public func read(socketPath: String, kinds: [String], cursor: (generation: String, sequence: UInt64)?,
                             limit: Int = 20_000, deadline: Duration = .seconds(5)) async throws -> Result {
         let transport = try LineTransport(path: socketPath)
         let streamID = "stream_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
@@ -50,7 +51,7 @@ public enum SessionJournalRead {
             return try JSONEncoder().encode(envelope)
         }
         let opened = try? JSONDecoder().decode(OpenResponse.self, from: response.line)
-        let timer = DemandTimer(owner: "SessionJournalRead.deadline")
+        let timer = DemandTimer(owner: "SessionJournalRead.shared.deadline")
         timer.schedule(after: deadline) { endContinuation.finish() }
         for await _ in ended {}
         timer.cancel()
@@ -93,7 +94,7 @@ public enum SessionJournalRead {
                 if let generation = parsed.cursor?.generation { state.generation = generation }
                 switch parsed.type {
                 case "stream_item":
-                    if let item = Self.item(of: line) {
+                    if let item = item(of: line) {
                         state.records.append(item)
                         if let revision = parsed.cursor?.revision.flatMap(UInt64.init) { state.lastSequence = revision }
                     }
@@ -115,7 +116,7 @@ public enum SessionJournalRead {
             }
         }
 
-        private static func item(of line: Data) -> Data? {
+        private func item(of line: Data) -> Data? {
             guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any], let item = object["item"],
                   JSONSerialization.isValidJSONObject(item) else { return nil }
             return try? JSONSerialization.data(withJSONObject: item)

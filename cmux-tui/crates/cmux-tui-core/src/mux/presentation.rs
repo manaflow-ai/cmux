@@ -588,10 +588,11 @@ impl Mux {
 }
 
 impl Mux {
-    /// Set, clear, or keep a workspace's shared color, icon, and custom
-    /// title. The write commits one workspace-registry revision (the
-    /// registry order is unchanged), so it takes the durable mutation
-    /// envelope and emits `workspace-changed` with the full entity.
+    /// Set, clear, or keep a workspace's shared color, icon, custom title,
+    /// sidebar pin, and manual unread mark. The write commits one
+    /// workspace-registry revision (the registry order is unchanged), so it
+    /// takes the durable mutation envelope and emits `workspace-changed`
+    /// with the full entity.
     pub fn set_workspace_metadata(
         &self,
         workspace: Option<WorkspaceId>,
@@ -603,7 +604,7 @@ impl Mux {
     ) -> anyhow::Result<WorkspaceMutationResult> {
         anyhow::ensure!(update.group.is_none(), "use move-workspace-to-group to change a group");
         update.validate()?;
-        let fingerprint = serde_json::json!({
+        let mut fingerprint = serde_json::json!({
             "op": "set-workspace-metadata",
             "workspace": workspace,
             "key": requested_key,
@@ -611,6 +612,14 @@ impl Mux {
             "icon": update.icon,
             "title": update.title,
         });
+        // Only a pin request carries the key, so a retry first sent to a
+        // daemon without workspace-pin-v1 still replays.
+        if let Some(pinned) = update.pinned {
+            fingerprint["pinned"] = pinned.into();
+        }
+        if let Some(marked_unread) = update.marked_unread {
+            fingerprint["marked_unread"] = marked_unread.into();
+        }
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);
@@ -631,6 +640,12 @@ impl Mux {
             }
             if let Some(title) = &update.title {
                 after.title = title.clone();
+            }
+            if let Some(pinned) = update.pinned {
+                after.pinned = pinned;
+            }
+            if let Some(marked_unread) = update.marked_unread {
+                after.marked_unread = marked_unread;
             }
             let changed = before != after;
             let desired = self.registry_projection(&state);
@@ -1051,6 +1066,8 @@ mod tests {
             color: Some(Some("gray".into())),
             icon: Some(Some("terminal.fill".into())),
             title: Some(Some("Release train".into())),
+            pinned: Some(true),
+            marked_unread: Some(true),
         };
         let result = mux
             .set_workspace_metadata(
@@ -1075,6 +1092,8 @@ mod tests {
         assert_eq!(delta.entity["color"], "gray");
         assert_eq!(delta.entity["icon"], "terminal.fill");
         assert_eq!(delta.entity["title"], "Release train");
+        assert_eq!(delta.entity["pinned"], true);
+        assert_eq!(delta.entity["marked_unread"], true);
         // Absent fields are unchanged; null clears one field.
         mux.set_workspace_metadata(
             None,
@@ -1113,6 +1132,8 @@ mod tests {
         assert_eq!(record.color.as_deref(), Some("gray"));
         assert_eq!(record.icon.as_deref(), Some("terminal.fill"));
         assert_eq!(record.title, None);
+        assert!(record.pinned);
+        assert!(record.marked_unread);
         let replay = mux
             .set_workspace_metadata(
                 None,

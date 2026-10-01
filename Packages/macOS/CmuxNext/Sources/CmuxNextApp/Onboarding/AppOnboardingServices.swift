@@ -1,16 +1,16 @@
 import AppKit
-import CmuxNextActions
+import CmuxNextAccounts
 import CmuxNextBrowser
 import CmuxNextBrowserImport
-import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextOnboarding
 import CmuxNextSettings
 import CmuxNextTerminal
+import SwiftUI
 
-/// `OnboardingServices` over the app: cmux.json for theme and density, the
-/// importer and omnibar history, browser tabs, the action registry's live
-/// shortcuts, and the default-app registry (mocked in test launches).
+/// `OnboardingServices` over the app: cmux.json for the theme, the importer
+/// (cookies into each profile's Chromium store), the default-app registry
+/// (mocked in test launches) and the accounts feature's view.
 @MainActor
 final class AppOnboardingServices: OnboardingServices {
     unowned let owner: OnboardingService
@@ -57,7 +57,7 @@ final class AppOnboardingServices: OnboardingServices {
         }
         let cef = cache.cef
         let cookies = CookieImporter(destination: AppCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) },
-                                     keys: SafeStorageKeys.live())
+                                     keys: SafeStorageKeys().live())
         let importer = BrowserImporter(provisioning: AppBrowserProfileProvisioning(profiles: services.browserProfiles), store: owner.importStore,
                                        cookies: cookies)
         return try await importer.run(plan, into: destination) { step in
@@ -65,32 +65,19 @@ final class AppOnboardingServices: OnboardingServices {
         }
     }
 
-    func installExtension(_ item: ImportedExtension) {
-        // Chromium installs from the store page ("Add to Chrome").
-        focusedPane()?.newBrowserTab(url: item.webStoreURL, engine: BrowserEngineTag.cef.rawValue)
-    }
-
-    func openTabs(_ tabs: [ImportedTab]) {
-        guard let pane = focusedPane() else { return }
-        for (index, tab) in tabs.enumerated() { pane.newBrowserTab(url: tab.url, background: index > 0) }
-    }
-
-    var browserProfilesAvailable: Bool { true }
     var defaultApps: any DefaultAppRegistering { owner.defaultApps }
 
     func openExternal(_ url: URL) {
         NSWorkspace.shared.open(url)
     }
 
-    func shortcutDisplay(for actionID: String) -> String? {
-        services.registry.effectiveShortcut(for: ActionID(rawValue: actionID))?.displayString
+    var hasAccountsStep: Bool { true }
+
+    func makeAccountsStepView() -> NSView? {
+        NSHostingView(rootView: AccountsStepView(model: services.accounts.model, palette: .app))
     }
 
     func onboardingDidEnd(completed: Bool) {
         owner.markDone(completed: completed)
-    }
-
-    private func focusedPane() -> PaneController? {
-        services.windows.active?.focusedPane
     }
 }

@@ -1079,7 +1079,12 @@ jobs:
           CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
           CMUX_CEF_R2_ENV_FILE: /dev/null
           GH_TOKEN: ${{ secrets.CMUX_CEF_READ_TOKEN }}
-        run: scripts/cmux-next/ensure-cef.sh --optional
+        # The x86_64 engine (a manifest "x86_64" object) lets a universal
+        # build embed both slices (embed-cef.sh); without it this prints
+        # nothing and the universal app keeps the arm64 engine.
+        run: |
+          scripts/cmux-next/ensure-cef.sh --optional
+          scripts/cmux-next/ensure-cef.sh --optional --arch x86_64
 
       - name: Build nightly app (Release)
         run: |

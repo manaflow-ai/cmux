@@ -227,6 +227,13 @@ CMUX_SHIM_EXPORT int cmux_shim_create_window(int request,
 // Fork tab API; 0 on failure.
 CMUX_SHIM_EXPORT int cmux_shim_tab_add(int window_browser_id, const char* url, int index, int activate);
 CMUX_SHIM_EXPORT int cmux_shim_tab_activate(int browser_id);
+// Chrome's Back/Forward menus. JSON {"current": index, "entries": [{"url",
+// "title"}]} (display URLs), freed with cmux_shim_free; NULL for an unknown
+// browser. Works on every fork.
+CMUX_SHIM_EXPORT char* cmux_shim_tab_navigation_entries(int browser_id);
+// One history navigation to the entry `offset` from the current one
+// (negative = back). 1 when it went; 0 on forks before API 14.
+CMUX_SHIM_EXPORT int cmux_shim_tab_go_to_entry(int browser_id, int offset);
 CMUX_SHIM_EXPORT int cmux_shim_tab_window_id(int browser_id);
 
 CMUX_SHIM_EXPORT void cmux_shim_load_url(int browser_id, const char* url);

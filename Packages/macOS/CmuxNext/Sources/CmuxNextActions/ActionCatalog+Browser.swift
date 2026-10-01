@@ -176,7 +176,7 @@ nonisolated extension ActionCatalog {
             ),
             ActionDescriptor(
                 id: "importFromBrowser",
-                title: String(localized: "action.importFromBrowser", defaultValue: "Import Browser Data…", bundle: .module),
+                title: String(localized: "action.importFromBrowser2", defaultValue: "Import from Browser…", bundle: .module),
                 keywords: ["browser", "bookmarks", "cookies"], category: .browser,
                 symbol: "square.and.arrow.down.on.square", surfaces: [.menu, .contextMenu], targets: [.pane],
                 cliName: "browser import-data", mainMenu: .view

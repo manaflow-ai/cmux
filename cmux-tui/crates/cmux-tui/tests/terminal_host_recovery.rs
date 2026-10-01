@@ -4100,6 +4100,161 @@ fn placement_commands_start_terminals_with_the_caller_id_in_env() {
     }
 }
 
+/// Agent hooks and the `cmux` CLI inside a terminal address it through
+/// `CMUX_TUI_TERMINAL_ID` and `CMUX_TUI_SOCKET`. A new tab and a split get
+/// their own public terminal id, a tab moved to another workspace keeps it
+/// (the CLI resolves the caller's workspace from the terminal), and so does a
+/// host the daemon adopts after a restart.
+#[test]
+fn every_terminal_names_itself_and_its_daemon_in_env() {
+    let mut harness = RecoveryHarness::start("own-env");
+    let socket = harness.socket.display().to_string();
+    let (anchor, _) = run_cat_workspace(&harness.socket, 1, "anchor");
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"id": 2, "cmd": "resolve-terminal", "terminal_id": anchor}),
+    );
+    let (_, _, pane) = tab_placement(&harness.socket, resolved["surface"].as_u64().unwrap());
+    let created = [
+        ("new-tab", serde_json::json!({"id": 3, "cmd": "new-tab", "pane": pane})),
+        ("split", serde_json::json!({"id": 4, "cmd": "split", "pane": pane, "dir": "down"})),
+    ]
+    .map(|(command, value)| {
+        let created = request(&harness.socket, value);
+        let surface = created["surface"].as_u64().unwrap();
+        let id = own_terminal_env(&harness.socket, surface, &socket, command);
+        assert_eq!(tab_placement(&harness.socket, surface).0, id, "{command}");
+        (command, created["terminal_id"].as_str().unwrap().to_string(), id)
+    });
+    assert_ne!(created[0].2, created[1].2, "two terminals share an id");
+
+    let target = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 5,
+            "cmd": "run",
+            "argv": ["/bin/cat"],
+            "new_workspace": true,
+            "name": "target",
+        }),
+    )["workspace"]
+        .as_u64()
+        .unwrap();
+    let moved = request(
+        &harness.socket,
+        serde_json::json!({"id": 6, "cmd": "resolve-terminal", "terminal_id": created[0].1}),
+    )["surface"]
+        .as_u64()
+        .unwrap();
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 7,
+            "cmd": "move-tab-to-workspace",
+            "surface": moved,
+            "workspace": target,
+        }),
+    );
+    let (id, workspace, _) = tab_placement(&harness.socket, moved);
+    assert_eq!(workspace, target, "the tab did not move");
+    assert_eq!(id, created[0].2, "a move changed the terminal's public id");
+    assert_eq!(own_terminal_env(&harness.socket, moved, &socket, "moved"), id);
+
+    harness.sigkill();
+    harness.restart();
+    for (command, host_id, id) in &created {
+        let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
+        let surface = loop {
+            let resolved = request(
+                &harness.socket,
+                serde_json::json!({"id": 8, "cmd": "resolve-terminal", "terminal_id": host_id}),
+            );
+            if resolved["lifecycle"] == "running"
+                && let Some(surface) = resolved["surface"].as_u64()
+            {
+                break surface;
+            }
+            assert!(Instant::now() < deadline, "{command}: the restarted daemon did not adopt it");
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        assert_eq!(
+            &tab_placement(&harness.socket, surface).0,
+            id,
+            "{command}: adoption changed the id"
+        );
+        let listed = resource_request(
+            &harness.socket,
+            &format!("own-env-list-{command}"),
+            "terminal.list",
+            serde_json::json!({"machine":"current","session":"current"}),
+            None,
+        );
+        assert!(
+            listed.as_array().unwrap().iter().any(|terminal| terminal["id"] == id.as_str()),
+            "{command}: {id} is not in terminal.list: {listed}"
+        );
+        let step = format!("{command}-adopted");
+        assert_eq!(&own_terminal_env(&harness.socket, surface, &socket, &step), id, "{command}");
+    }
+}
+
+/// The tab's public terminal id, its workspace, and its pane.
+fn tab_placement(socket: &Path, surface: u64) -> (String, u64, u64) {
+    let tree = request(socket, serde_json::json!({"id": 9_001, "cmd": "list-workspaces"}));
+    for workspace in tree["workspaces"].as_array().into_iter().flatten() {
+        let panes = workspace["screens"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|screen| screen["panes"].as_array().into_iter().flatten());
+        for pane in panes {
+            let Some(tab) = pane["tabs"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|tab| tab["surface"].as_u64() == Some(surface))
+            else {
+                continue;
+            };
+            return (
+                tab["terminal_resource_id"].as_str().unwrap_or_default().to_string(),
+                workspace["id"].as_u64().unwrap(),
+                pane["id"].as_u64().unwrap(),
+            );
+        }
+    }
+    panic!("surface {surface} is in no pane: {tree}");
+}
+
+/// Has the shell in `surface` print its `CMUX_TUI_TERMINAL_ID` and compare
+/// its `CMUX_TUI_SOCKET` with `expected_socket`; returns the id. `step` keeps
+/// each read's markers apart from earlier output on the same screen.
+fn own_terminal_env(socket: &Path, surface: u64, expected_socket: &str, step: &str) -> String {
+    // The echoed command line shows `%s` and `$((1+1))`; only the output
+    // carries the id and `2`, so the typed line never matches a marker.
+    let text = format!(
+        "printf '{step}=%s\\n' \"$CMUX_TUI_TERMINAL_ID\"; \
+         [ \"$CMUX_TUI_SOCKET\" = '{expected_socket}' ] && echo \"{step}-socket=$((1+1))\"\n"
+    );
+    request(
+        socket,
+        serde_json::json!({"id": 9_002, "cmd": "send", "surface": surface, "text": text}),
+    );
+    let socket_marker = format!("{step}-socket=2");
+    let screen = wait_for_screen(socket, surface, &socket_marker);
+    assert!(
+        screen.contains(&socket_marker),
+        "{step}: CMUX_TUI_SOCKET is not {expected_socket}: {screen}"
+    );
+    let marker = format!("{step}=");
+    screen
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix(marker.as_str()))
+        .find(|id| id.starts_with("term_"))
+        .map(str::to_string)
+        .unwrap_or_else(|| panic!("{step}: CMUX_TUI_TERMINAL_ID is not set: {screen}"))
+}
+
 /// `shutdown-daemon` with `end_terminals` ends every host before the daemon
 /// exits, so test teardown leaves no terminal host behind.
 #[test]

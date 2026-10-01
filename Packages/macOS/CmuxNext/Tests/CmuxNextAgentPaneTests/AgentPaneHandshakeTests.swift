@@ -40,6 +40,10 @@ import Testing
         #expect(AgentPaneRequest(body: ["id": "1", "method": "ready", "params": [:]]) == .ready)
         #expect(AgentPaneRequest(body: ["method": "chat.persistSession", "params": ["sessionId": "s-2"]]) == .persistSession("s-2"))
         #expect(AgentPaneRequest(body: ["method": "chat.persistSession", "params": ["sessionId": ""]]) == .unsupported("chat.persistSession"))
+        #expect(AgentPaneRequest(body: ["method": "pane.framePacing", "params": ["intervals": [6.25, 12.5]]]) == .framePacing([6.25, 12.5]))
+        #expect(AgentPaneRequest(body: ["method": "pane.framePacing", "params": ["intervals": [Double]()]]) == .unsupported("pane.framePacing"))
+        let long = AgentPaneRequest(body: ["method": "pane.framePacing", "params": ["intervals": Array(repeating: 6.25, count: 1000)]])
+        #expect(long == .framePacing(Array(repeating: 6.25, count: AgentPaneRequest.maximumPacingFrames)))
         #expect(AgentPaneRequest(body: ["method": "chat.send", "params": ["text": "hi"]]) == .unsupported("chat.send"))
         #expect(AgentPaneRequest(body: "ready") == .unsupported(""))
     }

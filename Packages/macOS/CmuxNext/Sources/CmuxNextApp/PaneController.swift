@@ -68,11 +68,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
         services.presentation.cancel(self)
         // No-op for a tab that moved to another pane: its new pane owns it.
         services.cache.removePresenter(self)
-        // The daemon closed the pane (not a workspace switch or a layout
-        // move): its agent tabs, which the daemon does not know, go with it.
-        if case .connected = daemon.store.connectionState, daemon.store.pane(pane.handle) == nil {
-            services.agentTabs.closePane(paneKey)
-        }
+        // Agent tabs of panes the live tree no longer lists close now
+        // rather than at the store's next observation; a workspace switch or
+        // a layout move keeps the pane listed, so its tabs stay.
+        services.agentTabs.closeGonePanes(in: daemon.store)
         currentTabKey = nil
         view.detachContent()
         services.surfaceInvariant.noteChange()
@@ -105,7 +104,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let machine = daemon.isLocal ? nil : services.machines.machineBadge(daemon.machineID)
         let workspaceID = store.workspace(containing: pane.handle)?.id
         var items = pane.tabs.filter { !pendingClosed.contains($0.id) }.map { tab -> StripTabItem in
-            var item = TabItemMapping.item(tab, fallbackTitle: tab.kind == .browser ? Strings.untitledBrowser : fallback)
+            var item = TabItemMapping.shared.item(tab, fallbackTitle: tab.kind == .browser ? Strings.untitledBrowser : fallback)
             item.groupID = tab.tabGroup.map { TabGroupID($0.rawValue) }
             if !DesignSettings.shared.attention.showsOnTab { item.isUnread = false }
             item.isDormant = services.cache.dormantTabs.contains(tab.id)

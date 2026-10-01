@@ -50,7 +50,7 @@ import Testing
          "networks":[{"cidr":"10.16.1.0/24","cidrV6":"fd0b::/64"},{"cidr":"10.20.0.0/24"}]}
         """
         let enrollment = try JSONDecoder().decode(CloudTunnelEnrollment.self, from: Data(json.utf8))
-        let text = WireGuardConfig.completed(enrollment, privateKey: "KEY=")
+        let text = WireGuardConfig.shared.completed(enrollment, privateKey: "KEY=")
         #expect(text.contains("PrivateKey = KEY=\n"))
         #expect(text.contains("AllowedIPs = 10.16.1.0/24, fd0b::/64, 10.20.0.0/24, 10.0.0.0/8, fd00::/8"))
         #expect(text.contains("Endpoint = h:51820"))

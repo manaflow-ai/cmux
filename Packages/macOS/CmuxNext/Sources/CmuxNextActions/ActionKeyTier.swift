@@ -78,13 +78,8 @@ extension ActionRegistry {
     /// one wins first (so Cmd-R in a page is reload, not rename), then the
     /// router decides by tier whether it may run now.
     public func resolveShortcut(for event: NSEvent) -> (id: ActionID, argument: String?, tier: ActionKeyTier)? {
-        guard event.type == .keyDown else { return nil }
-        let flags = event.modifierFlags.intersection(Shortcut.relevantModifiers)
-        var keys: [String] = []
-        if let key = event.charactersIgnoringModifiers?.lowercased() { keys.append(key) }
-        if let base = event.characters(byApplyingModifiers: [])?.lowercased(), !keys.contains(base) { keys.append(base) }
-        for key in keys {
-            if let resolved = resolve(Shortcut(key, modifiers: flags)) {
+        for shortcut in Self.shortcuts(for: event) {
+            if let resolved = resolve(shortcut) {
                 return (resolved.id, resolved.argument, keyTier(for: resolved.id))
             }
         }

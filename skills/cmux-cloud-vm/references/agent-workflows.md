@@ -74,6 +74,45 @@ routes, and `cmux vm ls` lists them where the guest supports it. Peer verbs such
 `vm exec`, `vm terminal …` and `vm push` toward another machine are not available;
 open a terminal on that machine from the Mac instead.
 
+### Queue a message into a Codex session
+
+`codex queue` talks to the Codex app-server session store. Run it in a terminal on
+the machine that owns the session, as the same user and with that user's original
+`CODEX_HOME`; do not run it from a copied home directory. The queue is local to
+that app-server instance, so a successful enqueue in another home does not reach
+the visible session.
+
+Use the session's exact UUID (or an exact session name) and quote the message:
+
+```bash
+codex queue --thread <codex-thread-uuid> --message 'Please re-check the failing test and report the result.'
+```
+
+`Queued` only means the app-server accepted an item into its queue database; it
+does not mean that the agent has read, started, or completed the message. Verify
+delivery by inspecting the target session's next turn and visible terminal state
+(`cmux terminal term_… screen read` or `output read`). If the target is busy, the
+message waits for the session's queue semantics rather than interrupting an
+in-flight turn. If the target thread is not loaded, the message remains queued
+until you open or resume that thread.
+
+Do not copy `CODEX_HOME`, manually edit `queue_*.sqlite`, or treat a copied
+database's `Queued` response as delivery evidence. Those operations enqueue for
+the copy only and can race the app-server's writer. If the local control socket
+is inaccessible (for example, a cloud container may report `Operation not
+permitted` for `/home/<user>/.codex/app-server-control/app-server-control.sock`),
+type into the session's terminal instead:
+
+```bash
+cmux terminal term_… write --text $'Continue with the next step.\n'
+cmux terminal term_… screen read
+```
+
+When a remote app-server endpoint is intentionally exposed, use the installed
+CLI's `--remote <wss://…>` together with `--remote-auth-token-env <ENV_VAR>` and
+the endpoint's authenticated token. Do not put an app-server token in a terminal
+command, prompt, or repository file. Use `ws://` only for loopback endpoints.
+
 ## 5. Checkpoints and forks
 
 ```bash

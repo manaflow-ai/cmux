@@ -35,7 +35,7 @@ final class TabContentCache {
     let dormantTabs = DormantTabs()
     let previews = PreviewImageCache()
     let webKit = WebKitEngine()
-    let cef = CEFEngine()
+    let cef: CEFEngine
     /// Pages visited in the default browser profile, shared by its omnibars for suggestions and
     /// inline autocomplete (in memory, durable via `HistoryService`). Others: `history(for:)`.
     let history = InMemoryBrowserHistory()
@@ -99,8 +99,9 @@ final class TabContentCache {
     /// closed; the App routes it through the window's focus coordinator.
     var onDevToolsChange: ((String, BrowserDevToolsState, Bool) -> Void)?
 
-    init(daemon: DaemonService) {
+    init(daemon: DaemonService, cef: CEFEngine = CEFEngine()) {
         self.daemon = daemon
+        self.cef = cef
         browserTabs = BrowserTabService(daemon: daemon, cef: cef)
     }
 

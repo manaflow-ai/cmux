@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR ecaa3e70ba922e2e428912bf9012d406c92fc84b300654e25820523ff1ee23e2. */
+/* cmux-tui mux protocol 12, IR 76ed0900c4489b6d294445f66217d192715cdfd4a0ed24f2b3f544e991967c59. */
 
 
 import type * as T from "./types.js";
@@ -460,6 +460,7 @@ export interface DetachClientRequest extends CmuxRequestBase {
   cmd: "detach-client";
   "by"?: (T.SizeDetachActor) | null;
   "client": T.DetachClientTarget;
+  "surface"?: (T.Id) | null;
 }
 export type DetachClientResult = T.EmptyResult;
 
@@ -997,6 +998,13 @@ export interface ReadScrollbackRequest extends CmuxRequestBase {
   "surface": T.Id;
 }
 
+/** Protocol v12; authority: control. */
+export interface ReattachViewRequest extends CmuxRequestBase {
+  cmd: "reattach-view";
+  "counts"?: (boolean) | null;
+  "surface": T.Id;
+}
+
 /** Protocol v10; authority: local-admin. */
 export interface RegisterBrowserProviderRequest extends CmuxRequestBase {
   cmd: "register-browser-provider";
@@ -1229,6 +1237,7 @@ export interface SetCellPixelsRequest extends CmuxRequestBase {
 export interface SetClientInfoRequest extends CmuxRequestBase {
   cmd: "set-client-info";
   "capabilities"?: (Array<string>) | null;
+  "device_id"?: (string) | null;
   "device_kind"?: (string) | null;
   "device_name"?: (string) | null;
   "display_name"?: (string) | null;
@@ -1377,8 +1386,10 @@ export interface SetWorkspaceMetadataRequest extends CmuxRequestBase {
   "expected_revision"?: (bigint) | null;
   "icon"?: (string) | null;
   "key"?: (string) | null;
+  "marked_unread"?: (boolean) | null;
   "mutation_id"?: (string) | null;
   "origin"?: (string) | null;
+  "pinned"?: (boolean) | null;
   "title"?: (string) | null;
   "workspace"?: (T.Id) | null;
 }
@@ -1706,6 +1717,7 @@ export type CmuxRequest =
   | PutSessionRequest
   | ReadScreenRequest
   | ReadScrollbackRequest
+  | ReattachViewRequest
   | RegisterBrowserProviderRequest
   | ReleaseAttachedViewSizeRequest
   | ReleaseSurfaceSizeRequest
@@ -2614,6 +2626,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 7;
     capability: null;
+    stream: null;
+  };
+  "reattach-view": {
+    request: ReattachViewRequest;
+    result: T.ReattachViewResult;
+    authority: "control";
+    since: 12;
+    capability: "sizing-view-detach-v1";
     stream: null;
   };
   "register-browser-provider": {

@@ -110,7 +110,7 @@ func settle(_ rounds: Int = 20_000) async {
     @Test func firstConnectStopsTimedRetriesAfterItsBudget() async {
         let attempts = Mutex(0)
         let task = Task {
-            await DaemonStartup.connect(clock: ImmediateClock()) {
+            await DaemonStartup.shared.connect(clock: ImmediateClock()) {
                 DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil)) {
                     attempts.withLock { $0 += 1 }
                     throw DaemonError.launchFailed("exit 1: the detached session owner did not become ready")

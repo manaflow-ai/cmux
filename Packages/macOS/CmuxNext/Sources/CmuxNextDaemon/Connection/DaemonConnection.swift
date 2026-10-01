@@ -56,8 +56,8 @@ public actor DaemonConnection {
 
         public init(
             clientName: String = "cmux-next",
-            requiredCapabilities: [String] = DaemonCapabilities.required,
-            advertisedCapabilities: [String] = DaemonCapabilities.advertised,
+            requiredCapabilities: [String] = DaemonCapabilities.shared.required,
+            advertisedCapabilities: [String] = DaemonCapabilities.shared.advertised,
             treeEvents: TreeEventMode = .deltas,
             retry: RetryPolicy = .reconnect,
             healthyAfter: Duration = .seconds(10),
@@ -65,7 +65,7 @@ public actor DaemonConnection {
             requestTimeout: Duration? = DaemonConnection.defaultRequestTimeout,
             snapshotTimeout: Duration? = .seconds(10),
             spawnTimeout: Duration? = DaemonConnection.defaultSpawnTimeout,
-            terminalEnvironment: (@Sendable () async -> [String: String])? = TerminalEnvironment.shared(),
+            terminalEnvironment: (@Sendable () async -> [String: String])? = TerminalEnvironment.instance.shared(),
             sessionEvents: Bool = false
         ) {
             self.clientName = clientName
@@ -176,7 +176,7 @@ public actor DaemonConnection {
             return try await self.request(request, timeout: configuration.requestTimeout)
         }
         var request = request
-        if identity?.supports(DaemonCapabilities.terminalShellArgs) == true,
+        if identity?.supports(DaemonCapabilities.shared.terminalShellArgs) == true,
            let carrier = request as? any ShellIntegrationArgumentCarrying,
            let integrated = carrier.addingShellIntegrationArguments() as? R {
             request = integrated
@@ -231,14 +231,14 @@ public actor DaemonConnection {
             try WireCoding.encodeRequest(ListWorkspacesRequest(), id: id)
         }
         var tree = try WireCoding.decodeResponse(DaemonTree.self, from: response.line)
-        if identity?.supports(DaemonCapabilities.savedTabGroups) == true, tree.savedTabGroups.isEmpty {
+        if identity?.supports(DaemonCapabilities.shared.savedTabGroups) == true, tree.savedTabGroups.isEmpty {
             // Saved groups are not part of `list-workspaces`. Their changes
             // emit `tree-changed`, which triggers this snapshot again.
             tree.savedTabGroups = try await Self.perform(ListSavedTabGroupsRequest(), on: transport,
                                                          timeout: configuration.requestTimeout).savedGroups
             tree.linkSavedTabGroups()
         }
-        if identity?.supports(DaemonCapabilities.profiles) == true {
+        if identity?.supports(DaemonCapabilities.shared.profiles) == true {
             // Personal state is its own read; its changes emit
             // `personal-changed`, which triggers this snapshot again.
             tree.personal = try await Self.perform(ListPersonalRequest(), on: transport, timeout: configuration.requestTimeout)

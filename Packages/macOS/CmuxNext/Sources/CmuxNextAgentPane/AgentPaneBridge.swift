@@ -4,9 +4,10 @@ import WebKit
 /// Receives the page's `agentSession` messages. The user content controller
 /// retains its handlers, so this holds the view weakly to break the cycle.
 ///
-/// Trust: only the main frame of this pane's web view, showing the bundled
-/// page, may ask for the handshake (it carries the daemon token). Anything
-/// else is refused before the model sees it.
+/// Trust: only the main frame of this pane's web view, showing the pane's
+/// own page (`AgentPaneSource.isTrusted`), may ask for the handshake (it
+/// carries the daemon token). Anything else is refused before the model
+/// sees it.
 final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
     weak var view: AgentPaneView?
 
@@ -15,18 +16,33 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) async -> (Any?, String?) {
-        guard let view, message.webView === view.webView, message.frameInfo.isMainFrame,
-              Self.isTrusted(message.frameInfo.request.url, page: view.pageURL)
-        else {
+        guard isTrusted(message) else {
             return (AgentPaneReply.failure(code: "untrusted_frame", message: "Untrusted frame"), nil)
         }
-        let reply = await view.model.respond(to: AgentPaneRequest(body: message.body))
-        return (reply, nil)
+        return (await reply(to: AgentPaneRequest(body: message.body)), nil)
     }
 
-    /// True when `url` is the bundled page itself (a `#fragment` allowed).
-    static func isTrusted(_ url: URL?, page: URL) -> Bool {
-        guard let url, url.isFileURL else { return false }
-        return url.standardizedFileURL.resolvingSymlinksInPath().path == page.standardizedFileURL.resolvingSymlinksInPath().path
+    /// The reply for a request from the pane's trusted page.
+    func reply(to request: AgentPaneRequest) async -> [String: Any] {
+        guard let model = prepare(for: request) else { return AgentPaneReply.failure(code: "closed", message: "Closed") }
+        // The handshake can wait up to 20 seconds for acpmux to start. Only
+        // the model is held across it, so closing the tab frees the view and
+        // its web view right away.
+        return await model.respond(to: request)
+    }
+
+    private func isTrusted(_ message: WKScriptMessage) -> Bool {
+        guard let view else { return false }
+        return message.webView === view.webView && message.frameInfo.isMainFrame
+            && view.source.isTrusted(message.frameInfo.request.url)
+    }
+
+    private func prepare(for request: AgentPaneRequest) -> AgentPaneModel? {
+        guard let view else { return nil }
+        // The page installs its bridge and registry before asking for the
+        // handshake, which can be after didFinish; replay the customization
+        // so registry.js finds them.
+        if request == .ready { view.replayCustomization() }
+        return view.model
     }
 }

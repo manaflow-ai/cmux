@@ -66,9 +66,15 @@ public final class SettingsApplier {
                 setOverride(nil, for: id)
             case .stroke(let stroke):
                 setOverride(Self.shortcut(for: stroke), for: id)
-            case .chord:
-                diagnostics.append(SettingsDiagnostic(kind: .unsupportedChord, path: path, message: "chords are not supported yet; the default shortcut stays"))
-                continue
+            case .chord(let first, let second):
+                // Only Command and Control chords reach the key router.
+                guard first.command || first.control else {
+                    diagnostics.append(SettingsDiagnostic(kind: .unsupportedChord, path: path,
+                                                          message: "the first key of a chord needs cmd or ctrl; the default shortcut stays"))
+                    continue
+                }
+                let chord = ShortcutChord(Self.shortcut(for: first), Self.shortcut(for: second))
+                if registry.chordOverrides[id] != chord { registry.setChordOverride(chord, for: id) }
             }
             applied.insert(id)
         }

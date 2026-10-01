@@ -273,6 +273,7 @@
       "put-session",
       "read-screen",
       "read-scrollback",
+      "reattach-view",
       "release-surface-size",
       "reload-config",
       "remove-tabs-from-tab-group",

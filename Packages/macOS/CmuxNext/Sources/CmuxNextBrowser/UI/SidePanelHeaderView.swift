@@ -66,6 +66,12 @@ final class SidePanelHeaderView: NSView {
         updateColors()
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateColors()
+    }
+
+    /// In this view's theme scope (a room or workspace may have its own theme).
     private func updateColors() {
         performWithTheme {
             layer?.backgroundColor = Palette.pageBackground.cgColor

@@ -98,7 +98,8 @@ nonisolated extension ActionCatalog {
                 id: "globalSearch",
                 title: String(localized: "action.globalSearch", defaultValue: "Search All Windows…", bundle: .module),
                 keywords: ["find", "global"], defaultShortcut: Shortcut("f", modifiers: [.option, .command]),
-                category: .window, symbol: "magnifyingglass", surfaces: [.keyboard, .menu],
+                category: .window, symbol: "magnifyingglass", surfaces: [.palette, .keyboard, .menu],
+                arguments: [CatalogArgument.textString],
                 cliName: "app search-all-windows", mainMenu: .window
             ),
             ActionDescriptor(

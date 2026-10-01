@@ -24,7 +24,7 @@ struct BranchDaemonHarness {
         let root = URL(fileURLWithPath: "/tmp/cnd-bd-\(id)")
         let session = "cnd-bd-\(id)"
         let base = ProcessInfo.processInfo.environment
-        let environment = daemonEnvironment ?? LoginEnvironment.daemonEnvironment(login: nil, base: base, overrides: [:])
+        let environment = daemonEnvironment ?? LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:])
         var configuration = DaemonLauncher.Configuration(binary: binary, session: session,
                                                          stateDirectory: root.appendingPathComponent("state"))
         if let terminalReapGraceSeconds { configuration.terminalReapGraceSeconds = terminalReapGraceSeconds }
@@ -54,7 +54,7 @@ struct BranchDaemonHarness {
     static func shutDown(_ connection: DaemonConnection) async {
         guard let identity = await connection.identity else { return await connection.close() }
         let hosts = TerminalHosts.of(daemon: identity.pid)
-        if identity.supports(DaemonCapabilities.terminalReap) {
+        if identity.supports(DaemonCapabilities.shared.terminalReap) {
             // Stop reconnecting first: on the daemon's EOF the connection
             // would run `server ensure` and start a fresh daemon that outlives
             // the test. The end-terminals shutdown uses its own socket.

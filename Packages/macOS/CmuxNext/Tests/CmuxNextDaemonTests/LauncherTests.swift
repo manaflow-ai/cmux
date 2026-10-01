@@ -75,13 +75,13 @@ import Testing
     }
 
     @Test func parsesLoginEnvironmentAfterMarker() throws {
-        var output = Data("motd line\nprompt junk\n\(LoginEnvironment.marker)\n".utf8)
+        var output = Data("motd line\nprompt junk\n\(LoginEnvironment.shared.marker)\n".utf8)
         output.append(Data("PATH=/opt/homebrew/bin:/usr/bin\0HOME=/Users/u\0MULTI=a=b\nc\0".utf8))
-        let env = try #require(LoginEnvironment.parse(output))
+        let env = try #require(LoginEnvironment.shared.parse(output))
         #expect(env["PATH"] == "/opt/homebrew/bin:/usr/bin")
         #expect(env["MULTI"] == "a=b\nc")
         #expect(env["HOME"] == "/Users/u")
-        #expect(LoginEnvironment.parse(Data("no marker".utf8)) == nil)
+        #expect(LoginEnvironment.shared.parse(Data("no marker".utf8)) == nil)
     }
 
     @Test func daemonEnvironmentIsAllowlistedPlusIdentityAndOverrides() {
@@ -93,7 +93,7 @@ import Testing
             "SHLVL": "2", "EDITOR": "vim", "GITHUB_TOKEN": "ghp_secret", "AWS_SECRET_ACCESS_KEY": "s", "HOME": "/login-home",
         ]
         let base = ["HOME": "/Users/u", "USER": "u", "TMPDIR": "/tmp/u", "SSH_AUTH_SOCK": "/tmp/agent", "OPENAI_API_KEY": "sk", "CMUX_TAG": "t1"]
-        let env = LoginEnvironment.daemonEnvironment(login: login, base: base, overrides: ["CMUX_TUI_STATE_DIR": "/tmp/state"])
+        let env = LoginEnvironment.shared.daemonEnvironment(login: login, base: base, overrides: ["CMUX_TUI_STATE_DIR": "/tmp/state"])
         for key in ["PATH", "MANPATH", "INFOPATH", "LANG", "LC_ALL", "SHELL", "TERMINFO_DIRS", "XDG_CONFIG_HOME",
                     "HOMEBREW_PREFIX", "HOMEBREW_CELLAR", "HOMEBREW_REPOSITORY", "CMUX_NEXT_FLAG"] {
             #expect(env[key] == login[key], "\(key)")
@@ -108,14 +108,14 @@ import Testing
         #expect(env["CMUX_TUI_STATE_DIR"] == "/tmp/state")
 
         // Terminals get the allowlist without the daemon's identity keys.
-        let terminal = TerminalEnvironment.terminal(login: login, base: base)
+        let terminal = TerminalEnvironment.instance.terminal(login: login, base: base)
         #expect(terminal["HOME"] == nil)
         #expect(terminal["SSH_AUTH_SOCK"] == nil)
         #expect(terminal["GITHUB_TOKEN"] == nil)
         #expect(terminal["PATH"] == login["PATH"])
         #expect(terminal["CMUX_TAG"] == "t1")
 
-        let fallback = LoginEnvironment.daemonEnvironment(login: nil, base: ["PATH": "/usr/bin:/bin"], overrides: [:])
+        let fallback = LoginEnvironment.shared.daemonEnvironment(login: nil, base: ["PATH": "/usr/bin:/bin"], overrides: [:])
         #expect(fallback["PATH"] == "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
     }
 
@@ -128,19 +128,19 @@ import Testing
                        "CMUX_RELAY_TOKEN": "t", "CMUX_API_KEY": "k", "CMUX_CLIENT_SECRET": "s"]
         let login = secrets.merging(["PATH": "/usr/bin", "CMUX_TAG": "t1"]) { a, _ in a }
         let base = secrets.merging(["HOME": "/Users/u", "CMUX_TAG": "t1"]) { a, _ in a }
-        let terminal = TerminalEnvironment.terminal(login: login, base: base)
-        let daemon = TerminalEnvironment.daemon(login: login, base: base, overrides: [:])
+        let terminal = TerminalEnvironment.instance.terminal(login: login, base: base)
+        let daemon = TerminalEnvironment.instance.daemon(login: login, base: base, overrides: [:])
         for key in secrets.keys {
             #expect(terminal[key] == nil, "\(key)")
             #expect(daemon[key] == nil, "\(key)")
         }
         #expect(terminal["CMUX_TAG"] == "t1")
         // Names that only look similar stay.
-        #expect(TerminalEnvironment.isAllowed("CMUX_KEYBOARD_LAYOUT"))
+        #expect(TerminalEnvironment.instance.isAllowed("CMUX_KEYBOARD_LAYOUT"))
     }
 
     @Test(.timeLimit(.minutes(1))) func capturesRealLoginShellEnvironment() async throws {
-        let env = try #require(await LoginEnvironment.capture(timeout: .seconds(15)))
+        let env = try #require(await LoginEnvironment.shared.capture(timeout: .seconds(15)))
         #expect(env["PATH"]?.isEmpty == false)
         #expect(env["HOME"] == NSHomeDirectory())
     }

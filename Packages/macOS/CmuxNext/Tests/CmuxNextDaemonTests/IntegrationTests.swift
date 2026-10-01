@@ -74,7 +74,7 @@ struct IntegrationTests {
         let base = ProcessInfo.processInfo.environment
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
-            environment: { LoginEnvironment.daemonEnvironment(login: nil, base: base, overrides: [:]) }
+            environment: { LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:]) }
         )
         let ensured = try await launcher.ensure()
         #expect(ensured.session == session)
@@ -171,10 +171,10 @@ struct IntegrationTests {
         let process = ProcessInfo.processInfo.environment
         var finder: [String: String] = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
         for key in ["HOME", "USER", "LOGNAME", "SHELL", "TMPDIR"] { finder[key] = process[key] }
-        let login = try #require(await LoginEnvironment.capture(base: finder, timeout: .seconds(15)))
+        let login = try #require(await LoginEnvironment.shared.capture(base: finder, timeout: .seconds(15)))
         let loginPath = try #require(login["PATH"])
         try #require(loginPath != finder["PATH"], "login PATH equals launchd PATH; nothing to verify on this machine")
-        let environment = LoginEnvironment.daemonEnvironment(login: login, base: finder, overrides: [:])
+        let environment = LoginEnvironment.shared.daemonEnvironment(login: login, base: finder, overrides: [:])
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
             environment: { environment })

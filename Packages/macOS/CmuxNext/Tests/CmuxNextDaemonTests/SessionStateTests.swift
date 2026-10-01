@@ -69,10 +69,10 @@ import Testing
     @Test func storeLaysTheStateOverItsRecords() throws {
         let store = try loadedStore()
         #expect(!store.servesStateResources)
-        #expect(!store.supports(DaemonCapabilities.screenGroups))
+        #expect(!store.supports(DaemonCapabilities.shared.screenGroups))
         store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: event(Self.snapshot))])
         #expect(store.servesStateResources)
-        #expect(store.supports(DaemonCapabilities.screenGroups))
+        #expect(store.supports(DaemonCapabilities.shared.screenGroups))
         let workspace = try #require(store.workspaces.first { $0.resourceID?.rawValue == Self.workspace })
         #expect(workspace.ephemeral)
         #expect(workspace.status?.line == "Building")

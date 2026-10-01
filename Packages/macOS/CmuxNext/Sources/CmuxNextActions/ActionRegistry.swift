@@ -39,6 +39,12 @@ public final class ActionRegistry {
         didSet { shortcutIndex = nil }
     }
 
+    /// User chords (`["ctrl+b", "c"]` in cmux.json); an action with one has
+    /// no single-key shortcut.
+    public internal(set) var chordOverrides: [ActionID: ShortcutChord] = [:] {
+        didSet { shortcutIndex = nil }
+    }
+
     /// User key-routing tiers (`cmux.json` `shortcuts.tiers`), see
     /// `ActionKeyTier`.
     public internal(set) var keyTierOverrides: [ActionID: ActionKeyTier] = [:]
@@ -84,8 +90,7 @@ public final class ActionRegistry {
     @ObservationIgnored public var invocationScope: (@MainActor (ActionInvocation, () -> Void) -> Void)?
     @ObservationIgnored public internal(set) var isCapturingRefusal = false
     @ObservationIgnored var capturedRefusal: String?
-    /// The captured refusal said an explicit target names nothing.
-    @ObservationIgnored var capturedRefusalIsNotFound = false
+    @ObservationIgnored var capturedRefusalIsNotFound = false // the explicit target names nothing
     /// A caller shows refusals itself (the palette): no beep, but unlike
     /// capturing, destructive actions still ask for confirmation.
     @ObservationIgnored public internal(set) var isReportingRefusal = false
@@ -358,7 +363,7 @@ public final class ActionRegistry {
         return perform(resolved.id)
     }
 
-    private func bestCandidate(_ ids: [ActionID]) -> ActionID? {
+    func bestCandidate(_ ids: [ActionID]) -> ActionID? {
         var best: (id: ActionID, specificity: Int)?
         for id in ids where canPerform(id) {
             let specificity = descriptor(for: id)?.requires.rawValue.nonzeroBitCount ?? 0

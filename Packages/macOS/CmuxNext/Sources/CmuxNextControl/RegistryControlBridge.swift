@@ -37,6 +37,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
             _ = registry.descriptors
             _ = registry.actions
             _ = registry.shortcutOverrides
+            _ = registry.chordOverrides
             // Reasons read observable app state (daemon capabilities), so a
             // change there republishes `unavailable_reason` too.
             for action in registry.actions { _ = action.unavailableReason?() }
@@ -161,6 +162,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         info.isDestructive = descriptor.isDestructive
         info.startsTerminal = descriptor.startsTerminal
         info.isCLI = descriptor.cli
+        info.waitsForResult = descriptor.waitsForResult
         return info
     }
 

@@ -156,7 +156,13 @@ extension CEFTab {
     public var extensionStore: BrowserExtensionStore { runtime.extensionStore(for: profileID) }
 
     public func runExtensionAction(_ id: String, anchor: CGRect) {
-        guard let browserID, let shim = runtime.shim else { return }
+        guard let browserID else {
+            // The click came before the page's browser exists (right after
+            // launch): run it from `attach(browser:)`.
+            pendingExtensionAction = (id, anchor)
+            return
+        }
+        guard let shim = runtime.shim else { return }
         // The fork anchors the popup at the top edge of the browser area
         // between x and x + width (DIPs, browser view coordinates), so it
         // hangs below the toolbar button.

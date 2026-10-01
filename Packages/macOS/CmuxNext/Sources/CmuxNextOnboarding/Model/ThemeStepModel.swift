@@ -2,8 +2,8 @@ public import CmuxNextDesign
 import Foundation
 public import Observation
 
-/// Welcome step: theme and density, applied live so the whole app shows
-/// the choice at once; Skip (or closing onboarding) puts the old ones back.
+/// Theme step: a Ghostty theme, applied live so the whole app shows the
+/// choice at once; Skip (or closing onboarding) puts the old one back.
 @MainActor
 @Observable
 public final class ThemeStepModel {

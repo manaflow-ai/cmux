@@ -5,6 +5,13 @@
 #
 #   ensure-cef.sh             fail (exit 1) when the artifact is unavailable
 #   ensure-cef.sh --optional  warn and print nothing instead (Xcode phase)
+#   --arch arm64|x86_64       which artifact (default arm64). The arm64 one
+#                             is the manifest's top-level fields; x86_64 is
+#                             its "x86_64" object (asset, sha256, r2_key,
+#                             url), cached at <root>/<version>-x86_64. A
+#                             manifest without that object has no x86_64
+#                             artifact (fails, or prints nothing with
+#                             --optional).
 #
 # Sources, in order; every download is checked against the manifest sha256:
 #   1. the local cache
@@ -15,7 +22,8 @@
 # Environment:
 #   CMUX_NEXT_SKIP_CEF=1   print nothing, exit 0 (builds without CEF)
 #   CMUX_CEF_PATH=<dir>    use a local dist (fork development); no checksum
-#   CMUX_CEF_CACHE_DIR     cache root (default ~/Library/Caches/cmux/cef)
+#   CMUX_CEF_CACHE_DIR     cache root (default: cef-cache-root.sh, the fleet host
+#                          cache on a fleet Mac, else ~/Library/Caches/cmux/cef)
 #   CMUX_CEF_R2_ACCOUNT_ID, CMUX_CEF_R2_ACCESS_KEY_ID,
 #   CMUX_CEF_R2_SECRET_ACCESS_KEY
 #                          read-only R2 credentials. When unset, they are read
@@ -31,7 +39,15 @@
 set -euo pipefail
 
 optional=0
-[[ "${1:-}" == "--optional" ]] && optional=1
+arch=arm64
+while (($#)); do
+  case "$1" in
+    --optional) optional=1; shift ;;
+    --arch) arch="${2:?--arch needs arm64 or x86_64}"; shift 2 ;;
+    *) echo "error: unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+case "$arch" in arm64|x86_64) ;; *) echo "error: --arch must be arm64 or x86_64" >&2; exit 2 ;; esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MANIFEST="${CMUX_CEF_MANIFEST:-$SCRIPT_DIR/cef-manifest.json}"
@@ -61,19 +77,26 @@ fi
 
 field() { /usr/bin/plutil -extract "$1" raw -o - "$MANIFEST" 2>/dev/null || true; }
 version="$(field version)"; tag="$(field tag)"; repo="$(field repo)"
-asset="$(field asset)"; url="$(field url)"; sha="$(field sha256)"
-r2_bucket="$(field r2_bucket)"; r2_key="$(field r2_key)"
-[[ -n "$version" && -n "$asset" && -n "$sha" ]] || fail "manifest $MANIFEST lacks version, asset or sha256"
+r2_bucket="$(field r2_bucket)"
+if [[ "$arch" == "arm64" ]]; then
+  prefix=""; suffix=""
+else
+  prefix="$arch."; suffix="-$arch"
+  [[ -n "$(field "${prefix}asset")" ]] || fail "manifest $MANIFEST has no $arch artifact"
+fi
+asset="$(field "${prefix}asset")"; url="$(field "${prefix}url")"; sha="$(field "${prefix}sha256")"
+r2_key="$(field "${prefix}r2_key")"
+[[ -n "$version" && -n "$asset" && -n "$sha" ]] || fail "manifest $MANIFEST lacks version, asset or sha256 for $arch"
 
-root="${CMUX_CEF_CACHE_DIR:-$HOME/Library/Caches/cmux/cef}"
-dest="$root/$version"
+root="$("$SCRIPT_DIR/cef-cache-root.sh")"
+dest="$root/$version$suffix"
 if [[ -f "$dest/.verified" && "$(cat "$dest/.verified")" == "$sha" && -d "$dest/$FRAMEWORK" ]]; then
   echo "$dest"
   exit 0
 fi
 
 mkdir -p "$root"
-lock="$root/.$version.lock"
+lock="$root/.$version$suffix.lock"
 waited=0
 while ! mkdir "$lock" 2>/dev/null; do
   if (( waited > 900 )); then rm -rf "$lock"; continue; fi

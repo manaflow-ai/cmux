@@ -1,3 +1,4 @@
+public import AppKit
 public import CmuxNextBrowserImport
 public import CmuxNextDesign
 public import Foundation
@@ -15,12 +16,10 @@ public final class MockOnboardingServices: OnboardingServices {
     /// When set, `runImport` waits here until the test resumes it.
     public var importGate: CheckedContinuation<Void, Never>?
     public var holdsImport = false
-    public var browserProfilesAvailable = false
+    public var accountsView: NSView?
     public let defaultApps: any DefaultAppRegistering
 
     public private(set) var appliedAppearance: [(String?, Density)] = []
-    public private(set) var installed: [String] = []
-    public private(set) var openedTabs: [ImportedTab] = []
     public private(set) var opened: [URL] = []
     public private(set) var ended: Bool?
     public private(set) var plans: [ImportPlan] = []
@@ -50,13 +49,10 @@ public final class MockOnboardingServices: OnboardingServices {
         return summary
     }
 
-    public func installExtension(_ item: ImportedExtension) { installed.append(item.id) }
-    public func openTabs(_ tabs: [ImportedTab]) { openedTabs += tabs }
     public func openExternal(_ url: URL) { opened.append(url) }
 
-    public func shortcutDisplay(for actionID: String) -> String? {
-        ["commandPalette": "⇧⌘P", "splitRight": "⌘D", "splitDown": "⇧⌘D"][actionID]
-    }
+    public var hasAccountsStep: Bool { accountsView != nil }
+    public func makeAccountsStepView() -> NSView? { accountsView }
 
     public func onboardingDidEnd(completed: Bool) { ended = completed }
 }

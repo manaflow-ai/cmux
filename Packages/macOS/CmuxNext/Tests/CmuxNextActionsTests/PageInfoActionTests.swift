@@ -11,7 +11,7 @@ struct PageInfoActionTests {
     }
 
     @Test func everyPageInfoActionIsInTheBrowserPageContextMenu() {
-        let menu = Set(ContextMenuCatalog.referencedIDs(ContextMenuCatalog.entries(for: .browserPage)))
+        let menu = Set(ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: .browserPage)))
         #expect(pageInfoIDs.count == 10)
         for id in pageInfoIDs {
             #expect(menu.contains(id), "\(id) is missing from the browser page context menu")

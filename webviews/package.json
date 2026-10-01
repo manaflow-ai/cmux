@@ -6,6 +6,7 @@
   "scripts": {
     "build": "bun run verify:tanstack-router && bun run typecheck && vite build",
     "benchmark": "bun run bench/diff-stream.bench.ts",
+    "dev:agent-pane": "vite --config vite.config.acpmux-pane.mjs",
     "preview:dev": "vite --config vite.config.acpmux-preview.mjs",
     "preview:build": "vite build --config vite.config.acpmux-preview.mjs",
     "lint": "oxlint . --react-plugin --jsx-a11y-plugin --import-plugin",

@@ -49,6 +49,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var sidePanelHeader: SidePanelHeaderView?
     @ObservationIgnored var sidePanelState: CEFSidePanelState?
     @ObservationIgnored var sidePanelRefreshPending = false
+    /// A toolbar click that came before the browser existed.
+    @ObservationIgnored var pendingExtensionAction: (id: String, anchor: CGRect)?
     @ObservationIgnored public weak var devToolsObserver: (any BrowserDevToolsObserving)?
 
     var machine = BrowserTabStateMachine()
@@ -126,20 +128,24 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // the page window, which for a page that is no longer selected put
         // it back on screen over the pane's current tab.
         let shown = host.visibleTab === self && !isOccluded
-        BrowserLifecycleTrace.record(id, "attach pendingFocus=\(pendingFocus) shown=\(shown)")
+        host.lifecycleTrace.record(id, "attach pendingFocus=\(pendingFocus) shown=\(shown)")
         if pendingFocus, shown { grantFocus(browser) }
+        if let action = pendingExtensionAction {
+            pendingExtensionAction = nil
+            runExtensionAction(action.id, anchor: action.anchor)
+        }
         if let state = pendingRestore {
             pendingRestore = nil
             // 1 = restored; fork API 10 reports why not (-1 committed entries,
             // -2 navigation not dropped, -3 state does not decode).
             let code = state.withCString { runtime.shim?.tabRestoreNavigation(browser, $0) } ?? 0
-            BrowserLifecycleTrace.record(id, "restore-navigation \(code == 1 ? "ok" : "failed(\(code))")")
+            host.lifecycleTrace.record(id, "restore-navigation \(code == 1 ? "ok" : "failed(\(code))")")
             if code != 1, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
         }
         if let state = pendingRestore {
             pendingRestore = nil
             let restored = state.withCString { runtime.shim?.tabRestoreNavigation(browser, $0) } == 1
-            BrowserLifecycleTrace.record(id, "restore-navigation \(restored ? "ok" : "failed")")
+            host.lifecycleTrace.record(id, "restore-navigation \(restored ? "ok" : "failed")")
             if !restored, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
         }
         if navigationGuard != .none { runtime.shim?.setNavigationGuard(browser, navigationGuard.rawValue) }
@@ -296,7 +302,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public func setFocused(_ focused: Bool) {
         let shown = host.visibleTab === self && !isOccluded
-        BrowserLifecycleTrace.record(id, "focus(\(focused)) created=\(browserID != nil) shown=\(shown)")
+        host.lifecycleTrace.record(id, "focus(\(focused)) created=\(browserID != nil) shown=\(shown)")
         pendingFocus = focused
         // Never activate a hidden page's window (see `attach`).
         guard !focused || shown, let browserID else { return }
@@ -309,7 +315,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// old implementation hid the page after awaiting a screenshot, and
     /// that late hide could land on a page shown again meanwhile).
     public func setContentVisible(_ visible: Bool) {
-        BrowserLifecycleTrace.record(id, "visible(\(visible)) was=\(!isOccluded) shown=\(host.visibleTab === self)")
+        host.lifecycleTrace.record(id, "visible(\(visible)) was=\(!isOccluded) shown=\(host.visibleTab === self)")
         guard visible == isOccluded else { return }
         isOccluded = !visible
         if host.visibleTab === self { host.hostView.isHidden = !visible }

@@ -3831,6 +3831,121 @@ fn registries_created_before_on_exit_gain_the_column_with_close_default() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Registries created before the workspace pin existed gain the column on
+/// open; every pre-existing presentation row stays unpinned.
+#[test]
+fn registries_created_before_workspace_pin_gain_the_column_unpinned() {
+    let root = temp_root("workspace-pin-column-migration");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        seed_workspace(&mut registry, "one");
+    }
+
+    // Recreate the pre-pin table shape with one titled workspace.
+    let session_dir = root.join(session_storage_component("session"));
+    let connection = Connection::open(session_dir.join("workspace-registry.sqlite3")).unwrap();
+    connection
+        .execute_batch(
+            "DROP TABLE workspace_presentation;
+             CREATE TABLE workspace_presentation (
+               workspace_key TEXT PRIMARY KEY NOT NULL,
+               group_id TEXT,
+               color TEXT,
+               icon TEXT,
+               title TEXT
+             );
+             INSERT INTO workspace_presentation(workspace_key, title) VALUES('one', 'Build');",
+        )
+        .unwrap();
+    drop(connection);
+
+    let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let record = registry.presentation_snapshot().unwrap().workspace("one").cloned().unwrap();
+    assert_eq!(record.title.as_deref(), Some("Build"));
+    assert!(!record.pinned);
+
+    // The migrated column stores and reloads a pin.
+    let update = WorkspacePresentationUpdate { pinned: Some(true), ..Default::default() };
+    registry
+        .commit_workspace_presentation(
+            &WorkspaceMutation::new("pin-one", "test").unwrap(),
+            &json!({"op":"set-workspace-metadata","key":"one","pinned":true}),
+            None,
+            None,
+            "workspace-changed",
+            "one",
+            &[workspace(1, "one", "Workspace")],
+            None,
+            &update,
+            &json!({"key":"one"}),
+        )
+        .unwrap();
+    drop(registry);
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let record = registry.presentation_snapshot().unwrap().workspace("one").cloned().unwrap();
+    assert_eq!(record.title.as_deref(), Some("Build"));
+    assert!(record.pinned);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Registries created with the pin but before the manual unread mark gain
+/// that column on open; existing rows keep their pin and stay unmarked.
+#[test]
+fn registries_created_before_marked_unread_gain_the_column_unmarked() {
+    let root = temp_root("workspace-marked-unread-column-migration");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        seed_workspace(&mut registry, "one");
+    }
+
+    let session_dir = root.join(session_storage_component("session"));
+    let connection = Connection::open(session_dir.join("workspace-registry.sqlite3")).unwrap();
+    connection
+        .execute_batch(
+            "DROP TABLE workspace_presentation;
+             CREATE TABLE workspace_presentation (
+               workspace_key TEXT PRIMARY KEY NOT NULL,
+               group_id TEXT,
+               color TEXT,
+               icon TEXT,
+               title TEXT,
+               pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1))
+             );
+             INSERT INTO workspace_presentation(workspace_key, pinned) VALUES('one', 1);",
+        )
+        .unwrap();
+    drop(connection);
+
+    let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let record = registry.presentation_snapshot().unwrap().workspace("one").cloned().unwrap();
+    assert!(record.pinned);
+    assert!(!record.marked_unread);
+
+    let update = WorkspacePresentationUpdate { marked_unread: Some(true), ..Default::default() };
+    registry
+        .commit_workspace_presentation(
+            &WorkspaceMutation::new("mark-one", "test").unwrap(),
+            &json!({"op":"set-workspace-metadata","key":"one","marked_unread":true}),
+            None,
+            None,
+            "workspace-changed",
+            "one",
+            &[workspace(1, "one", "Workspace")],
+            None,
+            &update,
+            &json!({"key":"one"}),
+        )
+        .unwrap();
+    drop(registry);
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let record = registry.presentation_snapshot().unwrap().workspace("one").cloned().unwrap();
+    assert!(record.pinned);
+    assert!(record.marked_unread);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn schema_14_legacy_terminal_exit_metadata_migrates_to_exact_receipt() {
     let root = temp_root("legacy-terminal-exit-migration");

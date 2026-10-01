@@ -25,6 +25,11 @@ public final class WorkspaceModel: Identifiable {
     public internal(set) var status: WorkspaceStatus?
     /// Screen groups come from the daemon's state resources.
     @ObservationIgnored var screenGroupsFromState = false
+    /// Listed in the sidebar's Pinned section (`workspace-pin-v1`).
+    public internal(set) var pinned: Bool
+    /// Marked unread by hand (`notification-mark-unread-v1`), apart from
+    /// notification markers; cleared when the workspace is used.
+    public internal(set) var markedUnread: Bool
     /// Daemon rollup (`notification-ack-v1`); nil on older daemons.
     public internal(set) var daemonUnreadCount: Int?
 
@@ -57,6 +62,8 @@ public final class WorkspaceModel: Identifiable {
         color = s.color
         icon = s.icon
         title = s.title
+        pinned = s.pinned
+        markedUnread = s.markedUnread
         daemonUnreadCount = s.unreadCount
     }
 
@@ -73,6 +80,8 @@ public final class WorkspaceModel: Identifiable {
         if color != s.color { color = s.color }
         if icon != s.icon { icon = s.icon }
         if title != s.title { title = s.title }
+        if pinned != s.pinned { pinned = s.pinned }
+        if markedUnread != s.markedUnread { markedUnread = s.markedUnread }
         if daemonUnreadCount != s.unreadCount { daemonUnreadCount = s.unreadCount }
         if !screenGroupsFromState, screenGroups != s.screenGroups { screenGroups = s.screenGroups }
         if let reordered = reconcile(screens, with: s.screens, id: ScreenModel.identity, make: ScreenModel.init, update: { $0.update($1) }) {

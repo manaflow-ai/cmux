@@ -11,7 +11,7 @@ import Testing
 struct BranchDaemonTests {
     @Test func advertisesEveryCmuxNextCapability() async throws {
         try await BranchDaemonHarness.with { h in
-            let missing = DaemonCapabilities.optional.filter { !h.identity.supports($0) }
+            let missing = DaemonCapabilities.shared.optional.filter { !h.identity.supports($0) }
             #expect(missing.isEmpty, "missing: \(missing)")
         }
     }
@@ -210,10 +210,10 @@ struct BranchDaemonTests {
             "PATH": "/opt/cnit/bin:/usr/bin:/bin", "LC_CNIT": "probe-lc", "XDG_CNIT_DIR": "/cnit/xdg",
             "CMUX_CNIT": "probe-cmux", "CNIT_SECRET_TOKEN": "hunter2-login", "GITHUB_TOKEN": "hunter2-gh",
         ]
-        let daemonEnvironment = LoginEnvironment.daemonEnvironment(login: login, base: base, overrides: [:])
+        let daemonEnvironment = LoginEnvironment.shared.daemonEnvironment(login: login, base: base, overrides: [:])
         #expect(daemonEnvironment["CNIT_SECRET_TOKEN"] == nil)
         // Per-terminal env differs from the daemon's, so the shell proves `env` arrived.
-        var terminalEnvironment = TerminalEnvironment.terminal(login: login, base: base)
+        var terminalEnvironment = TerminalEnvironment.instance.terminal(login: login, base: base)
         terminalEnvironment["LC_CNIT_TERMINAL"] = "probe-terminal"
         let fixedTerminalEnvironment = terminalEnvironment
         try await BranchDaemonHarness.with(daemonEnvironment: daemonEnvironment, terminalEnvironment: { fixedTerminalEnvironment }) { h in

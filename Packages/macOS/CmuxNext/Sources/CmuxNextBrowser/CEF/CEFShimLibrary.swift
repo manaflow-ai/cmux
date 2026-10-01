@@ -44,6 +44,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     let tabAdd: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32
     let tabActivate: @convention(c) (Int32) -> Int32
+    let tabNavigationEntries: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
+    let tabGoToEntry: @convention(c) (Int32, Int32) -> Int32
     let tabWindowID: @convention(c) (Int32) -> Int32
 
     let loadURL: @convention(c) (Int32, UnsafePointer<CChar>?) -> Void
@@ -189,6 +191,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         createWindow = try r("cmux_shim_create_window")
         tabAdd = try r("cmux_shim_tab_add")
         tabActivate = try r("cmux_shim_tab_activate")
+        tabNavigationEntries = try r("cmux_shim_tab_navigation_entries")
+        tabGoToEntry = try r("cmux_shim_tab_go_to_entry")
         tabWindowID = try r("cmux_shim_tab_window_id")
         loadURL = try r("cmux_shim_load_url")
         goBack = try r("cmux_shim_go_back")

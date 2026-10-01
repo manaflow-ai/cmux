@@ -2,8 +2,10 @@ public import CmuxNextBrowserImport
 import Foundation
 public import Observation
 
-/// Import step: detect browsers, pick profiles and kinds, run the import
-/// (cancellable, off the main thread), then show counts and extensions.
+/// Import step: detect browsers, check the profiles to bring and which of
+/// bookmarks, history and sign-ins (cookies). Continue starts the import,
+/// which keeps running (off the main thread, cancellable) after the window
+/// moves on. Each source profile becomes its own cmux browser profile.
 @MainActor
 @Observable
 public final class ImportStepModel {
@@ -21,22 +23,25 @@ public final class ImportStepModel {
     public private(set) var sources: [BrowserSource] = []
     /// Selected profile ids (`BrowserSourceProfile.id`).
     public private(set) var selectedProfiles: Set<String> = []
-    /// Kinds to import from every selected profile.
-    public private(set) var kinds: Set<ImportDataKind> = [.bookmarks, .history, .openTabs, .extensions]
-    /// Extensions whose store page was opened from the summary.
-    public private(set) var installRequested: Set<String> = []
-    public private(set) var tabsOpened = false
+    /// What to bring from every selected profile.
+    public private(set) var kinds: Set<ImportDataKind> = Set(ImportStepModel.offeredKinds)
     @ObservationIgnored private let services: any OnboardingServices
     @ObservationIgnored private var task: Task<Void, Never>?
 
-    /// Kinds offered as toggles (passwords and cookies show why they are off).
-    public static let offeredKinds: [ImportDataKind] = [.bookmarks, .history, .openTabs, .extensions]
+    /// The kinds offered in the one line of checkboxes.
+    public static let offeredKinds: [ImportDataKind] = [.bookmarks, .history, .cookies]
 
     init(services: any OnboardingServices) {
         self.services = services
     }
 
-    public var browserProfilesAvailable: Bool { services.browserProfilesAvailable }
+    /// Profiles with something to bring, in detection order.
+    public var profiles: [BrowserSourceProfile] {
+        sources.flatMap(\.profiles).filter { profile in Self.offeredKinds.contains { profile.availability(of: $0).isImportable } }
+    }
+
+    /// Browsers whose data macOS blocks until the user grants Full Disk Access.
+    public var needsFullDiskAccess: Bool { sources.contains(where: \.needsFullDiskAccess) }
 
     /// Detects once; again after `redetect()` (for example after granting Full Disk Access).
     public func detect() {
@@ -51,11 +56,8 @@ public final class ImportStepModel {
             let found = await services.detectBrowsers()
             guard let self, !Task.isCancelled else { return }
             sources = found
-            let known = Set(found.flatMap(\.profiles).map(\.id))
-            selectedProfiles = selectedProfiles.intersection(known)
-            if selectedProfiles.isEmpty, let first = found.flatMap(\.profiles).first(where: { !$0.importableKinds.isEmpty }) {
-                selectedProfiles = [first.id]
-            }
+            // Everything is checked to start with: the common case is "bring it all".
+            selectedProfiles = Set(profiles.map(\.id))
             phase = .ready
         }
     }
@@ -63,7 +65,7 @@ public final class ImportStepModel {
     public func isSelected(_ profile: BrowserSourceProfile) -> Bool { selectedProfiles.contains(profile.id) }
 
     public func toggle(_ profile: BrowserSourceProfile) {
-        guard canEditSelection, !profile.importableKinds.isEmpty else { return }
+        guard canEditSelection, profiles.contains(profile) else { return }
         if selectedProfiles.remove(profile.id) == nil { selectedProfiles.insert(profile.id) }
     }
 
@@ -74,14 +76,13 @@ public final class ImportStepModel {
 
     public var canEditSelection: Bool {
         switch phase {
-        case .ready, .cancelled, .failed, .finished: true
+        case .ready, .cancelled, .failed: true
         default: false
         }
     }
 
     public var plan: ImportPlan {
-        let profiles = sources.flatMap(\.profiles).filter { selectedProfiles.contains($0.id) }
-        return ImportPlan(items: profiles.map { ImportPlan.Item(profile: $0, kinds: kinds) })
+        ImportPlan(items: profiles.filter { selectedProfiles.contains($0.id) }.map { ImportPlan.Item(profile: $0, kinds: kinds) })
     }
 
     public var canStart: Bool { canEditSelection && !plan.items.isEmpty }
@@ -91,6 +92,7 @@ public final class ImportStepModel {
         return false
     }
 
+    /// Starts the import of the checked profiles; does nothing when none is checked.
     public func start() {
         guard canStart else { return }
         let plan = plan
@@ -110,18 +112,6 @@ public final class ImportStepModel {
         }
     }
 
-    /// Back from a summary (or a stop) to the choices, to import more.
-    public func reset() {
-        switch phase {
-        case .finished, .cancelled, .failed:
-            phase = .ready
-            tabsOpened = false
-            installRequested = []
-        default:
-            return
-        }
-    }
-
     public func cancel() {
         guard let task else { return }
         task.cancel()
@@ -130,18 +120,7 @@ public final class ImportStepModel {
         if phase == .detecting { phase = .idle }
     }
 
-    public func install(_ item: ImportedExtension) {
-        installRequested.insert(item.id)
-        services.installExtension(item)
-    }
-
-    public func openImportedTabs() {
-        guard case .finished(let summary) = phase, !summary.openTabs.isEmpty, !tabsOpened else { return }
-        tabsOpened = true
-        services.openTabs(summary.openTabs)
-    }
-
     public func openFullDiskAccessSettings() {
-        services.openExternal(SystemSettingsLink.fullDiskAccess)
+        services.openExternal(SystemSettingsLink.shared.fullDiskAccess)
     }
 }

@@ -13,7 +13,7 @@ enum TabGroupHandlers {
     typealias GroupID = CmuxNextDaemon.TabGroupID
 
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
-        let gate = ctx.needs(DaemonCapabilities.tabGroups)
+        let gate = ctx.needs(DaemonCapabilities.shared.tabGroups)
         func bind(_ id: ActionID, _ invoke: @escaping @MainActor (ActionInvocation) -> Void) {
             registry.bind(id, unavailable: gate, invoke: invoke)
         }

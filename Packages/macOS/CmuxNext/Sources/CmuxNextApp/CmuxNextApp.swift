@@ -3,8 +3,9 @@ import CmuxNextControl
 import CmuxNextMallocZone
 
 /// Entry point called from the Xcode target's `App/main.swift`.
-public enum CmuxNextApp {
-    public static func main() {
+public struct CmuxNextApp {
+    public static let shared = Self()
+    public func main() {
         // First, while the process has one thread: install the delegating
         // default malloc zone Chromium expects (Chrome's
         // EarlyMallocZoneRegistration). The Chromium framework is mapped

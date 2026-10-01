@@ -6,10 +6,18 @@ public import Foundation
 public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page loaded and wants the handshake.
     case ready
+    /// The page lost its daemon and wants a fresh handshake (a restarted
+    /// daemon has a new port and token), without starting one.
+    case reconnect
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
+    /// A settled transcript scroll's frame intervals in milliseconds, at
+    /// most ``maximumPacingFrames``; the pane picks its rendering rate from them.
+    case framePacing([Double])
     case unsupported(String)
+
+    public static let maximumPacingFrames = 640
 
     public static let handlerName = "agentSession"
 
@@ -22,10 +30,16 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         let params = object["params"] as? [String: Any]
         switch method {
         case "ready":
-            self = .ready
+            self = params?["reconnect"] as? Bool == true ? .reconnect : .ready
         case "chat.persistSession":
             if let id = params?["sessionId"] as? String, !id.isEmpty {
                 self = .persistSession(id)
+            } else {
+                self = .unsupported(method)
+            }
+        case "pane.framePacing":
+            if let intervals = params?["intervals"] as? [Double], !intervals.isEmpty {
+                self = .framePacing(Array(intervals.prefix(Self.maximumPacingFrames)))
             } else {
                 self = .unsupported(method)
             }

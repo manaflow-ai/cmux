@@ -159,6 +159,9 @@ public final class GhosttyRuntime {
         if let line = themeOverrideLine(theme ?? themeOverride) {
             ghostty_config_load_string(config, line, UInt(line.utf8.count), "cmux.json")
         }
+        for line in fontOverrideLines(fontOverride) {
+            line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
+        }
         // In a translucent window the root view paints the one translucent
         // sheet; the surfaces draw cells over it with a transparent default
         // background (`GhosttyRuntimeSurfacePolicy`). The configured

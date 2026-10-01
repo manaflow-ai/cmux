@@ -63,11 +63,11 @@ extension CEFTab {
 extension CEFTab {
     /// cmux's side panel header while shown (`debug.cef`): its title, the
     /// controls it shows and its screen frame (AppKit origin).
-    public var sidePanelDiagnostic: (title: String, controls: [String], pinned: Bool, frame: CGRect)? {
+    public var sidePanelDiagnostic: (title: String, controls: [String], pinned: Bool, chromiumFocusable: Int?, frame: CGRect)? {
         guard let state = sidePanelState, let header = sidePanelHeader, let window = header.window else { return nil }
         let controls: [(Bool, CEFSidePanelState.Control)] = [(state.showsPin, .pin), (state.showsOpenInNewTab, .openInNewTab),
                                                               (state.showsMoreInfo, .moreInfo), (true, .close)]
-        return (state.title, controls.filter(\.0).map(\.1.rawValue), state.isPinned,
+        return (state.title, controls.filter(\.0).map(\.1.rawValue), state.isPinned, state.chromiumFocusableControls,
                 window.convertToScreen(header.convert(header.bounds, to: nil)))
     }
 

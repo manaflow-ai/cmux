@@ -37,7 +37,7 @@ extension AppActionContext {
     /// personal (the home session's); without personal state there are none.
     func group(_ invocation: ActionInvocation) throws -> WorkspaceGroupModel {
         guard usesPersonalGroups else {
-            throw ActionFailure(message: services.machines.local.missingCapabilityMessage(DaemonCapabilities.profiles))
+            throw ActionFailure(message: services.machines.local.missingCapabilityMessage(DaemonCapabilities.shared.profiles))
         }
         return try personalGroup(invocation)
     }

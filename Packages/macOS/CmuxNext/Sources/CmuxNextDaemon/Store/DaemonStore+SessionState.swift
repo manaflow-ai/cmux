@@ -9,13 +9,13 @@ import Observation
 extension DaemonStore {
     /// True once this daemon delivered state resources: closed history,
     /// ephemeral workspaces, workspace status, the v2 state mutations
-    /// (`DaemonCapabilities.stateResources`).
+    /// (`DaemonCapabilities.shared.stateResources`).
     public var servesStateResources: Bool { sessionState != nil }
 
     /// Whether this daemon serves `capability`: its `identify`, or the
     /// state resources for the capabilities they provide.
     public func supports(_ capability: String) -> Bool {
-        if DaemonCapabilities.providedByStateResources.contains(capability), servesStateResources { return true }
+        if DaemonCapabilities.shared.providedByStateResources.contains(capability), servesStateResources { return true }
         return identity?.supports(capability) ?? false
     }
 

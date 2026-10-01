@@ -7,7 +7,7 @@ import CmuxNextDesign
 /// shortcuts, and the CLI. Each change is one daemon command: the v2
 /// `screen_group.*` operations on a daemon with state resources; group
 /// moves and saved groups have no daemon operation there
-/// (`DaemonCapabilities.savedScreenGroups`).
+/// (`DaemonCapabilities.shared.savedScreenGroups`).
 @MainActor
 enum ScreenGroupCommands {
     /// Public ids of `screens` when their daemon takes the v2 operations.

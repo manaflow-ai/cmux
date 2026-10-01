@@ -18,14 +18,14 @@ enum ScreenGroupHandlers {
     /// The targeted group on a daemon that serves `capability` (screen
     /// groups; saved groups and group moves need `savedScreenGroups`).
     private static func group(_ invocation: ActionInvocation, _ ctx: AppActionContext,
-                              needs capability: String = DaemonCapabilities.screenGroups) -> ScreenGroupRef? {
+                              needs capability: String = DaemonCapabilities.shared.screenGroups) -> ScreenGroupRef? {
         guard let ref = ctx.screenGroup(invocation), ctx.require(capability, on: ref.daemon) else { return nil }
         return ref
     }
 
     private static func bindMembership(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind("screenGroup.create", invoke: { invocation in
-            guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.screenGroups, on: ref.daemon) else { return }
+            guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.shared.screenGroups, on: ref.daemon) else { return }
             guard !ref.screen.pinned else { return ctx.refuse(ScreenStrings.pinnedCannotGroup) }
             let color = invocation["color"]?.stringValue.flatMap(GroupColor.init(rawValue:))
             ScreenGroupCommands.create([ref.screen], in: ref.workspace, name: invocation["name"]?.stringValue, color: color, daemon: ref.daemon)
@@ -38,7 +38,7 @@ enum ScreenGroupHandlers {
             ScreenGroupCommands.add([screen.screen], to: ref.group.id, daemon: ref.daemon)
         })
         registry.bind("screenGroup.removeScreen", invoke: { invocation in
-            guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.screenGroups, on: ref.daemon) else { return }
+            guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.shared.screenGroups, on: ref.daemon) else { return }
             guard ref.screen.group != nil else { return ctx.refuse(ScreenStrings.screenNotInGroup) }
             ScreenGroupCommands.remove([ref.screen], daemon: ref.daemon)
         })
@@ -92,14 +92,14 @@ enum ScreenGroupHandlers {
     private static func bindMoves(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         for (id, forward) in [("screenGroup.moveLeft", false), ("screenGroup.moveRight", true)] as [(ActionID, Bool)] {
             registry.bind(id, invoke: { invocation in
-                guard let ref = group(invocation, ctx, needs: DaemonCapabilities.savedScreenGroups) else { return }
+                guard let ref = group(invocation, ctx, needs: DaemonCapabilities.shared.savedScreenGroups) else { return }
                 guard let index = ScreenGroupReorder.targetIndex(of: ref.group.id, forward: forward, in: ref.workspace.screens)
                     ?? ctx.refuse(RefusalStrings.groupAtEdge) else { return }
                 ScreenGroupCommands.move(ref.group.id, to: index, daemon: ref.daemon)
             })
         }
         registry.bind("screenGroup.moveToWorkspace", invoke: { invocation in
-            guard let ref = group(invocation, ctx, needs: DaemonCapabilities.savedScreenGroups) else { return }
+            guard let ref = group(invocation, ctx, needs: DaemonCapabilities.shared.savedScreenGroups) else { return }
             guard let id = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue,
                   let target = ctx.services.workspace(id: id) ?? ctx.refuse(RefusalStrings.noWorkspace(invocation["workspace"]?.stringValue ?? "")) else { return }
             guard target !== ref.workspace else { return ctx.refuse(ScreenStrings.sameWorkspace) }
@@ -107,7 +107,7 @@ enum ScreenGroupHandlers {
         })
         for (id, newWindow) in [("screenGroup.moveToNewWorkspace", false), ("screenGroup.moveToNewWindow", true)] as [(ActionID, Bool)] {
             registry.bind(id, invoke: { invocation in
-                guard let ref = group(invocation, ctx, needs: DaemonCapabilities.savedScreenGroups) else { return }
+                guard let ref = group(invocation, ctx, needs: DaemonCapabilities.shared.savedScreenGroups) else { return }
                 ScreenGroupCommands.moveToNewWorkspace(ref.group.id, daemon: ref.daemon, services: ctx.services, newWindow: newWindow)
             })
         }
@@ -115,22 +115,22 @@ enum ScreenGroupHandlers {
 
     private static func bindSaved(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind("screenGroup.save", invoke: { invocation in
-            guard let ref = group(invocation, ctx, needs: DaemonCapabilities.savedScreenGroups) else { return }
+            guard let ref = group(invocation, ctx, needs: DaemonCapabilities.shared.savedScreenGroups) else { return }
             ScreenGroupCommands.save(ref.group.id, daemon: ref.daemon)
         })
         registry.bind("screenGroup.unsave", invoke: { invocation in
-            guard let ref = group(invocation, ctx, needs: DaemonCapabilities.savedScreenGroups) else { return }
+            guard let ref = group(invocation, ctx, needs: DaemonCapabilities.shared.savedScreenGroups) else { return }
             guard ref.group.savedID != nil else { return ctx.refuse(RefusalStrings.groupNotSaved) }
             ScreenGroupCommands.unsave(ref.group.id, daemon: ref.daemon)
         })
         registry.bind("screenGroup.reopenSaved", invoke: { invocation in
-            guard let content = ctx.content(invocation), ctx.require(DaemonCapabilities.savedScreenGroups, on: content.daemon) else { return }
+            guard let content = ctx.content(invocation), ctx.require(DaemonCapabilities.shared.savedScreenGroups, on: content.daemon) else { return }
             guard let saved = invocation["saved"]?.stringValue ?? ctx.refuse(RefusalStrings.groupArgumentRequired) else { return }
             let id = SavedScreenGroupID(rawValue: saved), workspace = content.workspace.handle
             content.daemon.send("reopen-saved-screen-group") { _ = try await $0.reopenSavedScreenGroup(id, in: workspace) }
         })
         registry.bind("screenGroup.deleteSaved", invoke: { invocation in
-            guard ctx.require(DaemonCapabilities.savedScreenGroups, on: ctx.services.activeDaemon) else { return }
+            guard ctx.require(DaemonCapabilities.shared.savedScreenGroups, on: ctx.services.activeDaemon) else { return }
             guard let saved = invocation["saved"]?.stringValue ?? ctx.refuse(RefusalStrings.groupArgumentRequired) else { return }
             let id = SavedScreenGroupID(rawValue: saved)
             ctx.services.activeDaemon.send("delete-saved-screen-group") { try await $0.deleteSavedScreenGroup(id) }

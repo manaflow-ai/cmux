@@ -3,10 +3,10 @@ public import Foundation
 /// Bookmarks in the home session (`bookmarks-v1`). Each wrapper throws
 /// `missingCapabilities` on a daemon without it.
 extension DaemonConnection {
-    public var supportsBookmarks: Bool { identity?.supports(DaemonCapabilities.bookmarks) == true }
+    public var supportsBookmarks: Bool { identity?.supports(DaemonCapabilities.shared.bookmarks) == true }
 
     private func requireBookmarks() throws {
-        guard supportsBookmarks else { throw DaemonError.missingCapabilities([DaemonCapabilities.bookmarks]) }
+        guard supportsBookmarks else { throw DaemonError.missingCapabilities([DaemonCapabilities.shared.bookmarks]) }
     }
 
     public func listBookmarks(browserProfileID: String) async throws -> BookmarkList {

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR ecaa3e70ba922e2e428912bf9012d406c92fc84b300654e25820523ff1ee23e2.
+// cmux-tui mux protocol 12, IR 76ed0900c4489b6d294445f66217d192715cdfd4a0ed24f2b3f544e991967c59.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -684,6 +684,8 @@ pub struct DetachClientRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub by: Optional<T::SizeDetachActor>,
     pub client: T::DetachClientTarget,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
 }
 
 #[rustfmt::skip]
@@ -1435,6 +1437,14 @@ pub struct ReadScrollbackRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReattachViewRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub counts: Optional<bool>,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RegisterBrowserProviderRequest {
     pub authentication: T::BrowserProviderAuthentication,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1744,6 +1754,8 @@ pub struct SetClientInfoRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub capabilities: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub device_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub device_kind: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub device_name: Optional<String>,
@@ -1956,9 +1968,13 @@ pub struct SetWorkspaceMetadataRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub key: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub marked_unread: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mutation_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub origin: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pinned: Optional<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub title: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2534,6 +2550,10 @@ impl CmuxClient {
             self.require_protocol_field("detach-client", 12)?;
             self.require_capability_field("detach-client", "shared-sizing-v1")?;
         }
+        if !request.surface.is_missing() {
+            self.require_protocol_field("detach-client", 12)?;
+            self.require_capability_field("detach-client", "shared-sizing-v1")?;
+        }
         self.execute(&DETACH_CLIENT_METADATA, &request)
     }
 
@@ -2865,6 +2885,10 @@ impl CmuxClient {
         self.execute(&READ_SCROLLBACK_METADATA, &request)
     }
 
+    pub fn reattach_view(&mut self, request: ReattachViewRequest) -> Result<T::ReattachViewResult> {
+        self.execute(&REATTACH_VIEW_METADATA, &request)
+    }
+
     pub fn register_browser_provider(&mut self, request: RegisterBrowserProviderRequest) -> Result<RegisterBrowserProviderResult> {
         self.execute(&REGISTER_BROWSER_PROVIDER_METADATA, &request)
     }
@@ -3004,6 +3028,10 @@ impl CmuxClient {
     }
 
     pub fn set_client_info(&mut self, request: SetClientInfoRequest) -> Result<SetClientInfoResult> {
+        if !request.device_id.is_missing() {
+            self.require_protocol_field("set-client-info", 12)?;
+            self.require_capability_field("set-client-info", "shared-sizing-v1")?;
+        }
         if !request.device_kind.is_missing() {
             self.require_protocol_field("set-client-info", 12)?;
             self.require_capability_field("set-client-info", "shared-sizing-v1")?;
@@ -3109,6 +3137,14 @@ impl CmuxClient {
     }
 
     pub fn set_workspace_metadata(&mut self, request: SetWorkspaceMetadataRequest) -> Result<SetWorkspaceMetadataResult> {
+        if !request.marked_unread.is_missing() {
+            self.require_protocol_field("set-workspace-metadata", 12)?;
+            self.require_capability_field("set-workspace-metadata", "notification-mark-unread-v1")?;
+        }
+        if !request.pinned.is_missing() {
+            self.require_protocol_field("set-workspace-metadata", 12)?;
+            self.require_capability_field("set-workspace-metadata", "workspace-pin-v1")?;
+        }
         self.execute(&SET_WORKSPACE_METADATA_METADATA, &request)
     }
 

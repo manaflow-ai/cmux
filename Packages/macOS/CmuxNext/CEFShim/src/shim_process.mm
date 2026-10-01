@@ -180,6 +180,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_observer, "cmux_tab_set_observer");
   CMUX_BIND(tab_add, "cmux_tab_add");
   CMUX_BIND(tab_activate, "cmux_tab_activate");
+  CMUX_BIND(tab_go_to_offset, "cmux_tab_go_to_offset");
   CMUX_BIND(tab_window_id, "cmux_tab_window_id");
   CMUX_BIND(ext_actions, "cmux_ext_actions");
   CMUX_BIND(ext_action_run, "cmux_ext_action_run");

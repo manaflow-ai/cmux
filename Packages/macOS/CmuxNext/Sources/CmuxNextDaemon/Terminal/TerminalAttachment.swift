@@ -122,7 +122,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         )
         let identity = try await DaemonConnection.perform(IdentifyRequest(), on: transport)
         _ = try await DaemonConnection.perform(
-            SetClientInfoRequest(name: clientName, kind: "frontend", capabilities: DaemonCapabilities.advertised),
+            SetClientInfoRequest(name: clientName, kind: "frontend", capabilities: DaemonCapabilities.shared.advertised),
             on: transport
         )
         let useIdentity = identity.supports("attach-identity-v1") && target.terminalResourceID != nil

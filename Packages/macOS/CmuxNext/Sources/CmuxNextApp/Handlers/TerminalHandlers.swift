@@ -14,6 +14,7 @@ enum TerminalHandlers {
         TerminalHandlers.bindFind(into: registry, context: ctx)
         TerminalHandlers.bindInput(into: registry, context: ctx)
         bindKeep(registry, ctx)
+        bindCopyMode(registry, ctx)
         bindUnported(registry)
     }
 
@@ -71,7 +72,7 @@ enum TerminalHandlers {
     /// tab (`terminal-reap-v1`); off lets the daemon end it after the reap
     /// grace period once no tab shows it.
     private static func bindKeep(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        registry.bind("terminal.keep", unavailable: ctx.needs(DaemonCapabilities.terminalReap), invoke: { invocation in
+        registry.bind("terminal.keep", unavailable: ctx.needs(DaemonCapabilities.shared.terminalReap), invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
             guard tab.kind == .pty else { return ctx.refuse(RefusalStrings.notATerminal) }
             let keep = invocation["on"]?.boolValue ?? true, surface = tab.surface
@@ -79,8 +80,16 @@ enum TerminalHandlers {
         })
     }
 
+    /// Vim-style keyboard copy mode over the scrollback (⇧⌘M); the terminal
+    /// view takes the keys until Esc, q, or a copy.
+    private static func bindCopyMode(_ registry: ActionRegistry, _ ctx: AppActionContext) {
+        registry.bind("toggleTerminalCopyMode", invoke: { invocation in
+            guard let entry = ctx.terminal(invocation) else { return }
+            if !entry.session.surfaceView.toggleCopyMode() { ctx.refuse(RefusalStrings.ghosttyRejected("keyboard_copy_cursor_set")) }
+        })
+    }
+
     private static func bindUnported(_ registry: ActionRegistry) {
-        registry.bindUnavailable("toggleTerminalCopyMode", reason: RefusalStrings.copyModeUnported)
         let textBox = RefusalStrings.textBoxUnported
         for id: ActionID in ["focusTextBoxInput", "palette.terminalToggleTextBoxInput", "cycleTextBoxSubmitAction", "attachTextBoxFile"] {
             registry.bindUnavailable(id, reason: textBox)
@@ -88,6 +97,5 @@ enum TerminalHandlers {
         for id: ActionID in ["resumeCommandSet", "resumeCommandEdit", "resumeCommandClear"] {
             registry.bindUnavailable(id, reason: RefusalStrings.needsDaemonCapability("resume-command"))
         }
-        registry.bindUnavailable("findInDirectory", reason: RefusalStrings.findPanelUnported)
     }
 }

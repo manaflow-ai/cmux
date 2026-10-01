@@ -27,6 +27,9 @@ import Testing
         model.refresh()
         await settle { !model.isRefreshing }
         model.connect(.codex)
+        #expect(model.confirmTarget == .codex, "Codex shows the refresh-token note first")
+        #expect(model.row(.codex).phase == .idle)
+        model.connect(.codex, confirmed: true)
         #expect(model.row(.codex).phase == .connecting)
         await settle { model.row(.codex).phase == .idle }
         #expect(services.calls.contains("connect:codex:local"))
@@ -53,7 +56,7 @@ import Testing
         model.refresh()
         await settle { !model.isRefreshing }
         services.failure = CodeRouterError.http(status: 400, code: "invalid_credential", message: "Sign in to Codex again.")
-        model.connect(.codex)
+        model.connect(.codex, confirmed: true)
         await settle { model.row(.codex).phase == .idle }
         guard case .failed(let text) = model.row(.codex).outcome else { Issue.record("expected failure"); return }
         #expect(text.contains("Sign in to Codex again."))

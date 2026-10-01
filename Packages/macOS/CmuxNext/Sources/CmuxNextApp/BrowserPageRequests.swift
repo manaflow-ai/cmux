@@ -60,12 +60,12 @@ final class BrowserPageRequests: BrowserTabDelegate {
         case .contextMenu(let request):
             let target = ActionTargetRef(kind: .tab, id: key)
             let host = services.registry.makeContextMenu(for: .browserPage, target: target,
-                                                         entries: ContextMenuCatalog.browserPageAfterEngineMenu,
+                                                         entries: ContextMenuCatalog.shared.browserPageAfterEngineMenu,
                                                          implied: .browserFocused)
             let extra = BrowserProfileLinkMenu.items(for: request.target.linkURL, target: ActionTargetRef(kind: .pane, id: pane.id),
                                                      services: services) + host.items
             host.removeAllItems()
-            BrowserContextMenuBuilder.present(request, in: page.contentView, extra: extra)
+            services.contextMenus.present(request, in: page.contentView, extra: extra)
         case .notice(let text):
             services.cache.existingBrowser(key)?.chrome.showNotice(text)
         case .download:

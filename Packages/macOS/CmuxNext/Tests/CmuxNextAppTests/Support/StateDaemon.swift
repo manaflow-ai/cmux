@@ -48,7 +48,7 @@ nonisolated final class StateDaemon: Sendable {
             let id = request["id"]?.doubleValue.map { Int($0) } ?? 0
             switch request["cmd"]?.stringValue {
             case "identify":
-                let caps = DaemonCapabilities.required.map { "\"\($0)\"" }.joined(separator: ",")
+                let caps = DaemonCapabilities.shared.required.map { "\"\($0)\"" }.joined(separator: ",")
                 return [#"{"id":\#(id),"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":12,"capabilities":[\#(caps)],"session":"local","pid":7,"registry_id":"r","generation":"g1","workspace_revision":1}}"#]
             case "list-workspaces":
                 return [#"{"id":\#(id),"ok":true,"data":{"generation":"g1","registry_id":"r","workspace_revision":1,"workspaces":[{"id":1,"key":"\#(Self.workspaceKey)","name":"w","resource_id":"ws_w","screens":[{"id":4,"resource_id":"screen_s","layout":{"type":"leaf","pane":3},"panes":[{"id":3,"resource_id":"pane_p","active_tab":0,"tabs":[\#(tabs)]}]}]}]}}"#]

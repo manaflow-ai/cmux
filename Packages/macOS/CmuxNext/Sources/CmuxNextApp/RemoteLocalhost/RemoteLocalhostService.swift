@@ -60,7 +60,7 @@ final class RemoteLocalhostService {
         let name = machineName(of: daemon)
         let workspace = daemon.store.pane(containing: tab.surface).flatMap { daemon.store.workspace(containing: $0.handle) }
         guard setting.isEnabled(workspace: workspace?.id) else { return .thisMacInstead(name, .turnedOff) }
-        guard daemon.supports(DaemonCapabilities.loopbackForward) else { return .thisMacInstead(name, .updateMachine) }
+        guard daemon.supports(DaemonCapabilities.shared.loopbackForward) else { return .thisMacInstead(name, .updateMachine) }
         guard engine == .cef else { return .thisMacInstead(name, .webKit) }
         return .machine(name)
     }

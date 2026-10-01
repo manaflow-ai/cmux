@@ -65,7 +65,7 @@ final class SSHMachineSession {
                 do {
                     return try await link.socketPath()
                 } catch let error as SSHLinkError where error.waitsForUser {
-                    // The next attempt waits for an event (DaemonStartup.isPermanent).
+                    // The next attempt waits for an event (DaemonStartup.shared.isPermanent).
                     throw DaemonError.endpointBlocked(error.description)
                 }
             })

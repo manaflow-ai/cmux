@@ -110,6 +110,18 @@ custom `title` on every workspace. `set-workspace-metadata` treats an absent
 field as unchanged and `null` as clear, commits one workspace-registry
 revision, and emits `workspace-changed` with the full workspace entity.
 
+`workspace-pin-v1` adds `pinned` to every workspace and to
+`set-workspace-metadata`. An absent `pinned` is unchanged; `true` or `false`
+sets it. The daemon keeps the workspace order; frontends list pinned
+workspaces in a Pinned section at the top of the sidebar.
+
+`notification-mark-unread-v1` adds `marked_unread` to every workspace and to
+`set-workspace-metadata`, with the same absent-or-boolean rule. It is a manual
+mark (Mark Workspace as Unread), separate from notification markers and
+`unread_count`. The daemon keeps it until a frontend clears it, which the Mac
+app does when the user types into one of the workspace's terminals (on this Mac) or uses Mark
+as Read or Clear Notifications; focusing or opening the workspace keeps it.
+
 `tab-metadata-v1` adds `pinned`, `cwd`, `git_branch`, and `git_detached` to
 every tab. `set-tab-pinned` pins a tab; pinned tabs sort first, and
 `move-tab` keeps them ahead of unpinned tabs. The daemon resolves `cwd` from
