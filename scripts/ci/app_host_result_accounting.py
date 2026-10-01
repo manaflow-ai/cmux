@@ -357,6 +357,14 @@ def check_run(
     """
     messages: list[str] = []
 
+    # Graded green must mean something was graded: an empty inventory or an
+    # empty selector list leaves the missing-execution gate nothing to check,
+    # so the run would pass on the aggregate count alone.
+    if not inventory:
+        return False, ["inventory lists no built tests"]
+    if not selectors:
+        return False, ["no selectors: nothing was selected to run"]
+
     expected_tests, missing_inventory = selected_inventory(inventory, selectors)
     if missing_inventory:
         for selector in missing_inventory:

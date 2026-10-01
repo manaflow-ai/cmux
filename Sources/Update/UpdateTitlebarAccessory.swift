@@ -295,6 +295,12 @@ final class NotificationsAnchorRegistry {
             .min { $0.distance < $1.distance }?
             .view
     }
+
+    func visibleAnchor(in window: NSWindow) -> NSView? {
+        anchors.allObjects.first { view in
+            view.window === window && notificationsPopoverAnchorIsVisible(view)
+        }
+    }
 }
 
 @MainActor
@@ -985,7 +991,6 @@ private final class TitlebarControlRightClickNSView: NSView {
 private struct TitlebarNotificationBadge: View {
     let unreadModel: SidebarUnreadModel
     let config: TitlebarControlsStyleConfig
-    @Environment(\.cmuxAccentColor) private var cmuxAccent
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     var body: some View {

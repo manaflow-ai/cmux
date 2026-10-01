@@ -82,6 +82,7 @@ extension BrowserPanel {
         if let documentURL,
            navigationDelegate?.activeErrorPageDisplayURL == nil,
            pendingRecoveryURL == nil,
+           let documentURL,
            BrowserDiscardRestoreStrategy.canRestoreSessionState(for: documentURL),
            let restoreURL,
            BrowserFormStateSnapshot.isSameDocument(

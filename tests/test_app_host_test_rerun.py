@@ -458,7 +458,7 @@ class DetachTests(unittest.TestCase):
 
     def test_detach_imports_only_matching_resolved_binary_framework_slices(self) -> None:
         with tempfile.TemporaryDirectory(prefix="rerun products ") as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             debug = root / "Build" / "Products" / "Debug"
             (debug / "PackageFrameworks" / "Pkg_1_PackageProduct.framework").mkdir(parents=True)
             host = debug / "Host App.app" / "Contents"
