@@ -331,6 +331,12 @@ jobs:
           set -euo pipefail
           if [[ "$CMUX_NEXT_RUNNER" == glaeda-* ]]; then
             derived_data="$HOME/Library/Caches/cmux-next-ci/cmux-scheme/${RUNNER_NAME:-runner}"
+            # Nothing on the mini reclaims this cache (glaeda-disk keeps it), so cap
+            # it: a cold build leaves about 5 GiB; past 12 GiB start over.
+            if [[ -d "$derived_data" ]] && (( $(du -sg "$derived_data" | cut -f1) > 12 )); then
+              echo "kept DerivedData over 12 GiB; building cold"
+              rm -rf -- "$derived_data"
+            fi
           else
             derived_data="$RUNNER_TEMP/cmux-scheme-compile"
           fi
