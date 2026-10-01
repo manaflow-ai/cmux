@@ -52,11 +52,6 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
 
     var isShown: Bool { popover?.isShown == true }
 
-#if DEBUG
-    /// Whether the shown popover animates its close, or nil when none is shown.
-    var animatesForTesting: Bool? { isShown ? popover?.animates : nil }
-#endif
-
     /// True from `popoverWillClose` until `popoverDidClose`. An animated close
     /// keeps `isShown` true until the animation ends, so containers that
     /// must know whether a close already began check this as well.
