@@ -1024,7 +1024,8 @@ import Testing
         rig.controller.setScope("user-2/team-9")
         await rig.controller.waitForPendingOperation()
 
-        #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1") == ["ios-abc"])
+        #expect(rig.service.calls.revoke.count == 1)
+        #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1").isEmpty)
     }
 
     @Test func signingOutKeepsLocalCleanupPendingWhileVPNIsUnavailable() async {

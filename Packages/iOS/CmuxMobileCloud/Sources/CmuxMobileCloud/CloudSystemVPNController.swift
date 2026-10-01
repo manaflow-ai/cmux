@@ -28,12 +28,11 @@ public final class CloudSystemVPNController {
     private let operationTimeout: Duration
     private let operationGate = CloudSystemVPNOperationGate()
     private let cleanupRetryCount: Int
-    // The durable store is the source of truth. Keep every pending peer in
-    // the working set too, because evicting one would strand server routes
-    // permanently. Remote cleanup remains bounded per transition and retry.
-    // Account transitions do one bounded unit of remote cleanup. Remaining
-    // entries continue through the background retry path after the new scope
-    // is ready.
+    private let maxInMemoryPendingRevocations = 64
+    // The durable store is the source of truth. The in-memory working set is
+    // bounded after each durable write, while remote cleanup remains bounded
+    // per transition and retry. Account transitions do one bounded unit of
+    // remote cleanup; remaining entries continue through the retry path.
     private let maxPendingRevocationsPerTransition = 1
     private let maxPendingRevocationsPerRetry = 8
     private let credentials: @Sendable () async -> CloudAPITokenSource.TokenPair?
@@ -173,11 +172,6 @@ public final class CloudSystemVPNController {
                     scopes: [previousScope, newScope]
                 )
                 await persistPendingBrowserTunnelRevocations()
-                guard manager.isAvailable else {
-                    guard self.isCurrent(generation) else { return }
-                    browserTunnel = nil
-                    return
-                }
                 if !pendingBrowserTunnelRevocations.isEmpty {
                     do {
                         let hasDeferredCleanup = try await revokePendingBrowserTunnel(
@@ -191,6 +185,15 @@ public final class CloudSystemVPNController {
                     }
                     guard self.isCurrent(generation) else { return }
                     browserTunnel = nil
+                }
+                guard manager.isAvailable else {
+                    guard self.isCurrent(generation) else { return }
+                    // Server cleanup does not require the local Network
+                    // Extension. Keep platform removal pending for the next
+                    // foreground refresh once iOS makes it available.
+                    browserTunnel = nil
+                    scheduleCleanupRetry()
+                    return
                 }
                 if removesExistingConfiguration {
                     try await removeConfigurationWithRetry()
@@ -806,6 +809,7 @@ public final class CloudSystemVPNController {
             revocations.insert(pending)
         }
         await pendingRevocationStore.save(revocations, scope: tunnel.scope)
+        trimPendingBrowserTunnelRevocations()
     }
 
     private func persistPendingBrowserTunnelRevocations() async {
@@ -833,6 +837,14 @@ public final class CloudSystemVPNController {
         for (scope, revocations) in revocationsByScope {
             await pendingRevocationStore.save(revocations, scope: scope)
         }
+        trimPendingBrowserTunnelRevocations()
+    }
+
+    private func trimPendingBrowserTunnelRevocations() {
+        guard pendingBrowserTunnelRevocations.count > maxInMemoryPendingRevocations else { return }
+        pendingBrowserTunnelRevocations.removeFirst(
+            pendingBrowserTunnelRevocations.count - maxInMemoryPendingRevocations
+        )
     }
 
     private func rememberAndPersistPendingBrowserTunnelRevocation(
@@ -1135,6 +1147,11 @@ public final class CloudSystemVPNController {
                     return
                 }
                 self.publish(.failed(.configuration))
+                return
+            }
+            guard self.manager.isAvailable else {
+                self.cleanupRetryTask = nil
+                self.cleanupRetryRequested = false
                 return
             }
             guard self.cleanupPending || self.hasEligiblePendingBrowserTunnelRevocation,

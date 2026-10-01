@@ -128,6 +128,17 @@ import Testing
             try builder.openAttach(machineID: " ", deviceFingerprint: "f", clientCapabilities: [], accessToken: "a", refreshToken: "r")
         }
     }
+
+    @Test func authenticatedRequestsRequireTLSExceptForLoopbackDevelopmentHosts() throws {
+        #expect(throws: CloudAPIError.self) {
+            try CloudAPIRequestBuilder(baseURL: "http://cmux.example")
+                .listMachines(accessToken: "a", refreshToken: "r")
+        }
+
+        let request = try CloudAPIRequestBuilder(baseURL: "http://127.0.0.1:3777")
+            .listMachines(accessToken: "a", refreshToken: "r")
+        #expect(request.url?.absoluteString == "http://127.0.0.1:3777/api/vm")
+    }
 }
 
 @Suite struct CloudAPIResponseDecodingTests {

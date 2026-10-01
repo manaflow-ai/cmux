@@ -205,7 +205,8 @@ public struct CloudAPIRequestBuilder: Sendable, Equatable {
         accessToken: String,
         refreshToken: String
     ) throws -> URLRequest {
-        guard let url = URL(string: baseURL + path) else {
+        guard let origin = URL(string: baseURL), Self.isAllowedOrigin(origin),
+              let url = URL(string: baseURL + path) else {
             throw CloudAPIError.invalidURL(baseURL + path)
         }
         var request = URLRequest(url: url)
@@ -219,5 +220,22 @@ public struct CloudAPIRequestBuilder: Sendable, Equatable {
             request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
         }
         return request
+    }
+
+    private static func isAllowedOrigin(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(),
+              url.host != nil,
+              url.user == nil,
+              url.password == nil,
+              url.query == nil,
+              url.fragment == nil,
+              url.path.isEmpty || url.path == "/" else { return false }
+        if scheme == "https" { return true }
+        guard scheme == "http", let host = url.host?.lowercased() else { return false }
+        return host == "localhost"
+            || host.hasSuffix(".localhost")
+            || host == "127.0.0.1"
+            || host == "::1"
+            || host == "[::1]"
     }
 }
