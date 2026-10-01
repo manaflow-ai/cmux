@@ -41,16 +41,28 @@ struct ColumnCloseScrollTests {
         let before = screen.scroll.value
         #expect(before == screen.geometry.maxOffset)
 
+        // Record every frame from here on. How far a frame moves depends on
+        // how late the display link fires on a loaded host, so the checks are
+        // on the path the spring takes, not on where it is at some instant.
+        var frames: [(from: Double, to: Double)] = []
+        let step = view.driver.onFrame
+        view.driver.onFrame = { dt in
+            let from = screen.scroll.value
+            let keepGoing = step?(dt) ?? false
+            frames.append((from, screen.scroll.value))
+            return keepGoing
+        }
         view.model.apply(screens: columns(["a", "b"]))
         view.model.focus("b", notify: false)
-        await settle(view) { screen.geometry.columnOrder.count == 2 }
-        // Right after the close the view has not jumped to the new end: it is
-        // still past it (at most a few frames into the spring), springing back.
+        await settle(view) { screen.geometry.columnOrder.count == 2 && !frames.isEmpty && !view.driver.isRunning }
+        #expect(screen.geometry.columnOrder.count == 2)
         #expect(screen.scroll.target == screen.geometry.maxOffset)
-        #expect(screen.scroll.value > screen.geometry.maxOffset + 1)
-        #expect(screen.scroll.value <= before)
-        #expect(view.driver.isRunning)
-        await settle(view) { !view.driver.isRunning }
+        // The close did not jump to the new end: the first frame starts where
+        // the view was, past the new end, and springs back from there.
+        #expect(frames.first?.from == before)
+        #expect(before > screen.geometry.maxOffset + 1)
+        #expect(zip(frames, frames.dropFirst()).allSatisfy { $1.to <= $0.to + 0.5 })
+        #expect(frames.last?.to == screen.geometry.maxOffset)
         #expect(screen.scroll.value == screen.geometry.maxOffset)
         #expect(abs((view.frame(of: "b")?.maxX ?? 0) + screen.context.style.stripGap - 1000) < 0.5)
         withExtendedLifetime(provider) {}
