@@ -33,7 +33,10 @@ final class FocusEffectApplier: FocusEffectApplying {
         })
         for (name, active) in [(NSApplication.didBecomeActiveNotification, true), (NSApplication.didResignActiveNotification, false)] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.controller.focus.send(.appActive(active)) }
+                MainActor.assumeIsolated {
+                    self?.controller.focus.send(.appActive(active))
+                    if active { self?.reclaimKeyAfterActivation() }
+                }
             })
         }
         controller.services.observeFocus(of: controller)
@@ -187,6 +190,18 @@ final class FocusEffectApplier: FocusEffectApplying {
         guard let window = controller.window, let key = NSApp.keyWindow, key !== window,
               ChildWindowKeyRule.shouldReclaim(facts(of: key, in: window)) else { return }
         window.makeKey()
+    }
+
+    /// AppKit makes the window that was key at deactivation key again while
+    /// the app activates; the give-back that ran inside that didBecomeKey
+    /// did not hold (nxdog13 desync report 3: `chromium-unchosen-key`, then
+    /// W5 200 ms later). Once the app is active, a page window that is not
+    /// the target gives the keys back.
+    private func reclaimKeyAfterActivation() {
+        switch controller.focus.state.resolved {
+        case .browserPage, .devTools, .overlay: return
+        default: reclaimKeyFromPageWindow()
+        }
     }
 
     /// What the key rule needs to know about `other`, a window that is not

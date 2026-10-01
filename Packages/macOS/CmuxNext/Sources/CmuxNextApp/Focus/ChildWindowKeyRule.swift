@@ -44,7 +44,7 @@ nonisolated enum ChildWindowKeyRule {
     }
 
     static func decide(_ facts: Facts) -> Decision {
-        guard facts.parent == .thisWindow, !facts.isPanel else { return .ignore }
+        guard isOurs(facts) else { return .ignore }
         if facts.isDevTools { return .devTools }
         if facts.isChromiumPage, !facts.clicked || !facts.overPane { return .unchosenPage }
         guard facts.overPane else { return .ignore }
@@ -54,6 +54,21 @@ nonisolated enum ChildWindowKeyRule {
     /// Whether this window takes the keys back from the key window `facts`
     /// describes, when its target is not a page.
     static func shouldReclaim(_ facts: Facts) -> Bool {
-        facts.parent == .thisWindow && !facts.isPanel
+        isOurs(facts)
+    }
+
+    /// A child of this window, or a parentless Chromium page window while
+    /// this window is the active one: the fork hides and unparents a page
+    /// whose parent view has no bounds or is hidden, and an activation then
+    /// shows and keys it before the fork makes it a child again
+    /// (input-spec.md B13). Only the active window answers for it, so two
+    /// windows never both take the keys back.
+    private static func isOurs(_ facts: Facts) -> Bool {
+        guard !facts.isPanel else { return false }
+        switch facts.parent {
+        case .thisWindow: return true
+        case .none: return facts.isChromiumPage && facts.thisWindowIsActive
+        case .other: return false
+        }
     }
 }
