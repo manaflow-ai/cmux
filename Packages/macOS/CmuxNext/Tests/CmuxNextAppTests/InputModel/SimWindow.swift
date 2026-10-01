@@ -202,6 +202,8 @@ final class SimWindow: FocusEffectApplying {
     /// (`reclaimKeyFromPageWindow`).
     private func blurChildPage() {
         childPage = nil
-        if case .childPage(index, _) = world.key { world.setKey(.window(index)) }
+        let facts = ChildWindowKeyRule.Facts(parent: world.keyPageParented ? .thisWindow : .none, isChromiumPage: true,
+                                             thisWindowIsActive: world.lastActive == index)
+        if case .childPage(index, _) = world.key, ChildWindowKeyRule.shouldReclaim(facts) { world.setKey(.window(index)) }
     }
 }

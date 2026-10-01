@@ -153,4 +153,21 @@ struct InputBugRegressionTests {
             #expect(violation == nil, "placed: \(placed): \(String(describing: violation))")
         }
     }
+
+    // MARK: B13 a parentless page window takes the keys after attach
+
+    /// Dogfood nxdog13 (desync W5, ~/Library/Logs/cmux-next/nxdog13/desync):
+    /// Cmd-Shift-L, the expectation lands on the new tab's omnibar, the
+    /// page attaches, and 53 ms later its CefNSWindow is key without a
+    /// click. The journal has no `chromium-unchosen-key`: the window was
+    /// not a child of the cmux window yet (the fork hides and unparents a
+    /// page over a parent view without bounds; Chromium's activation shows
+    /// it parentless), so the applier ignored it and the keys stayed in the
+    /// page while the model targeted the omnibar.
+    @Test func b13ParentlessPageWindowKeyAfterAttachNeverKeepsTheOmnibarKeys() {
+        let open: [FuzzAction] = [.userNewTab(window: 0, browser: true), .deliver(0), .deliver(0), .frame]
+        let actions = open + open + [.pageTakesKey(window: 0, pane: 0, placed: false, parented: false), .type]
+        let violation = Self.noViolation(actions)
+        #expect(violation == nil, "\(String(describing: violation))")
+    }
 }
