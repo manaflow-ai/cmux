@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { diffRows, visibleLayoutRange, visibleRowRange, type AcpmuxRow, type ConversationLayout } from "./model";
+import { diffRows, layoutConversation, visibleLayoutRange, visibleRowRange, type AcpmuxRow, type ConversationLayout } from "./model";
 
 const row = (id: string, version: number): AcpmuxRow => ({ id, version, at: 0, kind: "assistant", text: id });
 
@@ -22,4 +22,15 @@ describe("acpmux row snapshots", () => {
     expect(visibleLayoutRange(layout, 91, 40, 0)).toEqual({ first: 2, last: 3 });
     expect(visibleLayoutRange(layout, 0, 20, 1)).toEqual({ first: 0, last: 2 });
   });
+});
+
+/// A user bubble (9px padding top and bottom, styles.css) rendered taller than its row, so the next
+/// row's text ran under it.
+test("a one-line user row leaves room for its bubble and the gap below it", () => {
+  const user = { id: "u", version: 1, at: 0, kind: "user", text: "Question 1: how should the transcript handle item 1?" };
+  const { heights } = layoutConversation([user], 760);
+  const bubblePadding = 18;
+  const line = 20;
+  const gap = 16;
+  expect(heights[0]).toBeGreaterThanOrEqual(bubblePadding + line + gap);
 });
