@@ -1,0 +1,195 @@
+// Shared editing helpers for Google Docs, Sheets and Slides
+// (docs/browser-repl/site-tools.md, "Editing Google files"). Reads go through
+// the editors' own export endpoints in the signed-in session; xlsx and pptx
+// exports are unzipped in a docs.google.com page with the browser's
+// DecompressionStream. Writes drive the editor in a background tab with real
+// input: the Sheets name box and a paste from cmux's per-tab clipboard, the
+// Docs and Slides Find and replace dialog, typing at the end of a document.
+//
+// Rule for writes: a file whose Share button says "Private to only me" is
+// edited at once (nobody else sees it); any other file, or one whose
+// sharing cannot be read, gets a draft first (ChatGPT's confirmation
+// taxonomy, [9]: edits others can see).
+(function (root) {
+  "use strict";
+  const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;
+  if (!S) return;
+
+  // Runs in a docs.google.com page: fetches an export (same-origin, the
+  // session's cookies), unzips it and returns the text of entries whose
+  // names match arg.want.
+  async function unzipExport(arg) {
+    const r = await fetch(arg.url, { credentials: "include" });
+    if (!r.ok) return { status: r.status };
+    const buf = new Uint8Array(await r.arrayBuffer());
+    const view = new DataView(buf.buffer);
+    let eocd = -1;
+    for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) if (view.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+    if (eocd < 0) return { status: r.status, error: "the export is not a zip file" };
+    const count = view.getUint16(eocd + 10, true);
+    let p = view.getUint32(eocd + 16, true);
+    const want = new RegExp(arg.want);
+    const out = {};
+    const dec = new TextDecoder();
+    for (let n = 0; n < count; n++) {
+      const method = view.getUint16(p + 10, true);
+      const size = view.getUint32(p + 20, true);
+      const nameLen = view.getUint16(p + 28, true);
+      const extraLen = view.getUint16(p + 30, true);
+      const commentLen = view.getUint16(p + 32, true);
+      const local = view.getUint32(p + 42, true);
+      const name = dec.decode(buf.subarray(p + 46, p + 46 + nameLen));
+      p += 46 + nameLen + extraLen + commentLen;
+      if (!want.test(name)) continue;
+      const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
+      const data = buf.subarray(start, start + size);
+      out[name] = method === 0 ? dec.decode(data) : await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).text();
+    }
+    return { status: r.status, files: out };
+  }
+
+  const xmlText = (s) => S.decodeEntities(String(s).replace(/<[^>]*>/g, ""));
+  const colIndex = (letters) => [...letters].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+  const colName = (c) => {
+    let s = "";
+    for (c += 1; c > 0; c = Math.floor((c - 1) / 26)) s = String.fromCharCode(65 + ((c - 1) % 26)) + s;
+    return s;
+  };
+
+  // xlsx parts -> [{ name, cells: [{ cell, value, formula? }] }] in tab order.
+  function parseWorkbook(files) {
+    const strings = [...(files["xl/sharedStrings.xml"] || "").matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => [...m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((t) => S.decodeEntities(t[1])).join(""));
+    const rels = {};
+    for (const m of (files["xl/_rels/workbook.xml.rels"] || "").matchAll(/<Relationship\b[^>]*>/g)) {
+      const id = /Id="([^"]+)"/.exec(m[0]);
+      const target = /Target="([^"]+)"/.exec(m[0]);
+      if (id && target) rels[id[1]] = "xl/" + target[1].replace(/^\/?xl\//, "").replace(/^\//, "");
+    }
+    const sheets = [];
+    for (const m of (files["xl/workbook.xml"] || "").matchAll(/<sheet\b[^>]*>/g)) {
+      const name = S.decodeEntities((/name="([^"]*)"/.exec(m[0]) || [])[1] || "");
+      const rid = (/r:id="([^"]+)"/.exec(m[0]) || [])[1];
+      const xml = files[rels[rid]] || "";
+      const cells = [];
+      for (const c of xml.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+        const ref = (/\br="([A-Z]+\d+)"/.exec(c[1]) || [])[1];
+        if (!ref) continue;
+        const type = (/\bt="(\w+)"/.exec(c[1]) || [])[1];
+        const inner = c[2] || "";
+        const f = /<f[^>]*>([\s\S]*?)<\/f>/.exec(inner);
+        const v = /<v>([\s\S]*?)<\/v>/.exec(inner);
+        const is = /<is>([\s\S]*?)<\/is>/.exec(inner);
+        let value = v ? S.decodeEntities(v[1]) : is ? xmlText(is[1]) : "";
+        if (type === "s" && v) value = strings[Number(v[1])] ?? "";
+        if (type === "b") value = value === "1" ? "TRUE" : "FALSE";
+        if (value === "" && !f) continue;
+        cells.push(f ? { cell: ref, value, formula: "=" + S.decodeEntities(f[1]) } : { cell: ref, value });
+      }
+      sheets.push({ name, cells });
+    }
+    return sheets;
+  }
+
+  // pptx parts -> [{ index, title, text: [paragraphs], notes }].
+  function parseDeck(files) {
+    const paragraphs = (xml) => [...xml.matchAll(/<a:p>([\s\S]*?)<\/a:p>/g)].map((p) => [...p[1].matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map((t) => S.decodeEntities(t[1])).join("")).filter((x) => x.trim());
+    const shapes = (xml) => [...xml.matchAll(/<p:sp>([\s\S]*?)<\/p:sp>/g)].map((m) => ({ type: (/<p:ph\b[^>]*type="(\w+)"/.exec(m[1]) || [])[1] || null, text: paragraphs(m[1]) }));
+    const numbers = Object.keys(files).map((n) => (/^ppt\/slides\/slide(\d+)\.xml$/.exec(n) || [])[1]).filter(Boolean).map(Number).sort((a, b) => a - b);
+    return numbers.map((n, i) => {
+      const sh = shapes(files[`ppt/slides/slide${n}.xml`]);
+      const titleShape = sh.find((s) => s.type === "title" || s.type === "ctrTitle");
+      const rel = files[`ppt/slides/_rels/slide${n}.xml.rels`] || "";
+      const notesTarget = (/Target="\.\.\/notesSlides\/(notesSlide\d+\.xml)"/.exec(rel) || [])[1];
+      const notesXml = notesTarget ? files[`ppt/notesSlides/${notesTarget}`] || "" : "";
+      const notes = shapes(notesXml).filter((s) => s.type !== "sldNum" && s.type !== "sldImg").flatMap((s) => s.text).join("\n");
+      return { index: i + 1, title: titleShape ? titleShape.text.join(" ") : (sh[0] && sh[0].text[0]) || "", text: sh.flatMap((s) => s.text), notes };
+    });
+  }
+
+  const SIGN_IN = [/^https:\/\/accounts\.google\.com\//, /^https:\/\/workspace\.google\.com\//];
+
+  function create(t) {
+    const g = S.shared.google;
+    const editors = {
+      colName,
+      colIndex,
+      // Unzipped export parts of a file (xlsx or pptx).
+      async exportParts(name, ref, format, want) {
+        const url = g.exportURL(ref, format, name).replace(/^https:\/\/docs\.google\.com/, "");
+        const r = await t.inOrigin("https://docs.google.com", unzipExport, { url, want });
+        if (r.status === 401 || r.status === 403) throw new S.SiteError(r.status === 401 ? "not_signed_in" : "forbidden", `${name}: Google returned HTTP ${r.status}; this account cannot open the file`);
+        if (r.status === 404) throw new S.SiteError("not_found", `${name}: the file does not exist or this account cannot open it`);
+        if (!r.files) throw new S.SiteError("unexpected", `${name}: ${r.error || `HTTP ${r.status}`}`);
+        return r.files;
+      },
+      async workbook(name, ref) {
+        return parseWorkbook(await editors.exportParts(name, ref, "xlsx", "^xl/(workbook\\.xml|_rels/workbook\\.xml\\.rels|sharedStrings\\.xml|worksheets/[^/]+\\.xml)$"));
+      },
+      async deck(name, ref) {
+        return parseDeck(await editors.exportParts(name, ref, "pptx", "^ppt/(slides|notesSlides)/(_rels/)?[^/]+\\.xml(\\.rels)?$"));
+      },
+      editURL(ref) {
+        const q = ref.uid !== undefined ? `?authuser=${ref.uid}` : "";
+        return `https://docs.google.com/${ref.kind}/d/${ref.id}/edit${q}${ref.gid !== undefined && ref.gid !== null ? `#gid=${ref.gid}` : ""}`;
+      },
+      // Runs body(page) in the file's editor in a background tab.
+      async inEditor(name, ref, body) {
+        return t.withTab(editors.editURL(ref), async (page) => {
+          await t.waitIn(page, () => !!document.querySelector(".docs-title-input, #docs-titlebar"), undefined, { signIn: SIGN_IN, name, what: "the editor", timeout: 45000 });
+          return body(page);
+        });
+      },
+      // The Share button's description: "Share. Private to only me" and the like.
+      sharing(page) {
+        return page.evaluate(() => {
+          const b = document.querySelector("#docs-titlebar-share-client-button, [aria-label^='Share'], [data-tooltip^='Share']");
+          return b ? (b.getAttribute("aria-label") || b.getAttribute("data-tooltip") || "").trim() : "";
+        });
+      },
+      isPrivate: (label) => /private to only me/i.test(label),
+      // A write: at once on a private file, else a draft confirmed later.
+      // spec(page, label) -> { summary, preview, run(page) }.
+      edit(site, action, name, ref, input, options, spec) {
+        if (typeof input === "string" && /^draft-\d+-[0-9a-f]+$/.test(input)) return t.write(site, action, input, options);
+        return editors.inEditor(name, ref, async (page) => {
+          const label = await editors.sharing(page);
+          const title = await page.evaluate(() => { const i = document.querySelector(".docs-title-input"); return i ? i.value : null; });
+          const s = spec(label);
+          if (editors.isPrivate(label)) return s.run(page);
+          return t.write(site, action, { draft: true }, undefined, () => ({
+            category: "[9] edit content others can see",
+            summary: s.summary,
+            preview: { ...s.preview, title, sharing: label || "unknown" },
+            run: () => editors.inEditor(name, ref, (p) => s.run(p)),
+          }));
+        });
+      },
+      // Find and replace (Meta+Shift+H) in Docs or Slides: replaces every match.
+      async findReplace(page, find, replacement) {
+        await page.keyboard.press("Meta+Shift+H");
+        const dialog = page.locator('[role="dialog"]').filter({ hasText: "Replace all" }).first();
+        await dialog.waitFor({ timeout: 15000 });
+        const inputs = dialog.locator('input[type="text"], input:not([type])');
+        await inputs.nth(0).fill(find);
+        await inputs.nth(1).fill(replacement);
+        await dialog.getByRole("button", { name: "Replace all" }).click();
+        await t.sleep(500);
+        await page.keyboard.press("Escape").catch(() => {});
+      },
+      // Polls check() (an export read) until it returns truthy or time runs out.
+      async verify(check, timeout = 20000) {
+        const deadline = t.now() + timeout;
+        for (;;) {
+          try {
+            if (await check()) return true;
+          } catch (e) {}
+          if (t.now() >= deadline) return false;
+          await t.sleep(700);
+        }
+      },
+    };
+    return editors;
+  }
+
+  S.shared.editors = { create, parseWorkbook, parseDeck, unzipExport };
+})(typeof globalThis !== "undefined" ? globalThis : this);

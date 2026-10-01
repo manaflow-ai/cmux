@@ -7,6 +7,7 @@
     "api.js",
     "sites/loader.js",
     "sites/google.js",
+    "sites/google-editors.js",
     "sites/google-accounts.js",
     "sites/google-docs.js",
     "sites/google-sheets.js",
