@@ -278,6 +278,7 @@ const BOOLEAN_FLAGS: &[&str] = &[
     "clear",
     "reply",
     "empty",
+    "ephemeral",
     "left",
     "right",
     "up",
@@ -630,6 +631,7 @@ fn parse_workspace(
     argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     match strs(words).as_slice() {
+        ["group", rest @ ..] => parse_workspace_group(rest, selectors, flags),
         ["list"] => request(ResourceOperation::WorkspaceList, selectors, flags, Map::new()),
         ["create"] => {
             let mut params = Map::new();
@@ -640,6 +642,9 @@ fn parse_workspace(
                 "initial_content".into(),
                 Value::String(if flags.boolean("empty") { "empty" } else { "terminal" }.into()),
             );
+            if flags.boolean("ephemeral") {
+                params.insert("ephemeral".into(), Value::Bool(true));
+            }
             request(ResourceOperation::WorkspaceCreate, selectors, flags, params)
         }
         [selector, "show"] => {
@@ -2006,6 +2011,79 @@ fn parse_tab_group(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, Usa
     Ok(group_raw_plan(command, request))
 }
 
+/// Workspace groups are personal state of the home session
+/// (plans/cmux-next/state-ownership.md): the commands use the
+/// `workspace_group.*` and `workspace.place` resource operations. The
+/// legacy shared group commands are gone.
+fn parse_workspace_group(
+    words: &[&str],
+    selectors: &mut Selectors,
+    flags: &mut Flags,
+) -> Result<CommandPlan, UsageError> {
+    let mut params = Map::new();
+    let operation = match words {
+        ["list"] => {
+            insert_optional_string(&mut params, flags, "room", "room");
+            ResourceOperation::WorkspaceGroupList
+        }
+        ["create"] => {
+            params.insert("name".into(), Value::String(flags.required("name")?));
+            insert_optional_string(&mut params, flags, "color", "color");
+            insert_optional_string(&mut params, flags, "room", "room");
+            if let Some(index) = group_number(flags, "index")? {
+                params.insert("index".into(), index);
+            }
+            if flags.boolean("collapse") {
+                params.insert("collapsed".into(), Value::Bool(true));
+            }
+            ResourceOperation::WorkspaceGroupCreate
+        }
+        ["remove"] => {
+            selectors.insert("workspace", "ws", &flags.required("workspace")?)?;
+            params.insert("group".into(), Value::Null);
+            ResourceOperation::WorkspacePlace
+        }
+        [group, action] => match *action {
+            "update" => {
+                params.insert("workspace_group".into(), Value::String((*group).to_string()));
+                insert_optional_string(&mut params, flags, "name", "name");
+                if flags.boolean("clear-color") {
+                    params.insert("color".into(), Value::Null);
+                } else {
+                    insert_optional_string(&mut params, flags, "color", "color");
+                }
+                insert_optional_string(&mut params, flags, "room", "room");
+                group_collapse(flags, &mut params)?;
+                ResourceOperation::WorkspaceGroupUpdate
+            }
+            "delete" => {
+                params.insert("workspace_group".into(), Value::String((*group).to_string()));
+                ResourceOperation::WorkspaceGroupDelete
+            }
+            "move" => {
+                params.insert("workspace_group".into(), Value::String((*group).to_string()));
+                params.insert(
+                    "index".into(),
+                    group_number(flags, "index")?
+                        .ok_or_else(|| UsageError::new("--index is required"))?,
+                );
+                ResourceOperation::WorkspaceGroupMove
+            }
+            "add" => {
+                selectors.insert("workspace", "ws", &flags.required("workspace")?)?;
+                params.insert("group".into(), Value::String((*group).to_string()));
+                if let Some(index) = group_number(flags, "index")? {
+                    params.insert("index".into(), index);
+                }
+                ResourceOperation::WorkspacePlace
+            }
+            _ => return usage("workspace group action"),
+        },
+        _ => return usage("workspace group action"),
+    };
+    request(operation, selectors, flags, params)
+}
+
 fn parse_raw(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let refs = strs(words);
     if refs.as_slice() == ["command"] {
@@ -3327,6 +3405,32 @@ mod tests {
         let reopen = raw_request(&["tab", "group", "saved", "saved_9", "reopen", "--pane", "3"]);
         assert_eq!(reopen["cmd"], "reopen-saved-tab-group");
         assert_eq!(reopen["pane"], 3);
+        let group = protocol(&["workspace", "group", "create", "--name", "Work"]);
+        assert_eq!(operation(&group), "workspace_group.create");
+        assert_eq!(group.params["name"], "Work");
+        let add = protocol(&[
+            "workspace",
+            "group",
+            "grp_1",
+            "add",
+            "--workspace",
+            "ws_0123456789abcdef0123456789abcdef",
+            "--index",
+            "0",
+        ]);
+        assert_eq!(operation(&add), "workspace.place");
+        assert_eq!(add.params["workspace"], "ws_0123456789abcdef0123456789abcdef");
+        assert_eq!(add.params["group"], "grp_1");
+        assert_eq!(add.params["index"], 0);
+        let remove = protocol(&[
+            "workspace",
+            "group",
+            "remove",
+            "--workspace",
+            "ws_0123456789abcdef0123456789abcdef",
+        ]);
+        assert_eq!(operation(&remove), "workspace.place");
+        assert!(remove.params["group"].is_null());
         assert!(
             parse(&strings(&["tab", "group", "tgrp_1", "explode"]), super::super::Surface::CmuxTui)
                 .is_err()
@@ -3461,6 +3565,32 @@ mod tests {
             "workspace state root is not a directory: /tmp/already owned by another daemon"
         ));
         assert_eq!(advice.code, "session.reset_state.invalid_state_path");
+    }
+
+    fn is_state_resource_operation(name: &str) -> bool {
+        const PREFIXES: [&str; 9] = [
+            "tab_group.",
+            "saved_tab_group.",
+            "workspace_group.",
+            "room.",
+            "screen_group.",
+            "closed.",
+            "workspace_status.",
+            "workspace_progress.",
+            "workspace_log.",
+        ];
+        PREFIXES.iter().any(|prefix| name.starts_with(prefix))
+            || matches!(
+                name,
+                "workspace.update"
+                    | "workspace.place"
+                    | "workspace.placement.list"
+                    | "tab.pin"
+                    | "tab.unpin"
+                    | "tab.update"
+                    | "screen.update"
+                    | "screen.move"
+            )
     }
 
     fn operation_catalog() -> Value {
@@ -4736,6 +4866,7 @@ mod tests {
                     "workspace",
                     "create",
                     "--empty",
+                    "--ephemeral",
                     "--name",
                     "empty",
                     "--correlation-key",
@@ -5220,7 +5351,7 @@ mod tests {
 
         assert_eq!(cases.len(), 120);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 127);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 178);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {
@@ -5287,6 +5418,9 @@ mod tests {
             .as_object()
             .unwrap()
             .keys()
+            // The state resources (state-ownership.md steps A and B) get
+            // their curated CLI grammar in step D.
+            .filter(|name| !is_state_resource_operation(name))
             .filter(|name| {
                 !matches!(
                     name.as_str(),

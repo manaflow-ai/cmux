@@ -1450,14 +1450,13 @@ impl WorkspaceRegistry {
         result: &Value,
         deltas: &Value,
         workspace_ledger: Option<&ResourceWorkspaceLedger>,
-        tab_groups: Option<&TabGroupState>,
+        state_write: Option<crate::resource_mutation::PlanStateWrite>,
     ) -> anyhow::Result<(ResourcePatchCommit, Option<u64>)> {
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         validate_identifier("resource operation", operation)?;
         validate_resource_patch(patch)?;
         let fingerprint = canonical_json(fingerprint)?;
-        let result_json = canonical_json(result)?;
         let tx = self.connection.transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
             return Ok((replayed, None));
@@ -1507,11 +1506,20 @@ impl WorkspaceRegistry {
         {
             presentation_store::write_workspace_presentation(&tx, &ledger.workspace_key, update)?;
         }
-        if let Some(tab_groups) = tab_groups {
-            presentation_store::write_tab_group_state(&tx, tab_groups)?;
-        }
-
         let patch = &apply_resource_patch(&tx, patch, sqlite_revision)?;
+        let mut result = result.clone();
+        decorate_snapshot_result(&tx, operation, &mut result)?;
+        let written;
+        let deltas = match state_write {
+            Some(write) => {
+                let mut changes = deltas.as_array().cloned().unwrap_or_default();
+                write(&tx, &mut result, &mut changes)?;
+                written = Value::Array(state_store::finish_changes(changes));
+                &written
+            }
+            None => deltas,
+        };
+        let result_json = canonical_json(&result)?;
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
@@ -1537,15 +1545,12 @@ impl WorkspaceRegistry {
             &mutation.id,
             operation,
             Some(patch),
-            result,
+            &result,
             deltas,
         )?;
         prune_resource_mutations(&tx)?;
         tx.commit()?;
-        Ok((
-            ResourcePatchCommit { revision, result: result.clone(), replayed: false },
-            workspace_revision,
-        ))
+        Ok((ResourcePatchCommit { revision, result, replayed: false }, workspace_revision))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2881,6 +2886,46 @@ fn restate_repaired_panes(
 /// so a commit rewrites (and journals) only the rows it changes. Callers
 /// journal the returned patch, not their input.
 pub(super) fn apply_resource_patch(
+    transaction: &Transaction<'_>,
+    patch: &ResourcePatch,
+    revision: i64,
+) -> anyhow::Result<ResourcePatch> {
+    let patch = prune_unchanged_resource_changes(transaction, patch)?;
+    // Closes by any path land in the closed history before their rows go.
+    closed_history_store::capture_closed(transaction, &patch)?;
+    apply_effective_resource_patch(transaction, &patch, revision)?;
+    Ok(patch)
+}
+
+/// A mutation whose result is the snapshot of the resource it changed
+/// returns it with the state fields a fresh snapshot shows.
+fn decorate_snapshot_result(
+    transaction: &Transaction<'_>,
+    operation: &str,
+    result: &mut Value,
+) -> anyhow::Result<()> {
+    // Topology results carry the committed value as `public_value`.
+    let target = if result.get("public_value").is_some_and(Value::is_object) {
+        &mut result["public_value"]
+    } else {
+        result
+    };
+    let Some(id) = target.get("id").and_then(Value::as_str) else { return Ok(()) };
+    let resource = match (operation.split('.').next(), id.split('_').next()) {
+        (Some("workspace"), Some("ws")) => "workspace",
+        (Some("screen"), Some("screen")) => "screen",
+        (Some("tab"), Some("tab")) => "tab",
+        _ => return Ok(()),
+    };
+    if !state_store::state_tables_ready(transaction)? {
+        return Ok(());
+    }
+    state_values::decorate_value(transaction, resource, target)
+}
+
+/// Apply a patch whose closes are not user closes (a terminal that exited
+/// on its own), so they stay out of the closed history.
+pub(super) fn apply_resource_patch_unrecorded(
     transaction: &Transaction<'_>,
     patch: &ResourcePatch,
     revision: i64,

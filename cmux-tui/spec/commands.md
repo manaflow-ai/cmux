@@ -3726,8 +3726,16 @@ Deletes a saved record by id; a linked live group stays, unlinked. Result:
 Result:
 
 ```text
-object{saved_groups:array<object{id:string, name:string, color:string, updated_at_ms:uint64, members:array<object{kind:"terminal", terminal_id:string|null, cwd:string|null, title:string|null} | object{kind:"browser", url:string, engine:string|null, profile_id:string|null, title:string|null}>}>}
+object{saved_groups:array<object{id:string, room:string, name:string, color:string, updated_at_ms:uint64, members:array<object{kind:"terminal", terminal_id:string|null, cwd:string|null, title:string|null} | object{kind:"browser", url:string, engine:string|null, profile_id:string|null, title:string|null}>}>}
 ```
+
+Saved tab groups are personal state of the home session
+(plans/cmux-next/state-ownership.md) and belong to one room (`room`, the
+`profiles-v1` room id; `default` for groups saved through these commands).
+The first open of a registry copies every shared `saved_tab_groups` row into
+the personal table in the `default` room; the shared table is read only by
+that migration. The `cmux.protocol/2` operations `saved_tab_group.*` address
+the same records.
 
 ### reopen-saved-tab-group
 

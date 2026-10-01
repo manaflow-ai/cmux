@@ -7,6 +7,7 @@ mod auxiliary;
 mod content;
 mod effects;
 mod session;
+mod state;
 mod topology;
 
 use std::collections::{HashMap, HashSet};
@@ -842,6 +843,7 @@ fn dispatch_resource_request(
         OperationOwner::Content => content::dispatch(mux, request),
         OperationOwner::Topology => topology::dispatch(mux, request),
         OperationOwner::Auxiliary => auxiliary::dispatch(mux, request),
+        OperationOwner::State => state::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,
@@ -904,6 +906,7 @@ enum OperationOwner {
     Topology,
     Content,
     Auxiliary,
+    State,
     Connection,
 }
 
@@ -1004,6 +1007,57 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::SidebarViewInput
         | ResourceOperation::SidebarViewResize
         | ResourceOperation::SidebarViewReload => OperationOwner::Auxiliary,
+        ResourceOperation::WorkspaceUpdate
+        | ResourceOperation::TabPin
+        | ResourceOperation::TabUnpin
+        | ResourceOperation::TabUpdate
+        | ResourceOperation::TabGroupList
+        | ResourceOperation::TabGroupGet
+        | ResourceOperation::TabGroupCreate
+        | ResourceOperation::TabGroupUpdate
+        | ResourceOperation::TabGroupAddTabs
+        | ResourceOperation::TabGroupRemoveTabs
+        | ResourceOperation::TabGroupMove
+        | ResourceOperation::TabGroupUngroup
+        | ResourceOperation::TabGroupClose
+        | ResourceOperation::WorkspaceGroupList
+        | ResourceOperation::WorkspaceGroupCreate
+        | ResourceOperation::WorkspaceGroupUpdate
+        | ResourceOperation::WorkspaceGroupDelete
+        | ResourceOperation::WorkspaceGroupMove
+        | ResourceOperation::WorkspacePlacementList
+        | ResourceOperation::WorkspacePlace
+        | ResourceOperation::RoomList
+        | ResourceOperation::RoomCreate
+        | ResourceOperation::RoomUpdate
+        | ResourceOperation::RoomDelete
+        | ResourceOperation::RoomMove
+        | ResourceOperation::RoomFollow
+        | ResourceOperation::RoomPin
+        | ResourceOperation::RoomUnpin
+        | ResourceOperation::SavedTabGroupList
+        | ResourceOperation::SavedTabGroupSave
+        | ResourceOperation::SavedTabGroupReopen
+        | ResourceOperation::SavedTabGroupDelete
+        | ResourceOperation::ScreenUpdate
+        | ResourceOperation::ScreenMove
+        | ResourceOperation::ScreenGroupList
+        | ResourceOperation::ScreenGroupGet
+        | ResourceOperation::ScreenGroupCreate
+        | ResourceOperation::ScreenGroupUpdate
+        | ResourceOperation::ScreenGroupAddScreens
+        | ResourceOperation::ScreenGroupRemoveScreens
+        | ResourceOperation::ScreenGroupUngroup
+        | ResourceOperation::ClosedList
+        | ResourceOperation::ClosedReopen
+        | ResourceOperation::WorkspaceStatusList
+        | ResourceOperation::WorkspaceStatusSet
+        | ResourceOperation::WorkspaceStatusClear
+        | ResourceOperation::WorkspaceProgressSet
+        | ResourceOperation::WorkspaceProgressClear
+        | ResourceOperation::WorkspaceLogAppend
+        | ResourceOperation::WorkspaceLogList
+        | ResourceOperation::WorkspaceLogClear => OperationOwner::State,
         ResourceOperation::SessionEvents
         | ResourceOperation::SessionJournalSubscribe
         | ResourceOperation::SessionJournalProducerList
@@ -1723,7 +1777,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_has_one_concrete_owner() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 127);
+        assert_eq!(operations.len(), 178);
         for name in operations.keys() {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();
@@ -1733,6 +1787,7 @@ mod tests {
                 OperationOwner::Content => assert!(content::handles(operation)),
                 OperationOwner::Topology => assert!(topology::handles(operation)),
                 OperationOwner::Auxiliary => assert!(auxiliary::handles(operation)),
+                OperationOwner::State => assert!(state::handles(operation)),
                 OperationOwner::Machine | OperationOwner::Snapshot | OperationOwner::Connection => {
                 }
             }
@@ -1742,7 +1797,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_accepts_its_result_and_declared_error_fixtures() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 127);
+        assert_eq!(operations.len(), 178);
         for (name, descriptor) in operations {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();

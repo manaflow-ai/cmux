@@ -7,6 +7,25 @@ pub(super) enum PublishedDirectory {
 }
 
 impl Surface {
+    /// The terminal's OSC 9;4 progress while one is shown.
+    pub(crate) fn terminal_progress(&self) -> Option<crate::terminal_metadata::TerminalProgress> {
+        self.as_pty()?.terminal_metadata.lock().unwrap().progress()
+    }
+
+    /// Publish a changed OSC 9;4 progress as a terminal upsert. The reader
+    /// calls this after each output chunk, outside the parser lock.
+    pub(crate) fn publish_pending_progress(&self) {
+        let Some(pty) = self.as_pty() else { return };
+        let changed = pty.terminal_metadata.lock().unwrap().take_progress_change();
+        if changed.is_none() {
+            return;
+        }
+        let Some(mux) = pty.mux.upgrade() else { return };
+        if let Err(error) = mux.publish_terminal_progress(self) {
+            eprintln!("cmux-tui: terminal progress publication failed: {error}");
+        }
+    }
+
     /// Raw VT state is only a candidate. Public state changes after its ordered commit.
     pub(crate) fn published_directory(&self) -> Option<String> {
         self.as_pty().and_then(|pty| match &*pty.published_directory.lock().unwrap() {

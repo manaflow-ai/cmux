@@ -243,10 +243,13 @@ pub enum SavedTabMember {
     },
 }
 
-/// A saved (pinned) tab group. It outlives its placements.
+/// A saved (pinned) tab group. It outlives its placements. Saved groups are
+/// personal state of the home session and belong to one room.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SavedTabGroupRecord {
     pub id: String,
+    /// The room (`profile`) whose bar shows the saved group.
+    pub room: String,
     pub name: String,
     pub color: String,
     pub members: Vec<SavedTabMember>,
@@ -336,9 +339,12 @@ fn read_tab_group_state(connection: &Connection) -> anyhow::Result<TabGroupState
     Ok(state)
 }
 
-fn read_saved_tab_groups(connection: &Connection) -> anyhow::Result<Vec<SavedTabGroupRecord>> {
+pub(super) fn read_saved_tab_groups(
+    connection: &Connection,
+) -> anyhow::Result<Vec<SavedTabGroupRecord>> {
     let mut statement = connection.prepare(
-        "SELECT saved_id, name, color, members_json, updated_at_ms FROM saved_tab_groups
+        "SELECT saved_id, profile_id, name, color, members_json, updated_at_ms
+         FROM personal_saved_tab_groups
          ORDER BY position ASC, saved_id ASC",
     )?;
     let rows = statement.query_map([], |row| {
@@ -347,14 +353,16 @@ fn read_saved_tab_groups(connection: &Connection) -> anyhow::Result<Vec<SavedTab
             row.get::<_, String>(1)?,
             row.get::<_, String>(2)?,
             row.get::<_, String>(3)?,
-            row.get::<_, i64>(4)?,
+            row.get::<_, String>(4)?,
+            row.get::<_, i64>(5)?,
         ))
     })?;
     let mut saved = Vec::new();
     for row in rows {
-        let (id, name, color, members, updated_at_ms) = row?;
+        let (id, room, name, color, members, updated_at_ms) = row?;
         saved.push(SavedTabGroupRecord {
             id,
+            room,
             name,
             color,
             members: serde_json::from_str(&members)
@@ -363,6 +371,81 @@ fn read_saved_tab_groups(connection: &Connection) -> anyhow::Result<Vec<SavedTab
         });
     }
     Ok(saved)
+}
+
+/// Create or replace a saved tab group in the caller's transaction, keeping
+/// its bar position and room (new records go last, in `record.room`).
+pub(super) fn put_saved_tab_group_in(
+    transaction: &Transaction<'_>,
+    record: &SavedTabGroupRecord,
+) -> anyhow::Result<()> {
+    validate_workspace_group_id(&record.id)?;
+    validate_workspace_group_id(&record.room)?;
+    validate_tab_group_name(&record.name)?;
+    validate_tab_group_color(&record.color)?;
+    let position = match transaction
+        .query_row(
+            "SELECT position FROM personal_saved_tab_groups WHERE saved_id = ?1",
+            [&record.id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+    {
+        Some(position) => position,
+        None => transaction.query_row(
+            "SELECT COALESCE(MAX(position) + 1, 0) FROM personal_saved_tab_groups",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?,
+    };
+    transaction.execute(
+        "INSERT INTO personal_saved_tab_groups(
+           saved_id, profile_id, name, color, members_json, position, updated_at_ms
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         ON CONFLICT(saved_id) DO UPDATE SET
+           profile_id = excluded.profile_id,
+           name = excluded.name,
+           color = excluded.color,
+           members_json = excluded.members_json,
+           updated_at_ms = excluded.updated_at_ms",
+        params![
+            record.id,
+            record.room,
+            record.name,
+            record.color,
+            serde_json::to_string(&record.members)?,
+            position,
+            i64::try_from(record.updated_at_ms)?
+        ],
+    )?;
+    append_presentation_record(
+        transaction,
+        "tab.saved_group.updated",
+        vec![JournalSubject { kind: "saved_tab_group".into(), id: record.id.clone() }],
+        &json!({"saved_group": record}),
+    )
+}
+
+/// Delete a saved tab group in the caller's transaction and unlink live
+/// groups from it. Returns whether it existed.
+pub(super) fn delete_saved_tab_group_in(
+    transaction: &Transaction<'_>,
+    saved_id: &str,
+) -> anyhow::Result<bool> {
+    let removed = transaction
+        .execute("DELETE FROM personal_saved_tab_groups WHERE saved_id = ?1", [saved_id])?
+        > 0;
+    if removed {
+        transaction
+            .execute("UPDATE tab_groups SET saved_id = NULL WHERE saved_id = ?1", [saved_id])?;
+        append_presentation_record(
+            transaction,
+            "tab.saved_group.deleted",
+            vec![JournalSubject { kind: "saved_tab_group".into(), id: saved_id.to_string() }],
+            &json!({"saved_id": saved_id}),
+        )?;
+    }
+    Ok(removed)
 }
 
 /// Longest accepted frontend browser URL or favicon URL, in bytes.
@@ -1240,51 +1323,11 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
-    /// Create or replace a saved tab group, keeping its bar position (new
-    /// records go last).
+    /// Create or replace a saved tab group, keeping its bar position and
+    /// room (new records go last).
     pub fn put_saved_tab_group(&mut self, record: &SavedTabGroupRecord) -> anyhow::Result<()> {
-        validate_workspace_group_id(&record.id)?;
-        validate_tab_group_name(&record.name)?;
-        validate_tab_group_color(&record.color)?;
         let tx = self.connection.transaction()?;
-        let position = match tx
-            .query_row(
-                "SELECT position FROM saved_tab_groups WHERE saved_id = ?1",
-                [&record.id],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()?
-        {
-            Some(position) => position,
-            None => tx.query_row(
-                "SELECT COALESCE(MAX(position) + 1, 0) FROM saved_tab_groups",
-                [],
-                |row| row.get::<_, i64>(0),
-            )?,
-        };
-        tx.execute(
-            "INSERT INTO saved_tab_groups(saved_id, name, color, members_json, position, updated_at_ms)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6)
-             ON CONFLICT(saved_id) DO UPDATE SET
-               name = excluded.name,
-               color = excluded.color,
-               members_json = excluded.members_json,
-               updated_at_ms = excluded.updated_at_ms",
-            params![
-                record.id,
-                record.name,
-                record.color,
-                serde_json::to_string(&record.members)?,
-                position,
-                i64::try_from(record.updated_at_ms)?
-            ],
-        )?;
-        append_presentation_record(
-            &tx,
-            "tab.saved_group.updated",
-            vec![JournalSubject { kind: "saved_tab_group".into(), id: record.id.clone() }],
-            &json!({"saved_group": record}),
-        )?;
+        put_saved_tab_group_in(&tx, record)?;
         tx.commit()?;
         Ok(())
     }
@@ -1292,17 +1335,7 @@ impl WorkspaceRegistry {
     /// Delete a saved tab group. Returns whether it existed.
     pub fn delete_saved_tab_group(&mut self, saved_id: &str) -> anyhow::Result<bool> {
         let tx = self.connection.transaction()?;
-        let removed =
-            tx.execute("DELETE FROM saved_tab_groups WHERE saved_id = ?1", [saved_id])? > 0;
-        if removed {
-            tx.execute("UPDATE tab_groups SET saved_id = NULL WHERE saved_id = ?1", [saved_id])?;
-            append_presentation_record(
-                &tx,
-                "tab.saved_group.deleted",
-                vec![JournalSubject { kind: "saved_tab_group".into(), id: saved_id.to_string() }],
-                &json!({"saved_id": saved_id}),
-            )?;
-        }
+        let removed = delete_saved_tab_group_in(&tx, saved_id)?;
         tx.commit()?;
         Ok(removed)
     }

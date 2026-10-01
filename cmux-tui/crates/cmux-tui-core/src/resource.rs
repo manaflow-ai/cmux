@@ -379,6 +379,108 @@ pub enum ResourceOperation {
     SidebarViewReload,
     #[serde(rename = "stream.cancel")]
     StreamCancel,
+    #[serde(rename = "closed.list")]
+    ClosedList,
+    #[serde(rename = "closed.reopen")]
+    ClosedReopen,
+    #[serde(rename = "room.create")]
+    RoomCreate,
+    #[serde(rename = "room.delete")]
+    RoomDelete,
+    #[serde(rename = "room.follow")]
+    RoomFollow,
+    #[serde(rename = "room.list")]
+    RoomList,
+    #[serde(rename = "room.move")]
+    RoomMove,
+    #[serde(rename = "room.pin")]
+    RoomPin,
+    #[serde(rename = "room.unpin")]
+    RoomUnpin,
+    #[serde(rename = "room.update")]
+    RoomUpdate,
+    #[serde(rename = "saved_tab_group.delete")]
+    SavedTabGroupDelete,
+    #[serde(rename = "saved_tab_group.list")]
+    SavedTabGroupList,
+    #[serde(rename = "saved_tab_group.reopen")]
+    SavedTabGroupReopen,
+    #[serde(rename = "saved_tab_group.save")]
+    SavedTabGroupSave,
+    #[serde(rename = "screen.move")]
+    ScreenMove,
+    #[serde(rename = "screen.update")]
+    ScreenUpdate,
+    #[serde(rename = "screen_group.add_screens")]
+    ScreenGroupAddScreens,
+    #[serde(rename = "screen_group.create")]
+    ScreenGroupCreate,
+    #[serde(rename = "screen_group.get")]
+    ScreenGroupGet,
+    #[serde(rename = "screen_group.list")]
+    ScreenGroupList,
+    #[serde(rename = "screen_group.remove_screens")]
+    ScreenGroupRemoveScreens,
+    #[serde(rename = "screen_group.ungroup")]
+    ScreenGroupUngroup,
+    #[serde(rename = "screen_group.update")]
+    ScreenGroupUpdate,
+    #[serde(rename = "tab.pin")]
+    TabPin,
+    #[serde(rename = "tab.unpin")]
+    TabUnpin,
+    #[serde(rename = "tab.update")]
+    TabUpdate,
+    #[serde(rename = "tab_group.add_tabs")]
+    TabGroupAddTabs,
+    #[serde(rename = "tab_group.close")]
+    TabGroupClose,
+    #[serde(rename = "tab_group.create")]
+    TabGroupCreate,
+    #[serde(rename = "tab_group.get")]
+    TabGroupGet,
+    #[serde(rename = "tab_group.list")]
+    TabGroupList,
+    #[serde(rename = "tab_group.move")]
+    TabGroupMove,
+    #[serde(rename = "tab_group.remove_tabs")]
+    TabGroupRemoveTabs,
+    #[serde(rename = "tab_group.ungroup")]
+    TabGroupUngroup,
+    #[serde(rename = "tab_group.update")]
+    TabGroupUpdate,
+    #[serde(rename = "workspace.place")]
+    WorkspacePlace,
+    #[serde(rename = "workspace.placement.list")]
+    WorkspacePlacementList,
+    #[serde(rename = "workspace.update")]
+    WorkspaceUpdate,
+    #[serde(rename = "workspace_group.create")]
+    WorkspaceGroupCreate,
+    #[serde(rename = "workspace_group.delete")]
+    WorkspaceGroupDelete,
+    #[serde(rename = "workspace_group.list")]
+    WorkspaceGroupList,
+    #[serde(rename = "workspace_group.move")]
+    WorkspaceGroupMove,
+    #[serde(rename = "workspace_group.update")]
+    WorkspaceGroupUpdate,
+    #[serde(rename = "workspace_log.append")]
+    WorkspaceLogAppend,
+    #[serde(rename = "workspace_log.clear")]
+    WorkspaceLogClear,
+    #[serde(rename = "workspace_log.list")]
+    WorkspaceLogList,
+    #[serde(rename = "workspace_progress.clear")]
+    WorkspaceProgressClear,
+    #[serde(rename = "workspace_progress.set")]
+    WorkspaceProgressSet,
+    #[serde(rename = "workspace_status.clear")]
+    WorkspaceStatusClear,
+    #[serde(rename = "workspace_status.list")]
+    WorkspaceStatusList,
+    #[serde(rename = "workspace_status.set")]
+    WorkspaceStatusSet,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -483,6 +585,17 @@ impl ResourceOperation {
                 | Self::NotificationList
                 | Self::AgentList
                 | Self::SidebarViewGet
+                | Self::ClosedList
+                | Self::RoomList
+                | Self::SavedTabGroupList
+                | Self::ScreenGroupGet
+                | Self::ScreenGroupList
+                | Self::TabGroupGet
+                | Self::TabGroupList
+                | Self::WorkspacePlacementList
+                | Self::WorkspaceGroupList
+                | Self::WorkspaceLogList
+                | Self::WorkspaceStatusList
         ) {
             OperationClass::Read
         } else {
@@ -647,6 +760,57 @@ impl ResourceOperation {
             Self::SidebarViewResize => "sidebar_view.resize",
             Self::SidebarViewReload => "sidebar_view.reload",
             Self::StreamCancel => "stream.cancel",
+            Self::ClosedList => "closed.list",
+            Self::ClosedReopen => "closed.reopen",
+            Self::RoomCreate => "room.create",
+            Self::RoomDelete => "room.delete",
+            Self::RoomFollow => "room.follow",
+            Self::RoomList => "room.list",
+            Self::RoomMove => "room.move",
+            Self::RoomPin => "room.pin",
+            Self::RoomUnpin => "room.unpin",
+            Self::RoomUpdate => "room.update",
+            Self::SavedTabGroupDelete => "saved_tab_group.delete",
+            Self::SavedTabGroupList => "saved_tab_group.list",
+            Self::SavedTabGroupReopen => "saved_tab_group.reopen",
+            Self::SavedTabGroupSave => "saved_tab_group.save",
+            Self::ScreenMove => "screen.move",
+            Self::ScreenUpdate => "screen.update",
+            Self::ScreenGroupAddScreens => "screen_group.add_screens",
+            Self::ScreenGroupCreate => "screen_group.create",
+            Self::ScreenGroupGet => "screen_group.get",
+            Self::ScreenGroupList => "screen_group.list",
+            Self::ScreenGroupRemoveScreens => "screen_group.remove_screens",
+            Self::ScreenGroupUngroup => "screen_group.ungroup",
+            Self::ScreenGroupUpdate => "screen_group.update",
+            Self::TabPin => "tab.pin",
+            Self::TabUnpin => "tab.unpin",
+            Self::TabUpdate => "tab.update",
+            Self::TabGroupAddTabs => "tab_group.add_tabs",
+            Self::TabGroupClose => "tab_group.close",
+            Self::TabGroupCreate => "tab_group.create",
+            Self::TabGroupGet => "tab_group.get",
+            Self::TabGroupList => "tab_group.list",
+            Self::TabGroupMove => "tab_group.move",
+            Self::TabGroupRemoveTabs => "tab_group.remove_tabs",
+            Self::TabGroupUngroup => "tab_group.ungroup",
+            Self::TabGroupUpdate => "tab_group.update",
+            Self::WorkspacePlace => "workspace.place",
+            Self::WorkspacePlacementList => "workspace.placement.list",
+            Self::WorkspaceUpdate => "workspace.update",
+            Self::WorkspaceGroupCreate => "workspace_group.create",
+            Self::WorkspaceGroupDelete => "workspace_group.delete",
+            Self::WorkspaceGroupList => "workspace_group.list",
+            Self::WorkspaceGroupMove => "workspace_group.move",
+            Self::WorkspaceGroupUpdate => "workspace_group.update",
+            Self::WorkspaceLogAppend => "workspace_log.append",
+            Self::WorkspaceLogClear => "workspace_log.clear",
+            Self::WorkspaceLogList => "workspace_log.list",
+            Self::WorkspaceProgressClear => "workspace_progress.clear",
+            Self::WorkspaceProgressSet => "workspace_progress.set",
+            Self::WorkspaceStatusClear => "workspace_status.clear",
+            Self::WorkspaceStatusList => "workspace_status.list",
+            Self::WorkspaceStatusSet => "workspace_status.set",
         }
     }
 }
@@ -1126,6 +1290,12 @@ fn canonical_resource_scope(kind: &str) -> &'static str {
         "sidebar_view" | "SidebarViewPublicId" => "sidebar_view",
         "sidebar_plugin" | "SidebarPluginPublicId" => "sidebar_plugin",
         "stream" | "StreamPublicId" => "stream",
+        "tab_group" => "tab_group",
+        "saved_tab_group" => "saved_tab_group",
+        "workspace_group" => "workspace_group",
+        "room" => "room",
+        "screen_group" => "screen_group",
+        "closed" => "closed",
         other => panic!("unknown catalog resource scope {other:?}"),
     }
 }

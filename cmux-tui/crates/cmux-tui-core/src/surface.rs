@@ -2912,6 +2912,7 @@ impl Surface {
                         }
                         drop(journal_update);
                         surface.publish_pending_directory();
+                        surface.publish_pending_progress();
                         pty.stream_progress.notify();
                         pty.request_frame(generation);
                         if let Some((offset, at_bottom)) = scroll_changed
@@ -3518,6 +3519,7 @@ impl Surface {
                                 }
                                 drop(journal_update.take());
                                 surface.publish_pending_directory();
+                        surface.publish_pending_progress();
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(title) = title_update
@@ -3666,6 +3668,7 @@ impl Surface {
                                 });
                                 drop(geometry);
                                 surface.publish_pending_directory();
+                        surface.publish_pending_progress();
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(mux) = mux.upgrade() {
@@ -4057,6 +4060,7 @@ impl Surface {
                             replacement_snapshot.cell_pixels,
                         );
                         surface.publish_pending_directory();
+                        surface.publish_pending_progress();
                         reconnect_mux.emit_terminal_title(pty.event_surface_id, title.into());
                         reconnect_mux.emit_terminal_resized(
                             pty.event_surface_id,

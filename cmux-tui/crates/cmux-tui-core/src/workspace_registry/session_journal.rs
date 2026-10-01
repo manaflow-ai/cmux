@@ -938,6 +938,12 @@ fn append_resource_journal_record_at(
     occurred_at_ms: u64,
 ) -> anyhow::Result<()> {
     validate_identifier("journal operation", operation)?;
+    // Every upsert carries the state fields a fresh snapshot shows, whatever
+    // path produced it (state-ownership.md: clients rebuild from events).
+    let mut decorated = changes.clone();
+    state_values::decorate_changes(transaction, &mut decorated)?;
+    closed_history_store::drain_pending_changes(transaction, &mut decorated)?;
+    let changes = &decorated;
     let kind = semantic_journal_kind(operation);
     let session_id = transaction.query_row(
         "SELECT value FROM meta WHERE key = 'session_public_id'",

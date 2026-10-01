@@ -798,7 +798,14 @@ USAGE
   cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] shell <script>
   cmux workspace <selector> layout apply [OPTIONS]
   cmux workspace <selector> screen ...
-  Nested panes support split --right or --down.
+  cmux workspace group list [--room <room>]
+  cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
+  cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color] [--collapse|--expand]
+  cmux workspace group <group> delete|move --index <n>
+  cmux workspace group <group> add --workspace <ws_…> [--index <n>]
+  cmux workspace group remove --workspace <ws_…>
+  Nested panes support split --right or --down. Workspace groups are personal: they
+  live in this Mac's home session and order your sidebar only.
 ";
 
 const SCREEN_HELP: &str = "\
@@ -1197,16 +1204,16 @@ mod tests {
     }
 
     #[test]
-    fn workspace_group_verbs_are_gone() {
+    fn workspace_group_verbs_use_the_personal_operations() {
         for surface in [Surface::Cmux, Surface::CmuxTui] {
             for args in [
                 vec!["workspace", "group", "list"],
                 vec!["workspace", "group", "create", "--name", "Work"],
             ] {
-                assert!(parse(&strings(&args), surface).is_err(), "{args:?}");
+                assert!(parse(&strings(&args), surface).is_ok(), "{args:?}");
             }
         }
-        assert!(!WORKSPACE_HELP.contains("group"));
+        assert!(WORKSPACE_HELP.contains("workspace group create"));
     }
 
     #[test]

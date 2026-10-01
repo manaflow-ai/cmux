@@ -463,16 +463,22 @@ not a transported resource operation or cross-machine discovery API.
 cmux tab group list|create|remove ...
 cmux tab group <group> update|add|move|split|column|new-workspace|ungroup|close|save|unsave ...
 cmux tab group saved list | saved <saved> delete|reopen --pane <id>
-cmux workspace group list|create|remove ...
+cmux workspace group list [--room <room>]
+cmux workspace group create --name <name> [--color <c>] [--room <room>] [--index <n>] [--collapse]
+cmux workspace group remove --workspace <ws>
 cmux workspace group <group> update|delete|move|add ...
 ```
 
-Tab groups, saved tab groups, and sidebar workspace groups are private
-protocol-v12 commands (`create-tab-group`, `move-workspace-to-group`, and so
-on; see `spec/commands.md`). These actions build exactly one such request
-and send it like `raw command`, so they work against a headless daemon with
-no app running. Tab and pane arguments take the private protocol's ids or
-public `tab_...` and `pane_...` ids.
+Tab groups and saved tab groups are private protocol-v12 commands
+(`create-tab-group` and so on; see `spec/commands.md`). These actions build
+exactly one such request and send it like `raw command`, so they work against
+a headless daemon with no app running. Tab and pane arguments take the
+private protocol's ids or public `tab_...` and `pane_...` ids.
+
+Workspace groups are personal state of the home session. `workspace group`
+uses the `workspace_group.*` resource operations, and `add`/`remove` use
+`workspace.place` with a workspace selector (`--workspace <ws>`). The shared
+workspace group commands are no longer used by the CLI.
 
 ## Raw access
 

@@ -448,6 +448,9 @@ pub(crate) fn public_terminal_snapshot(
     if let Some(cwd) = surface.and_then(crate::Surface::presented_directory) {
         terminal["cwd"] = json!(cwd);
     }
+    if let Some(progress) = surface.and_then(crate::Surface::terminal_progress) {
+        terminal["extra"] = json!({"progress": progress.to_json()});
+    }
     if durable.lifecycle == TerminalLifecycle::Exited {
         terminal["exit"] =
             durable.exit.clone().context("exited terminal omitted its durable outcome")?;
@@ -745,7 +748,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
             .collect::<Result<Vec<_>, ResourceError>>()?;
         let _terminal_defaults = public_projections.terminal_defaults;
 
-        let snapshot = json!({
+        let mut snapshot = json!({
             "machine": machine_snapshot(&context),
             "session": session_snapshot(&context),
             "workspaces": workspaces,
@@ -764,6 +767,13 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                 "revision": topology.revision.to_string(),
             },
         });
+        registry.read_state(|connection| {
+            crate::workspace_registry::state_values::decorate_snapshot(connection, &mut snapshot)?;
+            snapshot["extra"] = json!({
+                "state": crate::workspace_registry::state_store::state_snapshot(connection)?,
+            });
+            Ok(())
+        })?;
         Ok((snapshot, journal_head))
     })
     .map_err(operation_failed)

@@ -261,7 +261,30 @@ fn pane_neighbor(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, Res
     Ok(json!({"pane":pane}))
 }
 
+/// `workspace.create`. An `ephemeral` workspace is marked in a follow-up
+/// commit that every replay repeats idempotently, so a retry after a crash
+/// between the two still marks it before returning.
 fn create_workspace(
+    mux: &Arc<Mux>,
+    mut request: ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let ephemeral =
+        request.fields.remove("ephemeral").and_then(|value| value.as_bool()).unwrap_or(false);
+    let result = create_workspace_content(mux, request)?;
+    if ephemeral {
+        let workspace_id = result["value"]["workspace_id"].as_str().ok_or_else(|| {
+            ResourceError::operation_failed(
+                "workspace.create",
+                "created workspace result omitted its id",
+                json!({}),
+            )
+        })?;
+        mux.mark_workspace_ephemeral(workspace_id).map_err(resource_operation_error)?;
+    }
+    Ok(result)
+}
+
+fn create_workspace_content(
     mux: &Arc<Mux>,
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
