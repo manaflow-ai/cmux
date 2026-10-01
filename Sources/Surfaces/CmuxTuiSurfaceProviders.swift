@@ -87,6 +87,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private var watchedLink: CloudMachineLink?
     private var changeWatcherID: UUID?
     private var scheduledRefresh: Task<Void, Never>?
+    private var recoveryRetryTask: Task<Void, Never>?; private var recoveryRetryCount = 0
+    private static let recoveryRetryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(5), .seconds(15), .seconds(30)]
     private var portsCache: (ports: [Int], at: Date)?
     var portDiscovery = CloudPortDiscovery()
     private(set) var summaryGeneration: UInt64 = 0
@@ -96,14 +98,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         info.portDiscoveryState = portDiscovery.state
         catalog.updateMachine(info, from: self)
     }
-
     @discardableResult
     func requestPortDiscovery() -> UInt64 {
         let request = portDiscovery.request()
         publishPortDiscovery()
         return request
     }
-
     func abandonPortDiscoveryRequest(_ request: UInt64) {
         let previousState = portDiscovery.state
         portDiscovery.abandonRequest(request)
@@ -206,7 +206,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             installNotificationSync()
         }
     }
-
     /// Stops machine-bound activity while retaining this provider and its graph.
     /// The control plane may report the machine running again later.
     func stopTransportResources() {
@@ -214,7 +213,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         displayCoordinator.stop()
         portDiscovery.invalidate()
     }
-
     private func stopSharedTransportResources() {
         lifecycleGeneration &+= 1
         guestURLService?.stop()
@@ -294,7 +292,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// - Parameter stopReason: What open panes present afterwards. Panes stay
     ///   open; each keeps a card for this reason instead of a frozen frame.
     func suspendForFeatureFlag(stopReason: CloudTuiManualMirrorStopReason = .cloudUnavailable) {
-        isFeatureSuspended = true
+        isFeatureSuspended = true; resetRecoveryRetry()
         // The first read after resuming must arm afresh, never adopt at once.
         equalCursorConflict = nil
         stopSharedTransportResources()
@@ -501,6 +499,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard await reconcileManualMirrorAttachments(
                 connected: connected, link: link, lifecycle: lifecycle, refresh: generation
             ) else { return false }
+            resetRecoveryRetry()
         } catch {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             if CloudMachineAccessLoss(error: error) != nil {
@@ -513,6 +512,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             linkState = eventsFeedWarning == nil ? (status?.state ?? .error) : .error
             let text = eventsFeedWarning ?? status?.error ?? CloudMachineLink.errorText(error)
             linkError = text
+            scheduleRecoveryRetry()
             #if DEBUG
             cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
             #endif
