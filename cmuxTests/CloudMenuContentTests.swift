@@ -154,6 +154,17 @@ struct CloudMenuContentTests {
         #expect(CloudMenuTone(expired) == .locked)
     }
 
+    @Test("Delete uses the machine display name while retaining its stable id")
+    func deleteUsesDisplayName() throws {
+        let recorder = Recorder()
+        var machine = Self.machine("vm-internal-id")
+        machine.slug = "crisp-rose-piglet"
+        let entries = recorder.actions.machine.deleteEntries(machine)
+
+        try Self.perform("machine.vm-internal-id.delete", in: entries)
+        #expect(recorder.log == ["delete:vm-internal-id:crisp-rose-piglet"])
+    }
+
     @Test("Status item renders machines with a status dot and dimmed state")
     func appKitRendering() throws {
         let recorder = Recorder()
@@ -275,6 +286,7 @@ struct CloudMenuContentTests {
                     promptRename: { id, _ in self.log.append("rename:\(id)") },
                     copyToPasteboard: { self.log.append("copy:\($0)") },
                     confirmDelete: { self.log.append("delete:\($0)") },
+                    confirmDeleteNamed: { id, name in self.log.append("delete:\(id):\(name ?? "")") },
                     promptUpgrade: { self.log.append("upgradeMachine") }
                 )
             )
