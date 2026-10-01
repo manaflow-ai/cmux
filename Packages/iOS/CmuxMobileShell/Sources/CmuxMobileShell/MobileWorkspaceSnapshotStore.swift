@@ -246,7 +246,7 @@ public final class MobileWorkspaceSnapshotStore {
         }
 
         func value() -> MobileWorkspacePreview {
-            MobileWorkspacePreview(
+            var preview = MobileWorkspacePreview(
                 id: .init(rawValue: id),
                 macDeviceID: macDeviceID,
                 macDisplayName: macDisplayName,
@@ -265,6 +265,8 @@ public final class MobileWorkspaceSnapshotStore {
                 unreadCount: unreadCount,
                 terminals: terminals.map { $0.value() }
             )
+            preview.remoteWorkspaceID = remoteWorkspaceID.map(MobileWorkspacePreview.ID.init(rawValue:))
+            return preview
         }
     }
 

@@ -10,12 +10,13 @@ struct MobileWorkspaceSnapshotStoreTests {
         let defaults = UserDefaults(suiteName: "cmux.snapshot-tests.\(UUID().uuidString)")!
         let store = MobileWorkspaceSnapshotStore(defaults: defaults)
         let pairing = MacPairingKey(macDeviceID: "mac-a", instanceTag: "nightly")
-        let workspace = MobileWorkspacePreview(
+        var workspace = MobileWorkspacePreview(
             id: "workspace-a",
             macDeviceID: "mac-a",
             name: "Mario",
             terminals: [MobileTerminalPreview(id: "terminal-a", name: "codex")]
         )
+        workspace.remoteWorkspaceID = "remote-workspace-a"
         let state = MacWorkspaceState(
             macDeviceID: "mac-a",
             instanceTag: "nightly",
@@ -33,6 +34,7 @@ struct MobileWorkspaceSnapshotStoreTests {
         let restored = store.load(userID: "user-a", teamID: "team-a", pairing: pairing)
 
         #expect(restored?.workspaces == [workspace])
+        #expect(restored?.workspaces.first?.remoteWorkspaceID == "remote-workspace-a")
         #expect(restored?.status == .reconnecting)
         #expect(restored?.workspaceSnapshotIsAuthoritative == false)
         #expect(restored?.actionCapabilities == MobileWorkspaceActionCapabilities.none)

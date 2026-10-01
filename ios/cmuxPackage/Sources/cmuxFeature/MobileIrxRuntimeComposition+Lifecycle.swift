@@ -412,6 +412,7 @@ extension MobileIrxRuntimeComposition {
         endpointWarmupTask = nil
         endpointWarmupEpoch = nil
         lastFailure = nil
+        publish()
     }
 
     func endpointWarmupExhausted(epoch expectedEpoch: UInt64) {
