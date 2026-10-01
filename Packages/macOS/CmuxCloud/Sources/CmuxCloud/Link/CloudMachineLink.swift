@@ -945,15 +945,13 @@ private final class CloudLinkProcess: @unchecked Sendable {
             return staged
         }
         let stagedOutputRead = try stagedDescriptor(outputRead)
+        defer { close(stagedOutputRead) }
         let stagedOutputWrite = try stagedDescriptor(outputWrite)
+        defer { close(stagedOutputWrite) }
         let stagedErrorRead = try stagedDescriptor(errorRead)
+        defer { close(stagedErrorRead) }
         let stagedErrorWrite = try stagedDescriptor(errorWrite)
-        defer {
-            close(stagedOutputRead)
-            close(stagedOutputWrite)
-            close(stagedErrorRead)
-            close(stagedErrorWrite)
-        }
+        defer { close(stagedErrorWrite) }
         let actionStatus = [
             posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0),
             posix_spawn_file_actions_adddup2(&actions, stagedOutputWrite, STDOUT_FILENO),
