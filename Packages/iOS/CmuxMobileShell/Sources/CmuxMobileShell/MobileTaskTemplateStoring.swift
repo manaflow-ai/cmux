@@ -61,10 +61,9 @@ public protocol MobileTaskTemplateStoring: AnyObject {
 }
 
 public extension MobileTaskTemplateStoring {
-    /// Backward-compatible pairing selection for stores that only persist the
-    /// legacy Mac id field.
+    /// Legacy stores do not have an exact pairing field.
     func lastMacPairingID() -> String? {
-        lastMacDeviceID()
+        nil
     }
 
     /// Legacy stores cannot safely encode a tagged pairing in the physical Mac

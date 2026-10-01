@@ -195,22 +195,40 @@ struct MobileTaskModelPrefetchTests {
     }
 
     @Test func concurrentCatalogConsumersAllReceiveTheSharedResult() async {
-        let client = MobileTaskModelCatalogClient(
-            endpoint: URL(string: "https://catalog.example.test/models")!,
-            loader: { _ in
-                Data(#"{"schemaVersion":1,"providers":{"claude":{"models":[{"id":"backend-claude","label":"Backend Claude"}]}}}"#.utf8)
-            }
-        )
         for _ in 0..<20 {
+            let probe = MobileTaskModelPrefetchCatalogProbe(data: Data(
+                #"{"schemaVersion":1,"providers":{"claude":{"models":[{"id":"backend-claude","label":"Backend Claude"}]}}}"#.utf8
+            ))
+            await probe.setHold(true)
+            let client = MobileTaskModelCatalogClient(
+                endpoint: URL(string: "https://catalog.example.test/models")!,
+                loader: { _ in await probe.load() }
+            )
             let catalog = MobileTaskModelPrefetchCatalog(client: client, startedAt: Date())
-            await withTaskGroup(of: MobileTaskModelListResult?.self) { group in
-                for _ in 0..<32 {
-                    group.addTask { await catalog.result(for: .claude) }
-                }
-                for await result in group {
-                    #expect(result?.models.map(\.id) == ["backend-claude"])
+            let consumerStarts = AsyncStream<Void>.makeStream()
+            let consumers = Task {
+                await withTaskGroup(of: MobileTaskModelListResult?.self) { group in
+                    for _ in 0..<32 {
+                        group.addTask {
+                            consumerStarts.continuation.yield(())
+                            return await catalog.result(for: .claude)
+                        }
+                    }
+                    for await result in group {
+                        #expect(result?.models.map(\.id) == ["backend-claude"])
+                    }
                 }
             }
+            await probe.waitUntilStarted()
+            var started = 0
+            for await _ in consumerStarts.stream {
+                started += 1
+                if started == 32 { break }
+            }
+            consumerStarts.continuation.finish()
+            await probe.release()
+            await consumers.value
+            #expect(await probe.requestCount == 1)
             catalog.cancel()
         }
     }

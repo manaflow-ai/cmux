@@ -772,8 +772,21 @@ extension MobileShellComposite {
                       ) else {
                     return
                 }
-                cacheTaskModels(hostFailure, for: key)
-                didUpdate?(hostFailure)
+                if let cached = cachedTaskModelEntry(
+                    provider: provider,
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                )?.result,
+                   cached.source == .discovered,
+                   cached.error == nil {
+                    // A prefetched catalog remains useful while an open-time
+                    // revalidation retries against an offline host. Keep it
+                    // visible and avoid replacing it with a transient error.
+                    didUpdate?(cached)
+                } else {
+                    cacheTaskModels(hostFailure, for: key)
+                    didUpdate?(hostFailure)
+                }
             }
         }
         if Task.isCancelled {
