@@ -65,13 +65,19 @@ struct ColumnCloseScrollTests {
         // strip gap between the two observations.
         let screen = view.screenViews["s"]!
         view.model.focus("c")
-        await settle(view) { !view.driver.isRunning && screen.scroll.value > 0 }
+        await settle(view) {
+            guard let frame = view.frame(of: "c") else { return false }
+            return !view.driver.isRunning && frame.minX > 0 && frame.maxX <= view.bounds.maxX
+        }
         let before = view.frame(of: "c")
         #expect(before != nil)
 
         view.model.apply(screens: columns(["b", "c", "d"]))
-        await settle(view) { screen.geometry.columnOrder.count == 3 }
-        await settle(view) { !view.driver.isRunning }
+        await settle(view) {
+            guard let frame = view.frame(of: "c") else { return false }
+            return screen.geometry.columnOrder.count == 3 && !view.driver.isRunning
+                && frame.minX > 0 && frame.maxX <= view.bounds.maxX
+        }
         #expect(view.frame(of: "c") == before)
         withExtendedLifetime(provider) {}
     }
