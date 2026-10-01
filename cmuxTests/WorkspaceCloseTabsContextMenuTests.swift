@@ -27,6 +27,13 @@ private func drainMainQueue(timeout: TimeInterval = 1.0) {
 struct WorkspaceCloseTabsContextMenuTests {
     private let closeWorkspaceOnLastSurfaceKey = "closeWorkspaceOnLastSurfaceShortcut"
 
+    private func drainMainQueueForCloseTest(timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        } while Date() < deadline
+    }
+
     @Test
     func closeOthersClosesAllTargetedTabsWhenEveryPanelNeedsConfirmation() throws {
         try withCleanClosedHistory {
@@ -190,7 +197,7 @@ struct WorkspaceCloseTabsContextMenuTests {
             let tabId = fixture.tabIds[2]
 
             #expect(fixture.workspace.requestCloseTabRecordingHistory(tabId, force: true))
-            drainMainQueue(timeout: mainActorTestMainQueueSpin)
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
 
             let entry = try #require(ClosedItemHistoryStore.shared.menuSnapshot().items.first)
             #expect(entry.title == "Tab 3")
@@ -212,9 +219,9 @@ struct WorkspaceCloseTabsContextMenuTests {
 
                 workspace.markTabCloseButtonClose(surfaceId: surfaceId)
                 _ = workspace.closePanel(panelId)
-                drainMainQueue(timeout: mainActorTestMainQueueSpin)
-                drainMainQueue(timeout: mainActorTestMainQueueSpin)
-                drainMainQueue(timeout: mainActorTestMainQueueSpin)
+                drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+                drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+                drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
 
                 #expect(workspace.panels[panelId] == nil)
                 #expect(workspace.panels.count == 1)
@@ -329,8 +336,8 @@ struct WorkspaceCloseTabsContextMenuTests {
             for: anchorTab,
             inPane: fixture.paneId
         )
-        drainMainQueue(timeout: mainActorTestMainQueueSpin)
-        drainMainQueue(timeout: mainActorTestMainQueueSpin)
+        drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+        drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
 
         #expect(promptCount == 1, "Expected one confirmation prompt for \(action)")
     }
@@ -365,7 +372,7 @@ struct WorkspaceCloseTabsContextMenuTests {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
             if condition() { return }
-            drainMainQueue(timeout: mainActorTestMainQueueSpin)
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
             RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
         } while Date() < deadline
     }
