@@ -131,8 +131,7 @@
     "permissionModePassThroughUnsupported": "agent: full-access cannot be combined with provider subcommands; pass a bare prompt instead",
     "peerPermissionModeNeedsValue": "vm agent: --permission-mode needs prompt or full-access",
     "peerPermissionModeUnsupported": "vm agent: unsupported permission mode '%s' (choose prompt or full-access)",
-    "peerPermissionModeProviderUnsupported": "vm agent: full-access permission mode is only supported for Claude and Codex (got %s)",
-    "peerPermissionModePassThroughUnsupported": "vm agent: full-access cannot be combined with provider subcommands; pass a bare prompt instead"
+    "peerPermissionModeProviderUnsupported": "vm agent: full-access permission mode is only supported for Claude and Codex (got %s)"
   },
   "billingRecovery": {
     "message": "If we found an account, check your email for next steps",
