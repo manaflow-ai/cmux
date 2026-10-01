@@ -28,6 +28,8 @@ struct AgentLaunchEnvironmentPolicyTests {
         #expect(
             AgentLaunchEnvironmentPolicy().sanitizedValue(key: "NODE_OPTIONS", value: raw) == expected
         )
+    }
+
     @Test("Custom Codex executable remains scoped to Codex restores")
     func customCodexExecutableRemainsScopedToCodexRestores() {
         let policy = AgentLaunchEnvironmentPolicy()

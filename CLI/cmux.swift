@@ -24414,12 +24414,6 @@ struct CMUXCLI {
         guard homePath.hasPrefix("/") else {
             throw CLIError(message: "Claude NODE_OPTIONS restore module needs an absolute HOME")
         }
-        // Match the wrapper: refuse a relative HOME and symlinked paths.
-        let environmentHome = ProcessInfo.processInfo.environment["HOME"] ?? ""
-        let homePath = environmentHome.hasPrefix("/") ? environmentHome : NSHomeDirectory()
-        guard homePath.hasPrefix("/") else {
-            throw CLIError(message: "Claude NODE_OPTIONS restore module needs an absolute HOME")
-        }
         let root = URL(fileURLWithPath: homePath, isDirectory: true)
             .appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("cmux-claude-node-options", isDirectory: true)

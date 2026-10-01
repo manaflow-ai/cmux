@@ -376,39 +376,6 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         return joined.isEmpty ? nil : joined
     }
 
-    /// Splits `NODE_OPTIONS` the way Node does: on whitespace outside double quotes,
-    /// with backslash escapes inside quotes. Tokens keep their quotes so an
-    /// unmatched token rejoins unchanged, e.g. `--require="/Users/a b/x.cjs"`.
-    private func nodeOptionsTokens(_ rawValue: String) -> [String] {
-        var tokens: [String] = []
-        var current = ""
-        var inQuotes = false
-        var escaped = false
-        for character in rawValue {
-            if escaped {
-                current.append(character)
-                escaped = false
-            } else if inQuotes, character == "\\" {
-                current.append(character)
-                escaped = true
-            } else if character == "\"" {
-                current.append(character)
-                inQuotes.toggle()
-            } else if !inQuotes, character.isWhitespace {
-                if !current.isEmpty {
-                    tokens.append(current)
-                    current = ""
-                }
-            } else {
-                current.append(character)
-            }
-        }
-        if !current.isEmpty {
-            tokens.append(current)
-        }
-        return tokens
-    }
-
     private func normalizedValue(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
