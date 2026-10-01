@@ -100,6 +100,7 @@ Environment:
 | `current` | Print bounded current-work facts (`--limit <1...200>`, `--json`). Read-only: it does not refresh machines, read transcripts, or change any work item. See [Glaeda execution exchange and current-work ownership](#glaeda-execution-exchange-and-current-work-ownership). |
 | `sessions [list]` | List saved agent session records without requiring a running cmux socket. Filters: `--agent <name>`, `--session <id>`, `--workspace <id>`, `--surface <id>`, `--cwd <text>`. Overrides: `--state-dir <path>`, `--codex-home <path>`. Text output defaults to 100 results; `--limit <n>` takes a positive integer and `--all` removes the limit. Supports `--json`. Records also report metadata for matching cmux-owned scratch roots (`scratch_owned`, byte count, file count, and root path); unmarked directories are never scanned. |
 | `session-debug` | Alias for `sessions debug`, kept for older debug scripts. Works without a socket. |
+| `session restore [--list] [--session <id>]...` | Recover stopped Claude sessions from the agent journal. `--list` inspects candidates; repeatable `--session` selects exact ids. Without ids, restore acts only after an unexpected quit. Requires a running cmux, but help works without a socket. Each restored session opens in its own background workspace and resumes through its recorded launcher. |
 | `session move <session-id> --to <ssh-destination\|local>` | Move a stopped Claude Code session between this Mac and an SSH host and resume it there. Refuses while a Claude process for the session runs on either side. Carries the cwd's git checkout (a snapshot commit of the working tree on top of HEAD at `refs/agent-move/<id>`, HEAD on the same branch when it is safe, plus modified, deleted and untracked non-ignored files; adds a worktree when the repository exists on the destination but the path does not; refuses when the destination has its own uncommitted changes or its branch has commits HEAD lacks), then the transcript, its session directory, file history, and the project memory directory (merged both ways, newest wins, nothing deleted). When the destination home is not the same directory at the same path, paths under the home are mapped and the project is re-slugged. Opens a `cmux ssh` workspace (or a local workspace for `--to local`) that resumes the session with its recorded launcher (on a host, cmux-owned launchers such as `claude-teams` fall back to the plain agent command), and clears the old local surface's resume binding. `--from` defaults to where the last move put the session (`~/.cmuxterm/agent-moves/<id>.json`). Flags: `--name`, `--no-code`, `--port`, `--identity`, `--ssh-option`, `--no-focus`. |
 | `auth`, `login`, `logout` | `auth <status\|login\|logout\|team>`, with `status` the default; `team` carries `list`, `use`, and `create`. Sign-in and sign-out run through the app, and `login` waits for the browser round trip. `login` and `logout` are top-level aliases for `auth login` and `auth logout`. |
 | `billing` | `billing checkout --plan <go\|pro\|max> [--no-open]` prints the plan's checkout URL and opens it in the browser. `--no-open` and `--json` print without opening. |
@@ -401,6 +402,21 @@ object with:
 | `limit` | Applied result limit, or `null` when `--all` removes it. |
 | `stores` | Per-agent hook store files that were read: `agent`, `path`, `exists`, `session_count`. |
 | `sessions` | The limited result set of session records. |
+
+Agent session recovery:
+
+`cmux session restore --list` asks the running app for journal-backed recovery
+candidates, excluding sessions that are still running or already open. It lists
+the agent kind, session id, cwd, and resume command without opening a workspace.
+In JSON, records also include the prior workspace id and last-activity timestamp.
+
+Without `--list`, each repeatable `--session <id>` selects an exact candidate;
+explicit ids may be restored after a normal quit. Without an id, recovery runs
+only when the previous cmux exit was unclean. Each restored session opens in a
+separate, unselected workspace titled from its cwd (or agent kind), then resumes
+through its recorded launcher. Some terminals start immediately; the remainder
+start on the workspace's first visit. Listing and recovery require a running
+cmux socket; `cmux session restore --help` does not.
 
 Auth subcommands:
 
@@ -891,6 +907,7 @@ the expected text without connecting to a cmux socket.
 - `cmux --help` -> `cmux - control cmux via Unix socket`
 - `cmux --help` -> `open <path-or-url>...`
 - `cmux --help` -> `sessions [list] [options]`
+- `cmux --help` -> `session restore [--list] [--session <id>]...`
 - `cmux help` -> `cmux - control cmux via Unix socket`
 - `cmux --help` -> `Start & Resume:`
 - `cmux --help` -> `Diagnostics / Advanced:`
@@ -979,6 +996,7 @@ the expected text without connecting to a cmux socket.
 - `cmux restore --help` -> `Usage: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>`
 - `cmux fork --help` -> `Usage: cmux fork [--surface <id|ref>] <kind> <checkpoint-id>`
 - `cmux restore-session --help` -> `Usage: cmux restore-session`
+- `cmux session restore --help` -> `Usage: cmux session restore [--list] [--session <id>]...`
 - `cmux open --help` -> `Usage: cmux open <path-or-url>...`
 - `cmux feedback --help` -> `Usage: cmux feedback`
 - `cmux feed --help` -> `Usage: cmux feed tui [--opentui|--legacy]`
@@ -1099,7 +1117,8 @@ the expected text without connecting to a cmux socket.
 - `cmux simulate-app-active --help` -> `Usage: cmux simulate-app-active`
 - `cmux claude-hook --help` -> `Usage: cmux claude-hook`
 - `cmux browser --help` -> `Usage: cmux browser`
-- `cmux browser --help` -> `download list [--limit <1...25>]`
+- `cmux browser --help` -> `screenshot [--out <path>] [--json]`
+- `cmux browser --help` -> `download list [--limit <1...25>] [--json]`
 - `cmux open-browser --help` -> `Legacy alias for 'cmux browser open'`
 - `cmux navigate --help` -> `Legacy alias for 'cmux browser navigate'`
 - `cmux browser-back --help` -> `Legacy alias for 'cmux browser back'`

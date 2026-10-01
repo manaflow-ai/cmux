@@ -574,7 +574,8 @@ public struct CMUXMobileRootScene: View {
             // cleared by sign-out.
             sshComputers: MobileSSHComputers(
                 directory: URL.applicationSupportDirectory.appending(path: "ssh", directoryHint: .isDirectory)
-            )
+            ),
+            workspaceSnapshotStore: MobileWorkspaceSnapshotStore(defaults: .standard)
         )
         Task { await store.startSSHComputers() }
         #if os(iOS)
