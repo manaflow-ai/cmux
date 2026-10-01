@@ -19,7 +19,11 @@ final class CloudRestoreReplayFixture {
     let socket: CloudManualMirrorSocketFixture
     private let session: CloudTuiManualMirrorSession
 
-    init(initiallyClaimsGeometry: Bool = true, bindSurface: Bool = true) throws {
+    init(
+        initiallyClaimsGeometry: Bool = true,
+        bindSurface: Bool = true,
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
+    ) throws {
         _ = NSApplication.shared
         socket = try CloudManualMirrorSocketFixture()
         session = CloudTuiManualMirrorSession(
@@ -29,7 +33,8 @@ final class CloudRestoreReplayFixture {
         )
         surface = TerminalSurface(
             tabId: workspace.id, context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil, ioMode: .manualMirror, manualInputHandler: { _ in }
+            configTemplate: nil, ioMode: .manualMirror, manualInputHandler: { _ in },
+            runtimeSpawnPolicy: runtimeSpawnPolicy
         )
         surface.setManualIONoReflow(false)
         window = NSWindow(

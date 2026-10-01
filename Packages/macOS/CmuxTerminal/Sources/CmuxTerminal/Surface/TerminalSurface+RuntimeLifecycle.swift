@@ -863,23 +863,7 @@ extension TerminalSurface {
         }
 
         ghostty_surface_set_content_scale(createdSurface, scaleFactors.x, scaleFactors.y)
-        let backingSize = initialRuntimeBackingSize(for: view)
-        let wpx = pixelDimension(from: backingSize.width)
-        let hpx = pixelDimension(from: backingSize.height)
-        if wpx > 0, hpx > 0 {
-            applySurfaceSize(
-                createdSurface,
-                width: wpx,
-                height: hpx,
-                caller: "runtime.create.initial"
-            )
-            lastPixelWidth = wpx
-            lastPixelHeight = hpx
-            lastUncappedPixelWidth = wpx
-            lastUncappedPixelHeight = hpx
-            lastXScale = scaleFactors.x
-            lastYScale = scaleFactors.y
-        }
+        applyInitialRuntimeSize(createdSurface, for: view, scaleFactors: scaleFactors)
 
         // Flush remote-tmux output that arrived before the surface existed
         // after sizing, so the seed paints into the final grid instead of
