@@ -13,7 +13,8 @@ public nonisolated enum TitlebarStyle: String, Sendable, CaseIterable, Codable {
 /// Titlebar behavior for the app's own drag areas (empty tab strip space,
 /// the sidebar header, the titlebar strip), matching a native titlebar.
 @MainActor
-public enum WindowTitlebar {
+public struct WindowTitlebar {
+    public init() {}
     /// What a titlebar double-click does: the user's macOS setting (System
     /// Settings > Desktop & Dock > "Double-click a window's title bar to").
     public enum DoubleClickAction: Equatable, Sendable {

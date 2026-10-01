@@ -67,7 +67,8 @@ public struct SSHHost: Hashable, Sendable {
 }
 
 /// Paths on the remote machine as they appear in a remote shell command.
-public enum RemotePath {
+public struct RemotePath {
+    public init() {}
     /// Plain path characters and a leading `~/`; no spaces, quotes or `$`.
     /// cmux-tui passes these into the remote command unquoted, so they must
     /// be plain words.

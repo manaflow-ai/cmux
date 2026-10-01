@@ -36,7 +36,8 @@ public enum ShortcutBinding: Sendable, Hashable {
 /// Reads and writes the cmux.json shortcut formats the old app accepts:
 /// `"cmd+shift+p"`, `["ctrl+b", "c"]`, the unbind tokens, and the Settings
 /// recorder's object form `{ "first": { "key": "p", "command": true, ... } }`.
-public enum ShortcutBindingFormat {
+public struct ShortcutBindingFormat {
+    public init() {}
     static let unboundTokens: Set<String> = ["", "none", "clear", "unbound", "disabled"]
 
     /// Parses one binding value. Nil when the value is not a valid binding.

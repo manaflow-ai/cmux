@@ -2,7 +2,8 @@ public import AppKit
 public import CmuxNextDesign
 
 /// Mock data and a standalone window for demoing the strip without the daemon.
-public enum TabStripDemo {
+public struct TabStripDemo {
+    public init() {}
     private static var counter = 0
 
     public static func makeTab(title: String? = nil) -> TabItem {

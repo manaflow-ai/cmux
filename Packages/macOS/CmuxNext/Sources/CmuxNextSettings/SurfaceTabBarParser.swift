@@ -8,7 +8,8 @@ public import Foundation
 /// plus optional `id`, `title`, `tooltip`, `icon`, `target`. An identifier
 /// resolves as a cmux.json action, then a built-in (`cmux.splitRight`),
 /// then a registry action ID (the App drops IDs the registry lacks).
-public enum SurfaceTabBarParser {
+public struct SurfaceTabBarParser {
+    public init() {}
     public struct Result: Sendable, Hashable {
         public var tabBar: SurfaceTabBarConfig
         /// Every command action: `actions.<name>` plus inline command buttons.
