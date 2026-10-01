@@ -78,7 +78,19 @@ impl Hub {
             return Err(RpcError::not_found(format!("no peer {name:?}")));
         };
         peer.stop();
-        self.remote_sessions.lock().unwrap().retain(|_, r| r.peer != name);
+        let gone: Vec<String> = {
+            let mut map = self.remote_sessions.lock().unwrap();
+            let ids: Vec<String> =
+                map.iter().filter(|(_, r)| r.peer == name).map(|(id, _)| id.clone()).collect();
+            for id in &ids {
+                map.remove(id);
+            }
+            ids
+        };
+        // Clients watching the list drop these rows.
+        for id in gone {
+            self.announce_remote(name, json!({"sessionId": id}), "purged");
+        }
         let mut cfg = self.config.write().await;
         cfg.peers.remove(name);
         if let Err(e) = cfg.save() {
@@ -161,11 +173,16 @@ impl Hub {
     pub(super) async fn peer_notice_loop(self: Arc<Self>) {
         let Some(mut rx) = self.peer_notices_rx.lock().await.take() else { return };
         use crate::peer::PeerNotice;
-        while let Some((peer, notice)) = rx.recv().await {
+        while let Some((peer, generation, notice)) = rx.recv().await {
+            // Only the registered instance speaks for a name: a replaced or
+            // removed peer's queued notices are stale.
+            let Some(current) = self.peer(&peer).filter(|p| p.generation == generation) else {
+                continue;
+            };
             let settles = matches!(notice, PeerNotice::Connected | PeerNotice::Disconnected(_));
             self.apply_peer_notice(&peer, notice);
-            if settles && let Some(p) = self.peer(&peer) {
-                p.mark_settled();
+            if settles {
+                current.mark_settled();
             }
         }
     }

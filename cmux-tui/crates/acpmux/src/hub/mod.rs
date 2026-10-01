@@ -195,8 +195,9 @@ pub struct Hub {
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
     pub(super) remote_sessions: StdMutex<HashMap<String, RemoteSession>>,
-    pub(super) peer_notices: mpsc::Sender<(String, crate::peer::PeerNotice)>,
-    pub(super) peer_notices_rx: Mutex<Option<mpsc::Receiver<(String, crate::peer::PeerNotice)>>>,
+    pub(super) peer_notices: mpsc::Sender<(String, u64, crate::peer::PeerNotice)>,
+    pub(super) peer_notices_rx:
+        Mutex<Option<mpsc::Receiver<(String, u64, crate::peer::PeerNotice)>>>,
     /// Models each agent has advertised, keyed by agent profile name. Filled
     /// whenever a session starts, so the picker can list a harness that has
     /// no live session.
