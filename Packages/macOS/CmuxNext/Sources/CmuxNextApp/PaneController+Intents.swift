@@ -24,7 +24,7 @@ extension PaneController {
         case .reorder(let id, _, let to):
             move(id, toPane: self, index: to)
         case .newTab:
-            newTerminalTab()
+            StripNewTab.request(pane: paneKey) { _ = services.registry.perform($0, invocation: $1) }
         case .pin(let id), .unpin(let id):
             setPinned(id, pinned: { if case .pin = intent { true } else { false } }())
         case .rename(let id):
