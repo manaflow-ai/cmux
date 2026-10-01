@@ -5,6 +5,8 @@ import CmuxMobileShellModel
 import Foundation
 
 extension MobileIrxRuntimeComposition {
+    private static let endpointWarmupRetryLimit = 5
+
     private struct DetachedRuntime: Sendable {
         let control: V2ControlService?
         let endpointSupervisor: IrxEndpointSupervisor?
@@ -93,34 +95,13 @@ extension MobileIrxRuntimeComposition {
             let credentials = Self.credentials(restored)
             if credentials.contains(where: { $0.isUsable(at: Date()) }) {
                 endpointWarmupEpoch = expectedEpoch
-                endpointWarmupTask = Task { [weak self] in
-                    var delay: TimeInterval = 1
-                    while !Task.isCancelled {
-                        guard let self,
-                              await self.epoch == expectedEpoch,
-                              await auth.cachedTeamIdentity == cachedIdentity else { return }
-                        do {
-                            try await Self.readyEndpointWithTimeout(
-                                supervisor: supervisor,
-                                credentials: credentials
-                            )
-                            guard await self.epoch == expectedEpoch,
-                                  await auth.cachedTeamIdentity == cachedIdentity else { return }
-                            await self.endpointWarmupSucceeded(epoch: expectedEpoch)
-                            await self.recordEndpointReady(cached: true)
-                            return
-                        } catch is CancellationError {
-                            return
-                        } catch {
-                            guard await self.epoch == expectedEpoch else { return }
-                            await self.endpointWarmupFailed(epoch: expectedEpoch)
-                            try? await RPCTaskTimeout.continuousClockSleep(
-                                nanoseconds: UInt64(delay * 1_000_000_000)
-                            )
-                            delay = min(delay * 2, 30)
-                        }
-                    }
-                }
+                endpointWarmupTask = makeEndpointWarmupTask(
+                    supervisor: supervisor,
+                    credentials: credentials,
+                    expectedEpoch: expectedEpoch,
+                    cached: true,
+                    scope: nil
+                )
             }
             journal.record("v2-lifecycle", "cached-warm-start", [
                 "directory": String(restored.directory?.devices.count ?? 0),
@@ -227,32 +208,13 @@ extension MobileIrxRuntimeComposition {
             let credentials = Self.credentials(restored)
             if credentials.contains(where: { $0.isUsable(at: Date()) }) {
                 endpointWarmupEpoch = currentEpoch
-                endpointWarmupTask = Task { [weak self] in
-                    var delay: TimeInterval = 1
-                    while !Task.isCancelled {
-                        guard let self,
-                              await self.epoch == currentEpoch else { return }
-                        do {
-                            try await Self.readyEndpointWithTimeout(
-                                supervisor: supervisor,
-                                credentials: credentials
-                            )
-                            try await self.assertScope(scope, epoch: currentEpoch)
-                            await self.endpointWarmupSucceeded(epoch: currentEpoch)
-                            await self.recordEndpointReady(cached: true)
-                            return
-                        } catch is CancellationError {
-                            return
-                        } catch {
-                            guard await self.epoch == currentEpoch else { return }
-                            await self.endpointWarmupFailed(epoch: currentEpoch)
-                            try? await RPCTaskTimeout.continuousClockSleep(
-                                nanoseconds: UInt64(delay * 1_000_000_000)
-                            )
-                            delay = min(delay * 2, 30)
-                        }
-                    }
-                }
+                endpointWarmupTask = makeEndpointWarmupTask(
+                    supervisor: supervisor,
+                    credentials: credentials,
+                    expectedEpoch: currentEpoch,
+                    cached: true,
+                    scope: scope
+                )
             }
         }
         let device = V2DeviceDescriptor(endpointID: key.endpointID, identity: tuple,
@@ -398,6 +360,46 @@ extension MobileIrxRuntimeComposition {
         }
     }
 
+    private func makeEndpointWarmupTask(
+        supervisor: IrxEndpointSupervisor,
+        credentials: [IrxRelayCredential],
+        expectedEpoch: UInt64,
+        cached: Bool,
+        scope: AuthenticatedTeamScope?
+    ) -> Task<Void, Never> {
+        Task { [weak self] in
+            var delay: TimeInterval = 1
+            for attempt in 0..<Self.endpointWarmupRetryLimit where !Task.isCancelled {
+                guard let self, await self.epoch == expectedEpoch else { return }
+                do {
+                    try await Self.readyEndpointWithTimeout(
+                        supervisor: supervisor,
+                        credentials: credentials
+                    )
+                    if let scope {
+                        try await self.assertScope(scope, epoch: expectedEpoch)
+                    }
+                    await self.endpointWarmupSucceeded(epoch: expectedEpoch)
+                    await self.recordEndpointReady(cached: cached)
+                    return
+                } catch is CancellationError {
+                    return
+                } catch {
+                    guard await self.epoch == expectedEpoch else { return }
+                    await self.endpointWarmupFailed(epoch: expectedEpoch)
+                    guard attempt + 1 < Self.endpointWarmupRetryLimit else {
+                        await self.endpointWarmupExhausted(epoch: expectedEpoch)
+                        return
+                    }
+                    try? await RPCTaskTimeout.continuousClockSleep(
+                        nanoseconds: UInt64(delay * 1_000_000_000)
+                    )
+                    delay = min(delay * 2, 30)
+                }
+            }
+        }
+    }
+
     func endpointWarmupFailed(epoch expectedEpoch: UInt64) {
         guard endpointWarmupEpoch == expectedEpoch else { return }
         lastFailure = "The connection service could not start. It will retry."
@@ -410,6 +412,15 @@ extension MobileIrxRuntimeComposition {
         endpointWarmupTask = nil
         endpointWarmupEpoch = nil
         lastFailure = nil
+    }
+
+    func endpointWarmupExhausted(epoch expectedEpoch: UInt64) {
+        guard endpointWarmupEpoch == expectedEpoch else { return }
+        endpointWarmupTask = nil
+        endpointWarmupEpoch = nil
+        lastFailure = "The connection service is unavailable. It will retry when the app returns to the foreground."
+        journal.record("v2-lifecycle", "endpoint-warmup-exhausted")
+        publish()
     }
 
     func recordEndpointReady(cached: Bool) {
@@ -444,6 +455,7 @@ extension MobileIrxRuntimeComposition {
         // peer probes run so they measure fresh paths.
         await notifyNetworkChange()
         guard generation == activityGeneration else { return }
+        retryEndpointWarmupIfNeeded()
         // Backend renewal starts before peer probes; neither waits for the other.
         foregroundTask?.cancel()
         let service = control
@@ -454,6 +466,24 @@ extension MobileIrxRuntimeComposition {
             guard generation == activityGeneration else { return }
             await engine.foregroundKick()
         }
+    }
+
+    private func retryEndpointWarmupIfNeeded() {
+        guard endpointWarmupTask == nil,
+              let supervisor = endpointSupervisor ?? preparedCachedRuntime?.supervisor,
+              let cached = cache ?? preparedCachedRuntime?.restored,
+              !cached.authorityRevoked else { return }
+        let credentials = Self.credentials(cached)
+        guard credentials.contains(where: { $0.isUsable(at: Date()) }) else { return }
+        let expectedEpoch = epoch
+        endpointWarmupEpoch = expectedEpoch
+        endpointWarmupTask = makeEndpointWarmupTask(
+            supervisor: supervisor,
+            credentials: credentials,
+            expectedEpoch: expectedEpoch,
+            cached: activeScope == nil,
+            scope: activeScope
+        )
     }
 
     /// Cancels this scope without touching Stack authentication or its keychain entries.
