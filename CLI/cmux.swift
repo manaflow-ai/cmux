@@ -7829,8 +7829,10 @@ struct CMUXCLI {
             let subtitle = optionValue(commandArgs, name: "--subtitle") ?? ""
             let body = optionValue(commandArgs, name: "--body") ?? ""
             let allowsReply = hasFlag(commandArgs, name: "--reply")
+            let clearing = hasFlag(commandArgs, name: "--clear")
             var notifyEffectParams: [String: Any] = [:]
-            if let desktopRaw = optionValue(commandArgs, name: "--desktop") {
+            // `--desktop` has no effect with `--clear`, so its value is not validated there.
+            if !clearing, let desktopRaw = optionValue(commandArgs, name: "--desktop") {
                 guard let desktop = parseBoolString(desktopRaw) else {
                     throw CLIError(message: String(
                         localized: "cli.error.notifyDesktopValue",
@@ -7845,7 +7847,6 @@ struct CMUXCLI {
             let preferTTYFallback = windowRaw == nil && ProcessInfo.processInfo.environment["TMUX"] != nil
             let explicitSurfaceArg = optionValue(commandArgs, name: "--surface")
             let env = ProcessInfo.processInfo.environment
-            let clearing = hasFlag(commandArgs, name: "--clear")
             let okText = String(localized: "common.ok", defaultValue: "OK")
             let target = try resolveNotifyTarget(
                 explicitWorkspaceArg: explicitWorkspaceArg,
