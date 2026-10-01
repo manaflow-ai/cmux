@@ -127,24 +127,14 @@ extension CmuxTuiSurfaceProvider {
                 )
             }
             session.bind(surface: created.surface)
-            // Preserve the workspace's existing notification-dismissal hook
-            // while re-claiming geometry when this pane receives explicit
-            // input. A cloud terminal can have more than one local projection;
-            // the pane the user is typing in must be the authoritative owner.
-            let existingExplicitInput = created.surface.onExplicitInput
-            let createdWorkspaceID = created.workspaceID
-            let createdSurface = created.surface
-            created.surface.onExplicitInput = { [weak session, weak createdSurface] in
-                existingExplicitInput?()
-                // A manual-mirror portal can accept a key or paste while its
-                // AppKit focus callback is one turn behind. Reassert the
-                // selected workspace pane at the input boundary so the active
-                // pane border cannot remain on an adjacent local terminal.
-                if let createdSurface,
-                   let workspace = Workspace.liveWorkspace(id: createdWorkspaceID) {
-                    workspace.focusPanelFromTerminalInput(createdSurface.id)
-                }
-                session?.noteExplicitInput()
+            // Keep Cloud input convergence on the panel. Workspace transfer
+            // rebinds the ordinary terminal callback, while this hook resolves
+            // the panel's current owner after a move.
+            if let createdPanel = Workspace.liveWorkspace(id: created.workspaceID)?.panels[created.panelID] as? TerminalPanel {
+                Workspace.bindCloudManualMirrorInputConvergence(
+                    panel: createdPanel,
+                    onExplicitInput: { [weak session] in session?.noteExplicitInput() }
+                )
             }
             manualMirrorSessions[created.panelID] = session
             session.reconnect(socketPath: connected.socketPath)

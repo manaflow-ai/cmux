@@ -115,6 +115,21 @@ extension Workspace {
         panel.cloudAttachment = attachment
     }
 
+    /// Keeps Cloud input convergence attached to the panel rather than to the
+    /// workspace that happened to create it. Workspace transfer rebinds the
+    /// ordinary terminal callback, while this hook follows the panel and
+    /// resolves its current workspace at input time.
+    static func bindCloudManualMirrorInputConvergence(
+        panel: TerminalPanel,
+        onExplicitInput: @escaping @MainActor () -> Void
+    ) {
+        panel.onManualMirrorExplicitInput = { [weak panel] in
+            guard let panel else { return }
+            onExplicitInput()
+            Workspace.liveWorkspace(id: panel.workspaceId)?.focusPanelFromTerminalInput(panel.id)
+        }
+    }
+
     /// Places an already-built manual-mirror panel at `destination` and returns its id.
     /// `isLoading` marks the tab strip while an optimistic pane waits for its terminal.
     func insertCloudManualMirrorPanel(
