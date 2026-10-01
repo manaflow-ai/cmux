@@ -622,7 +622,11 @@ public final class CloudSessionController {
             }
         }
         createTask = task
-        return await task.value
+        return await withTaskCancellationHandler(operation: {
+            await task.value
+        }, onCancel: {
+            Task { @MainActor in task.cancel() }
+        })
     }
 
     /// The connection for `machine`, created on first use. Nil until the tunnel is ready.

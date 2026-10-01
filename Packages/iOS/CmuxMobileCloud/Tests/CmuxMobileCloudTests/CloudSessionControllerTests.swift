@@ -106,6 +106,22 @@ import Testing
         #expect(controller.machines == .idle)
     }
 
+    @Test func cancellingCreateCallerCancelsTheProvisioningTask() async {
+        let service = FakeCloudVMService()
+        service.holdCreation = true
+        let controller = makeController(service: service)
+        let createTask = Task { await controller.createMachine(options: .init(kind: .desktop)) }
+
+        await service.waitForCreationStart()
+        createTask.cancel()
+        await service.releaseHeldCreation()
+
+        #expect(await createTask.value == nil)
+        #expect(service.calls.list == 0)
+        #expect(!controller.isCreatingMachine)
+        #expect(controller.lastCreateFailure == nil)
+    }
+
     @Test func retryingTheSameFailedCreateReusesItsIdempotencyKey() async {
         let service = FakeCloudVMService()
         service.creation = .failure(StubError(message: "timed out"))
