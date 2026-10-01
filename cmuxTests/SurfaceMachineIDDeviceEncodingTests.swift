@@ -119,7 +119,7 @@ struct SurfaceMachineIDDeviceEncodingTests {
         #expect(local["local"] as? Bool == true)
     }
 
-    @Test("Cloud tree payload and CLI use user-facing link failure copy")
+    @Test("Cloud tree payload carries user-facing link failure copy")
     func cloudLinkFailureCopy() {
         let info = machineInfo(.cloud("brave-otter"), linkState: .error, presence: nil)
         var failed = info
