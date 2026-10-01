@@ -623,7 +623,7 @@ extension CMUXCLI {
                     excludes: excludes,
                     client: client
                 )
-            } catch is VMSCPGrantTransportFailure {
+            } catch let error as VMSCPGrantTransportFailure {
                 // A dropped grant request is recoverable while watching: keep
                 // the settled local snapshot pending and retry without making
                 // the user edit the file again. Other failures remain fatal so
