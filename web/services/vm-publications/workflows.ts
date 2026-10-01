@@ -27,6 +27,7 @@ import {
   type VmPublicationProviderShape,
 } from "./provider";
 import { normalizePublicationHostname } from "./security";
+import { CMUX_TUI_PORT } from "../vms/drivers/cmuxTuiDaemon";
 
 const FORWARD_AUTH_LEASE_MS = 30_000;
 // Publication routes have a 120-second execution budget. Keep the durable VM
@@ -109,6 +110,7 @@ export type PublicationInvalidReason =
   | "public_confirmation_required"
   | "invalid_hostname"
   | "invalid_port"
+  | "reserved_port"
   | "invalid_access_mode"
   | "team_required"
   | "team_not_allowed"
@@ -473,6 +475,11 @@ export function createPublication(input: {
     );
     if (!Number.isInteger(input.port) || input.port < 1 || input.port > 65_535) {
       return yield* new PublicationInputError({ reason: "invalid_port", field: "port" });
+    }
+    // The cmux-tui daemon trusts every carrier link: it is reachable only over
+    // the VM's private VPC, never through a publication.
+    if (input.port === CMUX_TUI_PORT) {
+      return yield* new PublicationInputError({ reason: "reserved_port", field: "port" });
     }
 
     // Publication ingress is a Freestyle TLS capability. Keeping this literal

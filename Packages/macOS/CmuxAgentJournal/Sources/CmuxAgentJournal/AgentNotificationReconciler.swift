@@ -74,9 +74,31 @@ public struct AgentNotificationReconciler: Sendable {
         if isResolution {
             // A work observation is not a resolution. Only this explicit semantic
             // event can retire an immutable request/child ID behind a newer watermark.
-            // A late reply still retires its own request, but it never reopens a
-            // turn that settled after it.
-            let fresh = draft.occurredAtMs >= session.occurredAtMs
+            // A late reply still retires its own request. Only a fresh running
+            // tool event may reopen a settled turn.
+            let fresh = draft.occurredAtMs > session.occurredAtMs
+                || (draft.occurredAtMs == session.occurredAtMs && event.sequence > session.sequence)
+            let isIdentitylessToolStart = incomingTurn == nil
+                && draft.nativeEvent?.caseInsensitiveCompare("PreToolUse") == .orderedSame
+            let incomingTurn = context?.turnIdentity
+            let isNewTurn = incomingTurn != nil
+                && session.nativeTurn != nil
+                && incomingTurn != session.nativeTurn
+            if draft.kind == .attentionResolved, draft.declaredPhase == .running, fresh,
+               !session.ended,
+               draft.pendingWork
+                || (isNewTurn && incomingTurn.map { !session.seenTurns.contains($0) } == true)
+                || (isIdentitylessToolStart && fresh) {
+                // A tool completion is progress, including a continuation
+                // that starts without UserPromptSubmit. Reopen only fresh
+                // activity with a new turn identity; an older or same-turn
+                // result cannot resurrect a settled pane.
+                if let incomingTurn, isNewTurn {
+                    session.turn = incomingTurn
+                    session.nativeTurn = incomingTurn
+                }
+                session.resumeWork()
+            }
             if let request = context?.requestIdentity {
                 if draft.kind == .attentionResolved {
                     let wasResolved = session.resolvedRequests.contains(request)
@@ -101,8 +123,7 @@ public struct AgentNotificationReconciler: Sendable {
                 session.phase = .needsInput
             } else if draft.declaredPhase == .idle {
                 // Only an idle declaration (a dismissed idle dialog) settles the
-                // turn. Feed declares every tool result `.running`, which must not
-                // reopen a turn that already completed.
+                // turn. Fresh tool activity explicitly reopens it below.
                 session.phase = .idle
                 session.rootStopped = true
             } else if session.rootStopped && session.children.isEmpty {
@@ -162,9 +183,8 @@ public struct AgentNotificationReconciler: Sendable {
             session.completionIdentity = nil
         }
         if draft.kind == .idleObserved {
-            let matchesTurn = context?.turnIdentity != nil && context?.turnIdentity == session.nativeTurn
             guard !draft.pendingWork, session.attentionIdentities.isEmpty, session.children.isEmpty,
-                  session.phase == .idle || session.phase == .unknown || (session.phase == .running && matchesTurn),
+                  session.phase == .idle || session.phase == .unknown,
                   !session.ended else { return .init(.delayed, projectsLifecycle: false) }
             session.phase = .idle
             session.rootStopped = true
@@ -242,6 +262,22 @@ public struct AgentNotificationReconciler: Sendable {
             session.ended = true
         case .stateChanged:
             if draft.declaredPhase == .running {
+                let isNewTurn = incomingTurn != nil
+                    && incomingTurn != session.nativeTurn
+                    && incomingTurn.map { !session.seenTurns.contains($0) } == true
+                let isFreshIdentitylessActivity = incomingTurn == nil
+                    && draft.nativeEvent?.caseInsensitiveCompare("PreToolUse") == .orderedSame
+                    && (draft.occurredAtMs > session.occurredAtMs
+                        || (draft.occurredAtMs == session.occurredAtMs && event.sequence > session.sequence))
+                // A tool event without a turn identity is ambiguous after a
+                // completion. Reopen only when its event timestamp/sequence is
+                // newer than the completion watermark; this admits promptless
+                // continuations while a late older event remains stale.
+                guard session.phase != .idle || isNewTurn || isFreshIdentitylessActivity else { break }
+                if isNewTurn, let incomingTurn {
+                    session.turn = incomingTurn
+                    session.nativeTurn = incomingTurn
+                }
                 session.rootStopped = false
                 session.pendingCompletion = nil
             }

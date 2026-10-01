@@ -102,20 +102,29 @@ private struct WorkspacePanelContentHostView: View {
         )
         .onAppear {
             if isVisibleInUI {
-                workspace.markVisibleAgentSessionRead(panelId: panel.id)
+                markVisiblePanelRead()
             }
         }
         .onChange(of: isVisibleInUI) { _, visible in
             if visible {
-                workspace.markVisibleAgentSessionRead(panelId: panel.id)
+                markVisiblePanelRead()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             if isVisibleInUI {
-                workspace.markVisibleAgentSessionRead(panelId: panel.id)
+                markVisiblePanelRead()
             }
         }
     }
+
+    private func markVisiblePanelRead() {
+        workspace.markVisibleAgentSessionRead(panelId: panel.id)
+        workspace.owningTabManager?.dismissNotificationOnVisiblePanel(
+            tabId: workspace.id,
+            panelId: panel.id
+        )
+    }
+
 }
 
 @MainActor
@@ -195,6 +204,7 @@ struct WorkspaceContentView: View {
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.tmuxOverlayExperimentTarget) private var overlayTarget
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
@@ -211,7 +221,6 @@ struct WorkspaceContentView: View {
 #endif
         let appearance = PanelAppearance.fromConfig(config)
         let isSplit = workspace.hasMultipleSplitSurfaces
-        let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
 
@@ -307,7 +316,7 @@ struct WorkspaceContentView: View {
                         appearance: appearance,
                         windowAppearance: windowAppearance,
                         customSidebarTabManager: workspace.owningTabManager,
-                        hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
+                        hasUnreadNotification: showsNotificationRing && !overlayTarget.usesWorkspacePaneOverlay,
                         onFocus: {
                             // Keep bonsplit focus in sync with the AppKit first responder for the
                             // active workspace. This prevents divergence between the blue focused-tab
