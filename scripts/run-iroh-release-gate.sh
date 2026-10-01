@@ -379,6 +379,7 @@ PROD_CREDENTIALS_FILE=""
 PROD_ACCOUNT_STATE_FILE=""
 PROD_RECOVERY_FILE=""
 VERCEL_DIR=""
+LATENCY_STATE_FILE=""
 
 shutdown_prior_gate_simulators() {
   local simulator_name="$1"
@@ -453,6 +454,9 @@ cleanup() {
   local cleanup_code=0
   trap - EXIT INT TERM
   set +e
+  if [[ -n "$LATENCY_STATE_FILE" ]]; then
+    "$SCRIPT_DIR/e2e/iroh-latency-impairment.sh" stop "$LATENCY_STATE_FILE" >/dev/null 2>&1 || true
+  fi
   if [[ -n "$REPORT_WAITER_PID" ]]; then
     kill "$REPORT_WAITER_PID" >/dev/null 2>&1 || true
   fi
@@ -840,6 +844,11 @@ xcrun simctl spawn "$SIMULATOR_ID" defaults write \
 xcrun simctl spawn "$SIMULATOR_ID" defaults write \
   "$IOS_BUNDLE_ID" cmux.debug.latency-trace -bool true
 
+if [[ "$RAW_MODE" == relayOnly && "$SOAK_PROFILE" == stress ]]; then
+  LATENCY_STATE_FILE="${REPORT_OUTPUT%.json}-latency.state"
+  "$SCRIPT_DIR/e2e/iroh-latency-impairment.sh" start "$LATENCY_STATE_FILE"
+fi
+
 # The driver owns this unique tag, so restart it unconditionally. A live pairing
 # socket can otherwise make `cmux_attach_ensure_mac` return without relaunching,
 # leaving a prior run's transport mode active.
@@ -1199,6 +1208,12 @@ if [[ -n "$REPORT_OUTPUT" ]]; then
   then
     rm -f "$HOST_DIAGNOSTIC_OUTPUT"
     echo "warning: Mac Iroh diagnostic capture failed" >&2
+  fi
+  if [[ -n "$LATENCY_STATE_FILE" ]]; then
+    "$SCRIPT_DIR/e2e/summarize-iroh-latency.py" \
+      "$LATENCY_STATE_FILE" \
+      "${REPORT_OUTPUT%.json}-latency.json" \
+      "$(dirname "$REPORT_OUTPUT")"
   fi
 fi
 
