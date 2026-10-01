@@ -88,11 +88,11 @@ extension TerminalController {
 
         let fittedRows = await Self.mobileFeedRowsFittingFrame(
             responseID: responseID,
-            revision: revision,
+            revision: workstreamRevision,
             rows: rows
         )
         return .ok([
-            "revision": revision,
+            "revision": workstreamRevision,
             "items": fittedRows,
         ])
     }
