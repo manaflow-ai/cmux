@@ -5769,6 +5769,10 @@ def test_static_preflight_rejects_stale_embedded_schema_before_native_work() -> 
             target.chmod(0o755)
         for name in ("verify-local.py", "verification_receipt.py", "check-agent-hook-docs.py"):
             shutil.copy2(ROOT / "scripts" / name, repo / "scripts" / name)
+        for path in ("CLI/CMUXCLI+AgentHookCatalog.swift", "docs/agent-hooks.md"):
+            target = repo / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / path, target)
         generator = repo / "scripts/generate-cmux-config-schema.py"
         generator.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / "scripts/generate-cmux-config-schema.py", generator)
