@@ -151,6 +151,7 @@ struct SurfaceMachineIDDeviceEncodingTests {
             resources: []
         )
         #expect(!fallbackLines.contains { $0.contains("cloud_api_unavailable") })
+        #expect(fallbackLines.contains { $0.contains("Link failed") })
     }
 
     @Test("Build labels qualify dev, nightly, rc, and tagged instances; stable stays bare")

@@ -167,8 +167,7 @@ extension CmuxTuiRemoteRouting {
             ))
         case "error", "unavailable":
             lines.append("    " + String(
-                format: String(localized: "cli.vm.tree.link.error", defaultValue: "⚠ link %@: %@"),
-                linkState,
+                format: String(localized: "cli.vm.tree.link.error", defaultValue: "⚠ %@"),
                 linkErrorDescription
             ))
             lines.append("    " + String(
