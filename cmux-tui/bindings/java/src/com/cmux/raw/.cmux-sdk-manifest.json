@@ -347,8 +347,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "842fbdfaeb1faf111e809b621665283c68f0fb7ebc8713ef1afc8b67a7f85d42",
-      "size": 49495
+      "sha256": "95eadfc148effbfa43d3bf6aee8bd1dd6db1d971b5420a3391836f024397fe9f",
+      "size": 49796
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -607,8 +607,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "23469f9327bf7c0da99f9dd3f685e1479f1e247130bc78aa19e86d728c5e1826",
-      "size": 43693
+      "sha256": "63c1521c82c77830c1fbdd61219c8e14499dccef88e2f3cb068b9f9d6bcf4680",
+      "size": 43989
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -1152,7 +1152,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "9cba9ba4be6c36345ef842cee5fbb41aa4e03921c3419d2c2f107de115d00b73",
+      "sha256": "4b20f0f2f9dd4f9f3a3b671ab442c0e2a0fed17dc1f149903a09b772f6240058",
       "size": 4696
     },
     {
@@ -1606,6 +1606,11 @@
       "size": 2701
     },
     {
+      "path": "SetTerminalCommandHistoryRequest.java",
+      "sha256": "df749e24e037a2368d2324bf65b756cd9266ef64e9da23e90a1947e33d54546e",
+      "size": 2160
+    },
+    {
       "path": "SetTerminalIdlePolicyRequest.java",
       "sha256": "5977352f56fe7c38c034ce48da1dc9913278b6cf5402501682908a581921d1ce",
       "size": 3661
@@ -1824,6 +1829,11 @@
       "path": "TerminalColors.java",
       "sha256": "42edd591b7ca51546872e2d02a1f851b02052e613f667507eb5fb8c91a7bee41",
       "size": 7557
+    },
+    {
+      "path": "TerminalCommandHistoryResult.java",
+      "sha256": "240c05f9a626dd8e67dee8f57e641b4f8fc747a5645ae4fc90f523a5231311a5",
+      "size": 2031
     },
     {
       "path": "TerminalEventsRequest.java",
@@ -2137,7 +2147,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "45d5f5eee71a41e566a469983f04b4e23ebc018dbd440ee24c7a1f25ad540f43",
+  "ir_sha256": "813ecf93e56fd007de1dc8654da3403126c62fd638d3ab1937e9d421200d92d1",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

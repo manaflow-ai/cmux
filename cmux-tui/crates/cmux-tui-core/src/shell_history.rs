@@ -16,9 +16,6 @@
 //! [`MAX_COMMAND_BYTES`]. No `C` mark is emitted at a password prompt, so a
 //! typed password is never read.
 
-// Not wired yet (failing-test commit).
-#![allow(dead_code)]
-
 use serde_json::json;
 
 use crate::resource::TerminalPublicId;
@@ -52,8 +49,21 @@ impl ShellMark {
     /// Parses the data after `133;` (for example `A`, `B`, `C;...`,
     /// `D;0`, `D;130;aid=12`). Unknown marks are ignored.
     pub(crate) fn parse(data: &[u8]) -> Option<Self> {
-        let _ = data;
-        None
+        let mut fields = data.split(|byte| *byte == b';');
+        let mark = match fields.next()? {
+            b"A" => Self::PromptStart,
+            b"B" => Self::InputStart,
+            b"C" => Self::CommandStart,
+            b"D" => {
+                let exit_code = fields
+                    .next()
+                    .and_then(|field| std::str::from_utf8(field).ok())
+                    .and_then(|field| field.parse::<i32>().ok());
+                Self::CommandEnd { exit_code }
+            }
+            _ => return None,
+        };
+        Some(mark)
     }
 }
 
@@ -101,8 +111,29 @@ impl CommandTracker {
         now_ms: u64,
         screen: &mut impl CommandScreen,
     ) -> Option<FinishedCommand> {
-        let _ = (mark, now_ms, screen);
-        None
+        match mark {
+            ShellMark::PromptStart => {
+                self.input_start = None;
+                // A prompt without D (shells that skip it on ^C): the
+                // command ended, exit status unknown.
+                self.finish(None, now_ms)
+            }
+            ShellMark::InputStart => {
+                self.input_start = screen.cursor_absolute();
+                None
+            }
+            ShellMark::CommandStart => {
+                let command = self
+                    .input_start
+                    .take()
+                    .and_then(|start| screen.row_text(start))
+                    .and_then(|text| clean_command(&text));
+                self.running =
+                    Some(RunningCommand { command, cwd: screen.cwd(), started_at_ms: now_ms });
+                None
+            }
+            ShellMark::CommandEnd { exit_code } => self.finish(exit_code, now_ms),
+        }
     }
 
     fn finish(&mut self, exit_code: Option<i32>, now_ms: u64) -> Option<FinishedCommand> {
@@ -120,8 +151,16 @@ impl CommandTracker {
 /// A command line as stored: trimmed, without control characters, cut to
 /// [`MAX_COMMAND_BYTES`] at a character boundary; `None` when empty.
 pub(crate) fn clean_command(text: &str) -> Option<String> {
-    let _ = text;
-    None
+    let visible: String = text.chars().filter(|character| !character.is_control()).collect();
+    let trimmed = visible.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut end = trimmed.len().min(MAX_COMMAND_BYTES);
+    while !trimmed.is_char_boundary(end) {
+        end -= 1;
+    }
+    Some(trimmed[..end].trim_end().to_owned())
 }
 
 /// The reserved `cmux_shell` producer: one observation kind, sensitive.
