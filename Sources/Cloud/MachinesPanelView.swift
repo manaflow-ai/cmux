@@ -292,6 +292,10 @@ struct MachinesPanelView: View {
             accountFlow: accountFlow,
             presentation: teamPickerPresentation,
             chromeBackgroundColor: chromeBackgroundColor,
+            isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
+            onRefresh: refreshMachines,
+            onNewMachine: requestNewMachine,
+            agentMenu: { cloudAgentMenu },
             status: { cloudStatus }
         )
     }
@@ -404,6 +408,55 @@ struct MachinesPanelView: View {
     /// Cloud-agent launcher: each agent entry opens a local terminal running
     /// that agent preloaded with the cmux Cloud skill; Copy Cloud Prompt puts
     /// the same kickoff prompt on the clipboard for any other terminal.
+    private var cloudAgentMenu: some View {
+        Menu {
+            ForEach(CloudAgentSkillLauncher.CodingAgent.allCases, id: \.rawValue) { agent in
+                Button(agent.displayName) {
+                    launchCloudAgent(agent)
+                }
+            }
+            Divider()
+            Button(String(localized: "machines.agent.copyPrompt", defaultValue: "Copy Cloud Prompt")) {
+                runCloudAgentAction { try CloudAgentSkillLauncher.copyPrompt() }
+            }
+        } label: {
+            Image(systemName: "sparkles")
+                .font(.system(size: 11, weight: .medium))
+                .frame(width: 22, height: 20)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 22, height: 20)
+        .foregroundColor(.secondary)
+        .help(String(localized: "machines.agent.menuLabel", defaultValue: "Open Cloud Agent"))
+        .accessibilityLabel(String(localized: "machines.agent.menuLabel", defaultValue: "Open Cloud Agent"))
+        .accessibilityIdentifier("CloudMachinesAgentMenu")
+    }
+
+    private func runCloudAgentAction(_ action: () throws -> Void) {
+        do {
+            try action()
+        } catch {
+            viewModel.noteTreeFailure(error.localizedDescription)
+        }
+    }
+
+    private func launchCloudAgent(_ agent: CloudAgentSkillLauncher.CodingAgent) {
+        viewModel.beginOperation(String(
+            format: String(localized: "machines.agent.operation.starting", defaultValue: "Starting %@…"),
+            agent.displayName
+        ))
+        Task { @MainActor [weak viewModel] in
+            do {
+                _ = try await CloudAgentSkillLauncher.openAgent(agent)
+            } catch {
+                viewModel?.noteTreeFailure(error.localizedDescription)
+            }
+            viewModel?.endOperation()
+        }
+    }
+
     private func requestNewMachine() {
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,

@@ -10,9 +10,11 @@ public extension Notification.Name {
 
 /// Holds a gallery request until the progressively mounted Custom Sidebars
 /// section is ready to present it.
+// lint:allow namespace-type — one-shot, main-actor handoff from a host menu to the lazily mounted Custom Sidebars section (#15931); candidate to become an injected SettingsRuntime value.
 @MainActor
 public final class CustomSidebarTemplateGalleryRequest {
     public static let shared = CustomSidebarTemplateGalleryRequest()
+
     private var pending = false
 
     private init() {}
