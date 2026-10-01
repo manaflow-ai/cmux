@@ -26,12 +26,11 @@ extension RightSidebarMode {
         }
     }
 
+    /// Modes available under `defaults`. Every mode, including the custom
+    /// sidebar, reads its availability from the same store, so an injected
+    /// suite never mixes in the process-wide `.standard` defaults.
     static func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
-        availableModes(
-            feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
-            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults),
-            devicesEnabled: false
-        )
+        allCases.filter { $0.isAvailable(defaults: defaults) }
     }
 
     static func availableModes(
