@@ -306,6 +306,12 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     weak var focus: FocusCoordinator?
     private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
 
+    /// In an agent screenshot launch every frame stays on the test screen
+    /// (`WindowPlacement.containedOnTestScreen`), whichever path sets it.
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag)
+    }
+
     /// The window's one titlebar decision (`TitlebarDragPolicy`): a left
     /// mouse-down in the band is delivered as usual, then moves the window
     /// (or runs the double-click action) only when the policy says so.

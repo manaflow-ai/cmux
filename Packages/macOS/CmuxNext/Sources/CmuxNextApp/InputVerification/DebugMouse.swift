@@ -71,6 +71,8 @@ enum DebugMouse {
         }
         let posted = events.compactMap { $0 }
         guard posted.count == events.count else { return .object(["error": .string("could not synthesize events")]) }
+        // Agent input: never the user choosing the app (no-activate guard).
+        SyntheticInput.register(posted)
         for event in posted { NSApp.postEvent(event, atStart: false) }
         return .object([
             "window": .string(controller.state.id),
