@@ -162,6 +162,11 @@ public final class MobileWorkspaceSnapshotStore {
     private let defaults: UserDefaults
     private let namespace = "cmux.mobile.v2.workspace-snapshot."
     private let maxAge: TimeInterval = 7 * 24 * 60 * 60
+    private let pruneInterval: TimeInterval = 60
+    private let maxRecords = 64
+    private let maxRecordBytes = 512 * 1024
+    private var knownStorageKeys: Set<String>?
+    private var lastPruneAt: Date?
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -209,9 +214,9 @@ public final class MobileWorkspaceSnapshotStore {
         userID: String,
         teamID: String?
     ) -> [(MacPairingKey, MacWorkspaceState)] {
-        pruneExpiredSnapshots()
+        pruneExpiredSnapshotsIfNeeded()
         var result: [(MacPairingKey, MacWorkspaceState)] = []
-        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(namespace) {
+        for key in storageKeys() {
             guard let storedScope = scope(fromStorageKey: key),
                   storedScope.userID == userID,
                   storedScope.teamID == teamID,
@@ -238,7 +243,7 @@ public final class MobileWorkspaceSnapshotStore {
         teamID: String?,
         pairing: MacPairingKey
     ) {
-        pruneExpiredSnapshots()
+        pruneExpiredSnapshotsIfNeeded()
         // An authoritative empty list is a deletion, not a reason to retain
         // the previous preview. Otherwise a closed workspace would reappear
         // on the next launch until the snapshot TTL expired.
@@ -258,7 +263,12 @@ public final class MobileWorkspaceSnapshotStore {
             workspaceGroupsAreAuthoritative: state.workspaceGroupsAreAuthoritative
         )
         guard let data = try? JSONEncoder().encode(record) else { return }
-        defaults.set(data, forKey: key(userID: userID, teamID: teamID, pairing: pairing))
+        guard data.count <= maxRecordBytes else { return }
+        let storageKey = key(userID: userID, teamID: teamID, pairing: pairing)
+        defaults.set(data, forKey: storageKey)
+        if knownStorageKeys == nil { _ = storageKeys() }
+        knownStorageKeys?.insert(storageKey)
+        enforceRecordLimitIfNeeded()
     }
 
     public func remove(
@@ -266,7 +276,9 @@ public final class MobileWorkspaceSnapshotStore {
         teamID: String?,
         pairing: MacPairingKey
     ) {
-        defaults.removeObject(forKey: key(userID: userID, teamID: teamID, pairing: pairing))
+        let storageKey = key(userID: userID, teamID: teamID, pairing: pairing)
+        defaults.removeObject(forKey: storageKey)
+        knownStorageKeys?.remove(storageKey)
     }
 
     private func state(
@@ -306,15 +318,49 @@ public final class MobileWorkspaceSnapshotStore {
     /// Keep the index-free UserDefaults namespace bounded. A scope can be
     /// removed or changed without a matching callback here, so age out every
     /// expired or unreadable record whenever the store is touched.
-    private func pruneExpiredSnapshots(now: Date = Date()) {
-        for storageKey in defaults.dictionaryRepresentation().keys where storageKey.hasPrefix(namespace) {
+    private func storageKeys() -> Set<String> {
+        if let knownStorageKeys { return knownStorageKeys }
+        let keys = Set(defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix(namespace) })
+        knownStorageKeys = keys
+        return keys
+    }
+
+    private func pruneExpiredSnapshotsIfNeeded(now: Date = Date()) {
+        if let lastPruneAt, now.timeIntervalSince(lastPruneAt) < pruneInterval { return }
+        let existingKeys = storageKeys()
+        var retainedKeys = existingKeys
+        var expiredKeys = Set<String>()
+        for storageKey in existingKeys {
             guard let data = defaults.data(forKey: storageKey),
                   let record = try? JSONDecoder().decode(Record.self, from: data),
                   now.timeIntervalSince(record.savedAt) <= maxAge else {
                 defaults.removeObject(forKey: storageKey)
+                expiredKeys.insert(storageKey)
                 continue
             }
         }
+        retainedKeys.subtract(expiredKeys)
+        knownStorageKeys = retainedKeys
+        lastPruneAt = now
+        enforceRecordLimitIfNeeded()
+    }
+
+    private func enforceRecordLimitIfNeeded() {
+        let keys = storageKeys()
+        guard keys.count > maxRecords else { return }
+        let records = keys.compactMap { storageKey -> (String, Date)? in
+            guard let data = defaults.data(forKey: storageKey),
+                  let record = try? JSONDecoder().decode(Record.self, from: data) else {
+                defaults.removeObject(forKey: storageKey)
+                return nil
+            }
+            return (storageKey, record.savedAt)
+        }
+        let keep = Set(records.sorted { $0.1 > $1.1 }.prefix(maxRecords).map(\.0))
+        for storageKey in keys where !keep.contains(storageKey) {
+            defaults.removeObject(forKey: storageKey)
+        }
+        knownStorageKeys = keep
     }
 
     private func scope(fromStorageKey key: String) -> (userID: String, teamID: String?)? {

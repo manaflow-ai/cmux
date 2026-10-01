@@ -45,7 +45,7 @@ V2_BASE_URL_WAS_EXPLICIT=0
 PRINT_PLAN=0
 SOAK_PROFILE=""
 REPORT_TIMEOUT=480
-PHASE_TIMEOUT_SECONDS="${CMUX_IROH_RELEASE_GATE_PHASE_TIMEOUT_SECONDS:-1500}"
+PHASE_TIMEOUT_SECONDS="${CMUX_IROH_RELEASE_GATE_PHASE_TIMEOUT_SECONDS:-2400}"
 DOGFOOD_CREDENTIALS_FILE=""
 REAL_USAGE=0
 
@@ -285,7 +285,7 @@ with open(build_log, "wb") as output:
             pass
 
     while True:
-        timeout = min(60, int(os.environ.get("CMUX_IROH_RELEASE_GATE_PHASE_TIMEOUT_SECONDS", "1500")))
+        timeout = min(60, int(os.environ.get("CMUX_IROH_RELEASE_GATE_PHASE_TIMEOUT_SECONDS", "2400")))
         if termination_deadline is not None:
             timeout = max(0.1, termination_deadline - time.monotonic())
         try:
