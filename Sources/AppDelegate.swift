@@ -8630,6 +8630,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager: TabManager? = nil,
         debugSource: String = "newLocalWorkspace"
     ) -> Bool {
+        if let tabManager {
+            return tabManager.addWorkspaceIfActive(inheritWorkingDirectory: false) != nil
+        }
         performNewWorkspaceCreationAction(
             initialSurface: .terminal,
             preferredTabManager: tabManager,
