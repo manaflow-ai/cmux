@@ -1434,7 +1434,6 @@ impl WorkspaceRegistry {
             deltas,
             None,
             None,
-            None,
         )
         .map(|(commit, _)| commit)
     }
@@ -1452,7 +1451,6 @@ impl WorkspaceRegistry {
         deltas: &Value,
         workspace_ledger: Option<&ResourceWorkspaceLedger>,
         state_write: Option<crate::resource_mutation::PlanStateWrite>,
-        screen_state: Option<&ScreenPresentationState>,
     ) -> anyhow::Result<(ResourcePatchCommit, Option<u64>)> {
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
@@ -1507,9 +1505,6 @@ impl WorkspaceRegistry {
             && let Some(update) = &ledger.presentation
         {
             presentation_store::write_workspace_presentation(&tx, &ledger.workspace_key, update)?;
-        }
-        if let Some(screen_state) = screen_state {
-            screen_store::write_screen_state(&tx, screen_state)?;
         }
         let patch = &apply_resource_patch(&tx, patch, sqlite_revision)?;
         let mut result = result.clone();

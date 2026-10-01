@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR adbfa89de5ea3e4ee601c468ebe23c608b9eb8532e62701776fa0d86a6831300.
+// cmux-tui mux protocol 12, IR ecaa3e70ba922e2e428912bf9012d406c92fc84b300654e25820523ff1ee23e2.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -342,16 +342,6 @@ pub struct ScreenAddedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ScreenChangedEvent {
-    pub entity: T::Screen,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub index: Optional<u64>,
-    pub screen: T::Id,
-    pub workspace: T::Id,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ScreenClosedEvent {
     pub entity: T::Screen,
     pub index: u64,
@@ -643,7 +633,6 @@ pub enum Event {
     RenderState(RenderStateEvent),
     Resized(ResizedEvent),
     ScreenAdded(ScreenAddedEvent),
-    ScreenChanged(ScreenChangedEvent),
     ScreenClosed(ScreenClosedEvent),
     ScreenRenamed(ScreenRenamedEvent),
     ScrollChanged(ScrollChangedEvent),
@@ -705,7 +694,6 @@ impl Event {
             Self::RenderState(_) => Some("render-state"),
             Self::Resized(_) => Some("resized"),
             Self::ScreenAdded(_) => Some("screen-added"),
-            Self::ScreenChanged(_) => Some("screen-changed"),
             Self::ScreenClosed(_) => Some("screen-closed"),
             Self::ScreenRenamed(_) => Some("screen-renamed"),
             Self::ScrollChanged(_) => Some("scroll-changed"),
@@ -766,7 +754,6 @@ impl Event {
             Self::RenderState(_) => Some(&RENDER_STATE_EVENT_METADATA),
             Self::Resized(_) => Some(&RESIZED_EVENT_METADATA),
             Self::ScreenAdded(_) => Some(&SCREEN_ADDED_EVENT_METADATA),
-            Self::ScreenChanged(_) => Some(&SCREEN_CHANGED_EVENT_METADATA),
             Self::ScreenClosed(_) => Some(&SCREEN_CLOSED_EVENT_METADATA),
             Self::ScreenRenamed(_) => Some(&SCREEN_RENAMED_EVENT_METADATA),
             Self::ScrollChanged(_) => Some(&SCROLL_CHANGED_EVENT_METADATA),
@@ -1027,14 +1014,6 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("screen-added") => match serde_json::from_value::<ScreenAddedEvent>(raw.clone()) {
             Ok(event) => Event::ScreenAdded(event),
-            Err(error) => Event::Unknown(UnknownEvent {
-                name,
-                raw,
-                decode_error: Some(error.to_string()),
-            }),
-        },
-        Some("screen-changed") => match serde_json::from_value::<ScreenChangedEvent>(raw.clone()) {
-            Ok(event) => Event::ScreenChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

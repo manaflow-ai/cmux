@@ -253,3 +253,68 @@ pub(crate) fn screen_group_snapshots(
     }
     Ok(groups)
 }
+
+/// Daemons built from feat-cmux-next before the state resources kept screen
+/// presentation and groups in their own tables (`screen-metadata-v1`,
+/// `screen-groups-v1`). Their `screen_groups` keyed a group by workspace key,
+/// not public workspace id, so it moves aside before the state schema creates
+/// its own; `migrate_v1_screen_state` copies its rows once the resource tables
+/// exist.
+pub(super) fn set_aside_v1_screen_groups(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let v1 = transaction
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('screen_groups') WHERE name = 'workspace_key'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if v1 {
+        transaction.execute_batch("ALTER TABLE screen_groups RENAME TO screen_groups_v1;")?;
+    }
+    Ok(())
+}
+
+/// Copies the v1 screen rows into the state tables and drops the copied
+/// tables, so it runs once. Groups of a workspace that no longer exists are
+/// dropped with their members; `screen_group_members` has the same shape in
+/// both and keeps its rows. Saved screen groups have no state resource and
+/// stay in `saved_screen_groups`, untouched.
+pub(super) fn migrate_v1_screen_state(connection: &Connection) -> anyhow::Result<()> {
+    let tx = connection.unchecked_transaction()?;
+    if table_exists(&tx, "screen_presentation")? {
+        tx.execute(
+            "INSERT OR IGNORE INTO screen_state(screen_id, pinned, color, icon)
+             SELECT screen_id, pinned, color, icon FROM screen_presentation
+             WHERE pinned = 1 OR color IS NOT NULL OR icon IS NOT NULL",
+            [],
+        )?;
+        tx.execute_batch("DROP TABLE screen_presentation;")?;
+    }
+    if table_exists(&tx, "screen_groups_v1")? {
+        tx.execute(
+            "INSERT OR IGNORE INTO screen_groups(group_id, workspace_id, name, color, collapsed)
+             SELECT g.group_id, w.public_id, g.name, g.color, g.collapsed
+             FROM screen_groups_v1 AS g
+             JOIN resource_workspaces AS w ON w.workspace_key = g.workspace_key",
+            [],
+        )?;
+        tx.execute(
+            "DELETE FROM screen_group_members
+             WHERE group_id NOT IN (SELECT group_id FROM screen_groups)",
+            [],
+        )?;
+        tx.execute_batch("DROP TABLE screen_groups_v1;")?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+fn table_exists(connection: &Connection, name: &str) -> anyhow::Result<bool> {
+    Ok(connection
+        .query_row("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1", [name], |_| {
+            Ok(())
+        })
+        .optional()?
+        .is_some())
+}

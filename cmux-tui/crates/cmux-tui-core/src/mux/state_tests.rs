@@ -907,3 +907,98 @@ fn raw_metadata_and_pin_commands_publish_the_same_state_on_session_events() {
             && change["value"]["extra"]["pinned"] == true
     }));
 }
+
+#[test]
+fn v1_screen_tables_from_a_feat_cmux_next_daemon_migrate_at_open() {
+    let session = Session::new("screen-v1-migration");
+    let mux = session.open();
+    mux.new_workspace(None, None).unwrap();
+    let (workspace, screen) = mux.with_state(|state| {
+        let workspace = &state.workspaces[0];
+        (workspace.public_id.to_string(), workspace.screens[0].public_id.to_string())
+    });
+    drop(mux);
+    {
+        // The tables a screen-metadata-v1 / screen-groups-v1 daemon left.
+        let registry = WorkspaceRegistry::open(&session.root, session.name).unwrap();
+        registry
+            .read_state(|connection| {
+                connection.execute_batch(
+                    "DROP TABLE screen_groups;
+                     DELETE FROM screen_state;
+                     DELETE FROM screen_group_members;
+                     CREATE TABLE screen_presentation (
+                       screen_id TEXT PRIMARY KEY NOT NULL,
+                       color TEXT,
+                       icon TEXT,
+                       pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1))
+                     );
+                     CREATE TABLE screen_groups (
+                       group_id TEXT PRIMARY KEY NOT NULL,
+                       workspace_key TEXT NOT NULL,
+                       name TEXT NOT NULL DEFAULT '',
+                       color TEXT NOT NULL,
+                       collapsed INTEGER NOT NULL DEFAULT 0 CHECK(collapsed IN (0,1)),
+                       saved_id TEXT
+                     );",
+                )?;
+                connection.execute(
+                    "INSERT INTO screen_presentation(screen_id, color, icon, pinned)
+                     VALUES(?1, 'green', NULL, 1)",
+                    [&screen],
+                )?;
+                connection.execute(
+                    "INSERT INTO screen_groups(group_id, workspace_key, name, color, collapsed)
+                     SELECT 'sgrp_00000000000000000000000000000001', workspace_key, 'Build',
+                            'orange', 1
+                     FROM resource_workspaces WHERE public_id = ?1",
+                    [&workspace],
+                )?;
+                connection.execute(
+                    "INSERT INTO screen_groups(group_id, workspace_key, name, color)
+                     VALUES('sgrp_00000000000000000000000000000002', 'gone', 'Orphan', 'red')",
+                    [],
+                )?;
+                connection.execute(
+                    "INSERT INTO screen_group_members(screen_id, group_id)
+                     VALUES(?1, 'sgrp_00000000000000000000000000000001'),
+                           ('screen_gone', 'sgrp_00000000000000000000000000000002')",
+                    [&screen],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    let mux = session.open();
+    let group = read(
+        &mux,
+        "screen_group.get",
+        json!({"screen_group": "sgrp_00000000000000000000000000000001"}),
+    );
+    assert_eq!(group["workspace_id"], workspace);
+    assert_eq!(group["name"], "Build");
+    assert_eq!(group["screen_ids"], json!([screen]));
+    let listed = read(&mux, "screen_group.list", json!({}));
+    assert_eq!(listed.as_array().unwrap().len(), 1, "{listed}");
+    let snapshot = snapshot(&mux);
+    let value =
+        snapshot["screens"].as_array().unwrap().iter().find(|value| value["id"] == screen).unwrap();
+    assert_eq!(value["extra"]["pinned"], true);
+    assert_eq!(value["extra"]["color"], "green");
+    assert_eq!(value["extra"]["screen_group_id"], "sgrp_00000000000000000000000000000001");
+    drop(mux);
+    // The copied v1 tables are gone, so the next open does not migrate again.
+    let registry = WorkspaceRegistry::open(&session.root, session.name).unwrap();
+    let leftovers = registry
+        .read_state(|connection| {
+            Ok(connection.query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE name IN ('screen_presentation', 'screen_groups_v1')",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?)
+        })
+        .unwrap();
+    assert_eq!(leftovers, 0);
+}
