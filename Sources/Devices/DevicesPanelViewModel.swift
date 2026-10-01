@@ -57,6 +57,14 @@ final class DevicesPanelViewModel {
         revealRequest = .machine(.device(instance))
     }
 
+    /// A tree coordinator clears a device reveal after it has selected the row.
+    /// Keeping this one-shot boundary in the model prevents a stale request from
+    /// taking precedence over later Cloud-workspace reveals.
+    func consumeRevealRequest(token: UUID) {
+        guard revealRequest?.token == token else { return }
+        revealRequest = nil
+    }
+
     func needsPairing(_ machine: SurfaceMachineID) -> Bool {
         guard let instance = machine.deviceInstance, let provider = registry?.provider(for: instance) else { return false }
         return provider.link.needsAuthorization

@@ -39,6 +39,15 @@ struct MachinesPanelView: View {
     var tabManager: TabManager? = nil
     let teamPickerPresentation: CloudTeamPickerPresentation?
 
+    /// Catalog metadata updates share the binding revision stream, but they do
+    /// not change which Cloud workspace is selected in the tree.
+    static func cloudBindingTransitionRequiresReveal(
+        from previous: WorkspaceCloudVMBinding?,
+        to current: WorkspaceCloudVMBinding?
+    ) -> Bool {
+        previous != current
+    }
+
     init(
         chromeBackgroundColor: NSColor,
         viewModel: MachinesPanelViewModel? = nil,
@@ -154,6 +163,7 @@ struct MachinesPanelView: View {
             viewModel.refreshAccountScope()
         }
         .onReceive(selectedWorkspacePublisher) { selectedWorkspaceID in
+            guard self.selectedWorkspaceID != selectedWorkspaceID else { return }
             self.selectedWorkspaceID = selectedWorkspaceID
             let workspace = selectedWorkspaceID.flatMap { id in
                 tabManager?.workspacesById[id]
@@ -180,13 +190,12 @@ struct MachinesPanelView: View {
         .task(id: selectedWorkspaceID) {
             guard let selectedWorkspaceID,
                   let workspace = tabManager?.workspacesById[selectedWorkspaceID] else { return }
-            var isInitialRevision = true
+            var previousBinding = workspace.cloudVMBinding
             for await _ in workspace.cloudBindingState.changes() {
                 if Task.isCancelled { break }
-                if isInitialRevision {
-                    isInitialRevision = false
-                    continue
-                }
+                let binding = workspace.cloudVMBinding
+                guard Self.cloudBindingTransitionRequiresReveal(from: previousBinding, to: binding) else { continue }
+                previousBinding = binding
                 selectedCloudWorkspaceReveal = cloudWorkspaceRevealRequest(for: workspace)
             }
         }
@@ -490,6 +499,11 @@ struct MachinesPanelView: View {
             canCreateCloudMachine: includesCloud,
             cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
             reveal: devicesModel.revealRequest,
+            onRevealConsumed: { token in devicesModel.consumeRevealRequest(token: token) },
+            onCloudWorkspaceRevealConsumed: { token in
+                guard selectedCloudWorkspaceReveal?.token == token else { return }
+                selectedCloudWorkspaceReveal = nil
+            },
             cloudWorkspaceReveal: selectedCloudWorkspaceReveal,
             creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
         )

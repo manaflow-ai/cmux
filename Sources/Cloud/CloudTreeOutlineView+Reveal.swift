@@ -2,19 +2,48 @@ import AppKit
 import Foundation
 
 extension CloudTreeOutlineView.Coordinator {
+    enum RevealResult: Equatable {
+        case ignored
+        case waiting
+        case consumed
+    }
+
     /// Selects a requested row once, expanding its ancestors and the row itself.
-    func reveal(_ request: CloudTreeRevealRequest?) {
-        guard let request, !consumedRevealTokens.contains(request.token), let outlineView else { return }
+    @discardableResult
+    func reveal(
+        _ request: CloudTreeRevealRequest?,
+        channel: RevealChannel = .device
+    ) -> RevealResult {
+        guard let request, !consumedRevealTokens.contains(request.token), let outlineView else { return .ignored }
+        if let previous = pendingRevealByChannel[channel], previous != request.token {
+            pendingRevealTokens.remove(previous)
+            rememberConsumedRevealToken(previous)
+        }
+        pendingRevealByChannel[channel] = request.token
         pendingRevealTokens.insert(request.token)
-        guard let path = request.path(in: nodes), let node = path.last else { return }
+        guard let path = request.path(in: nodes), let node = path.last else { return .waiting }
         expand(path.dropLast(), in: outlineView)
         if node.isExpandable { expand([node], in: outlineView) }
         let row = outlineView.row(forItem: node)
-        guard row >= 0 else { return }
-        consumedRevealTokens.insert(request.token)
+        guard row >= 0 else { return .waiting }
+        withProgrammaticUpdate {
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        }
+        guard outlineView.selectedRow == row else { return .waiting }
+        rememberConsumedRevealToken(request.token)
         pendingRevealTokens.remove(request.token)
-        outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        pendingRevealByChannel.removeValue(forKey: channel)
         scrollRowFullyIntoView(row, in: outlineView)
+        return .consumed
+    }
+
+    func rememberConsumedRevealToken(_ token: UUID) {
+        guard consumedRevealTokens.insert(token).inserted else { return }
+        consumedRevealTokenOrder.append(token)
+        while consumedRevealTokenOrder.count > maxConsumedRevealTokens {
+            let oldest = consumedRevealTokenOrder.removeFirst()
+            consumedRevealTokens.remove(oldest)
+        }
     }
 
     /// Follows this window's workspace creation: selects the new row once it
@@ -36,6 +65,9 @@ extension CloudTreeOutlineView.Coordinator {
             // A regular selection change records the row, so reloads restore it.
             withProgrammaticUpdate {
                 outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                if outlineView.selectedRow == row {
+                    selectedNodeID = id
+                }
             }
             // The outline view refuses rows it cannot select; retry those later.
             guard outlineView.selectedRow == row else { return }

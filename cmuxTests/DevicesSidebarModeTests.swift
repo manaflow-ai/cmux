@@ -110,6 +110,20 @@ struct DevicesSidebarModeTests {
         #expect(registry.takePendingReveal(windowID: first) == instance)
     }
 
+    @Test("A device reveal is cleared after its tree row is consumed")
+    @MainActor
+    func consumedRevealIsOneShot() throws {
+        let registry = DeviceSurfaceProviderRegistry()
+        let windowID = UUID()
+        let instance = SurfaceDeviceInstanceID(deviceID: "mac-a", tag: "default")
+        let model = DevicesPanelViewModel(registry: registry, windowID: windowID)
+        registry.reveal(instance: instance, windowID: windowID)
+        model.consumePendingReveal()
+        let token = try #require(model.revealRequest?.token)
+        model.consumeRevealRequest(token: token)
+        #expect(model.revealRequest == nil)
+    }
+
     @Test("Managed discovery policy overrides the discovery preference")
     func featureGate() {
         let defaults = makeDefaults()

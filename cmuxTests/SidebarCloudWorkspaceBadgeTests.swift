@@ -9,6 +9,14 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct SidebarCloudWorkspaceBadgeTests {
+    @Test("Cloud metadata revisions do not create a workspace reveal")
+    func cloudMetadataRevisionDoesNotCountAsBindingTransition() {
+        let binding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true, remoteWorkspaceID: "ws-1")
+        #expect(!MachinesPanelView.cloudBindingTransitionRequiresReveal(from: binding, to: binding))
+        #expect(MachinesPanelView.cloudBindingTransitionRequiresReveal(from: nil, to: binding))
+        #expect(MachinesPanelView.cloudBindingTransitionRequiresReveal(from: binding, to: nil))
+    }
+
     @Test(arguments: [false, true])
     func deviceNameIsVisibleBesideItsDirectory(vertical: Bool) throws {
         let defaults = Self.makeDefaults()

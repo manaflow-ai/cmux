@@ -33,6 +33,20 @@ struct DevicesCloudTreeBuilderTests {
     }
 
     @MainActor
+    @Test("Reveal token fencing stays bounded for a long-lived panel")
+    func revealTokenFencingIsBounded() throws {
+        let suiteName = "DevicesCloudTreeRevealTokens-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = makeCoordinator(defaults: defaults)
+        for _ in 0...128 {
+            coordinator.rememberConsumedRevealToken(UUID())
+        }
+        #expect(coordinator.consumedRevealTokens.count <= coordinator.maxConsumedRevealTokens)
+        #expect(coordinator.consumedRevealTokenOrder.count <= coordinator.maxConsumedRevealTokens)
+    }
+
+    @MainActor
     @Test("A reveal waits for its device row, expands it once, and accepts a later Open request")
     func revealWaitsForDeviceRow() throws {
         let suiteName = "DevicesCloudTreeReveal-\(UUID().uuidString)"
