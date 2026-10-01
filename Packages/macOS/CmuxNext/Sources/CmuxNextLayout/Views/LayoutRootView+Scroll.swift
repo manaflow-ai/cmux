@@ -30,7 +30,8 @@ extension LayoutRootView {
 
     private func activeColumnsView(at locationInWindow: NSPoint) -> ScreenContentView? {
         guard bounds.contains(convert(locationInWindow, from: nil)),
-              let active = model.activeScreenID, let view = screenViews[active], view.acceptsHorizontalScroll else { return nil }
+              let active = model.activeScreenID, let view = screenViews[active],
+              view.acceptsHorizontalScroll(at: view.convert(locationInWindow, from: nil)) else { return nil }
         return view
     }
 

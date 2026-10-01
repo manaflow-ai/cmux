@@ -34,6 +34,7 @@ final class PaneOverlayView: NSView {
     private var attentionSettings = AttentionSettings()
     private var attentionMark: AttentionMark?
     private var borderStyle = Border(shows: false)
+    private var excluded: [CGRect] = []
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -143,6 +144,30 @@ final class PaneOverlayView: NSView {
 
     /// `showsRing`: this pane is focused and the ring should mark it.
     /// `attention`: the pane's unread mark, nil when none.
+    /// Hides the overlay inside `rects` (its own coordinates): a sticky
+    /// column covering this strip pane. Empty removes the mask.
+    func setExcluded(_ rects: [CGRect]) {
+        let rects = rects.map { $0.intersection(bounds) }.filter { !$0.isNull && $0.width > 0.5 && $0.height > 0.5 }
+        guard rects != excluded else { return }
+        excluded = rects
+        guard let layer else { return }
+        guard !rects.isEmpty else {
+            layer.mask = nil
+            return
+        }
+        let mask = (layer.mask as? CAShapeLayer) ?? CAShapeLayer()
+        let path = CGMutablePath()
+        path.addRect(bounds)
+        for rect in rects { path.addRect(rect) }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        mask.fillRule = .evenOdd
+        mask.frame = bounds
+        mask.path = path
+        CATransaction.commit()
+        if layer.mask !== mask { layer.mask = mask }
+    }
+
     func update(showsRing: Bool, dim: CGFloat, focusRing: FocusRingSettings, border borderStyle: Border,
                 attention mark: AttentionMark?, attentionSettings: AttentionSettings, animated: Bool) {
         let shapeChanged = focusRing != self.focusRing || attentionSettings != self.attentionSettings

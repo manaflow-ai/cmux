@@ -42,6 +42,7 @@ public final class LayoutRootView: NSView {
         var centerRequest: ColumnCenterRequest?
         var centerMode: CenterFocusedColumn
         var attention: [PaneID: AttentionMark]
+        var scrollbar: StripScrollbarMode
     }
 
     /// `contentProvider` is held weakly; the App keeps it alive.
@@ -115,7 +116,8 @@ public final class LayoutRootView: NSView {
             gestureActive: model.isGestureActive,
             centerRequest: model.centerRequest,
             centerMode: model.centerFocusedColumn,
-            attention: model.attention
+            attention: model.attention,
+            scrollbar: model.stripScrollbar
         )
     }
 
@@ -127,12 +129,13 @@ public final class LayoutRootView: NSView {
                     screens: model.screens,
                     activeScreen: model.activeScreenID,
                     focused: model.focusedPane,
-                            dimsInactive: model.dimsInactivePanes,
+                    dimsInactive: model.dimsInactivePanes,
                     style: model.style,
                     gestureActive: model.isGestureActive,
                     centerRequest: model.centerRequest,
                     centerMode: model.centerFocusedColumn,
-                    attention: model.attention
+                    attention: model.attention,
+                    scrollbar: model.stripScrollbar
                 )
             }) {
                 guard let self else { return }

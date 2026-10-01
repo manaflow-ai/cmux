@@ -5,6 +5,29 @@ public struct ViewportSplit: Sendable, Hashable, Decodable {
     public var width: Double
 }
 
+/// A column pinned to a viewport edge (`sticky-columns-v1`).
+public struct StickySnapshot: Sendable, Hashable, Decodable {
+    public enum Edge: String, Sendable, Hashable, Decodable { case left, right }
+    public enum Mode: String, Sendable, Hashable, Decodable { case docked, overlay }
+    public var edge: Edge
+    public var mode: Mode
+
+    public init(edge: Edge, mode: Mode) {
+        self.edge = edge
+        self.mode = mode
+    }
+
+    enum CodingKeys: String, CodingKey { case edge, mode }
+
+    /// Unknown values from a newer daemon fall back to the defaults
+    /// (right, docked) rather than dropping the screen.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        edge = (try? c.decodeIfPresent(String.self, forKey: .edge)).flatMap { $0.flatMap(Edge.init(rawValue:)) } ?? .right
+        mode = (try? c.decodeIfPresent(String.self, forKey: .mode)).flatMap { $0.flatMap(Mode.init(rawValue:)) } ?? .docked
+    }
+}
+
 /// One horizontal scrolling column (niri-style). Present when the screen has
 /// viewport splits (`viewport-splits-v1`).
 public struct ColumnSnapshot: Sendable, Hashable, Decodable {
@@ -12,11 +35,24 @@ public struct ColumnSnapshot: Sendable, Hashable, Decodable {
     /// Fraction of the frontend viewport width.
     public var width: Double
     public var layout: LayoutNode
+    /// Pinned to a viewport edge; nil scrolls (`sticky-columns-v1`).
+    public var sticky: StickySnapshot?
 
-    public init(id: ColumnID, width: Double, layout: LayoutNode) {
+    public init(id: ColumnID, width: Double, layout: LayoutNode, sticky: StickySnapshot? = nil) {
         self.id = id
         self.width = width
         self.layout = layout
+        self.sticky = sticky
+    }
+
+    enum CodingKeys: String, CodingKey { case id, width, layout, sticky }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(ColumnID.self, forKey: .id)
+        width = try c.decode(Double.self, forKey: .width)
+        layout = try c.decode(LayoutNode.self, forKey: .layout)
+        sticky = try? c.decodeIfPresent(StickySnapshot.self, forKey: .sticky)
     }
 }
 
