@@ -64,6 +64,12 @@ public final class TerminalSurfaceView: NSView {
     var lastPerformKeyEventTimestamp: TimeInterval?
     var previousPressureStage = 0
 
+    // Copy mode (see TerminalSurfaceView+CopyMode.swift).
+    var copyMode: CopyModeSession?
+    /// Keys whose key-down copy mode took; their key-up is swallowed too,
+    /// also after the key that left copy mode.
+    var copyModeConsumedKeyUps: Set<UInt16> = []
+
     // MARK: Lifecycle
 
     init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?) {
@@ -188,6 +194,7 @@ public final class TerminalSurfaceView: NSView {
     public override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         updateSurfaceSize()
+        syncCopyModeCursor()
     }
 
     /// `ghostty_surface_set_content_scale` + `ghostty_surface_set_display_id`

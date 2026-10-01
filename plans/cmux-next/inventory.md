@@ -347,7 +347,7 @@ DELETE = replaced by cmux-tui or obsolete. REWRITE = new code needed, old code i
 | CmuxSettings | 15,749 | – | KEEP-AS-LIBRARY | JSONC editor, config store, shortcut `when` clauses, socket settings, allowlists. |
 | CmuxRemoteSession | 11,462 | tests | DELETE | Remote tmux mirror and bootstrap. Replaced by cmux-tui cmux-remote. |
 | CmuxGit | 11,459 | – | KEEP-AS-LIBRARY | Git metadata and refs parsing. |
-| CmuxTerminalCore | 10,742 | – | SPLIT | KEEP `Config/` + `ConfigDiscovery/` (Ghostty config), prompt detection. DELETE surface callbacks and copy mode (cmux-tui copy mode). |
+| CmuxTerminalCore | 10,742 | – | SPLIT | KEEP `Config/` + `ConfigDiscovery/` (Ghostty config), prompt detection. DELETE surface callbacks. Copy mode moved to `CmuxNextCopyMode` (key table) and `TerminalSurfaceView+CopyMode` (Ghostty keyboard-copy API); cmux-tui has none. |
 | CmuxWorkspaces | 8,895 | 1 file | DELETE | Workspace model, reorder, groups, focus history, `SessionSnapshotRepository`. All of it is cmux-tui state now. |
 | CmuxSudoBroker | 7,467 | – | KEEP-AS-LIBRARY | Self-contained. |
 | CmuxRemoteWorkspace | 6,719 | – | DELETE | Proxy tunnel, PTY bridge, CLI relay. Replaced by cmux-remote. |
