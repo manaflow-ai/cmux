@@ -37,4 +37,14 @@ struct EmptiedWorkspaceCauseTests {
         #expect(list.terminals.map(\.exit?.outcomeKind) == ["unknown", nil])
         #expect(list.terminals.first?.exit?.exitedAtMs == 7)
     }
+
+    /// The registry's own record shape (seen live on tag nxthm): `exited_at`
+    /// is a decimal string. A shell's `exit` after an earlier lost terminal
+    /// in the same workspace is a closed tab, not a lost terminal.
+    @Test func registryExitTimesAreStringsAndTheLatestStillDecides() throws {
+        let json = #"{"terminals":[{"terminal_id":"t1","workspace_key":"k","lifecycle":"exited","exit":{"exited_at":"1790821764905","outcome":{"kind":"unknown","reason":"terminal host ended without a durable exit sidecar"},"revision":"301"}},{"terminal_id":"t2","workspace_key":"k","lifecycle":"exited","exit":{"exited_at":"1790821779362","outcome":{"code":0,"kind":"exit"},"revision":"304"}}]}"#
+        let list = try JSONDecoder().decode(TerminalRegistryList.self, from: Data(json.utf8))
+        #expect(list.terminals.map(\.exit?.exitedAtMs) == [1_790_821_764_905, 1_790_821_779_362])
+        #expect(EmptiedWorkspaceCause.from(list.terminals, workspace: WorkspaceKey(rawValue: "k")) == .tabClosed)
+    }
 }

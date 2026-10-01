@@ -26,7 +26,7 @@ public struct TerminalRegistryEntry: Decodable, Sendable, Hashable {
         public var outcomeKind: String
         public var exitedAtMs: UInt64
 
-        enum CodingKeys: String, CodingKey { case outcome, exitedAtMs = "exited_at_ms" }
+        enum CodingKeys: String, CodingKey { case outcome, exitedAtMs = "exited_at_ms", exitedAt = "exited_at" }
         enum OutcomeKeys: String, CodingKey { case kind }
 
         public init(outcomeKind: String, exitedAtMs: UInt64) {
@@ -37,7 +37,14 @@ public struct TerminalRegistryEntry: Decodable, Sendable, Hashable {
         public init(from decoder: any Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             outcomeKind = try c.nestedContainer(keyedBy: OutcomeKeys.self, forKey: .outcome).decode(String.self, forKey: .kind)
-            exitedAtMs = try c.decodeIfPresent(UInt64.self, forKey: .exitedAtMs) ?? 0
+            // The registry records `exited_at` as a decimal string; the
+            // creation result uses `exited_at_ms` as a number.
+            exitedAtMs = Self.milliseconds(c, .exitedAtMs) ?? Self.milliseconds(c, .exitedAt) ?? 0
+        }
+
+        private static func milliseconds(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> UInt64? {
+            if let number = try? c.decode(UInt64.self, forKey: key) { return number }
+            return (try? c.decode(String.self, forKey: key)).flatMap(UInt64.init)
         }
     }
 
