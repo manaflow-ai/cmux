@@ -414,6 +414,20 @@ private extension TabManager {
 @Suite(.serialized)
 @MainActor
 final class AppDelegateEqualizeSplitsShortcutTests {
+    private static let splitFixtureContentSize = CGSize(width: 1_000, height: 700)
+
+    /// `createMainWindow` inherits the current main window's size. Earlier
+    /// app-host tests can leave a 320-point window behind, which is too narrow
+    /// for the minimum-width split admission check. Keep split fixtures at a
+    /// realistic size so these tests exercise the shortcut behavior itself.
+    private static func prepareSplitFixture(window: NSWindow, workspace: Workspace) {
+        window.setContentSize(splitFixtureContentSize)
+        window.contentView?.layoutSubtreeIfNeeded()
+        workspace.bonsplitController.setContainerFrame(
+            CGRect(x: 0, y: 0, width: splitFixtureContentSize.width, height: 1_000)
+        )
+    }
+
     @Test
     func testCmdShiftReturnFocusedBrowserTogglesSplitZoom() {
         withTemporaryShortcut(action: .toggleSplitZoom) {
@@ -427,8 +441,13 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
             guard let window = window(withId: windowId),
                   let manager = appDelegate.tabManagerFor(windowId: windowId),
-                  let workspace = manager.selectedWorkspace,
-                  let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
+                  let workspace = manager.selectedWorkspace else {
+                XCTFail("Expected a main window and workspace")
+                return
+            }
+            Self.prepareSplitFixture(window: window, workspace: workspace)
+
+            guard let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
                   let browserPanel = workspace.browserPanel(for: browserPanelId),
                   let event = makeKeyDownEvent(key: "\r", modifiers: [.command, .shift], keyCode: 36, windowNumber: window.windowNumber) else {
                 XCTFail("Expected focused browser panel and Cmd+Shift+Return event")
@@ -490,8 +509,13 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         guard let window = window(withId: windowId),
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
-              let leftPanelId = workspace.focusedPanelId,
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+              let leftPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected a workspace with a focused terminal")
+            return
+        }
+        Self.prepareSplitFixture(window: window, workspace: workspace)
+
+        guard let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
               workspace.newTerminalSplit(from: rightPanel.id, orientation: .horizontal) != nil else {
             XCTFail("Expected asymmetric horizontal split setup")
             return
@@ -597,8 +621,13 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                   let manager = appDelegate.tabManagerFor(windowId: windowId),
                   let workspace = manager.selectedWorkspace,
                   let firstPanelId = workspace.focusedPanelId,
-                  let firstPanel = workspace.terminalPanel(for: firstPanelId),
-                  let secondPanel = workspace.newTerminalSplit(
+                  let firstPanel = workspace.terminalPanel(for: firstPanelId) else {
+                XCTFail("Expected a focused terminal workspace")
+                return
+            }
+            Self.prepareSplitFixture(window: window, workspace: workspace)
+
+            guard let secondPanel = workspace.newTerminalSplit(
                     from: firstPanelId,
                     orientation: .horizontal
                   ),
@@ -7678,8 +7707,13 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                   let manager = appDelegate.tabManagerFor(windowId: windowId),
                   let workspace = manager.selectedWorkspace,
                   let firstPanelId = workspace.focusedPanelId,
-                  let firstPanel = workspace.terminalPanel(for: firstPanelId),
-                  let secondPanel = workspace.newTerminalSplit(
+                  let firstPanel = workspace.terminalPanel(for: firstPanelId) else {
+                XCTFail("Expected a focused terminal workspace")
+                return
+            }
+            Self.prepareSplitFixture(window: window, workspace: workspace)
+
+            guard let secondPanel = workspace.newTerminalSplit(
                     from: firstPanelId,
                     orientation: .horizontal
                   ),
@@ -7783,8 +7817,13 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                           let manager = appDelegate.tabManagerFor(windowId: windowId),
                           let workspace = manager.selectedWorkspace,
                           let firstPanelId = workspace.focusedPanelId,
-                          let firstPanel = workspace.terminalPanel(for: firstPanelId),
-                          let secondPanel = workspace.newTerminalSplit(
+                          let firstPanel = workspace.terminalPanel(for: firstPanelId) else {
+                        XCTFail("Expected a focused terminal workspace")
+                        return
+                    }
+                    Self.prepareSplitFixture(window: window, workspace: workspace)
+
+                    guard let secondPanel = workspace.newTerminalSplit(
                             from: firstPanelId,
                             orientation: .horizontal
                           ),
@@ -7872,8 +7911,13 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                               let manager = appDelegate.tabManagerFor(windowId: windowId),
                               let workspace = manager.selectedWorkspace,
                               let firstPanelId = workspace.focusedPanelId,
-                              let firstPanel = workspace.terminalPanel(for: firstPanelId),
-                              let event = makeKeyDownEvent(
+                              let firstPanel = workspace.terminalPanel(for: firstPanelId) else {
+                            XCTFail("Expected a focused terminal workspace")
+                            return
+                        }
+                        Self.prepareSplitFixture(window: window, workspace: workspace)
+
+                        guard let event = makeKeyDownEvent(
                                 key: testCase.key,
                                 modifiers: [.command, .control],
                                 keyCode: testCase.keyCode,
@@ -7932,8 +7976,13 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
                     guard let window = window(withId: windowId),
                           let manager = appDelegate.tabManagerFor(windowId: windowId),
-                          let workspace = manager.selectedWorkspace,
-                          let event = makeKeyDownEvent(
+                          let workspace = manager.selectedWorkspace else {
+                        XCTFail("Expected a workspace")
+                        return
+                    }
+                    Self.prepareSplitFixture(window: window, workspace: workspace)
+
+                    guard let event = makeKeyDownEvent(
                             key: "=",
                             modifiers: [.command, .control, .shift],
                             keyCode: 24,
