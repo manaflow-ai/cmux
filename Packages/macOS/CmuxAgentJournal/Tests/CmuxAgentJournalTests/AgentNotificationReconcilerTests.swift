@@ -335,6 +335,7 @@ struct AgentNotificationReconcilerTests {
             nativeEvent: "transcript-terminal", occurredAt: 30
         )
         #expect(reconciler.apply(priorTurnTerminal).disposition == .observation)
+        #expect(reconciler.lifecycleEvent(priorTurnTerminal).draft.declaredPhase == .running)
 
         let currentCompletion = event(
             4, .turnCompleted, source: "codex", turn: "current-turn", notify: true,

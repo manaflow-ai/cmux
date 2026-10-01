@@ -178,6 +178,10 @@ public struct AgentNotificationReconciler: Sendable {
             && draft.source == "codex"
             && draft.nativeEvent == "transcript-terminal"
             && context?.notification == nil
+        let isPriorTurnTranscriptTerminal = isProvenTranscriptTerminal
+            && incomingTurn != nil
+            && session.nativeTurn != nil
+            && incomingTurn != session.nativeTurn
         if (draft.kind == .turnCompleted || draft.kind == .idleObserved), let incomingTurn,
            let nativeTurn = session.nativeTurn, incomingTurn != nativeTurn {
             guard isProvenTranscriptTerminal
@@ -199,8 +203,10 @@ public struct AgentNotificationReconciler: Sendable {
             guard !draft.pendingWork, session.attentionIdentities.isEmpty, session.children.isEmpty,
                   session.phase == .idle || session.phase == .unknown || isProvenTranscriptTerminal,
                   !session.ended else { return .init(.delayed, projectsLifecycle: false) }
-            session.phase = .idle
-            session.rootStopped = true
+            if !isPriorTurnTranscriptTerminal {
+                session.phase = .idle
+                session.rootStopped = true
+            }
             session.occurredAtMs = max(session.occurredAtMs, draft.occurredAtMs)
             session.sequence = max(session.sequence, event.sequence)
             sessions[sessionKey] = session
