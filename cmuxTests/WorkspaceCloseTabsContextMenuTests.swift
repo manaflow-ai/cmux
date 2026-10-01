@@ -183,7 +183,7 @@ struct WorkspaceCloseTabsContextMenuTests {
             let tabId = fixture.tabIds[2]
 
             #expect(fixture.workspace.requestCloseTabRecordingHistory(tabId, force: true))
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
             let entry = try #require(ClosedItemHistoryStore.shared.menuSnapshot().items.first)
             #expect(entry.title == "Tab 3")
