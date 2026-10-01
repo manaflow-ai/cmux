@@ -2057,7 +2057,7 @@ struct WorkspaceShellView: View {
         // A Cloud machine's workspace makes its new workspace on that machine,
         // whether or not a Mac is connected.
         let externalHostID = workspaceID.flatMap { store.externalHostID(ofWorkspace: $0) }
-        WorkspaceDetailContainer(
+        return WorkspaceDetailContainer(
             store: store,
             workspaceID: workspaceID,
             createWorkspace: externalHostID == nil || workspaceID == nil
