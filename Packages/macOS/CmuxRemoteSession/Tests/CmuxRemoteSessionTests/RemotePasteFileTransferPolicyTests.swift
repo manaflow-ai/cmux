@@ -44,6 +44,14 @@ struct RemotePasteFileTransferPolicyTests {
             [.modificationDate: Date(timeIntervalSinceNow: -(policy.maximumAge + 60))],
             ofItemAtPath: stale.path
         )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -30)],
+            ofItemAtPath: old.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date()],
+            ofItemAtPath: newest.path
+        )
 
         try runShell(policy.maintenanceScript(), home: home)
 
