@@ -16,9 +16,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) async -> (Any?, String?) {
-        guard let view, message.webView === view.webView, message.frameInfo.isMainFrame,
-              view.source.isTrusted(message.frameInfo.request.url)
-        else {
+        guard isTrusted(message) else {
             return (AgentPaneReply.failure(code: "untrusted_frame", message: "Untrusted frame"), nil)
         }
         return (await reply(to: AgentPaneRequest(body: message.body)), nil)
@@ -26,11 +24,25 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     /// The reply for a request from the pane's trusted page.
     func reply(to request: AgentPaneRequest) async -> [String: Any] {
-        guard let view else { return AgentPaneReply.failure(code: "closed", message: "Closed") }
+        guard let model = prepare(for: request) else { return AgentPaneReply.failure(code: "closed", message: "Closed") }
+        // The handshake can wait up to 20 seconds for acpmux to start. Only
+        // the model is held across it, so closing the tab frees the view and
+        // its web view right away.
+        return await model.respond(to: request)
+    }
+
+    private func isTrusted(_ message: WKScriptMessage) -> Bool {
+        guard let view else { return false }
+        return message.webView === view.webView && message.frameInfo.isMainFrame
+            && view.source.isTrusted(message.frameInfo.request.url)
+    }
+
+    private func prepare(for request: AgentPaneRequest) -> AgentPaneModel? {
+        guard let view else { return nil }
         // The page installs its bridge and registry before asking for the
         // handshake, which can be after didFinish; replay the customization
         // so registry.js finds them.
         if request == .ready { view.replayCustomization() }
-        return await view.model.respond(to: request)
+        return view.model
     }
 }

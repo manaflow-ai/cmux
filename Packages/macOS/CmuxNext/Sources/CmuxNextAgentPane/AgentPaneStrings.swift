@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 // User-facing text of the agent pane host. The page's own text is in the
@@ -7,6 +8,17 @@ extension AgentPaneModel {
     /// Tab strip title of an agent tab before the page reports a session title.
     public static var tabTitle: String {
         String(localized: "agentPane.tab.title", defaultValue: "Agent", bundle: .module)
+    }
+}
+
+extension AgentPaneView {
+    /// Shown when the pane's page keeps crashing and no longer reloads itself.
+    static var crashedMessage: String {
+        String(localized: "agentPane.crashed.message", defaultValue: "The agent pane crashed repeatedly.", bundle: .module)
+    }
+
+    static var reloadTitle: String {
+        String(localized: "agentPane.crashed.reload", defaultValue: "Reload", bundle: .module)
     }
 }
 

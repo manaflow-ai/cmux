@@ -25,6 +25,9 @@ public final class AgentPaneView: NSView {
         }
     }
     private let navigation = AgentPaneNavigation()
+    private var crashReloads = AgentPaneCrashReloads()
+    /// Shown instead of reloading once the page keeps crashing.
+    private var crashNotice: NSView?
 
     /// The bundled page, nil when it is missing (a broken build).
     public static var bundledPage: URL? {
@@ -87,6 +90,42 @@ public final class AgentPaneView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyTheme()
+    }
+
+    /// Reloads the page after its web content process crashed, unless it
+    /// keeps crashing; then the pane says so and waits for the user.
+    func webContentProcessDidTerminate() {
+        if crashReloads.shouldReload(at: .now) {
+            source.load(into: webView)
+        } else {
+            showCrashNotice()
+        }
+    }
+
+    private func showCrashNotice() {
+        guard crashNotice == nil else { return }
+        let message = NSTextField(wrappingLabelWithString: Self.crashedMessage)
+        message.alignment = .center
+        message.textColor = .secondaryLabelColor
+        let reload = NSButton(title: Self.reloadTitle, target: self, action: #selector(reloadAfterCrashes))
+        let notice = NSStackView(views: [message, reload])
+        notice.orientation = .vertical
+        notice.spacing = 12
+        notice.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(notice)
+        NSLayoutConstraint.activate([
+            notice.centerXAnchor.constraint(equalTo: centerXAnchor),
+            notice.centerYAnchor.constraint(equalTo: centerYAnchor),
+            notice.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -48),
+        ])
+        crashNotice = notice
+    }
+
+    @objc private func reloadAfterCrashes() {
+        crashNotice?.removeFromSuperview()
+        crashNotice = nil
+        crashReloads = AgentPaneCrashReloads()
+        source.load(into: webView)
     }
 
     /// Pushes ``customization`` to the page, even an empty one (it clears

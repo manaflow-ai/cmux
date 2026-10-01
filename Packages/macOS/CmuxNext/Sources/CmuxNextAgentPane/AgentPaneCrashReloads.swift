@@ -11,6 +11,8 @@ nonisolated struct AgentPaneCrashReloads: Equatable, Sendable {
 
     /// Records a crash at `now`; true when the page should reload.
     mutating func shouldReload(at now: Date) -> Bool {
-        true
+        crashes.removeAll { now.timeIntervalSince($0) >= Self.window }
+        crashes.append(now)
+        return crashes.count <= Self.limit
     }
 }
