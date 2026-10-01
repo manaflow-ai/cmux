@@ -84,6 +84,23 @@ public actor CmuxConfigFile {
         if updated != current { try publish(updated) }
     }
 
+    /// Sets (a value) or removes (nil) several paths in one atomic publish,
+    /// so the watcher never applies a half-done edit.
+    public func apply(_ edits: [(path: [String], value: JSONValue?)]) throws {
+        guard edits.allSatisfy({ !$0.path.isEmpty }) else { throw Failure.invalidPath("") }
+        let current = try source()
+        _ = try validated(current)
+        var updated = current
+        for edit in edits {
+            if let value = edit.value {
+                updated = try JSONC.setting(value, at: edit.path, in: updated)
+            } else {
+                updated = try JSONC.removing(edit.path, in: updated)
+            }
+        }
+        if updated != current { try publish(updated) }
+    }
+
     private func validated(_ text: String) throws -> JSONValue {
         do {
             return try JSONC.parse(text)

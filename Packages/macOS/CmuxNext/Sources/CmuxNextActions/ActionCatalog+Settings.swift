@@ -45,8 +45,8 @@ nonisolated extension ActionCatalog {
             ActionDescriptor(
                 id: "palette.shortcutKeymap",
                 title: String(localized: "action.palette.shortcutKeymap", defaultValue: "Base Keymap…", bundle: .module),
-                keywords: ["shortcuts", "preset", "vim"], category: .settings, symbol: "keyboard.badge.eye",
-                surfaces: [.palette], arguments: [CatalogArgument.keymapString], cliName: "settings base-keymap"
+                keywords: ["shortcuts", "preset", "iterm", "iterm2", "terminal", "tmux", "keybindings"], category: .settings,
+                symbol: "keyboard.badge.eye", surfaces: [.palette], arguments: [CatalogArgument.keymapChoice], cliName: "settings base-keymap"
             ),
             ActionDescriptor(
                 id: "palette.searchShortcuts",
