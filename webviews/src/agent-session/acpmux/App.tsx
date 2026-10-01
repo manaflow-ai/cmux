@@ -94,7 +94,7 @@ function MeasuredCustomRow({ children, onHeight }: { children: React.ReactNode; 
   return <div ref={ref as React.RefObject<HTMLDivElement>}>{children}</div>;
 }
 
-function VirtualTranscript({ rows, onToggleActivity, expanded }: { rows: AcpmuxRow[]; onToggleActivity: (id: string) => void; expanded: Set<string> }) {
+export function VirtualTranscript({ rows, onToggleActivity, expanded }: { rows: AcpmuxRow[]; onToggleActivity: (id: string) => void; expanded: Set<string> }) {
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   const [scrollTop, setScrollTop] = useState(0);
