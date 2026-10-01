@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '7d33ca155141a61733bebb4d83fc03c361de8d0753fe56a8600349fb1cc97f1d'
+IR_SHA256 = '4e1dc739612978179d9480a3c12ddc06662eb3dcc989ac639e5da0e5306039e4'
 
 
 @dataclass(frozen=True)
@@ -688,6 +688,7 @@ COMMANDS = {
             'cols': CommandFieldMetadata(None, None),
             'command': CommandFieldMetadata(None, None),
             'cwd': CommandFieldMetadata(None, None),
+            'detached': CommandFieldMetadata(12, 'detached-terminals-v1'),
             'env': CommandFieldMetadata(12, 'terminal-env-v1'),
             'expected_generation': CommandFieldMetadata(None, None),
             'expected_revision': CommandFieldMetadata(None, None),
@@ -1504,6 +1505,23 @@ COMMANDS = {
             'width': CommandFieldMetadata(None, None),
         },
     ),
+    'new-remote-terminal-tab': CommandMetadata(
+        'new-remote-terminal-tab',
+        'control',
+        12,
+        'remote-terminal-tabs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'cols': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'rows': CommandFieldMetadata(None, None),
+            'session_id': CommandFieldMetadata(None, None),
+            'session_name': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
+            'title': CommandFieldMetadata(None, None),
+        },
+    ),
     'new-screen': CommandMetadata(
         'new-screen',
         'control',
@@ -1778,6 +1796,17 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+        },
+    ),
+    'remote-terminal-snapshot': CommandMetadata(
+        'remote-terminal-snapshot',
+        'control',
+        12,
+        'remote-terminal-tabs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'remove-screens-from-screen-group': CommandMetadata(
@@ -2630,6 +2659,20 @@ COMMANDS = {
             'name': CommandFieldMetadata(None, None),
             'profile': CommandFieldMetadata(None, None),
             'theme': CommandFieldMetadata(None, None),
+        },
+    ),
+    'update-remote-terminal-tab': CommandMetadata(
+        'update-remote-terminal-tab',
+        'control',
+        12,
+        'remote-terminal-tabs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'session_name': CommandFieldMetadata(None, None),
+            'snapshot': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'title': CommandFieldMetadata(None, None),
         },
     ),
     'update-screen-group': CommandMetadata(
