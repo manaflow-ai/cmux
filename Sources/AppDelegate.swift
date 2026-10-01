@@ -3862,6 +3862,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObjectIfPresent(forKey: $0) }
     }
 
+    ///
+    /// Every main-window close writes its frame to the app's standard
+    /// defaults, and the launch window and any window created without a source
+    /// window read it back. App-host test processes on one machine share that
+    /// domain, so without this reset a process inherits whatever window an
+    /// earlier process closed last, often a 320-point fixture. Every later
+    /// `createMainWindow()` copies that launch window, and split admission then
+    /// refuses side-by-side splits (#15392).
+    nonisolated static func forgetPersistedWindowGeometryForTestProcess(
+        defaults: UserDefaults = .standard
+    ) {
+        removeLegacyPersistedWindowGeometry(defaults: defaults)
+        defaults.removeObjectIfPresent(forKey: persistedWindowGeometryDefaultsKey)
+    }
+
     private func persistWindowGeometry(from window: NSWindow?) {
         guard let window else { return }
         persistWindowGeometry(
