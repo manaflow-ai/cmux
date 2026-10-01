@@ -165,7 +165,8 @@ impl Connection {
     }
 
     fn read(&mut self, operation: ResourceOperation, fields: Value) -> Result<Value, Failure> {
-        call(&mut self.reader, operation, self.params(fields), None)
+        let params = self.params(fields);
+        call(&mut self.reader, operation, params, None)
     }
 
     fn mutate(
@@ -179,7 +180,8 @@ impl Connection {
             None => super::wire::random_idempotency_key()
                 .map_err(|error| Failure::Transport(format!("cmux: {error}")))?,
         };
-        let result = call(&mut self.reader, operation, self.params(fields), Some(&key))?;
+        let params = self.params(fields);
+        let result = call(&mut self.reader, operation, params, Some(&key))?;
         Ok(result.get("value").cloned().unwrap_or(Value::Null))
     }
 
