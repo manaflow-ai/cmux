@@ -191,9 +191,17 @@ export function AcpmuxApp() {
         const client = await AcpmuxDirectClient.connect(host as AcpmuxHostConfig, (next) => {
           rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
           setSnapshot(next);
+        }, () => {
+          // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
+          if (cancelled) return;
+          directClient.current = undefined;
+          delete window.cmuxAcpmuxActions;
+          retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
+          retryDelay = Math.min(retryDelay * 2, 30_000);
         });
         if (cancelled) { client.close(); return; }
         directClient.current = client;
+        retryDelay = 250;
         const persistSession = (sessionId?: string) => sessionId ? callNative("chat.persistSession", { sessionId }).catch(() => undefined) : Promise.resolve();
         window.cmuxAcpmuxActions = {
           "chat.send": async ({ text }) => { const sessionId = await client.ensureSession(); await persistSession(sessionId); return client.send(String(text ?? "")); },

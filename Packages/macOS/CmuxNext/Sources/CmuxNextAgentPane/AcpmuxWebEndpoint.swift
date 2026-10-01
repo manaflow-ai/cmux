@@ -12,15 +12,16 @@ public nonisolated struct AcpmuxWebEndpoint: Sendable, Equatable {
         self.token = token
     }
 
-    /// Nil unless `webURL` is an http(s) URL on a loopback host with a
-    /// non-empty `token` query item. The page only ever connects to loopback.
+    /// Nil unless `webURL` is an http URL on 127.0.0.1 or localhost with a
+    /// non-empty `token` query item: exactly what the page's CSP lets it reach
+    /// (`connect-src ws://127.0.0.1:* ws://localhost:*`).
     public init?(webURL: String) {
         guard var components = URLComponents(string: webURL),
-              let scheme = components.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let scheme = components.scheme?.lowercased(), scheme == "http",
               let host = components.host, Self.isLoopback(host),
               let token = components.queryItems?.first(where: { $0.name == "token" })?.value, !token.isEmpty
         else { return nil }
-        components.scheme = scheme == "https" ? "wss" : "ws"
+        components.scheme = "ws"
         let rest = components.queryItems?.filter { $0.name != "token" } ?? []
         components.queryItems = rest.isEmpty ? nil : rest
         if components.path.isEmpty { components.path = "/" }
@@ -29,7 +30,7 @@ public nonisolated struct AcpmuxWebEndpoint: Sendable, Equatable {
     }
 
     static func isLoopback(_ host: String) -> Bool {
-        ["127.0.0.1", "localhost", "::1", "[::1]"].contains(host.lowercased())
+        ["127.0.0.1", "localhost"].contains(host.lowercased())
     }
 }
 

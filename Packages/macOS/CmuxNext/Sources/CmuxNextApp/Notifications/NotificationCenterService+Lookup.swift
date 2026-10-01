@@ -6,10 +6,11 @@ import CmuxNextSettings
 
 /// Tab lookups, the dock badge and the pane attention marks.
 extension NotificationCenterService {
-    /// The tab `resolved` types into: a terminal or a page (with its bars).
+    /// The tab `resolved` types into: a terminal, a page (with its bars) or an agent chat.
     static func contentTab(_ resolved: FocusState.Resolved) -> String? {
         switch resolved {
-        case .terminal(_, let tab), .browserPage(_, let tab), .addressBar(_, let tab), .findBar(_, let tab), .devTools(_, let tab): tab
+        case .terminal(_, let tab), .browserPage(_, let tab), .addressBar(_, let tab), .findBar(_, let tab), .devTools(_, let tab),
+             .agentPage(_, let tab): tab
         default: nil
         }
     }

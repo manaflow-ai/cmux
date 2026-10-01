@@ -21,11 +21,19 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
 /// WebSocket endpoint. Concurrent handshakes (several panes opening at once)
 /// share one lookup, so they never race to spawn two daemons.
 public actor AcpmuxHost: AgentPaneHostProviding {
-    private let environment: AcpmuxEnvironment?
+    private let resolveEnvironment: @Sendable () -> AcpmuxEnvironment?
+    /// Kept only once found, so acpmux installed after the first chat is picked up.
+    private var environment: AcpmuxEnvironment?
     private var inFlight: Task<AcpmuxWebEndpoint, any Error>?
 
     public init(environment: AcpmuxEnvironment?) {
-        self.environment = environment
+        self.resolveEnvironment = { environment }
+    }
+
+    /// Looks for acpmux (bundled, PATH, install directories) on the actor,
+    /// off the main thread, at the first handshake that needs it.
+    public init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?) {
+        self.resolveEnvironment = resolve
     }
 
     public func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
@@ -34,6 +42,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
 
     private func endpoint() async throws -> AcpmuxWebEndpoint {
         if let inFlight { return try await inFlight.value }
+        if environment == nil { environment = resolveEnvironment() }
         guard let environment else { throw AgentPaneHostError.acpmuxNotFound }
         // task-owner: stored in inFlight and cleared when it settles; callers await its value
         let task = Task { try await Self.findOrStart(environment) }

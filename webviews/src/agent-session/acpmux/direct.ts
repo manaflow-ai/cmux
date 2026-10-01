@@ -99,19 +99,24 @@ export class AcpmuxDirectClient {
   private readonly listener: Listener;
   private readonly host: AcpmuxHostConfig;
   private reconnectTimer?: number;
+  private reconnectDelay = 250;
+  /// Called once when an established connection drops. The host then asks Swift
+  /// for a fresh handshake, because a restarted daemon has a new port and token.
+  private readonly onLost?: () => void;
   private opening = false;
   private hasConnected = false;
   private closed = false;
   private selectionGeneration = 0;
 
-  private constructor(host: AcpmuxHostConfig, listener: Listener) {
+  private constructor(host: AcpmuxHostConfig, listener: Listener, onLost?: () => void) {
     this.host = host;
     this.listener = listener;
+    this.onLost = onLost;
     this.selectedSessionId = host.sessionId;
   }
 
-  static async connect(host: AcpmuxHostConfig, listener: Listener): Promise<AcpmuxDirectClient> {
-    const client = new AcpmuxDirectClient(host, listener);
+  static async connect(host: AcpmuxHostConfig, listener: Listener, onLost?: () => void): Promise<AcpmuxDirectClient> {
+    const client = new AcpmuxDirectClient(host, listener, onLost);
     await client.open();
     return client;
   }
@@ -133,7 +138,8 @@ export class AcpmuxDirectClient {
         for (const request of this.pending.values()) request.reject(new Error("acpmux WebSocket closed"));
         this.pending.clear();
         this.emit("disconnected");
-        if (this.hasConnected && !this.closed) this.scheduleReconnect();
+        if (!this.hasConnected || this.closed) return;
+        if (this.onLost) { const onLost = this.onLost; this.close(); onLost(); } else this.scheduleReconnect();
       };
       socket.onmessage = (message) => this.receive(String(message.data));
     });
@@ -164,6 +170,7 @@ export class AcpmuxDirectClient {
       this.selectedSessionId = initialSession(this.selectedSessionId, this.sessions, this.host.newSession);
       if (this.selectedSessionId) await this.attach(this.selectedSessionId);
       this.hasConnected = true;
+      this.reconnectDelay = 250;
       this.emit("connected");
     } catch (error) {
       this.socket?.close();
@@ -175,10 +182,12 @@ export class AcpmuxDirectClient {
 
   private scheduleReconnect(): void {
     if (this.reconnectTimer !== undefined || this.closed) return;
+    const delay = this.reconnectDelay;
+    this.reconnectDelay = Math.min(delay * 2, 30_000);
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = undefined;
       void this.open().catch(() => this.scheduleReconnect());
-    }, 250);
+    }, delay);
   }
 
   private receive(raw: string): void {

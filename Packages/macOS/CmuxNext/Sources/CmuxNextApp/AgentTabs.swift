@@ -27,7 +27,7 @@ final class AgentTabStore {
             host = MockAgentPaneHost()
         } else {
             let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-            host = AcpmuxHost(environment: AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment))
+            host = AcpmuxHost { AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment) }
         }
     }
 
@@ -64,6 +64,14 @@ final class AgentTabStore {
         tabsByPane = tabsByPane.filter { !$0.value.isEmpty }
         views.removeValue(forKey: key)?.close()
         sessions[key] = nil
+    }
+
+    /// The pane closed: stop every agent tab it listed.
+    func closePane(_ paneKey: String) {
+        for key in tabsByPane.removeValue(forKey: paneKey) ?? [] {
+            views.removeValue(forKey: key)?.close()
+            sessions[key] = nil
+        }
     }
 }
 
