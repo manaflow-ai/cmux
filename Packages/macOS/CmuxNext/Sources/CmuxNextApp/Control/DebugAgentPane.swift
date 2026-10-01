@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextSettings
+import ObjectiveC
 import WebKit
 
 /// `debug.agent_pane` (DEBUG builds): performance measurement of the React
@@ -15,7 +16,9 @@ import WebKit
 /// `fling_stats`, `perf_stats` (`raw` adds every frame), `typing_stats`,
 /// `reset_typing`, `pid` (the WebContent process, for profiling), or
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
-/// page; returns whether it is on).
+/// page; returns whether it is on). Every action first stops WebKit from
+/// pausing the page while another window covers it, so a tagged build can
+/// be measured behind the user's windows.
 @MainActor
 enum DebugAgentPane {
     /// Long enough for a 5000-row seed and a waited fling of up to ~25 s.
@@ -38,6 +41,7 @@ enum DebugAgentPane {
             return .object(["error": .string("no agent tab in the given or focused pane")])
         }
         let action = params["action"]?.stringValue ?? ""
+        keepRenderingWhenCovered(view.webView)
         if action == "pid" {
             let selector = NSSelectorFromString("_webProcessIdentifier")
             guard view.webView.responds(to: selector),
@@ -68,6 +72,14 @@ enum DebugAgentPane {
         } catch {
             return .object(["pane": .string(pane), "error": .string(String(describing: error))])
         }
+    }
+
+    /// `-[WKWebView _setWindowOcclusionDetectionEnabled:]`, when this WebKit has it.
+    private static func keepRenderingWhenCovered(_ webView: WKWebView) {
+        let selector = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
+        guard let method = class_getInstanceMethod(WKWebView.self, selector) else { return }
+        typealias SetEnabled = @convention(c) (AnyObject, Selector, Bool) -> Void
+        unsafeBitCast(method_getImplementation(method), to: SetEnabled.self)(webView, selector, false)
     }
 
     /// The page function's positional arguments, as Foundation values.
