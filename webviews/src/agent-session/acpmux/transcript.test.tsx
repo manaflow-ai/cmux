@@ -117,6 +117,40 @@ describe("acpmux virtual transcript", () => {
   });
 });
 
+describe("acpmux transcript accessibility", () => {
+  /// VoiceOver read the transcript as loose text: no list to move through, no speaker per message,
+  /// and a turn summary split into five fragments.
+  test("the transcript is a feed of articles placed in the whole conversation", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const conversation: AcpmuxRow[] = [...rows, { id: "summary", version: 1, at: 999, kind: "turnSummary", durationMs: 3000, toolCount: 2 }];
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: conversation, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
+      expect(scroller.getAttribute("role")).toBe("feed");
+      expect(scroller.getAttribute("aria-label")).toBe("Transcript");
+      const articles = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")];
+      expect(articles.length).toBeLessThan(conversation.length);
+      for (const article of articles) expect(article.getAttribute("aria-setsize")).toBe(String(conversation.length));
+      const last = articles.at(-1)!;
+      expect(last.getAttribute("aria-posinset")).toBe(String(conversation.length));
+      const mounted = articles.map((article) => ({ article, row: conversation[Number(article.getAttribute("aria-posinset")) - 1]! }));
+      expect(mounted.find(({ row }) => row.kind === "user")?.article.getAttribute("aria-label")).toBe("You");
+      expect(mounted.find(({ row }) => row.kind === "assistant")?.article.getAttribute("aria-label")).toBe("Agent");
+      expect(last.hasAttribute("aria-label")).toBe(false);
+      const summary = last.querySelector(".acpmux-summary")!;
+      expect(summary.childNodes.length).toBe(1);
+      expect(summary.textContent).toBe("Worked for 3s · 2 tool calls");
+      // Older history still in acpmux: the conversation's size is unknown.
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: conversation, onToggleActivity: () => {}, expanded: new Set<string>(), canLoadOlder: true })));
+      for (const article of dom.window.document.querySelectorAll(".acpmux-row")) expect(article.getAttribute("aria-setsize")).toBe("-1");
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+});
+
 describe("acpmux renderer registry", () => {
   test("registering the same renderer again does not re-render the pane", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);

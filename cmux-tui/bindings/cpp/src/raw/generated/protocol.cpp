@@ -18335,6 +18335,11 @@ Result<Json> Codec<SetWorkspaceMetadataRequest>::encode(const SetWorkspaceMetada
         if (!encoded) return std::move(encoded).error();
         object.emplace("key", std::move(encoded).value());
     }
+    if (!value.marked_unread.is_absent()) {
+        auto encoded = encode_value(value.marked_unread);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("marked_unread", std::move(encoded).value());
+    }
     if (!value.mutation_id.is_absent()) {
         auto encoded = encode_value(value.mutation_id);
         if (!encoded) return std::move(encoded).error();
@@ -18418,6 +18423,16 @@ Result<SetWorkspaceMetadataRequest> Codec<SetWorkspaceMetadataRequest>::decode(c
             auto decoded = decode_value<std::string>(*field_key);
             if (!decoded) return std::move(decoded).error();
             result.key = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_marked_unread = value.find("marked_unread");
+    if (field_marked_unread) {
+        if (field_marked_unread->is_null()) {
+            result.marked_unread = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_marked_unread);
+            if (!decoded) return std::move(decoded).error();
+            result.marked_unread = Field<bool>(std::move(decoded).value());
         }
     }
     const Json* field_mutation_id = value.find("mutation_id");
@@ -25513,7 +25528,8 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand152FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand156FieldRequirements{{
     {"transaction", 9U, "layout-undo-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand158FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand158FieldRequirements{{
+    {"marked_unread", 12U, "notification-mark-unread-v1"},
     {"pinned", 12U, "workspace-pin-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 2> kCommand159FieldRequirements{{

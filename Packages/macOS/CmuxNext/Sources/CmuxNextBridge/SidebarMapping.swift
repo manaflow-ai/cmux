@@ -32,6 +32,8 @@ public enum SidebarMapping {
     }
 
     /// `showsUnread: false` hides the unread badge (`notifications.attention.showOnSidebar`).
+    /// Notification markers show as a count; a workspace marked unread by
+    /// hand with none shows a dot.
     public static func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
@@ -42,7 +44,7 @@ public enum SidebarMapping {
             subtitle: subtitle(tabs),
             status: status.flatMap { $0.isEmpty ? nil : $0 },
             icon: color(workspace.color).map(WorkspaceIcon.swatch) ?? workspace.icon.map { WorkspaceIcon.symbol($0) },
-            unread: unread > 0 ? .count(unread) : .none,
+            unread: unread > 0 ? .count(unread) : (showsUnread && workspace.markedUnread ? .dot : .none),
             activity: activity(tabs)
         )
     }
