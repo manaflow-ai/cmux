@@ -507,7 +507,7 @@ private struct WaitingToRelaunchView: View {
     private var updateNowButton: some View {
         Button(blockers.needsConfirmation
             ? String(localized: "update.updateAnyway", defaultValue: "Update Anyway")
-            : String(localized: "update.updateNow", defaultValue: "Update Now")) {
+            : String(localized: "update.installNow", defaultValue: "Install Now")) {
             installing.retryTerminatingApplication()
             dismiss()
         }
