@@ -36,7 +36,9 @@ private actor GatedHost: AgentPaneHostProviding {
 
     /// Closing a tab must free its pane (and web view) even while acpmux is
     /// still starting for the handshake, which can take up to 20 seconds.
-    @Test func aClosedPaneIsFreedWhileItsHandshakeIsPending() async throws {
+    /// Drives `reply(to:)`, the path behind WebKit's message handler after
+    /// its trust check (a test cannot make a WKScriptMessage).
+    @Test(.timeLimit(.minutes(1))) func aClosedPaneIsFreedWhileItsHandshakeIsPending() async throws {
         let host = GatedHost()
         let page = FileManager.default.temporaryDirectory.appendingPathComponent("agent-pane-bridge-test.html")
         let weak = Weak()
