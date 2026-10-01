@@ -3,7 +3,7 @@ import Foundation
 
 @MainActor
 extension CmuxTuiSurfaceProviderRegistry {
-    fileprivate func installSessionGateObservers() {
+    func installSessionGateObservers() {
         guard sessionRejectedObserver == nil else { return }
         sessionRejectedObserver = NotificationCenter.default.addObserver(
             forName: VMClient.sessionRejectedNotification, object: nil, queue: .main
@@ -36,7 +36,7 @@ extension CmuxTuiSurfaceProviderRegistry {
         }
     }
 
-    fileprivate func removeSessionGateObservers() {
+    func removeSessionGateObservers() {
         if let sessionRejectedObserver { NotificationCenter.default.removeObserver(sessionRejectedObserver) }
         if let sessionRecoveredObserver { NotificationCenter.default.removeObserver(sessionRecoveredObserver) }
     }
