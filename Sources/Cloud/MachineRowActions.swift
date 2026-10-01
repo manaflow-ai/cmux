@@ -224,9 +224,9 @@ struct MachineRowActions {
 
     @MainActor
     /// Builds the destructive confirmation title from the name people see in
-    /// Cloud, while retaining the stable provider ID for unnamed machines.
+    /// Cloud, with a readable fallback when the machine has no name.
     static func deleteConfirmationTitle(for machine: MachineSnapshot) -> String {
-        // Keep MachineSnapshot's label → generated slug → ID precedence, but
+        // Keep MachineSnapshot's label → generated slug precedence, but
         // treat whitespace-only values as missing at this presentation boundary.
         let readableName = [machine.label, machine.slug]
             .compactMap { value -> String? in
