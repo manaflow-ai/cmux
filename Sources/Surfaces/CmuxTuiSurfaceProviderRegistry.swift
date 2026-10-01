@@ -369,9 +369,19 @@ final class CmuxTuiSurfaceProviderRegistry {
         await refreshForeignOwnedMachines()
         guard access == accessEpoch, !Task.isCancelled else { return false }
         let refreshable = discovered.filter { $0.info.linkFailure == nil }
-        let foreign = retainedForeignTeamMachineIDs(activeTeamID: activeTeamID()).subtracting(refreshable.map(\.machine)).compactMap { providers[$0] }
+        let refreshableMachines = refreshable.map { provider in provider.machine }
+        let foreign = retainedForeignTeamMachineIDs(activeTeamID: activeTeamID()).subtracting(refreshableMachines).compactMap { id in providers[id] }
         let candidates = refreshable + foreign
-        let activeMachines: Set<SurfaceMachineID> = (force || !hasCompletedInitialRefresh) ? Set(candidates.map(\.machine)) : (catalog?.projectedMachines ?? []).union(catalog?.pendingRestoredMachineIDs.map(SurfaceMachineID.cloud) ?? []).union(pendingMachineCreationIDs.map(SurfaceMachineID.cloud)).union(Set(refreshable.filter { !refreshedMachineIDs.contains($0.machine) || $0.info.linkState != .connected || $0.cloudState?.cursor == nil }.map(\.machine)))
+        let activeMachines: Set<SurfaceMachineID>
+        if force || !hasCompletedInitialRefresh {
+            activeMachines = Set(candidates.map { provider in provider.machine })
+        } else {
+            var ids = catalog?.projectedMachines ?? []
+            ids.formUnion(catalog?.pendingRestoredMachineIDs.map { SurfaceMachineID.cloud($0) } ?? [])
+            ids.formUnion(pendingMachineCreationIDs.map { SurfaceMachineID.cloud($0) })
+            ids.formUnion(refreshable.filter { !refreshedMachineIDs.contains($0.machine) || $0.info.linkState != .connected || $0.cloudState?.cursor == nil }.map { provider in provider.machine })
+            activeMachines = ids
+        }
         await withTaskGroup(of: Void.self) { group in
             for provider in candidates where activeMachines.contains(provider.machine) {
                 group.addTask { @MainActor in
@@ -448,7 +458,6 @@ final class CmuxTuiSurfaceProviderRegistry {
             providers[id] == nil && adoptedOwnerTeams[id].map { $0 != active } == true
         }
     }
-    /// The team that owns `machineID`: its provider's team, else the team
     /// persisted with a restored pane or workspace. Nil when unknown.
     func ownerTeamID(forMachineID machineID: String) -> String? {
         providers[machineID]?.ownerTeamID ?? adoptedOwnerTeams[machineID]
