@@ -454,6 +454,15 @@ struct LastSurfaceClosePreferenceTests {
         }
     }
 
+    /// Runs the local run loop briefly so serialized Swift Testing cases do not
+    /// resolve the module-global XCTest drain helper with its one-second wait.
+    private func drainMainQueue(timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        } while Date() < deadline
+    }
+
     private func withManager(
         closeWorkspaceOnLastSurface: Bool,
         run: (TabManager) throws -> Void
