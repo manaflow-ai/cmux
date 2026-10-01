@@ -57,7 +57,10 @@ public final class MobileWorkspaceSnapshotStore {
             currentDirectory = workspace.currentDirectory
             isPinned = workspace.isPinned
             groupID = workspace.groupID?.rawValue
-            previewText = workspace.previewText
+            // Terminal output can contain commands, tokens, and other private
+            // content. Snapshots are retained locally for several days, so
+            // they carry workspace metadata only.
+            previewText = nil
             previewAt = workspace.previewAt
             lastActivityAt = workspace.lastActivityAt
             hasUnread = workspace.hasUnread
@@ -78,7 +81,7 @@ public final class MobileWorkspaceSnapshotStore {
                 currentDirectory: currentDirectory,
                 isPinned: isPinned,
                 groupID: groupID.map(MobileWorkspaceGroupPreview.ID.init(rawValue:)),
-                previewText: previewText,
+                previewText: nil,
                 previewAt: previewAt,
                 lastActivityAt: lastActivityAt,
                 hasUnread: hasUnread,

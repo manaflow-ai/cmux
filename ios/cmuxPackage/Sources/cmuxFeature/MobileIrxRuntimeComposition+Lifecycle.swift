@@ -21,6 +21,7 @@ extension MobileIrxRuntimeComposition {
         // session. This path can render the cached directory and start IROH,
         // but it cannot issue or authorize any control-plane mutation.
         let startupEpoch = epoch
+        cachedWarmupFinished = false
         cachedWarmupTask = Task { [weak self, weak auth] in
             guard let self, let auth else { return }
             await self.warmCachedRuntime(auth: auth, expectedEpoch: startupEpoch)
@@ -36,6 +37,7 @@ extension MobileIrxRuntimeComposition {
     }
 
     private func warmCachedRuntime(auth: AuthCoordinator, expectedEpoch: UInt64) async {
+        defer { cachedWarmupFinished = true }
         guard let cachedIdentity = await auth.cachedTeamIdentity else { return }
         do {
             let deviceID = try await installation.deviceID()
@@ -122,8 +124,17 @@ extension MobileIrxRuntimeComposition {
         // warmup. Let that warmup publish its matching prepared runtime before
         // detaching the old runtime, otherwise activation cancels the very
         // startup work that should make the first workspace list fast.
-        if scope != nil, let cachedWarmupTask {
-            await cachedWarmupTask.value
+        if scope != nil, cachedWarmupTask != nil, !cachedWarmupFinished {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+            while !cachedWarmupFinished, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(25))
+            }
+            if !cachedWarmupFinished {
+                journal.record("v2-lifecycle", "cached-warm-timeout")
+                cachedWarmupTask?.cancel()
+                cachedWarmupTask = nil
+                cachedWarmupFinished = true
+            }
         }
         guard scope != activeScope else { return }
         epoch &+= 1
