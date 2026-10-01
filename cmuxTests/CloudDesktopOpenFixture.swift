@@ -183,7 +183,7 @@ final class CloudDesktopOpenFixture {
         // which restarts the app host and discards the rest of the shard.
         let deadline = ContinuousClock.now + .seconds(10)
         while !settled(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(settled(), "the drop never settled on \(expectedProjections) focused Desktop view(s)")
+        try #require(settled(), "the drop never settled on \(expectedProjections) focused Desktop view(s)")
         assertTaskWindowRemainsUnfocused()
     }
 
