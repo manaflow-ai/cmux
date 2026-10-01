@@ -14,6 +14,9 @@ final class NotificationRowView: NSView {
     let row: NotificationsPanelRow
     private let callbacks: Callbacks
     private let dot = NSView()
+    private var close: NSButton?
+    /// Each label and the color it draws in, applied in the view's theme scope.
+    private var tinted: [(NSTextField, Tone)] = []
     var isSelected = false { didSet { needsDisplay = true } }
 
     private static let timeFormatter: RelativeDateTimeFormatter = {
@@ -42,15 +45,43 @@ final class NotificationRowView: NSView {
 
     override var wantsUpdateLayer: Bool { true }
 
-    override func updateLayer() {
-        layer?.backgroundColor = isSelected ? resolvedCGColor(Palette.selectionFill) : nil
-        dot.layer?.backgroundColor = resolvedCGColor(Palette.attention)
+    /// The text colors the panel uses.
+    enum Tone {
+        case primary, secondary, tertiary
+
+        /// theme-scoped: read inside `performWithTheme`.
+        var color: NSColor {
+            switch self {
+            case .primary: Palette.textPrimary
+            case .secondary: Palette.textSecondary
+            case .tertiary: Palette.textTertiary
+            }
+        }
     }
 
-    private func resolvedCGColor(_ color: NSColor) -> CGColor {
-        var result = color.cgColor
-        effectiveAppearance.performAsCurrentDrawingAppearance { result = color.cgColor }
-        return result
+    override func updateLayer() {
+        performWithTheme {
+            layer?.backgroundColor = isSelected ? Palette.selectionFill.cgColor : nil
+            dot.layer?.backgroundColor = Palette.attention.cgColor
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyColors()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme {
+            for (label, tone) in tinted { label.textColor = tone.color }
+            close?.contentTintColor = Palette.textTertiary
+        }
+        needsDisplay = true
     }
 
     private func build(now: Date) {
@@ -60,9 +91,9 @@ final class NotificationRowView: NSView {
         dot.translatesAutoresizingMaskIntoConstraints = false
 
         let title = Self.label(row.subtitle.map { "\(row.title) · \($0)" } ?? row.title,
-                               font: row.unread ? Typography.bodyEmphasized : Typography.body, color: Palette.textPrimary)
-        let time = Self.label(Self.timeFormatter.localizedString(for: row.createdAt, relativeTo: now),
-                              font: Typography.caption, color: Palette.textTertiary)
+                               font: row.unread ? Typography.bodyEmphasized : Typography.body)
+        let time = Self.label(Self.timeFormatter.localizedString(for: row.createdAt, relativeTo: now), font: Typography.caption)
+        tinted = [(title, .primary), (time, .tertiary)]
         time.setContentCompressionResistancePriority(.required, for: .horizontal)
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let header = NSStackView(views: [title, time])
@@ -71,10 +102,13 @@ final class NotificationRowView: NSView {
 
         var lines: [NSView] = [header]
         if let workspace = row.workspaceTitle {
-            lines.append(Self.label(workspace, font: Typography.caption, color: Palette.textTertiary))
+            let label = Self.label(workspace, font: Typography.caption)
+            tinted.append((label, .tertiary))
+            lines.append(label)
         }
         if !row.body.isEmpty {
-            let body = Self.label(row.body, font: Typography.caption, color: Palette.textSecondary)
+            let body = Self.label(row.body, font: Typography.caption)
+            tinted.append((body, .secondary))
             body.maximumNumberOfLines = 2
             // The list width less the dot, the close button and the gaps.
             body.preferredMaxLayoutWidth = NotificationsPanelView.listWidth - 4 * Metrics.space2 - Metrics.space2 - Metrics.space6
@@ -92,7 +126,7 @@ final class NotificationRowView: NSView {
         let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: NotificationsPanelStrings.dismiss) ?? NSImage(),
                              target: self, action: #selector(dismissPressed))
         close.isBordered = false
-        close.contentTintColor = Palette.textTertiary
+        self.close = close
         close.toolTip = NotificationsPanelStrings.dismiss
         close.setAccessibilityIdentifier("cmux.notifications.dismiss")
         close.translatesAutoresizingMaskIntoConstraints = false
@@ -115,10 +149,10 @@ final class NotificationRowView: NSView {
         ])
     }
 
-    static func label(_ text: String, font: NSFont, color: NSColor) -> NSTextField {
+    /// A one-line label; its owner sets the color in its theme scope.
+    static func label(_ text: String, font: NSFont) -> NSTextField {
         let label = NSTextField(labelWithString: text)
         label.font = font
-        label.textColor = color
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1
         return label

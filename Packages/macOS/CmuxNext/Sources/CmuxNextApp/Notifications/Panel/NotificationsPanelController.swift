@@ -54,6 +54,8 @@ final class NotificationsPanelController {
         selection = NotificationsPanelSelection()
         loaded = false
         render()
+        // The panel draws in the window's theme scope, like the window under it.
+        window.themeScope.adopt(panel)
         place(panel, in: window)
         if panel.parent !== window {
             panel.parent?.removeChildWindow(panel)
@@ -126,8 +128,14 @@ final class NotificationsPanelController {
         generation += 1
         let generation = generation
         context.daemon.send("list-notifications") { [weak self] connection in
-            let entries = try await connection.notificationLedger()
-            await MainActor.run { self?.apply(entries, generation: generation) }
+            do {
+                let entries = try await connection.notificationLedger()
+                await MainActor.run { self?.apply(entries, generation: generation) }
+            } catch {
+                // The failure is logged; the panel shows the empty state rather than nothing.
+                await MainActor.run { self?.apply([], generation: generation) }
+                throw error
+            }
         }
     }
 

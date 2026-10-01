@@ -11,7 +11,6 @@ final class NotificationsPanel: ActiveAppKeyPanel {
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView], backing: .buffered, defer: true)
-        ThemeStore.shared.adopt(self)
         isOpaque = false
         backgroundColor = .clear
         hasShadow = true
@@ -60,6 +59,7 @@ final class NotificationsPanelView: NSView {
     private let list = NSStackView()
     private let empty = NSStackView()
     private var listHeight: NSLayoutConstraint?
+    private var tinted: [(NSTextField, NotificationRowView.Tone)] = []
     private(set) var rowViews: [NotificationRowView] = []
 
     override init(frame: NSRect) {
@@ -83,13 +83,12 @@ final class NotificationsPanelView: NSView {
     override var acceptsFirstResponder: Bool { true }
 
     private func build() {
-        let title = NotificationRowView.label(NotificationsPanelStrings.title, font: Typography.header, color: Palette.textPrimary)
+        let title = NotificationRowView.label(NotificationsPanelStrings.title, font: Typography.header)
         for (button, text, action, id) in [(markAllRead, NotificationsPanelStrings.markAllRead, #selector(markAllPressed), "markAllRead"),
                                            (clearAll, NotificationsPanelStrings.clearAll, #selector(clearAllPressed), "clearAll")] {
             button.title = text
             button.isBordered = false
             button.font = Typography.caption
-            button.contentTintColor = Palette.textSecondary
             button.target = self
             button.action = action
             button.setAccessibilityIdentifier("cmux.notifications.\(id)")
@@ -109,10 +108,15 @@ final class NotificationsPanelView: NSView {
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
+        // Overlay scrollers keep the clip as wide as the rows' fixed width.
+        scroll.scrollerStyle = .overlay
+        NotificationCenter.default.addObserver(self, selector: #selector(scrollerStyleChanged),
+                                               name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
         document.translatesAutoresizingMaskIntoConstraints = false
 
-        let emptyTitle = NotificationRowView.label(NotificationsPanelStrings.emptyTitle, font: Typography.bodyEmphasized, color: Palette.textSecondary)
-        let emptyDetail = NotificationRowView.label(NotificationsPanelStrings.emptySubtitle, font: Typography.caption, color: Palette.textTertiary)
+        let emptyTitle = NotificationRowView.label(NotificationsPanelStrings.emptyTitle, font: Typography.bodyEmphasized)
+        let emptyDetail = NotificationRowView.label(NotificationsPanelStrings.emptySubtitle, font: Typography.caption)
+        tinted = [(title, .primary), (emptyTitle, .secondary), (emptyDetail, .tertiary)]
         empty.setViews([emptyTitle, emptyDetail], in: .center)
         empty.orientation = .vertical
         empty.spacing = Metrics.space1
@@ -174,6 +178,25 @@ final class NotificationsPanelView: NSView {
         for (offset, row) in rowViews.enumerated() { row.isSelected = offset == index }
         if let index, rowViews.indices.contains(index) { rowViews[index].scrollToVisible(rowViews[index].bounds) }
     }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyColors()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme {
+            for (label, tone) in tinted { label.textColor = tone.color }
+            for button in [markAllRead, clearAll] { button.contentTintColor = Palette.textSecondary }
+        }
+    }
+
+    @objc private func scrollerStyleChanged(_ note: Notification) { scroll.scrollerStyle = .overlay }
 
     @objc private func markAllPressed() { onMarkAllRead?() }
     @objc private func clearAllPressed() { onClearAll?() }
