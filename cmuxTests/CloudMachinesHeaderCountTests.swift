@@ -67,10 +67,10 @@ struct CloudMachinesHeaderCountTests {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         host.layoutSubtreeIfNeeded()
 
-        let buttons = Self.descendants(of: host).compactMap { $0 as? NSButton }
-        let menu = try #require(buttons.first { $0.accessibilityIdentifier() == "CloudMachinesActionsMenu" })
-        #expect(menu.menu?.items.map(\.title) == ["Refresh Machines", "New Machine"])
-        #expect(!buttons.contains { $0.accessibilityLabel() == "Refresh Machines" })
+        // SwiftUI buttons are not NSButtons, so read what an assistive client sees.
+        #expect(Self.element("CloudMachinesActionsMenu", in: host) != nil)
+        #expect(Self.element("CloudHeaderRefreshButton", in: host) == nil)
+        #expect(Self.element("CloudHeaderNewMachineButton", in: host) == nil)
     }
 
     @Test("A wide Cloud header keeps refresh and new machine buttons inline")
@@ -101,10 +101,12 @@ struct CloudMachinesHeaderCountTests {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         host.layoutSubtreeIfNeeded()
 
-        let buttons = Self.descendants(of: host).compactMap { $0 as? NSButton }
-        #expect(buttons.contains { $0.accessibilityLabel() == "Refresh Machines" })
-        #expect(buttons.contains { $0.accessibilityLabel() == "New Machine" })
-        #expect(!buttons.contains { $0.accessibilityIdentifier() == "CloudMachinesActionsMenu" })
+        // SwiftUI buttons are not NSButtons, so read what an assistive client sees.
+        let refresh = try #require(Self.element("CloudHeaderRefreshButton", in: host))
+        let newMachine = try #require(Self.element("CloudHeaderNewMachineButton", in: host))
+        #expect(Self.label(of: refresh) == "Refresh Machines")
+        #expect(Self.label(of: newMachine) == "New Machine")
+        #expect(Self.element("CloudMachinesActionsMenu", in: host) == nil)
     }
 
     @Test("A free plan at its limit turns orange and names the upgrade", arguments: [
@@ -326,8 +328,14 @@ struct CloudMachinesHeaderCountTests {
         return CGFloat(first) / scale...CGFloat(last + 1) / scale
     }
 
-    private static func descendants(of view: NSView) -> [NSView] {
-        [view] + view.subviews.flatMap { descendants(of: $0) }
+    private static func element(_ identifier: String, in host: NSView) -> NSObject? {
+        CloudTreeHeaderActionsTests.accessibilityElement(identifier, in: host)
+    }
+
+    private static func label(of element: NSObject) -> String? {
+        CloudTreeHeaderActionsTests.accessibilityAttribute(
+            .description, getter: "accessibilityLabel", of: element
+        ) as? String
     }
 
     private func headerCell(usage: CloudMachinesUsage) -> CloudTreeCellView {
