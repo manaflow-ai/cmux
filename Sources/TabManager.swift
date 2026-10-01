@@ -214,7 +214,7 @@ class TabManager: ObservableObject {
     // timing (objectWillChange + bridge publishers in willSet, selection
     // side effects in didSet).
     let workspaces = WorkspacesModel<Workspace>()
-    private(set) var workspacesById: [UUID: Workspace] = [:]
+    var workspacesById: [UUID: Workspace] { workspaces.tabsById }
     private let windowDockTitleRoutingStores =
         NSMapTable<NSUUID, DockSplitStore>.strongToWeakObjects()
 
@@ -274,7 +274,6 @@ class TabManager: ObservableObject {
     /// Legacy `@Published tabs` willSet: objectWillChange plus the Combine
     /// bridge fire before storage changes, matching @Published timing.
     func workspaceTabsWillChange(to newValue: [Workspace]) {
-        workspacesById = Dictionary(newValue.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         objectWillChange.send()
         tabsPublisher.send(newValue)
     }
@@ -822,16 +821,17 @@ class TabManager: ObservableObject {
     /// the `UserDefaults.didChangeNotification` firehose to actual transitions.
     private var lastRemotePortScanningEnabled: Bool?
 
-    /// Propagates the sidebar ports-visibility settings to every live remote
-    /// session so that disabling `sidebar.showPorts` (or enabling
-    /// `sidebar.hideAllDetails`) actually stops the backend ssh port-scan loop,
-    /// not just the sidebar display (issue #6123). New remote workspaces pick
-    /// up the current value at creation, so this only needs to react to a
-    /// change for already-connected sessions.
+    /// Propagates the sidebar ports-visibility settings to the local scanner and
+    /// to every live remote session, so that disabling `sidebar.showPorts` (or
+    /// enabling `sidebar.hideAllDetails`) actually stops the scans, not just the
+    /// sidebar display (issue #6123). New remote workspaces pick up the current
+    /// value at creation, so this only needs to react to a change for
+    /// already-connected sessions.
     private func refreshRemotePortScanningEnablement() {
         let enabled = Workspace.remotePortScanningEnabledFromSettings()
         guard enabled != lastRemotePortScanningEnabled else { return }
         lastRemotePortScanningEnabled = enabled
+        PortScanner.shared.setScanningEnabled(enabled)
         for tab in tabs where tab.isRemoteWorkspace {
             tab.applyRemotePortScanningEnabled(enabled)
         }
@@ -905,7 +905,7 @@ class TabManager: ObservableObject {
 
     var selectedWorkspace: Workspace? {
         guard let selectedTabId else { return nil }
-        return tabs.first(where: { $0.id == selectedTabId })
+        return workspaces.tab(id: selectedTabId)
     }
 
     // Keep selectedTab as convenience alias
@@ -2010,7 +2010,16 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int, isDragOperation: Bool = false) -> Bool {
-        workspaceReordering.reorderWorkspace(tabId: tabId, toIndex: targetIndex, isDragOperation: isDragOperation)
+        let previousMemberships = workspaceGroupMemberships(for: [tabId])
+        let handled = workspaceReordering.reorderWorkspace(
+            tabId: tabId,
+            toIndex: targetIndex,
+            isDragOperation: isDragOperation
+        )
+        cleanupGeneratedAnchorsAfterWorkspaceRemoval(
+            previousMemberships: previousMemberships
+        )
+        return handled
     }
 
     func sidebarReorderWorkspaceIds(
@@ -2059,13 +2068,18 @@ class TabManager: ObservableObject {
         usesTopLevelRows: Bool = false,
         explicitGroupId: UUID? = nil
     ) -> Bool {
-        workspaceReordering.reorderSidebarWorkspace(
+        let previousMemberships = workspaceGroupMemberships(for: [tabId])
+        let handled = workspaceReordering.reorderSidebarWorkspace(
             tabId: tabId,
             toIndex: targetIndex,
             isDragOperation: isDragOperation,
             usesTopLevelRows: usesTopLevelRows,
             explicitGroupId: explicitGroupId
         )
+        cleanupGeneratedAnchorsAfterWorkspaceRemoval(
+            previousMemberships: previousMemberships
+        )
+        return handled
     }
 
     @discardableResult
@@ -2077,7 +2091,8 @@ class TabManager: ObservableObject {
         usesTopLevelRows: Bool = false,
         explicitGroupId: UUID? = nil
     ) -> Bool {
-        workspaceReordering.reorderSidebarWorkspaces(
+        let previousMemberships = workspaceGroupMemberships(for: tabIds)
+        let handled = workspaceReordering.reorderSidebarWorkspaces(
             tabIds: tabIds,
             draggedTabId: draggedTabId,
             toIndex: targetIndex,
@@ -2085,6 +2100,36 @@ class TabManager: ObservableObject {
             usesTopLevelRows: usesTopLevelRows,
             explicitGroupId: explicitGroupId
         )
+        cleanupGeneratedAnchorsAfterWorkspaceRemoval(
+            previousMemberships: previousMemberships
+        )
+        return handled
+    }
+
+    private func workspaceGroupMemberships(for workspaceIds: [UUID]) -> [UUID: UUID] {
+        let requestedIds = Set(workspaceIds)
+        return Dictionary(uniqueKeysWithValues: tabs.compactMap { workspace in
+            guard requestedIds.contains(workspace.id), let groupId = workspace.groupId else {
+                return nil
+            }
+            return (workspace.id, groupId)
+        })
+    }
+
+    private func cleanupGeneratedAnchorsAfterWorkspaceRemoval(
+        previousMemberships: [UUID: UUID]
+    ) {
+        let removedMemberships = previousMemberships.filter { workspaceId, groupId in
+            workspacesById[workspaceId]?.groupId != groupId
+        }
+        for groupId in Set(removedMemberships.values) {
+            _ = workspaceGrouping.removeGeneratedAnchorIfOrphaned(
+                groupId: groupId,
+                additionalMovedWorkspaceIds: removedMemberships.compactMap { workspaceId, previousGroupId in
+                    previousGroupId == groupId ? workspaceId : nil
+                }
+            )
+        }
     }
 
     func sidebarReorderUsesTopLevelRows(
@@ -2134,7 +2179,10 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func reorderWorkspace(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil, isDragOperation: Bool = false) -> Bool {
-        workspaceReordering.reorderWorkspace(tabId: tabId, before: beforeId, after: afterId, isDragOperation: isDragOperation)
+        guard let plan = workspaceReorderPlan(tabId: tabId, before: beforeId, after: afterId) else {
+            return false
+        }
+        return reorderWorkspace(tabId: tabId, toIndex: plan.toIndex, isDragOperation: isDragOperation)
     }
 
     func workspaceReorderPlan(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> WorkspaceReorderPlanItem? {
@@ -2277,6 +2325,21 @@ class TabManager: ObservableObject {
         return anchor
     }
 
+    /// Resolves the target for a group header click. A generated anchor that
+    /// has never received explicit input is only an empty shell, so a header
+    /// click should select the first real member instead of exposing it.
+    func workspaceGroupHeaderTarget(for groupId: UUID) -> Workspace? {
+        guard let group = workspaceGroups.first(where: { $0.id == groupId }),
+              let anchor = workspaceGroupAnchor(for: groupId) else {
+            return nil
+        }
+        guard group.anchorWorkspaceProvenance == .generated,
+              workspaceGroupGeneratedAnchorIsUntouched(anchor) else {
+            return anchor
+        }
+        return tabs.first { $0.groupId == groupId && $0.id != anchor.id } ?? anchor
+    }
+
     func addWorkspaceToGroup(
         workspaceId: UUID,
         groupId: UUID,
@@ -2371,6 +2434,21 @@ class TabManager: ObservableObject {
             autoWelcomeIfNeeded: false,
             normalizeWorkspaceGroupsAfterInsert: false
         )
+    }
+
+    func workspaceGroupGeneratedAnchorIsUntouched(_ anchor: Workspace) -> Bool {
+        guard anchor.customTitle == nil || anchor.customTitleSource == .auto,
+              anchor.customDescription == nil,
+              anchor.panels.count == 1,
+              let panel = anchor.panels.values.first as? TerminalPanel,
+              !panel.hasReceivedExplicitInput,
+              panel.surface.initialCommand == nil,
+              panel.surface.initialInput == nil,
+              panel.surface.tmuxStartCommand == nil,
+              anchor._dockSplit?.panels.isEmpty ?? true else {
+            return false
+        }
+        return true
     }
 
     func createWorkspaceForGroup(
@@ -2539,6 +2617,10 @@ class TabManager: ObservableObject {
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
+            let closedWorkspaceGroupId = workspace.groupId
+            let closedWorkspaceWasGroupAnchor = closedWorkspaceGroupId.flatMap { groupId in
+                workspaces.workspaceGroups.first(where: { $0.id == groupId })?.liveAnchorWorkspaceId
+            } == workspace.id
             // Real-close path: if the closed workspace anchored a group, keep
             // the group by promoting its first remaining member (in tabs order)
             // to anchor so closing one workspace only closes that workspace and
@@ -2548,6 +2630,14 @@ class TabManager: ObservableObject {
             // didSet) so transient remove/insert reorders never trigger the
             // fixup.
             let promotedAnchorIds = workspaces.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
+
+            if let closedWorkspaceGroupId,
+               !closedWorkspaceWasGroupAnchor {
+                _ = workspaceGrouping.removeGeneratedAnchorIfOrphaned(
+                    groupId: closedWorkspaceGroupId,
+                    additionalMovedWorkspaceIds: [workspace.id]
+                )
+            }
 
             if selectedTabId == workspace.id,
                let nextSelectedId = workspaces.selectionTargetAfterClose(closedIndex: index) {
@@ -2653,10 +2743,17 @@ class TabManager: ObservableObject {
         invalidateFocusHistoryTarget(workspaceId: tabId, panelId: nil)
 
         let removed = tabs.remove(at: index)
+        let removedWorkspaceGroupId = removed.groupId
         // Same anchor-close lifecycle as closeWorkspace: an unpinned group's
         // anchor dissolves it, while a pinned group promotes a remaining member
         // or retains an empty header.
         workspaces.dissolveGroupsAnchoredBy(closedWorkspaceId: removed.id)
+        if let removedWorkspaceGroupId {
+            _ = workspaceGrouping.removeGeneratedAnchorIfOrphaned(
+                groupId: removedWorkspaceGroupId,
+                additionalMovedWorkspaceIds: [removed.id]
+            )
+        }
         // Clear the detached workspace's own group membership so the
         // destination window — which has no matching WorkspaceGroup — doesn't
         // render it as an orphaned indented row with stale grouping state.
@@ -3616,13 +3713,6 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    func discardHiddenBrowserWebViewsForSystemMemoryPressure(now: Date = Date()) -> Int {
-        tabs.reduce(0) { count, workspace in
-            count + workspace.discardHiddenBrowserWebViewsForSystemMemoryPressure(now: now)
-        }
-    }
-
-    @discardableResult
     func performFocusedBrowserZoom(_ action: (BrowserPanel) -> Bool) -> Bool? {
         guard let panel = focusedBrowserPanel else { return nil }
         return action(panel)
@@ -4548,6 +4638,7 @@ class TabManager: ObservableObject {
         _ buttons: [CmuxSurfaceTabBarButton],
         sourcePath: String?,
         globalConfigPath: String,
+        settingPresets: [String: CmuxSettingValue] = [:],
         terminalCommandSourcePaths: [String: String],
         workspaceCommands: [String: CmuxResolvedCommand]
     ) {
@@ -4556,6 +4647,7 @@ class TabManager: ObservableObject {
                 buttons,
                 sourcePath: sourcePath,
                 globalConfigPath: globalConfigPath,
+                settingPresets: settingPresets,
                 terminalCommandSourcePaths: terminalCommandSourcePaths,
                 workspaceCommands: workspaceCommands
             )
@@ -7220,9 +7312,11 @@ extension Notification.Name {
     static let commandPaletteRenameRequested = Notification.Name("cmux.commandPaletteRenameRequested")
     static let commandPaletteEditWorkspaceDescriptionRequested = Notification.Name("cmux.commandPaletteEditWorkspaceDescriptionRequested")
     static let commandPaletteMoveSelection = Notification.Name("cmux.commandPaletteMoveSelection")
+    static let agentInboxReplyFieldFocusChanged = Notification.Name("cmux.agentInboxReplyFieldFocusChanged")
     static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
     static let commandPaletteRenameInputDeleteBackwardRequested = Notification.Name("cmux.commandPaletteRenameInputDeleteBackwardRequested")
     static let feedbackComposerRequested = Notification.Name("cmux.feedbackComposerRequested")
+    static let agentInboxRequested = Notification.Name("cmux.agentInboxRequested")
     static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")

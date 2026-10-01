@@ -426,8 +426,7 @@
         "memberReadOnly": "Ovaj plan mogu mijenjati samo administratori tima.",
         "grantedBody": "Tim cmux je timu {team} dodijelio pristup Team planu. Nema pretplate kojom treba upravljati.",
         "seatsUsed": "Iskorišteno {members} od {seats}",
-        "overSeat": "{team}: članova {members}, plaćenih mjesta {seats}. Pridruživanje i dalje radi; dodajte mjesta da pokrijete sve.",
-        "addSeats": "Dodaj mjesta"
+        "overSeat": "{team} ima {members} članova i {seats} plaćenih mjesta. Mjesta prate broj članova, pa se pretplata ažurira sama."
       },
       "teamList": {
         "heading": "Opsezi naplate",
@@ -942,7 +941,7 @@
         "featurePrioritySupport": "Prioritetna podrška",
         "chooseFree": "Nastavi besplatno",
         "chooseTeam": "Nadogradi na Team (${price}/mjesto/mjesečno)",
-        "upgradeLater": "Broj mjesta je fleksibilan: možete pozvati više ljudi nego što plaćate i kasnije dodati mjesta.",
+        "upgradeLater": "Mjesta prate broj članova: svaki član se naplaćuje, a ukupan broj se ažurira kada se ljudi pridruže ili odu.",
         "inviteTitle": "Pozovite ljude u {team}",
         "inviteDescription": "Neobavezno. Ljude možete pozvati i kasnije sa stranice Članovi tima.",
         "inviteByEmail": "Pozovi putem e-pošte",
@@ -1059,8 +1058,6 @@
         "revoke": "Opozovi",
         "linksTitle": "Linkovi za pozivnicu",
         "linksDescription": "Link za višekratnu upotrebu kojim se svako može pridružiti kao član.",
-        "seatNudge": "Članova i pozvanih: {used}, a plan ima mjesta: {seats}. Pozivnice i dalje rade; dodajte {over, plural, one {# mjesto} few {# mjesta} other {# mjesta}} da pokrijete sve.",
-        "seatNudgeAction": "Upravljaj mjestima",
         "actions": {
           "makeAdmin": "Postavi za administratora",
           "makeMember": "Postavi za člana",
@@ -2032,8 +2029,10 @@
         "automation": {
           "ampIntegration": "Uključuje ili isključuje cmux hookove za Amp. Kada su isključeni, priloženi plugin ostaje instaliran, ali neaktivan.",
           "suppressSubagentNotifications": "Sakrij vidljiva obavještenja o završetku i promjene statusa od ugniježđenih Codex ili Claude podagenata, uz zadržavanje njihovih događaja u Feed telemetriji.",
+          "agentAutoResume": "Šalje `continue`, uz postepeno odgađanje, agentu pokrenutom iz cmux-a čiji je potez završio greškom servisa koja se može ponoviti (model bez kapaciteta, preopterećen ili izgubljena veza). Potezi koji čekaju čovjeka nikada se ne nastavljaju.",
           "workspaceAutoNaming": "Opcionalno AI automatsko imenovanje radnih prostora i kartica iz sadržaja razgovora agenta. Kada je omogućeno, cmux sažima podržane sesije agenata u kratke naslove koristeći vlastiti binarni fajl svakog agenta; ručna preimenovanja uvijek imaju prednost.",
-          "autoNamingAgent": "Koji agent generiše automatska imena za svaku sesiju. \"auto\" (zadano) imenuje svaku sesiju njenim vlastitim agentom; bilo koji slug agenta (claude, codex, grok, opencode, pi, omp, …) zamjenjuje imenovanje za sve sesije, čak i za sesije drugih agenata. Agenti koji se ne mogu pokrenuti ili nisu instalirani vraćaju se na vlastiti agent sesije, tako da se imenovanje nikada ne prekida."
+          "autoNamingAgent": "Koji agent generiše automatska imena za svaku sesiju. \"auto\" (zadano) imenuje svaku sesiju njenim vlastitim agentom; bilo koji slug agenta (claude, codex, grok, opencode, pi, omp, …) zamjenjuje imenovanje za sve sesije, čak i za sesije drugih agenata. Agenti koji se ne mogu pokrenuti ili nisu instalirani vraćaju se na vlastiti agent sesije, tako da se imenovanje nikada ne prekida.",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "Određuje kada cmux traži potvrdu prije izlaska. DEV verzije se uvijek odmah zatvaraju bez obzira na ovu postavku. Naslijeđeni app.warnBeforeQuit se i dalje prihvata kao boolean rezervna opcija.",
@@ -2084,7 +2083,12 @@
           "compactAgentStatus": "Prikaži svaki radni prostor u jednom redu: jedna obojena ikona ispred naslova prikazuje stanje agenta, nepročitanog i pull requesta te zamjenjuje redove statusa agenata (na primjer Radi ili Potreban unos), red grane i direktorija i redove pull requestova, čiji detalji prelaze u opis ikone. Ostali unosi statusa zadržavaju svoje redove.",
           "compactStatusIcons": "Nazivi SF Symbols koji zamjenjuju compactAgentStatus glif za svako stanje, na primjer {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Stanja bez vrijednosti zadržavaju ugrađeni simbol, a naziv koji se ne može prikazati vraća se na njega.",
           "notificationMessageLineLimit": "Maksimalan broj redova prikazanih za najnoviju obavijest ispod naslova svakog radnog prostora.",
-          "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje."
+          "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje.",
+          "beta": {
+            "conversations": {
+              "enabled": "Prikaži objedinjeni prikaz razgovora u izborniku bočne trake."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Postavke istraživača datoteka (stabla datoteka) u desnoj bočnoj traci.",
@@ -2153,6 +2157,12 @@
       "actionTypeCommand": "Pokreće shell tekst u terminalu. Koristite target da izaberete trenutni terminal ili novi tab u trenutnom panelu.",
       "actionTypeAgent": "Pokreće podržanog programerskog agenta. Trenutno podržava codex i claude, uz opcionalne argumente.",
       "actionTypeWorkspaceCommand": "Pokreće imenovanu definiciju radnog prostora iz commands. Koristite za rasporede s više panela, prilagođene radne direktorije i početne komande.",
+      "actionTypeSetting": "Mijenja jednu postavku u vašem globalnom cmux.json, na primjer uključuje ili isključuje true/false postavku ili prolazi kroz listu vrijednosti. Pogledajte Akcije postavki ispod.",
+      "actionTypeSettingPreset": "Primjenjuje imenovanu grupu postavki iz settingPresets u jednom koraku.",
+      "settingActions": "Akcije postavki",
+      "settingActionsDesc": "Akcija postavke navodi <path>path</path> postavke i tačno jedno od: <set>set</set> (upisuje vrijednost), <toggle>toggle: true</toggle> (prebacuje true/false postavku), <cycle>cycle</cycle> (prelazi na sljedeću vrijednost u listi, a nakon posljednje kreće ispočetka) ili <unset>unset: true</unset> (uklanja ključ iz cmux.json, pa važi vrijednost iz prozora Postavke ili zadana vrijednost). toggle i cycle polaze od vrijednosti koju cmux trenutno koristi, uključujući onu postavljenu u prozoru Postavke. Akcija settingPreset primjenjuje unos iz <presets>settingPresets</presets>, djelimični cmux.json čiji se ugniježđeni objekti spajaju ključ po ključ. cmux prije spremanja provjerava svaku promjenu prema shemi, zadržava vaše komentare i ostale ključeve i odmah primjenjuje promjenu. Akcije postavki i preseti rade samo iz vašeg globalnog cmux.json i paketa na koje on upućuje; projektne konfiguracije ih ne mogu deklarisati.",
+      "settingActionsCli": "Iste promjene rade i iz terminala: <set>cmux config set terminal.scrollSpeed 1.4</set>, <toggle>cmux config toggle fileEditor.wordWrap</toggle> i <preset>cmux config preset sidebar.quiet</preset>.",
+      "settingActionsLimits": "Uz <confirm>confirm: true</confirm>, cmux pita prije spremanja i prikazuje odgovarajuću cmux config komandu. Putanje se dijele na svakoj \".\", pa se ključ koji i sam sadrži \".\" (npr. unos <byCwd>workspaceGroups.byCwd</byCwd> za ~/src/app.web) ne može promijeniti na ovaj način. Uredite ga direktno u cmux.json.",
       "actionFields": "Polja akcije",
       "actionFieldTitle": "Naslov reda u Command Palette, oznaka dugmeta, naslov stavke menija i naslov upita za povjerenje, osim ako ga unos ne nadjača.",
       "actionFieldSubtitle": "Sekundarni tekst u Command Palette. description se prihvata kao alias za subtitle.",
@@ -2284,7 +2294,8 @@
         "wn-reload": "Ponovo učitaj konfiguraciju",
         "wn-quit": "Izađi"
       },
-      "metaTitle": "Prečice na tastaturi"
+      "metaTitle": "Prečice na tastaturi",
+      "fileEditorWordWrap": "Uključi ili isključi prelamanje redova u uređivaču datoteka (Option+Z)."
     },
     "api": {
       "title": "CLI Referenca",
@@ -2724,7 +2735,8 @@
       "maxLinesSetting": "TextBox Max Lines ograničava visinu TextBoxa prije nego što se sadržaj počne skrolati.",
       "configTitle": "cmux.json",
       "configDesc": "Iste zadane vrijednosti postavite u ~/.config/cmux/cmux.json pod terminal:",
-      "focusNote": "Obnovljene sesije zadržavaju spremljenu vidljivost TextBoxa i stanje fokusa. Ove zadane vrijednosti važe samo za novokreirane terminalske površine."
+      "focusNote": "Obnovljene sesije zadržavaju spremljenu vidljivost TextBoxa i stanje fokusa. Ove zadane vrijednosti važe samo za novokreirane terminalske površine.",
+      "betaCallout": "TextBox je beta funkcija. Zadane vrijednosti i ponašanje mogu se promijeniti tokom testiranja."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode više agenata u cmux-u",

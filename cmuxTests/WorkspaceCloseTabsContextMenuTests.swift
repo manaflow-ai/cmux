@@ -10,10 +10,22 @@ import CmuxTerminal
 @testable import cmux
 #endif
 
+/// A @MainActor Swift Testing body already runs inside a main queue block, so
+/// the main queue cannot drain until the test returns and every
+/// `drainMainQueue` call spins the run loop until its timeout. Spin briefly.
+private let mainActorTestMainQueueSpin: TimeInterval = 0.1
+
 @MainActor
 @Suite(.serialized)
 struct WorkspaceCloseTabsContextMenuTests {
     private let closeWorkspaceOnLastSurfaceKey = "closeWorkspaceOnLastSurfaceShortcut"
+
+    private func drainMainQueueForCloseTest(timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        } while Date() < deadline
+    }
 
     @Test
     func closeOthersClosesAllTargetedTabsWhenEveryPanelNeedsConfirmation() throws {
@@ -93,6 +105,25 @@ struct WorkspaceCloseTabsContextMenuTests {
     }
 
     @Test
+    func closeTabContextActionRespectsDisabledTabClosing() throws {
+        try withCleanClosedHistory {
+            let fixture = try makeWorkspaceWithFourConfirmingTabs()
+            fixture.workspace.bonsplitController.configuration.allowCloseTabs = false
+            let tabId = fixture.tabIds[2]
+            let tab = try #require(fixture.workspace.bonsplitController.tab(tabId))
+
+            fixture.workspace.splitTabBar(
+                fixture.workspace.bonsplitController,
+                didRequestTabContextAction: .close,
+                for: tab,
+                inPane: fixture.paneId
+            )
+
+            #expect(fixture.workspace.panelIdFromSurfaceId(tabId) != nil)
+        }
+    }
+
+    @Test
     func activeProcessStillWarnsWhenShortcutWarningIsDisabled() async throws {
         try await withCleanClosedHistory {
             let fixture = try makeWorkspaceWithFourConfirmingTabs()
@@ -106,6 +137,37 @@ struct WorkspaceCloseTabsContextMenuTests {
                 promptCount += 1
                 return true
             }
+            let tab = try #require(fixture.workspace.bonsplitController.tab(tabId))
+            #expect(!fixture.workspace.splitTabBar(
+                fixture.workspace.bonsplitController,
+                shouldCloseTab: tab,
+                inPane: fixture.paneId
+            ))
+            await waitForMainActorWork(timeout: 4) {
+                promptCount == 1 || fixture.workspace.panelIdFromSurfaceId(tabId) == nil
+            }
+
+            #expect(promptCount == 1)
+            #expect(fixture.workspace.panelIdFromSurfaceId(tabId) == nil)
+        }
+    }
+
+    @Test
+    func middleClickUsesTheInlineCloseWarningPath() async throws {
+        try await withCleanClosedHistory {
+            let fixture = try makeWorkspaceWithFourConfirmingTabs()
+            fixture.manager.closeTabWarningDefaults.set(false, forKey: "warnBeforeClosingTabShortcut")
+            fixture.manager.closeTabWarningDefaults.set(true, forKey: "warnBeforeClosingTabXButton")
+            let tabId = fixture.tabIds[2]
+            let panelId = try #require(fixture.workspace.panelIdFromSurfaceId(tabId))
+            fixture.workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+            fixture.workspace.markTabStripMiddleClickClose(surfaceId: tabId)
+            var promptCount = 0
+            fixture.manager.confirmCloseHandler = { _, _, _ in
+                promptCount += 1
+                return true
+            }
+
             let tab = try #require(fixture.workspace.bonsplitController.tab(tabId))
             #expect(!fixture.workspace.splitTabBar(
                 fixture.workspace.bonsplitController,
@@ -281,6 +343,15 @@ struct WorkspaceCloseTabsContextMenuTests {
                 fixture.workspace.panelIdFromSurfaceId(closedTabId) == nil,
                 "Expected targeted tab \(closedTabId) to be removed"
             )
+        }
+    }
+
+    private func drainMainQueue() {
+        var drained = false
+        DispatchQueue.main.async { drained = true }
+        let deadline = Date().addingTimeInterval(mainActorTestMainQueueSpin)
+        while !drained && Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
         }
     }
 

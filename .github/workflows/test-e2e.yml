@@ -1159,6 +1159,7 @@ jobs:
           sparse-checkout: |
             .github/actions/e2e-run-tests
             scripts/ci/e2e-frames.py
+            scripts/ci/brew-ensure.sh
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -1338,6 +1339,8 @@ jobs:
 
       - name: Download the compiled test product
         if: ${{ steps.parallel-product.outputs.hit != 'true' }}
+        # Keep a dead or crawling fallback from consuming the whole job.
+        timeout-minutes: 15
         uses: ./.github/actions/download-test-product
         with:
           artifact-id: ${{ needs.build.outputs.artifact_id }}
@@ -1348,9 +1351,8 @@ jobs:
       # build could not get it, so asking at job start meant waiting glaeda's
       # 240 s for the same busy token and then being refused. glaeda's hook
       # gives this job none at job start (class gui-step); the token is taken
-      # here, after the product download and before the tests' restore takes
-      # the producer's canonical root (the order every GUI job takes them in),
-      # and held to the end of the job. An older hook gave the token at job
+      # here, after the product download and before the tests start, and held
+      # to the end of the job. An older hook gave the token at job
       # start, so take-gui returns 0 at once; one without take-gui exits 2.
       # Blacksmith has no helper.
       - name: Take this Mac's gui token
@@ -1378,6 +1380,7 @@ jobs:
           sparse-checkout: |
             .github/actions/e2e-run-tests
             scripts/ci/e2e-frames.py
+            scripts/ci/brew-ensure.sh
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
