@@ -31,12 +31,14 @@ extension ControlRouter {
             _ = call.progress.begin()
             return try Self.replayed(outcome)
         case .join(let joiner):
-            guard let outcome = await joiner.outcome() else {
-                // Not started here either: the timeout says `not_run`.
-                throw ControlError(code: "timeout", message: ControlStrings.format("control.error.idempotentRunNotStarted",
-                                                                                   "The earlier run with idempotency key %@ never started; retry", key))
-            }
+            // The keyed run is active: a timeout while waiting says `in_progress`.
             _ = call.progress.begin()
+            guard let outcome = await joiner.outcome() else {
+                // It never started after all: say `not_run` explicitly.
+                throw ControlError(code: "timeout", message: ControlStrings.format("control.error.idempotentRunNotStarted",
+                                                                                   "The earlier run with idempotency key %@ never started; retry", key),
+                                   data: ["idempotency_key": .string(key), "not_run": true])
+            }
             return try Self.replayed(outcome)
         case .conflict:
             _ = call.progress.begin()
@@ -89,8 +91,14 @@ extension ControlRouter {
             guard progress.begin() else { throw expired }
             return ControlCommandScope.$current.withValue(scope) { executor.performActionTracked(request) }
         }
-        try Self.check(run.outcome, action: action.id)
-        var reply: [String: JSONValue] = [
+        do {
+            try Self.check(run.outcome, action: action.id)
+        } catch let error as ControlError {
+            // The run started, so `runAction` keeps the key: record the refusal.
+            if let key { idempotency.finish(key, with: .failure(error)) }
+            throw error
+        }
+        let reply: [String: JSONValue] = [
             "action": .string(action.id),
             "ran": true,
             "waited": .bool(wait),
@@ -99,22 +107,11 @@ extension ControlRouter {
             "idempotency_key": .optional(key),
         ]
         let settleDeadline = max(call.deadline, .now + Self.settleLimit)
-        let settling = Task { [self] in
-            await settle(run, scope: scope, action: action.id, method: call.method, deadline: settleDeadline)
-        }
-        guard wait else {
-            // The scope keeps deriving mutation ids until the handler's work settles.
-            if let target = request.target { reply["resolved"] = resolvedJSON(target, in: call.snapshot.topology) }
-            reply["created"] = []
-            reply["sequence"] = JSONValue.number(Double(snapshots.current.topology.daemonSequence))
-            let result = JSONValue.object(reply)
-            if let key { idempotency.finish(key, with: .success(result)) }
-            return result
-        }
-        // Unstructured on purpose: a request that times out answers
-        // `in_progress` while the run keeps settling for a retry.
-        let outcome = await Task { [self] () -> ControlIdempotencyCache.Outcome in
-            let settled = await settling.value
+        // Unstructured on purpose: a request that times out (or does not
+        // wait) answers while the run keeps settling, and the key stays
+        // pending until settlement records the final reply for a retry.
+        let settling = Task { [self] () -> ControlIdempotencyCache.Outcome in
+            let settled = await settle(run, scope: scope, action: action.id, method: call.method, deadline: settleDeadline)
             let result = settled.map { snapshot -> JSONValue in
                 var reply = reply
                 if let target = request.target { reply["resolved"] = resolvedJSON(target, in: snapshot.topology) }
@@ -124,8 +121,16 @@ extension ControlRouter {
             }
             if let key { idempotency.finish(key, with: result) }
             return result
-        }.value
-        return try outcome.get()
+        }
+        guard wait else {
+            // The scope keeps deriving mutation ids until the handler's work settles.
+            var immediate = reply
+            if let target = request.target { immediate["resolved"] = resolvedJSON(target, in: call.snapshot.topology) }
+            immediate["created"] = []
+            immediate["sequence"] = JSONValue.number(Double(snapshots.current.topology.daemonSequence))
+            return .object(immediate)
+        }
+        return try await settling.value.get()
     }
 
     /// `target` resolved to the object's public id, with the model key the handler got.
@@ -178,8 +183,8 @@ extension ControlRouter {
     }
 
     static func scopeError(_ failure: ControlCommandScope.Failure, action: String, method: String) -> ControlError {
-        workError(ActionWorkFailure(failure.message, terminalMayAppear: failure.terminalMayAppear), action: action, method: method,
-                  mayHaveApplied: failure.mayHaveApplied)
+        workError(ActionWorkFailure(failure.message, mayHaveApplied: failure.mayHaveApplied, terminalMayAppear: failure.terminalMayAppear),
+                  action: action, method: method)
     }
 
     /// Maps a non-`ran` outcome to its error.

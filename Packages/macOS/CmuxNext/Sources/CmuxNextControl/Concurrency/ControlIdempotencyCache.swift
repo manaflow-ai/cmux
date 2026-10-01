@@ -6,7 +6,8 @@ import Synchronization
 /// A retry with the key of a finished run gets that run's reply; a retry
 /// while the run is still settling waits for it. A run that never started
 /// (`not_run`) leaves no entry, so its retry runs. A key reused for a
-/// different request is a conflict. Bounded: the oldest entries go first.
+/// different request is a conflict. Bounded: the oldest finished entries go
+/// first; in-flight entries stay until their run settles.
 public final class ControlIdempotencyCache: Sendable {
     public typealias Outcome = Result<JSONValue, ControlError>
 
@@ -60,10 +61,13 @@ public final class ControlIdempotencyCache: Sendable {
             }
             state.entries[key] = Entry(fingerprint: fingerprint)
             state.order.append(key)
-            if state.order.count > limit {
-                // Oldest first; an in-flight entry's joiners learn it never ran.
-                let evicted = state.order.removeFirst()
-                state.entries.removeValue(forKey: evicted)?.waiters.forEach { $0.resume(returning: nil) }
+            // Oldest finished entry first. An in-flight entry stays until its
+            // run calls `finish` or `forget`: those carry only the key, so a
+            // recycled key would hand one run's outcome to another.
+            while state.order.count > limit {
+                guard let index = state.order.firstIndex(where: { state.entries[$0]?.outcome != nil }) else { break }
+                let evicted = state.order.remove(at: index)
+                state.entries.removeValue(forKey: evicted)
             }
             return .run
         }
