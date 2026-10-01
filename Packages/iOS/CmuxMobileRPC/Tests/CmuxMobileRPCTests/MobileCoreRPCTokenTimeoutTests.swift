@@ -183,26 +183,17 @@ import Testing
         await tokenProvider.release()
     }
 
-    @Test func resetTimedOutSuppressionAllowsAFreshProviderImmediately() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func resetTimedOutSuppressionAllowsAFreshProviderImmediately() async throws {
         let tokenProvider = CancellationIgnoringTokenProvider()
-        // A long window: without the explicit reset, every request inside it
-        // fails fast without starting a provider.
-        let gate = RPCStackTokenGate(timedOutResetNanoseconds: 3_600_000_000_000)
-
-        do {
-            _ = try await gate.token(timeoutNanoseconds: 1) {
-                try await tokenProvider.token()
-            }
-            Issue.record("Expected first token request to time out")
-        } catch MobileShellConnectionError.requestTimedOut {
-        } catch {
-            Issue.record("Expected requestTimedOut, got \(error)")
-        }
+        let deadline = RPCDialDeadlineGate()
+        let gate = RPCStackTokenGate(timedOutResetNanoseconds: 3_600_000_000_000,
+            taskTimeout: RPCTaskTimeout(sleep: { _ in try await deadline.waitForExpiration() }))
+        await expireToken(gate: gate, tokenProvider: tokenProvider, deadline: deadline, startCount: 1)
         #expect(await tokenProvider.startCount == 1)
 
-        // Poisoned: fails fast, no new provider.
         do {
-            _ = try await gate.token(timeoutNanoseconds: 1) {
+            _ = try await gate.token(timeoutNanoseconds: 60 * 1_000_000_000) {
                 try await tokenProvider.token()
             }
             Issue.record("Expected suppressed token request to fail fast")
@@ -212,8 +203,6 @@ import Testing
         }
         #expect(await tokenProvider.startCount == 1)
 
-        // A completed sign-in (or explicit pairing attempt) clears the window:
-        // the very next request starts a fresh provider.
         await gate.resetTimedOutSuppression()
         await tokenProvider.release()
         let token = try await waitForReleasedToken(gate: gate, tokenProvider: tokenProvider)
@@ -221,34 +210,19 @@ import Testing
         #expect(await tokenProvider.startCount == 2)
     }
 
-    @Test func timedOutStackTokenGateRetriesAfterBoundedReset() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func timedOutStackTokenGateRetriesAfterBoundedReset() async throws {
         let tokenProvider = CancellationIgnoringTokenProvider()
-        let gate = RPCStackTokenGate(timedOutResetNanoseconds: 0)
-
-        do {
-            _ = try await gate.token(timeoutNanoseconds: 1) {
-                try await tokenProvider.token()
-            }
-            Issue.record("Expected first token request to time out")
-        } catch MobileShellConnectionError.requestTimedOut {
-        } catch {
-            Issue.record("Expected requestTimedOut, got \(error)")
-        }
+        let deadline = RPCDialDeadlineGate()
+        let gate = RPCStackTokenGate(timedOutResetNanoseconds: 0,
+            taskTimeout: RPCTaskTimeout(sleep: { _ in try await deadline.waitForExpiration() }))
+        await expireToken(gate: gate, tokenProvider: tokenProvider, deadline: deadline, startCount: 1)
         #expect(await tokenProvider.startCount == 1)
-
-        do {
-            _ = try await gate.token(timeoutNanoseconds: 1) {
-                try await tokenProvider.token()
-            }
-            Issue.record("Expected reset token request to time out")
-        } catch MobileShellConnectionError.requestTimedOut {
-        } catch {
-            Issue.record("Expected requestTimedOut, got \(error)")
-        }
+        await expireToken(gate: gate, tokenProvider: tokenProvider, deadline: deadline, startCount: 2)
         #expect(await tokenProvider.startCount == 2)
 
         do {
-            _ = try await gate.token(timeoutNanoseconds: 1) {
+            _ = try await gate.token(timeoutNanoseconds: 60 * 1_000_000_000) {
                 try await tokenProvider.token()
             }
             Issue.record("Expected retry budget to block a third stuck provider")
@@ -414,9 +388,12 @@ import Testing
         #expect(try await transport.sentRequests().isEmpty)
     }
 
-    @Test func cancelledStackTokenGateRetriesAfterBoundedReset() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func cancelledStackTokenGateRetriesAfterBoundedReset() async throws {
         let tokenProvider = CancellationIgnoringTokenProvider()
-        let gate = RPCStackTokenGate(timedOutResetNanoseconds: 0)
+        let deadline = RPCDialDeadlineGate()
+        let gate = RPCStackTokenGate(timedOutResetNanoseconds: 0,
+            taskTimeout: RPCTaskTimeout(sleep: { _ in try await deadline.waitForExpiration() }))
 
         let first = Task {
             try await gate.token(timeoutNanoseconds: 60 * 1_000_000_000) {
@@ -424,23 +401,15 @@ import Testing
             }
         }
         await tokenProvider.waitUntilStartCount(1)
+        await deadline.waitUntilArmed()
         first.cancel()
         await #expect(throws: CancellationError.self) { try await first.value }
         #expect(await tokenProvider.startCount == 1)
-
-        do {
-            _ = try await gate.token(timeoutNanoseconds: 1) {
-                try await tokenProvider.token()
-            }
-            Issue.record("Expected reset token request to time out")
-        } catch MobileShellConnectionError.requestTimedOut {
-        } catch {
-            Issue.record("Expected requestTimedOut, got \(error)")
-        }
+        await expireToken(gate: gate, tokenProvider: tokenProvider, deadline: deadline, startCount: 2)
         #expect(await tokenProvider.startCount == 2)
 
         do {
-            _ = try await gate.token(timeoutNanoseconds: 1) {
+            _ = try await gate.token(timeoutNanoseconds: 60 * 1_000_000_000) {
                 try await tokenProvider.token()
             }
             Issue.record("Expected retry budget to block a third stuck provider")
@@ -456,10 +425,35 @@ import Testing
         #expect(await tokenProvider.startCount == 3)
     }
 
+    private func expireToken(
+        gate: RPCStackTokenGate,
+        tokenProvider: CancellationIgnoringTokenProvider,
+        deadline: RPCDialDeadlineGate,
+        startCount: Int
+    ) async {
+        let request = Task {
+            try await gate.token(timeoutNanoseconds: 60 * 1_000_000_000) {
+                try await tokenProvider.token()
+            }
+        }
+        await tokenProvider.waitUntilStartCount(startCount)
+        await deadline.waitUntilArmed(startCount)
+        await deadline.expire()
+        do {
+            _ = try await request.value
+            Issue.record("Expected the controlled token deadline to expire")
+        } catch MobileShellConnectionError.requestTimedOut {
+        } catch {
+            Issue.record("Expected requestTimedOut, got \(error)")
+        }
+    }
+
     private func waitForReleasedToken(gate: RPCStackTokenGate, tokenProvider: CancellationIgnoringTokenProvider) async throws -> String {
         for _ in 0..<200 {
             do {
-                return try await gate.token(timeoutNanoseconds: 1) {
+                // This acquisition must succeed after cleanup; a one-nanosecond
+                // deadline races the released provider and creates extra retries.
+                return try await gate.token(timeoutNanoseconds: 60 * 1_000_000_000) {
                     try await tokenProvider.token()
                 }
             } catch MobileShellConnectionError.requestTimedOut {

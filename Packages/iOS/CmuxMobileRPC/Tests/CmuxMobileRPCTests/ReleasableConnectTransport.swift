@@ -8,6 +8,8 @@ actor ReleasableConnectTransport: CmxByteTransport {
     private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
     private var queuedResponses: [Data] = []
     private var connectStarted = false
+    private var connectStartWaiters: [CheckedContinuation<Bool, Never>] = []
+    private(set) var connectCount = 0
     private var connectReleased = false
     private var isClosed = false
     private var closeStarted = false
@@ -20,7 +22,10 @@ actor ReleasableConnectTransport: CmxByteTransport {
     }
 
     func connect() async throws {
+        connectCount += 1
         connectStarted = true
+        connectStartWaiters.forEach { $0.resume(returning: true) }
+        connectStartWaiters.removeAll()
         if isClosed {
             throw CancellationError()
         }
@@ -107,13 +112,8 @@ actor ReleasableConnectTransport: CmxByteTransport {
     }
 
     func waitUntilConnectStarted() async -> Bool {
-        for _ in 0..<200 {
-            if connectStarted {
-                return true
-            }
-            try? await Task.sleep(nanoseconds: 1_000_000)
-        }
-        return connectStarted
+        if connectStarted { return true }
+        return await withCheckedContinuation { connectStartWaiters.append($0) }
     }
 
     func sentRequests() throws -> [RecordedRPCRequest] {

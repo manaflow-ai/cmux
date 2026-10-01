@@ -369,6 +369,7 @@ struct IrxLiveQUICTests {
             // error; the owner classification is the behavior under test.
         }
 
+        #expect(try await irx.waitForTestRetirement())
         #expect(await releaseProbe.count == 1)
         #expect(await releaseProbe.closeCodes == [.explicitRedial])
         #expect(await releaseProbe.retiresConnections == [true])
@@ -436,16 +437,11 @@ struct IrxLiveQUICTests {
         do {
             try await connectTask.value
             Issue.record("establishment unexpectedly succeeded after close")
-        } catch let error as IrxConnectionError {
-            switch error {
-            case .closed:
-                break
-            default:
-                Issue.record("unexpected connection error: \(error)")
-            }
+        } catch IrxConnectionError.closed {
         } catch {
             Issue.record("unexpected error: \(error)")
         }
+        #expect(try await releaseProbe.waitForRelease())
         #expect(await releaseProbe.count == 1)
         // The owner never used the lane, so no EOF reached the Mac and the
         // admitted session stays usable by the owner that replaced it.

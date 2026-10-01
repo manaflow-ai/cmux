@@ -91,6 +91,7 @@ import Testing
             Issue.record("Expected CancellationError, got \(error)")
         }
         await transport.waitUntilFirstConnectFinished()
+        await session.waitForTransportDrain()
         #expect(await cancellationSignal.waitUntilObserved())
 
         let data = try await session.send(
@@ -103,26 +104,22 @@ import Testing
 
         continuation.finish()
         let recorded = await collect(events)
-        #expect(recorded.count == 5)
-        guard recorded.count == 5 else {
+        #expect(recorded.count == 4)
+        guard recorded.count == 4 else {
             await session.tearDown(error: .connectionClosed)
             return
         }
         guard case let .attempt(firstAttemptID, _) = recorded[0],
               case let .cancelled(cancelledID, cancelledTransport, cancellationReason, _) = recorded[1],
-              case let .failed(abandonedID, abandonedTransport, abandonedFailure, _) = recorded[2],
-              case let .attempt(secondAttemptID, _) = recorded[3],
-              case let .connected(connectedID, _, _, sessionID) = recorded[4] else {
-            Issue.record("Expected attempt, cancelled(reason), failed(cancelled), attempt, connected")
+              case let .attempt(secondAttemptID, _) = recorded[2],
+              case let .connected(connectedID, _, _, sessionID) = recorded[3] else {
+            Issue.record("Expected exactly one terminal event per dial: attempt, cancelled(reason), attempt, connected")
             await session.tearDown(error: .connectionClosed)
             return
         }
-        #expect(abandonedID == firstAttemptID)
         #expect(cancelledID == firstAttemptID)
         #expect(cancelledTransport == .debugLoopback)
         #expect(cancellationReason == .requestCancelled)
-        #expect(abandonedTransport == .debugLoopback)
-        #expect(abandonedFailure == .cancelled)
         #expect(connectedID == secondAttemptID)
         #expect(sessionID == nil)
         await session.tearDown(error: .connectionClosed)
@@ -220,8 +217,7 @@ private actor MobileRPCConnectCancellationSignal {
     private var observed = false
 
     func record(_ event: MobileRPCTransportConnectEvent) {
-        guard case let .failed(_, _, failure, _) = event,
-              failure == .cancelled else {
+        guard case .cancelled = event else {
             return
         }
         observed = true

@@ -14,6 +14,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     public static let defaultPairingRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
     public static let defaultPairingAttemptTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
 
+    public var connectionReadiness: (any MobileConnectionReadinessProviding)?
     public var supportedRouteKinds: [CmxAttachTransportKind]
     public var transportFactory: any CmxByteTransportFactory
     public var stackAccessTokenProvider: @Sendable () async throws -> String
@@ -155,9 +156,11 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         artifactLaneProvider: MobileArtifactLaneProvider? = nil,
         simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? = nil,
         independentEventsMergeSurfaceLanes: Bool = false,
+        connectionReadiness: (any MobileConnectionReadinessProviding)? = nil,
         tunnelConnectProvider: MobileTunnelConnectProvider? = nil,
         tunnelListeningPortsProvider: MobileTunnelListeningPortsProvider? = nil
     ) {
+        self.connectionReadiness = connectionReadiness
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
         self.stackAccessTokenProvider = stackAccessTokenProvider ?? { throw AuthError.unauthorized }
@@ -194,9 +197,11 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         artifactLaneProvider: MobileArtifactLaneProvider? = nil,
         simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? = nil,
         independentEventsMergeSurfaceLanes: Bool = false,
+        connectionReadiness: (any MobileConnectionReadinessProviding)? = nil,
         tunnelConnectProvider: MobileTunnelConnectProvider? = nil,
         tunnelListeningPortsProvider: MobileTunnelListeningPortsProvider? = nil
     ) {
+        self.connectionReadiness = connectionReadiness
         self.supportedRouteKinds = transportFactory.supportedKinds
         self.transportFactory = transportFactory
         self.stackAccessTokenProvider = stackAccessTokenProvider ?? { throw AuthError.unauthorized }

@@ -17,6 +17,7 @@ final class TestClock: @unchecked Sendable {
 }
 
 struct LivenessTestRuntime: MobileSyncRuntime {
+    var connectionReadiness: (any MobileConnectionReadinessProviding)? = nil
     var transportFactory: any CmxByteTransportFactory
     var stackAccessTokenProvider: @Sendable () async throws -> String = { "test-stack-token" }
     var stackAccessTokenForceRefresher: @Sendable () async throws -> String = { "test-stack-token" }
@@ -59,6 +60,7 @@ final class ReconnectDeadlineGate: @unchecked Sendable {
     private let lock = NSLock()
     private var pending: [UUID: CheckedContinuation<Void, any Error>] = [:]
     private var armed = 0
+    private let armEvents = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
 
     var pendingCount: Int { lock.withLock { pending.count } }
     /// Deadlines ever armed, including settled and expired ones.
@@ -76,12 +78,17 @@ final class ReconnectDeadlineGate: @unchecked Sendable {
                 }
                 if alreadyCancelled {
                     continuation.resume(throwing: CancellationError())
-                }
+                } else { armEvents.continuation.yield(()) }
             }
         } onCancel: {
             let continuation = lock.withLock { pending.removeValue(forKey: id) }
             continuation?.resume(throwing: CancellationError())
         }
+    }
+
+    func waitUntilArmed() async {
+        if pendingCount > 0 { return }
+        for await _ in armEvents.stream where pendingCount > 0 { return }
     }
 
     /// Expires every deadline currently pending.

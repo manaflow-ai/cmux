@@ -257,6 +257,10 @@ class IOSNativeLintAdmissionTests(unittest.TestCase):
                 ("", "", (True, True)),
                 ("", "cmuxFeatureTests", (False, True)),
                 ("", "cmuxUITests/Focused", (False, True)),
+                ("CmuxIrxTransport", "Focused", (True, False)),
+                ("CmuxIrxTransport", "", (True, False)),
+                ("CmuxMobileRPC", "Focused", (True, False)),
+                ("CmuxMobileRPC", "", (True, False)),
                 ("CmuxMobileShell", "Focused", (True, False)),
                 ("CmuxMobileShell", "", (True, False)),
             ):

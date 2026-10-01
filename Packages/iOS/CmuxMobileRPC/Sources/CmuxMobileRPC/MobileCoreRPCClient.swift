@@ -141,9 +141,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             independentEventFactory = nil
         }
         self.session = MobileCoreRPCSession(
-            connectAttemptKey: MobileRPCConnectAttemptKey(
-                route: route
-            ),
+            connectAttemptKey: MobileRPCConnectAttemptKey(route: route),
             connectAttemptRegistry: connectAttemptRegistry,
             abandonedConnectCleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateAbandonedConnectCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds,
@@ -155,7 +153,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             makeIndependentEventByteStream: independentEventFactory,
             diagnosticTransport: route.kind.diagnosticTransportKind,
             transportConnectObserver: transportConnectObserver,
-            initialTransportSessionPurpose: sessionPurpose
+            initialTransportSessionPurpose: sessionPurpose,
+            connectionReadiness: runtime.connectionReadiness
         )
     }
 

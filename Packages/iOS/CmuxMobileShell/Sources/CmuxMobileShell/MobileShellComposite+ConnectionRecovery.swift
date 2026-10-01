@@ -54,10 +54,9 @@ extension MobileShellComposite {
     /// enter the same owner. Foreground starts with a positive-liveness probe;
     /// a failed probe promotes that exact attempt to one stored-Mac redial.
     func recoverForegroundConnectionIfNeeded(resyncAfterHealthy: Bool) {
-        guard connectionState == .connected,
-              let client = remoteClient,
-              pairedMacStore != nil else { return }
-        guard foregroundRefreshIsActive else {
+        guard !isReconnectingStoredMac, connectionState == .connected,
+              let client = remoteClient, pairedMacStore != nil else { return }
+        guard connectionEstablishmentIsAllowed else {
             pendingInactiveRecoveryTrigger = .foreground
             return
         }
@@ -79,7 +78,7 @@ extension MobileShellComposite {
         guard remoteClient != nil || pairedMacStore != nil else { return }
         // A dial launched while the scene is inactive suspends with the
         // process; park the trigger and replay it once on foreground.
-        guard foregroundRefreshIsActive else {
+        guard connectionEstablishmentIsAllowed else {
             pendingInactiveRecoveryTrigger = trigger
             return
         }
@@ -98,13 +97,16 @@ extension MobileShellComposite {
         // advance the generation, and cancel the dial already in flight.
         // Automatic wake-ups are satisfied by the active restore. Manual retry
         // and connection-method changes remain explicit replacements.
-        if isReconnectingStoredMac, !connectionRecoveryOwner.isActive {
+        if (isReconnectingStoredMac || forcedStoredMacRetry != nil
+            || storedMacReconnectAttempt?.generation == storedMacReconnectGeneration),
+           !connectionRecoveryOwner.isActive {
             switch trigger {
             case .manual, .connectionMethodChanged:
                 break
             case .networkChange, .presencePush, .directoryChanged, .foreground, .liveness,
                  .eventStreamEnded, .subscriptionStartFailed,
                  .transportWriteTimedOut, .automaticBackoffExpired:
+                if storedMacReconnectAttempt?.retirement != nil { pendingInactiveRecoveryTrigger = trigger }
                 MobileDebugLog.anchormux(
                     "connection.recovery coalesced trigger=\(trigger.description) "
                         + "storedMacGeneration=\(storedMacReconnectGeneration)"
@@ -242,7 +244,7 @@ extension MobileShellComposite {
         expectedClient: MobileCoreRPCClient
     ) {
         guard remoteClient === expectedClient, connectionState == .connected else { return }
-        guard foregroundRefreshIsActive else {
+        guard connectionEstablishmentIsAllowed else {
             pendingInactiveRecoveryTrigger = trigger
             return
         }
@@ -287,8 +289,13 @@ extension MobileShellComposite {
     /// foreground recovery passes, so a replay coalesces into any attempt
     /// they already started instead of stacking a second dial.
     func recoverPendingInactiveRecoveryIfNeeded() {
-        guard foregroundRefreshIsActive,
-              let trigger = pendingInactiveRecoveryTrigger else { return }
+        guard isSignedIn, connectionEstablishmentIsAllowed, !isReconnectingStoredMac,
+              storedMacReconnectGenerationsInFlight.isEmpty, !connectionRecoveryOwner.isActive else { return }
+        if pendingForcedStoredMacReconnect {
+            finishStoredMacReconnectAttempt(generation: storedMacReconnectGeneration)
+            return
+        }
+        guard let trigger = pendingInactiveRecoveryTrigger else { return }
         pendingInactiveRecoveryTrigger = nil
         recoverMobileConnection(trigger: trigger)
     }
@@ -743,6 +750,7 @@ extension MobileShellComposite {
             connectionRecoveryFailed = true
             if connectionState != .connected { macConnectionStatus = .unavailable }
         }
+        recoverPendingInactiveRecoveryIfNeeded()
     }
 
     private func markMacConnectionUnavailableIfNoStore() {
@@ -1130,13 +1138,10 @@ extension MobileShellComposite {
         failure: DiagnosticFailureKind,
         stackUserID: String?
     ) {
-        guard failure != .authorizationFailed,
-              failure != .accountMismatch,
+        guard failure != .cancelled, failure != .superseded,
+              failure != .authorizationFailed, failure != .accountMismatch,
               !connectionRequiresReauth else { return }
         guard isSignedIn, connectionState != .connected else { return }
-        guard Self.shouldRecordReconnectBackoff(
-            abandonedDialCount: abandonedReconnectDialCount
-        ) else { return }
         guard let accountID = stackUserID ?? identityProvider?.currentUserID else {
             return
         }
@@ -1144,6 +1149,7 @@ extension MobileShellComposite {
     }
 
     func recordTransientAutomaticReconnectBackoff(accountID: String) {
+        guard shouldScheduleReconnectBackoff() else { return }
         let now = runtime?.now() ?? Date()
         let retryAt = automaticReconnectBackoffOwner.recordTransientFailure(
             accountID: accountID,
@@ -1431,14 +1437,8 @@ extension MobileShellComposite {
     /// Races `operation` against a wall-clock deadline. Returns the
     /// operation's value, or `nil` when the deadline expires first.
     ///
-    /// Deliberately UNSTRUCTURED: a task group would structurally await the
-    /// losing child, so a dial that ignores cancellation (the exact wedge
-    /// this exists for) would suspend the race forever. Instead the
-    /// operation runs in its own task that the deadline path abandons after
-    /// a best-effort cancel; the once-guard is MainActor-confined so exactly
-    /// one side resumes. An abandoned dial retains its captures until it
-    /// eventually resolves — bounded by transport teardown and precisely the
-    /// cost of not being wedged.
+    /// Transport owners cancel their native work independently. This outer
+    /// race also bounds noncooperative store/auth work without awaiting it.
     /// Ceiling on concurrently outstanding abandoned (wedged) dials before
     /// automatic retries pause. A dial that resolves reclaims its slot and
     /// re-arms the automatic retry when still disconnected.

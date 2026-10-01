@@ -34,6 +34,8 @@ struct IrxControlSupersededOwnerTests {
             await dial.release()
             await #expect(throws: IrxConnectionError.self) { try await connect.value }
 
+            // The closed owner returns at once; its late dial reports the release.
+            #expect(try await release.waitForRelease())
             #expect(await release.count == 1)
             #expect(await release.retiresConnections == [false])
             #expect(await !fixture.clientConnection.isConnectionClosed())

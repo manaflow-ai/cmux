@@ -14,6 +14,17 @@ struct MobileIrxRuntimeLifecycleTests {
     private static let eventBudget: Duration = .seconds(15)
 
     @Test
+    func cancellationDuringReadinessCannotProceedIntoTheDial() async {
+        let gate = MobileIrxReadinessTestGate()
+        let composition = await makeComposition(permitsConnection: { await gate.wait() })
+        let dial = Task { try await composition.dialOnce(peerHex: String(repeating: "a", count: 64)) }
+        await gate.waitUntilStarted()
+        dial.cancel()
+        await gate.release()
+        await #expect(throws: CancellationError.self) { _ = try await dial.value }
+    }
+
+    @Test
     func endpointReadyPublishesRuntimeChanges() async {
         let composition = await makeComposition()
         let updates = await composition.changes()
@@ -108,7 +119,9 @@ struct MobileIrxRuntimeLifecycleTests {
     }
 
     @MainActor
-    private func makeComposition() -> MobileIrxRuntimeComposition {
+    private func makeComposition(
+        permitsConnection: @escaping @Sendable () async -> Bool = { true }
+    ) -> MobileIrxRuntimeComposition {
         MobileIrxRuntimeComposition(
             configuration: MobileIrohV2Configuration(
                 baseURL: URL(string: "https://example.test")!,
@@ -121,7 +134,8 @@ struct MobileIrxRuntimeLifecycleTests {
                 stateDirectory: FileManager.default.temporaryDirectory
                     .appendingPathComponent("cmux-iroh-runtime-tests-\(UUID().uuidString)")
             ),
-            macListAuthState: MobileMacListAuthState()
+            macListAuthState: MobileMacListAuthState(),
+            permitsConnection: permitsConnection
         )
     }
 }

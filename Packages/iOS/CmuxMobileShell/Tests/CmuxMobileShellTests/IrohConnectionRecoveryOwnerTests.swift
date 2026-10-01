@@ -653,10 +653,8 @@ extension ReconnectRouteSelectionTests {
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         let retryClient = try #require(fixture.store.remoteClient)
 
-        // The held recovery dial never answers. Its deadline is the only one
-        // left pending once the retry settled; expire it now.
-        #expect(try await pollUntil { deadlines.pendingCount == 1 })
-        deadlines.expirePending()
+        // Replacing the owner cancels its deadline even while native work is held.
+        #expect(try await pollUntil { deadlines.pendingCount == 0 })
         #expect(try await pollUntil { !fixture.store.connectionRecoveryOwner.isActive })
         #expect(fixture.store.connectionState == .connected)
         #expect(fixture.store.remoteClient === retryClient)
