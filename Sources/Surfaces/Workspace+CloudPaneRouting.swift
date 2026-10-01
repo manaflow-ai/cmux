@@ -51,6 +51,7 @@ final class CloudWorkspaceRenameService {
         self.environment = environment
     }
 
+    @MainActor
     func clearRejectedAutomaticTabClears(on machine: SurfaceMachineID) {
         rejectedAutomaticTabClears = rejectedAutomaticTabClears.filter { $0.key.machine != machine }
     }

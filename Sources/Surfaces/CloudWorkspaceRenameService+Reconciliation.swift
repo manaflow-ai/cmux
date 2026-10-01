@@ -154,6 +154,10 @@ extension CloudWorkspaceRenameService {
                 )
                 continue
             }
+            if workspace.panelCustomTitleSources[projection.panelID] == .user,
+               tab.nameAuthority?.source != .user {
+                continue
+            }
             guard workspace.panelCustomTitles[projection.panelID] != tab.name else { continue }
             if workspace.panelCustomTitles[projection.panelID] == tab.name,
                workspace.panelCustomTitleSources[projection.panelID] == .user { continue }
