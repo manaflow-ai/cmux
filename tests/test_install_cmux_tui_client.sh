@@ -106,6 +106,17 @@ if [[ "\${FAKE_CURL_RESUME_RESET:-0}" == 1 && "\$url" == */cmux-tui-aarch64-appl
   [[ "\$args" == *'--continue-at -'* ]] || { echo 'missing resume flag' >&2; exit 99; }
   [[ ! -s "\$out" ]] || { echo 'rejected partial was not removed' >&2; exit 99; }
 fi
+if [[ "\${FAKE_CURL_TRANSIENT_503:-0}" == 1 && "\$url" == */cmux-tui-aarch64-apple-darwin ]]; then
+  marker="\$out.transient-503-seen"
+  if [[ ! -e "\$marker" ]]; then
+    head -c 4 "$SERVE/\$(basename "\$url")" > "\$out"
+    : > "\$marker"
+    printf '503'
+    exit 22
+  fi
+  [[ -s "\$out" ]] || { echo 'transient HTTP failure discarded the resumable partial' >&2; exit 99; }
+  printf 'resume-preserved\n' >> "$EVENTS"
+fi
 cp "$SERVE/\$(basename "\$url")" "\$out"
 SH
 cat > "$FAKEBIN/gh" <<SH
@@ -188,6 +199,14 @@ FAKE_CURL_RESUME_RESET=1 install_remote "$RESUME_APP" --arch arm64 > "$TEST_DIR/
 cmp "$CLIENT" "$RESUME_APP/Contents/Resources/bin/cmux-tui"
 echo "PASS: rejected ranges clear partial slices before retrying"
 
+# A transient HTTP error must preserve a valid partial so the next attempt can
+# resume it instead of restarting within the same bounded download budget.
+TRANSIENT_APP="$TEST_DIR/Transient503.app"
+FAKE_CURL_TRANSIENT_503=1 install_remote "$TRANSIENT_APP" --arch arm64 > "$TEST_DIR/transient-503.log" 2>&1
+cmp "$CLIENT" "$TRANSIENT_APP/Contents/Resources/bin/cmux-tui"
+grep -q '^resume-preserved$' "$EVENTS"
+echo "PASS: transient HTTP failures preserve resumable partial slices"
+
 # A manifest is published only after a complete successful download. A failed
 # manifest request must leave neither the final cache path nor a reusable temp.
 FAILED_MANIFEST_CACHE="$TEST_DIR/failed-manifest-cache"
@@ -202,7 +221,7 @@ if FAKE_CURL_FAIL_MANIFEST=1 PATH="$FAKEBIN:$PATH" \
   echo "FAIL: installed after a failed manifest download" >&2
   exit 1
 fi
-if find "$FAILED_MANIFEST_CACHE" -maxdepth 1 -name 'manifest.*.json' -print -quit | grep -q .; then
+if find "$FAILED_MANIFEST_CACHE" -maxdepth 1 -name 'manifest.*' -print -quit | grep -q .; then
   echo "FAIL: failed manifest was published" >&2
   exit 1
 fi

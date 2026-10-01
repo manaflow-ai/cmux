@@ -169,14 +169,21 @@ download() { # <url> <output> [resume]
     )
     (( resume )) && curl_args+=(--continue-at -)
     local status=0
-    curl "${curl_args[@]}" "$url" -o "$output" || status=$?
+    local http_code_file="$output.http-code"
+    local http_code=""
+    rm -f "$http_code_file"
+    curl "${curl_args[@]}" --write-out '%{http_code}' "$url" -o "$output" >"$http_code_file" || status=$?
+    http_code="$(cat "$http_code_file" 2>/dev/null || true)"
+    rm -f "$http_code_file"
+    [[ "$http_code" =~ ^[0-9]{3}$ ]] || http_code=""
     if (( status == 0 )); then
       return 0
     fi
     # A rejected range leaves an invalid partial behind. curl reports both
-    # range errors (33) and --fail responses such as HTTP 416 (22); clear it
-    # before checking the retry budget so the final failed attempt is covered.
-    if (( resume )) && (( status == 22 || status == 33 )); then rm -f "$output"; fi
+    # range errors as 33 and an HTTP 416 response as 22 with a write-out code.
+    # Preserve the partial for transient HTTP failures such as 503 so a later
+    # attempt can resume it within the remaining budget.
+    if (( resume )) && (( status == 33 || http_code == 416 )); then rm -f "$output"; fi
     if (( attempt >= DOWNLOAD_ATTEMPTS )); then
       echo "error: could not download $url after $attempt attempts" >&2
       (( resume )) || rm -f "$output"
