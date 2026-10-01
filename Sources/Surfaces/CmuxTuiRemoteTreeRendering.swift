@@ -229,14 +229,8 @@ extension CmuxTuiRemoteRouting {
         // link is connecting/asleep/failed. The link-status line above explains
         // why workspace membership may be stale; hiding the terminals would
         // make an otherwise addressable resource disappear from the catalog.
-        let terminalsLabel = CMUXDiffViewerLocalization.string(
-            "cli.vm.tree.terminals",
-            defaultValue: "terminals/"
-        )
-        let noTerminalsLabel = CMUXDiffViewerLocalization.string(
-            "cli.vm.tree.noTerminals",
-            defaultValue: "(no terminals)"
-        )
+        let terminalsLabel = String(localized: "cli.vm.tree.terminals", defaultValue: "terminals/")
+        let noTerminalsLabel = String(localized: "cli.vm.tree.noTerminals", defaultValue: "(no terminals)")
         lines.append("  " + terminalsLabel)
         if terminals.isEmpty {
             lines.append("    " + noTerminalsLabel)
