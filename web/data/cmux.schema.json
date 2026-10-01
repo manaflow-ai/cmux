@@ -1159,6 +1159,12 @@
           "default": true,
           "description": "Blink the pane flash twice instead of one short pulse."
         },
+        "paneFlashOnTyping": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": true,
+          "description": "Flash the pane when terminal typing dismisses its notification."
+        },
         "paneFlashThemeColor": {
           "x-cmux-scopes": ["global"],
           "type": "boolean",

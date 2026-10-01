@@ -33,6 +33,13 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "notificationPaneFlashDoubleBlink"
     )
 
+    /// Flash the pane when terminal typing dismisses its notification.
+    public let paneFlashOnTyping = DefaultsKey<Bool>(
+        id: "notifications.paneFlashOnTyping",
+        defaultValue: true,
+        userDefaultsKey: "notificationPaneFlashOnTyping"
+    )
+
     public let paneFlashThemeColor = DefaultsKey<Bool>(
         id: "notifications.paneFlashThemeColor",
         defaultValue: false,

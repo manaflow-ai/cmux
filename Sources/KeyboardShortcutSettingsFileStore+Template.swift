@@ -132,6 +132,7 @@ extension CmuxSettingsFileStore {
                     "unreadPaneRing": NotificationPaneRingSettings.defaultEnabled,
                     "paneFlash": NotificationPaneFlashSettings.defaultEnabled,
                     "paneFlashDoubleBlink": NotificationPaneFlashSettings.defaultDoubleBlink,
+                    "paneFlashOnTyping": NotificationPaneFlashSettings.defaultOnTyping,
                     "paneFlashThemeColor": NotificationPaneFlashSettings.defaultThemeColor,
                     "paneFlashColor": NSNull(),
                     "sound": NotificationSoundSettings.defaultValue,

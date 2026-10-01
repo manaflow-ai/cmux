@@ -1163,6 +1163,24 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Flash the focused pane when requested."
         },
+        "paneFlashDoubleBlink": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": true,
+          "description": "Blink the pane flash twice instead of one short pulse."
+        },
+        "paneFlashOnTyping": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": true,
+          "description": "Flash the pane when terminal typing dismisses its notification."
+        },
+        "paneFlashThemeColor": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": false,
+          "description": "Use the terminal theme foreground for flashes when paneFlashColor is unset. Unread rings remain cmux blue."
+        },
         "paneFlashColor": {
           "x-cmux-scopes": ["global"],
           "$ref": "#/$defs/colorHexOrNull",

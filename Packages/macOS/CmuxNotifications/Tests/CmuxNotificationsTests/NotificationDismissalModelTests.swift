@@ -13,6 +13,7 @@ private final class FakeHost: NotificationDismissalHosting {
     var focusedPanelIds: [UUID: UUID] = [:]
     var focusedSurfaceIds: [UUID: UUID] = [:]
     var suppressOnlyFocusedSurface = false
+    var paneFlashOnTyping = false
     var panelIdsBySurface: [UUID: UUID] = [:]
     var manualPanelUnread: Set<UUID> = []
     var restoredPanelUnread: Set<UUID> = []
@@ -267,6 +268,16 @@ struct NotificationDismissalModelTests {
         #expect(model.dismissNotificationOnTerminalInteraction(workspaceId: workspaceId, surfaceId: panelId))
         let prefix = String(panelId.uuidString.prefix(4))
         #expect(host.log == ["markRead:\(prefix)", "clearFocusedRead:\(prefix)"])
+    }
+
+    @Test func typingCanFlashWhenEnabled() {
+        let (model, host, workspaceId, panelId) = makeModel()
+        host.paneFlashOnTyping = true
+        host.unreadNotificationSurfaces = [panelId]
+
+        #expect(model.dismissNotificationOnTerminalInteraction(workspaceId: workspaceId, surfaceId: panelId))
+        let prefix = String(panelId.uuidString.prefix(4))
+        #expect(host.log == ["markRead:\(prefix)", "clearFocusedRead:\(prefix)", "notificationFlash"])
     }
 
     @Test func restoredUnreadNotClearedByPlainActiveFocus() {

@@ -239,6 +239,7 @@ enum NotificationSettingsFileMapping {
         .init(jsonKey: "unreadPaneRing", defaultsKey: NotificationPaneRingSettings.enabledKey),
         .init(jsonKey: "paneFlash", defaultsKey: NotificationPaneFlashSettings.enabledKey),
         .init(jsonKey: "paneFlashDoubleBlink", defaultsKey: NotificationPaneFlashSettings.doubleBlinkKey),
+        .init(jsonKey: "paneFlashOnTyping", defaultsKey: NotificationPaneFlashSettings.onTypingKey),
         .init(jsonKey: "paneFlashThemeColor", defaultsKey: NotificationPaneFlashSettings.themeColorKey),
         .init(
             jsonKey: "soundWhenFocused",

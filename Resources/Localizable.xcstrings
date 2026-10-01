@@ -606555,6 +606555,201 @@
         }
       }
     },
+    "settings.notifications.paneFlashOnTyping.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flash While Typing"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وميض أثناء الكتابة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Tippen blinken"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parpadeo al escribir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clignoter pendant la saisie"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力中に点滅"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력 중 깜빡임"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Блимати під час введення"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入时闪烁"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入時閃爍"
+          }
+        }
+      }
+    },
+    "settings.notifications.paneFlashOnTyping.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flash the pane when typing dismisses its notification."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وميض اللوحة عند رفض إشعارها أثناء الكتابة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Fenster aufblitzen lassen, wenn Tippen die Benachrichtigung schließt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hacer parpadear el panel cuando escribir descarta su notificación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faire clignoter le volet lorsque la saisie efface sa notification."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力で通知を消したときにペインを点滅させます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력으로 알림을 지울 때 패인을 깜빡입니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Блимати панеллю, коли введення закриває її сповіщення."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入文字清除通知时闪烁窗格。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入文字清除通知時閃爍窗格。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.pane-flash-on-typing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.paneFlashOnTyping pane flash typing terminal interaction notification pulse"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.paneFlashOnTyping pane flash typing terminal interaction notification pulse وميض أثناء الكتابة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.paneFlashOnTyping pane flash typing terminal interaction notification pulse blinken beim tippen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.paneFlashOnTyping pane flash typing terminal interaction notification pulse destello al escribir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.paneFlashOnTyping pane flash typing terminal interaction notification pulse flash pendant la saisie"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.paneFlashOnTyping pane flash typing terminal interaction notification pulse 入力中に点滅"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.paneFlashOnTyping pane flash typing terminal interaction notification pulse 입력 중 깜빡임"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.paneFlashOnTyping pane flash typing terminal interaction notification pulse спалах під час введення"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.paneFlashOnTyping pane flash typing terminal interaction notification pulse 输入时闪烁"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.paneFlashOnTyping pane flash typing terminal interaction notification pulse 輸入時閃爍"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.app.pane-flash-double-blink": {
       "extractionState": "manual",
       "localizations": {

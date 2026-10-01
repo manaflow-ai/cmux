@@ -52,6 +52,7 @@ enum SettingsSearchIndex {
         setting(.app, "pane-flash", String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash"), "notification flash highlight"),
         setting(.app, "pane-flash-theme-color", String(localized: "settings.notifications.paneFlashThemeColor.title", defaultValue: "Use Theme Foreground"), "notification flash terminal theme foreground blue ring"),
         setting(.app, "pane-flash-double-blink", String(localized: "settings.notifications.paneFlashDoubleBlink.title", defaultValue: "Double Blink"), "pane flash blink twice pulse"),
+        setting(.app, "pane-flash-on-typing", String(localized: "settings.notifications.paneFlashOnTyping.title", defaultValue: "Flash While Typing"), "notifications.paneFlashOnTyping pane flash typing terminal interaction notification pulse"),
         setting(.app, "desktop-notifications", String(localized: "settings.notifications.desktop", defaultValue: "Desktop Notifications"), "permission alerts test notification"),
         setting(.app, "notification-sound", String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"), "custom sound alert audio"),
         setting(

@@ -87,6 +87,7 @@ Notification behavior from Settings > Notifications.
 | `notifications.unreadPaneRing` | boolean | `true` | Highlight panes with unread notifications. |
 | `notifications.paneFlash` | boolean | `true` | Flash the focused pane when requested. |
 | `notifications.paneFlashDoubleBlink` | boolean | `true` | Use the default double blink; set false for the configurable single 0.6-second pulse. |
+| `notifications.paneFlashOnTyping` | boolean | `true` | Flash the pane when terminal typing dismisses its notification. Set false for a calmer typing interaction. |
 | `notifications.sound` | `"default"` or `"Basso"` or `"Blow"` or `"Bottle"` or `"Frog"` or `"Funk"` or `"Glass"` or `"Hero"` or `"Morse"` or `"Ping"` or `"Pop"` or `"Purr"` or `"Sosumi"` or `"Submarine"` or `"Tink"` or `"custom_file"` or `"none"` | `"default"` | Notification sound preset. |
 | `notifications.soundWhenFocused` | boolean | `false` | Play the notification sound even when the pane that notified is already focused. Off by default, so a focused pane shows only its ring and flash. |
 | `notifications.customSoundFilePath` | string | `""` | Local path to the custom notification sound file. |

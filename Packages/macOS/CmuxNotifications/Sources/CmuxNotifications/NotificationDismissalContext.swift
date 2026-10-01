@@ -22,11 +22,23 @@ public enum NotificationDismissalContext: Sendable {
         }
     }
 
-    /// Whether a dismissal in this context flashes the pane. Typing means the
-    /// user is already working in that pane, so the cleared ring is the
-    /// acknowledgement; a flash under their cursor only adds noise.
+    /// Whether a dismissal in this context flashes the pane.
+    ///
+    /// - Parameter flashOnTyping: Whether terminal typing should flash the
+    ///   pane after it dismisses a notification.
+    public func flashesOnDismiss(flashOnTyping: Bool) -> Bool {
+        switch self {
+        case .terminalInteraction:
+            return flashOnTyping
+        case .activeFocus, .explicitWorkspaceResume, .directInteraction:
+            return true
+        }
+    }
+
+    /// Whether a dismissal in this context flashes the pane using the calmer
+    /// default for terminal typing.
     public var flashesOnDismiss: Bool {
-        self != .terminalInteraction
+        flashesOnDismiss(flashOnTyping: false)
     }
 
     /// Whether this context may clear a manually-set unread indicator.
