@@ -3862,6 +3862,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObjectIfPresent(forKey: $0) }
     }
 
+    /// Forgets the last closed main window's frame so a test process opens its
+    /// first window at the default size.
+    nonisolated static func forgetPersistedWindowGeometryForTestProcess(
+        defaults: UserDefaults = .standard
+    ) {
+        removeLegacyPersistedWindowGeometry(defaults: defaults)
+        defaults.removeObjectIfPresent(forKey: persistedWindowGeometryDefaultsKey)
+    }
+
     private func persistWindowGeometry(from window: NSWindow?) {
         guard let window else { return }
         persistWindowGeometry(
