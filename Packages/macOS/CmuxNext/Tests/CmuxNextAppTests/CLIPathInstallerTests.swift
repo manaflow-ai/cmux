@@ -55,7 +55,7 @@ struct CLIPathInstallerTests {
         }
     }
 
-    private final class Ran: @unchecked Sendable {
+    private nonisolated final class Ran: @unchecked Sendable {
         private(set) var count = 0
         func mark() { count += 1 }
     }

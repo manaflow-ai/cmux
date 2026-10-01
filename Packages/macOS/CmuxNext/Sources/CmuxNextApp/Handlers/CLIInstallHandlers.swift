@@ -37,7 +37,10 @@ enum CLIInstallHandlers {
         alert.messageText = title
         alert.informativeText = body
         alert.addButton(withTitle: CLIInstallStrings.ok)
-        guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else {
+            alert.runModal()
+            return
+        }
         alert.beginSheetModal(for: window)
     }
 }
