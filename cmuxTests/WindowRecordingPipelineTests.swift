@@ -295,6 +295,13 @@ import UniformTypeIdentifiers
         while let sample = output.copyNextSampleBuffer() {
             times.append(CMSampleBufferGetPresentationTimeStamp(sample).seconds)
         }
+        if reader.status == .failed {
+            throw reader.error ?? NSError(
+                domain: "WindowRecordingPipelineTests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "AVAssetReader failed without an error"]
+            )
+        }
         return times
     }
 

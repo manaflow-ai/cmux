@@ -98,6 +98,10 @@ enum CLIHookProcessRunner {
 
             let now = ProcessInfo.processInfo.systemUptime
             if now >= deadline {
+                guard process.isRunning else {
+                    didTerminate = true
+                    break
+                }
                 if !timedOut {
                     timedOut = true
                     process.terminate()
@@ -142,8 +146,14 @@ enum CLIHookProcessRunner {
 
         // Direct-child exit guarantees its writes reached the pipe. Read those
         // buffered bytes without waiting for EOF from an inherited descendant.
-        _ = drainAvailable(fd: stdoutFD, into: &stdoutData)
-        _ = drainAvailable(fd: stderrFD, into: &stderrData)
+        while !drainAvailable(fd: stdoutFD, into: &stdoutData) {
+            var readiness = pollfd(fd: stdoutFD, events: Int16(POLLIN), revents: 0)
+            guard Darwin.poll(&readiness, 1, 0) > 0 else { break }
+        }
+        while !drainAvailable(fd: stderrFD, into: &stderrData) {
+            var readiness = pollfd(fd: stderrFD, events: Int16(POLLIN), revents: 0)
+            guard Darwin.poll(&readiness, 1, 0) > 0 else { break }
+        }
         return Result(
             status: process.isRunning ? SIGKILL : process.terminationStatus,
             stdout: String(data: stdoutData, encoding: .utf8) ?? "",

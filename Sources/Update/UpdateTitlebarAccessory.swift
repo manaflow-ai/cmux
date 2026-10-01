@@ -2351,6 +2351,7 @@ private func openPhoneForwardingSettings(in window: NSWindow?) {
 }
 
 private struct NotificationsPopoverView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     @ObservedObject var notificationStore: TerminalNotificationStore
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     let onDismiss: () -> Void
@@ -2601,6 +2602,7 @@ private struct NotificationsPopoverView: View {
                         NotificationPopoverRow(
                             notification: notification,
                             workspaceTitle: titleSnapshot[notification.tabId],
+                            accentColor: cmuxAccent,
                             onOpen: { open(notification) },
                             onClear: {
                                 withAnimation(.easeOut(duration: 0.18)) {
