@@ -751,19 +751,6 @@ export function vmModelPlaneErrorResponse(
   phase: "create" | VmCreateLikeOperation = "create",
 ): Response {
   return vmErrorResponse({
-      error: "vm_model_plane_team_mismatch",
-      status: 409,
-      message: "The Cloud VM team does not match its CodeRouter team.",
-      reason: "the VM team and CodeRouter team differ.",
-      action: "Retry with the team that owns this Cloud VM.",
-      phase,
-      retryable: false,
-      displayTitle: "Cloud VM team mismatch",
-      displayMessage: "The VM could not be created because its team scope was stale.",
-      details: { retryable: false },
-    });
-  }
-  return vmErrorResponse({
     error: "vm_model_plane_unavailable",
     status: 503,
     message: "cmux could not connect this Cloud VM to coderouter, so no machine was created.",
