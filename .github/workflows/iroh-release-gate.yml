@@ -416,6 +416,39 @@ jobs:
           fi
           ./scripts/run-iroh-release-gate.sh "${GATE_ARGS[@]}"
 
+      - name: Verify canonical v2 Worker identity
+        if: ${{ always() }}
+        env:
+          EXPECTED_ENVIRONMENT: ${{ inputs.environment }}
+          EXPECTED_V2_URL: ${{ inputs.environment == 'production' && 'https://cmux-v2.debussy.workers.dev' || inputs.v2_base_url }}
+          HEALTH_OUTPUT: ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-worker-health.json
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 3 --retry-connrefused \
+            "$EXPECTED_V2_URL/v2/health" > "$HEALTH_OUTPUT"
+          EXPECTED_ENVIRONMENT="$EXPECTED_ENVIRONMENT" EXPECTED_V2_URL="$EXPECTED_V2_URL" HEALTH_OUTPUT="$HEALTH_OUTPUT" \
+            /usr/bin/python3 - <<'PY'
+          import json
+          import os
+          from urllib.parse import urlparse
+
+          with open(os.environ["HEALTH_OUTPUT"], encoding="utf-8") as handle:
+              health = json.load(handle)
+          expected_environment = os.environ["EXPECTED_ENVIRONMENT"]
+          expected_url = os.environ["EXPECTED_V2_URL"]
+          if health.get("schemaId") != "health.v1":
+              raise SystemExit("Worker health schema is not health.v1")
+          if health.get("environment") != expected_environment:
+              raise SystemExit("Worker health environment does not match the gate")
+          if not isinstance(health.get("sourceRevision"), str) or not health["sourceRevision"]:
+              raise SystemExit("Worker health did not identify its source revision")
+          if health.get("storage", {}).get("maxSchemaVersion", 0) < 7:
+              raise SystemExit("Worker storage schema is older than v2")
+          if urlparse(expected_url).hostname in {"cmux-iroh-v2.debussy.workers.dev", "cmux-iroh-v2-staging.debussy.workers.dev"}:
+              raise SystemExit("release gate used a compatibility alias instead of the canonical Worker")
+          print(json.dumps({"url": expected_url, "health": health}, sort_keys=True))
+          PY
+
       - name: Upload redacted verdict
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -431,6 +464,7 @@ jobs:
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-mac-failure.cmuxdiag
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-latency.state
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-latency.json
+            ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-worker-health.json
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-real-usage/**
           if-no-files-found: warn
           retention-days: 7
