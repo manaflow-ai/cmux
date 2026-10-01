@@ -62,6 +62,15 @@ private actor WebRTCIceProviderProbe {
     ])
 }
 
+@Test func webRTCConfigurationReadsRelayPolicyFromInfoPlist() {
+    let configuration = CmxWebRTCConfiguration(
+        environment: [:],
+        infoDictionary: [CmxWebRTCConfiguration.forceRelayInfoPlistKey: "1"]
+    )
+
+    #expect(configuration.forceRelay)
+}
+
 @Test func webRTCSignalMessageRoundTripsWithoutChangingToken() throws {
     let message = CmxWebRTCSignalMessage.candidate(CmxWebRTCCandidate(
         sdp: "candidate:1 1 UDP 1 127.0.0.1 1234 typ host",
