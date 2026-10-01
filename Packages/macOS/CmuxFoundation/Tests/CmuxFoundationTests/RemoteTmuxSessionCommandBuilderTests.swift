@@ -218,6 +218,8 @@ struct RemoteTmuxSessionCommandBuilderTests {
         }
     }
 
+    /// A failed managed refresh must stop reconnect before it attaches, without
+    /// exposing the remote tmux diagnostic directly to the caller.
     @Test("existing session stops before attach when managed default refresh fails")
     func existingSessionStopsWhenManagedDefaultRefreshFails() throws {
         try withFakeTmux(sessionExists: true, setOptionStatus: 23) { directory, environment in
@@ -241,6 +243,7 @@ struct RemoteTmuxSessionCommandBuilderTests {
         }
     }
 
+    /// Runs a builder command against a disposable fake tmux executable.
     private func withFakeTmux(
         sessionExists: Bool,
         setOptionStatus: Int = 0,
@@ -268,6 +271,9 @@ struct RemoteTmuxSessionCommandBuilderTests {
             : > "$CMUX_TMUX_SESSION_STATE"
             ;;
           set-option)
+            if [ "${CMUX_TMUX_SET_OPTION_STATUS:-0}" -ne 0 ]; then
+              printf '%s\n' 'tmux: private session diagnostic' >&2
+            fi
             exit "${CMUX_TMUX_SET_OPTION_STATUS:-0}"
             ;;
         esac
