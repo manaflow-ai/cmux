@@ -4,6 +4,17 @@ Swift is the WKWebView host only. On `ready`, the versioned host bridge returns 
 
 Rows are measured before paint with [Pretext](https://github.com/chenglou/pretext) using the named `Helvetica Neue` font. Prepared markdown blocks are cached by row id, content version, and text. Layout stores exact tops and heights in typed arrays and finds the visible range with binary search. React mounts only that range; row components are memoized by id and content version, so a streaming update replaces one row.
 
-User customization files live in `~/.config/cmux/agent-pane/`: `theme.css`, `layout.json`, and `registry.js`. Registry components must provide a static `measure(row, width)` function returning a Pretext-based height. Components without it use post-mount measurement and scroll anchoring. `registry.js` can register or replace message, tool, edited-files, permission, and composer-chip components; Swift watches the files and replays them to the page.
+User customization files live in `~/.config/cmux/agent-pane/`: `theme.css`, `layout.json`, and `registry.js`. Registry components must provide a static `measure(row, width)` function returning a Pretext-based height. Components without it use post-mount measurement and scroll anchoring. `registry.js` can register or replace message, tool, edited-files, permission, and composer-chip components. cmux-next watches the directory (next to `cmux.json`, so `CMUX_NEXT_CONFIG_FILE` moves it) and pushes changes to open panes: it evaluates `registry.js` as host script, separately so a broken registry cannot stop the theme, then calls `applyCustomization({themeCSS, layout})`, which replaces the user stylesheet (an empty one after `theme.css` is deleted) and hands `layout.json` to the registry's `configure`. A file that is missing or invalid is skipped and the others still apply. `registry.js` runs inside its own function scope and is replayed on every page load, handshake and file change, so keep it idempotent: register renderers, don't add listeners or timers at top level. Deleting it takes effect on the next pane load.
 
 The virtualized DOM cannot provide selection or find across rows that are unmounted. The v1 pane keeps cmux find in the host, which can ask the direct client to page and mount a matching row in a future action. The preview harness is the iteration path: `cd webviews && bun run preview:dev` for Vite hot reload, or `bun run preview:build`, which writes static files to `webviews/dist/acpmux-agent-session-preview/`.
+
+## Dev server
+
+To iterate on the real pane inside a running cmux-next with hot reload:
+
+1. `cd webviews && bun run dev:agent-pane` serves this directory with Vite at `http://127.0.0.1:4176/`.
+2. Launch a tagged build with the pane pointed at it: `CMUX_NEXT_AGENT_PANE_DEV_URL=http://127.0.0.1:4176/ ./scripts/reload.sh --tag <tag>`. `reload.sh` forwards the variable to the app.
+3. Open New Agent Chat and edit the TypeScript or CSS here; Vite hot-reloads the pane in about a second. Swift still answers the handshake, so the page talks to the real acpmux daemon and its sessions.
+4. Before committing, rebuild the shipped page with `./scripts/cmux-next/build-agent-pane-web.sh`; CI runs it with `--check`.
+
+Only Debug and tagged builds read the variable; Release always loads the bundled page. The URL must be `http` on `127.0.0.1` or `localhost` with an explicit port, and anything else falls back to the bundled page. The pane only trusts that exact origin, but whatever process listens on that port receives the daemon token, so point it only at your own dev server. The dev page's CSP (`index.html`) allows same-origin scripts for Vite; the bundled page keeps its inline-only CSP.

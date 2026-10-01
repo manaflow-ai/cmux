@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextSettings
 import CmuxNextTabs
 
 /// Agent chat tabs (the React acpmux pane, CmuxNextAgentPane). cmux-tui has
@@ -16,6 +17,13 @@ enum LocalAgentTab {
 /// shared by every tab, so opening several at once starts one daemon.
 final class AgentTabStore {
     private let host: any AgentPaneHostProviding
+    /// The page every agent tab loads: the bundled file, or in Debug builds
+    /// the dev server `CMUX_NEXT_AGENT_PANE_DEV_URL` names (nil only when the
+    /// bundled page is missing).
+    private let source: AgentPaneSource?
+    /// `~/.config/cmux/agent-pane/` hot reload, watched while any agent tab
+    /// has a view.
+    private let customization: AgentPaneCustomizationWatcher
     private var tabsByPane: [String: [String]] = [:]
     private var views: [String: AgentPaneView] = [:]
     /// Session each tab last showed, kept across a web content crash or a
@@ -28,6 +36,23 @@ final class AgentTabStore {
         } else {
             let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
             host = AcpmuxHost { AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment) }
+        }
+        // Release loads only the bundled page; the dev server is for Debug
+        // and tagged builds (webviews/src/agent-session/acpmux/README.md).
+        #if DEBUG
+        let allowsDevServer = true
+        #else
+        let allowsDevServer = false
+        #endif
+        source = AgentPaneSource.resolve(
+            environment: environment, bundledPage: AgentPaneView.bundledPage, allowsDevServer: allowsDevServer
+        )
+        customization = AgentPaneCustomizationWatcher(
+            directory: AgentPaneCustomization.directory(configFile: CmuxConfigFile.defaultURL(environment: environment))
+        )
+        customization.onChange = { [weak self] value in
+            guard let self else { return }
+            for view in views.values { view.customization = value }
         }
     }
 
@@ -51,8 +76,10 @@ final class AgentTabStore {
         guard tabsByPane.values.contains(where: { $0.contains(key) }) else { return nil }
         let model = AgentPaneModel(host: host, sessionId: sessions[key])
         model.onSessionChange = { [weak self] session in self?.sessions[key] = session }
-        guard let view = AgentPaneView(model: model) else { return nil }
+        guard let source, let view = AgentPaneView(model: model, source: source) else { return nil }
+        view.customization = customization.current
         views[key] = view
+        customization.start()
         return view
     }
 
@@ -64,6 +91,7 @@ final class AgentTabStore {
         tabsByPane = tabsByPane.filter { !$0.value.isEmpty }
         views.removeValue(forKey: key)?.close()
         sessions[key] = nil
+        stopCustomizationWhenUnused()
     }
 
     /// The pane closed: stop every agent tab it listed.
@@ -72,6 +100,11 @@ final class AgentTabStore {
             views.removeValue(forKey: key)?.close()
             sessions[key] = nil
         }
+        stopCustomizationWhenUnused()
+    }
+
+    private func stopCustomizationWhenUnused() {
+        if views.isEmpty { customization.stop() }
     }
 }
 
