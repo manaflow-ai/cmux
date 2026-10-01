@@ -124,6 +124,11 @@ public actor CloudMachineLink {
         }
         return described
     }
+
+    private nonisolated static let transportFailureMessage = String(
+        localized: "cloud.link.transportLost",
+        defaultValue: "The Cloud VM service connection was lost. Refresh to reconnect."
+    )
     public private(set) var connected: Connected?
 
     // Foundation `Process` and its pipes are actor-isolated state; every callback hops
@@ -418,22 +423,37 @@ public actor CloudMachineLink {
     /// Commands are immutable protocol messages on one machine-owned socket.
     /// No child process, CLI parsing, automatic mutation replay or re-authentication.
     public func run(arguments: CloudTuiRequest, timeout: Duration = .seconds(30)) async throws -> Data {
+        var requestChannel: CloudTuiPersistentResourceConnection?
+        var requestResourceConnection: CloudTuiPersistentResourceConnection?
         do {
+            let channel = try await controlConnection()
+            // Keep the exact connection used by this request. A concurrent
+            // reconnect may replace the actor's property while the request
+            // is suspended on the socket.
+            requestChannel = channel
+            requestResourceConnection = resourceConnection
             return try await CloudOperationContext.phase(.process) {
-                let channel = try await self.controlConnection()
-                return try await channel.request(arguments, timeout: timeout)
+                try await channel.request(arguments, timeout: timeout)
             }
         } catch {
             // A link process can remain alive after its local control socket has
             // lost the daemon. Retire that transport so the manager can create a
             // fresh client instead of reusing a permanently dead link.
-            if Self.isTransportFailure(error) {
-                await retireForTransportFailure(error)
+            if Self.isTransportFailure(error),
+               let requestChannel,
+               let requestResourceConnection {
+                await retireForTransportFailure(
+                    error,
+                    resourceConnection: requestResourceConnection,
+                    channel: requestChannel
+                )
             }
             throw error
         }
     }
 
+    /// Returns the shared control connection, creating it only after the link
+    /// has reached the connected state.
     private func controlConnection() async throws -> CloudTuiPersistentResourceConnection {
         guard state == .connected, let connected else {
             throw LinkError.exited(status: 3, output: "transport closed: machine link is unavailable")
@@ -444,6 +464,7 @@ public actor CloudMachineLink {
         return channel
     }
 
+    /// Identifies failures that mean the local daemon socket is no longer usable.
     private nonisolated static func isTransportFailure(_ error: Error) -> Bool {
         if let linkError = error as? LinkError,
            case .exited(let status, let output) = linkError {
@@ -453,10 +474,18 @@ public actor CloudMachineLink {
         return nsError.domain == "cmux.cloud.manual-io"
     }
 
-    private func retireForTransportFailure(_ error: Error) async {
-        guard state == .connected else { return }
+    /// Fences a dead link only when the failed request still belongs to the
+    /// connection currently installed on this actor.
+    private func retireForTransportFailure(
+        _: Error,
+        resourceConnection requestResourceConnection: CloudTuiPersistentResourceConnection,
+        channel requestChannel: CloudTuiPersistentResourceConnection
+    ) async {
+        guard state == .connected,
+              self.resourceConnection === requestResourceConnection,
+              self.resourceConnection === requestChannel else { return }
         state = .error
-        lastError = Self.errorText(error)
+        lastError = Self.transportFailureMessage
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
@@ -471,9 +500,8 @@ public actor CloudMachineLink {
         changesContinuation.yield(.streamEnded(reason: "transport_failure", cursor: eventsCursor))
         changesContinuation.finish()
 
-        // Fence the termination callback before killing the stale client. The
-        // socket error is the useful diagnosis; an ordinary process-exit
-        // callback would otherwise overwrite it with a generic exit message.
+        // Fence the termination callback before killing the stale client so an
+        // ordinary process-exit callback cannot overwrite the recovery state.
         let staleProcess = process
         let staleExit = processExit
         process = nil

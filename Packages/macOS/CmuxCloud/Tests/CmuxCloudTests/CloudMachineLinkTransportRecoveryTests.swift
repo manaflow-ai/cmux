@@ -8,6 +8,8 @@ import Testing
 /// can create a replacement client.
 @Suite("Cloud machine link transport recovery")
 struct CloudMachineLinkTransportRecoveryTests {
+    /// A control request against a missing daemon socket must release the
+    /// stale link so the manager can establish a fresh client on refresh.
     @Test("A refused control socket retires the live link")
     func refusedControlSocketRetiresLink() async throws {
         let root = FileManager.default.temporaryDirectory
@@ -26,20 +28,19 @@ struct CloudMachineLinkTransportRecoveryTests {
 
         _ = try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main", carrier: true)
         var failed = false
-        var expectedErrorText: String?
         do {
             _ = try await link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: socket.path))
             Issue.record("the missing daemon socket must fail the control request")
         } catch let error as NSError {
             failed = true
-            expectedErrorText = CloudMachineLink.errorText(error)
             #expect(error.domain == "cmux.cloud.manual-io")
         }
 
         #expect(failed)
         #expect(!(await link.isConnected))
         #expect(await link.state == .error)
-        #expect(await link.lastError == expectedErrorText)
+        #expect(await link.lastError == "The Cloud VM service connection was lost. Refresh to reconnect.")
+        #expect(await link.lastError?.contains("missing-daemon.sock") == false)
         await link.disconnect()
     }
 }
