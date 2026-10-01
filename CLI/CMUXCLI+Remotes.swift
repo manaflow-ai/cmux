@@ -266,11 +266,33 @@ extension CMUXCLI {
     private func remotesArgumentCLIError(_ error: Error, command: String) -> CLIError {
         switch error {
         case let RemotesArgumentError.unknownFlag(flag):
-            return CLIError(message: "\(command): unknown flag '\(flag)'.\n\n\(Self.remotesUsage)")
+            let message = String(
+                format: String(
+                    localized: "cli.remotes.error.unknownFlag",
+                    defaultValue: "%1$@: unknown flag '%2$@'."
+                ),
+                command,
+                flag
+            )
+            return CLIError(message: message + "\n\n" + Self.remotesUsage)
         case let RemotesArgumentError.unexpectedArgument(argument):
-            return CLIError(message: "\(command): unexpected argument '\(argument)'.")
+            return CLIError(message: String(
+                format: String(
+                    localized: "cli.remotes.error.unexpectedArgument",
+                    defaultValue: "%1$@: unexpected argument '%2$@'."
+                ),
+                command,
+                argument
+            ))
         default:
-            return CLIError(message: "\(command): invalid arguments.\n\n\(Self.remotesUsage)")
+            let message = String(
+                format: String(
+                    localized: "cli.remotes.error.invalidArguments",
+                    defaultValue: "%@: invalid arguments."
+                ),
+                command
+            )
+            return CLIError(message: message + "\n\n" + Self.remotesUsage)
         }
     }
 
