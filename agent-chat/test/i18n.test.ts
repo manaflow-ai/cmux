@@ -31,6 +31,9 @@ const keys: AgentChatTextKey[] = [
   "gotIt",
   "closeTranscriptGuide",
   "transcriptGuideButton",
+  "loadingDiff",
+  "diffUnavailable",
+  "retryDiff",
 ];
 const english = agentChatCopyForLocale("en");
 

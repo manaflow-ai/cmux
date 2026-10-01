@@ -743,16 +743,22 @@ impl Session {
         }
     }
 
-    /// `detach-client {client: <participant>}`: disconnects one participant
-    /// (a relay sub-view alone, otherwise its whole client).
-    pub fn disconnect_size_participant(&self, participant: &str) -> anyhow::Result<()> {
+    /// `detach-client {client: <participant>, surface}`: disconnects one
+    /// participant of this terminal: a relay sub-view alone, the own view of
+    /// a client with `sizing-view-detach-v1` (a Mac keeps its connection and
+    /// the phones it relays), otherwise its whole client.
+    pub fn disconnect_size_participant(
+        &self,
+        surface: SurfaceId,
+        participant: &str,
+    ) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                cmux_tui_core::server::detach_size_participant(mux, 0, participant)
+                cmux_tui_core::server::detach_size_participant(mux, 0, participant, Some(surface))
             }
-            Session::Remote(remote) => {
-                remote.request(json!({"cmd": "detach-client", "client": participant})).map(|_| ())
-            }
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "detach-client", "client": participant, "surface": surface}))
+                .map(|_| ()),
         }
     }
 

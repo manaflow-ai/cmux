@@ -4,6 +4,7 @@ import { createInvitationCodeClient, type InvitationCodeClient, type InvitationC
 import { normalizeInviteEmail } from "./invitations";
 import { TEAM_ADMIN_PERMISSION } from "./permissions";
 import { databaseTeamInviteStore, type TeamInviteStore } from "./repository";
+import { defaultTeamSeatSync, type TeamSeatSync } from "./seatSync";
 import {
   defaultTeamStackApp,
   withStackDeadline,
@@ -18,6 +19,7 @@ export type AcceptDependencies = {
   readonly stack?: TeamStackApp;
   readonly codes?: InvitationCodeClient;
   readonly store?: TeamInviteStore;
+  readonly seats?: TeamSeatSync;
 };
 
 /**
@@ -47,6 +49,7 @@ export async function acceptTeamInvitationCode(
   const stack = dependencies.stack ?? defaultTeamStackApp();
   const codes = dependencies.codes ?? createInvitationCodeClient();
   const store = dependencies.store ?? databaseTeamInviteStore;
+  const seats = dependencies.seats ?? defaultTeamSeatSync;
 
   const accessToken = await callerAccessToken(request, stack);
   const details = await codes.details(code, accessToken);
@@ -71,6 +74,7 @@ export async function acceptTeamInvitationCode(
   if (!members.some((member) => member.id === userId)) {
     throw new TeamServiceUnavailableError("accepted invitation did not add the member");
   }
+  await seats.membershipChanged(teamId);
   const consumed = consumedInvitation(before, after);
   const role = await applyStoredRole({ store, team, user, consumed, remaining: after });
   await withStackDeadline(() => user.update({ selectedTeamId: teamId }))
@@ -130,7 +134,7 @@ export function consumedInvitation(
   return { id, email };
 }
 
-async function userVerifiedEmails(user: StackUser): Promise<Set<string>> {
+export async function userVerifiedEmails(user: StackUser): Promise<Set<string>> {
   const channels = await withStackDeadline(() => user.listContactChannels());
   const emails = new Set(
     channels.filter((channel) => channel.type === "email" && channel.isVerified)
