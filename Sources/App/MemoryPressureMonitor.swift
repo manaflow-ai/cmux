@@ -23,6 +23,9 @@ final class MemoryPressureMonitor {
 
     @ObservationIgnored
     var onAggregatePressureCleared: (@MainActor () -> Void)?
+    /// Runs after each applied sample, at any severity, with its time.
+    @ObservationIgnored
+    var onSampleApplied: (@MainActor (Date) -> Void)?
 
     @ObservationIgnored
     private let footprintSampler: any MemoryPressureFootprintSampling
@@ -298,6 +301,7 @@ final class MemoryPressureMonitor {
         if evaluation.didBecomePersistentCritical {
             Self.logger.notice("memoryPressure.persistentCritical")
         }
+        onSampleApplied?(sampledAt)
     }
 
     private func logTransition(_ evaluation: MemoryPressureStateEvaluation) {
