@@ -1,5 +1,6 @@
 import CmuxCloud
 import CmuxAuthRuntime
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Both Files presentations resolve through the same workspace and account authority.
