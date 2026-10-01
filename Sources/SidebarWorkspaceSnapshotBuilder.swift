@@ -97,20 +97,38 @@ struct SidebarWorkspaceSnapshotBuilder {
             )
         }
 
+        /// The badge label a row should actually show, given the two settings
+        /// that govern it. Device and cloud provenance pairs with the
+        /// branch/directory line and follows that toggle. An SSH target is
+        /// what `Show SSH` controls, so the SSH arm follows that one instead:
+        /// someone who turned SSH detail off should not get the host back as
+        /// a badge tooltip, and someone who turned it on should still get the
+        /// badge with the directory line off.
+        func visibleRemoteWorkspaceBadgeLabel(showsBranchDirectory: Bool, showsSSH: Bool) -> String? {
+            guard let label = remoteWorkspaceBadgeLabel else { return nil }
+            let isMachineLabel = deviceWorkspaceLabel != nil || cloudWorkspaceLabel != nil
+            return (isMachineLabel ? showsBranchDirectory : showsSSH) ? label : nil
+        }
+
         var remoteWorkspaceBadgeSymbol: String {
             if deviceWorkspaceLabel != nil { return "desktopcomputer" }
             if cloudWorkspaceLabel != nil { return "cloud" }
             return remoteWorkspaceSidebarText == nil ? "cloud" : "network"
         }
 
-        func accessibilityLabel(index: Int, workspaceCount: Int) -> String {
+        /// `showsSSH` mirrors the row's own gate. The cloud and device labels
+        /// stay in here whatever the directory toggle says, which is existing
+        /// deliberate behaviour, but an SSH host has a user-facing opt-out and
+        /// VoiceOver must honour it too.
+        func accessibilityLabel(index: Int, workspaceCount: Int, showsSSH: Bool = true) -> String {
             let position = String(
                 localized: "accessibility.workspacePosition",
                 defaultValue: "\(title), workspace \(index + 1) of \(workspaceCount)"
             )
             let cloudDirectory = cloudWorkspaceLabel == nil ? nil
                 : (compactDirectoryCandidates.first ?? branchDirectoryLines.first?.directory)
-            return [position, remoteWorkspaceBadgeLabel, cloudDirectory].compactMap { $0 }.joined(separator: ", ")
+            let badge = visibleRemoteWorkspaceBadgeLabel(showsBranchDirectory: true, showsSSH: showsSSH)
+            return [position, badge, cloudDirectory].compactMap { $0 }.joined(separator: ", ")
         }
     }
 }
