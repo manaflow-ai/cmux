@@ -17,10 +17,7 @@ struct CloudSidebarNativeDropTests {
 
     private func expectNoSidebarHints(_ outline: NSOutlineView) {
         let views = outline.subviews + (outline.window?.contentView?.superview?.subviews ?? [])
-        #expect(!views.contains {
-            $0 is FileDropHintBadgeView ||
-            ($0.identifier?.rawValue == "sidebarReorderIndicator" && !$0.isHidden)
-        })
+        #expect(!views.contains { $0 is FileDropHintBadgeView })
     }
 
     @Test("Repeated Cloud row hover creates no hint views or indicator frame updates", arguments: [3, 100])

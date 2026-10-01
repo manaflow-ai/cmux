@@ -28,6 +28,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     func endDragDestination(_ info: any NSDraggingInfo) {
         guard isCurrentDragDestination(info) else { return }
         clearDragDestination(sequence: info.draggingSequenceNumber)
+        clearOrganizationDropIndicator(sequence: info.draggingSequenceNumber)
         guard let source = info.draggingSource as? CloudTreeNSOutlineView, source === self,
               let session = activeNativeDragSession,
               session.draggingSequenceNumber == info.draggingSequenceNumber,
@@ -39,7 +40,6 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         draggingDestinationFeedbackStyle = .none
-        addSubview(organizationDropIndicator)
         NotificationCenter.default.addObserver(
             self, selector: #selector(menuDidBeginTracking(_:)),
             name: NSMenu.didBeginTrackingNotification, object: nil
@@ -83,12 +83,18 @@ final class CloudTreeNSOutlineView: NSOutlineView {
             clearOrganizationDropIndicator()
             return
         }
-        organizationDropIndicator.position(in: bounds, at: y)
+        if organizationDropIndicator.superview == nil { addSubview(organizationDropIndicator) }
+        let leading = SidebarReorderIndicatorView.horizontalInset
+        let frame = NSRect(x: bounds.minX + leading, y: y,
+                           width: max(0, bounds.width - leading * 2),
+                           height: SidebarReorderIndicatorView.thickness)
+        if organizationDropIndicator.frame != frame { organizationDropIndicator.frame = frame }
         organizationDropIndicator.isHidden = false
     }
 
-    func clearOrganizationDropIndicator() {
-        organizationDropIndicator.isHidden = true
+    func clearOrganizationDropIndicator(sequence: Int? = nil) {
+        if let sequence, let current = dragDestinationSequenceNumber, current != sequence { return }
+        organizationDropIndicator.removeFromSuperview()
     }
 
     @available(*, unavailable)
