@@ -7,7 +7,9 @@
 //! A thread the daemon has not loaded is left alone: resuming it there would
 //! give the thread a second writer next to the Codex process in the terminal.
 //! Anything short of a delivery leaves the message queued for the agent's
-//! hooks.
+//! hooks. [`open`] asks the daemon whether the thread can take input before
+//! [`Session::send`] hands it over, so the caller can claim the messages in
+//! between and the hook that the new turn fires finds none left to repeat.
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -19,26 +21,69 @@ use serde_json::{Value, json};
 /// One delivery, from starting the proxy to the daemon's answer.
 const DEADLINE: Duration = Duration::from_secs(8);
 
+/// Why a thread cannot take input now. The hooks deliver later either way.
 #[derive(Debug, PartialEq, Eq)]
-pub(super) enum Outcome {
-    /// The daemon took the input; the receipt's `via`.
-    Delivered(&'static str),
-    /// Not reachable now; the hooks deliver it later. Says why.
-    Leave(String),
+pub(super) enum Unavailable {
+    /// No shared daemon runs (the usual case), or codex is not installed.
+    NoDaemon,
+    /// The daemon runs but this thread cannot take input; says why.
+    Thread(String),
 }
 
-/// Hand `text` to the Codex thread `thread_id` as user input.
-/// `client_message_id` lets Codex tie the input to the cmux message.
-pub(super) fn deliver(thread_id: &str, text: &str, client_message_id: &str) -> Outcome {
-    let mut client = match Client::start() {
-        Ok(client) => client,
-        Err(reason) => return Outcome::Leave(reason),
-    };
-    let outcome = client.deliver(thread_id, text, client_message_id);
-    client.close();
-    match outcome {
-        Ok(outcome) => outcome,
-        Err(reason) => Outcome::Leave(reason),
+/// How the input reaches the thread.
+#[derive(Debug, PartialEq, Eq)]
+enum Target {
+    Start,
+    Steer(String),
+}
+
+/// A thread that can take input now. Opening it asks the daemon first, so a
+/// caller can claim its messages before [`Session::send`] hands them over.
+pub(super) struct Session {
+    client: Client,
+    thread_id: String,
+    target: Target,
+}
+
+pub(super) fn open(thread_id: &str) -> Result<Session, Unavailable> {
+    let mut client = Client::start().map_err(|_| Unavailable::NoDaemon)?;
+    let target = client.target(thread_id).map_err(Unavailable::Thread)?;
+    Ok(Session { client, thread_id: thread_id.to_owned(), target })
+}
+
+impl Session {
+    /// Hand `text` to the thread as user input; the receipt's `via`.
+    /// `client_message_id` lets Codex tie the input to the cmux message.
+    pub(super) fn send(
+        mut self,
+        text: &str,
+        client_message_id: &str,
+    ) -> Result<&'static str, String> {
+        let thread_id = self.thread_id.clone();
+        match std::mem::replace(&mut self.target, Target::Start) {
+            Target::Start => self.client.start_turn(&thread_id, text, client_message_id),
+            Target::Steer(turn) => {
+                let steered = self.client.request(
+                    "turn/steer",
+                    json!({
+                        "threadId": thread_id,
+                        "expectedTurnId": turn,
+                        "input": user_input(text),
+                        "clientUserMessageId": client_message_id,
+                    }),
+                );
+                match steered {
+                    Ok(_) => Ok("codex.turn-steer"),
+                    // Only a turn that ended in between gets a new one.
+                    Err(error) => match self.client.read_state(&thread_id) {
+                        Ok(ThreadState::Idle) => {
+                            self.client.start_turn(&thread_id, text, client_message_id)
+                        }
+                        _ => Err(error),
+                    },
+                }
+            }
+        }
     }
 }
 
@@ -136,44 +181,27 @@ impl Client {
         Ok(client)
     }
 
-    fn deliver(
-        &mut self,
-        thread_id: &str,
-        text: &str,
-        client_message_id: &str,
-    ) -> Result<Outcome, String> {
+    /// Whether `thread_id` can take input now, and how.
+    fn target(&mut self, thread_id: &str) -> Result<Target, String> {
         if !self.is_loaded(thread_id)? {
-            return Ok(Outcome::Leave(
-                "the shared Codex app-server has not loaded this thread".to_owned(),
-            ));
+            return Err("the shared Codex app-server has not loaded this thread".to_owned());
         }
-        let read = self.request("thread/read", json!({"threadId": thread_id}))?;
-        match thread_state(&read["thread"]) {
-            ThreadState::Idle => self.start_turn(thread_id, text, client_message_id),
+        match self.read_state(thread_id)? {
+            ThreadState::Idle => Ok(Target::Start),
             ThreadState::Running => {
                 let read = self
                     .request("thread/read", json!({"threadId": thread_id, "includeTurns": true}))?;
-                let Some(turn) = running_turn(&read["thread"]).map(str::to_owned) else {
-                    // It ended in between.
-                    return self.start_turn(thread_id, text, client_message_id);
-                };
-                let steered = self.request(
-                    "turn/steer",
-                    json!({
-                        "threadId": thread_id,
-                        "expectedTurnId": turn,
-                        "input": user_input(text),
-                        "clientUserMessageId": client_message_id,
-                    }),
-                );
-                match steered {
-                    Ok(_) => Ok(Outcome::Delivered("codex.turn-steer")),
-                    // The turn ended before the steer arrived: start one.
-                    Err(_) => self.start_turn(thread_id, text, client_message_id),
-                }
+                // A turn that ended in between leaves an idle thread.
+                Ok(running_turn(&read["thread"])
+                    .map_or(Target::Start, |turn| Target::Steer(turn.to_owned())))
             }
-            ThreadState::Unavailable(reason) => Ok(Outcome::Leave(reason)),
+            ThreadState::Unavailable(reason) => Err(reason),
         }
+    }
+
+    fn read_state(&mut self, thread_id: &str) -> Result<ThreadState, String> {
+        let read = self.request("thread/read", json!({"threadId": thread_id}))?;
+        Ok(thread_state(&read["thread"]))
     }
 
     fn start_turn(
@@ -181,7 +209,7 @@ impl Client {
         thread_id: &str,
         text: &str,
         client_message_id: &str,
-    ) -> Result<Outcome, String> {
+    ) -> Result<&'static str, String> {
         self.request(
             "turn/start",
             json!({
@@ -190,7 +218,7 @@ impl Client {
                 "clientUserMessageId": client_message_id,
             }),
         )?;
-        Ok(Outcome::Delivered("codex.turn-start"))
+        Ok("codex.turn-start")
     }
 
     fn is_loaded(&mut self, thread_id: &str) -> Result<bool, String> {
@@ -242,8 +270,10 @@ impl Client {
             return Ok(message.get("result").cloned().unwrap_or(Value::Null));
         }
     }
+}
 
-    fn close(mut self) {
+impl Drop for Client {
+    fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -313,8 +343,9 @@ done
         // SAFETY: only this test reads CMUX_CODEX_BIN.
         unsafe { std::env::set_var("CMUX_CODEX_BIN", &script) };
 
-        assert_eq!(deliver("thr_idle", "hello", "msg_1"), Outcome::Delivered("codex.turn-start"));
-        assert!(matches!(deliver("thr_other", "hello", "msg_2"), Outcome::Leave(_)));
+        let session = open("thr_idle").unwrap_or_else(|_| panic!("the idle thread is open"));
+        assert_eq!(session.send("hello", "msg_1"), Ok("codex.turn-start"));
+        assert!(matches!(open("thr_other"), Err(Unavailable::Thread(_))));
 
         let requests: Vec<Value> = std::fs::read_to_string(&log)
             .unwrap()
