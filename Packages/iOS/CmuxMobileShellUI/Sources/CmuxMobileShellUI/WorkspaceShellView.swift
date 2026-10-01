@@ -207,6 +207,8 @@ private struct WorkspaceShellRenderPresentation {
 struct WorkspaceShellView: View {
     #if os(iOS) && DEBUG
     @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    /// The Cloud tab's content, supplied by the composition root.
+    @Environment(\.mobileCloudTabContent) private var cloudTabContent
     #endif
     @Bindable var store: CMUXMobileShellStore
     let signOut: @MainActor @Sendable () -> Void
@@ -316,6 +318,8 @@ struct WorkspaceShellView: View {
             return feedNavigationPath.isEmpty
         case .notifications:
             return notificationNavigationPath.isEmpty
+        case .cloud:
+            return true
         case .search:
             return primarySearchNavigationPath.wrappedValue.isEmpty
         }
@@ -1083,7 +1087,12 @@ struct WorkspaceShellView: View {
                     projection: notificationFeedProjection,
                     selectedMacDeviceIDs: selectedMacDeviceIDs
                 )
-            case .workspaces, .search:
+            case .cloud where cloudTabContent != nil:
+                // The sidebar column already owns a navigation container and
+                // the destination bar, so Cloud renders inside it rather than
+                // bringing a stack of its own.
+                cloudTabContent?.makeEmbeddedView()
+            case .workspaces, .cloud, .search:
                 workspaceList(
                     navigationStyle: .sidebar,
                     searchText: primarySearchCoordinator.searchDestinationText(for: .workspaces),
@@ -1093,7 +1102,9 @@ struct WorkspaceShellView: View {
             }
         }
         .toolbar {
-            if splitSidebarDestination == .notifications || splitSidebarDestination == .feed {
+            if splitSidebarDestination == .notifications
+                || splitSidebarDestination == .feed
+                || (splitSidebarDestination == .cloud && cloudTabContent != nil) {
                 ToolbarItem(placement: .topBarTrailing) {
                     // Notifications has no WorkspaceListView toolbar, so the
                     // sidebar owns its trailing control directly in this path.
@@ -1165,7 +1176,10 @@ struct WorkspaceShellView: View {
                 workspacesTitle: L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
                 feedTitle: L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
                 notificationsTitle: notificationsSegmentTitle(unreadCount: unreadCount),
-                showsNotifications: !displaySettings.feedReplacesNotifications
+                showsNotifications: !displaySettings.feedReplacesNotifications,
+                cloudTitle: cloudTabContent == nil
+                    ? nil
+                    : L10n.string("mobile.tabs.cloud", defaultValue: "Cloud")
             )
         }
         if #available(iOS 26.0, *) {
@@ -1193,6 +1207,8 @@ struct WorkspaceShellView: View {
         let feedTitle: String
         let notificationsTitle: String
         let showsNotifications: Bool
+        /// Nil in a build without Cloud, which omits the destination.
+        let cloudTitle: String?
 
         var body: some View {
             HStack(spacing: 0) {
@@ -1211,6 +1227,13 @@ struct WorkspaceShellView: View {
                         .notifications,
                         title: notificationsTitle,
                         accessibilityID: "MobileSplitSidebarNotifications"
+                    )
+                }
+                if let cloudTitle {
+                    destinationButton(
+                        .cloud,
+                        title: cloudTitle,
+                        accessibilityID: "MobileSplitSidebarCloud"
                     )
                 }
             }
@@ -1750,6 +1773,8 @@ struct WorkspaceShellView: View {
             if notificationNavigationPath.last != workspaceID {
                 notificationNavigationPath = [workspaceID]
             }
+        case .cloud:
+            break
         case .search:
             break
         }
@@ -1821,6 +1846,7 @@ struct WorkspaceShellView: View {
         case .workspaces: .workspaces
         case .feed: .feed
         case .notifications: .notifications
+        case .cloud: .cloud
         case .search: .search
         }
     }
