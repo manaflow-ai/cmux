@@ -36,7 +36,7 @@ extension AppActionContext {
     /// group of the targeted or shown workspace.
     func group(_ invocation: ActionInvocation) throws -> WorkspaceGroupModel {
         if usesPersonalGroups { return try personalGroup(invocation) }
-        try require(DaemonCapabilities.workspaceGroups)
+        try require(DaemonCapabilities.shared.workspaceGroups)
         let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap { $0 }.first { $0.kind == .workspaceGroup }
         if let explicit {
             guard let group = store.group(WorkspaceGroupID(rawValue: explicit.id)) else {

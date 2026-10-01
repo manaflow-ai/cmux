@@ -15,9 +15,10 @@ public import Foundation
 /// (`CMUX_SOCKET_PATH`, `CMUX_TAG`, `CMUX_BUNDLE_ID` from a shell inside
 /// another cmux) never reaches this function; see ``LaunchIdentity``.
 /// Tags are sanitized the same way (`[^a-z0-9]+` -> `-`).
-public enum ControlSocketPath {
-    public static let debugBundleID = "com.cmuxterm.app.debug"
-    static let channelBundleIDs = [
+public struct ControlSocketPath: Sendable {
+    public static let shared = Self()
+    public let debugBundleID = "com.cmuxterm.app.debug"
+    let channelBundleIDs = [
         ("com.cmuxterm.app.nightly", "nightly"),
         ("com.cmuxterm.app.rc", "rc"),
         ("com.cmuxterm.app.staging", "staging"),
@@ -25,7 +26,7 @@ public enum ControlSocketPath {
 
     /// `tag` applies to the plain debug bundle only; a tagged bundle id
     /// carries its own tag.
-    public static func resolve(
+    public func resolve(
         bundleID: String?,
         tag: String?,
         isDebugBuild: Bool,
@@ -55,7 +56,7 @@ public enum ControlSocketPath {
 
     /// The tag a tagged bundle id carries (`com.cmuxterm.app.debug.<tag>`
     /// or `com.cmuxterm.app.<channel>.<tag>`), sanitized.
-    public static func bundleTag(_ bundleID: String?) -> String? {
+    public func bundleTag(_ bundleID: String?) -> String? {
         let bundle = bundleID?.trimmingCharacters(in: .whitespaces) ?? ""
         for prefix in [debugBundleID] + channelBundleIDs.map(\.0) where bundle.hasPrefix(prefix + ".") {
             return sanitize(String(bundle.dropFirst(prefix.count + 1)))
@@ -63,7 +64,7 @@ public enum ControlSocketPath {
         return nil
     }
 
-    public static func sanitize(_ raw: String) -> String? {
+    public func sanitize(_ raw: String) -> String? {
         let slug = raw.lowercased()
             .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
             .trimmingCharacters(in: CharacterSet(charactersIn: "-"))

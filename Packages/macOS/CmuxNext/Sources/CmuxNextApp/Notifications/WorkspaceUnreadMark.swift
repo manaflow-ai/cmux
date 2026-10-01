@@ -10,7 +10,7 @@ import CmuxNextDaemon
 enum WorkspaceUnreadMark {
     /// Sets or clears the mark on each workspace that differs.
     static func set(_ marked: Bool, on workspaces: [WorkspaceModel], daemon: DaemonService) {
-        guard daemon.supports(DaemonCapabilities.notificationMarkUnread) else { return }
+        guard daemon.supports(DaemonCapabilities.shared.notificationMarkUnread) else { return }
         for workspace in workspaces where workspace.markedUnread != marked {
             guard let key = workspace.key else { continue }
             daemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, markedUnread: marked) }

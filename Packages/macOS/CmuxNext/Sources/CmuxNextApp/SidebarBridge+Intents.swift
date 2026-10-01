@@ -128,7 +128,7 @@ extension SidebarBridge {
     /// without `workspace-pin-v1` keeps the row where it was.
     private func sendPinned(_ ids: [SidebarWorkspaceID], _ pinned: Bool) {
         for (daemon, key) in keys(ids) {
-            guard daemon.supports(DaemonCapabilities.workspacePin) else {
+            guard daemon.supports(DaemonCapabilities.shared.workspacePin) else {
                 resync()
                 continue
             }
@@ -169,7 +169,7 @@ extension SidebarBridge {
         else { return resync() }
         let store = daemon.store
         let entries = store.workspaces.map { WorkspaceMovePlan.Entry(id: $0.id, group: $0.group?.rawValue) }
-        let groups = daemon.supports(DaemonCapabilities.workspaceGroups)
+        let groups = daemon.supports(DaemonCapabilities.shared.workspaceGroups)
         guard let commands = WorkspaceMovePlan.commands(for: position, moving: ids, window: sections, daemon: entries, groups: groups)
         else { return resync() }
         run(commands, on: daemon)

@@ -14,7 +14,7 @@ extension BrowserProfileService {
 
     var daemonServesRecords: Bool {
         let home = services.machines.local
-        return home.supports(DaemonCapabilities.browserProfiles) && home.store.personal.isLoaded
+        return home.supports(DaemonCapabilities.shared.browserProfiles) && home.store.personal.isLoaded
     }
 
     static func record(from snapshot: BrowserProfileSnapshot) -> BrowserProfileRecord {

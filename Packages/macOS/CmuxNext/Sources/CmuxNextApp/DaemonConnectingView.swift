@@ -66,7 +66,7 @@ final class DaemonConnectingView: NSView {
             spinner.startAnimation(nil)
         case .unavailable(let error):
             titleLabel.stringValue = Strings.daemonUnavailable
-            detailLabel.stringValue = DaemonStartup.isPermanent(error)
+            detailLabel.stringValue = DaemonStartup.shared.isPermanent(error)
                 ? error.description
                 : "\(error.description)\n\(Strings.daemonRetrying)"
             detailLabel.isHidden = false

@@ -133,7 +133,7 @@ import Testing
     /// The terminal env provider applies the integration on top of the
     /// login environment, so it sees the login PATH and SHELL.
     @Test func sharedProviderAppliesTheIntegration() async {
-        let provider = TerminalEnvironment.shared(
+        let provider = TerminalEnvironment.instance.shared(
             base: ["PATH": "/usr/bin", "SHELL": "/bin/zsh"],
             overrides: ["TERM": "xterm-ghostty"],
             login: { ["PATH": "/opt/homebrew/bin:/usr/bin", "SHELL": "/bin/zsh"] },

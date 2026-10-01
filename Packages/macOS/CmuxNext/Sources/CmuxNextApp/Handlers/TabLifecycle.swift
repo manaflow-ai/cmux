@@ -83,7 +83,7 @@ enum TabLifecycle {
         let engine = invocation["engine"]?.stringValue
         if let controller = ctx.services.paneController(for: pane) { return controller.newBrowserTab(url: url, engine: engine) }
         let browserTabs = ctx.services.cache.browserTabs!
-        guard browserTabs.isAvailable() else { return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.frontendBrowserTabs)) }
+        guard browserTabs.isAvailable() else { return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs)) }
         let choice: BrowserEngineChoice
         switch browserTabs.resolve(requested: engine) {
         case .refuse(let reason): return ctx.refuse(BrowserTabService.message(reason))

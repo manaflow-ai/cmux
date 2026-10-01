@@ -62,7 +62,7 @@ struct ScreenActionTests {
     @Test func screenContextMenusOnlyReferenceScreenActions() {
         let registry = Coverage.boundServices().registry
         for context in [ActionMenuContext.screen, .screenGroup] {
-            let ids = ContextMenuCatalog.referencedIDs(ContextMenuCatalog.entries(for: context))
+            let ids = ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: context))
             #expect(!ids.isEmpty)
             for id in ids { #expect(registry.descriptor(for: id) != nil, "\(context): \(id)") }
         }

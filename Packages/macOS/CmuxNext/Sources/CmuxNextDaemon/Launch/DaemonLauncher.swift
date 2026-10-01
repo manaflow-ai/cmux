@@ -100,10 +100,10 @@ public struct DaemonLauncher: Sendable {
         if let stateDirectory { overrides["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
         let fixedOverrides = overrides
         return DaemonLauncher(configuration: configuration, environment: {
-            DaemonLaunchTimings.mark("daemon.login_env_start")
+            DaemonLaunchTimings.shared.mark("daemon.login_env_start")
             let login = await cache.value()
-            DaemonLaunchTimings.mark("daemon.login_env_end")
-            return LoginEnvironment.daemonEnvironment(login: login, base: processEnvironment, overrides: fixedOverrides)
+            DaemonLaunchTimings.shared.mark("daemon.login_env_end")
+            return LoginEnvironment.shared.daemonEnvironment(login: login, base: processEnvironment, overrides: fixedOverrides)
         })
     }
 
@@ -184,8 +184,8 @@ public struct DaemonLauncher: Sendable {
         }
         if let running = await runningOwner() { return running }
         let environment = await ensureEnvironment()
-        DaemonLaunchTimings.mark("daemon.ensure_start")
-        defer { DaemonLaunchTimings.mark("daemon.ensure_end") }
+        DaemonLaunchTimings.shared.mark("daemon.ensure_start")
+        defer { DaemonLaunchTimings.shared.mark("daemon.ensure_end") }
         let result = try await ProcessRunner.run(
             executable: configuration.binary,
             arguments: Self.ensureArguments(configuration),
@@ -211,8 +211,8 @@ public struct DaemonLauncher: Sendable {
         if let configFile = configuration.configFile { environment["CMUX_TUI_CONFIG"] = configFile.path }
         environment["XDG_RUNTIME_DIR"] = nil
         environment["TMPDIR"] = configuration.runtimeBase.path
-        DaemonLaunchTimings.mark("daemon.status_start")
-        defer { DaemonLaunchTimings.mark("daemon.status_end") }
+        DaemonLaunchTimings.shared.mark("daemon.status_start")
+        defer { DaemonLaunchTimings.shared.mark("daemon.status_end") }
         guard let result = try? await ProcessRunner.run(
             executable: configuration.binary,
             arguments: ["--session", configuration.session, "--json", "server", "status"],
@@ -289,7 +289,7 @@ actor LoginEnvironmentCache {
 
     func value() async -> [String: String]? {
         if let task { return await task.value }
-        let task = Task { await LoginEnvironment.capture() }
+        let task = Task { await LoginEnvironment.shared.capture() }
         self.task = task
         return await task.value
     }

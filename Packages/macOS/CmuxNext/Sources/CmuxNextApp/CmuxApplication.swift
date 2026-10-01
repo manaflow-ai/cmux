@@ -31,7 +31,7 @@ import os
 ///   run never takes focus from the user's frontmost app.
 final class CmuxApplication: NSApplication, CEFAppProtocol {
     private var handlingSendEvent = false
-    /// Set once in `CmuxNextApp.main` before `run()`.
+    /// Set once in `CmuxNextApp.shared.main` before `run()`.
     var refusesActivation = false
     /// Set once by `AppServices`. Gets the key-down and the window it goes
     /// to; returns true when it consumed the key.

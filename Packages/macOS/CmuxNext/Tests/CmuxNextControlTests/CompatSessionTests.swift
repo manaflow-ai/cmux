@@ -41,7 +41,7 @@ import Testing
     }
 
     @Test func qualifiersAreUniqueTokens() {
-        let names = ControlSessionNaming.qualifiers([
+        let names = ControlSessionNaming.shared.qualifiers([
             .init(id: "aaaaaaaa-0000-4000-8000-000000000000", name: "Build Box.local"),
             .init(id: "bbbbbbbb-0000-4000-8000-000000000000", name: "devvm"),
             .init(id: "cccccccc-0000-4000-8000-000000000000", name: "devvm"),

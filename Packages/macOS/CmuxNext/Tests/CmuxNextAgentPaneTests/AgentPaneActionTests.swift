@@ -22,6 +22,6 @@ import Testing
         #expect(descriptor.cliName == "agent new-chat")
         #expect(descriptor.mainMenu == .file)
         #expect(descriptor.targets == [.pane])
-        #expect(ContextMenuCatalog.referencedIDs(ContextMenuCatalog.entries(for: .newTab)).contains(.newAgentChat))
+        #expect(ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: .newTab)).contains(.newAgentChat))
     }
 }

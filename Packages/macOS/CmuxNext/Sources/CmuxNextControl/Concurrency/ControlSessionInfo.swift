@@ -36,7 +36,8 @@ public struct ControlSessionInfo: Sendable, Hashable {
 
 /// Unique session qualifiers (data-model.md 1.3): a session's name when no
 /// other session shares it, else its name plus a `registry_id` prefix.
-public enum ControlSessionNaming {
+public struct ControlSessionNaming: Sendable {
+    public static let shared = Self()
     public struct Candidate: Sendable, Hashable {
         public var id: String
         public var name: String?
@@ -50,7 +51,7 @@ public enum ControlSessionNaming {
     /// Qualifier per candidate id. Names become one token: lowercase ASCII
     /// letters, digits, `.`, `_` and `-`, every other run replaced by `-`, so
     /// a qualifier never contains the `:` that separates it from the ref.
-    public static func qualifiers(_ candidates: [Candidate]) -> [String: String] {
+    public func qualifiers(_ candidates: [Candidate]) -> [String: String] {
         let bases = candidates.map { candidate in (candidate.id, token(candidate.name) ?? idPrefix(candidate.id)) }
         var counts: [String: Int] = [:]
         for (_, base) in bases { counts[base, default: 0] += 1 }
@@ -62,9 +63,9 @@ public enum ControlSessionNaming {
     }
 
     /// Names a qualifier may never take: they already mean something in a ref.
-    static let reserved: Set<String> = ["window", "workspace", "pane", "surface", "tab", "home", "local", "handle", "terminal"]
+    let reserved: Set<String> = ["window", "workspace", "pane", "surface", "tab", "home", "local", "handle", "terminal"]
 
-    static func token(_ name: String?) -> String? {
+    func token(_ name: String?) -> String? {
         guard let name else { return nil }
         var out = ""
         var pendingDash = false
@@ -84,7 +85,7 @@ public enum ControlSessionNaming {
     }
 
     /// The first 8 hex digits of a session id (`machine:` ids hash to hex).
-    static func idPrefix(_ id: String) -> String {
+    func idPrefix(_ id: String) -> String {
         let hex = id.lowercased().filter(\.isHexDigit)
         if id.hasPrefix("machine:") || hex.count < 8 {
             var hash: UInt32 = 2_166_136_261

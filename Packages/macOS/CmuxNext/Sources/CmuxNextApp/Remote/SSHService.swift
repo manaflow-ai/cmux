@@ -153,7 +153,7 @@ final class SSHService {
         session.close()
         _ = machines.removeSSH(session.machineID)
         forgetSavedHost(session.machineID)
-        guard let sessionID, machines.local.supports(DaemonCapabilities.profiles), let home = machines.local.connection else { return }
+        guard let sessionID, machines.local.supports(DaemonCapabilities.shared.profiles), let home = machines.local.connection else { return }
         do {
             try await home.forgetSession(sessionID, force: true)
         } catch {
@@ -247,8 +247,8 @@ final class SSHService {
     /// PATH for ProxyCommand helpers. Never a token or key.
     @Sendable static func environment() async -> [String: String] {
         let base = ProcessInfo.processInfo.environment
-        var env = await TerminalEnvironment.shared(base: base)()
-        for key in TerminalEnvironment.daemonIdentityKeys { if let value = base[key] { env[key] = value } }
+        var env = await TerminalEnvironment.instance.shared(base: base)()
+        for key in TerminalEnvironment.instance.daemonIdentityKeys { if let value = base[key] { env[key] = value } }
         return env
     }
 
