@@ -8,6 +8,7 @@ final class AcpmuxAgentWindowController: NSWindowController, NSTableViewDataSour
     private let service: AcpmuxAgentService
     private var sessions: [AcpmuxAgentService.Session] = []
     private var selectedSessionID: String?
+    private let splitView = NSSplitView()
     private let sessionTable = NSTableView()
     private let transcript = NSTextView()
     private let composer = NSTextView()
@@ -35,15 +36,16 @@ final class AcpmuxAgentWindowController: NSWindowController, NSTableViewDataSour
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
         window.makeKeyAndOrderFront(nil)
+        window.layoutIfNeeded()
+        splitView.setPosition(260, ofDividerAt: 0)
     }
 
     private func buildUI() {
         guard let content = window?.contentView else { return }
-        let split = NSSplitView()
-        split.isVertical = true
-        split.dividerStyle = .thin
-        split.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(split)
+        splitView.isVertical = true
+        splitView.dividerStyle = .thin
+        splitView.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(splitView)
 
         let sidebar = NSView()
         let sidebarStack = NSStackView()
@@ -76,7 +78,7 @@ final class AcpmuxAgentWindowController: NSWindowController, NSTableViewDataSour
         newButton.target = self
         newButton.action = #selector(newSession)
         sidebarStack.addArrangedSubview(newButton)
-        split.addArrangedSubview(sidebar)
+        splitView.addArrangedSubview(sidebar)
 
         let main = NSView()
         let mainStack = NSStackView()
@@ -115,13 +117,12 @@ final class AcpmuxAgentWindowController: NSWindowController, NSTableViewDataSour
         controls.orientation = .horizontal
         controls.alignment = .trailing
         mainStack.addArrangedSubview(controls)
-        split.addArrangedSubview(main)
-        split.setPosition(250, ofDividerAt: 0)
+        splitView.addArrangedSubview(main)
         NSLayoutConstraint.activate([
-            split.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            split.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            split.topAnchor.constraint(equalTo: content.topAnchor),
-            split.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            splitView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            splitView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            splitView.topAnchor.constraint(equalTo: content.topAnchor),
+            splitView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
         ])
     }
 

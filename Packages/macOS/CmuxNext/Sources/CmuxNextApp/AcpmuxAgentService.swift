@@ -200,6 +200,17 @@ actor AcpmuxAgentService {
         process.arguments = arguments
         var environment = ProcessInfo.processInfo.environment
         environment["ACPMUX_HOME"] = home.path
+        // Finder and the Dock launch apps without the interactive shell PATH.
+        // ACPmux discovers installed harnesses from PATH, so include the
+        // standard user tool locations before starting its daemon.
+        let toolPaths = [
+            NSHomeDirectory() + "/.local/bin",
+            NSHomeDirectory() + "/.cargo/bin",
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+        ]
+        let inheritedPath = environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        environment["PATH"] = (toolPaths + [inheritedPath]).joined(separator: ":")
         process.environment = environment
         let output = Pipe()
         let errors = Pipe()
