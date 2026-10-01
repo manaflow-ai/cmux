@@ -4,6 +4,16 @@ public import Foundation
 /// the mock; the pane never knows which.
 public nonisolated protocol AgentPaneHostProviding: Sendable {
     func handshake(sessionId: String?) async throws -> AgentPaneHandshake
+    /// The handshake for a page that lost its daemon. Never starts one, so a
+    /// daemon the user stopped stays stopped.
+    func reconnectHandshake(sessionId: String?) async throws -> AgentPaneHandshake
+}
+
+extension AgentPaneHostProviding {
+    /// Hosts without a daemon answer a reconnect like a first handshake.
+    public func reconnectHandshake(sessionId: String?) async throws -> AgentPaneHandshake {
+        try await handshake(sessionId: sessionId)
+    }
 }
 
 /// Why the live host could not produce a handshake.
@@ -14,6 +24,9 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
     /// The daemon could not be started or reported no WebSocket listener;
     /// details are in its log.
     case daemonFailed(logPath: String)
+    /// Nothing listens on the socket and this handshake may not start a
+    /// daemon (``AgentPaneHostProviding/reconnectHandshake(sessionId:)``).
+    case daemonStopped
     case timedOut
 }
 

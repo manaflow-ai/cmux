@@ -26,7 +26,7 @@ public final class AgentPaneModel {
     /// The reply for one page request.
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
-        case .ready:
+        case .ready, .reconnect:
             do {
                 let handshake = try await host.handshake(sessionId: sessionId)
                 lastError = nil
