@@ -164,7 +164,7 @@ struct AgentHookDeliveryEvent: Sendable {
         // boundary, updates the resumable session record, and may publish a
         // completion notification. Session teardown must not coalesce that
         // work away while replacing stale state in the same lane.
-        if subcommand == "session-end", earlier.subcommand == "stop" {
+        if earlier.subcommand == "stop" {
             return false
         }
         guard Self.terminalStateSubcommands.contains(subcommand),

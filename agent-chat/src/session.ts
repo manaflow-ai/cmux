@@ -480,13 +480,26 @@ export function useSession(): SessionState {
   }, [closeForkWindow, closeHandoffWindow]);
 
   const clearPendingStartTimeout = useCallback(() => {
-    if (pendingStartTimeoutRef.current) window.clearTimeout(pendingStartTimeoutRef.current);
+    if (pendingStartTimeoutRef.current !== null) window.clearTimeout(pendingStartTimeoutRef.current);
     pendingStartTimeoutRef.current = null;
+  }, []);
+
+  const sendRaw = useCallback((obj: unknown) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(obj));
+      return true;
+    }
+    return false;
   }, []);
 
   const failPendingStart = useCallback((message: string) => {
     const pending = pendingStartRef.current;
     if (!pending) return;
+    // Restoring the draft offers a retry. Cancel the original request as well
+    // so it cannot quietly launch another agent after timeout or failure.
+    pendingStartStopsRef.current.add(pending.requestId);
+    sendRaw({ op: "stop", requestId: pending.requestId });
     clearPendingStartTimeout();
     pendingStartRef.current = null;
     restoreComposerDraft(draftStorage, [pending.prompt, ...pending.queuedReplies.map((reply) => reply.prompt)].join("\n\n"));
@@ -505,23 +518,20 @@ export function useSession(): SessionState {
     setFileDiffErrors({});
     setLastError(message);
     setPhase("composer");
-  }, [clearPendingStartTimeout, discardFileDiffRequests]);
+  }, [clearPendingStartTimeout, discardFileDiffRequests, sendRaw]);
 
   const armPendingStartTimeout = useCallback(() => {
     clearPendingStartTimeout();
-    pendingStartTimeoutRef.current = window.setTimeout(() => {
+    const pending = pendingStartRef.current;
+    if (!pending) return;
+    const timeout = window.setTimeout(() => {
+      // Clearing a timer cannot recall a callback already queued. Also guard
+      // rearming this same request after reconnect, not just a new startup.
+      if (pendingStartRef.current !== pending || pendingStartTimeoutRef.current !== timeout) return;
       failPendingStart("Failed to start agent: request timed out");
     }, PENDING_START_TIMEOUT_MS);
+    pendingStartTimeoutRef.current = timeout;
   }, [clearPendingStartTimeout, failPendingStart]);
-
-  const sendRaw = useCallback((obj: unknown) => {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(obj));
-      return true;
-    }
-    return false;
-  }, []);
 
   useEffect(() => {
     const disconnect = openSessionConnection({
@@ -577,6 +587,13 @@ export function useSession(): SessionState {
               }
               break;
             }
+            if (
+              pendingHandoffSourceSessionRef.current
+              && pendingHandoffSourceSessionRef.current !== msg.session.id
+            ) {
+              closeHandoffWindow();
+              setHandoffPending(false);
+            }
             if (sessionIdRef.current !== msg.session.id) resetSessionActions();
             sessionIdRef.current = msg.session.id;
             history.replaceState(null, "", appPath("/s/" + msg.session.id));
@@ -600,6 +617,13 @@ export function useSession(): SessionState {
           }
           case "history":
             if (msg.sessionId !== sessionIdRef.current) break;
+            if (
+              pendingHandoffSourceSessionRef.current
+              && pendingHandoffSourceSessionRef.current !== msg.session.id
+            ) {
+              closeHandoffWindow();
+              setHandoffPending(false);
+            }
             if (sessionIdRef.current !== msg.session.id) resetSessionActions();
             sessionIdRef.current = msg.session.id;
             document.title = msg.session.title || "cmux agent";
@@ -618,6 +642,8 @@ export function useSession(): SessionState {
             break;
           case "no-session":
             if (!sessionIdRef.current || msg.sessionId !== sessionIdRef.current) break;
+            closeHandoffWindow();
+            setHandoffPending(false);
             resetSessionActions();
             history.replaceState(null, "", appPath("/"));
             sessionIdRef.current = null;
@@ -878,10 +904,6 @@ export function useSession(): SessionState {
   const stop = useCallback(() => {
     const pending = pendingStartRef.current;
     if (pending) {
-      // The server may still be validating cwd/options, or its creation reply
-      // may be in flight. Keep retrying this cancellation until acknowledged.
-      pendingStartStopsRef.current.add(pending.requestId);
-      sendRaw({ op: "stop", requestId: pending.requestId });
       failPendingStart("");
     } else if (sessionIdRef.current) {
       sendRaw({ op: "stop", sessionId: sessionIdRef.current });

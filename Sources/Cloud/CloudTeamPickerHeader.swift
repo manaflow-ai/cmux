@@ -3,37 +3,77 @@ import CmuxCloud
 import CmuxFoundation
 import SwiftUI
 
-/// Team scope and Invite share the Cloud header. Fleet status keeps its own
+/// Team scope, Invite, and machine actions share the Cloud header. Fleet status keeps its own
 /// row so it cannot squeeze the active team's name out of a narrow sidebar;
 /// the status view owns that row, so an idle fleet adds no gap under the toolbar.
-struct CloudTeamPickerHeader<Status: View>: View {
+struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
     let accountFlow: HostAccountFlow?
     let presentation: CloudTeamPickerPresentation?
     let chromeBackgroundColor: NSColor
+    let isRefreshing: Bool
+    let onRefresh: () -> Void
+    let onNewMachine: () -> Void
+    @ViewBuilder let agentMenu: () -> AgentMenu
     @ViewBuilder let status: () -> Status
     @State private var panePresentation = CloudTeamPickerPresentation()
 
     var body: some View {
         @Bindable var picker = presentation ?? panePresentation
         VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                if let accountFlow {
-                    CloudTeamPickerRow(accountFlow: accountFlow, presentation: picker)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .disabled(accountFlow.isWorkingOnAuth)
-                }
-                Spacer(minLength: 0)
-                if let accountFlow, accountFlow.confirmedTeamID != nil {
-                    MachinesChromeLabelButton(
-                        symbolName: "person.badge.plus",
-                        title: String(localized: "sidebar.account.invite.button", defaultValue: "Invite"),
-                        accessibilityLabel: String(localized: "sidebar.account.invitePeople.short", defaultValue: "Invite People"),
-                        action: { picker.isInvitePresented = true }
-                    )
-                    .popover(isPresented: $picker.isInvitePresented, arrowEdge: .bottom) {
-                        CloudTeamInvitePopover(accountFlow: accountFlow, presentation: picker)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    if let accountFlow {
+                        CloudTeamPickerRow(accountFlow: accountFlow, presentation: picker)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .disabled(accountFlow.isWorkingOnAuth)
                     }
-                    .accessibilityIdentifier("CloudTeamInviteButton")
+                    Spacer(minLength: 0)
+                    agentMenu()
+                    if let accountFlow, accountFlow.confirmedTeamID != nil {
+                        MachinesChromeLabelButton(
+                            symbolName: "person.badge.plus",
+                            title: String(localized: "sidebar.account.invite.button", defaultValue: "Invite"),
+                            accessibilityLabel: String(localized: "sidebar.account.invitePeople.short", defaultValue: "Invite People"),
+                            action: { picker.isInvitePresented = true }
+                        )
+                        .popover(isPresented: $picker.isInvitePresented, arrowEdge: .bottom) {
+                            CloudTeamInvitePopover(accountFlow: accountFlow, presentation: picker)
+                        }
+                        .accessibilityIdentifier("CloudTeamInviteButton")
+                    }
+                    MachinesChromeIconButton(
+                        symbolName: "arrow.clockwise",
+                        accessibilityLabel: refreshLabel,
+                        isBusy: isRefreshing,
+                        action: onRefresh
+                    )
+                    MachinesChromeIconButton(
+                        symbolName: "plus",
+                        accessibilityLabel: newMachineLabel,
+                        isBusy: false,
+                        action: onNewMachine
+                    )
+                }
+                HStack(spacing: 6) {
+                    if let accountFlow {
+                        CloudTeamPickerRow(accountFlow: accountFlow, presentation: picker)
+                            .disabled(accountFlow.isWorkingOnAuth)
+                    }
+                    Spacer(minLength: 0)
+                    agentMenu()
+                    if let accountFlow, accountFlow.confirmedTeamID != nil {
+                        MachinesChromeLabelButton(
+                            symbolName: "person.badge.plus",
+                            title: String(localized: "sidebar.account.invite.button", defaultValue: "Invite"),
+                            accessibilityLabel: String(localized: "sidebar.account.invitePeople.short", defaultValue: "Invite People"),
+                            action: { picker.isInvitePresented = true }
+                        )
+                        .popover(isPresented: $picker.isInvitePresented, arrowEdge: .bottom) {
+                            CloudTeamInvitePopover(accountFlow: accountFlow, presentation: picker)
+                        }
+                        .accessibilityIdentifier("CloudTeamInviteButton")
+                    }
+                    machineActionsMenu
                 }
             }
             .rightSidebarChromeBar()
@@ -49,6 +89,44 @@ struct CloudTeamPickerHeader<Status: View>: View {
             picker.isPresented = false
             picker.isInvitePresented = false
         }
+    }
+
+    private var refreshLabel: String {
+        String(localized: "machines.refresh", defaultValue: "Refresh Machines")
+    }
+
+    private var newMachineLabel: String {
+        String(localized: "machines.new", defaultValue: "New Machine")
+    }
+
+    private var machineActionsMenu: some View {
+        Menu {
+            Button {
+                onRefresh()
+            } label: {
+                Text(refreshLabel)
+            }
+            .help(refreshLabel)
+            .accessibilityLabel(refreshLabel)
+
+            Button {
+                onNewMachine()
+            } label: {
+                Text(newMachineLabel)
+            }
+            .help(newMachineLabel)
+            .accessibilityLabel(newMachineLabel)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 11, weight: .medium))
+                .frame(width: 22, height: 20)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 22, height: 20)
+        .foregroundStyle(.secondary)
+        .accessibilityIdentifier("CloudMachinesActionsMenu")
     }
 
     private func teamChangeErrorRow(_ message: String, onDismiss: @escaping () -> Void) -> some View {
