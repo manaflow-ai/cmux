@@ -288,10 +288,10 @@ fn input_verb(
     for key in needs {
         params.insert((*key).into(), json!(take(key)?));
     }
-    if method == "browser.page.press" {
-        if let Some(selector) = options.value("selector") {
-            params.insert("selector".into(), json!(selector));
-        }
+    if method == "browser.page.press"
+        && let Some(selector) = options.value("selector")
+    {
+        params.insert("selector".into(), json!(selector));
     }
     if method == "browser.page.scroll" {
         // The old `scroll N` scrolled by N down; any other word is a selector.
