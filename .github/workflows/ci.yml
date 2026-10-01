@@ -1144,6 +1144,9 @@ jobs:
       - name: Run the contributor static preflight
         run: python3 scripts/verify-local.py
 
+      - name: Check agent hook docs against the catalog
+        run: python3 scripts/check-agent-hook-docs.py
+
   guards:
     # Not after static-preflight: the guards are the last job
     # macos-admission-gate waits for (median ~110 s after changes), and the

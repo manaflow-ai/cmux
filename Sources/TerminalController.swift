@@ -15051,8 +15051,15 @@ class TerminalController {
 #endif
         case "mobile.attach_ticket.create":
             result = await v2MobileAttachTicketCreate(params: request.params)
-        case "mobile.workspace.list", "workspace.list":
-            result = v2MobileWorkspaceList(params: request.params)
+        case "mobile.workspace.list":
+            // The v2 method carries the authenticated host identity with the
+            // workspace snapshot so a cold reconnect does not need a second
+            // relay round trip. Older clients continue using `workspace.list`.
+            result = v2MobileWorkspaceListWithHostStatus(params: request.params)
+        case "workspace.list":
+            result = v2Bool(request.params, "include_host_status") == true
+                ? v2MobileWorkspaceListWithHostStatus(params: request.params)
+                : v2MobileWorkspaceList(params: request.params)
         case "mobile.workspace.changes.summary",
              "mobile.workspace.changes.files",
              "mobile.workspace.changes.file_diff",
@@ -15203,6 +15210,30 @@ class TerminalController {
             ])
         }
         return mobileHostResult(result)
+    }
+
+    /// Adds the authenticated host proof to the v2 workspace snapshot. This is
+    /// called after the mobile connection has been admitted. The published v2
+    /// installation identity is authoritative for this response; the physical
+    /// device identity belongs to legacy pairing and must never replace it.
+    /// If the identity is unavailable, return the plain workspace result and
+    /// let the client use its legacy fallback request.
+    @MainActor
+    private func v2MobileWorkspaceListWithHostStatus(
+        params: [String: Any]
+    ) -> V2CallResult {
+        let workspaceResult = v2MobileWorkspaceList(params: params)
+        guard case let .ok(workspacePayload) = workspaceResult,
+              var workspaceObject = workspacePayload as? [String: Any] else {
+            return workspaceResult
+        }
+        guard case let .ok(hostStatusPayload) = MobileHostPublicStatusCache.result(
+            includeIdentity: true
+        ), let hostStatusObject = hostStatusPayload as? [String: Any] else {
+            return workspaceResult
+        }
+        workspaceObject["host_status"] = hostStatusObject
+        return .ok(workspaceObject)
     }
 
     /// Privileged agent feedback sink (the Mac↔phone feedback loop).
@@ -15429,15 +15460,21 @@ class TerminalController {
 
         let tabManager = v2ResolveTabManager(params: params)
         let workspaceCount = tabManager?.tabs.count ?? 0
-
-        return .ok([
-            "mac_device_id": MobileHostIdentity.deviceID(),
-            "mac_display_name": v2OrNull(MobileHostIdentity.instanceDisplayName()),
-            "host_service": status.payload,
-            "workspace_count": workspaceCount,
-            "terminal_fidelity": "render_grid",
-            "capabilities": capabilities,
-        ])
+        guard case let .ok(identityPayload) = MobileHostPublicStatusCache.result(
+            includeIdentity: true
+        ), var payload = identityPayload as? [String: Any] else {
+            return .ok([
+                "mac_device_id": MobileHostIdentity.deviceID(),
+                "mac_display_name": v2OrNull(MobileHostIdentity.instanceDisplayName()),
+                "host_service": status.payload,
+                "workspace_count": workspaceCount,
+                "terminal_fidelity": "render_grid",
+                "capabilities": capabilities,
+            ])
+        }
+        payload["host_service"] = status.payload
+        payload["workspace_count"] = workspaceCount
+        return .ok(payload)
     }
 
     #if DEBUG
