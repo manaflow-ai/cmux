@@ -103,6 +103,18 @@ import Testing
         #expect(h.decide(h.windowPoint(stripX: (plus.maxX + buttons.minX) / 2)) == .movesWindow)
     }
 
+    /// The app's layout pads panes by 2 pt, so a top-row strip starts 2 pt
+    /// below the window's top edge (tagged build tdrag2: strip y 2..30 in a
+    /// 32 pt band). It is still the titlebar row.
+    @Test func aPaddedTopRowStripStillMovesTheWindowFromEmptySpace() {
+        let h = Harness(titles: ["One"], stripY: 400 - TabStripView.preferredHeight - 2)
+        defer { h.close() }
+        let plus = h.strip.contentView.convert(h.strip.newTabButton.frame, to: h.strip)
+        let buttons = h.strip.contentView.convert(h.strip.buttonGroup.frame, to: h.strip)
+        #expect(h.decide(h.windowPoint(stripX: (plus.maxX + buttons.minX) / 2)) == .movesWindow)
+        #expect(h.decide(h.windowPoint(stripX: h.tabFrame(0).midX)) == .staysPut)
+    }
+
     @Test func aStripBelowTheTopRowNeverMovesTheWindow() {
         let h = Harness(titles: ["One"], stripY: 200)
         defer { h.close() }
