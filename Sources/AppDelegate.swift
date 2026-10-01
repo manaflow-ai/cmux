@@ -1779,7 +1779,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             SystemWideHotkeySettings.reset()
             KeyboardShortcutSettings.resetAll()
             if TestProcessDefaults.isolatedDomainName == nil {
-                Self.forgetPersistedWindowGeometryForTestProcess()
+                Self.removeLegacyPersistedWindowGeometry()
+                UserDefaults.standard.removeObjectIfPresent(
+                    forKey: Self.persistedWindowGeometryDefaultsKey
+                )
             }
         }
 #endif
@@ -3860,15 +3863,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         defaults: UserDefaults = .standard
     ) {
         legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObjectIfPresent(forKey: $0) }
-    }
-
-    /// Forgets the last closed main window's frame so a test process opens its
-    /// first window at the default size.
-    nonisolated static func forgetPersistedWindowGeometryForTestProcess(
-        defaults: UserDefaults = .standard
-    ) {
-        removeLegacyPersistedWindowGeometry(defaults: defaults)
-        defaults.removeObjectIfPresent(forKey: persistedWindowGeometryDefaultsKey)
     }
 
     private func persistWindowGeometry(from window: NSWindow?) {
