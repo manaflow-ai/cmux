@@ -981,7 +981,6 @@ private final class TitlebarControlRightClickNSView: NSView {
 }
 
 private struct TitlebarNotificationBadge: View {
-    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let unreadModel: SidebarUnreadModel
     let config: TitlebarControlsStyleConfig
     @Environment(\.cmuxAccentColor) private var cmuxAccent
@@ -2357,7 +2356,6 @@ private struct NotificationsPopoverView: View {
     @Environment(\.cmuxAccentColor) private var cmuxAccent
     @ObservedObject var notificationStore: TerminalNotificationStore
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
-    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let onDismiss: () -> Void
     let onOpenPhoneForwarding: () -> Void
 
