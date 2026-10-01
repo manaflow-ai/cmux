@@ -158,13 +158,11 @@ export async function issueVmAuthorizationToken(
     select vm.owner_team_id, vm.coderouter_pool_id, account.id, account.created_by
     from cloud_vms vm join coderouter_accounts account on account.team_id = vm.owner_team_id
     where vm.id = ${vmId}::uuid and (account.visibility = 'team' or account.created_by = vm.owner_team_id)
-      and not exists (select 1 from coderouter_pool_accounts existing where existing.pool_id = vm.coderouter_pool_id)
     on conflict (pool_id, account_id) do nothing`);
   await cloudDb().execute(sql`insert into coderouter_pool_accounts (team_id, pool_id, claude_account_id, granted_by_user_id)
     select vm.owner_team_id, vm.coderouter_pool_id, account.id, account.created_by
     from cloud_vms vm join coderouter_claude_accounts account on account.team_id = vm.owner_team_id
     where vm.id = ${vmId}::uuid and (account.visibility = 'team' or account.created_by = vm.owner_team_id)
-      and not exists (select 1 from coderouter_pool_accounts existing where existing.pool_id = vm.coderouter_pool_id)
     on conflict (pool_id, claude_account_id) do nothing`);
   const token = await signVmAuthorization({
     vmId,
