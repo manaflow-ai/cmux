@@ -133,6 +133,9 @@ public enum TerminalScrollbackViewportIntent: Equatable, Sendable {
     /// scrollback because it can be a stale layout packet. An accepted input
     /// is different: the synchronous runtime snapshot taken after key
     /// handling is authoritative, so a bottom snapshot resumes follow mode.
+    ///
+    /// - Parameter isAtBottom: Whether the runtime snapshot reaches the live
+    ///   bottom after accepting input.
     public func resolvingAcceptedExplicitInput(isAtBottom: Bool) -> Self {
         guard isAtBottom else {
             if case .awaitingExplicitScrollbarSync(let previousWasReviewing, _) = self {
