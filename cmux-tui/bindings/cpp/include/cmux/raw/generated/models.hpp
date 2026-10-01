@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "adbfa89de5ea3e4ee601c468ebe23c608b9eb8532e62701776fa0d86a6831300";
+inline constexpr std::string_view kProtocolIrSha256 = "0b455d102f3aaa355e722487765305d39e3dbf2dae8ef50d67fffd40490be59a";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -3166,6 +3166,7 @@ struct SetWorkspaceMetadataRequest {
     Field<std::string> key{};
     Field<std::string> mutation_id{};
     Field<std::string> origin{};
+    Field<bool> pinned{};
     Field<std::string> title{};
     Field<Id> workspace{};
     friend bool operator==(const SetWorkspaceMetadataRequest&, const SetWorkspaceMetadataRequest&) = default;

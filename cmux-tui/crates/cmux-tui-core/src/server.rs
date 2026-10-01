@@ -179,6 +179,9 @@ pub const WORKSPACE_GROUPS_CAPABILITY: &str = "workspace-groups-v1";
 /// Durable workspace presentation: `set-workspace-metadata`, the
 /// `color`/`icon`/`title` workspace fields, and `workspace-changed` deltas.
 pub const WORKSPACE_METADATA_CAPABILITY: &str = "workspace-metadata-v1";
+/// The sidebar workspace pin: `pinned` on `set-workspace-metadata` and the
+/// `pinned` workspace field.
+pub const WORKSPACE_PIN_CAPABILITY: &str = "workspace-pin-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the
 /// `tab-changed` delta.
@@ -358,6 +361,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         TERMINAL_PLACEMENT_ENV_CAPABILITY,
         WORKSPACE_GROUPS_CAPABILITY,
         WORKSPACE_METADATA_CAPABILITY,
+        WORKSPACE_PIN_CAPABILITY,
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
         TAB_DRAG_CAPABILITY,
@@ -1911,7 +1915,7 @@ enum Command {
         mutation: MutationRequest,
     },
     /// Set, clear (`null`), or keep (absent) a workspace's shared color,
-    /// SF Symbol icon, and custom title.
+    /// SF Symbol icon, and custom title, and set or keep its sidebar pin.
     SetWorkspaceMetadata {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
@@ -1923,6 +1927,8 @@ enum Command {
         icon: Option<Option<String>>,
         #[serde(default, deserialize_with = "present_nullable")]
         title: Option<Option<String>>,
+        #[serde(default)]
+        pinned: Option<bool>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -11637,6 +11643,7 @@ fn workspace_json(
         "color": presentation.and_then(|presentation| presentation.color.as_deref()),
         "icon": presentation.and_then(|presentation| presentation.icon.as_deref()),
         "title": presentation.and_then(|presentation| presentation.title.as_deref()),
+        "pinned": presentation.is_some_and(|presentation| presentation.pinned),
         "unread_count": workspace_unread_count(state, workspace, notifications),
         "active": index == state.active_workspace,
         "screens": workspace.screens.iter().enumerate().map(|(screen_index, screen)| {
@@ -14817,13 +14824,14 @@ fn handle_command_with_cancellation(
                 "generation": generation,
             }))
         }
-        Command::SetWorkspaceMetadata { workspace, key, color, icon, title, mutation } => {
+        Command::SetWorkspaceMetadata { workspace, key, color, icon, title, pinned, mutation } => {
             let workspace_mutation = workspace_mutation(&mutation)?;
             let update = crate::workspace_registry::WorkspacePresentationUpdate {
                 group: None,
                 color,
                 icon,
                 title,
+                pinned,
             };
             let result = mux.set_workspace_metadata(
                 workspace,
@@ -14842,6 +14850,7 @@ fn handle_command_with_cancellation(
                 "color": record.color,
                 "icon": record.icon,
                 "title": record.title,
+                "pinned": record.pinned,
                 "workspace_revision": result.revision,
                 "changed": result.changed,
                 "replayed": result.replayed,
@@ -24355,6 +24364,64 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn cmux_next_set_workspace_metadata_pins_and_unpins_a_workspace() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&WORKSPACE_PIN_CAPABILITY));
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let entry = |mux: &Arc<Mux>| {
+            let tree = run_json_command(mux, json!({"cmd":"list-workspaces"})).unwrap();
+            tree["workspaces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|entry| entry["key"] == json!(workspace.key))
+                .cloned()
+                .unwrap()
+        };
+        assert_eq!(entry(&mux)["pinned"], false);
+        let events = mux.subscribe();
+        let pin = json!({
+            "cmd":"set-workspace-metadata",
+            "key": workspace.key,
+            "pinned": true,
+            "origin":"cmux-next",
+            "mutation_id":"pin-1",
+        });
+        let pinned = run_json_command(&mux, pin.clone()).unwrap();
+        assert_eq!(pinned["pinned"], true);
+        assert_eq!(pinned["changed"], true);
+        assert_eq!(pinned["replayed"], false);
+        let delta = std::iter::from_fn(|| events.try_recv().ok())
+            .find_map(|event| match event {
+                MuxEvent::TreeDelta(delta) if delta.kind == TreeDeltaKind::WorkspaceChanged => {
+                    Some(delta)
+                }
+                _ => None,
+            })
+            .expect("workspace-changed delta");
+        assert_eq!(delta.entity["pinned"], true);
+        assert_eq!(entry(&mux)["pinned"], true);
+        let replayed = run_json_command(&mux, pin).unwrap();
+        assert_eq!(replayed["replayed"], true);
+        assert_eq!(replayed["workspace_revision"], pinned["workspace_revision"]);
+        // An absent `pinned` keeps the pin while other fields change.
+        let titled = run_json_command(
+            &mux,
+            json!({"cmd":"set-workspace-metadata","key":workspace.key,"title":"Build"}),
+        )
+        .unwrap();
+        assert_eq!(titled["pinned"], true);
+        let unpinned = run_json_command(
+            &mux,
+            json!({"cmd":"set-workspace-metadata","key":workspace.key,"pinned":false}),
+        )
+        .unwrap();
+        assert_eq!(unpinned["pinned"], false);
+        assert_eq!(unpinned["title"], "Build");
+        assert_eq!(entry(&mux)["pinned"], false);
     }
 
     #[test]

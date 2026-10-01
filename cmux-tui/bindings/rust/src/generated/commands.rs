@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR adbfa89de5ea3e4ee601c468ebe23c608b9eb8532e62701776fa0d86a6831300.
+// cmux-tui mux protocol 12, IR 0b455d102f3aaa355e722487765305d39e3dbf2dae8ef50d67fffd40490be59a.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2109,6 +2109,8 @@ pub struct SetWorkspaceMetadataRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub origin: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pinned: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub title: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
@@ -3339,6 +3341,10 @@ impl CmuxClient {
     }
 
     pub fn set_workspace_metadata(&mut self, request: SetWorkspaceMetadataRequest) -> Result<SetWorkspaceMetadataResult> {
+        if !request.pinned.is_missing() {
+            self.require_protocol_field("set-workspace-metadata", 12)?;
+            self.require_capability_field("set-workspace-metadata", "workspace-pin-v1")?;
+        }
         self.execute(&SET_WORKSPACE_METADATA_METADATA, &request)
     }
 

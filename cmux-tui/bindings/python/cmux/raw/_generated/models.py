@@ -2798,6 +2798,7 @@ class SetWorkspaceMetadataRequest:
     key: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
+    pinned: Union[bool, None, MissingType] = field(default=MISSING)
     title: Union[str, None, MissingType] = field(default=MISSING)
 
 

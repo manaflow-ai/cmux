@@ -8,8 +8,11 @@
 //! Every table here is additive and carries no foreign key. An older binary
 //! that opens the same registry ignores these tables, so creating them needs
 //! no schema version bump and a rollback to that binary keeps working (it
-//! simply stops showing the metadata). Rows that name a tombstoned workspace
-//! are inert: snapshots join against live workspaces.
+//! simply stops showing the metadata). Columns added later follow the same
+//! rule: the open path probes the table shape instead of the schema number.
+//! A binary older than `pinned` may delete a row that holds only a pin, so a
+//! rollback can lose pins. Rows that name a tombstoned workspace are inert:
+//! snapshots join against live workspaces.
 //!
 //! Each mutation appends one `state` journal record with `advisory` replay.
 //! The materialized table is authoritative for restoration, so a restore
@@ -47,7 +50,8 @@ pub(super) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
            group_id TEXT,
            color TEXT,
            icon TEXT,
-           title TEXT
+           title TEXT,
+           pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1))
          );
          CREATE TABLE IF NOT EXISTS tab_presentation (
            tab_id TEXT PRIMARY KEY NOT NULL,
@@ -86,6 +90,25 @@ pub(super) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
            profile_id TEXT
          );",
     )?;
+    migrate_workspace_presentation_add_pinned(transaction)
+}
+
+/// Add the sidebar pin to registries created before the column existed.
+/// Older binaries omit it on their writes, so every existing workspace keeps
+/// the durable default (unpinned).
+fn migrate_workspace_presentation_add_pinned(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let has_pinned = transaction
+        .prepare("PRAGMA table_info(workspace_presentation)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "pinned");
+    if !has_pinned {
+        transaction.execute_batch(
+            "ALTER TABLE workspace_presentation ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0
+               CHECK(pinned IN (0,1));",
+        )?;
+    }
     Ok(())
 }
 
@@ -106,22 +129,30 @@ pub struct WorkspacePresentationRecord {
     pub color: Option<String>,
     pub icon: Option<String>,
     pub title: Option<String>,
+    /// Whether the sidebar lists the workspace in its Pinned section.
+    pub pinned: bool,
 }
 
 impl WorkspacePresentationRecord {
     fn is_empty(&self) -> bool {
-        self.group.is_none() && self.color.is_none() && self.icon.is_none() && self.title.is_none()
+        self.group.is_none()
+            && self.color.is_none()
+            && self.icon.is_none()
+            && self.title.is_none()
+            && !self.pinned
     }
 }
 
 /// A partial workspace presentation update. `None` leaves a field unchanged,
-/// `Some(None)` clears it, and `Some(Some(value))` sets it.
+/// `Some(None)` clears it, and `Some(Some(value))` sets it. `pinned` has no
+/// clear state: `Some(value)` sets it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WorkspacePresentationUpdate {
     pub group: Option<Option<String>>,
     pub color: Option<Option<String>>,
     pub icon: Option<Option<String>>,
     pub title: Option<Option<String>>,
+    pub pinned: Option<bool>,
 }
 
 impl WorkspacePresentationUpdate {
@@ -153,6 +184,9 @@ impl WorkspacePresentationUpdate {
         }
         if let Some(title) = &self.title {
             record.title = title.clone();
+        }
+        if let Some(pinned) = self.pinned {
+            record.pinned = pinned;
         }
     }
 }
@@ -739,7 +773,7 @@ fn read_workspace_presentation(
 ) -> anyhow::Result<WorkspacePresentationRecord> {
     Ok(transaction
         .query_row(
-            "SELECT group_id, color, icon, title FROM workspace_presentation
+            "SELECT group_id, color, icon, title, pinned FROM workspace_presentation
              WHERE workspace_key = ?1",
             [workspace_key],
             |row| {
@@ -748,6 +782,7 @@ fn read_workspace_presentation(
                     color: row.get(1)?,
                     icon: row.get(2)?,
                     title: row.get(3)?,
+                    pinned: row.get::<_, i64>(4)? != 0,
                 })
             },
         )
@@ -779,14 +814,22 @@ pub(super) fn write_workspace_presentation(
         )?;
     } else {
         transaction.execute(
-            "INSERT INTO workspace_presentation(workspace_key, group_id, color, icon, title)
-             VALUES(?1, ?2, ?3, ?4, ?5)
+            "INSERT INTO workspace_presentation(workspace_key, group_id, color, icon, title, pinned)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(workspace_key) DO UPDATE SET
                group_id = excluded.group_id,
                color = excluded.color,
                icon = excluded.icon,
-               title = excluded.title",
-            params![workspace_key, record.group, record.color, record.icon, record.title],
+               title = excluded.title,
+               pinned = excluded.pinned",
+            params![
+                workspace_key,
+                record.group,
+                record.color,
+                record.icon,
+                record.title,
+                i64::from(record.pinned)
+            ],
         )?;
     }
     let subjects = workspace_subject(transaction, workspace_key)?.into_iter().collect();
@@ -800,6 +843,7 @@ pub(super) fn write_workspace_presentation(
             "color": record.color,
             "icon": record.icon,
             "title": record.title,
+            "pinned": record.pinned,
         }),
     )
 }
@@ -809,7 +853,7 @@ impl WorkspaceRegistry {
     pub fn presentation_snapshot(&self) -> anyhow::Result<PresentationSnapshot> {
         let groups = read_groups(&self.connection)?;
         let mut statement = self.connection.prepare(
-            "SELECT p.workspace_key, p.group_id, p.color, p.icon, p.title
+            "SELECT p.workspace_key, p.group_id, p.color, p.icon, p.title, p.pinned
              FROM workspace_presentation AS p
              JOIN workspaces AS w ON w.workspace_key = p.workspace_key
              WHERE w.tombstoned = 0",
@@ -822,6 +866,7 @@ impl WorkspaceRegistry {
                     color: row.get(2)?,
                     icon: row.get(3)?,
                     title: row.get(4)?,
+                    pinned: row.get::<_, i64>(5)? != 0,
                 },
             ))
         })?;
@@ -996,7 +1041,8 @@ impl WorkspaceRegistry {
         tx.execute("UPDATE workspace_presentation SET group_id = NULL WHERE group_id = ?1", [id])?;
         tx.execute(
             "DELETE FROM workspace_presentation
-             WHERE group_id IS NULL AND color IS NULL AND icon IS NULL AND title IS NULL",
+             WHERE group_id IS NULL AND color IS NULL AND icon IS NULL AND title IS NULL
+               AND pinned = 0",
             [],
         )?;
         let order = read_groups(&tx)?.into_iter().map(|group| group.id).collect::<Vec<_>>();
