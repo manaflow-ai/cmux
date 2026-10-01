@@ -399,12 +399,13 @@ public final class CloudMachineConnection {
         output: @escaping @Sendable (CloudTerminalOutputEvent) -> Void
     ) async throws -> CloudTerminalAttachment {
         let generation = operationGeneration
-        let operation = attachmentGate.start { [weak self] in
+        let operation = attachmentGate.startLeased { [weak self] makeHold in
             guard let self else { throw CancellationError() }
             return try await self.performAttach(
                 terminalID: terminalID,
                 output: output,
-                generation: generation
+                generation: generation,
+                makeHold: makeHold
             )
         }
         return try await withTaskCancellationHandler(operation: {
@@ -469,7 +470,8 @@ public final class CloudMachineConnection {
     private func performAttach(
         terminalID: String,
         output: @escaping @Sendable (CloudTerminalOutputEvent) -> Void,
-        generation: UInt64
+        generation: UInt64,
+        makeHold: @MainActor @Sendable () -> CloudOperationGate.Hold
     ) async throws -> CloudTerminalAttachment {
         do {
             let session = try await connectedSession()
@@ -483,7 +485,11 @@ public final class CloudMachineConnection {
                 throw CancellationError()
             }
             lastError = nil
-            return CloudTerminalAttachment(session: session, terminalID: terminalID)
+            return CloudTerminalAttachment(
+                session: session,
+                terminalID: terminalID,
+                lifetime: makeHold()
+            )
         } catch {
             if !(error is CancellationError) {
                 lastError = CloudSessionFailure.classify(error, stage: .link)

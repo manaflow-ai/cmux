@@ -582,11 +582,15 @@ import Testing
 
         #expect(connector.session.state.attachStarted == ["t1"])
         await firstRelease.signal()
-        _ = try await first.value
+        let firstAttachment = try await first.value
+        #expect(connector.session.state.attachStarted == ["t1"])
+        firstAttachment.detach()
         await secondStarted.wait()
         #expect(connector.session.state.attachStarted == ["t1", "t2"])
         await secondRelease.signal()
-        _ = try await second.value
+        let secondAttachment = try await second.value
+        secondAttachment.detach()
+        #expect(connector.session.state.detached == 2)
     }
 
     @Test func cancelledAttachCannotDetachANewerAttachment() async throws {

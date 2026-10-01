@@ -9,10 +9,16 @@ public final class CloudTerminalAttachment: Sendable {
     /// The attached terminal's id.
     public let terminalID: String
     private let session: any CloudTerminalSession
+    private let lifetime: CloudOperationGate.Hold?
 
-    init(session: any CloudTerminalSession, terminalID: String) {
+    init(
+        session: any CloudTerminalSession,
+        terminalID: String,
+        lifetime: CloudOperationGate.Hold? = nil
+    ) {
         self.session = session
         self.terminalID = terminalID
+        self.lifetime = lifetime
     }
 
     /// Queue input bytes.
@@ -29,5 +35,10 @@ public final class CloudTerminalAttachment: Sendable {
     /// Stop streaming output. The link stays open for the catalog.
     public func detach() {
         session.detach()
+        lifetime?.release()
+    }
+
+    deinit {
+        lifetime?.release()
     }
 }

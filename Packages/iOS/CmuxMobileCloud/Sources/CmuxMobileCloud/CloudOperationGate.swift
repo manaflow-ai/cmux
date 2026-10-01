@@ -21,6 +21,12 @@ final class CloudOperationGate {
     func start<T: Sendable>(
         _ operation: @escaping @MainActor () async throws -> T
     ) -> Operation<T> {
+        startLeased { _ in try await operation() }
+    }
+
+    func startLeased<T: Sendable>(
+        _ operation: @escaping @MainActor (HoldFactory) async throws -> T
+    ) -> Operation<T> {
         pendingCount += 1
         let predecessor = tail
         let state = State()
@@ -40,7 +46,13 @@ final class CloudOperationGate {
                 throw CancellationError()
             }
             state.acquired = true
-            return try await operation()
+            let makeHold: HoldFactory = { [weak self, weak state] in
+                guard let self, let state else {
+                    return Hold {}
+                }
+                return self.makeHold(state: state, turn: turn)
+            }
+            return try await operation(makeHold)
         }
         tail = Task { @MainActor in await turn.wait() }
         let result = Task { @MainActor in
@@ -55,11 +67,51 @@ final class CloudOperationGate {
         )
     }
 
+    private func makeHold(state: State, turn: Turn) -> Hold {
+        let id = UUID()
+        state.activeHoldIDs.insert(id)
+        return Hold { [weak self, state] in
+            Task { @MainActor in
+                guard let self else { return }
+                state.activeHoldIDs.remove(id)
+                self.finishIfReady(state: state, turn: turn)
+            }
+        }
+    }
+
     private func finish(state: State, turn: Turn) {
-        guard !state.finished else { return }
-        state.finished = true
+        guard !state.operationFinished else { return }
+        state.operationFinished = true
         state.abandonmentTask?.cancel()
+        finishIfReady(state: state, turn: turn)
+    }
+
+    private func finishIfReady(state: State, turn: Turn) {
+        guard !state.finished, state.operationFinished, state.activeHoldIDs.isEmpty else { return }
+        state.finished = true
         pendingCount -= 1
         turn.release()
+    }
+}
+
+extension CloudOperationGate {
+    typealias HoldFactory = @MainActor @Sendable () -> Hold
+
+    /// Keeps the gate occupied after the operation result is returned.
+    /// Attachments release this when their stream is detached or deallocated.
+    final class Hold: @unchecked Sendable {
+        private let onRelease: @Sendable () -> Void
+
+        init(_ onRelease: @escaping @Sendable () -> Void) {
+            self.onRelease = onRelease
+        }
+
+        func release() {
+            onRelease()
+        }
+
+        deinit {
+            onRelease()
+        }
     }
 }
