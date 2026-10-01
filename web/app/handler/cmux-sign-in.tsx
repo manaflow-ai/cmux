@@ -357,9 +357,9 @@ function ChooseAccount({ messages, current, onContinue, onSignInHere, onSwitchin
       onSignInHere({ email: account.email, method: null, password: account.hasPassword === true, sessionEnded });
       return;
     }
-    writeStored(PENDING_OAUTH_KEY, serializePendingOAuth(account.id));
+    writePendingOAuth(serializePendingOAuth(account.id));
     startOAuth(app, provider, oauthLoginHint(provider, account.email)).catch(() => {
-      writeStored(PENDING_OAUTH_KEY, null);
+      writePendingOAuth(null);
       fail();
     });
   }
@@ -510,7 +510,7 @@ function RememberThisAccount({ user }: { user: CurrentUser }) {
   }, [id, isRestricted]);
   useEffect(() => {
     writeStored(ACCOUNT_HISTORY_KEY, JSON.stringify(rememberAccount(readHistory(), { id, email, displayName, profileImageUrl, hasPassword: user.hasPassword })));
-    writeStored(PENDING_OAUTH_KEY, null);
+    writePendingOAuth(null);
     let cancelled = false;
     user.listOAuthProviders().then((linked) => {
       if (cancelled) return;
@@ -739,6 +739,28 @@ function writeStored(key: string, value: string | null) {
     // The list and the hint are conveniences; sign-in works without them.
   }
   window.dispatchEvent(new Event(STORAGE_EVENT));
+}
+
+/**
+ * The pending-provider marker lives in this tab only: an OAuth trip returns
+ * to the tab that started it, so another tab's sign-in can't be mistaken for
+ * this one.
+ */
+function readPendingOAuth(): string | null {
+  try {
+    return window.sessionStorage.getItem(PENDING_OAUTH_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writePendingOAuth(value: string | null) {
+  try {
+    if (value === null) window.sessionStorage.removeItem(PENDING_OAUTH_KEY);
+    else window.sessionStorage.setItem(PENDING_OAUTH_KEY, value);
+  } catch {
+    // A convenience only: without it a failed provider is simply tried again.
+  }
 }
 
 function readHistory(): RememberedAccount[] {
@@ -1338,10 +1360,10 @@ export function CmuxOAuthCallback({ messages }: { messages: CmuxSignInMessages }
       .catch((caught: unknown) => {
         // A remembered account sent straight to its provider failed: open the
         // form for it next time instead of repeating this.
-        const failedAccount = parsePendingOAuth(readStored(PENDING_OAUTH_KEY));
+        const failedAccount = parsePendingOAuth(readPendingOAuth());
         if (failedAccount) {
           writeStored(ACCOUNT_HISTORY_KEY, JSON.stringify(demoteRememberedMethod(readHistory(), failedAccount)));
-          writeStored(PENDING_OAUTH_KEY, null);
+          writePendingOAuth(null);
         }
         const code = KnownErrors.ContactChannelAlreadyUsedForAuthBySomeoneElse.isInstance(caught) ? "email-unverified" : null;
         if (!code) console.error("[cmux sign-in] OAuth callback failed", caught);

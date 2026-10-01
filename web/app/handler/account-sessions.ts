@@ -61,13 +61,13 @@ export function sealSessions(sessions: SavedSession[], secret: string): string {
 /**
  * Browsers drop a cookie over about 4 KB, which would lose every saved
  * session at once. The list is newest first, so this keeps the newest
- * sessions that fit and leaves the rest for the caller to end.
+ * sessions that fit (possibly none) and leaves the rest for the caller.
  */
 export const ACCOUNT_SESSIONS_MAX_COOKIE_BYTES = 3800;
 
 export function fitToCookie(sessions: SavedSession[], secret: string): SavedSession[] {
   let kept = sessions;
-  while (kept.length > 1 && sealSessions(kept, secret).length > ACCOUNT_SESSIONS_MAX_COOKIE_BYTES) {
+  while (kept.length > 0 && sealSessions(kept, secret).length > ACCOUNT_SESSIONS_MAX_COOKIE_BYTES) {
     kept = kept.slice(0, -1);
   }
   return kept;

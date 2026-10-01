@@ -55,7 +55,7 @@ export default async function AuthErrorPage({
       className="flex min-h-screen items-center justify-center bg-background px-4 py-12 text-foreground"
       dir={direction}
     >
-      {key !== "signupPending" && <DemoteFailedProvider />}
+      <DemoteFailedProvider demote={key !== "signupPending"} />
       <section
         className="w-full max-w-[340px]"
         data-auth-error={key}

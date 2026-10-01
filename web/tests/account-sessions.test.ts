@@ -268,3 +268,24 @@ describe("account session routes: review follow-ups", () => {
     expect(fitToCookie([a, b], SECRET)).toEqual([a, b]);
   });
 });
+
+describe("account session routes: the browser's own session", () => {
+  test("check never refreshes the browser's own session through a separate app", async () => {
+    const routes = harness({ sessions: [a, b], current: { id: "user-a", refreshToken: "refresh-a" } });
+    const { body } = await routes.call("check");
+    expect(routes.lookup.mock.calls.map(([token]) => token)).toEqual(["refresh-b"]);
+    expect(body.signedIn).toEqual(["user-a", "user-b"]);
+  });
+
+  test("the browser's own session is never revoked, even if it can't be kept", async () => {
+    const huge = { id: "user-a", refreshToken: "r".repeat(5000), savedAt: 1 };
+    const routes = harness({ sessions: [huge], current: { id: "user-a", refreshToken: huge.refreshToken } });
+    const { saved } = await routes.call("save");
+    expect(saved ?? []).toEqual([]);
+    expect(routes.revoke).not.toHaveBeenCalled();
+  });
+
+  test("nothing fits means an empty list, not an oversized cookie", () => {
+    expect(fitToCookie([{ id: "user-a", refreshToken: "r".repeat(5000), savedAt: 1 }], SECRET)).toEqual([]);
+  });
+});
