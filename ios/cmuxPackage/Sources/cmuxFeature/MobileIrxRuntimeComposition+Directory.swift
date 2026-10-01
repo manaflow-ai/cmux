@@ -39,7 +39,24 @@ extension MobileIrxRuntimeComposition {
         guard let auth else { return }
         await MainActor.run {
             guard auth.isAuthenticatedTeamScopeCurrent(scope) else { return }
-            MobileMacListAuthState.shared.replace(entriesByIdentity: entries)
+            self.macListAuthState.replace(entriesByIdentity: entries)
+        }
+    }
+
+    /// Projects a previously authenticated local snapshot during session
+    /// restore. This is display-only. The authoritative scope check remains
+    /// required before any control-plane request or device mutation.
+    func projectCachedDirectoryForUI(
+        _ directory: V2Directory?,
+        identity: CachedTeamIdentity,
+        auth: AuthCoordinator
+    ) async {
+        guard let directory, directory.teamID == identity.teamID,
+              await auth.cachedTeamIdentity == identity else { return }
+        let entries = Self.macListAuthEntries(from: directory)
+        await MainActor.run {
+            guard auth.cachedTeamIdentity == identity else { return }
+            self.macListAuthState.replace(entriesByIdentity: entries)
         }
     }
 

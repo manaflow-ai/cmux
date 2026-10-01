@@ -1,5 +1,5 @@
-// Fork coverage: create a pi session, fork it, verify source and fork provider
-// contexts both retain the pre-fork exchange.
+// Handoff coverage: create a pi session, continue elsewhere, and verify source
+// and child provider contexts both retain the pre-handoff exchange.
 const PORT = Number(process.env.CMUX_AGENT_UI_PORT ?? 7739);
 const TIMEOUT_MS = Number(process.env.E2E_TIMEOUT_MS ?? 180_000);
 const cwd = `${import.meta.dir}/../scratch`;
@@ -42,7 +42,7 @@ ws.onopen = () => {
 ws.onmessage = (e) => {
   const msg = JSON.parse(String(e.data));
   if (msg.kind === "session-created") sessionId = msg.session.id;
-  if (msg.kind === "session-forked") forkId = msg.session.id;
+  if (msg.kind === "session-handoff") forkId = msg.session.id;
   if (msg.kind === "history" && msg.sessionId === forkId) history = msg.events ?? [];
   if (msg.kind === "event") {
     const evt = msg.evt;
@@ -62,8 +62,8 @@ try {
   await waitFor("open", () => opened);
   await waitFor("source done", () => done >= 1);
   if (!text.toUpperCase().includes("PONG")) throw new Error(`source did not reply PONG: ${JSON.stringify(text.slice(0, 200))}`);
-  send({ op: "fork", sessionId });
-  await waitFor("fork", () => forkId);
+  send({ op: "handoff", sessionId });
+  await waitFor("handoff", () => forkId);
   text = "";
   const sourceDoneBeforeRecall = done;
   send({
@@ -82,6 +82,10 @@ try {
   if (!history.some((e) => e.kind === "delta" || e.kind === "assistant" || e.kind === "done")) {
     throw new Error("fork history missing source assistant turn");
   }
+  const handoffRoute = history.find((e) => e.kind === "routing" && e.reason === "user_handoff");
+  if (!handoffRoute || handoffRoute.handoffMode !== "native_fork" || handoffRoute.parentSessionId !== sessionId) {
+    throw new Error(`handoff history missing native parent linkage: ${JSON.stringify(handoffRoute)}`);
+  }
   forkText = "";
   const forkDoneBeforeRecall = forkDone;
   send({
@@ -93,7 +97,7 @@ try {
   if (!forkText.toUpperCase().includes("PONG")) {
     throw new Error(`fork context did not include source history: ${JSON.stringify(forkText.slice(0, 200))}`);
   }
-  console.log("pi fork: OK");
+  console.log("pi handoff: OK");
 } finally {
   ws.close();
 }

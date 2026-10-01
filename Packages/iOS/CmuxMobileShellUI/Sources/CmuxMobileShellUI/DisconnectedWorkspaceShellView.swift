@@ -40,23 +40,10 @@ struct DisconnectedWorkspaceShellView: View {
     var showComputers: (() -> Void)? = nil
     var setupHelpPresentation = MobileChildSheetPresentation()
 
-    #if os(iOS)
-    @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
-        MobileConnectionMethodStore?
-    #endif
-
-    /// The connection-method check is kept behind a platform-neutral property
-    /// so the shared view body never reaches directly into the iOS environment.
-    private var usesTailscaleConnectionMethod: Bool {
-        #if os(iOS)
-        return connectionMethodStore?.method == .tailscale
-        #else
-        return false
-        #endif
-    }
 
     #if os(iOS)
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.mobileCloudTabContent) private var cloudTabContent
     /// The computer a reconnect attempt is in flight for. Also the re-entry
     /// guard: while non-nil, row taps are ignored.
     @State private var connectingMacID: String?
@@ -108,8 +95,8 @@ struct DisconnectedWorkspaceShellView: View {
                     // known/restored Mac shows up here for one-tap reconnect.
                     // Same-account discovery is the primary path. Manual pairing
                     // is available only when the root supplies its Tailscale action.
-                    async let pairedMacs: Void = store?.loadPairedMacs() ?? ()
-                    await pairedMacs
+                    async let pairedMacs: Bool = store?.loadPairedMacs() ?? false
+                    _ = await pairedMacs
                     #if os(iOS)
                     async let registryDevices: Void = store?.loadRegistryDevices() ?? ()
                     // Registry + presence enrich the rows (online dots, build
@@ -255,7 +242,7 @@ struct DisconnectedWorkspaceShellView: View {
             Text(emptyDescription)
                 .accessibilityIdentifier("MobileDisconnectedEmptyDescription")
         } actions: {
-            if usesTailscaleConnectionMethod, let showPairingScanner {
+            if tailscalePairingRequired, let showPairingScanner {
                 Button(action: showPairingScanner) {
                     Text(L10n.string(
                         "mobile.tailscalePairingRequired.scan",
@@ -285,14 +272,20 @@ struct DisconnectedWorkspaceShellView: View {
 
     private var emptyDescription: String {
         #if os(iOS)
-        if usesTailscaleConnectionMethod {
+        if tailscalePairingRequired {
             return MobilePairingScannerSheet.emptyStateGuidanceText
         }
         #endif
-        return L10n.string(
+        let pairing = L10n.string(
             "mobile.v2.devices.emptyDescription",
             defaultValue: "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices and keep cmux running. Only Macs you own or have permission to connect to appear here."
         ) + " " + MobilePairingCopy().emptyWorkspaceMessage
+        guard cloudTabContent != nil else { return pairing }
+        // Cloud needs no Mac, so a user without one is not stuck here.
+        return pairing + "\n\n" + L10n.string(
+            "mobile.cloud.emptyWorkspacesHint",
+            defaultValue: "No Mac? Create a Cloud machine in the Cloud tab and its workspaces appear here."
+        )
     }
 
     /// Reconnect this row's computer. `switchToMac` promotes a live secondary

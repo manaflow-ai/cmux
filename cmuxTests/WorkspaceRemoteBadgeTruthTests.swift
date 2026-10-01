@@ -497,15 +497,17 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
             externalRemoteTerminalDocks: [dock]
         )
         XCTAssertEqual(workspace.remoteConnectionState, .reconnecting)
-        XCTAssertTrue(
+        XCTAssertFalse(
             dock.markRemoteTerminalSessionConnected(
                 panelId: surfaceId,
                 authority: .relayPort(64008)
-            )
+            ),
+            "A replacement relay must not claim a Dock terminal from the original connection"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             workspace.hasAuthoritativelyConnectedRemoteTerminal(in: [dock])
         )
+        XCTAssertEqual(workspace.remoteConnectionState, .reconnecting)
     }
 
     @MainActor

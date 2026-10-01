@@ -38,6 +38,9 @@ extension cmuxApp {
                 #endif
             }
             #if DEBUG
+            Button(String(localized: "debug.menu.cloudSidebarSpacingLab", defaultValue: "Cloud Sidebar Spacing Lab…")) {
+                AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugLabController.show()
+            }
             Button(String(localized: "menu.help.showProWelcomeChecklist", defaultValue: "Show Pro Welcome Checklist…")) {
                 ProWelcomeChecklistPresenter.present()
             }
@@ -80,6 +83,9 @@ extension cmuxApp {
         helpResourceButton(.ssh)
         helpResourceButton(.skills)
         agentIntegrationsHelpMenu
+        Button(String(localized: "menu.help.whatsNew", defaultValue: "What's New in cmux")) {
+            WhatsNewCenter.shared.presentOnDemand(source: "helpMenu")
+        }
         helpResourceButton(.changelog)
     }
 

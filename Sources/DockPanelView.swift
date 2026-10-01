@@ -82,6 +82,8 @@ struct DockPanelView: View {
             )
             .frame(width: 0, height: 0)
         )
+        // Keep the container identifiable without replacing its hosted controls' identities.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("DockPanel")
         .onAppear {
             refreshAppearance(reason: "onAppear")
@@ -101,6 +103,9 @@ struct DockPanelView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: PaneChromeSettings.didChangeNotification)) { _ in
             refreshAppearance(reason: "paneChromeSettingsDidChange")
+        }
+        .onDisplayAccessibilityOptionsChange { _ in
+            refreshAppearance(reason: "displayAccessibilityOptionsDidChange")
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
             refreshAppearance(reason: "ghosttyDefaultBackgroundDidChange")
@@ -152,6 +157,7 @@ struct DockPanelView: View {
 struct DockEmptyPaneView: View {
     let onNewTerminal: () -> Void
     let onNewBrowser: () -> Void
+    @State private var browserAvailable = BrowserAvailabilitySettings.isEnabled()
 
     var body: some View {
         VStack(spacing: 12) {
@@ -168,11 +174,13 @@ struct DockEmptyPaneView: View {
                         systemImage: "terminal.fill"
                     )
                 }
-                Button(action: onNewBrowser) {
-                    Label(
-                        String(localized: "dock.action.newBrowser", defaultValue: "New Browser"),
-                        systemImage: "globe"
-                    )
+                if BrowserAvailabilitySettings.offersBrowserAffordance(isEnabled: browserAvailable) {
+                    Button(action: onNewBrowser) {
+                        Label(
+                            String(localized: "dock.action.newBrowser", defaultValue: "New Browser"),
+                            systemImage: "globe"
+                        )
+                    }
                 }
             }
             .buttonStyle(.bordered)
@@ -180,6 +188,7 @@ struct DockEmptyPaneView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(16)
+        .trackingBrowserAffordanceAvailability($browserAvailable)
     }
 }
 

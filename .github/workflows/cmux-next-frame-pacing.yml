@@ -1,0 +1,239 @@
+name: cmux-next frame pacing
+
+# Nightly fling bench of the cmux-next agent pane at 120 Hz. The minis' own
+# displays are 60 Hz, so the bench adds a 120 Hz virtual display
+# (scripts/ci/frame-pacing/vdisplay.m, the private CGVirtualDisplay API) and
+# measures the pane at both render rates: capped (CMUX_NEXT_AGENT_PANE_FULL_RATE=0,
+# WebKit's near-60 fps preference) and full (=1). The numbers, and any past the
+# thresholds in scripts/ci/frame-pacing/summarize.py, go to the run summary.
+#
+# It gates nothing: no required check reads it, and a slow night only adds a
+# warning annotation. It runs on an owned mini or not at all: `gate` asks the
+# E2E pool picker whether an owned Mac is free now (as iroh-release-gate's
+# `runner` does) and skips the run otherwise, and the build and the bench take
+# vars.CI_SIDE_LANE_RUNNER with no Blacksmith fallback. The bench drives the
+# console session, so it holds the mini's gui token while it measures.
+
+on:
+  schedule:
+    # 09:37 UTC, 02:37 in San Francisco: the fleet's quietest hour.
+    - cron: "37 9 * * *"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch of this repository to build and measure
+        required: false
+        default: feat-cmux-next
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  # One bench at a time: every run uses the same tag, socket and console session.
+  group: cmux-next-frame-pacing
+  cancel-in-progress: false
+
+env:
+  # The tagged app's baked tag; its debug socket is /tmp/cmux-debug-<tag>.sock.
+  CMUX_TAG: frame-pacing
+
+jobs:
+  resolve-ref:
+    if: github.repository == 'manaflow-ai/cmux'
+    uses: ./.github/workflows/resolve-dispatch-ref.yml
+    with:
+      ref: ${{ inputs.ref || 'feat-cmux-next' }}
+
+  gate:
+    needs: resolve-ref
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      # Only this repository's own branch heads may run on an owned Mac
+      # (resolve-dispatch-ref.yml's trusted_ref), as for the side lanes.
+      - name: Checkout pool helper
+        if: github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER != '' && needs.resolve-ref.outputs.trusted_ref == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: |
+            scripts/ci/e2e_runner_pool.py
+            scripts/ci/pr_runner_pool.py
+            scripts/ci/simple_pool_picker.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        # As in iroh-release-gate.yml: idle owned runners read live. Any
+        # failure leaves the token empty and the janitor snapshot decides.
+        if: github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER != '' && needs.resolve-ref.outputs.trusted_ref == 'true' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+
+      - name: Run only while an owned Mac is free
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          SIDE_LANE: ${{ vars.CI_SIDE_LANE_RUNNER }}
+          TRUSTED_REF: ${{ needs.resolve-ref.outputs.trusted_ref }}
+        run: |
+          set -uo pipefail
+          label=""
+          if [ "$GITHUB_RUN_ATTEMPT" = 1 ] && [ "$POOL_OWNED" = 1 ] && [ -n "$SIDE_LANE" ] && [ "$TRUSTED_REF" = true ]; then
+            label="$(python3 scripts/ci/e2e_runner_pool.py \
+              --requested auto \
+              --order "$POOL_ORDER" \
+              --max-queued "$POOL_MAX_QUEUED" \
+              --owned "$POOL_OWNED" \
+              --owned-slots "$OWNED_SLOTS" \
+              --pr-xcode-app "$PR_XCODE_APP")" || label=""
+          fi
+          case "$label" in
+            glaeda-*)
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              echo "An owned Mac is free ($label); the build and bench take $SIDE_LANE." ;;
+            *)
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              reason="no owned Mac free now (picker said '${label:-nothing}')"
+              [ "$GITHUB_RUN_ATTEMPT" = 1 ] || reason="a re-run never takes an owned Mac"
+              [ "$TRUSTED_REF" = true ] || reason="the ref is not a branch head of this repository"
+              [ "$POOL_OWNED" = 1 ] && [ -n "$SIDE_LANE" ] || reason="owned pools are off (CI_PR_POOL_OWNED, CI_SIDE_LANE_RUNNER)"
+              echo "::notice title=Agent pane frame pacing::Skipped: $reason."
+              printf '## Agent pane frame pacing\n\nSkipped: %s. This bench runs only on an owned mini.\n' "$reason" >> "$GITHUB_STEP_SUMMARY" ;;
+          esac
+
+  # A retry past attempt 2 never takes an owned Mac (docs/ci-runners.md), and
+  # this bench runs nowhere else, so attempt 3 skips the build and the bench.
+  # The Blacksmith label below is only the fleet-wide literal fallback the
+  # runner guards require; the `if` keeps it from ever being used.
+  build:
+    needs: [resolve-ref, gate]
+    if: needs.gate.outputs.run == 'true' && github.run_attempt <= 2
+    uses: ./.github/workflows/reload-build.yml
+    with:
+      tag: frame-pacing
+      ref: ${{ needs.resolve-ref.outputs.sha }}
+      platform: macos
+      runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
+      backend_mode: local
+
+  bench:
+    needs: [gate, build]
+    if: needs.gate.outputs.run == 'true' && github.run_attempt <= 2
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
+    # The gui token wait (15 min) and the bench step (15 min) both fit, so a
+    # busy console skips the bench instead of timing the job out.
+    timeout-minutes: 45
+    steps:
+      # The bench draws in the console session, which every GUI job on the mini
+      # shares: hold glaeda's gui token for the rest of the job, as test-e2e.yml
+      # does. A busy console after the wait skips the bench, never fails it.
+      - name: Take this Mac's gui token
+        id: gui
+        run: |
+          set -uo pipefail
+          helper=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+          status=0
+          [ -x "$helper" ] && { "$helper" take-gui --wait 900 || status=$?; }
+          case "$status" in
+            0|2) echo "taken=true" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "taken=false" >> "$GITHUB_OUTPUT"
+              echo "::notice title=Agent pane frame pacing::Skipped: the console session stayed busy (take-gui exited $status)."
+              printf '## Agent pane frame pacing\n\nSkipped: the console session stayed busy (take-gui exited %s).\n' "$status" >> "$GITHUB_STEP_SUMMARY" ;;
+          esac
+
+      - name: Checkout the bench
+        if: steps.gui.outputs.taken == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          sparse-checkout: |
+            .xcode-version
+            scripts/select-ci-xcode.sh
+            scripts/ci/xcode-pins.txt
+            scripts/ci/frame-pacing
+            scripts/ci/run-in-console-session.sh
+            scripts/ci/run-and-capture.sh
+            scripts/ci/app-host-isolation.sh
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Download the tagged app
+        if: steps.gui.outputs.taken == 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: reload-frame-pacing-macos
+          path: ${{ runner.temp }}/frame-pacing/artifact
+
+      - name: Select Xcode
+        if: steps.gui.outputs.taken == 'true'
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Unpack the app and build the virtual display holder
+        if: steps.gui.outputs.taken == 'true'
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/frame-pacing"
+          rm -rf "$work/app" "$work/out" "$work/VDisplay.app"
+          mkdir -p "$work/app" "$work/out" "$work/VDisplay.app/Contents/MacOS"
+          ditto -x -k "$work/artifact/app.zip" "$work/app"
+          xcrun clang -fobjc-arc -O2 -Wno-deprecated-declarations -framework AppKit -framework CoreVideo \
+            scripts/ci/frame-pacing/vdisplay.m -o "$work/VDisplay.app/Contents/MacOS/VDisplay"
+          cp scripts/ci/frame-pacing/VDisplay-Info.plist "$work/VDisplay.app/Contents/Info.plist"
+          codesign -s - --force "$work/VDisplay.app"
+          # The console user runs the bench and writes out/.
+          chmod -R a+rwX "$work"
+
+      - name: Fling bench at 120 Hz
+        if: steps.gui.outputs.taken == 'true'
+        continue-on-error: true
+        timeout-minutes: 15
+        run: scripts/ci/run-in-console-session.sh scripts/ci/frame-pacing/bench.sh "$RUNNER_TEMP/frame-pacing"
+
+      # bench.sh tears both down on exit; this covers a step killed by its timeout.
+      - name: Remove the virtual display and the app
+        if: always() && steps.gui.outputs.taken == 'true'
+        continue-on-error: true
+        run: scripts/ci/run-in-console-session.sh /usr/bin/pkill -f "$RUNNER_TEMP/frame-pacing" || true
+
+      - name: Summary
+        if: always() && steps.gui.outputs.taken == 'true'
+        run: python3 scripts/ci/frame-pacing/summarize.py "$RUNNER_TEMP/frame-pacing/out" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the bench results
+        if: always() && steps.gui.outputs.taken == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: frame-pacing-${{ github.run_id }}
+          path: ${{ runner.temp }}/frame-pacing/out
+          retention-days: 14

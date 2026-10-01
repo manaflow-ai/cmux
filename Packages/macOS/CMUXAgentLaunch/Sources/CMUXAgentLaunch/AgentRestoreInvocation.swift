@@ -8,17 +8,25 @@ public struct AgentRestoreInvocation: Equatable, Sendable {
     public let environment: [String: String]
     /// Typed subprocesses that must succeed before the final process replacement.
     public let preflightInvocations: [AgentRestorePreflightInvocation]
+    /// The resumed Codex thread checked again at the final exec boundary.
+    public let codexResumeSessionID: String?
+    /// Deviations from the recorded launch, reported before the agent starts.
+    public let notices: [AgentRestoreNotice]
 
     /// Creates a planned restore or fork invocation.
     public init(
         arguments: [String],
         workingDirectory: String?,
         environment: [String: String],
-        preflightInvocations: [AgentRestorePreflightInvocation] = []
+        preflightInvocations: [AgentRestorePreflightInvocation] = [],
+        codexResumeSessionID: String? = nil,
+        notices: [AgentRestoreNotice] = []
     ) {
         self.arguments = arguments
         self.workingDirectory = workingDirectory
         self.environment = environment
         self.preflightInvocations = preflightInvocations
+        self.codexResumeSessionID = codexResumeSessionID
+        self.notices = notices
     }
 }

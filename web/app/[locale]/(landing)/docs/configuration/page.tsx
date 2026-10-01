@@ -57,6 +57,7 @@ const sectionOrder = [
 
 type ConfigurationTranslation = ReturnType<typeof useTranslations>;
 
+/** Builds the localized JSONC example, including customizable editor shortcuts. */
 function buildSettingsFileExample(t: ConfigurationTranslation) {
   return `{
   "$schema": "${schemaUrl}",
@@ -142,6 +143,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "bindings": {
   //     "toggleSidebar": "cmd+b",
   //     "toggleFileExplorer": "cmd+opt+b",
+  //     "toggleFileEditorWordWrap": "opt+z",
   //     "newTab": ["ctrl+b", "c"],
   //     "commandPalettePrevious": null
   //   }
@@ -482,6 +484,7 @@ working-directory = ~/code`}</CodeBlock>
           <code>filePreviewTextEditorFocus</code>, <code>simulatorFocus</code>,{" "}
           <code>terminalFocus</code>,{" "}
           <code>commandPaletteVisible</code>, <code>terminalFindVisible</code>,{" "}
+          <code>terminalAlternateScreen</code>,{" "}
           <code>workspaceCanvasLayout</code> &mdash; {t("shortcutsWhenBooleanKeys")}
         </li>
         <li>

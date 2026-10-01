@@ -76,10 +76,13 @@ it may publish the snapshot or send input.
 | `HostHello`, 40 bytes | `selected_version:u16, reserved:u16=0, granted_rights:u32, terminal_id:[u8;16], incarnation:[u8;16]` |
 
 `ClientHello.sequence` is zero. Its permitted flags are
-`FLAG_VIEWER_SIZE_ACKS` and `FLAG_SMART_RENDERER`. The host echoes viewer-size
-acknowledgements only when `RESIZE` was granted, and echoes smart mode only for
-renderer or admin roles negotiating protocol v3 or newer. Daemon adoption
-applies a two-second read and write handshake timeout.
+`FLAG_VIEWER_SIZE_ACKS`, `FLAG_SMART_RENDERER`, `FLAG_TERMINAL_METADATA`, and
+`FLAG_VIEWER_SIZE_PRIORITY`. The host echoes viewer-size acknowledgements only
+when `RESIZE` was granted, and echoes smart mode only for renderer or admin
+roles negotiating protocol v3 or newer. A v4 host echoes terminal metadata
+only when the client requests it, and echoes viewer-size priority only to a
+renderer granted `RESIZE`. Daemon adoption applies a two-second read and write
+handshake timeout.
 
 For a newly launched v4 host, the first authenticated owner `HostHello` also
 sets `FLAG_LAUNCH_ACTIVATION_REQUIRED`. The PTY reader remains behind a launch
@@ -205,7 +208,13 @@ kitty_replay_state:KittyReplayState
 PID zero means absent. Snapshot `argc` may be zero. Protocol v2 appends a
 Kitty image-alias table and cell pixel width and height. Protocol v3 appends
 Kitty graphics limits, the replay cursor offset, and the primary and alternate
-image-id cursors. Protocol v4 keeps the v3 snapshot payload unchanged.
+image-id cursors. Protocol v4 keeps the v3 snapshot payload unchanged unless
+`FLAG_TERMINAL_METADATA` was negotiated. A negotiated v4 snapshot then
+appends `osc_progress:string`, a bounded OSC 9 progress value with at most 256
+Unicode characters and no control characters. The value is captured while
+the host's authoritative VT parser is at the same snapshot boundary. A client
+that does not negotiate the flag receives the original v4 bytes and must
+reject an unnegotiated trailing field.
 
 Legacy `Resized` producer payload:
 
@@ -301,6 +310,29 @@ size and local scroll viewport.
 `HostHello` sent to the first authenticated launch owner. `Activate` has zero
 flags, request id zero, sequence zero, and an empty payload.
 
+`FLAG_TERMINAL_METADATA` is bit 4 and is valid only in protocol-v4
+`ClientHello` and `HostHello`. It negotiates the optional `Snapshot` metadata
+tail described above. The metadata is a generic terminal primitive. It does
+not identify agents or select plugin policy.
+
+`FLAG_VIEWER_SIZE_PRIORITY` is bit 5 and is valid only in `ClientHello` and
+`HostHello`. Hosts that predate it reject a hello carrying it, so a client sets
+it only when the host record advertises `supports_viewer_size_priority`.
+
+## Viewer-size arbitration
+
+Every renderer granted `RESIZE` holds a viewer size, reserved at the snapshot
+grid on connect and replaced by each `ViewerSize`. An admin connection holds
+one only after it sends `ViewerSize`, and a connection without `RESIZE` never
+holds one. The canonical grid is the per-dimension minimum over the held
+sizes. When at least one connection that negotiated
+`FLAG_VIEWER_SIZE_PRIORITY` holds a size, the minimum is taken over those
+connections alone and every other viewer crops or pans. Priority starts with
+the connect-time reservation and lasts for the connection: `ReleaseViewer`
+drops only the size, which hands the grid back until the next `ViewerSize`,
+and disconnecting drops both. Without priority connections the reduction is
+unchanged. `ResizeAck` always carries the resulting canonical grid.
+
 ## Ordering and recovery
 
 A renderer applies every live sequence exactly once. A gap, duplicate, flagged frame without the required next `Colors`, or invalid flag is fatal. The renderer disconnects and obtains a new `Snapshot`; continuing from a damaged sequence would corrupt its mirror.
@@ -358,7 +390,7 @@ Missing means already acknowledged; any mismatch remains for recovery.
 
 ## Discovery and authority
 
-The mux control command `mint-terminal-renderer` returns the terminal-host endpoint, stable terminal id, incarnation, one-use capability, rights bits, and TTL. Renderers must not receive the daemon's durable owner capability. `resolve-terminal`, `list-terminals`, and `terminal-events` provide the control-plane mapping from stable identities to the current daemon generation.
+The mux control command `mint-terminal-renderer` returns the terminal-host endpoint, stable terminal id, incarnation, one-use capability, rights bits, TTL, and `supports_viewer_size_priority` from the host record. Renderers must not receive the daemon's durable owner capability. `resolve-terminal`, `list-terminals`, and `terminal-events` provide the control-plane mapping from stable identities to the current daemon generation.
 
 Terminal-host protocol changes use their own version and do not change `identify.protocol`.
 
@@ -390,6 +422,16 @@ legacy fire-and-forget input remains available. Record directories are mode
 `0700`; records and sockets are
 mode `0600`.
 
+Discovery records use JSON `record_version:4`. A host that supports the
+optional snapshot tail advertises `supports_terminal_metadata:true`, and one
+that accepts `FLAG_VIEWER_SIZE_PRIORITY` advertises
+`supports_viewer_size_priority:true`; records from older hosts omit the fields
+and default them to false. Terminal and
+incarnation are 32-character lowercase UUIDv4 hex, owner token and process
+nonce are 64-character lowercase hex, the Unix-socket path is canonical, and
+the host PID is nonzero. Record directories are mode `0700`; records and
+sockets are mode `0600`.
+
 ## Durability boundary
 
 The append-only journal is exact while a mux daemon owns the authenticated host
@@ -408,17 +450,18 @@ across an unplanned no-tap interval until a durable host spool exists.
 Protocol v1 carries the base snapshot and legacy replay stream. Protocol v2
 adds Kitty image aliases and cell-pixel metrics. Protocol v3 adds Kitty replay
 state, Kitty quota controls, and the smart raw-byte stream. Protocol v4 adds
-the launch activation barrier. The daemon's adoption path can still connect
-to legacy host records at an older version; smart renderers require v3 and
-restart their handshake on any gap or `ResyncRequired` frame. This document
-specifies the daemon-side v4 framing; renderer interoperability remains
-partial. Newly launched daemon hosts enforce v4-only renderer handshakes by
-passing `PROTOCOL_VERSION..=PROTOCOL_VERSION` to `CapabilityStore::accept`;
-the one-use token minted by
-`CapabilityStore::mint` carries no protocol version. The higher-level legacy
-renderer-grant response reports the selected host version, but no grant API
-offers mutually supported downgrade negotiation. The current cross-language
-renderer accepts only v1-v3 and pins its `ClientHello` to the selected version.
-This spec therefore does not advertise renderer attach to newly launched
-hosts; renderer v4 support or explicit mutually supported version negotiation
-remains future work.
+the launch activation barrier and the optional negotiated terminal metadata
+snapshot tail. A v4 client may negotiate v1 or v2 only in legacy mode; smart
+renderers require v3 and restart their handshake on any gap or
+`ResyncRequired` frame. The daemon's adoption path can still connect to legacy
+host records at an older version. This document specifies the daemon-side v4
+framing; renderer interoperability remains partial. Newly launched daemon
+hosts enforce v4-only renderer handshakes by passing
+`PROTOCOL_VERSION..=PROTOCOL_VERSION` to `CapabilityStore::accept`; the one-use
+token minted by `CapabilityStore::mint` carries no protocol version. The
+higher-level legacy renderer-grant response reports the selected host version,
+but no grant API offers mutually supported downgrade negotiation. The current
+cross-language renderer accepts only v1-v3 and pins its `ClientHello` to the
+selected version. This spec therefore does not advertise renderer attach to
+newly launched hosts; renderer v4 support or explicit mutually supported
+version negotiation remains future work.

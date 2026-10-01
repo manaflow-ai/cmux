@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 
 /// Owns a transient warning above AppKit portals without taking keyboard focus.
@@ -14,17 +15,24 @@ final class SurfaceDropFeedback {
 
     func update(_ rejection: SurfaceTransferRejection?, over target: NSView) {
         guard let rejection else { clear(); return }
+        let host = target.window?.contentView?.superview ?? target
+        let targetBounds = host.convert(target.bounds, from: target)
+        let visibleBounds = host.bounds.intersection(targetBounds)
+        guard !visibleBounds.isEmpty else { clear(); return }
         let changed = self.rejection != rejection || badge.superview == nil
         self.rejection = rejection
-        let host = target.window?.contentView?.superview ?? target
         if badge.superview !== host {
             badge.removeFromSuperview()
             host.addSubview(badge, positioned: .above, relativeTo: nil)
         }
+        // Keep the warning out of the adjacent sidebar. Retain the window's
+        // vertical room so the full message stays visible above a short split.
+        let layoutBounds = NSRect(x: visibleBounds.minX, y: host.bounds.minY,
+                                  width: visibleBounds.width, height: host.bounds.height)
         badge.show(
             text: rejection.message,
-            centeredIn: host.convert(target.bounds, from: target),
-            clippedTo: host.bounds,
+            centeredIn: targetBounds,
+            clippedTo: layoutBounds,
             warning: true
         )
         if changed, let application = NSApp {

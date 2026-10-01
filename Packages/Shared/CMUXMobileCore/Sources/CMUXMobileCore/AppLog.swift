@@ -1532,12 +1532,15 @@ public extension DiagnosticEventCode {
              .admissionSucceeded, .admissionFailed,
              .transportSessionLifecycle,
              .transportCloseAttribution, .transportPathEvent,
+             .transportPathInventory,
              .transportDialPlanBuilt, .transportPrivateAddressJoin,
              .transportLANDiscovery, .transportDialLegSucceeded,
              .transportDialLegFailed, .lanPublicationState,
              .transportDialSessionLinked, .transportDialCancelled,
              .transportCloseReason:
             return .network
+        case .terminalTrace:
+            return .both
         case .appLifecycleChanged, .reachabilityChanged:
             return .both
         default:

@@ -1,4 +1,6 @@
+import CmuxCloud
 import CmuxCore
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceCatalog {
@@ -14,7 +16,7 @@ extension SurfaceCatalog {
         let machineSnapshot = snapshot
         let machineInfo = machineSnapshot.machines.first { $0.id == machine }
         var workspace = machineInfo?.remoteWorkspaces?.first { $0.id == workspaceID }
-        let resources = machineSnapshot.resources(on: machine)
+        let resources = machineSnapshot.cloudWorkspaceResources(on: machine)
 
         struct Candidate {
             let placement: SurfaceResourcePlacement
@@ -55,11 +57,11 @@ extension SurfaceCatalog {
             }
         }
 
-        for member in SurfaceProjection.localDisplayMembers(resources: resources, projections: machineSnapshot.projections)
+        for member in SurfaceProjection.localWorkspaceMembers(resources: resources, projections: machineSnapshot.projections)
             where member.workspaceID == workspaceID {
             candidates.append(Candidate(
                 placement: SurfaceResourcePlacement(resource: member.resource.id, remoteWorkspaceID: workspaceID),
-                layout: RemoteWorkspacePlacement(kindOrder: 2)
+                layout: RemoteWorkspacePlacement(kindOrder: member.resource.kind == .browser ? 1 : 2)
             ))
         }
 

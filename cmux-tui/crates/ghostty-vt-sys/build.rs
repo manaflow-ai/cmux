@@ -50,7 +50,12 @@ fn main() {
         .arg("-Demit-lib-vt=true")
         .arg("-Demit-xcframework=false")
         .arg("-Doptimize=ReleaseFast");
-    if target != host
+    // Pass the target whenever we know it, not only when cross-compiling.
+    // zig defaults to the msvc ABI on Windows, so a native *-windows-gnu
+    // host (no Visual Studio, e.g. a rustup gnu toolchain with MSYS2) would
+    // otherwise get `-target native-native-msvc` and fail the zig build with
+    // "failed to find libc installation: WindowsSdkNotFound".
+    if (target != host || target.contains("windows-gnu"))
         && let Some(zig_target) = zig_target_for_rust_target(&target)
     {
         command.arg(format!("-Dtarget={zig_target}"));
@@ -145,6 +150,11 @@ fn zig_target_for_rust_target(target: &str) -> Option<&'static str> {
         // pairs with cargo-zigbuild for the Rust link step.
         "x86_64-apple-darwin" => Some("x86_64-macos"),
         "aarch64-apple-darwin" => Some("aarch64-macos"),
+        // The iOS app links cmux-terminal-client as a static library inside an
+        // xcframework (.github/workflows/cmux-terminal-client-xcframework.yml).
+        "aarch64-apple-ios" => Some("aarch64-ios"),
+        "aarch64-apple-ios-sim" => Some("aarch64-ios-simulator"),
+        "x86_64-apple-ios" => Some("x86_64-ios-simulator"),
         "x86_64-unknown-linux-gnu" => Some("x86_64-linux-gnu"),
         "aarch64-unknown-linux-gnu" => Some("aarch64-linux-gnu"),
         "x86_64-unknown-linux-musl" => Some("x86_64-linux-musl"),

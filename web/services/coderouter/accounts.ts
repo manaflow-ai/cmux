@@ -1,3 +1,4 @@
+import type { CoderouterAccountAccess } from "./accountAccess";
 import { createHash, randomUUID } from "node:crypto";
 import {
   findAccountByProviderIdentity,
@@ -8,6 +9,7 @@ import {
   withVaultLease,
   bindCodexOwnerIdentity,
   encryptedCredentialForAccount,
+  nativeAccountAccessible,
   transferEncryptedAccount,
   updateAccountLabel,
 } from "./repository";
@@ -20,11 +22,19 @@ import {
 import { deleteVaultCredential } from "./vault";
 import { reportCoderouterFailure } from "./observability";
 
-export async function transferAccount(input: { sourceTeamId: string; destinationTeamId: string; accountId: string; stackUserId: string }): Promise<boolean> {
+/** Moves a native account the caller may manage into another team. Returns
+ * false, before any key operation, when the account is absent from the source
+ * team or is another member's private account. The move itself re-checks
+ * access inside its transaction. */
+export async function transferAccount(
+  input: { sourceTeamId: string; destinationTeamId: string; accountId: string; stackUserId: string },
+  keys?: CredentialKeyService,
+): Promise<boolean> {
+  if (!await nativeAccountAccessible(input.sourceTeamId, input.accountId, { kind: "user", userId: input.stackUserId })) return false;
   const envelope = await encryptedCredentialForAccount(input.sourceTeamId, input.accountId);
   if (!envelope) return false;
-  const credential = await decryptCredential(envelope);
-  const moved = await encryptCredential({ accountId: input.accountId, teamId: input.destinationTeamId, provider: envelope.provider, credentialRevision: envelope.credentialRevision + 1, credential });
+  const credential = await decryptCredential(envelope, keys);
+  const moved = await encryptCredential({ accountId: input.accountId, teamId: input.destinationTeamId, provider: envelope.provider, credentialRevision: envelope.credentialRevision + 1, credential, keys });
   return await transferEncryptedAccount({ ...input, credential: moved });
 }
 import { providerIdentityKey, withCodexOwner } from "./codexIdentity";
@@ -36,23 +46,25 @@ export async function addAccount(
   keys?: CredentialKeyService,
   verify: typeof verifyCodexCredential = verifyCodexCredential,
   verifyStored: typeof verifyStoredCodexCredential = verifyStoredCodexCredential,
-  ownership?: { readonly createdBy: string; readonly visibility: "private" | "team" },
+  ownership?: { readonly createdBy: string; readonly visibility: "private" | "team"; readonly access?: CoderouterAccountAccess },
 ): Promise<{ accountId: string; alreadyExists: boolean }> {
+  const access = ownership?.access;
   if (credential.provider === "codex") {
     await verify(credential);
     credential = withCodexOwner(credential);
-    await upgradeLegacyCodexIdentity(teamId, credential.accountId, keys, verifyStored);
+    await upgradeLegacyForImport(teamId, credential.accountId, keys, verifyStored, access);
   }
   const existing = await findAccountByProviderIdentity(
     teamId,
     credential.provider,
     providerIdentityKey(credential),
+    access,
   );
   if (existing?.visibility === "private" && ownership && existing.createdBy !== ownership.createdBy) {
     throw new Error("account is not available to this user");
   }
   if (existing?.state === "active" || existing?.state === "refreshing") {
-    await updateAccountLabel(teamId, existing.id, credential);
+    await updateAccountLabel(teamId, existing.id, credential, access);
     return { accountId: existing.id, alreadyExists: true };
   }
 
@@ -77,6 +89,7 @@ export async function addAccount(
         teamId,
         credential.provider,
         providerIdentityKey(credential),
+        access,
       );
       if (raced) return { accountId: raced.id, alreadyExists: true };
       throw new Error("coderouter account insert lost a uniqueness race");
@@ -86,14 +99,47 @@ export async function addAccount(
       credential,
       encrypted,
       expectedRevision,
+      access: access,
     });
   }
   return { accountId, alreadyExists: false };
 }
 
+async function upgradeLegacyForImport(
+  teamId: string,
+  accountId: string,
+  keys: CredentialKeyService | undefined,
+  verifyStored: typeof verifyStoredCodexCredential,
+  access?: CoderouterAccountAccess,
+): Promise<void> {
+  if (access?.kind !== "vm") {
+    await upgradeLegacyCodexIdentity(teamId, accountId, keys, verifyStored);
+    return;
+  }
+
+  // A VM may only migrate a legacy row that is already in its pool. If the
+  // row exists outside the pool, reject the import rather than inserting a
+  // second account for the same provider workspace.
+  const visibleLegacy = await findAccountByProviderIdentity(teamId, "codex", accountId, access);
+  if (visibleLegacy) {
+    await upgradeLegacyCodexIdentity(teamId, accountId, keys, verifyStored, access);
+    return;
+  }
+  const hiddenLegacy = await findAccountByProviderIdentity(teamId, "codex", accountId);
+  if (hiddenLegacy) {
+    throw new Error("legacy Codex account is outside this VM's account pool");
+  }
+}
+
 /** Legacy workspace-only rows are adopted from their own encrypted credentials. */
-export async function upgradeLegacyCodexIdentity(teamId: string, workspaceId: string, keys?: CredentialKeyService, verify: typeof verifyStoredCodexCredential = verifyStoredCodexCredential): Promise<void> {
-  const legacy = await findAccountByProviderIdentity(teamId, "codex", workspaceId);
+export async function upgradeLegacyCodexIdentity(
+  teamId: string,
+  workspaceId: string,
+  keys?: CredentialKeyService,
+  verify: typeof verifyStoredCodexCredential = verifyStoredCodexCredential,
+  access?: CoderouterAccountAccess,
+): Promise<void> {
+  const legacy = await findAccountByProviderIdentity(teamId, "codex", workspaceId, access);
   if (!legacy) return;
   const encrypted = await encryptedCredentialForAccount(teamId, legacy.id);
   if (!encrypted) throw new Error("legacy Codex credential is unavailable");
@@ -104,7 +150,7 @@ export async function upgradeLegacyCodexIdentity(teamId: string, workspaceId: st
     teamId, accountId: legacy.id, expectedKey: workspaceId,
     expectedRevision: encrypted.credentialRevision, credential: withCodexOwner(credential),
   });
-  if (!migrated && await findAccountByProviderIdentity(teamId, "codex", workspaceId)) {
+  if (!migrated && await findAccountByProviderIdentity(teamId, "codex", workspaceId, access)) {
     throw new Error("legacy Codex credential changed during identity upgrade; retry");
   }
 }
@@ -122,9 +168,9 @@ export function createAccountRemover(dependencies: {
   readonly deleteLegacy: typeof deleteVaultCredential;
   readonly withLease: typeof withVaultLease;
   readonly report: typeof reportCoderouterFailure;
-}): (teamId: string, accountId: string, stackUserId?: string) => Promise<RemoveAccountResult> {
-  return async (teamId, accountId, stackUserId) => {
-    const result = await dependencies.deleteRuntime({ teamId, accountId, stackUserId });
+}): (teamId: string, accountId: string, stackUserId?: string, access?: CoderouterAccountAccess) => Promise<RemoveAccountResult> {
+  return async (teamId, accountId, stackUserId, access) => {
+    const result = await dependencies.deleteRuntime({ teamId, accountId, stackUserId, ...(access ? { access } : {}) });
     if (!result.removed) return { ...result, legacyCleanupPending: false };
     try {
       // Temporary rollback copy only. This call disappears after the migration

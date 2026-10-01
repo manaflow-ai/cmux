@@ -55,6 +55,11 @@ const GEMINI_HOOK_TIMEOUT_MILLISECONDS: u64 = 5_000;
 const HERMES_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const HERMES_COMMAND_OUTPUT_BYTES: u64 = 4 * 1024 * 1024;
 
+/// Hidden cmux-tui argument that runs the embedded hook helper. A host that
+/// received only the cmux-tui binary (SSH bootstrap, `install-self`) gets a
+/// launcher script at the helper path that re-enters cmux-tui with it.
+pub(crate) const HOOK_MODE_ARG: &str = "__agent-hook";
+
 /// Builds the helper command embedded in a provider's native hook config.
 fn helper_command(provider: &str, event: &str) -> String {
     format!("cmux-tui-hook {provider} {event}")
@@ -424,6 +429,9 @@ struct Context {
     home: PathBuf,
     data_home: PathBuf,
     helper_source: Option<PathBuf>,
+    /// This cmux-tui binary, which runs the helper through `HOOK_MODE_ARG`
+    /// when no standalone `cmux-tui-hook` ships beside it.
+    helper_launcher: Option<PathBuf>,
     path: Option<OsString>,
     environment: BTreeMap<String, OsString>,
 }
@@ -435,13 +443,21 @@ impl Context {
             .map(PathBuf::from)
             .context("HOME is required to install coding-agent hooks")?;
         let data_home = runtime_data_home(&home);
-        let helper_source = locate_helper_source(std::env::current_exe().ok().as_deref());
+        let current_exe = std::env::current_exe().ok();
+        let helper_source = locate_helper_source(current_exe.as_deref());
         let environment = PROVIDERS
             .iter()
             .filter_map(|provider| provider.override_env)
             .filter_map(|name| std::env::var_os(name).map(|value| (name.to_string(), value)))
             .collect();
-        Ok(Self { home, data_home, helper_source, path: std::env::var_os("PATH"), environment })
+        Ok(Self {
+            home,
+            data_home,
+            helper_source,
+            helper_launcher: current_exe,
+            path: std::env::var_os("PATH"),
+            environment,
+        })
     }
 
     fn installed_helper(&self) -> PathBuf {
@@ -479,11 +495,19 @@ fn runtime_data_home(home: &Path) -> PathBuf {
 }
 
 #[cfg(unix)]
-pub(crate) fn runtime_helper_path() -> Option<PathBuf> {
+/// cmux-tui's own directory under the XDG data home (`~/.local/share/cmux-tui`).
+pub(crate) fn runtime_cmux_tui_data_home() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").filter(|value| !value.is_empty()).map(PathBuf::from)?;
-    Some(runtime_data_home(&home).join("cmux-tui/bin/cmux-tui-hook"))
+    Some(runtime_data_home(&home).join("cmux-tui"))
 }
 
+/// Where `agent hook install` places the detached `cmux-tui-hook` helper.
+#[cfg(unix)]
+pub(crate) fn runtime_helper_path() -> Option<PathBuf> {
+    Some(runtime_cmux_tui_data_home()?.join("bin/cmux-tui-hook"))
+}
+
+/// Where `agent hook install` places the detached `cmux-tui-hook` helper.
 #[cfg(not(unix))]
 pub(crate) fn runtime_helper_path() -> Option<PathBuf> {
     None
@@ -529,13 +553,18 @@ fn run_with_context(plan: &Plan, context: &Context) -> RunResult {
     let mut errors = Vec::new();
 
     if plan.action == Action::Install {
-        match context.helper_source.as_deref() {
-            Some(source) => {
+        match (context.helper_source.as_deref(), context.helper_launcher.as_deref()) {
+            (Some(source), _) => {
                 if let Err(error) = install_helper(source, &helper) {
                     errors.push(format!("helper: {error:#}"));
                 }
             }
-            None => {
+            (None, Some(executable)) => {
+                if let Err(error) = install_helper_launcher(executable, &helper) {
+                    errors.push(format!("helper: {error:#}"));
+                }
+            }
+            (None, None) => {
                 errors
                     .push("helper: cmux-tui-hook was not found beside cmux-tui or on PATH".into());
             }
@@ -1140,7 +1169,8 @@ fn set_hermes_plugin_enabled(context: &Context, enabled: bool) -> anyhow::Result
     Ok(())
 }
 
-fn locate_helper_source(current_exe: Option<&Path>) -> Option<PathBuf> {
+/// A `cmux-tui-hook` beside `current_exe`, else the first one on `PATH`.
+pub(crate) fn locate_helper_source(current_exe: Option<&Path>) -> Option<PathBuf> {
     current_exe
         .and_then(Path::parent)
         .map(|parent| parent.join("cmux-tui-hook"))
@@ -1158,7 +1188,8 @@ fn find_executable(binary: &str, path: Option<&std::ffi::OsStr>) -> Option<PathB
         .find(|candidate| is_executable_file(candidate))
 }
 
-fn is_executable_file(path: &Path) -> bool {
+/// Whether `path` is a regular file with an execute bit (any regular file off Unix).
+pub(crate) fn is_executable_file(path: &Path) -> bool {
     let Ok(metadata) = fs::metadata(path) else {
         return false;
     };
@@ -1185,8 +1216,13 @@ fn install_helper(source: &Path, destination: &Path) -> anyhow::Result<()> {
         "helper source size is invalid"
     );
     let bytes = fs::read(source).with_context(|| format!("read {}", source.display()))?;
+    install_helper_bytes(&bytes, destination)
+}
+
+/// Writes the helper unless an executable copy with these bytes is in place.
+fn install_helper_bytes(bytes: &[u8], destination: &Path) -> anyhow::Result<()> {
     ensure_replaceable_target(destination)?;
-    if fs::read(destination).ok().as_deref() == Some(bytes.as_slice()) {
+    if fs::read(destination).ok().as_deref() == Some(bytes) {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt as _;
@@ -1197,7 +1233,17 @@ fn install_helper(source: &Path, destination: &Path) -> anyhow::Result<()> {
         #[cfg(not(unix))]
         return Ok(());
     }
-    atomic_write(destination, &bytes, Some(0o755))
+    atomic_write(destination, bytes, Some(0o755))
+}
+
+/// The helper script for a host without a standalone `cmux-tui-hook`.
+fn helper_launcher_script(executable: &Path) -> anyhow::Result<String> {
+    let executable = executable.to_str().context("cmux-tui path is not valid UTF-8")?;
+    Ok(format!("#!/bin/sh\nexec {} {HOOK_MODE_ARG} \"$@\"\n", shell_quote(executable)))
+}
+
+fn install_helper_launcher(executable: &Path, destination: &Path) -> anyhow::Result<()> {
+    install_helper_bytes(helper_launcher_script(executable)?.as_bytes(), destination)
 }
 
 fn install_provider(
@@ -1808,7 +1854,72 @@ fn codex_hook_timeout(event: &str) -> u64 {
     }
 }
 
+#[cfg(unix)]
+/// Claude's hook groups in exactly the shape `agent hook install claude`
+/// writes, for a launcher that passes them through `--settings`. With the
+/// detached helper available the commands are byte-identical to the installed
+/// ones, so Claude Code deduplicates them against a copy in the user's
+/// settings. `emit_binary` replaces each command with the CLI's
+/// `agent hook emit` for hosts that have no helper.
+pub(crate) fn claude_session_hook_settings(
+    emit_binary: Option<&Path>,
+) -> anyhow::Result<Map<String, Value>> {
+    let provider = *PROVIDERS
+        .iter()
+        .find(|provider| provider.id == "claude")
+        .context("the claude hook provider is missing")?;
+    let Format::Nested { timeout, .. } = provider.format else {
+        anyhow::bail!("the claude hook provider must use nested hooks");
+    };
+    let mut root = Map::new();
+    rewrite_json_hooks(&mut root, provider, true, timeout, true)?;
+    let Some(binary) = emit_binary else {
+        return Ok(root);
+    };
+    let binary = shell_quote(binary.to_str().context("the cmux-tui path is not UTF-8")?);
+    let hooks = root.get_mut("hooks").and_then(Value::as_object_mut).context("hooks missing")?;
+    for (event, groups) in hooks.iter_mut() {
+        let command = emit_hook_command(&binary, provider.id, event);
+        for group in groups.as_array_mut().into_iter().flatten() {
+            let handlers = group.get_mut("hooks").and_then(Value::as_array_mut);
+            for handler in handlers.into_iter().flatten() {
+                if let Some(handler) = handler.as_object_mut() {
+                    handler.insert("command".into(), Value::String(command.clone()));
+                }
+            }
+        }
+    }
+    Ok(root)
+}
+
+#[cfg(unix)]
+/// The `agent hook emit` fallback for `claude_session_hook_settings`. Its
+/// receipt is discarded because Claude Code adds hook stdout to the context.
+fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String {
+    format!(
+        "{quoted_binary} agent hook emit --source {} --event {} >/dev/null 2>&1||:;echo {{}};#{COMMAND_MARKER}",
+        shell_quote(provider),
+        shell_quote(event),
+    )
+}
+
+/// The installed hook command. It runs `$CMUX_TUI_HOOK`, which every cmux-tui
+/// terminal exports. An agent inside tmux may have been started by a tmux
+/// server that never ran in a cmux-tui terminal, so without that variable a
+/// tmux pane falls back to the installed helper, which routes the event to the
+/// cmux-tui terminal attached to the pane's tmux session. Anywhere else the
+/// command stays a process-free no-op.
 fn hook_command(provider: &str, event: &str) -> String {
+    format!(
+        "h=${{CMUX_TUI_HOOK:-${{TMUX:+${{XDG_DATA_HOME:-$HOME/.local/share}}/cmux-tui/bin/cmux-tui-hook}}}};\"${{h:-:}}\" {} {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
+        shell_quote(provider),
+        shell_quote(event),
+    )
+}
+
+/// The command shape before the tmux fallback. Its codex trust hashes stay
+/// cmux-owned so an upgrade replaces them instead of leaving them behind.
+fn legacy_hook_command(provider: &str, event: &str) -> String {
     format!(
         "\"${{CMUX_TUI_HOOK:-:}}\" {} {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
         shell_quote(provider),
@@ -1998,16 +2109,21 @@ fn codex_expected_trust_entries(
     Ok(entries)
 }
 
-/// Every trust hash the current installer shape can produce. Entries carrying
+/// Every trust hash the current and previous installer shapes can produce. Entries carrying
 /// one of these hashes are cmux-owned regardless of their positional key.
 fn codex_owned_trust_hashes() -> anyhow::Result<BTreeSet<String>> {
     CODEX_EVENTS
         .iter()
         .map(|event| {
             let label = codex_event_state_label(event)?;
-            Ok(codex_trust_hash(label, &hook_command("codex", event), codex_hook_timeout(event)))
+            let timeout = codex_hook_timeout(event);
+            Ok([
+                codex_trust_hash(label, &hook_command("codex", event), timeout),
+                codex_trust_hash(label, &legacy_hook_command("codex", event), timeout),
+            ])
         })
-        .collect()
+        .collect::<anyhow::Result<Vec<_>>>()
+        .map(|pairs| pairs.into_iter().flatten().collect())
 }
 
 /// Dotfile managers commonly symlink `config.toml`; the atomic rename must
@@ -2453,11 +2569,13 @@ fn codex_trust_state_verified(
     })
 }
 
-fn shell_quote(value: &str) -> String {
+/// Single-quotes a value for a POSIX shell command line.
+pub(crate) fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
+/// Replaces `path` through a synced temporary file and rename, with an optional Unix mode.
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
     ensure_replaceable_target(path)?;
     let parent = path.parent().context("installation path has no parent")?;
     fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
@@ -2525,6 +2643,7 @@ mod tests {
             home,
             data_home,
             helper_source: Some(helper),
+            helper_launcher: None,
             path: None,
             environment: BTreeMap::new(),
         }
@@ -2547,27 +2666,37 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn hermes_command_reaps_child_when_reaper_spawn_fails() {
-        let (pid_sender, pid_receiver) = std::sync::mpsc::channel();
+        let root = tempfile::tempdir().unwrap();
+        let pid_path = root.path().join("hermes.pid");
+        let script = format!(
+            // `exec` keeps the long-running process at the shell's PID and
+            // avoids a second fork. Hosted macOS runners may deny that fork
+            // while still allowing the process under test to run.
+            "printf '%s' $$ > {}; exec /bin/sleep 30",
+            shell_quote(pid_path.to_string_lossy().as_ref()),
+        );
         let (result_sender, result_receiver) = std::sync::mpsc::sync_channel(1);
         let started = Instant::now();
         let worker = std::thread::spawn(move || {
             FORCE_HERMES_REAPER_SPAWN_FAILURE.with(|failure| failure.set(true));
-            HERMES_TEST_CHILD_SENDER.with(|sender| sender.replace(Some(pid_sender)));
             let result = run_hermes_command_with_timeout(
-                Path::new("/bin/sleep"),
-                &["30"],
+                Path::new("/bin/sh"),
+                &["-c", &script],
                 Duration::from_secs(2),
             );
             result_sender.send(result).unwrap();
         });
 
-        let pid = libc::pid_t::try_from(
-            pid_receiver
-                .recv_timeout(Duration::from_secs(1))
-                .expect("Hermes child did not complete startup"),
-        )
-        .unwrap();
-
+        let startup_deadline = Instant::now() + Duration::from_secs(1);
+        let pid = loop {
+            if let Ok(contents) = fs::read_to_string(&pid_path)
+                && let Ok(pid) = contents.trim().parse::<libc::pid_t>()
+            {
+                break pid;
+            }
+            assert!(Instant::now() < startup_deadline, "Hermes child did not complete startup");
+            std::thread::sleep(Duration::from_millis(5));
+        };
         let error = result_receiver
             .recv_timeout(Duration::from_secs(4))
             .expect("Hermes timeout worker did not return")
@@ -2699,13 +2828,47 @@ mod tests {
         assert!(!text.contains(COMMAND_MARKER));
     }
 
-    /// Trust hashes verified against the real codex 0.150.1 binary: with these
+    /// Trust hashes of the current `hook_command`, from the same identity hash
+    /// that reproduces `LEGACY_CODEX_TRUSTED_HASHES` below.
+    const CODEX_TRUSTED_HASHES: &[(&str, &str)] = &[
+        (
+            "session_start",
+            "sha256:62dec7fda2eedda09e521ed25f5a3e56fdf259e2cf6e09c61caf6fde04cf9169",
+        ),
+        (
+            "user_prompt_submit",
+            "sha256:11c9dc25e1d294a6f3c33e6c03354c7e032250357e143879ac720a392cf632b9",
+        ),
+        ("stop", "sha256:c44b06979e220fd6665d250bb2cc470787cc4b06568e62b6cd8004577cdd124a"),
+        (
+            "permission_request",
+            "sha256:6a6d12a917dfc12fdfc3e0796f4c5f43d31db0a9dd1f7372cce0f6635cd32b24",
+        ),
+        ("pre_tool_use", "sha256:73db9083c29d7b48384ab6e3684e0ab49f482f9d11cc07f6c7d2584f55175a34"),
+        (
+            "post_tool_use",
+            "sha256:7eae35124685878835e8f7a4bc73214600f6732c8bddafc27370e4e89757d1a4",
+        ),
+        ("pre_compact", "sha256:e957b79dd72144e1e738feeeaade51816e2ae07fcaa31c9638fa40b895b2d580"),
+        ("post_compact", "sha256:adbb48bf6be51c36f594b09dc5b9b008d2de4b7e72bf20c7e897459beb295d6c"),
+        (
+            "subagent_start",
+            "sha256:25a7790bb05c595170f35ce823c0e64080c31ec43e5c65003875466ace055dbd",
+        ),
+        (
+            "subagent_stop",
+            "sha256:46e1ebc2d41d01b8f4c7ec6ee657e2cfc66ed0b0531fef08cfe52f7fd8f1a479",
+        ),
+        ("session_end", "sha256:b8231b7c25e8a4c9ecfbfa026269958f32763c359db6b16d4c7579416f5f3097"),
+    ];
+
+    /// Trust hashes of `legacy_hook_command`, verified against the real codex 0.150.1 binary: with these
     /// exact `hooks.state` values in `config.toml`, codex executes the installed
     /// hooks.json commands; without them it parses hooks.json (it even warns
     /// about clamping the SessionEnd timeout) and silently skips every handler,
     /// so codex sessions never reach the cmux-tui agents view
     /// (https://github.com/manaflow-ai/cmux/issues/11040).
-    const CODEX_TRUSTED_HASHES: &[(&str, &str)] = &[
+    const LEGACY_CODEX_TRUSTED_HASHES: &[(&str, &str)] = &[
         (
             "session_start",
             "sha256:397d7ce9e0c6367e34771a4293777ff95415b595bf77e2aa420425adc75d70ae",
@@ -2771,6 +2934,20 @@ mod tests {
             );
         }
         assert_eq!(state.len(), CODEX_EVENTS.len());
+    }
+
+    #[test]
+    fn codex_trust_hash_reproduces_the_hashes_codex_verified() {
+        let owned = codex_owned_trust_hashes().unwrap();
+        for (event, (label, hash)) in CODEX_EVENTS.iter().zip(LEGACY_CODEX_TRUSTED_HASHES) {
+            let legacy = codex_trust_hash(
+                label,
+                &legacy_hook_command("codex", event),
+                codex_hook_timeout(event),
+            );
+            assert_eq!(legacy, *hash, "{event}");
+            assert!(owned.contains(*hash), "{event}: an upgrade must replace the old entry");
+        }
     }
 
     #[test]
@@ -3479,6 +3656,45 @@ esac
         assert!(fs::read(root.path().join("hermes-enabled")).unwrap().is_empty());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn install_without_a_standalone_helper_writes_a_cmux_tui_launcher() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let root = tempfile::tempdir().unwrap();
+        let mut context = context(root.path());
+        context.helper_source = None;
+        context.helper_launcher = Some(root.path().join("it's bin/cmux-tui"));
+        let plan = Plan { action: Action::Install, providers: vec!["claude".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(!result.failed, "{}", result.value);
+        let helper = context.installed_helper();
+        assert_eq!(
+            fs::read_to_string(&helper).unwrap(),
+            format!(
+                "#!/bin/sh\nexec '{}/it'\\''s bin/cmux-tui' __agent-hook \"$@\"\n",
+                root.path().display()
+            )
+        );
+        assert_ne!(fs::metadata(&helper).unwrap().permissions().mode() & 0o111, 0);
+        let modified = fs::metadata(&helper).unwrap().modified().unwrap();
+        let again = run_with_context(&plan, &context);
+        assert!(!again.failed, "{}", again.value);
+        assert_eq!(again.value["providers"][0]["changed"], false, "{}", again.value);
+        assert_eq!(fs::metadata(&helper).unwrap().modified().unwrap(), modified);
+    }
+
+    #[test]
+    fn install_without_any_helper_reports_it() {
+        let root = tempfile::tempdir().unwrap();
+        let mut context = context(root.path());
+        context.helper_source = None;
+        let plan = Plan { action: Action::Install, providers: vec!["claude".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(result.failed, "{}", result.value);
+        assert!(result.value["errors"][0].as_str().unwrap().contains("cmux-tui-hook"));
+    }
+
     #[test]
     fn hermes_install_requires_its_executable() {
         let root = tempfile::tempdir().unwrap();
@@ -3513,7 +3729,7 @@ esac
             serde_json::from_slice(&fs::read(context.home.join(".codex/hooks.json")).unwrap())
                 .unwrap();
         let command = root["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
-        assert!(command.len() <= 90, "hook command is {} bytes: {command}", command.len());
+        assert!(command.len() <= 170, "hook command is {} bytes: {command}", command.len());
         assert!(!command.contains("CMUX_TUI_SOCKET"));
         assert!(!hook_command("claude", "Stop").contains("GROK_HOOK_EVENT"));
 
@@ -3521,6 +3737,7 @@ esac
             .args(["-c", command])
             .env("CMUX_TUI_SOCKET", "/tmp/cmux-test.sock")
             .env_remove("CMUX_TUI_HOOK")
+            .env_remove("TMUX")
             .env("CAPTURE", &capture)
             .output()
             .unwrap();
@@ -3537,16 +3754,32 @@ esac
             .unwrap();
         assert!(output.status.success());
         assert_eq!(output.stdout, b"{}\n");
-        assert_eq!(fs::read_to_string(capture).unwrap(), "codex Stop\n");
+        assert_eq!(fs::read_to_string(&capture).unwrap(), "codex Stop\n");
+        fs::remove_file(&capture).unwrap();
+
+        // A tmux pane without the session's variables falls back to the
+        // installed helper, which routes through the attached tmux client.
+        let output = Command::new("/bin/sh")
+            .args(["-c", command])
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_TUI_HOOK")
+            .env("TMUX", "/tmp/tmux-test/default,1,0")
+            .env("XDG_DATA_HOME", &context.data_home)
+            .env("CAPTURE", &capture)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"{}\n");
+        assert_eq!(fs::read_to_string(&capture).unwrap(), "codex Stop\n");
     }
 
     #[test]
-    fn every_command_hook_fits_in_one_hundred_bytes() {
+    fn every_command_hook_fits_in_two_hundred_bytes() {
         for provider in PROVIDERS {
             for event in provider.events {
                 let command = hook_command(provider.id, event);
                 assert!(
-                    command.len() <= 100,
+                    command.len() <= 200,
                     "{} {event} hook command is {} bytes: {command}",
                     provider.id,
                     command.len()

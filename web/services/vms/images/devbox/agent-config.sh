@@ -172,36 +172,93 @@ CMUX_TOML_CHECK
     unset cmux_claude_key_tail
   fi
 
-  # opencode: the provider catalog (ids, npm packages, model lists) lives in
-  # the team's opencode console account behind the coderouter proxy and
-  # changes without image rebuilds, so the ready-made rewritten config is
-  # fetched from the coderouter opencode config endpoint instead of being
-  # guessed statically. The endpoint inlines each provider's apiKey; it is
-  # swapped for an {env:OPENAI_API_KEY} reference that opencode resolves at
-  # request time, and any route-token-shaped value is swapped the same way so
-  # a token never lands on disk. A coderouter outage, a team without an
-  # opencode account (503), or an empty catalog writes nothing and the next
-  # shell retries.
-  if [ -n "${CMUX_CODEROUTER_URL-}" ] && [ -n "${OPENAI_API_KEY-}" ] \
-    && [ ! -e "$HOME/.config/opencode/opencode.json" ] \
-    && command -v curl >/dev/null 2>&1; then
-    cmux_opencode_config=$(curl -fsS --connect-timeout 2 -m 10 \
-      -H "authorization: Bearer $OPENAI_API_KEY" \
-      "$CMUX_CODEROUTER_URL/api/coderouter/opencode/config" 2>/dev/null) || cmux_opencode_config=""
-    case $cmux_opencode_config in
-      '{"provider":{}}') ;;
-      '{"provider":'*)
-        mkdir -p "$HOME/.config/opencode" 2>/dev/null && (
-          umask 077
-          printf '%s\n' "$cmux_opencode_config" \
-            | sed "s/\"$OPENAI_API_KEY\"/\"{env:OPENAI_API_KEY}\"/g" \
-            | sed 's/"crt_[A-Za-z0-9._-]*"/"{env:OPENAI_API_KEY}"/g' \
-            > "$HOME/.config/opencode/opencode.json"
-        ) 2>/dev/null
-        ;;
-    esac
-    unset cmux_opencode_config
+}
+
+# Optional provider discovery belongs to OpenCode launch, never shell startup.
+# Python owns the advisory lock so process exit releases it even after a crash.
+cmux_ensure_opencode_config() {
+  [ -e "$HOME/.config/opencode/opencode.json" ] && return 0
+  [ -n "${CMUX_CODEROUTER_URL-}" ] && [ -n "${OPENAI_API_KEY-}" ] || return 0
+  python3 - <<'CMUX_OPENCODE_CONFIG'
+import fcntl, hashlib, json, os, pathlib, re, subprocess, sys, tempfile, time
+
+config = pathlib.Path.home() / ".config/opencode/opencode.json"
+origin = os.environ["CMUX_CODEROUTER_URL"].rstrip("/")
+key = os.environ["OPENAI_API_KEY"]
+state = pathlib.Path.home() / ".cache/cmux"
+state.mkdir(parents=True, exist_ok=True, mode=0o700)
+scope = hashlib.sha256((origin + "\0" + key).encode()).hexdigest()
+failure = state / ("opencode-config-" + scope + ".failed")
+
+def unavailable():
+    print("cmux: OpenCode provider configuration is unavailable; retry in one minute.", file=sys.stderr)
+    sys.exit(75)
+
+def redact(value):
+    if isinstance(value, dict):
+        return {k: redact(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [redact(v) for v in value]
+    if isinstance(value, str):
+        return re.sub(r"crt_[A-Za-z0-9._-]+", "{env:OPENAI_API_KEY}", value.replace(key, "{env:OPENAI_API_KEY}"))
+    return value
+
+with (state / "opencode-config.lock").open("a") as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    # Waiting callers must observe the result of the first request before
+    # deciding to retry or launch. Existing user configuration always wins.
+    if config.exists() or config.is_symlink():
+        sys.exit(0)
+    try:
+        age = time.time() - float(failure.read_text())
+        if 0 <= age < 60:
+            unavailable()
+    except (FileNotFoundError, ValueError):
+        pass
+    try:
+        result = subprocess.run(
+            ["curl", "-fsS", "--connect-timeout", "2", "-m", "10",
+             "-H", "authorization: Bearer " + key,
+             origin + "/api/coderouter/opencode/config"],
+            capture_output=True, timeout=12, check=True,
+        )
+        document = json.loads(result.stdout)
+        if not isinstance(document, dict) or not isinstance(document.get("provider"), dict) or not document["provider"]:
+            raise ValueError("missing provider catalog")
+        document = redact(document)
+        config.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd, temporary = tempfile.mkstemp(prefix=".cmux-config-", dir=config.parent)
+        try:
+            with os.fdopen(fd, "w") as output:
+                json.dump(document, output)
+                output.write("\n")
+                output.flush()
+                os.fsync(output.fileno())
+            try:
+                # Atomic write-if-absent, never replace a user edit made while
+                # the request was in flight, including an existing symlink.
+                os.link(temporary, config)
+            except FileExistsError:
+                pass
+        finally:
+            os.unlink(temporary)
+        failure.unlink(missing_ok=True)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        if config.exists() or config.is_symlink():
+            sys.exit(0)
+        failure.write_text(str(time.time()))
+        unavailable()
+CMUX_OPENCODE_CONFIG
+}
+
+# The installed executable wrapper also covers exec/direct agent launches.
+# This function retains the lazy path when this file is updated independently.
+opencode() {
+  if [ "$#" -eq 1 ]; then
+    case "$1" in --version|-v|--help|-h) command opencode "$@"; return $? ;; esac
   fi
+  cmux_ensure_opencode_config || return $?
+  command opencode "$@"
 }
 
 # claude folder-trust gate: claude's trust check short-circuits on

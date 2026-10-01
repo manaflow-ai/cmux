@@ -1,7 +1,7 @@
 {
   "name": "web",
   "version": "0.1.0",
-  "license": "GPL-3.0-or-later",
+  "license": "BUSL-1.1",
   "private": true,
   "scripts": {
     "dev": "exec bash scripts/dev-local.sh",
@@ -20,6 +20,7 @@
     "cloud-vm:migrate": "bun scripts/cloud-vm/migrate-planetscale.mjs",
     "cloud-vm:cleanup-iroh": "bun scripts/cloud-vm/cleanup-iroh-challenges.ts",
     "cloud-vm:preflight": "bash scripts/cloud-vm/verify-migration-preflight.sh",
+    "cloud-vm:dogfood": "bun scripts/cloud-vm/dogfood-journey.mjs",
     "cloud-vm:smoke": "bun scripts/cloud-vm/smoke-vm-api.mjs",
     "cloud-vm:stress": "bun scripts/cloud-vm/stress-vm-api.mjs",
     "devbox:bake:freestyle": "bun scripts/build-devbox-freestyle.ts",
@@ -47,7 +48,8 @@
     "test:db:behavior": "bash scripts/run-db-behavior-tests.sh",
     "typecheck": "tsgo --noEmit",
     "lint": "eslint",
-    "lint:complexity": "bun scripts/check-complexity.mjs"
+    "lint:complexity": "bun scripts/check-complexity.mjs",
+    "test:e2e:dashboard": "playwright test -c playwright.dashboard.config.ts"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "^3.1045.0",
@@ -60,6 +62,9 @@
     "@effect/platform": "0.93.6",
     "@effect/sql": "0.48.6",
     "@effect/sql-pg": "0.49.7",
+    "@hexclave/js": "1.0.121",
+    "@hexclave/next": "1.0.121",
+    "@hexclave/shared": "1.0.121",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/sdk-trace-base": "^2.9.0",
     "@orpc/client": "^1.14.7",
@@ -67,16 +72,18 @@
     "@orpc/server": "^1.14.7",
     "@orpc/tanstack-query": "^1.14.7",
     "@orpc/zod": "^1.14.7",
+    "@oslojs/otp": "1.1.0",
     "@sentry/nextjs": "10.63.0",
-    "@stackframe/js": "^2.8.89",
-    "@stackframe/stack": "^2.8.89",
     "@t3-oss/env-nextjs": "^0.13.10",
-    "@tanstack/react-query": "^5.101.2",
+    "@tanstack/query-core": "5.103.1",
+    "@tanstack/react-query": "5.103.1",
+    "@tanstack/react-router": "1.170.38",
     "@tanstack/react-virtual": "^3.14.5",
     "@vercel/firewall": "^1.1.2",
     "@vercel/functions": "^2.2.13",
     "@vercel/oidc-aws-credentials-provider": "^3.1.1",
     "@vercel/otel": "^2.1.2",
+    "browser-image-compression": "2.0.2",
     "drizzle-orm": "1.0.0-beta.22",
     "effect": "^3.21.2",
     "freestyle": "0.2.10",
@@ -88,8 +95,10 @@
     "pg": "^8.20.0",
     "postgres": "^3.4.9",
     "posthog-js": "^1.373.4",
+    "qrcode": "1.5.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-easy-crop": "5.5.7",
     "react-tweet": "^3.3.0",
     "resend": "^6.9.3",
     "shiki": "^3.22.0",
@@ -107,6 +116,7 @@
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/pg": "^8.20.0",
+    "@types/qrcode": "1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/turndown": "^5.0.6",
@@ -137,8 +147,8 @@
     "unrs-resolver"
   ],
   "patchedDependencies": {
-    "@stackframe/stack@2.8.108": "patches/@stackframe%2Fstack@2.8.108.patch",
-    "@stackframe/stack-shared@2.8.108": "patches/@stackframe%2Fstack-shared@2.8.108.patch",
-    "@vercel/firewall@1.2.1": "patches/@vercel%2Ffirewall@1.2.1.patch"
+    "@vercel/firewall@1.2.1": "patches/@vercel%2Ffirewall@1.2.1.patch",
+    "@hexclave/next@1.0.121": "patches/@hexclave%2Fnext@1.0.121.patch",
+    "@hexclave/shared@1.0.121": "patches/@hexclave%2Fshared@1.0.121.patch"
   }
 }

@@ -69,6 +69,21 @@ fn registry_opens_and_persists_under_a_long_windows_state_root() {
 }
 
 #[test]
+fn journal_plugin_generation_reservation_is_monotonic_and_durable() {
+    let registry = WorkspaceRegistry::in_memory("plugin-generation").unwrap();
+    assert_eq!(registry.reserve_journal_plugin_generation().unwrap(), 1);
+    assert_eq!(registry.reserve_journal_plugin_generation().unwrap(), 2);
+    registry
+        .connection
+        .execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'journal_plugin_generation'",
+            [u64::MAX.to_string()],
+        )
+        .unwrap();
+    assert!(registry.reserve_journal_plugin_generation().is_err());
+}
+
+#[test]
 fn interrupted_staged_workspace_keeps_reserved_public_id_without_early_publication() {
     let root = temp_root("interrupted-workspace-public-id");
     let key = "018f6e21-7b70-7e70-8000-0000000000aa";
@@ -605,6 +620,8 @@ fn terminal_host_reset_holds_structured_live_marker_lock() {
         supports_clear_history: true,
         supports_terminate_ack: false,
         supports_input_ack: false,
+        supports_terminal_metadata: false,
+        supports_viewer_size_priority: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -699,6 +716,8 @@ fn terminal_host_reset_checks_legacy_live_marker_as_orphan() {
         supports_clear_history: false,
         supports_terminate_ack: false,
         supports_input_ack: false,
+        supports_terminal_metadata: false,
+        supports_viewer_size_priority: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -807,6 +826,8 @@ fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
         supports_clear_history: true,
         supports_terminate_ack: false,
         supports_input_ack: false,
+        supports_terminal_metadata: false,
+        supports_viewer_size_priority: false,
     };
     let record_path = record.record_path(&host_root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -5536,6 +5557,39 @@ fn terminal_exit_snapshot_round_trips_and_records_journal_coverage() {
     assert!(registry.terminal_exit_snapshot(other.as_str()).unwrap().is_none());
 }
 
+#[test]
+fn checkpoint_content_rejects_trailing_compressed_members_and_bytes() {
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let blob = vt_replay_blob_for_test(&terminal_id, 100, 30, b"checkpoint");
+
+    let mut second_member = blob.compressed.clone();
+    second_member.extend_from_slice(&blob.compressed);
+    assert!(
+        JournalContentBlob::verified(blob.reference.clone(), second_member).is_err(),
+        "a checkpoint blob must contain exactly one gzip member"
+    );
+
+    let mut trailing_bytes = blob.compressed.clone();
+    trailing_bytes.extend_from_slice(b"trailing");
+    assert!(
+        JournalContentBlob::verified(blob.reference, trailing_bytes).is_err(),
+        "a checkpoint blob must not contain trailing compressed bytes"
+    );
+}
+
+#[test]
+fn checkpoint_content_requires_complete_gzip_trailer() {
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let blob = vt_replay_blob_for_test(&terminal_id, 100, 30, b"checkpoint");
+    for missing_bytes in 1..=8 {
+        let truncated = blob.compressed[..blob.compressed.len() - missing_bytes].to_vec();
+        assert!(
+            JournalContentBlob::verified(blob.reference.clone(), truncated).is_err(),
+            "a checkpoint blob must validate all eight gzip trailer bytes"
+        );
+    }
+}
+
 fn receipt_test_producer() -> JournalProducerManifest {
     JournalProducerManifest {
         producer_id: "receipt_test".into(),
@@ -5916,6 +5970,71 @@ fn schema_preflight_failures_defer_to_authoritative_open() {
     assert!(preflight_unsupported_schema(&database).is_none());
 
     fs::remove_dir_all(root).unwrap();
+}
+
+fn reserve_terminal(registry: &mut WorkspaceRegistry, terminal_id: &str, expected_revision: u64) {
+    registry
+        .commit_terminal(
+            &WorkspaceMutation::new(format!("reserve-{terminal_id}"), "test").unwrap(),
+            &json!({"op":"reserve-terminal","terminal_id":terminal_id}),
+            None,
+            Some(expected_revision),
+            "terminal-added",
+            &terminal(terminal_id, "one"),
+            &json!({"terminal_id":terminal_id}),
+        )
+        .unwrap();
+}
+
+#[test]
+fn terminal_idle_policy_persists_across_reopen_and_null_clears_it() {
+    let root = temp_root("idle-policy");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "idle-policy").unwrap();
+        seed_workspace(&mut registry, "one");
+        reserve_terminal(&mut registry, TERMINAL_ONE, 0);
+        reserve_terminal(&mut registry, TERMINAL_TWO, 1);
+        registry.set_terminal_idle_policy(TERMINAL_ONE, Some(3_600)).unwrap();
+        registry.set_terminal_idle_policy(TERMINAL_TWO, Some(86_400)).unwrap();
+        registry.set_terminal_idle_policy(TERMINAL_TWO, Some(604_800)).unwrap();
+    }
+
+    let mut registry = WorkspaceRegistry::open(&root, "idle-policy").unwrap();
+    assert_eq!(registry.terminal_idle_policy(TERMINAL_ONE).unwrap(), Some(3_600));
+    assert_eq!(registry.terminal_idle_policy(TERMINAL_TWO).unwrap(), Some(604_800));
+    let live = registry.live_terminal_idle_policies().unwrap();
+    let live: Vec<_> =
+        live.into_iter().map(|policy| (policy.terminal_id, policy.idle_close_seconds)).collect();
+    assert_eq!(live, vec![(TERMINAL_ONE.to_string(), 3_600), (TERMINAL_TWO.to_string(), 604_800)]);
+
+    registry.set_terminal_idle_policy(TERMINAL_TWO, None).unwrap();
+    assert_eq!(registry.terminal_idle_policy(TERMINAL_TWO).unwrap(), None);
+    assert_eq!(registry.live_terminal_idle_policies().unwrap().len(), 1);
+
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn terminal_idle_policy_rejects_invalid_and_closed_terminals() {
+    let mut registry = WorkspaceRegistry::in_memory("idle-policy-invalid").unwrap();
+    seed_workspace(&mut registry, "one");
+    reserve_terminal(&mut registry, TERMINAL_ONE, 0);
+
+    assert!(registry.set_terminal_idle_policy(TERMINAL_ONE, Some(0)).is_err());
+    let too_long = Some(idle_policy_store::MAX_TERMINAL_IDLE_CLOSE_SECONDS + 1);
+    assert!(registry.set_terminal_idle_policy(TERMINAL_ONE, too_long).is_err());
+    let unknown = registry.set_terminal_idle_policy(TERMINAL_TWO, Some(60)).unwrap_err();
+    assert!(unknown.to_string().contains("terminal_not_found"));
+
+    registry.set_terminal_idle_policy(TERMINAL_ONE, Some(60)).unwrap();
+    let close = WorkspaceMutation::new("close-idle", "test").unwrap();
+    registry.close_terminal(&close, None, Some(1), TERMINAL_ONE, None).unwrap();
+    assert!(registry.live_terminal_idle_policies().unwrap().is_empty());
+    assert_eq!(registry.prune_terminal_idle_policies().unwrap(), 1);
+    assert_eq!(registry.terminal_idle_policy(TERMINAL_ONE).unwrap(), None);
+    let closed = registry.set_terminal_idle_policy(TERMINAL_ONE, Some(60)).unwrap_err();
+    assert!(closed.to_string().contains("terminal_not_found"));
 }
 
 #[cfg(windows)]

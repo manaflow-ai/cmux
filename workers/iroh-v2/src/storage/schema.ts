@@ -109,6 +109,11 @@ export const userAuthority = sqliteTable("user_authority", {
   expiresAt: integer("expires_at").notNull(),
 });
 
+export const authorityAuditUsage = sqliteTable("authority_audit_usage", {
+  id: integer("id").primaryKey(),
+  rowCount: integer("row_count").notNull(),
+});
+
 export const deviceProofReplays = sqliteTable(
   "device_proof_replays",
   {
@@ -156,6 +161,6 @@ export const userUsage = sqliteTable(
   }),
 );
 
-export const storageSchema = { teamMeta, devices, pendingChallenges, registrationReceipts, deviceProofReplays, permissions, userUsage, teamPreferences, authorityAudit, userAuthority, socketReservations };
+export const storageSchema = { teamMeta, devices, pendingChallenges, registrationReceipts, deviceProofReplays, permissions, userUsage, teamPreferences, authorityAudit, authorityAuditUsage, userAuthority, socketReservations };
 
 export type StorageSchema = typeof storageSchema;

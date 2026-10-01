@@ -64,6 +64,10 @@ export DIRECT_DATABASE_URL="${DIRECT_DATABASE_URL:-$DATABASE_URL}"
 
 compose() {
   [[ "$db_provider" == "docker" ]] || { echo "Docker database is disabled when CMUX_DB_PROVIDER=planetscale" >&2; return 2; }
+  if [[ "$(uname -s)" == Darwin ]]; then
+    echo 'Local Docker databases are disabled on developer Macs. Use the shared GCP backend.' >&2
+    return 2
+  fi
   docker compose -f "$ROOT_DIR/docker-compose.db.yml" "$@"
 }
 
@@ -119,7 +123,7 @@ case "$command" in
     ;;
   migrate)
     if [[ "$db_provider" == "docker" ]]; then "$0" up >/dev/null; fi
-    bunx drizzle-kit migrate --config "$ROOT_DIR/drizzle.config.ts"
+    bun "$ROOT_DIR/scripts/db-migrate.mjs"
     ;;
   ready)
     compose exec -T postgres pg_isready -U "$db_user" -d "$db_name" >/dev/null \
@@ -145,8 +149,8 @@ case "$command" in
     export CMUX_DB_PORT="$((cmux_port + ${CMUX_TEST_DB_PORT_OFFSET:-30000}))"
     export DATABASE_URL="postgres://${db_user}:${db_password}@localhost:${CMUX_DB_PORT}/${CMUX_DB_NAME}"
     export DIRECT_DATABASE_URL="$DATABASE_URL"
-    bunx drizzle-kit migrate --config "$ROOT_DIR/drizzle.config.ts"
-    bunx drizzle-kit migrate --config "$ROOT_DIR/drizzle.config.ts"
+    bun "$ROOT_DIR/scripts/db-migrate.mjs"
+    bun "$ROOT_DIR/scripts/db-migrate.mjs"
     bash "$ROOT_DIR/scripts/run-db-behavior-tests.sh"
     ;;
   url)

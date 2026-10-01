@@ -75,8 +75,12 @@ extension CmxIrohHostRuntimeTests {
         #expect(initialDirectPorts == expectedDirectPorts)
         #expect(refreshedDirectPorts == expectedDirectPorts)
 
-        let published = await publications.values()
+        let published = await publications.waitForCount(2)
         #expect(published.count == 2)
+        guard published.count == 2 else {
+            await runtime.stop()
+            return
+        }
         #expect(published[0].registration.pathHints.isEmpty)
         #expect(published[0].discovered.pathHints.isEmpty)
         #expect(published[1].registration.pathHints == [relayHint])
@@ -215,6 +219,7 @@ private struct HostRuntimeBindingPublication: Equatable, Sendable {
 
 private actor HostRuntimeBindingPublicationRecorder {
     private var recorded: [HostRuntimeBindingPublication] = []
+    private var waiters: [UUID: (minimum: Int, continuation: CheckedContinuation<[HostRuntimeBindingPublication], Never>)] = [:]
 
     func record(
         registration: CmxIrohBrokerBinding,
@@ -229,9 +234,21 @@ private actor HostRuntimeBindingPublicationRecorder {
                 discovered: discovered
             )
         )
+        let ready = waiters.filter { recorded.count >= $0.value.minimum }
+        for (id, waiter) in ready {
+            waiters.removeValue(forKey: id)
+            waiter.continuation.resume(returning: recorded)
+        }
     }
 
     func values() -> [HostRuntimeBindingPublication] { recorded }
+
+    func waitForCount(_ minimum: Int) async -> [HostRuntimeBindingPublication] {
+        if recorded.count >= minimum { return recorded }
+        return await withCheckedContinuation { continuation in
+            waiters[UUID()] = (minimum, continuation)
+        }
+    }
 }
 
 private func registrationPathHints(
