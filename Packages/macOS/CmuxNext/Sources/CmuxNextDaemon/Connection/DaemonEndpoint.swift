@@ -41,8 +41,9 @@ public struct DaemonCapabilities: Sendable {
     public let savedTabGroups = "saved-tab-groups-v1"
     /// The sidebar workspace pin: `pinned` on `set-workspace-metadata` and workspaces.
     public let workspacePin = "workspace-pin-v1"
-    /// The sidebar workspace pin: `pinned` on `set-workspace-metadata` and workspaces.
-    public let workspacePin = "workspace-pin-v1"
+    /// The manual workspace unread mark: `marked_unread` on
+    /// `set-workspace-metadata` and workspaces.
+    public let notificationMarkUnread = "notification-mark-unread-v1"
     /// Screen color, icon, pin, and order (`set-screen-metadata`, `set-screen-pinned`, `move-screen`).
     public let screenMetadata = "screen-metadata-v1"
     /// Screen groups and saved screen groups.
@@ -114,7 +115,7 @@ public struct DaemonCapabilities: Sendable {
     /// but they are not in `optional` (the pinned daemon must serve every
     /// `optional` capability, BranchDaemonTests). The pin commit that brings
     /// one moves it into `optional`.
-    public var awaitingPin: [String] { [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin] }
+    public var awaitingPin: [String] { [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin, notificationMarkUnread] }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     public var advertised: [String] { required + optional + awaitingPin + [
