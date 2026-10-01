@@ -124,7 +124,7 @@ public struct NotificationFeedPreviewView: View {
                                     NotificationFeedView(
                                         status: .ready,
                                         projection: projection,
-                                        refreshesOnAppear: false,
+                                        refreshesOnAppear: true,
                                         actions: actions,
                                         isActive: selectedTab == .search
                                             && primarySearchCoordinator.scope == .notifications,

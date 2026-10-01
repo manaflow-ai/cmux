@@ -22,7 +22,9 @@ struct NotificationFeedStoreView: View {
         NotificationFeedView(
             status: status,
             projection: projection,
-            refreshesOnAppear: !isSearchDestination,
+            // The mounted tab and the active search destination both use the
+            // active gate below, so only the visible owner refreshes.
+            refreshesOnAppear: true,
             actions: actions,
             isActive: isActive,
             isConfirmingMarkAllRead: $isConfirmingMarkAllRead,
