@@ -15,8 +15,8 @@ import PackageDescription
 // Set CMUX_TERMINAL_CLIENT_MODEL_ONLY to build and test only the pure Swift
 // model target, for a checkout with no binary available at all.
 let releaseRepository = "manaflow-ai/cmux"
-let releaseTag = "cmux-terminal-client-v0.1.0+f09c3582e5e4"
-let releaseChecksum = "ba9ef0739602cfe95f58a1525c0083488ebf1f7c27808ed1e7ff38ce13b905ea"
+let releaseTag = "cmux-terminal-client-v0.1.0+6ba5de550cd4"
+let releaseChecksum = "ecda518668cb64ad54c25869dd0996fc99e63c738bfa5e176b2b524d78290681"
 
 let packageDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
 let localXcframework = packageDir.appendingPathComponent("CmuxTerminalClient.xcframework")
