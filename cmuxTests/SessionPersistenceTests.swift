@@ -4095,7 +4095,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
-    func testClaudeResumeCommandStripsQuotedCmuxNodeOptionsRestoreModuleWithModelArgument() {
+    func testClaudeResumeCommandStripsQuotedCmuxNodeOptionsRestoreModuleAndKeepsModelArguments() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
             sessionId: "claude-session-quoted-node-options",
