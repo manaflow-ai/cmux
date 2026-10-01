@@ -18,8 +18,6 @@ struct ClaudeHookSessionStoreRecoveryTests {
         let root = try makeRoot("cmux-hook-state-salvage")
         defer { try? FileManager.default.removeItem(at: root) }
         let validSessionID = "valid-hook-session"
-        // Current timestamps: every hook save prunes expired records, so a
-        // 1970 record would vanish for an unrelated reason.
         let now = Date().timeIntervalSince1970
         let seeded = try JSONSerialization.data(withJSONObject: [
             "version": 1,
