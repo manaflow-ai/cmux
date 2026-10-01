@@ -107,6 +107,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var pendingMachineDeletions: Set<String> = []
         private let deletionPresentation = CloudTreeDeletionPresentation()
         var lastRevealToken: UUID?
+        /// A reveal whose row is not in the current catalog yet. A user selection
+        /// cancels it so a late catalog refresh cannot steal the tree selection.
+        var pendingRevealToken: UUID?
         var creationRevealPresentation = CloudTreeCreationRevealPresentation()
         private(set) var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
@@ -407,6 +410,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isUpdatingProgrammatically, let outlineView else { return }
+            if let pendingRevealToken {
+                lastRevealToken = pendingRevealToken
+                self.pendingRevealToken = nil
+            }
             creationRevealPresentation.noteSelectionChange()
             selectedNodeID = outlineView.selectedRow >= 0
                 ? (outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode)?.id

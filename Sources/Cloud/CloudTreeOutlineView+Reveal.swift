@@ -4,13 +4,15 @@ import Foundation
 extension CloudTreeOutlineView.Coordinator {
     /// Selects a requested row once, expanding its ancestors and the row itself.
     func reveal(_ request: CloudTreeRevealRequest?) {
-        guard let request, request.token != lastRevealToken, let outlineView,
-              let path = request.path(in: nodes), let node = path.last else { return }
+        guard let request, request.token != lastRevealToken, let outlineView else { return }
+        pendingRevealToken = request.token
+        guard let path = request.path(in: nodes), let node = path.last else { return }
         expand(path.dropLast(), in: outlineView)
         if node.isExpandable { expand([node], in: outlineView) }
         let row = outlineView.row(forItem: node)
         guard row >= 0 else { return }
         lastRevealToken = request.token
+        pendingRevealToken = nil
         outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         scrollRowFullyIntoView(row, in: outlineView)
     }
