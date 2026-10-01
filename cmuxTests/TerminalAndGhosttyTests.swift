@@ -3313,9 +3313,13 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             return
         }
 
-        GhosttySurfaceScrollView.resetFlashCounts()
         AppFocusState.overrideIsFocused = true
         XCTAssertTrue(window.makeFirstResponder(surfaceView))
+        // Let the runtime surface come up and the workspace's startup focus pass
+        // run first, so only the interaction below can clear the notification.
+        waitForRuntimeSurface(terminalPanel.surface)
+        drainMainQueue()
+        GhosttySurfaceScrollView.resetFlashCounts()
 
         store.addNotification(
             tabId: workspace.id,
@@ -3384,9 +3388,13 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             return
         }
 
-        GhosttySurfaceScrollView.resetFlashCounts()
         AppFocusState.overrideIsFocused = true
         XCTAssertTrue(window.makeFirstResponder(surfaceView))
+        // Let the runtime surface come up and the workspace's startup focus pass
+        // run first, so only the interaction below can clear the notification.
+        waitForRuntimeSurface(terminalPanel.surface)
+        drainMainQueue()
+        GhosttySurfaceScrollView.resetFlashCounts()
 
         store.addNotification(
             tabId: workspace.id,
@@ -3397,12 +3405,13 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         )
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
 
-        let event = makeKeyEvent(characters: "", keyCode: 122, window: window)
+        let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
         surfaceView.keyDown(with: event)
         drainMainQueue()
 
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
-        XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 1)
+        // Typing into the pane is the acknowledgement; the pane doesn't flash.
+        XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 0)
     }
 
     func testKeyDownRecoversReleasedSurfaceWhileHostedViewIsDetached() throws {
