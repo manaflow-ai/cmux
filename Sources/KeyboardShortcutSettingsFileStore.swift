@@ -1574,6 +1574,7 @@ final class CmuxSettingsFileStore {
             var rendererRealizationDidChange = false
             var paneChromeDidChange = false
             var adaptiveDefaultThemeDidChange = false
+            var fileExplorerSortDidChange = false
             for change in changes {
                 if change.defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
                     TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
@@ -1586,6 +1587,11 @@ final class CmuxSettingsFileStore {
 
                 if change.defaultsKey == TerminalCopyOnSelectSettings.copyOnSelectKey {
                     TerminalCopyOnSelectSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+
+                if change.defaultsKey == FileExplorerSortSettings.sortKeyKey ||
+                    change.defaultsKey == FileExplorerSortSettings.sortOrderKey {
+                    fileExplorerSortDidChange = true
                 }
 
                 if change.defaultsKey ==
@@ -1634,6 +1640,9 @@ final class CmuxSettingsFileStore {
                 TerminalAdaptiveDefaultThemeSettings.notifyDidChange(
                     notificationCenter: notificationCenter
                 )
+            }
+            if fileExplorerSortDidChange {
+                FileExplorerSortSettings.notifyDidChange(notificationCenter: notificationCenter)
             }
         }
         if Thread.isMainThread {
