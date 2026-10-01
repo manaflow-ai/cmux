@@ -1,5 +1,6 @@
 import CmuxCloud
 import CmuxCloudTui
+import CmuxTerminalSharing
 import Darwin
 import Foundation
 import Testing
@@ -168,6 +169,13 @@ import Testing
         )
         defer { session.stop() }
 
+        session.sizingRelay.connectionStarted(capabilities: [CloudTerminalSizingRelay.capability])
+        _ = session.sizingRelay.receive(TerminalSizingState(
+            generation: 1, cols: 80, rows: 24, reason: .latest,
+            owners: [], policy: .latest, participants: []
+        ))
+        #expect(session.sizingRelay.state != nil)
+
         session.reconnect(socketPath: fixture.socketPath)
         let identify = try #require(await fixture.nextCommand(timeout: .seconds(5)))
         fixture.send([
@@ -179,6 +187,7 @@ import Testing
         #expect(await Self.waitUntil { session.phase == .disconnected })
         #expect(!session.allowsAutomaticReconnect)
         #expect(reconnects.count == 0)
+        #expect(session.sizingRelay.state == nil)
         #expect(session.connectionPresentation != nil)
         #expect(session.connectionPresentation?.detail == CloudTerminalAttachmentInterruption.staleDaemon.localizedDescription)
         guard case let .reconnecting(_, reason) = session.attachmentStatus.state else {

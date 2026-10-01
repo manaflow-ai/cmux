@@ -852,6 +852,10 @@ final class CloudTuiManualMirrorSession {
                 // sequences across replay boundaries. Retrying the same VM
                 // forever only recreates the garbled pane, so leave the pane
                 // intact and wait for an explicit retry after an upgrade.
+                // Reset the connection-scoped relay state before publishing the
+                // failure so phones cannot observe the old host or geometry.
+                sizingRelay.connectionStarted(capabilities: serverCapabilities)
+                publishSharingSnapshot()
                 automaticReconnectSuppressed = true
                 fenceAttachment(error: CloudDiagnosticFailure.unsupported, reason: .staleDaemon)
                 startPresentationEpisode(elapsed: presentationPolicy.failureGrace)
