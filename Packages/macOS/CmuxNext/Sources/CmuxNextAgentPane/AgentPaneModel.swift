@@ -28,7 +28,9 @@ public final class AgentPaneModel {
         switch request {
         case .ready, .reconnect:
             do {
-                let handshake = try await host.handshake(sessionId: sessionId)
+                let handshake = request == .ready
+                    ? try await host.handshake(sessionId: sessionId)
+                    : try await host.reconnectHandshake(sessionId: sessionId)
                 lastError = nil
                 return AgentPaneReply.handshake(handshake)
             } catch {

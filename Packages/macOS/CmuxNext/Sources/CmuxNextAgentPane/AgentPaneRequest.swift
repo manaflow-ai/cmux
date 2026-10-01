@@ -25,7 +25,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         let params = object["params"] as? [String: Any]
         switch method {
         case "ready":
-            self = .ready
+            self = params?["reconnect"] as? Bool == true ? .reconnect : .ready
         case "chat.persistSession":
             if let id = params?["sessionId"] as? String, !id.isEmpty {
                 self = .persistSession(id)
