@@ -87,4 +87,3 @@ try {
 } finally {
   await pool.end();
 }
-
