@@ -39,6 +39,30 @@ Colors: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other action
 ```bash
 cmux workspace group list
 cmux workspace group create --name backend --color blue
-cmux workspace group <group> add --workspace ws_…
+cmux workspace group backend add --workspace ws_…
 cmux workspace group remove --workspace ws_…
+cmux workspace placement list --json      # personal sidebar order
+```
+
+Groups and rooms take their id or exact name. Both are personal: they live in this Mac's home session.
+
+## Rooms
+
+```bash
+cmux room list --json
+cmux room create --name Work --color blue
+cmux room Work pin --workspace ws_…
+cmux room unpin --workspace ws_…
+cmux room Work follow --sessions s1,s2      # the complete follow set
+cmux room Work update --icon briefcase --clear-color
+cmux room Work move --index 0
+cmux room Work delete --move-to Home
+```
+
+## Workspace metadata and closed history
+
+```bash
+cmux workspace ws_… update --title "API" --color "#336699" --icon server.rack
+cmux closed list
+cmux closed <closed_id> reopen
 ```

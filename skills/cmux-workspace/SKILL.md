@@ -81,9 +81,24 @@ cmux terminal term_… move --workspace ws_… --screen screen_… --pane pane_�
 
 Moves need the full destination and an index. They do not change focus.
 
-## Sidebar state
+## Workspace status, progress and log
 
-Sidebar status pills, progress bars and log lines (`set-status`, `set-progress`, `log`) are not supported in cmux-next. The workspace's workflow status is an app action: `cmux workspace set-status --target ws_… --status inProgress` (`todo`, `inProgress`, `review`, `done`, `blocked`, `auto`). For attention, use `cmux notify --title "Build" --body "done"`.
+Without a selector these target your own workspace (the one that holds `$CMUX_TUI_TERMINAL_ID`), even when another workspace is focused.
+
+```bash
+cmux workspace status set build "tests running" --icon hammer --color blue
+cmux workspace status clear build
+cmux workspace progress set 0.4 --label "tests"
+cmux workspace progress set --indeterminate
+cmux workspace progress clear
+cmux workspace log append "deploy finished" --level success --source ci
+cmux workspace log append -- "-3 files changed"
+cmux workspace log list --limit 20 --json
+cmux workspace status list --json          # entries, progress, last log line
+cmux workspace ws_… status list            # another workspace
+```
+
+Status entries are keyed (at most 64 per workspace); `set` replaces the entry with that key. Log levels: info, progress, success, warning, error; the workspace keeps its newest 200 lines. The workspace's workflow status is a different thing, an app action: `cmux workspace set-status --target ws_… --status inProgress`. For attention, use `cmux notify --title "Build" --body "done"`.
 
 ## Contributor reloads
 
