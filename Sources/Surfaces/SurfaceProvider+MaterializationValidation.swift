@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceProvider {
@@ -9,12 +11,16 @@ extension SurfaceProvider {
         remoteView: SurfaceRemoteView?,
         at destination: SurfaceDestination,
         focus: Bool,
-        adopting reservation: CloudTerminalPaneReservation?
+        adopting reservation: CloudTerminalPaneReservation?,
+        loadingReservation: CloudMachineLoadingReservation? = nil
     ) async throws -> SurfaceProjection {
         if let reservation { try reservation.sourcePlacement.validate(created: resource) }
-        var projection = try await materialize(
-            resource, remoteView: remoteView, at: destination, focus: focus, adopting: reservation
-        )
+        _ = try loadingReservation?.loadingPanel(at: destination, machineID: resource.machine.cloudMachineID)
+        // Task scope carries the immutable admission claim across provider awaits;
+        // the native factory revalidates it immediately before adopting the pane.
+        var projection = try await CloudMachineLoadingReservation.$current.withValue(loadingReservation) {
+            try await materialize(resource, remoteView: remoteView, at: destination, focus: focus, adopting: reservation)
+        }
         let expectedWorkspace = reservation?.remoteWorkspaceID ?? remoteView?.workspace.id
             ?? (reservation == nil ? nil : resource.remoteWorkspace?.id)
         if projection.remoteWorkspaceID == nil,
@@ -27,13 +33,21 @@ extension SurfaceProvider {
         }
         guard projection.resource == resource.id,
               projection.workspaceID == destination.workspaceID,
-              reservation == nil || remoteView == nil || projection.remoteTabID == remoteView?.tabID,
+              reservation == nil || remoteView == nil || remoteView?.isCloudDisplayMembershipView == true
+                  || projection.remoteTabID == remoteView?.tabID,
               expectedWorkspace == nil || projection.remoteWorkspaceID == expectedWorkspace else {
             if let reservation, projection.panelID == reservation.panelID {
                 // Stop an adopted transport but retain the manual pane for its
                 // failure card and explicit retry. No local replacement is born.
                 projectionDidEnd(projection)
                 reservation.inputRelay.discard()
+            } else if let loadingReservation, projection.panelID == loadingReservation.panelID {
+                projectionDidEnd(projection)
+                guard let workspace = Workspace.liveWorkspace(id: loadingReservation.workspaceID),
+                      workspace.restoreCloudMachineLoadingPanel(panelID: loadingReservation.panelID, machineID: loadingReservation.machineID) else {
+                    discardMaterialization(projection)
+                    throw CloudDiagnosticFailure.placement
+                }
             } else {
                 discardMaterialization(projection)
             }

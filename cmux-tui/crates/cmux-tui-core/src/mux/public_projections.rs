@@ -15,6 +15,8 @@ pub(super) struct RestoredPublicProjections {
     pub(super) notification_reads: HashMap<NotificationPublicId, BTreeSet<String>>,
 }
 
+/// Rebuild the in-memory notification ledger, agent records (with their
+/// published hook session ids), and hook fences from durable projections.
 pub(super) fn restore_public_projections(
     state: &State,
     projections: RegistryPublicProjections,
@@ -119,6 +121,8 @@ pub(super) fn restore_public_projections(
                 state,
                 source: agent_source(&agent.source)?,
                 session: (!internal_marker).then_some(agent.source_session).flatten(),
+                agent: agent.agent,
+                agent_session_id: agent.agent_session_id,
                 updated_at_ms: agent.updated_at_ms,
             },
         );
@@ -163,6 +167,7 @@ fn agent_state(value: &str) -> anyhow::Result<AgentState> {
 
 fn agent_source(value: &str) -> anyhow::Result<AgentSource> {
     match value {
+        "plugin" => Ok(AgentSource::Plugin),
         "detected" => Ok(AgentSource::Detected),
         "socket" => Ok(AgentSource::Socket),
         "hook" => Ok(AgentSource::Hook),
@@ -237,6 +242,8 @@ mod tests {
                 source: "hook".into(),
                 updated_at_ms: 1,
                 source_session: None,
+                agent: None,
+                agent_session_id: None,
             }],
             agent_hook_states: Vec::new(),
             terminal_defaults: None,
@@ -319,6 +326,8 @@ mod tests {
                 source: "hook".into(),
                 updated_at_ms: 1,
                 source_session: None,
+                agent: None,
+                agent_session_id: None,
             }],
             agent_hook_states: Vec::new(),
             terminal_defaults: None,
@@ -341,6 +350,8 @@ mod tests {
                 source: "hook".into(),
                 updated_at_ms: 1,
                 source_session: Some("cmux-hook-sequence:12".into()),
+                agent: None,
+                agent_session_id: None,
             }],
             agent_hook_states: Vec::new(),
             terminal_defaults: None,
@@ -363,6 +374,8 @@ mod tests {
                 source: "socket".into(),
                 updated_at_ms: 3,
                 source_session: Some("socket-session".into()),
+                agent: None,
+                agent_session_id: None,
             }],
             agent_hook_states: Vec::new(),
             terminal_defaults: None,

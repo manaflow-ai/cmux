@@ -156,6 +156,11 @@ extension AuthCoordinator {
             currentUser = fixtureUser
             isAuthenticated = true
             publishAuthenticatedSessionIdentity()
+            // Only launches that ask for fixture teams load membership, so
+            // other fixture UI tests never wait on a live team lookup.
+            if launch.environment["CMUX_UITEST_AUTH_FIXTURE_TEAMS"] != nil {
+                await refreshTeams(generation: generation)
+            }
             return
         }
 
@@ -208,6 +213,12 @@ extension AuthCoordinator {
     }
 
     private func completeSessionRevalidation() {
+        // Retire recovery only after validation and its side effects finish.
+        // Cancelling inside refreshTeams would cancel an owning recovery task
+        // before its post-sign-in hook runs. An in-flight fetch is not success.
+        if authenticatedTeamsSessionGeneration == sessionGeneration {
+            cancelTeamScopeRecovery()
+        }
         isRevalidatingSession = false
         let waiters = sessionRevalidationWaiters
         sessionRevalidationWaiters.removeAll(keepingCapacity: false)

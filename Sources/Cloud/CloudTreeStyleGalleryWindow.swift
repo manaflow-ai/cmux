@@ -1,5 +1,7 @@
 #if DEBUG
+import CmuxCloud
 import AppKit
+import CmuxSurfaceCatalogModel
 import SwiftUI
 
 /// Debug-only Cloud tree style picker (Debug → Debug Windows → Cloud Tree Style
@@ -106,6 +108,7 @@ private struct CloudTreeStyleGalleryColumn: View {
                 localWorkspaces: localWorkspaces,
                 machineActions: MachineRowActions.bound(onDidMutate: {}),
                 nodeActions: CloudTreeNodeActions.bound(
+                    navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
                     catalog: { SurfaceCatalog.shared },
                     selectedWorkspaceID: { AppDelegate.shared?.tabManager?.selectedTabId },
                     selectLocalWorkspace: { workspaceID in

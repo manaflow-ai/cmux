@@ -872,6 +872,156 @@ final class TerminalCmdClickUITests: XCTestCase {
         return separatorOffsets + [trailingBlankOffset]
     }
 
+    func testSSHCmdClickDownloadsSpacedPathIntoPreview() throws {
+        let socketPath = "/tmp/cmux-ui-ssh-preview-\(UUID().uuidString).sock"
+        let hostKey = fixtureDirectoryURL.appendingPathComponent("host-key").path
+        let clientKey = fixtureDirectoryURL.appendingPathComponent("client-key").path
+        _ = try runSSHPreviewFixtureTool("/usr/bin/ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", hostKey])
+        _ = try runSSHPreviewFixtureTool("/usr/bin/ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", clientKey])
+        let port = try XCTUnwrap(Int(try runSSHPreviewFixtureTool("/usr/bin/python3", [
+            "-c", "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); print(s.getsockname()[1])"
+        ]).trimmingCharacters(in: .whitespacesAndNewlines)))
+        let config = fixtureDirectoryURL.appendingPathComponent("sshd-config")
+        try """
+        Port \(port)
+        ListenAddress 127.0.0.1
+        HostKey \(hostKey)
+        PidFile \(fixtureDirectoryURL.appendingPathComponent("sshd.pid").path)
+        AuthorizedKeysFile \(clientKey).pub
+        PasswordAuthentication no
+        KbdInteractiveAuthentication no
+        UsePAM no
+        StrictModes no
+        AllowUsers \(NSUserName())
+        LogLevel ERROR
+        """.write(to: config, atomically: true, encoding: .utf8)
+        let server = Process()
+        server.executableURL = URL(fileURLWithPath: "/usr/sbin/sshd")
+        server.arguments = ["-D", "-e", "-f", config.path]
+        server.standardOutput = FileHandle.nullDevice
+        server.standardError = FileHandle.nullDevice
+        try server.run()
+        defer {
+            if server.isRunning { server.terminate() }
+            server.waitUntilExit()
+            try? FileManager.default.removeItem(atPath: socketPath)
+        }
+        let sshOptions = [
+            "BatchMode=yes", "ConnectTimeout=1", "StrictHostKeyChecking=accept-new",
+            "UserKnownHostsFile=\(fixtureDirectoryURL.appendingPathComponent("known-hosts").path)"
+        ]
+        let sshArgs = ["-p", String(port), "-i", clientKey]
+            + sshOptions.flatMap { ["-o", $0] }
+            + ["\(NSUserName())@127.0.0.1", "true"]
+        XCTAssertTrue(waitForCondition(timeout: 10) {
+            (try? self.runSSHPreviewFixtureTool("/usr/bin/ssh", sshArgs)) != nil
+        }, "Expected the isolated SSH server to accept the test key")
+
+        let fileName = "SSH preview file.txt"
+        let marker = "REMOTE_PREVIEW_\(UUID().uuidString)\n"
+        try marker.write(to: fixtureDirectoryURL.appendingPathComponent(fileName), atomically: true, encoding: .utf8)
+        let app = launchApp(
+            displayMode: .raw,
+            fileName: fileName,
+            displayAsAbsolutePath: false,
+            captureOpenPaths: true,
+            captureHoverDiagnostics: false,
+            openSupportedFilesInCmux: true,
+            socketPath: socketPath
+        )
+        defer { app.terminate() }
+        let setup = try waitForReadySetup()
+        XCTAssertTrue(waitForControlSocketReady(socketPath: socketPath, pingTimeout: 10) {
+            self.controlSocketCommandViaNetcat("ping", socketPath: socketPath) == "PONG"
+        })
+        let terminalID = try XCTUnwrap(setup.payload["surfaceId"] as? String)
+        let debug = try sshPreviewRPC("debug.terminals", socketPath: socketPath)
+        let terminals = try XCTUnwrap(debug["terminals"] as? [[String: Any]])
+        let workspaceID = try XCTUnwrap(terminals.first { $0["surface_id"] as? String == terminalID }?["workspace_id"] as? String)
+        // Configure the existing pointer fixture as a managed SSH source. Both
+        // the terminal transcript and the preview download use real loopback SSH.
+        _ = try sshPreviewRPC("workspace.remote.configure", socketPath: socketPath, params: [
+            "workspace_id": workspaceID, "destination": "\(NSUserName())@127.0.0.1",
+            "port": port, "identity_file": clientKey, "ssh_options": sshOptions,
+            "auto_connect": false, "skip_daemon_bootstrap": true, "terminal_startup_command": "ssh"
+        ])
+        let transcriptMarker = "SSH_TRANSCRIPT_" + UUID().uuidString
+        let remoteDirectory = "'" + fixtureDirectoryURL.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let remoteCommand = "cd \(remoteDirectory) || exit; printf '\\033[2J\\033[H'; i=0; while [ $i -lt 48 ]; do printf '%s\\n' "
+            + "'\(fileName)    OtherFile \(transcriptMarker)'; i=$((i+1)); done; exec /bin/cat"
+        let terminalArguments = ["/usr/bin/ssh", "-tt"] + Array(sshArgs.dropLast()) + [remoteCommand]
+        let terminalCommand = terminalArguments.map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+            .joined(separator: " ")
+        _ = try sshPreviewRPC("surface.send_text", socketPath: socketPath, params: [
+            "workspace_id": workspaceID, "surface_id": terminalID, "text": terminalCommand + "\n"
+        ])
+        XCTAssertTrue(waitForCondition(timeout: 15) {
+            guard let result = self.sshPreviewRPCResultIfAvailable("surface.read_text", socketPath: socketPath, params: [
+                "workspace_id": workspaceID, "surface_id": terminalID
+            ]), let text = result["text"] as? String else { return false }
+            return text.components(separatedBy: transcriptMarker).count > 10
+        }, "Expected actual SSH output before clicking the path")
+        _ = try sshPreviewRPC("surface.report_pwd", socketPath: socketPath, params: [
+            "workspace_id": workspaceID, "surface_id": terminalID, "path": fixtureDirectoryURL.path
+        ])
+        _ = try runCommand(action: "cmd_click_token")
+        XCTAssertTrue(waitForCondition(timeout: 20) {
+            guard let result = self.sshPreviewRPCResultIfAvailable("surface.list", socketPath: socketPath, params: ["workspace_id": workspaceID]),
+                  let surfaces = result["surfaces"] as? [[String: Any]] else { return false }
+            return surfaces.contains { $0["type"] as? String == "filepreview" }
+        }, "Expected Cmd-click in the SSH terminal to create a file preview")
+        XCTAssertTrue(loadCapturedOpenPaths().isEmpty, "Remote paths must not reach the local preferred editor")
+        let cache = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-remote-terminal-previews")
+        let entries = FileManager.default.enumerator(at: cache, includingPropertiesForKeys: nil)
+        let downloaded = (entries?.allObjects as? [URL] ?? []).first {
+            $0.lastPathComponent == fileName && (try? String(contentsOf: $0, encoding: .utf8)) == marker
+        }
+        XCTAssertNotNil(downloaded, "Expected SSH bytes in the preview cache, not the original local shadow file")
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "SSH command-click file preview"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    private func runSSHPreviewFixtureTool(_ executable: String, _ arguments: [String]) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw NSError(domain: "SSHPreviewFixture", code: Int(process.terminationStatus))
+        }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private func sshPreviewRPCResultIfAvailable(
+        _ method: String,
+        socketPath: String,
+        params: [String: Any] = [:]
+    ) -> [String: Any]? {
+        guard let response = controlSocketJSONViaNetcat([
+            "id": UUID().uuidString, "method": method, "params": params
+        ], socketPath: socketPath), response["error"] == nil else { return nil }
+        return response["result"] as? [String: Any]
+    }
+
+    private func sshPreviewRPC(
+        _ method: String,
+        socketPath: String,
+        params: [String: Any] = [:]
+    ) throws -> [String: Any] {
+        let response = try XCTUnwrap(controlSocketJSONViaNetcat([
+            "id": UUID().uuidString, "method": method, "params": params
+        ], socketPath: socketPath))
+        XCTAssertNil(response["error"], "RPC failed: \(response)")
+        return try XCTUnwrap(response["result"] as? [String: Any])
+    }
+
     private func launchApp(
         displayMode: DisplayMode = .escaped,
         lineFormat: LineFormat = .grid,
@@ -886,9 +1036,16 @@ final class TerminalCmdClickUITests: XCTestCase {
         openMarkdownInCmuxViewer: Bool? = nil,
         quicklookOverride: String? = nil,
         viewportOffsetDelta: Int? = nil,
-        mouseReporting: Bool = false
+        mouseReporting: Bool = false,
+        socketPath: String? = nil
     ) -> XCUIApplication {
         let app = XCUIApplication.cmuxTestApplication()
+        if let socketPath {
+            app.launchArguments += ["-socketControlMode", "allowAll"]
+            app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+            app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+            app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        }
         app.launchEnvironment["CMUX_TAG"] = "ui-test-terminal-cmd-click"
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_SETUP"] = "1"

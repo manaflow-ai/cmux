@@ -9,6 +9,8 @@ BUILD_WORK_DIR="${TARGET_TEMP_DIR:-${CRATE_DIR}/target/cmux-diff-sidecar-build}"
 CARGO_RUNNER="${ROOT}/scripts/run-diff-sidecar-cargo.sh"
 TOOLCHAIN="$(awk -F '"' '/^[[:space:]]*channel[[:space:]]*=/{print $2; exit}' "${CRATE_DIR}/rust-toolchain.toml")"
 
+# shellcheck source=scripts/build-phase-caller-path.sh
+. "${ROOT}/scripts/build-phase-caller-path.sh"
 # Xcode build phases do not inherit a login-shell PATH. Prefer rustup's
 # conventional bin directory, then the standard Homebrew prefixes.
 export PATH="${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
@@ -95,4 +97,23 @@ rsync -a "$output_binary" "$destination"
 chmod +x "$destination"
 if [[ "${CODE_SIGNING_ALLOWED:-YES}" != "NO" && -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]]; then
   codesign --force --sign "$EXPANDED_CODE_SIGN_IDENTITY" "$destination" >/dev/null
+fi
+
+# Xcode's dependency-analysis output is keyed by the normal architecture and
+# deployment-target settings. The Xcode phase pins the script overrides to
+# those same build settings before invoking this script. The stamp is
+# intentionally optional so direct script callers retain override support.
+if [[ -n "${CMUX_DIFF_SIDECAR_STAMP:-}" ]]; then
+  stamp_tmp="$(mktemp "${CMUX_DIFF_SIDECAR_STAMP}.tmp.XXXXXX")"
+  cleanup_stamp_tmp() {
+    [[ -e "$stamp_tmp" ]] && rm -f "$stamp_tmp"
+  }
+  trap cleanup_stamp_tmp EXIT
+  {
+    printf 'requested_archs=%s\n' "$requested_archs"
+    printf 'min_macos=%s\n' "${CMUX_DIFF_SIDECAR_MIN_MACOS:-14.0}"
+    shasum -a 256 "$destination"
+  } > "$stamp_tmp"
+  mv -f "$stamp_tmp" "$CMUX_DIFF_SIDECAR_STAMP"
+  trap - EXIT
 fi

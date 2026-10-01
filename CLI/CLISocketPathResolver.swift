@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CmuxFoundation
 import CmuxSettings
 
 enum CLIExecutableLocator {
@@ -143,6 +144,14 @@ struct CLISocketPathResolver {
     private let inspectSocketPathEntry: (String) -> SocketPathEntry
     private let socketAcceptsConnections: (String) -> Bool
     private let stateDirectory: URL
+    private let confinesDiscoveryToStateDirectory: Bool
+
+    /// Debug-only environment key that confines implicit discovery to `stateDirectory`.
+    ///
+    /// Tests that spawn the CLI under a temporary home set it so the machine-wide
+    /// `/tmp` marker files and legacy `/tmp` socket aliases, which a real cmux running
+    /// as the same user publishes, cannot route them to that app. Release builds ignore it.
+    static let isolatedDiscoveryEnvironmentKey = "CMUX_TEST_ISOLATED_SOCKET_DISCOVERY"
 
     /// Creates a resolver with explicit discovery inputs and filesystem probes.
     ///
@@ -163,6 +172,11 @@ struct CLISocketPathResolver {
         self.inspectSocketPathEntry = inspectSocketPathEntry
         self.socketAcceptsConnections = socketAcceptsConnections
         self.stateDirectory = stateDirectory ?? CmuxStateDirectory.url(homeDirectory: fileManager.homeDirectoryForCurrentUser)
+#if DEBUG
+        self.confinesDiscoveryToStateDirectory = environment[Self.isolatedDiscoveryEnvironmentKey] == "1"
+#else
+        self.confinesDiscoveryToStateDirectory = false
+#endif
     }
 
     static func defaultSocketPath(
@@ -292,10 +306,16 @@ struct CLISocketPathResolver {
             requestedPath,
             defaultPath: ownDefaultPath,
             variant: variant
-        ) {
+        ), !confinesDiscoveryToStateDirectory || isInsideStateDirectory(requestedPath) {
             candidates.append(requestedPath)
         }
         return candidates
+    }
+
+    private func isInsideStateDirectory(_ path: String) -> Bool {
+        let directoryPath = (stateDirectory.path as NSString).standardizingPath
+        let standardizedPath = (path as NSString).standardizingPath
+        return standardizedPath.hasPrefix(directoryPath + "/")
     }
 
     private func shouldIncludeImplicitRequestedPath(
@@ -313,10 +333,14 @@ struct CLISocketPathResolver {
     }
 
     private func implicitFallbackCandidatePaths(for variant: SocketPathVariant) -> [String] {
+        let paths: [String]
         switch variant {
         case .stable, .nightly, .rc, .staging, .dev:
-            return resolvedStableImplicitDefaultPaths()
+            paths = resolvedStableImplicitDefaultPaths()
         }
+        // The legacy /tmp aliases are shared by every cmux running as this user.
+        guard confinesDiscoveryToStateDirectory else { return paths }
+        return paths.filter { isInsideStateDirectory($0) }
     }
 
     private func resolvedStableImplicitDefaultPaths() -> [String] {
@@ -332,7 +356,10 @@ struct CLISocketPathResolver {
         bundleIdentifier: String?,
         environment: [String: String]
     ) -> [String] {
-        let candidates = lastSocketPathFiles(bundleIdentifier: bundleIdentifier, environment: environment)
+        var candidates = lastSocketPathFiles(bundleIdentifier: bundleIdentifier, environment: environment)
+        if confinesDiscoveryToStateDirectory {
+            candidates.removeAll { !isInsideStateDirectory($0) }
+        }
         var values: [String] = []
         for candidate in candidates {
             guard let contents = boundedMarkerContents(at: candidate) else { continue }
@@ -372,56 +399,7 @@ struct CLISocketPathResolver {
     }
 
     private static func socketAcceptsConnections(_ path: String) -> Bool {
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return false }
-        defer { Darwin.close(fd) }
-        let originalFlags = fcntl(fd, F_GETFL, 0)
-        guard originalFlags >= 0 else { return false }
-        guard fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK) >= 0 else { return false }
-        defer { _ = fcntl(fd, F_SETFL, originalFlags) }
-
-        var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-        let maxLength = MemoryLayout.size(ofValue: addr.sun_path)
-        guard path.utf8.count < maxLength else {
-            return false
-        }
-        path.withCString { ptr in
-            withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
-                let buf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
-                strncpy(buf, ptr, maxLength - 1)
-            }
-        }
-
-        let result = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                Darwin.connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        if result == 0 {
-            return true
-        }
-        let connectErrno = errno
-        guard connectErrno == EINPROGRESS || connectErrno == EAGAIN || connectErrno == EWOULDBLOCK else {
-            return false
-        }
-
-        var pollFD = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
-        guard poll(&pollFD, 1, 150) > 0 else {
-            return false
-        }
-        guard (pollFD.revents & Int16(POLLOUT)) != 0 else {
-            return false
-        }
-
-        var socketError: Int32 = 0
-        var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
-        let optionResult = withUnsafeMutablePointer(to: &socketError) { errorPointer in
-            withUnsafeMutablePointer(to: &socketErrorLength) { lengthPointer in
-                getsockopt(fd, SOL_SOCKET, SO_ERROR, errorPointer, lengthPointer)
-            }
-        }
-        return optionResult == 0 && socketError == 0
+        UnixSocketConnectProbe().acceptsConnections(atPath: path)
     }
 
     /// Reads at most one short socket marker without accepting unbounded input.

@@ -146,21 +146,19 @@ struct CloudMachinePinStoreTests {
         #expect(store.orderedMachineIDs(ids) == ids)
     }
 
-    /// Pins are independent of the Cmd+Y default machine: neither preference
-    /// reads, writes, or orders through the other.
-    @Test func pinsLeaveTheDefaultMachinePreferenceAlone() {
+    /// Pins remain independent of any legacy default-machine preference.
+    @Test func pinsIgnoreLegacyDefaultMachinePreference() {
         let (defaults, suite) = makeDefaults()
         defer { defaults.removePersistentDomain(forName: suite) }
-        let defaultStore = DefaultCloudMachineStore(defaults: defaults)
-        defaultStore.machineID = "quick"
+        defaults.set("quick", forKey: "cloud.defaultMachineID")
         let store = CloudMachinePinStore(defaults: defaults, scopeProvider: { "team:one" })
-        #expect(defaults.string(forKey: DefaultCloudMachineStore.defaultsKey) == "quick")
+        #expect(defaults.object(forKey: "cloud.defaultMachineID") == nil)
         #expect(store.pinnedMachineIDs.isEmpty)
         store.reconcile(machineIDs: ["quick", "other"])
         store.setPinned(true, machineID: "other")
         #expect(store.orderedMachineIDs(["quick", "other"]) == ["other", "quick"])
         #expect(!store.isPinned("quick"))
-        #expect(DefaultCloudMachineStore(defaults: defaults).machineID == "quick")
+        #expect(defaults.object(forKey: "cloud.defaultMachineID") == nil)
     }
 
     /// A machine keeps its pin while it still has a row anywhere (fleet or

@@ -1,3 +1,4 @@
+import { vmToken } from "./vm-authorization-fixture";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { vmSelfResponse } from "../services/vms/selfDiscovery";
 
@@ -37,10 +38,12 @@ mock.module("../services/coderouter/teamMachines", () => ({
     return teamId === "team-1" ? machines : [];
   },
 }));
+const boundToken = await vmToken(selfVm);
+const foreignToken = await vmToken(foreignVm, "team-2", "user-2");
 const routeTokens = new Map<string, { teamId: string; stackUserId: string; vmId: string | null }>([
-  ["crt_bound", { teamId: "team-1", stackUserId: "user-1", vmId: selfVm }],
+  [boundToken, { teamId: "team-1", stackUserId: "user-1", vmId: selfVm }],
   ["crt_cli", { teamId: "team-1", stackUserId: "user-1", vmId: null }],
-  ["crt_foreign", { teamId: "team-2", stackUserId: "user-2", vmId: foreignVm }],
+  [foreignToken, { teamId: "team-2", stackUserId: "user-2", vmId: foreignVm }],
 ]);
 mock.module("../services/coderouter/repository", () => ({
   authenticateRouteToken: async (token: string) => routeTokens.get(token) ?? null,
@@ -52,11 +55,12 @@ const { GET } = await import("../app/api/vm/self/route");
 const edgeRequest = (token: string, vmId: string) =>
   new Request("https://cmux.test/api/vm/self", {
     headers: {
-      authorization: "Bearer cmux-vm-edge-placeholder",
-      "x-coderouter-route-token": token,
-      "x-cmux-vm-id": vmId,
+      ...(token === "crt_cli" ? { authorization: `Bearer ${token}` } : { "x-cmux-authorization": `Bearer ${token}` }),
+      ...(token === "crt_cli" ? {} : { "x-cmux-vm-id": vmId }),
     },
   });
+
+
 
 describe("GET /api/vm/self", () => {
   beforeEach(() => {
@@ -77,10 +81,10 @@ describe("GET /api/vm/self", () => {
     expect(listCalls).toEqual([]);
   });
 
-  test("rejects a bound token whose vm header names another machine", async () => {
-    const response = await GET(edgeRequest("crt_bound", siblingVm));
-    expect(response.status).toBe(401);
-    expect(listCalls).toEqual([]);
+  test("a forged VM header cannot replace the signed VM identity", async () => {
+    const response = await GET(edgeRequest(boundToken, siblingVm));
+    expect(response.status).toBe(200);
+    expect(findCalls).toContainEqual(["team-1", selfVm]);
   });
 
   test("refuses unbound CLI tokens", async () => {
@@ -93,7 +97,7 @@ describe("GET /api/vm/self", () => {
   });
 
   test("serves the machine and its live team siblings, self marked", async () => {
-    const response = await GET(edgeRequest("crt_bound", selfVm));
+    const response = await GET(edgeRequest(boundToken, selfVm));
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     const body = await response.json();
@@ -143,7 +147,7 @@ describe("GET /api/vm/self", () => {
   });
 
   test("finds the caller by id even when the capped team list omits it", async () => {
-    const response = await GET(edgeRequest("crt_foreign", foreignVm));
+    const response = await GET(edgeRequest(foreignToken, foreignVm));
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.machine).toMatchObject({ id: "fs-uncapped", name: "old-grey-heron", self: true });
@@ -152,18 +156,20 @@ describe("GET /api/vm/self", () => {
   });
 
   test("answers 404 when the bound row is gone", async () => {
-    routeTokens.set("crt_gone", { teamId: "team-1", stackUserId: "user-1", vmId: destroyedVm });
-    const destroyed = await GET(edgeRequest("crt_gone", destroyedVm));
+    const gone = await vmToken(destroyedVm);
+    routeTokens.set(gone, { teamId: "team-1", stackUserId: "user-1", vmId: destroyedVm });
+    const destroyed = await GET(edgeRequest(gone, destroyedVm));
     expect(destroyed.status).toBe(404);
     expect((await destroyed.json()).error).toBe("vm_not_found");
-    routeTokens.set("crt_missing", { teamId: "team-1", stackUserId: "user-1", vmId: "5e5e5e5e-7777-4888-8999-000011112222" });
-    const missing = await GET(edgeRequest("crt_missing", "5e5e5e5e-7777-4888-8999-000011112222"));
+    const missingToken = await vmToken("5e5e5e5e-7777-4888-8999-000011112222");
+    routeTokens.set(missingToken, { teamId: "team-1", stackUserId: "user-1", vmId: "5e5e5e5e-7777-4888-8999-000011112222" });
+    const missing = await GET(edgeRequest(missingToken, "5e5e5e5e-7777-4888-8999-000011112222"));
     expect(missing.status).toBe(404);
   });
 
   test("fails closed with a retryable 503 when the lookup is unavailable", async () => {
     listFailure = new Error("rds down");
-    const response = await GET(edgeRequest("crt_bound", selfVm));
+    const response = await GET(edgeRequest(boundToken, selfVm));
     expect(response.status).toBe(503);
     expect(response.headers.get("retry-after")).toBe("5");
     expect((await response.json()).retryable).toBe(true);

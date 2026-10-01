@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxFoundation
 import SwiftUI
 
@@ -15,6 +16,7 @@ struct CloudTreeLocalMachineRowContent: View {
             CloudTreeMachineBand(style: style) {
                 HStack(alignment: .center, spacing: scaled(style.iconGap)) {
                     CloudTreeRowIcon(style: style, systemName: "laptopcomputer", tint: CloudTreeIconPalette.machine)
+                        .frame(width: scaled(max(style.iconSlot, style.iconSize)))
                     Text(row.name)
                         .cmuxFont(size: style.machineNameSize, weight: style.machineBand ? .semibold : .medium, design: style.fontDesign)
                         .foregroundStyle(.primary)
@@ -28,7 +30,7 @@ struct CloudTreeLocalMachineRowContent: View {
         case .twoLine:
             HStack(alignment: .top, spacing: scaled(style.iconGap)) {
                 CloudTreeRowIcon(style: style, systemName: "laptopcomputer", tint: CloudTreeIconPalette.machine)
-                    .frame(height: scaled(style.machineNameLineHeight))
+                    .frame(width: scaled(max(style.iconSlot, style.iconSize)), height: scaled(style.machineNameLineHeight))
                 VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
                     Text(row.name)
                         .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)

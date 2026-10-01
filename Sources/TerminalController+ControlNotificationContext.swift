@@ -189,20 +189,49 @@ extension TerminalController: ControlNotificationContext {
             return .surfaceNotFound(surfaceID)
         }
         let targetSurfaceID = ws.surfaceOwnershipTarget(for: surfaceID)?.surfaceID ?? surfaceID
+        // A relayed notification is remote text: deliver it with the relay's
+        // origin so the store clamps its side effects, and name the host in
+        // the title so it cannot pass for a local notification.
+        let origin: TerminalNotificationOrigin
+        let deliveredTitle: String
+        let replyShape: TerminalNotificationReplyShape
+        if let owner = routing.remoteRelayOwnerWorkspaceID {
+            origin = .sshRelay(ownerWorkspaceID: owner)
+            deliveredTitle = Self.remoteRelayNotificationTitle(title, workspace: ws)
+            replyShape = .none
+        } else {
+            origin = .local
+            deliveredTitle = title
+            replyShape = TerminalNotificationReplyShape(wire: replyShapeWire)
+        }
         let notificationID = deliverNotificationSynchronously(
             tabId: ws.id,
             surfaceId: targetSurfaceID,
-            title: title,
+            title: deliveredTitle,
             subtitle: subtitle,
             body: body,
-            replyShape: TerminalNotificationReplyShape(wire: replyShapeWire),
-            retargetsToLiveSurfaceOwner: false
+            replyShape: replyShape,
+            retargetsToLiveSurfaceOwner: false,
+            origin: origin
         )
         return .delivered(
             workspaceID: ws.id,
             surfaceID: targetSurfaceID,
             windowID: AppDelegate.shared?.windowId(for: tabManager),
             notificationID: notificationID
+        )
+    }
+
+    private static func remoteRelayNotificationTitle(_ title: String, workspace: Workspace) -> String {
+        let target = workspace.remoteDisplayTarget?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let host = target.flatMap { $0.isEmpty ? nil : $0 } ?? String(
+            localized: "notification.remoteRelay.hostFallback",
+            defaultValue: "Remote host"
+        )
+        return String(
+            format: String(localized: "notification.remoteRelay.title", defaultValue: "%1$@: %2$@"),
+            host,
+            title
         )
     }
 

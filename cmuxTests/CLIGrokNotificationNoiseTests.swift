@@ -21,30 +21,65 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         try runGrokNoiseHook(context, "session-start", payload: grokNoisePayload(context, event: "SessionStart"))
         try runGrokNoiseHook(context, "notification", payload: grokNoisePayload(context, event: "Notification", message: "Grok needs permission to run rm"))
+        let oldAdmissionKeys = context.state.admittedNotificationKeysSnapshot()
+        XCTAssertEqual(oldAdmissionKeys.count, 1)
+        let oldKey = try XCTUnwrap(oldAdmissionKeys.first)
+        let promptStart = context.state.snapshot().count
         try runGrokNoiseHook(context, "prompt-submit", payload: grokNoisePayload(context, event: "UserPromptSubmit"))
+        let promptCommands = Array(context.state.snapshot().dropFirst(promptStart))
+        XCTAssertEqual(promptCommands.filter { $0.hasPrefix("clear_notifications ") }, [
+            "clear_notifications --tab=\(context.workspaceId) --panel=\(context.surfaceId) --correlation-key=\(oldKey)",
+        ])
+
+        // Prompt submission clears summaries. Seed retained display metadata
+        // explicitly so this fixture still exercises stored-summary recovery.
+        let stateURL = context.root.appendingPathComponent("grok-hook-sessions.json")
+        var retainedStore = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        var retainedSessions = try XCTUnwrap(retainedStore["sessions"] as? [String: Any])
+        var retainedSession = try XCTUnwrap(retainedSessions[context.sessionId] as? [String: Any])
+        retainedSession["lastSubtitle"] = "Permission"
+        retainedSession["lastBody"] = "Grok needs permission to run rm"
+        retainedSession["lastNotificationStatus"] = "needsInput"
+        retainedSessions[context.sessionId] = retainedSession
+        retainedStore["sessions"] = retainedSessions
+        try JSONSerialization.data(withJSONObject: retainedStore).write(to: stateURL, options: .atomic)
 
         let fallbackStart = context.state.snapshot().count
         let unclassified = grokUnclassifiedPayload(context)
         try runGrokNoiseHook(context, "notification", payload: unclassified)
         try runGrokNoiseHook(context, "notification", payload: unclassified)
 
-        let notifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(fallbackStart)))
-        XCTAssertEqual(notifications.count, 1, "Unclassified fallback re-notification should dedupe, saw \(notifications)")
-        // The meta may carry trailing agent-event context (`;a=<kind>[;n=<0|1>]`);
-        // the nested flag depends on the host process ancestry, so assert the
-        // gating fields and agent kind without pinning it.
-        XCTAssertTrue(
-            notifications.first?.contains("|c=idle-reminder;p=0") == true,
-            "Fallback re-notification should be gateable as idle-reminder, saw \(notifications)"
-        )
-        XCTAssertTrue(
-            notifications.first?.contains(";a=grok") == true,
-            "Fallback re-notification should carry the agent kind, saw \(notifications)"
-        )
-        XCTAssertTrue(
-            notifications.first?.contains(";s=needsInput") == true,
-            "Fallback re-notification should carry the sound alert type, saw \(notifications)"
-        )
+        let fallbackCommands = Array(context.state.snapshot().dropFirst(fallbackStart))
+        XCTAssertTrue(notifyCommands(in: fallbackCommands).isEmpty,
+            "A stored summary must not revive the approval resolved by the new prompt")
+        XCTAssertEqual(context.state.admittedNotificationKeysSnapshot(), oldAdmissionKeys,
+            "Display-only fallbacks must not reserve a new notification receipt")
+        XCTAssertFalse(fallbackCommands.contains { $0.hasPrefix("set_status ") },
+            "Reusing display text must not resurrect prior needs-input lifecycle state")
+        let candidates = fallbackCommands.compactMap(AgentHookTestNotificationPipeline.candidatePresentation)
+        XCTAssertEqual(candidates.count, 2, "Both native fallback invocations should retain their display candidates")
+        XCTAssertTrue(candidates.allSatisfy { $0.contains("|c=idle-reminder;p=0") })
+        XCTAssertTrue(candidates.allSatisfy { $0.contains(";a=grok") })
+        XCTAssertTrue(candidates.allSatisfy { $0.contains(";s=needsInput") })
+
+        let store = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let session = try XCTUnwrap((store["sessions"] as? [String: Any])?[context.sessionId] as? [String: Any])
+        XCTAssertEqual(session["runtimeStatus"] as? String, "running")
+        XCTAssertNil(session["lastNotificationStatus"])
+
+        let newRequestStart = context.state.snapshot().count
+        let newRequest = grokPermissionPromptPayload(context,
+            message: "Grok needs permission to run rm", requestId: "current-permission")
+        try runGrokNoiseHook(context, "notification", payload: newRequest)
+        try runGrokNoiseHook(context, "notification", payload: newRequest)
+        let notifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(newRequestStart)))
+        XCTAssertEqual(notifications.count, 1,
+            "A genuine current request must still deliver once after suppressed stored fallbacks")
+        XCTAssertTrue(notifications.first?.contains("Grok|Permission|Grok needs permission to run rm") == true)
+        XCTAssertTrue(notifications.first?.contains("|c=needs-permission;p=0") == true)
+        XCTAssertTrue(notifications.first?.contains(";a=grok") == true)
+        XCTAssertTrue(notifications.first?.contains(";s=needsInput") == true)
+        XCTAssertEqual(context.state.admittedNotificationKeysSnapshot().count, 2)
     }
 
     func testGrokIncidentalCompletionCueAfterInterleavedNotificationDoesNotReding() throws {
@@ -113,8 +148,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         try runGrokNoiseHook(context, "session-start", payload: grokNoisePayload(context, event: "SessionStart"))
         let start = context.state.snapshot().count
-        try runGrokNoiseHook(context, "notification", payload: grokPermissionPromptPayload(context, message: "Grok needs permission to run rm"))
-        try runGrokNoiseHook(context, "notification", payload: grokPermissionPromptPayload(context, message: "Grok needs permission to edit config.yaml"))
+        try runGrokNoiseHook(context, "notification", payload: grokPermissionPromptPayload(context, message: "Grok needs permission to run rm", requestId: "permission-rm"))
+        try runGrokNoiseHook(context, "notification", payload: grokPermissionPromptPayload(context, message: "Grok needs permission to edit config.yaml", requestId: "permission-config"))
 
         let notifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(start)))
         XCTAssertEqual(notifications.count, 2, "Distinct permission prompts should each deliver, saw \(notifications)")
@@ -221,9 +256,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     private func grokPermissionPromptPayload(
         _ context: GrokNoiseContext,
-        message: String = "Tool permission requested"
+        message: String = "Tool permission requested",
+        requestId: String? = nil
     ) -> String {
-        #"{"hookEventName":"notification","sessionId":"\#(context.sessionId)","cwd":"\#(context.root.path)","notificationType":"permission_prompt","message":"\#(message)","level":"info"}"#
+        var payload = [
+            "hookEventName": "notification", "sessionId": context.sessionId,
+            "cwd": context.root.path, "notificationType": "permission_prompt",
+            "message": message, "level": "info",
+        ]
+        payload["request_id"] = requestId
+        return String(decoding: try! JSONSerialization.data(withJSONObject: payload), as: UTF8.self)
     }
 
     private func antigravityNoisePayload(_ context: GrokNoiseContext, event: String, message: String? = nil) -> String {

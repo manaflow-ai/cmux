@@ -57,6 +57,30 @@ protocol MobileHostIndependentEventWriting: Sendable {
     func send(_ framedData: Data) async throws
     func reset() async
     func close() async
+
+    /// Surface lanes put each terminal's render-grid frames on its own QUIC
+    /// stream so one terminal's burst cannot head-of-line-block another's.
+    /// Only a writer that owns a multi-stream connection supports them.
+    var maximumSurfaceEventLaneCount: Int { get }
+    /// Writes one frame onto the surface's own stream. A throw means that
+    /// stream was retired; the next send for a newer `generation` reopens.
+    func sendSurfaceEvent(_ framedData: Data, surfaceID: String, generation: UInt64) async throws
+    /// Enables or disables surface lanes; disabling finishes every lane.
+    func setSurfaceEventLanesEnabled(_ enabled: Bool) async
+    /// Raises the stream priority of the surface the user is interacting with.
+    func noteInteractiveSurface(_ surfaceID: String) async
+}
+
+extension MobileHostIndependentEventWriting {
+    var maximumSurfaceEventLaneCount: Int { 0 }
+
+    func sendSurfaceEvent(_ framedData: Data, surfaceID _: String, generation _: UInt64) async throws {
+        try await send(framedData)
+    }
+
+    func setSurfaceEventLanesEnabled(_: Bool) async {}
+
+    func noteInteractiveSurface(_: String) async {}
 }
 
 final class MobileHostConnectionRegistry: @unchecked Sendable {
@@ -316,6 +340,29 @@ enum MobileHostPublicStatusCache {
         lock.lock()
         defer { lock.unlock() }
         return mergedRoutesLocked()
+    }
+
+    /// One publication of this Mac: the routes a peer may dial plus the v2
+    /// installation identity those routes belong to.
+    ///
+    /// Ticket minting needs both halves of the *same* publication. Reading
+    /// ``snapshot()`` and ``currentV2DeviceID()`` separately can straddle a
+    /// concurrent republish or teardown (the runtime calls ``removeAll()`` on
+    /// every reconcile), which would bind fresh routes to a retired identity.
+    struct PublishedStatus: Sendable {
+        var routes: [CmxAttachRoute]
+        var v2DeviceID: String?
+
+        init(routes: [CmxAttachRoute], v2DeviceID: String?) {
+            self.routes = routes
+            self.v2DeviceID = v2DeviceID
+        }
+    }
+
+    static func publishedStatus() -> PublishedStatus {
+        lock.lock()
+        defer { lock.unlock() }
+        return PublishedStatus(routes: mergedRoutesLocked(), v2DeviceID: v2DeviceID)
     }
 
     static func hasIrohRoute() -> Bool {

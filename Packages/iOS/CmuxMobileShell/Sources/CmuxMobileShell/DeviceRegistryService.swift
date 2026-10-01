@@ -609,10 +609,10 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
                 return nil
             }
             if http.statusCode == 429 {
-                let seconds = CmxRetryAfterPolicy.seconds(
+                let seconds = CmxRetryAfterPolicy().seconds(
                     from: http,
-                    defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
-                ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                    defaultSeconds: CmxRetryAfterPolicy().defaultRateLimitSeconds
+                ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
                 await retryAfterGate.extend(by: seconds)
             }
             return RegistryResponse(data: data, statusCode: http.statusCode)

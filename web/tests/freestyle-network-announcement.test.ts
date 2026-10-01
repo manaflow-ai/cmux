@@ -4,11 +4,12 @@ import { Effect } from "effect";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
+import { runChild } from "./helpers/run-child";
 import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 import { announceFreestyleNetwork, freestyleNetworkAnnouncementCommand } from "../services/vms/drivers/freestyleNetworkAnnouncement";
 
-function captureAnnouncements(addresses: string[], failingFamily = "") {
+/** Runs the shipped announcement command against a fake socket layer and returns the packets it sent. */
+async function captureAnnouncements(addresses: string[], failingFamily = "") {
   const directory = mkdtempSync(join(tmpdir(), "cmux-network-test-"));
   const capture = join(directory, "packets.json");
   // Execute the shipped guest command with only its OS boundary substituted.
@@ -34,10 +35,10 @@ subprocess.check_output=lambda *args,**kwargs: json.dumps(links).encode()
 atexit.register(lambda: open(os.environ['CAPTURE_PATH'],'w').write(json.dumps(packets)))
 `);
   try {
-    const result = spawnSync("/bin/sh", ["-c", freestyleNetworkAnnouncementCommand(addresses)], {
-      env: { ...process.env, PYTHONPATH: directory, CAPTURE_PATH: capture, FAILING_FAMILY: failingFamily }, encoding: "utf8",
+    const result = await runChild("/bin/sh", ["-c", freestyleNetworkAnnouncementCommand(addresses)], {
+      env: { ...process.env, PYTHONPATH: directory, CAPTURE_PATH: capture, FAILING_FAMILY: failingFamily },
     });
-    return { status: result.status, packets: JSON.parse(readFileSync(capture, "utf8")) as Array<{
+    return { status: result.status, signal: result.signal, packets: JSON.parse(readFileSync(capture, "utf8")) as Array<{
       bound: Array<string | number>; packet: string; target?: Array<string | number>; options: number[][];
     }> };
   } finally { rmSync(directory, { recursive: true, force: true }); }
@@ -60,7 +61,7 @@ describe("Freestyle private network readiness", () => {
       exec: async ({ command }: { command: string }) => {
         // Adapter, reporter, and hook preparation can add probes. This test
         // guards publication/rollback ordering, not the number of setup execs.
-        if (command.startsWith("python3 -c ")) events.push("guest-network");
+        if (command.includes("Private network addresses are not ready")) events.push("guest-network");
         return { statusCode: 0, stdout: "", stderr: "" };
       },
       fs: {
@@ -72,10 +73,13 @@ describe("Freestyle private network readiness", () => {
     const client = { vms: {
       create: async () => { events.push("allocated"); return { vm, vmId: data.id, data }; },
       get: async () => data,
+      ref: (id: string) => {
+        if (id !== data.id) throw new Error(`unexpected VM ref: ${id}`);
+        return vm;
+      },
     } } as unknown as Freestyle;
     const provider = new FreestyleProvider({
       client: () => client,
-      resolveDaemonSource: async () => { throw new Error("No daemon install is needed"); },
     });
 
     const allocation = operation === "create"
@@ -84,9 +88,7 @@ describe("Freestyle private network readiness", () => {
     if (hasAddresses) {
       await allocation;
       events.push("published");
-      expect(events).toEqual(operation === "create"
-        ? ["allocated", "published"]
-        : ["allocated", "guest-network", "published"]);
+      expect(events).toEqual(["allocated", "published"]);
     } else {
       await expect(allocation).rejects.toThrow();
       expect(events).toEqual(["allocated", "delete"]);
@@ -102,7 +104,7 @@ describe("Freestyle private network readiness", () => {
     };
     const vm = {
       exec: async ({ command }: { command: string }) => {
-        if (command.startsWith("python3 -c ")) {
+        if (command.includes("Private network addresses are not ready")) {
           events.push("guest-network");
           return { statusCode: 124, stdout: "", stderr: "network state probe timed out" };
         }
@@ -113,10 +115,13 @@ describe("Freestyle private network readiness", () => {
     };
     const client = { vms: {
       create: async () => { events.push("allocated"); return { vm, vmId: data.id, data }; },
+      ref: (id: string) => {
+        if (id !== data.id) throw new Error(`unexpected VM ref: ${id}`);
+        return vm;
+      },
     } } as unknown as Freestyle;
     const provider = new FreestyleProvider({
       client: () => client,
-      resolveDaemonSource: async () => { throw new Error("No daemon install is needed"); },
     });
 
     const handle = await provider.create({ image: "sh-fixture", network: { id: "vpc-fixture" } });
@@ -125,8 +130,8 @@ describe("Freestyle private network readiness", () => {
     expect(events).toEqual(["allocated", "published"]);
   });
 
-  test("the guest announces assigned IPv4 and IPv6 without touching other addresses", () => {
-    const { status, packets } = captureAnnouncements(["10.16.0.2", "fd00::2"]);
+  test("the guest announces assigned IPv4 and IPv6 without touching other addresses", async () => {
+    const { status, packets } = await captureAnnouncements(["10.16.0.2", "fd00::2"]);
     expect(status).toBe(0);
     expect(packets).toHaveLength(2);
     const arp = Buffer.from(packets[0].packet, "hex");
@@ -145,28 +150,30 @@ describe("Freestyle private network readiness", () => {
     expect(packets[1].options.some((option) => option[2] === 255)).toBe(true);
   });
 
-  test("an address absent from the guest is never advertised and fails readiness", () => {
-    const { status, packets } = captureAnnouncements(["10.16.0.99"]);
+  test("an address absent from the guest is never advertised and fails readiness", async () => {
+    const { status, signal, packets } = await captureAnnouncements(["10.16.0.99"]);
+    expect(signal).toBeNull();
     expect(status).not.toBe(0);
     expect(packets).toEqual([]);
   });
 
-  test("one assigned family remains usable while the other address is still pending", () => {
-    const { status, packets } = captureAnnouncements(["10.16.0.2", "fd00::99"]);
+  test("one assigned family remains usable while the other address is still pending", async () => {
+    const { status, packets } = await captureAnnouncements(["10.16.0.2", "fd00::99"]);
     expect(status).toBe(0);
     expect(packets).toHaveLength(1);
     expect(Buffer.from(packets[0].packet, "hex").readUInt16BE(12)).toBe(0x0806);
   });
 
-  test.each(["ipv4", "ipv6"])("an unavailable %s socket preserves the working family", (family) => {
-    const { status, packets } = captureAnnouncements(["10.16.0.2", "fd00::2"], family);
+  test.each(["ipv4", "ipv6"])("an unavailable %s socket preserves the working family", async (family) => {
+    const { status, packets } = await captureAnnouncements(["10.16.0.2", "fd00::2"], family);
     expect(status).toBe(0);
     expect(packets).toHaveLength(1);
     expect(packets[0].target !== undefined).toBe(family === "ipv4");
   });
 
-  test("failure of both families still rejects network readiness", () => {
-    const { status, packets } = captureAnnouncements(["10.16.0.2", "fd00::2"], "both");
+  test("failure of both families still rejects network readiness", async () => {
+    const { status, signal, packets } = await captureAnnouncements(["10.16.0.2", "fd00::2"], "both");
+    expect(signal).toBeNull();
     expect(status).not.toBe(0);
     expect(packets).toEqual([]);
   });

@@ -1,9 +1,11 @@
 import Foundation
+import CMUXAgentLaunch
 
 extension CMUXCLI {
     /// Emits the complete cmux-owned Claude settings object without contacting
     /// the app socket. Non-decision hooks only admit immutable events to the
-    /// app-owned ordered queue; decision hooks remain direct and synchronous.
+    /// app-owned ordered queue, through the session's hook spool when the
+    /// wrapper started a forwarder; decision hooks remain direct and synchronous.
     func emitClaudeWrapperInjectSettings() throws {
         let hookCLI = #""${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}""#
         let lifecycleDefinitions: [(
@@ -13,6 +15,9 @@ extension CMUXCLI {
         )] = [
             ("SessionStart", "", "session-start"),
             ("Stop", "", "stop"),
+            // Claude Code fires StopFailure instead of Stop when a turn dies
+            // on an API error (usage limit, dropped connection, overload).
+            ("StopFailure", "", "stop"),
             ("SessionEnd", "", "session-end"),
             ("Notification", "", "notification"),
             ("UserPromptSubmit", "", "prompt-submit"),
@@ -36,6 +41,26 @@ extension CMUXCLI {
                 isAsync: true
             ),
         ])
+        // Agent messages (`cmux agent message`) reach Claude through hooks,
+        // never through the terminal, so they cannot land in a draft. The
+        // wait hook runs in the background after every start and stop and
+        // wakes an idle session by exiting 2 (`asyncRewake`; `async` keeps a
+        // Claude Code without `asyncRewake` from blocking on it); the prompt
+        // hook attaches anything still queued when the human submits first.
+        // The drain must never exit 2, which would erase the human's prompt.
+        let inboxWait = Self.claudeHookGroup(
+            command: "\(hookCLI) hooks claude inbox-wait",
+            timeout: Self.claudeInboxWaitTimeoutSeconds,
+            isAsync: true,
+            isAsyncRewake: true
+        )
+        hooks["SessionStart", default: []].append(inboxWait)
+        hooks["Stop", default: []].append(inboxWait)
+        hooks["StopFailure", default: []].append(inboxWait)
+        hooks["UserPromptSubmit", default: []].append(Self.claudeHookGroup(
+            command: "\(hookCLI) hooks claude inbox-drain 2>/dev/null || echo '{}'",
+            timeout: 5
+        ))
         hooks["SubagentStop"] = [
             Self.claudeQueuedHookGroup(
                 subcommand: "feed"
@@ -79,22 +104,33 @@ extension CMUXCLI {
         matcher: String = "",
         subcommand: String
     ) -> [String: Any] {
+        // Wrapped sessions publish to their spool with shell builtins; the
+        // CLI admission command is the fallback outside a live forwarder.
+        let producer = AgentHookSpoolProducer(agent: "claude")
         return claudeHookGroup(
             matcher: matcher,
-            command: queuedAgentHookShellCommand(
-                agent: "claude",
+            command: producer.command(
                 subcommand: subcommand,
-                disableEnvironmentVariable: "CMUX_CLAUDE_HOOKS_DISABLED"
+                fallback: queuedAgentHookShellCommand(
+                    agent: "claude",
+                    subcommand: subcommand,
+                    disableEnvironmentVariable: producer.disableEnvironmentKey
+                )
             ),
             timeout: agentHookDeclaredTimeoutSeconds
         )
     }
 
+    /// Claude doesn't enforce timeouts on background hooks; this bounds the
+    /// wait hook anyway if a future version does.
+    static let claudeInboxWaitTimeoutSeconds = 86_400
+
     private static func claudeHookGroup(
         matcher: String = "",
         command: String,
         timeout: Int,
-        isAsync: Bool = false
+        isAsync: Bool = false,
+        isAsyncRewake: Bool = false
     ) -> [String: Any] {
         var hook: [String: Any] = [
             "type": "command",
@@ -103,6 +139,9 @@ extension CMUXCLI {
         ]
         if isAsync {
             hook["async"] = true
+        }
+        if isAsyncRewake {
+            hook["asyncRewake"] = true
         }
         return [
             "matcher": matcher,

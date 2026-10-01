@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxCloudImagePaste
 
@@ -16,16 +17,38 @@ extension TextBoxInputContainer {
             .map(\.standardizedFileURL)
         guard !standardizedURLs.isEmpty else { return false }
 
+        Task { @MainActor [self, weak textView] in
+            guard let textView else { return }
+            let runtimeGeneration = self.surface.runtimeSurfaceGeneration
+            let target = await self.surface.resolvedImageTransferTargetAsync()
+            guard self.surface.runtimeSurfaceGeneration == runtimeGeneration,
+                  self.ownsTextView(textView) else { return }
+            _ = self.attachFileURLs(
+                standardizedURLs,
+                into: textView,
+                target: target
+            )
+        }
+        return true
+    }
+
+    @MainActor
+    private func attachFileURLs(
+        _ fileURLs: [URL],
+        into textView: TextBoxInputTextView,
+        target: TerminalImageTransferTarget
+    ) -> Bool {
+
         let plan = TerminalImageTransferPlanner.plan(
-            fileURLs: standardizedURLs,
-            target: surface.resolvedImageTransferTarget(),
+            fileURLs: fileURLs,
+            target: target,
             mode: .paste
         )
 
         switch plan {
         case .insertText, .insertTextSegments:
             textView.insertAttachments(
-                standardizedURLs.map {
+                fileURLs.map {
                         TextBoxAttachment(
                             localURL: $0,
                             submissionText: TextBoxAttachment.submissionText(forLocalFileURL: $0),
@@ -41,7 +64,7 @@ extension TextBoxInputContainer {
             return true
         case .pasteCloudImages:
             refuseCloudComposerImage()
-            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(standardizedURLs)
+            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
             return true
         case .reject:
             return false

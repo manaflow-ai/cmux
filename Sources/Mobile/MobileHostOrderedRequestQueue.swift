@@ -45,10 +45,36 @@ extension MobileHostRPCRequest {
         }
     }
 
+    /// Whether the request writes to or closes a terminal. A phone must name
+    /// that terminal: the Mac never falls back to its focused terminal, which
+    /// would put a keystroke, paste, click or close into whatever terminal
+    /// happens to be focused.
+    var mustNameItsTerminal: Bool {
+        isOrderedTerminalInput
+            || method == "mobile.terminal.close"
+            || method == "mobile.terminal.rename"
+    }
+
     /// The per-surface ordering domain for an ordered terminal request.
     /// Requests without a surface selection share one conservative bucket.
+    /// The key uses the same id precedence as terminal resolution and the
+    /// canonical UUID spelling, so two spellings of one terminal never land
+    /// in different buckets and overtake each other.
     var orderedInputSurfaceKey: String {
-        (params["surface_id"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        Self.phoneNamedTerminalID(params: params)?.uuidString ?? ""
+    }
+
+    /// The terminal a phone request names, exactly as the phone stamped it.
+    /// The ordering bucket, the explicit-terminal gate and the input ledger
+    /// all read this one parser, so a request can never pass one and land
+    /// differently in another.
+    static func phoneNamedTerminalID(params: [String: Any]) -> UUID? {
+        for key in ["surface_id", "terminal_id", "tab_id"] {
+            guard let raw = params[key] as? String,
+                  let id = UUID(uuidString: raw.trimmingCharacters(in: .whitespacesAndNewlines))
+            else { continue }
+            return id
+        }
+        return nil
     }
 }
