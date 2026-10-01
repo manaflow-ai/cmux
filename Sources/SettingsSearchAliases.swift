@@ -100,7 +100,6 @@ enum SettingsSearchAliasIndex {
         "app:notification-sound-overrides": localized("settings.search.alias.setting.app.notification-sound-overrides", defaultValue: "notifications.soundOverrides per-agent agent sound turn done needs input permission error stalled custom file"),
         "app:notification-command": localized("settings.search.alias.setting.app.notification-command", defaultValue: "notifications.command shell command hook script env environment variable variables done agent"),
         "app:telemetry": localized("settings.search.alias.setting.app.telemetry", defaultValue: "app.sendAnonymousTelemetry analytics crash reports sentry posthog usage anonymous privacy"),
-        "app:whats-new": localized("settings.search.alias.setting.app.whats-new", defaultValue: "app.whatsNew whats new release notes changelog highlights update recap off quiet sheet show once"),
         "app:warn-before-quit": localized("settings.search.alias.setting.app.warn-before-quit", defaultValue: "app.warnBeforeQuit quit confirmation command-q cmd-q exit close app"),
         "app:warn-before-closing-tab": localized("settings.search.alias.setting.app.warn-before-closing-tab", defaultValue: "app.warnBeforeClosingTab close tab confirmation command-w cmd-w terminal surface"),
         "app:warn-before-closing-tab-x-button": localized(
@@ -133,6 +132,7 @@ enum SettingsSearchAliasIndex {
         "terminal:reflow-hard-wrap-on-copy": localized("settings.search.alias.setting.terminal.reflow-hard-wrap-on-copy", defaultValue: "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste"),
         "terminal:password-input-indicator": localized("settings.search.alias.setting.terminal.password-input-indicator", defaultValue: "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt"),
         "terminal:password-input-dots": localized("settings.search.alias.setting.terminal.password-input-dots", defaultValue: "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"),
+        "terminal:jump-to-bottom-button": localized("settings.search.alias.setting.terminal.jump-to-bottom-button", defaultValue: "terminal.showJumpToBottomButton jump to bottom button scroll to bottom scrollback follow output latest newest pill arrow down agent codex claude"),
         "terminal:predictive-local-echo": localized("settings.search.alias.setting.terminal.predictive-local-echo", defaultValue: "terminal.predictiveLocalEcho predictive local echo typing latency lag ssh remote speculative mosh round trip underline"),
         "terminal:tab-bar-font-size": localized("settings.search.alias.setting.terminal.tab-bar-font-size", defaultValue: "surface-tab-bar-font-size tab bar font size text scale terminal browser pane tab title"),
         "terminal:resume-commands": localized("settings.search.alias.setting.terminal.resume-commands", defaultValue: "surface resume commands approvals command prefixes auto restore ask manual tmux hibernation sticky process"),

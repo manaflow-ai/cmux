@@ -714,13 +714,6 @@ enum CmuxEmbeddedConfigSchema {
           "descriptionKey": "schemaDescriptions.app.confirmQuit",
           "description": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback."
         },
-        "whatsNew": {
-          "type": "string",
-          "enum": ["off", "quiet", "sheet"],
-          "default": "quiet",
-          "descriptionKey": "schemaDescriptions.app.whatsNew",
-          "description": "How cmux shows what's new after an update. off shows nothing, quiet marks the sidebar help button with a dot until you open the recap, and sheet opens the recap once after the first launch of a new version. Help > What's New in cmux opens it any time."
-        },
         "warnBeforeQuit": {
           "type": "boolean",
           "default": true,
@@ -862,6 +855,11 @@ enum CmuxEmbeddedConfigSchema {
           "type": "boolean",
           "default": false,
           "description": "When the password input badge is shown, also draw one dot per typed character. cmux keeps only a count, never the typed characters. Backspace removes a dot; Enter or echo turning back on clears them. Pasted text is not counted."
+        },
+        "showJumpToBottomButton": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a Jump to Bottom button at the bottom center of a terminal while its viewport is scrolled up into scrollback. Clicking it scrolls to the bottom and focuses the terminal. A dot marks output that arrived below the viewport. Programs on the alternate screen (vim, less, full-screen agent modes) never get the button because they draw their own scrolling."
         },
         "predictiveLocalEcho": {
           "type": "boolean",

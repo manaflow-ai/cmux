@@ -263,38 +263,15 @@ def materialize_catalog_conflicts(
         theirs_block = sources["theirs"].blocks.get(key, "")
         start, _, end = target.spans[key]
         line_start = _line_start(merged_text, start)
-        # Deliberately inspect only the text before the key; trailing text on
-        # its line remains lossless and resolves to valid JSON on either side.
         if merged_text[line_start:start].strip():
             raise ValueError(f"conflict key {name!r} shares a line with other text")
         suffix = merged_text[end:]
         comma = "," if suffix.startswith(",") else ""
-        replacement_start = line_start
-        replacement_prefix = ""
-        leading_comma = ""
-        if not comma:
-            member_index = next(index for index, member in enumerate(target.members) if member[0] == key)
-            if member_index:
-                previous_end = target.members[member_index - 1][3]
-                separator = merged_text[previous_end:line_start]
-                comma_index = separator.find(",")
-                if comma_index < 0 or separator[:comma_index].strip():
-                    raise ValueError(f"cannot consume separator before conflict key {name!r}")
-                replacement_start = previous_end
-                replacement_prefix = separator[:comma_index] + separator[comma_index + 1 :]
-                leading_comma = ","
-        with_comma = lambda block: (leading_comma + block + comma) if block else block
         replacements.append(
             (
-                replacement_start,
+                line_start,
                 end + len(comma),
-                replacement_prefix
-                + conflict_text(
-                    with_comma(base_block),
-                    with_comma(ours_block),
-                    with_comma(theirs_block),
-                    width,
-                ),
+                conflict_text(base_block, ours_block, theirs_block, width) + comma,
             )
         )
     ranges = sorted(replacements)
