@@ -44,15 +44,24 @@ extension CloudTreeOutlineView.Coordinator {
         // The tree is a navigation/source surface. Pane destinations own the
         // ownership warning and announcement; the tree draws no drag hints.
         guard ownershipRejection(info: info, item: item) == nil else {
-            (outlineView as? CloudTreeNSOutlineView)?.clearDragDestination(sequence: info.draggingSequenceNumber)
+            if let cloudOutline = outlineView as? CloudTreeNSOutlineView {
+                cloudOutline.clearDragDestination(sequence: info.draggingSequenceNumber)
+                cloudOutline.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
+            }
             return []
         }
         guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else {
-            (outlineView as? CloudTreeNSOutlineView)?.clearDragDestination(sequence: info.draggingSequenceNumber)
+            if let cloudOutline = outlineView as? CloudTreeNSOutlineView {
+                cloudOutline.clearDragDestination(sequence: info.draggingSequenceNumber)
+                cloudOutline.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
+            }
             return []
         }
         outlineView.setDropItem(drop.parent, dropChildIndex: drop.childIndex)
-        (outlineView as? CloudTreeNSOutlineView)?.trackDragDestination(sequenceNumber: info.draggingSequenceNumber)
+        if let cloudOutline = outlineView as? CloudTreeNSOutlineView {
+            cloudOutline.trackDragDestination(sequenceNumber: info.draggingSequenceNumber)
+            cloudOutline.reorderPresentation.show(drop, sequence: info.draggingSequenceNumber)
+        }
         return .move
     }
 
