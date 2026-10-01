@@ -46,7 +46,7 @@ object{workspace_revision?:uint64,pane_revision?:uint64,groups?:array<WorkspaceG
 `Workspace`:
 
 ```text
-object{id:Id,key?:string,name:string,group?:string|null,color?:string|null,icon?:string|null,title?:string|null,active:boolean,screens:array<Screen>}
+object{id:Id,key?:string,name:string,group?:string|null,color?:string|null,icon?:string|null,title?:string|null,pinned?:boolean,active:boolean,screens:array<Screen>}
 ```
 
 Servers advertising `notification-ack-v1` add `unread_count`, the number of
@@ -56,6 +56,9 @@ Servers advertising `workspace-metadata-v1` add the shared presentation
 fields `color` (palette token or `#RRGGBB[AA]`), `icon` (SF Symbol name), and
 `title` (a custom sidebar title that overrides `name` for display). Each is
 null when unset.
+
+Servers advertising `workspace-pin-v1` add `pinned`, true while the workspace
+is pinned to the top of the sidebar.
 
 Servers advertising `workspace-groups-v1` add the ordered `Tree.groups` array
 (the `list-workspace-groups` result) and `Workspace.group`, the id of the
@@ -4372,7 +4375,7 @@ Example:
 
 Sets a workspace's shared presentation. For each of `color`, `icon`, and
 `title`, an absent field is unchanged, `null` clears it, and a value sets it.
-An absent `pinned` is unchanged and a boolean sets it (`workspace-pin-v1`).
+An absent or null `pinned` is unchanged and a boolean sets it (`workspace-pin-v1`).
 The write commits one workspace-registry revision without changing the
 workspace order, so it takes the durable mutation envelope and emits
 `workspace-changed` with the full workspace entity.

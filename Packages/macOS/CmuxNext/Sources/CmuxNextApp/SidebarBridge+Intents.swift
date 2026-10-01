@@ -13,14 +13,24 @@ extension SidebarBridge {
     func handle(_ intent: SidebarIntent) {
         guard let state else { return }
         // The Pinned section is the daemon's pin, in either organization: a
-        // drop there pins, a pinned workspace dropped on a machine unpins.
+        // drop there pins, a pinned workspace dropped on its own machine
+        // unpins. Pinned order follows the sidebar, so a drop of workspaces
+        // that are all pinned already only snaps back.
         if case .reorder(let ids, let position) = intent {
-            if case .pinned = position.section {
+            switch position.section {
+            case .pinned:
+                let unpinned = ids.filter { services.machines.workspace(id: $0.rawValue)?.0.pinned != true }
+                guard !unpinned.isEmpty else { return resync() }
                 model.apply(intent)
-                return sendPinned(ids, true)
+                return sendPinned(unpinned, true)
+            case .machine(let machine):
+                let target = services.machines.daemon(machine: machine.rawValue)
+                let leaving = ids.filter { id in
+                    guard let (workspace, daemon) = services.machines.workspace(id: id.rawValue) else { return false }
+                    return workspace.pinned && daemon === target
+                }
+                if !leaving.isEmpty { sendPinned(leaving, false) }
             }
-            let leaving = ids.filter { services.machines.workspace(id: $0.rawValue)?.0.pinned == true }
-            if !leaving.isEmpty { sendPinned(leaving, false) }
         }
         if usesPersonalOrganization, handlePersonal(intent) { return }
         switch intent {

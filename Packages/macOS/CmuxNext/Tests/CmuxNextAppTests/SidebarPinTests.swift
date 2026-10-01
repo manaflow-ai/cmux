@@ -34,4 +34,20 @@ struct SidebarPinTests {
         let result = SidebarMembership.pinnedFirst(Self.sections, pinned: ["elsewhere"])
         #expect(result == Self.sections)
     }
+
+    @Test func groupsStayWhenEmptyOrFullyPinned() {
+        let sections = [SidebarSection(kind: .machine(Self.machine), nodes: [
+            .workspace(Self.workspace("a")),
+            .group(SidebarGroup(id: GroupID("empty"), name: "Empty", workspaces: [])),
+            .group(SidebarGroup(id: GroupID("g"), name: "Agents", workspaces: [Self.workspace("b"), Self.workspace("c")])),
+        ])]
+        let result = SidebarMembership.pinnedFirst(sections, pinned: ["a", "b", "c"])
+        #expect(Self.ids(result[0]) == ["a", "b", "c"])
+        let groups = result[1].nodes.compactMap { node -> String? in
+            if case let .group(group) = node { return group.id.rawValue }
+            return nil
+        }
+        #expect(groups == ["empty", "g"])
+        #expect(result[1].workspaces.isEmpty)
+    }
 }

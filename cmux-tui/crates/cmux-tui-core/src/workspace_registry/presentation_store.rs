@@ -9,8 +9,10 @@
 //! that opens the same registry ignores these tables, so creating them needs
 //! no schema version bump and a rollback to that binary keeps working (it
 //! simply stops showing the metadata). Columns added later follow the same
-//! rule: the open path probes the table shape instead of the schema number. Rows that name a tombstoned workspace
-//! are inert: snapshots join against live workspaces.
+//! rule: the open path probes the table shape instead of the schema number.
+//! A binary older than `pinned` may delete a row that holds only a pin, so a
+//! rollback can lose pins. Rows that name a tombstoned workspace are inert:
+//! snapshots join against live workspaces.
 //!
 //! Each mutation appends one `state` journal record with `advisory` replay.
 //! The materialized table is authoritative for restoration, so a restore

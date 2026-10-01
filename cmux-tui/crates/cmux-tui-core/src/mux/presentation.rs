@@ -617,15 +617,19 @@ impl Mux {
     ) -> anyhow::Result<WorkspaceMutationResult> {
         anyhow::ensure!(update.group.is_none(), "use move-workspace-to-group to change a group");
         update.validate()?;
-        let fingerprint = serde_json::json!({
+        let mut fingerprint = serde_json::json!({
             "op": "set-workspace-metadata",
             "workspace": workspace,
             "key": requested_key,
             "color": update.color,
             "icon": update.icon,
             "title": update.title,
-            "pinned": update.pinned,
         });
+        // Only a pin request carries the key, so a retry first sent to a
+        // daemon without workspace-pin-v1 still replays.
+        if let Some(pinned) = update.pinned {
+            fingerprint["pinned"] = pinned.into();
+        }
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);

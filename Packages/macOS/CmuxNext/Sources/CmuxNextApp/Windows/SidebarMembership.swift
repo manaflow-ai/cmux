@@ -29,13 +29,31 @@ enum SidebarMembership {
     }
 
     /// `sections` with the `pinned` workspaces (`workspace-pin-v1`) moved,
-    /// in sidebar order, into a Pinned section at the top. No pinned
-    /// workspace, no Pinned section.
+    /// in sidebar order, into a Pinned section at the top. Groups stay where
+    /// they are, even when every member is pinned, so they can still be
+    /// renamed and dropped into. No pinned workspace, no Pinned section.
     static func pinnedFirst(_ sections: [SidebarRowSection], pinned: Set<String>) -> [SidebarRowSection] {
-        let ids = sections.flatMap(\.workspaces).map(\.id).filter { pinned.contains($0.rawValue) }
-        guard !ids.isEmpty else { return sections }
-        var result = sections
-        _ = SidebarEdits.apply(.setPinned(ids, true), to: &result)
+        let moving = sections.flatMap(\.workspaces).filter { pinned.contains($0.id.rawValue) }
+        guard !moving.isEmpty else { return sections }
+        var result = sections.map { section in
+            var section = section
+            section.nodes = section.nodes.compactMap { node in
+                switch node {
+                case let .workspace(workspace):
+                    return pinned.contains(workspace.id.rawValue) ? nil : node
+                case var .group(group):
+                    group.workspaces.removeAll { pinned.contains($0.id.rawValue) }
+                    return .group(group)
+                }
+            }
+            return section
+        }
+        let nodes = moving.map(SidebarNode.workspace)
+        if let index = result.firstIndex(where: { $0.id == .pinned }) {
+            result[index].nodes += nodes
+        } else {
+            result.insert(SidebarRowSection(kind: .pinned, nodes: nodes), at: 0)
+        }
         return result
     }
 
