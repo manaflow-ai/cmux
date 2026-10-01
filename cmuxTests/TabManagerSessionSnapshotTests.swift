@@ -122,6 +122,25 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.selectedTabId, secondWorkspace.id)
     }
 
+    func testRestoreSessionSnapshotIgnoresDuplicatePanelIDs() throws {
+        let panelID = UUID()
+        var workspace = Self.localWorkspaceSnapshot(title: "Duplicate panels", panelId: panelID)
+        workspace.panels.append(Self.terminalPanelSnapshot(id: panelID))
+        workspace.layout = .pane(SessionPaneLayoutSnapshot(
+            panelIds: [panelID, panelID],
+            selectedPanelId: panelID
+        ))
+
+        let restored = makeTabManager()
+        restored.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [workspace]
+        ))
+
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first)
+        XCTAssertEqual(restoredWorkspace.panels.count, 1)
+    }
+
     func testFocusHistoryBackFallsBackWhenRecordedPanelWasClosed() throws {
         let manager = makeTabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -2833,6 +2852,12 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(
             startupCommand.contains("CMUX_SSH_ATTEMPT_ID"),
             startupCommand
+        )
+        XCTAssertTrue(
+            startupCommand.contains(
+                "cmux_restore_begin_attempt\ncmux_restore_launch_status=$?"
+            ),
+            "Restore must invoke lifecycle registration before checking its status: \(startupCommand)"
         )
 
         let directory = FileManager.default.temporaryDirectory

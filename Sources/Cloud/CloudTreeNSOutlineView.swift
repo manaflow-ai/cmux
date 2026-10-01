@@ -8,6 +8,7 @@ import CmuxFoundation
 final class CloudTreeNSOutlineView: NSOutlineView {
     static let leadingMargin: CGFloat = 8
     private var dragDestinationSequenceNumber: Int?
+    lazy var reorderPresentation = CloudTreeReorderPresentation(outline: self)
 
     func trackDragDestination(sequenceNumber: Int) {
         dragDestinationSequenceNumber = sequenceNumber
@@ -157,6 +158,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
             menuPinnedNodeID = nil
         }
         updateHover(at: nil)
+        reorderPresentation.clear()
         NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: window)
         NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: window)
         super.viewWillMove(toWindow: newWindow)
@@ -188,11 +190,12 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     override func layout() {
         super.layout()
         refreshHover()
+        reorderPresentation.layout()
     }
 
     var activeNativeDragCoordinator: AnyObject?
     var activeNativeDragSession: NSDraggingSession? {
-        didSet { if activeNativeDragSession == nil { clearDragDestination() } }
+        didSet { if activeNativeDragSession == nil { clearDragDestination(); reorderPresentation.clear() } }
     }
     var onNativeDragPointerBoundary: (() -> Void)?
     var onDocumentContentChanged: (() -> Void)?
@@ -241,6 +244,10 @@ final class CloudTreeNSOutlineView: NSOutlineView {
             if let controls = candidate as? CloudTreeRowControlsHostingView {
                 return !controls.isHiddenOrHasHiddenAncestor
             }
+            if let actionHost = candidate as? CloudTreePassthroughHostingView,
+               !actionHost.passesThrough {
+                return !actionHost.isHiddenOrHasHiddenAncestor
+            }
             view = candidate.superview
         }
         return super.validateProposedFirstResponder(responder, for: event)
@@ -248,6 +255,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
 
     override func mouseDown(with event: NSEvent) {
         clearDragDestination()
+        reorderPresentation.clear()
         onNativeDragPointerBoundary?()
         super.mouseDown(with: event)
     }
@@ -256,6 +264,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         guard isCurrentDragDestination(sender) else { return }
         super.draggingExited(sender)
         clearDragDestination(sequence: sender?.draggingSequenceNumber)
+        reorderPresentation.clear(sequence: sender?.draggingSequenceNumber)
     }
 
     override func draggingEnded(_ sender: any NSDraggingInfo) {
@@ -268,11 +277,13 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         guard isCurrentDragDestination(sender) else { return }
         super.concludeDragOperation(sender)
         clearDragDestination(sequence: sender?.draggingSequenceNumber)
+        reorderPresentation.clear(sequence: sender?.draggingSequenceNumber)
     }
 
     override func viewDidHide() {
         super.viewDidHide()
         clearDragDestination()
+        reorderPresentation.clear()
     }
 
     override func keyDown(with event: NSEvent) {
@@ -391,6 +402,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
 
     override func reloadData() {
         clearDragDestination()
+        reorderPresentation.clear()
         updateHover(at: nil)
         super.reloadData()
         needsLayout = true
@@ -442,9 +454,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
             return frame
         }
         let trailing = frame.maxX
-        frame.origin.x = disclosureLeading(atRow: row) + GlobalFontMagnification.scaledSize(
-            treeStyle.rowGrid.disclosureSlot + treeStyle.rowGrid.disclosureGap
-        )
+        frame.origin.x = CloudTreeLayoutMetrics().contentLeading(level: level(forRow: row), style: treeStyle)
         frame.size.width = max(0, trailing - frame.minX)
         return frame
     }

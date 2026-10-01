@@ -99,6 +99,55 @@ struct SurfaceCatalogTests {
         }
     }
 
+    @Test("A membership-less terminal placement still fails closed")
+    func membershiplessTerminalPlacementFailsClosed() throws {
+        // The membership-less preview allowance is for displays and forwarded
+        // ports only. A terminal with no view metadata has no local-preview
+        // reading, so it must keep failing closed rather than projecting with
+        // no remote provenance.
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog(live: live)
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        var resource = terminal(machine, "term_1")
+        resource.remoteViews = nil
+        catalog.upsert(resource)
+
+        #expect(throws: SurfaceCatalogError.unavailable(
+            resource.id,
+            reason: "remote placement data is unavailable"
+        )) {
+            try catalog.remoteView(
+                for: SurfaceResourcePlacement(resource: resource.id, remoteWorkspaceID: "a")
+            )
+        }
+    }
+
+    @Test("A display placement keeps its daemon tab identity")
+    func displayPlacementKeepsDaemonTabIdentity() throws {
+        // A display that really is a daemon tab must resolve to that tab. The
+        // membership-less allowance only applies when the resource carries no
+        // view metadata at all.
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog(live: live)
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        let workspace = SurfaceRemoteWorkspace(id: "a", name: "Workspace a", index: 0, focused: true)
+        var resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .display, key: "display_1"),
+            title: "Display", detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: workspace, remoteViews: nil, port: nil, url: nil
+        )
+        resource.remoteViews = [SurfaceRemoteView(tabID: "tab_d", workspace: workspace)]
+        catalog.upsert(resource)
+
+        let view = try catalog.remoteView(
+            for: SurfaceResourcePlacement(resource: resource.id, remoteWorkspaceID: "a")
+        )
+        #expect(view?.tabID == "tab_d")
+        #expect(view?.workspace.id == "a")
+    }
+
     @Test("Duplicate remote tab placement fails closed")
     func duplicateRemoteTabPlacementFailsClosed() throws {
         let machine = SurfaceMachineID.cloud("vivid-newt")
@@ -312,7 +361,7 @@ struct SurfaceCatalogTests {
             SurfaceResourceGroup(title: "remote", placements: placements, remoteWorkspaceID: workspace.id),
             title: "remote", focus: false,
             host: .init(
-                create: { _ in (workspaceID, nil) }, paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in },
+                create: { _, _ in (workspaceID, nil) }, paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in },
                 optimistic: .init(
                     reserve: { _, _, _ in Issue.record("Device terminals cannot use Cloud VM reservations"); return nil },
                     attach: { _, _, _ in Issue.record("Device terminals must attach through their own provider") }
@@ -1184,7 +1233,7 @@ struct SurfaceCatalogTests {
         var closedStarters: [(UUID, UUID)] = []
         var lookups = 0
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { title in created.append(title); return (newWorkspace, starter) },
+            create: { title, _ in created.append(title); return (newWorkspace, starter) },
             paneLookup: { _, _ in lookups += 1; return "pane-\(lookups)" },
             closeStarter: { panel, workspace in closedStarters.append((panel, workspace)) }
         )
@@ -1214,7 +1263,7 @@ struct SurfaceCatalogTests {
         let starter = UUID(), newWorkspace = live.id()
         var closedStarters = 0
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { _ in (newWorkspace, starter) },
+            create: { _, _ in (newWorkspace, starter) },
             paneLookup: { _, _ in nil },
             closeStarter: { _, _ in closedStarters += 1 }
         )
@@ -1246,7 +1295,7 @@ struct SurfaceCatalogTests {
         )
         let workspace = live.id()
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { _ in (workspace, nil) },
+            create: { _, _ in (workspace, nil) },
             paneLookup: { _, panel in panel.uuidString },
             closeStarter: { _, _ in }
         )
@@ -1438,7 +1487,7 @@ extension SurfaceCatalogTests {
         var attachedBeforeAllReserved = false
         var lookups = 0
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { _ in (newWorkspace, starter) },
+            create: { _, _ in (newWorkspace, starter) },
             paneLookup: { _, _ in lookups += 1; return "pane-\(lookups)" },
             closeStarter: { _, _ in closedStarters += 1 },
             optimistic: SurfaceCatalog.OptimisticPaneHost(
@@ -1498,7 +1547,7 @@ extension SurfaceCatalogTests {
         let newWorkspace = live.id()
         var reservations = 0
         let host = SurfaceCatalog.NewWorkspaceHost(
-            create: { _ in (newWorkspace, nil) },
+            create: { _, _ in (newWorkspace, nil) },
             paneLookup: { _, _ in nil },
             closeStarter: { _, _ in },
             optimistic: SurfaceCatalog.OptimisticPaneHost(

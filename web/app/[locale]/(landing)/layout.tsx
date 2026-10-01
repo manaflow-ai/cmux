@@ -1,4 +1,5 @@
 import { SiteFooter } from "@/app/[locale]/components/site-footer";
+import { HideOnDocs } from "@/app/[locale]/components/hide-on-docs";
 
 export const instant = true;
 
@@ -13,7 +14,9 @@ export default function LandingLayout({
   return (
     <div className="min-h-screen">
       {children}
-      <SiteFooter />
+      <HideOnDocs>
+        <SiteFooter />
+      </HideOnDocs>
     </div>
   );
 }

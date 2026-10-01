@@ -54,6 +54,16 @@ import Testing
         #expect(available != unavailable)
     }
 
+    @Test func browseFilesAvailabilityInvalidatesTheMenuValue() {
+        var ssh = menuValue(
+            labelToken: .standard(title: "Shell 1", subtitle: "Shell 1", connectionStatus: .connected)
+        )
+        let mac = ssh
+        ssh.canBrowseFiles = true
+        #expect(!mac.canBrowseFiles)
+        #expect(ssh != mac)
+    }
+
     private func menuValue(
         labelToken: WorkspaceTitleMenuLabelToken,
         canCustomizeWorkspace: Bool = true,

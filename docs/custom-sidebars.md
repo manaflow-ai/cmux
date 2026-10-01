@@ -253,6 +253,9 @@ The repo includes ready-to-copy sidebars in `Examples/CustomSidebars/`:
   review, progress, research, and done.
 - `finder.swift` shows a macOS Finder-style workspace browser with a source
   list, selected workspace details, and tabs.
+- `btop-agents.js` is a btop-style agent activity list: a braille sparkline
+  of recent agent activity per workspace, state glyphs, a small progress meter,
+  and a header graph of busy workspaces.
 
 Install one from a cmux checkout:
 
@@ -322,8 +325,8 @@ with:
   `cmux hooks omp|pi subagent-start|subagent-stop` with JSON
   `{"session_id": "<parent session>", "agent_id": "<stable child id>",
   "description": "<child label>"}`: start opens the child on the parent
-  record, stop closes it by `agent_id` (or the oldest running child when the
-  id is absent).
+  record, stop closes the oldest running child (FIFO). The `agent_id` field is
+  not read; only `_opencode_request_id` can correlate a stop event to a child.
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
   `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
   `dirty`, `ports` (array of Int).
