@@ -118,6 +118,14 @@ extension MobileIrxRuntimeComposition {
 
     func activate(_ scope: AuthenticatedTeamScope?) async {
         guard scope != activeScope else { return }
+        // Authentication restoration can finish before the cached directory
+        // warmup. Let that warmup publish its matching prepared runtime before
+        // detaching the old runtime, otherwise activation cancels the very
+        // startup work that should make the first workspace list fast.
+        if scope != nil, let cachedWarmupTask {
+            await cachedWarmupTask.value
+        }
+        guard scope != activeScope else { return }
         epoch &+= 1
         let currentEpoch = epoch
         activeScope = scope

@@ -19,6 +19,9 @@ public final class MobileWorkspaceSnapshotStore {
         let displayName: String?
         let workspaces: [Workspace]
         let groups: [Group]
+        // Optional keeps snapshots written by older builds readable. A nil
+        // value falls back to the historical non-empty-groups inference.
+        let workspaceGroupsAreAuthoritative: Bool?
     }
 
     private struct Workspace: Codable {
@@ -166,9 +169,16 @@ public final class MobileWorkspaceSnapshotStore {
         teamID: String?,
         pairing: MacPairingKey
     ) -> MacWorkspaceState? {
-        guard let data = defaults.data(forKey: key(userID: userID, teamID: teamID, pairing: pairing)),
-              let record = try? JSONDecoder().decode(Record.self, from: data),
-              Date().timeIntervalSince(record.savedAt) <= maxAge,
+        let storageKey = key(userID: userID, teamID: teamID, pairing: pairing)
+        guard let data = defaults.data(forKey: storageKey),
+              let record = try? JSONDecoder().decode(Record.self, from: data) else {
+            return nil
+        }
+        guard Date().timeIntervalSince(record.savedAt) <= maxAge else {
+            defaults.removeObject(forKey: storageKey)
+            return nil
+        }
+        guard
               record.macDeviceID == pairing.canonicalMacDeviceID,
               MacPairingKey(macDeviceID: record.macDeviceID, instanceTag: record.instanceTag)
                   == pairing else {
@@ -180,7 +190,7 @@ public final class MobileWorkspaceSnapshotStore {
             displayName: record.displayName,
             workspaces: record.workspaces.map { $0.value() },
             groups: record.groups.map { $0.value() },
-            workspaceGroupsAreAuthoritative: !record.groups.isEmpty,
+            workspaceGroupsAreAuthoritative: record.workspaceGroupsAreAuthoritative ?? !record.groups.isEmpty,
             status: .reconnecting,
             workspaceSnapshotIsAuthoritative: false,
             actionCapabilities: .none
@@ -196,9 +206,10 @@ public final class MobileWorkspaceSnapshotStore {
         userID: String,
         teamID: String?
     ) -> [(MacPairingKey, MacWorkspaceState)] {
-        defaults.dictionaryRepresentation().compactMap { key, _ in
-            guard key.hasPrefix(namespace),
-                  let storedScope = scope(fromStorageKey: key),
+        pruneExpiredSnapshots()
+        var result: [(MacPairingKey, MacWorkspaceState)] = []
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(namespace) {
+            guard let storedScope = scope(fromStorageKey: key),
                   storedScope.userID == userID,
                   storedScope.teamID == teamID,
                   let data = defaults.data(forKey: key),
@@ -207,17 +218,15 @@ public final class MobileWorkspaceSnapshotStore {
                   // safe because the encoded key above is scoped and is the
                   // migration source for this index-free format.
                   (record.userID == nil || record.userID == userID),
-                  (record.teamID == nil || record.teamID == teamID),
-                  Date().timeIntervalSince(record.savedAt) <= maxAge else {
-                return nil
+                  (record.teamID == nil || record.teamID == teamID) else {
+                continue
             }
-            let pairing = MacPairingKey(
-                macDeviceID: record.macDeviceID,
-                instanceTag: record.instanceTag
-            )
-            guard let state = state(from: record, pairing: pairing) else { return nil }
-            return (pairing, state)
+            let pairing = MacPairingKey(macDeviceID: record.macDeviceID, instanceTag: record.instanceTag)
+            if let state = state(from: record, pairing: pairing) {
+                result.append((pairing, state))
+            }
         }
+        return result
     }
 
     public func save(
@@ -226,6 +235,7 @@ public final class MobileWorkspaceSnapshotStore {
         teamID: String?,
         pairing: MacPairingKey
     ) {
+        pruneExpiredSnapshots()
         // An authoritative empty list is a deletion, not a reason to retain
         // the previous preview. Otherwise a closed workspace would reappear
         // on the next launch until the snapshot TTL expired.
@@ -241,7 +251,8 @@ public final class MobileWorkspaceSnapshotStore {
             instanceTag: pairing.normalizedInstanceTag,
             displayName: state.displayName,
             workspaces: state.workspaces.map(Workspace.init),
-            groups: state.groups.map(Group.init)
+            groups: state.groups.map(Group.init),
+            workspaceGroupsAreAuthoritative: state.workspaceGroupsAreAuthoritative
         )
         guard let data = try? JSONEncoder().encode(record) else { return }
         defaults.set(data, forKey: key(userID: userID, teamID: teamID, pairing: pairing))
@@ -270,7 +281,7 @@ public final class MobileWorkspaceSnapshotStore {
             displayName: record.displayName,
             workspaces: record.workspaces.map { $0.value() },
             groups: record.groups.map { $0.value() },
-            workspaceGroupsAreAuthoritative: !record.groups.isEmpty,
+            workspaceGroupsAreAuthoritative: record.workspaceGroupsAreAuthoritative ?? !record.groups.isEmpty,
             status: .reconnecting,
             workspaceSnapshotIsAuthoritative: false,
             actionCapabilities: .none
@@ -287,6 +298,20 @@ public final class MobileWorkspaceSnapshotStore {
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "=", with: "")
+    }
+
+    /// Keep the index-free UserDefaults namespace bounded. A scope can be
+    /// removed or changed without a matching callback here, so age out every
+    /// expired or unreadable record whenever the store is touched.
+    private func pruneExpiredSnapshots(now: Date = Date()) {
+        for storageKey in defaults.dictionaryRepresentation().keys where storageKey.hasPrefix(namespace) {
+            guard let data = defaults.data(forKey: storageKey),
+                  let record = try? JSONDecoder().decode(Record.self, from: data),
+                  now.timeIntervalSince(record.savedAt) <= maxAge else {
+                defaults.removeObject(forKey: storageKey)
+                continue
+            }
+        }
     }
 
     private func scope(fromStorageKey key: String) -> (userID: String, teamID: String?)? {

@@ -105,4 +105,65 @@ struct MobileWorkspaceSnapshotStoreTests {
         #expect(store.load(userID: "user-a", teamID: "team-a", pairing: pairing) == nil)
         #expect(store.loadAll(userID: "user-a", teamID: "team-a").isEmpty)
     }
+
+    @Test
+    func authoritativeEmptyGroupsRemainAuthoritativeAfterRestore() {
+        let defaults = UserDefaults(suiteName: "cmux.snapshot-tests." + UUID().uuidString)!
+        let store = MobileWorkspaceSnapshotStore(defaults: defaults)
+        let pairing = MacPairingKey(macDeviceID: "mac-a", instanceTag: "nightly")
+        let state = MacWorkspaceState(
+            macDeviceID: "mac-a",
+            instanceTag: "nightly",
+            workspaces: [MobileWorkspacePreview(id: "workspace-a", macDeviceID: "mac-a", name: "Mario")],
+            workspaceGroupsAreAuthoritative: true,
+            status: .connected,
+            workspaceSnapshotIsAuthoritative: true
+        )
+
+        store.save(state: state, userID: "user-a", teamID: "team-a", pairing: pairing)
+
+        #expect(store.load(userID: "user-a", teamID: "team-a", pairing: pairing)?.workspaceGroupsAreAuthoritative == true)
+    }
+
+    @Test
+    func malformedSnapshotsAreRemovedWhenTheStoreIsTouched() {
+        let defaults = UserDefaults(suiteName: "cmux.snapshot-tests." + UUID().uuidString)!
+        let store = MobileWorkspaceSnapshotStore(defaults: defaults)
+        let pairing = MacPairingKey(macDeviceID: "mac-a", instanceTag: "nightly")
+        let state = MacWorkspaceState(
+            macDeviceID: "mac-a",
+            instanceTag: "nightly",
+            workspaces: [MobileWorkspacePreview(id: "workspace-a", macDeviceID: "mac-a", name: "Mario")],
+            status: .connected,
+            workspaceSnapshotIsAuthoritative: true
+        )
+        store.save(state: state, userID: "user-a", teamID: "team-a", pairing: pairing)
+        let storageKey = defaults.dictionaryRepresentation().keys.first { $0.contains("cmux.mobile.v2.workspace-snapshot.") }!
+        defaults.set(Data("not-json".utf8), forKey: storageKey)
+
+        #expect(store.loadAll(userID: "user-a", teamID: "team-a").isEmpty)
+        #expect(defaults.data(forKey: storageKey) == nil)
+    }
+
+    @Test
+    func expiredSnapshotsAreRemovedWhenTheStoreIsTouched() {
+        let defaults = UserDefaults(suiteName: "cmux.snapshot-tests." + UUID().uuidString)!
+        let store = MobileWorkspaceSnapshotStore(defaults: defaults)
+        let pairing = MacPairingKey(macDeviceID: "mac-a", instanceTag: "nightly")
+        let state = MacWorkspaceState(
+            macDeviceID: "mac-a",
+            instanceTag: "nightly",
+            workspaces: [MobileWorkspacePreview(id: "workspace-a", macDeviceID: "mac-a", name: "Mario")],
+            status: .connected,
+            workspaceSnapshotIsAuthoritative: true
+        )
+        store.save(state: state, userID: "user-a", teamID: "team-a", pairing: pairing)
+        let storageKey = defaults.dictionaryRepresentation().keys.first { $0.contains("cmux.mobile.v2.workspace-snapshot.") }!
+        var object = try! JSONSerialization.jsonObject(with: defaults.data(forKey: storageKey)!) as! [String: Any]
+        object["savedAt"] = Date(timeIntervalSinceNow: -8 * 24 * 60 * 60).timeIntervalSinceReferenceDate
+        defaults.set(try! JSONSerialization.data(withJSONObject: object), forKey: storageKey)
+
+        #expect(store.loadAll(userID: "user-a", teamID: "team-a").isEmpty)
+        #expect(defaults.data(forKey: storageKey) == nil)
+    }
 }
