@@ -218,6 +218,13 @@ final class MobileAttachTicketStore {
         case .ticketOnly:
             throw MobileAttachTicketStoreError.invalidAttachURL
         case .simulatorInjection:
+            if ticket.routes.allSatisfy({ $0.kind == .webrtc }) {
+                return try compactAttachURL(
+                    for: ticket,
+                    routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+                    pairingURLScheme: pairingURLScheme
+                )
+            }
             if Self.hasOnlyIdentityOnlyIrohRoutes(ticket.routes) {
                 return try compactAttachURL(
                     for: ticket,
@@ -236,6 +243,13 @@ final class MobileAttachTicketStore {
                 pairingURLScheme: pairingURLScheme
             )
         case .physicalDevice:
+            if ticket.routes.allSatisfy({ $0.kind == .webrtc }) {
+                return try compactAttachURL(
+                    for: ticket,
+                    routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+                    pairingURLScheme: pairingURLScheme
+                )
+            }
             if Self.hasOnlyIdentityOnlyIrohRoutes(ticket.routes) {
                 guard let pairingURL = CmxPairingQRCode().encode(
                     ticket,
