@@ -697,7 +697,7 @@ cmux_attach_ensure_mac() {
 cmux_attach_mint_url() {
   local tag="$1" ttl="$2" repo_root="$3" target="$4" max="${5:-20}"
   local sock slug payload cli_output cli_stderr url node_status cli_status _i
-  local cli_stdout_file cli_stderr_file
+  local cli_stderr_file
   local last_reason="route_not_ready" saw_no_iroh=0
   case "$target" in
     simulator_injection|physical_device) ;;
@@ -718,15 +718,13 @@ cmux_attach_mint_url() {
     # still returning a valid JSON response on stdout. Keep the two streams
     # separate so those diagnostics cannot turn a successful ticket response
     # into a false malformed-response failure.
-    cli_stdout_file="$(mktemp "${TMPDIR:-/tmp}/cmux-attach-stdout.XXXXXX")"
     cli_stderr_file="$(mktemp "${TMPDIR:-/tmp}/cmux-attach-stderr.XXXXXX")"
     cli_status=0
-    CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" rpc mobile.attach_ticket.create \
+    cli_output="$(CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" rpc mobile.attach_ticket.create \
       "{\"ttl_seconds\":${ttl},\"scope\":\"mac\",\"target\":\"${target}\"}" \
-      >"$cli_stdout_file" 2>"$cli_stderr_file" || cli_status=$?
-    cli_output="$(cat "$cli_stdout_file")"
+      2>"$cli_stderr_file")" || cli_status=$?
     cli_stderr="$(cat "$cli_stderr_file")"
-    rm -f "$cli_stdout_file" "$cli_stderr_file"
+    rm -f "$cli_stderr_file"
     if [[ "$cli_status" -ne 0 ]]; then
       case "$cli_output$cli_stderr" in
         *"Mobile host routes are not available yet"*) last_reason="host_routes_unavailable" ;;
