@@ -106,6 +106,7 @@ describe("coderouter OpenCode Go proxy", () => {
       await expect(response.text()).resolves.toBe("pinned");
       expect(seen).toEqual([`rebind.invalid:${port}`]);
     } finally {
+      server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
@@ -127,6 +128,7 @@ describe("coderouter OpenCode Go proxy", () => {
       expect(response.headers.get("content-encoding")).toBeNull();
       await expect(response.text()).resolves.toBe('{"usage":{"total_tokens":3}}');
     } finally {
+      server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
