@@ -4,47 +4,6 @@ import CmuxMobileTerminalKit
 import Foundation
 import UIKit
 
-/// Decides how a shortcut-row offset should react to a layout change.
-///
-/// UIKit owns the offset while a finger drag, deceleration, or edge bounce is
-/// active. Once that interaction ends, a deferred layout change may clamp a
-/// stale out-of-range offset without replaying the old edge position.
-enum AccessoryScrollOffsetReconciliation: Equatable {
-    case deferUntilScrollEnds
-    case leaveUnchanged
-    case set(CGFloat)
-
-    nonisolated static func decide(
-        geometryChanged: Bool,
-        interactionActive: Bool,
-        previousOffset: CGFloat,
-        currentOffset: CGFloat,
-        minimumOffset: CGFloat,
-        maximumOffset: CGFloat,
-        wasAtLeadingEdge: Bool,
-        wasAtTrailingEdge: Bool,
-        preserveEdge: Bool = true
-    ) -> Self {
-        guard geometryChanged else { return .leaveUnchanged }
-        guard !interactionActive else { return .deferUntilScrollEnds }
-
-        let targetOffset: CGFloat
-        if !preserveEdge,
-           currentOffset < minimumOffset - 0.5 || currentOffset > maximumOffset + 0.5 {
-            targetOffset = min(max(currentOffset, minimumOffset), maximumOffset)
-        } else if wasAtLeadingEdge {
-            targetOffset = minimumOffset
-        } else if wasAtTrailingEdge {
-            targetOffset = maximumOffset
-        } else {
-            targetOffset = min(max(previousOffset, minimumOffset), maximumOffset)
-        }
-
-        guard abs(currentOffset - targetOffset) > 0.5 else { return .leaveUnchanged }
-        return .set(targetOffset)
-    }
-}
-
 /// The iOS terminal's keyboard input surface.
 ///
 /// This is a **documentless responder**, not a text editor. It conforms to
@@ -76,7 +35,7 @@ enum AccessoryScrollOffsetReconciliation: Equatable {
 /// Autocorrect/predictive text stay **disabled** here and fundamentally cannot
 /// be enabled: they require the field to retain the in-progress word, which is
 /// incompatible with forwarding every keystroke to a remote terminal.
-final class TerminalInputTextView: UIView, UIKeyInput, UITextInput, UIScrollViewDelegate {
+final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     var onFirstResponderChanged: ((Bool) -> Void)?
     var onText: ((String) -> Void)?
     var onBackspace: (() -> Void)?
@@ -119,6 +78,45 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput, UIScrollView
     private weak var composerButton: UIButton?
     private weak var accessoryArrowNub: TerminalArrowNubView?
     private var accessoryOffsetNeedsReconciliation = false
+
+    enum AccessoryOffsetDecision: Equatable {
+        case deferUntilScrollEnds
+        case leaveUnchanged
+        case set(CGFloat)
+    }
+
+    /// Decides how the shortcut-row offset should react to a layout change.
+    /// UIKit owns the offset during a drag, deceleration, or edge bounce. A
+    /// deferred layout change clamps stale bounds after that interaction ends.
+    nonisolated static func accessoryOffsetDecision(
+        geometryChanged: Bool,
+        interactionActive: Bool,
+        previousOffset: CGFloat,
+        currentOffset: CGFloat,
+        minimumOffset: CGFloat,
+        maximumOffset: CGFloat,
+        wasAtLeadingEdge: Bool,
+        wasAtTrailingEdge: Bool,
+        preserveEdge: Bool = true
+    ) -> AccessoryOffsetDecision {
+        guard geometryChanged else { return .leaveUnchanged }
+        guard !interactionActive else { return .deferUntilScrollEnds }
+
+        let targetOffset: CGFloat
+        if !preserveEdge,
+           currentOffset < minimumOffset - 0.5 || currentOffset > maximumOffset + 0.5 {
+            targetOffset = min(max(currentOffset, minimumOffset), maximumOffset)
+        } else if wasAtLeadingEdge {
+            targetOffset = minimumOffset
+        } else if wasAtTrailingEdge {
+            targetOffset = maximumOffset
+        } else {
+            targetOffset = min(max(previousOffset, minimumOffset), maximumOffset)
+        }
+
+        guard abs(currentOffset - targetOffset) > 0.5 else { return .leaveUnchanged }
+        return .set(targetOffset)
+    }
     /// The armed/sticky modifier state machine, extracted into the testable
     /// ``TerminalInputModifierState`` reducer. This view is now a dumb
     /// first-responder that forwards taps into the reducer and reads its state
@@ -678,7 +676,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput, UIScrollView
                 || scrollView.isDragging
                 || scrollView.isDecelerating
             guard geometryChanged || accessoryOffsetNeedsReconciliation else { return }
-            let decision = AccessoryScrollOffsetReconciliation.decide(
+            let decision = Self.accessoryOffsetDecision(
                 geometryChanged: true,
                 interactionActive: interactionActive,
                 previousOffset: previousOffset,
@@ -720,7 +718,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput, UIScrollView
                 - scrollView.bounds.width
                 + scrollView.adjustedContentInset.right
         )
-        let decision = AccessoryScrollOffsetReconciliation.decide(
+        let decision = Self.accessoryOffsetDecision(
             geometryChanged: true,
             interactionActive: false,
             previousOffset: scrollView.contentOffset.x,
@@ -737,19 +735,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput, UIScrollView
             CGPoint(x: targetOffset, y: scrollView.contentOffset.y),
             animated: false
         )
-    }
-
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        guard let accessoryScrollView = accessoryStackView?.superview as? UIScrollView,
-              scrollView === accessoryScrollView,
-              !decelerate else { return }
-        reconcileAccessoryOffsetAfterScroll()
-    }
-
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        guard let accessoryScrollView = accessoryStackView?.superview as? UIScrollView,
-              scrollView === accessoryScrollView else { return }
-        reconcileAccessoryOffsetAfterScroll()
     }
 
     /// Build (or rebuild) the SCROLLABLE button row: the user's configured order
@@ -1816,4 +1801,19 @@ extension TerminalInputTextView {
     // hook is a no-op because there is no document placeholder to strip.
     func insertDictationResultPlaceholder() -> Any { "" }
     func removeDictationResultPlaceholder(_ placeholder: Any, willInsertResult: Bool) {}
+}
+
+extension TerminalInputTextView: UIScrollViewDelegate {
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        guard let accessoryScrollView = accessoryStackView?.superview as? UIScrollView,
+              scrollView === accessoryScrollView,
+              !decelerate else { return }
+        reconcileAccessoryOffsetAfterScroll()
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        guard let accessoryScrollView = accessoryStackView?.superview as? UIScrollView,
+              scrollView === accessoryScrollView else { return }
+        reconcileAccessoryOffsetAfterScroll()
+    }
 }

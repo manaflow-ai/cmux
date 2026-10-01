@@ -61,7 +61,7 @@ struct AccessoryEdgeFadeTests {
 
     @Test("shortcut row defers layout correction during an active gesture")
     func defersOffsetCorrectionDuringGesture() {
-        let decision = AccessoryScrollOffsetReconciliation.decide(
+        let decision = TerminalInputTextView.accessoryOffsetDecision(
             geometryChanged: true,
             interactionActive: true,
             previousOffset: 100,
@@ -77,7 +77,7 @@ struct AccessoryEdgeFadeTests {
 
     @Test("shortcut row clamps stale overscroll after the gesture ends")
     func clampsStaleOverscrollAfterGesture() {
-        let decision = AccessoryScrollOffsetReconciliation.decide(
+        let decision = TerminalInputTextView.accessoryOffsetDecision(
             geometryChanged: true,
             interactionActive: false,
             previousOffset: 100,
@@ -94,7 +94,7 @@ struct AccessoryEdgeFadeTests {
 
     @Test("shortcut row keeps the trailing edge through a resting resize")
     func keepsTrailingEdgeThroughResize() {
-        let decision = AccessoryScrollOffsetReconciliation.decide(
+        let decision = TerminalInputTextView.accessoryOffsetDecision(
             geometryChanged: true,
             interactionActive: false,
             previousOffset: 100,
