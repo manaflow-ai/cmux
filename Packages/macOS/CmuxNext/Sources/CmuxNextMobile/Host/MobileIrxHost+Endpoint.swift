@@ -169,7 +169,8 @@ extension MobileIrxHost {
         let server = MobileIrxConnectionServer(
             connection: irx, control: control, deviceID: peer.deviceID,
             makeSession: { emit in MobileCompatSession(backend: backend, host: host, emit: emit, onUsable: onUsable) },
-            daemonSocketPath: configuration.daemonSocketPath, journal: journal)
+            daemonSocketPath: configuration.daemonSocketPath, acpmuxSocketPath: configuration.acpmuxSocketPath,
+            journal: journal)
         await server.run()
         await irx.close(code: .hostShutdown, origin: .local)
         await registry.remove(deviceID: peer.bindingID, sessionID: sessionID)

@@ -9,10 +9,12 @@ public import Foundation
 /// before it reaches the socket. The phone keeps the ordinary control and
 /// terminal authority a WebSocket client has, minus `local-admin`, provider
 /// authority, and writes that would change the Mac frontend's own state.
-public struct DaemonLanePolicy: Sendable {
+public struct DaemonLanePolicy: LaneLineAuthority {
     /// Largest request line the phone may send. Matches the daemon's
     /// authenticated WebSocket frame cap.
     public static let maximumLineBytes = 4 * 1024 * 1024
+    /// ``LaneLineAuthority`` conformance: the per-line cap.
+    public var maximumLineBytes: Int { Self.maximumLineBytes }
 
     /// The per-device projection subject (`ios-device:<device id>`). The
     /// phone may read and write only this `personal` projection.

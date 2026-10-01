@@ -11,6 +11,7 @@ struct MobileIrxConnectionServer: Sendable {
     let deviceID: String
     let makeSession: @Sendable (_ emit: @escaping MobileCompatSession.Emit) -> MobileCompatSession
     let daemonSocketPath: @Sendable () async -> String?
+    let acpmuxSocketPath: @Sendable () async -> String?
     let journal: IrxJournal
 
     /// Runs until the phone disconnects or the host closes the connection.
@@ -59,6 +60,12 @@ struct MobileIrxConnectionServer: Sendable {
             case .daemon:
                 // task-owner: bound to this lane; the splice ends when either side closes
                 Task { await splice(lane) }
+            case .acpmux:
+                // task-owner: bound to this lane; the splice ends when either side closes
+                Task { await spliceAcpmux(lane) }
+            case .acpmuxTransfer:
+                // task-owner: bound to this lane; the relay ends when either side closes
+                Task { await relayAcpmuxTransfer(lane) }
             default:
                 // Terminal, artifact, simulator and tunnel lanes belong to
                 // features this Mac does not advertise.
@@ -82,5 +89,30 @@ struct MobileIrxConnectionServer: Sendable {
                                       policy: DaemonLanePolicy(deviceID: deviceID))
         let reason = await splice.run()
         journal.record("next-host", "daemon-lane-closed", ["reason": String(describing: reason)])
+    }
+
+    /// The agent GUI's control lane: acpmux JSON-RPC lines through the admin denylist.
+    private func spliceAcpmux(_ lane: IrxLaneStream) async {
+        guard let path = await acpmuxSocketPath(), let socket = try? await UnixSocketLane.connect(path: path) else {
+            journal.record("next-host", "acpmux-lane-refused", [:])
+            await lane.writer.reset(errorCode: 2)
+            await lane.reader.stop(errorCode: 2)
+            return
+        }
+        journal.record("next-host", "acpmux-lane-open", [:])
+        let splice = DaemonLaneSplice(phone: IrxByteLane(lane: lane), daemon: socket, policy: AcpmuxLanePolicy())
+        let reason = await splice.run()
+        journal.record("next-host", "acpmux-lane-closed", ["reason": String(describing: reason)])
+    }
+
+    /// One attachment transfer: raw bytes both ways, unfiltered (acpmux owns
+    /// the handshake and only moves files of this account's sessions).
+    private func relayAcpmuxTransfer(_ lane: IrxLaneStream) async {
+        guard let path = await acpmuxSocketPath(), let socket = try? await UnixSocketLane.connect(path: path) else {
+            await lane.writer.reset(errorCode: 2)
+            await lane.reader.stop(errorCode: 2)
+            return
+        }
+        _ = await ByteLaneRelay(phone: IrxByteLane(lane: lane), host: socket).run()
     }
 }

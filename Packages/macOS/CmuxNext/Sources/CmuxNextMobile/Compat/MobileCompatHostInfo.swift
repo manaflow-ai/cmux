@@ -10,6 +10,9 @@ public import CmuxNextDaemon
 public struct MobileCompatHostInfo: Sendable {
     /// Capability that tells a new phone it may open an irx `daemon` lane.
     public static let daemonLaneCapability = "daemon_lane.v1"
+    /// Capability that tells a phone it may open irx `acpmux` and
+    /// `acpmux_transfer` lanes (the agent GUI).
+    public static let acpmuxLaneCapability = "acpmux_lane.v1"
 
     public var macDeviceID: String
     public var instanceTag: String
@@ -18,9 +21,10 @@ public struct MobileCompatHostInfo: Sendable {
     public var appVersion: String
     public var appBuild: String
     public var daemonLaneAvailable: Bool
+    public var acpmuxLaneAvailable: Bool
 
     public init(macDeviceID: String, instanceTag: String, bundleIdentifier: String, displayName: String,
-                appVersion: String, appBuild: String, daemonLaneAvailable: Bool) {
+                appVersion: String, appBuild: String, daemonLaneAvailable: Bool, acpmuxLaneAvailable: Bool = false) {
         self.macDeviceID = macDeviceID
         self.instanceTag = instanceTag
         self.bundleIdentifier = bundleIdentifier
@@ -28,6 +32,7 @@ public struct MobileCompatHostInfo: Sendable {
         self.appVersion = appVersion
         self.appBuild = appBuild
         self.daemonLaneAvailable = daemonLaneAvailable
+        self.acpmuxLaneAvailable = acpmuxLaneAvailable
     }
 
     /// What the compat adapter actually serves. The phone gates features on
@@ -46,6 +51,7 @@ public struct MobileCompatHostInfo: Sendable {
             "workspace.mutations.account_auth.v1",
         ]
         if daemonLaneAvailable { list.append(Self.daemonLaneCapability) }
+        if acpmuxLaneAvailable { list.append(Self.acpmuxLaneCapability) }
         return list
     }
 

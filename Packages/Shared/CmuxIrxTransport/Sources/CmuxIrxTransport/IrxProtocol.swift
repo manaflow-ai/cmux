@@ -120,6 +120,15 @@ public enum IrxLaneKind: String, Codable, Sendable {
     /// Hosts advertise `daemon_lane.v1`; an older host cannot decode this
     /// descriptor and resets the stream.
     case daemon
+    /// Raw acpmux JSON-RPC lines to the Mac's acpmux daemon (the agent GUI).
+    /// The Mac splices the lane onto acpmux's Unix socket, refusing a short
+    /// list of daemon-admin methods. Hosts advertise `acpmux_lane.v1`; an
+    /// older host resets the stream.
+    case acpmux
+    /// One acpmux attachment transfer: raw bytes both ways (acpmux's
+    /// `{"upload": …}` or `{"download": …}` handshake, then the file). Opened
+    /// only while a file moves; same capability as ``acpmux``.
+    case acpmuxTransfer = "acpmux_transfer"
 }
 
 /// The first frame on every stream: which lane this is, plus lane-specific

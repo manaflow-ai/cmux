@@ -36,10 +36,14 @@ public struct MobileHostConfiguration: Sendable {
     public var appBuild: String
     /// Local daemon socket for the daemon lane (`resource` "local").
     public var daemonSocketPath: @Sendable () async -> String?
+    /// The acpmux daemon's socket for the agent GUI lanes, or nil while it is
+    /// not running (the lanes are then refused).
+    public var acpmuxSocketPath: @Sendable () async -> String?
 
     public init(baseURL: URL, environment: String, namespace: String, tag: String,
                 stateDirectory: URL, keyStorage: KeyStorage, preferredPort: Int = 0, displayName: String,
-                appVersion: String, appBuild: String, daemonSocketPath: @escaping @Sendable () async -> String?) {
+                appVersion: String, appBuild: String, daemonSocketPath: @escaping @Sendable () async -> String?,
+                acpmuxSocketPath: @escaping @Sendable () async -> String? = { nil }) {
         self.baseURL = baseURL
         self.environment = environment
         self.namespace = namespace
@@ -51,6 +55,7 @@ public struct MobileHostConfiguration: Sendable {
         self.appVersion = appVersion
         self.appBuild = appBuild
         self.daemonSocketPath = daemonSocketPath
+        self.acpmuxSocketPath = acpmuxSocketPath
     }
 
     /// The v2 control-plane origin for an environment name.

@@ -115,7 +115,7 @@ public actor MobileIrxHost {
         MobileCompatHostInfo(macDeviceID: macDeviceID, instanceTag: configuration.tag,
                              bundleIdentifier: configuration.namespace, displayName: configuration.displayName,
                              appVersion: configuration.appVersion, appBuild: configuration.appBuild,
-                             daemonLaneAvailable: true)
+                             daemonLaneAvailable: true, acpmuxLaneAvailable: true)
     }
 
     private func provision(run: UInt64) async throws {

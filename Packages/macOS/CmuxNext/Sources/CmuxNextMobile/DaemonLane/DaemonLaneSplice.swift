@@ -23,11 +23,11 @@ public actor DaemonLaneSplice {
 
     private let phone: any MobileByteLane
     private let daemon: any MobileByteLane
-    private let policy: DaemonLanePolicy
+    private let policy: any LaneLineAuthority
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.daemon-lane")
     private var refusals = 0
 
-    public init(phone: any MobileByteLane, daemon: any MobileByteLane, policy: DaemonLanePolicy) {
+    public init(phone: any MobileByteLane, daemon: any MobileByteLane, policy: any LaneLineAuthority) {
         self.phone = phone
         self.daemon = daemon
         self.policy = policy
@@ -53,7 +53,7 @@ public actor DaemonLaneSplice {
     }
 
     private func pumpPhoneToDaemon() async -> EndReason {
-        var splitter = LineSplitter(maximumLineBytes: DaemonLanePolicy.maximumLineBytes)
+        var splitter = LineSplitter(maximumLineBytes: policy.maximumLineBytes)
         do {
             while let chunk = try await phone.read(maximumBytes: Self.readChunkBytes) {
                 for line in try splitter.append(chunk) {
