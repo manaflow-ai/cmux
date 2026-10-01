@@ -3,8 +3,8 @@ import CmuxCloud
 import CmuxFoundation
 import SwiftUI
 
-/// Team scope and machine actions share the Cloud header. Fleet status keeps its
-/// own row so it cannot squeeze the active team's name out of a narrow sidebar;
+/// Team scope, Invite, and machine actions share the Cloud header. Fleet status keeps its own
+/// row so it cannot squeeze the active team's name out of a narrow sidebar;
 /// the status view owns that row, so an idle fleet adds no gap under the toolbar.
 struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
     let accountFlow: HostAccountFlow?
@@ -18,7 +18,7 @@ struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
     @State private var panePresentation = CloudTeamPickerPresentation()
 
     var body: some View {
-        let picker = presentation ?? panePresentation
+        @Bindable var picker = presentation ?? panePresentation
         VStack(spacing: 0) {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 6) {
@@ -29,6 +29,18 @@ struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
                     }
                     Spacer(minLength: 0)
                     agentMenu()
+                    if let accountFlow, accountFlow.confirmedTeamID != nil {
+                        MachinesChromeLabelButton(
+                            symbolName: "person.badge.plus",
+                            title: String(localized: "sidebar.account.invite.button", defaultValue: "Invite"),
+                            accessibilityLabel: String(localized: "sidebar.account.invitePeople.short", defaultValue: "Invite People"),
+                            action: { picker.isInvitePresented = true }
+                        )
+                        .popover(isPresented: $picker.isInvitePresented, arrowEdge: .bottom) {
+                            CloudTeamInvitePopover(accountFlow: accountFlow, presentation: picker)
+                        }
+                        .accessibilityIdentifier("CloudTeamInviteButton")
+                    }
                     MachinesChromeIconButton(
                         symbolName: "arrow.clockwise",
                         accessibilityLabel: refreshLabel,
@@ -49,6 +61,18 @@ struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
                     }
                     Spacer(minLength: 0)
                     agentMenu()
+                    if let accountFlow, accountFlow.confirmedTeamID != nil {
+                        MachinesChromeLabelButton(
+                            symbolName: "person.badge.plus",
+                            title: String(localized: "sidebar.account.invite.button", defaultValue: "Invite"),
+                            accessibilityLabel: String(localized: "sidebar.account.invitePeople.short", defaultValue: "Invite People"),
+                            action: { picker.isInvitePresented = true }
+                        )
+                        .popover(isPresented: $picker.isInvitePresented, arrowEdge: .bottom) {
+                            CloudTeamInvitePopover(accountFlow: accountFlow, presentation: picker)
+                        }
+                        .accessibilityIdentifier("CloudTeamInviteButton")
+                    }
                     machineActionsMenu
                 }
             }
@@ -61,7 +85,10 @@ struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
             }
             status()
         }
-        .onDisappear { picker.isPresented = false }
+        .onDisappear {
+            picker.isPresented = false
+            picker.isInvitePresented = false
+        }
     }
 
     private var refreshLabel: String {
@@ -99,6 +126,7 @@ struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
         .menuIndicator(.hidden)
         .frame(width: 22, height: 20)
         .foregroundStyle(.secondary)
+        .accessibilityIdentifier("CloudMachinesActionsMenu")
     }
 
     private func teamChangeErrorRow(_ message: String, onDismiss: @escaping () -> Void) -> some View {

@@ -44,7 +44,7 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         .tabManagerUnavailable
     }
     func controlFocusWindow(id: UUID) -> Bool { false }
-    func controlCreateWindowAndActivate() -> UUID? { nil }
+    func controlCreateWindowAndActivate(title: String?) -> UUID? { nil }
     func controlCloseWindow(id: UUID) -> Bool { false }
     func controlAvailableDisplays() -> [ControlDisplayInfo] { [] }
     func controlWindowExists(id: UUID) -> Bool { false }
@@ -57,7 +57,8 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     func controlSurfaceClose(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
-        hasSurfaceIDParam: Bool
+        hasSurfaceIDParam: Bool,
+        force: Bool
     ) -> ControlSurfaceCloseResolution {
         onSurfaceClose?()
         return closeResolution
