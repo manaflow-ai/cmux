@@ -34,6 +34,7 @@ struct MachinesPanelView: View {
 
     init(
         chromeBackgroundColor: NSColor,
+        viewModel: MachinesPanelViewModel? = nil,
         machinePinStore: CloudMachinePinStore? = nil,
         devicesModel: DevicesPanelViewModel? = nil,
         tabManager: TabManager? = nil,
@@ -46,7 +47,7 @@ struct MachinesPanelView: View {
             initialValue: AppDelegate.shared?.cloudBannerDismissalStore
                 ?? CloudBannerDismissalStore(defaults: .standard)
         )
-        _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(
+        _viewModel = StateObject(wrappedValue: viewModel ?? MachinesPanelViewModel(
             machinePinStore: machinePinStore,
             localWorkspacesProvider: { [weak tabManager] in
                 guard let tabManager else { return [] }
@@ -227,7 +228,6 @@ struct MachinesPanelView: View {
 
     private var cloudStatus: some View {
         MachinesCloudStatus(
-            activeOperation: viewModel.activeOperation,
             listStatus: toolbarListStatus,
             listError: viewModel.lastErrorDescription,
             treeError: visibleTreeErrorDescription,
@@ -256,7 +256,8 @@ struct MachinesPanelView: View {
         return status
     }
 
-    private var controlBar: some View {
+    /// The panel's complete header, including its persistent recovery status.
+    var controlBar: some View {
         CloudTeamPickerHeader(
             accountFlow: accountFlow,
             presentation: teamPickerPresentation,
@@ -387,7 +388,6 @@ struct MachinesPanelView: View {
     /// Binds the shared Cloud and Devices tree above the outline's snapshot boundary.
     private var machinesList: some View {
         var machineActions = MachineRowActions.bound(
-            onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in
                 viewModel?.endOperation()
                 viewModel?.refresh(tree: true)
@@ -408,7 +408,6 @@ struct MachinesPanelView: View {
             selectLocalWorkspace: { workspaceID in
                 tabManager?.selectedTabId = workspaceID
             },
-            onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
             refresh: { refreshMachines() },
@@ -549,7 +548,6 @@ struct MachinesPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("CloudMachinesEmptyState")
-        .cloudErrorCopyMenu(viewModel.lastErrorDescription)
     }
 
     /// Free plans: "Upgrade to use more than 1 machine" — the ceiling plus the
