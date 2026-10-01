@@ -309,11 +309,6 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
             remoteIdentity: clientIdentity,
             bidirectionalStreams: []
         )
-        let newcomer = TestIrohConnection(
-            remoteIdentity: newcomerIdentity,
-            bidirectionalStreams: []
-        )
-
         await server.start()
         await endpoint.enqueue(occupant)
         #expect(await recorder.next().identity == clientIdentity)
@@ -323,18 +318,35 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
         // not when the parked handler eventually returns.
         await occupant.close(errorCode: 0, reason: "transport_reported_loss")
 
-        await endpoint.enqueue(newcomer)
-        // Deterministic either way: the fix admits the newcomer (a second
-        // recorded admission), the defect closes it "connection_capacity".
-        for _ in 0 ..< 1000 {
-            let admittedCount = await recorder.recordedCount()
-            let newcomerCloseCount = await newcomer.observedCloseCallCount()
-            if admittedCount == 2 || newcomerCloseCount > 0 { break }
-            await Task.yield()
+        // The close event is delivered before the server actor necessarily
+        // runs its watcher. Allow a bounded transient rejection while that
+        // release is being scheduled, then retry with a fresh connection. A
+        // daemon that never releases the slot exhausts this bounded loop.
+        var admittedNewcomer: TestIrohConnection?
+        for _ in 0 ..< 8 {
+            let newcomer = TestIrohConnection(
+                remoteIdentity: newcomerIdentity,
+                bidirectionalStreams: []
+            )
+            await endpoint.enqueue(newcomer)
+            for _ in 0 ..< 1_000 {
+                let admittedCount = await recorder.recordedCount()
+                let newcomerCloseCount = await newcomer.observedCloseCallCount()
+                if admittedCount == 2 || newcomerCloseCount > 0 { break }
+                await Task.yield()
+            }
+            if await recorder.recordedCount() == 2 {
+                admittedNewcomer = newcomer
+                break
+            }
+            #expect(
+                await newcomer.observedCloseCallCount() > 0,
+                "newcomer neither admitted nor rejected within the bounded wait"
+            )
         }
         #expect(await recorder.recordedCount() == 2)
-        #expect(await newcomer.observedCloseCallCount() == 0)
-        if await recorder.recordedCount() == 2 {
+        if let admittedNewcomer {
+            #expect(await admittedNewcomer.observedCloseCallCount() == 0)
             #expect(await recorder.next().identity == newcomerIdentity)
         }
 

@@ -64,9 +64,24 @@ extension CmxIrohEndpointServerTests {
         // replaces its own never-usable predecessor instead of being refused:
         // capacity held by a dead connection must not refuse its owner.
         await endpoint.enqueue(replacement)
-        #expect(await started.next().identity == activeIdentity)
-        let activeClose = try #require(await activeCloses.next())
-        #expect(activeClose.reason == "superseded_unready_connection")
+        for _ in 0 ..< 1_000 {
+            if await started.recordedCount() == 2,
+               await active.observedCloseCallCount() == 1 {
+                break
+            }
+            await Task.yield()
+        }
+        let startedCount = await started.recordedCount()
+        let activeCloseCount = await active.observedCloseCallCount()
+        #expect(startedCount == 2)
+        #expect(activeCloseCount == 1)
+        if startedCount == 2 {
+            #expect(await started.next().identity == activeIdentity)
+        }
+        if activeCloseCount == 1 {
+            let activeClose = try #require(await activeCloses.next())
+            #expect(activeClose.reason == "superseded_unready_connection")
+        }
         #expect(await replacement.observedCloseCallCount() == 0)
 
         // A DIFFERENT identity can never preempt an occupied slot.
