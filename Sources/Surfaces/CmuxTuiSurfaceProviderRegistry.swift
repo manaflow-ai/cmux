@@ -8,7 +8,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     static let shared = CmuxTuiSurfaceProviderRegistry()
     private enum RegistryError: Error { case listUnavailable }
     private var catalog: SurfaceCatalog?
-    fileprivate var providers: [String: CmuxTuiSurfaceProvider] = [:]
+    var providers: [String: CmuxTuiSurfaceProvider] = [:]
     let links: CloudMachineLinkManager
     /// client is bundled (then no link can be made at all).
     nonisolated let wireGuardHub: CloudWireGuardHub?
@@ -17,10 +17,10 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// local port until the machine leaves the fleet or the account signs out.
     let portAccess = CloudPortAccessStore()
     let portForwards: CloudHubPortForwarder?
-    fileprivate var pollTask: Task<Void, Never>?
+    var pollTask: Task<Void, Never>?
     private var accessObserver: NSObjectProtocol?
-    fileprivate var sessionRejectedObserver: NSObjectProtocol?
-    fileprivate var sessionRecoveredObserver: NSObjectProtocol?
+    var sessionRejectedObserver: NSObjectProtocol?
+    var sessionRecoveredObserver: NSObjectProtocol?
     private var themeObserver: NSObjectProtocol?
     private var activationObserver: NSObjectProtocol?
     private var networkObserver: CloudReadRecoveryObserver?
@@ -49,14 +49,14 @@ final class CmuxTuiSurfaceProviderRegistry {
     private let hasCloudSession: @MainActor () -> Bool
     private let refreshProvider: @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Bool
     private let closeTransports: @MainActor () async -> Void
-    fileprivate var refreshInFlight: Task<Bool, Never>?
-    fileprivate var discoveryInFlight: Task<[CmuxTuiSurfaceProvider]?, Never>?
+    var refreshInFlight: Task<Bool, Never>?
+    var discoveryInFlight: Task<[CmuxTuiSurfaceProvider]?, Never>?
     /// New account discovery waits until the previous account's transports close.
     private var teardownInFlight: Task<Void, Never>?
     /// A forced refresh waits for an existing pass instead of starting a second
     /// fleet read. This prevents an older page from unregistering a machine that
     /// a newer page just added.
-    fileprivate var refreshGeneration: UInt64 = 0
+    var refreshGeneration: UInt64 = 0
     /// Bumped by every ``start(catalog:)``. `NotificationCenter` blocks queued
     /// on `.main` are already enqueued when `removeObserver` runs, so a
     /// teardown posted before a restart can still land after it. The observer
@@ -77,7 +77,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Whether account access has ended. Retired registries reject all new Cloud work
     /// until ``start(catalog:)`` reactivates them for the next account.
     var isRetired = true
-    fileprivate var sessionRejected = false
+    var sessionRejected = false
     private var registryRetryEpisode = CloudVMRetryEpisode()
     /// Same cadence as the Machines panel's list refresh.
     private let pollInterval: Duration = .seconds(45)
