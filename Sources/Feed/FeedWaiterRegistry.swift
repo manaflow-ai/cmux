@@ -76,8 +76,8 @@ final class FeedWaiterRegistry: Sendable {
         }
     }
 
-    /// Records a delivery failure unless the user already decided: a decision made
-    /// in the store-commit gap outranks any later failure.
+    /// Records the first terminal delivery outcome. A user decision or an earlier
+    /// terminal result, including session invalidation, outranks any later failure.
     func fail(_ registration: Registration, result: FeedCoordinator.IngestBlockingResult) {
         groups.withLock { groups in
             guard var group = groups[registration.requestID], group.id == registration.groupID else { return }
