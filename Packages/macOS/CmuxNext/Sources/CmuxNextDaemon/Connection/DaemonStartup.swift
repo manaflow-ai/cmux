@@ -29,7 +29,7 @@ public enum DaemonStartupState: Sendable, Equatable {
 /// is spent no timer runs and the loop waits for `wake` (app activation,
 /// network change, the socket appearing). It never re-spawns `server
 /// ensure` on a fixed period.
-public struct DaemonStartup {
+public struct DaemonStartup: Sendable {
     public static let shared = Self()
     /// How the window shows "connecting" before it shows the failure.
     public let defaultDeadline: Duration = .seconds(10)

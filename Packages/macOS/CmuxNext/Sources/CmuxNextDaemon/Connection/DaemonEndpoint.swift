@@ -16,7 +16,7 @@ public struct DaemonEndpoint: Hashable, Sendable {
 }
 
 /// Capabilities the GUI relies on (plans/cmux-next/cmux-tui-contract.md 2.2).
-public struct DaemonCapabilities {
+public struct DaemonCapabilities: Sendable {
     public static let shared = Self()
     public let required: [String] = [
         "workspace-registry-v1",
