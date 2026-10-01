@@ -73,6 +73,19 @@ describe("billing complete route", () => {
     );
   });
 
+  test("a dashboard checkout returns to its page with a welcome for the plan", async () => {
+    retrievedSession = { ...retrievedSession, metadata: { app: "cmux", plan: "max", returnTo: "/ja/dashboard/cloud" } };
+    const response = await GET(new NextRequest("http://localhost:3777/api/billing/complete?session_id=cs_123"));
+    expect(recordCheckoutCompletion).toHaveBeenCalled();
+    expect(response.headers.get("location")).toBe("http://localhost:3777/ja/dashboard/cloud?welcome=max");
+  });
+
+  test("an invalid stored returnTo falls back to the success page", async () => {
+    retrievedSession = { ...retrievedSession, metadata: { app: "cmux", plan: "pro", returnTo: "//evil.example/dashboard" } };
+    const response = await GET(new NextRequest("http://localhost:3777/api/billing/complete?session_id=cs_123"));
+    expect(response.headers.get("location")).toStartWith("http://localhost:3777/billing/success?");
+  });
+
   test("uses the callback scheme trusted at checkout on a deployed completion host", async () => {
     retrievedSession = {
       id: "cs_123",

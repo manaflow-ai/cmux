@@ -434,37 +434,4 @@ extension CMUXCLI {
             return false
         }
     }
-
-    /// Filesystem events are the only synchronization primitive used by the
-    /// rollout monitor; the semaphore bridge remains bounded by the watch deadline.
-    func waitForCodexTranscriptChange(path: String?, leasePath: String?, timeout: TimeInterval) {
-        guard timeout > 0 else { return }
-        let semaphore = DispatchSemaphore(value: 0)
-        var sources: [DispatchSourceFileSystemObject] = []
-
-        func addFileSource(path: String?, eventMask: DispatchSource.FileSystemEvent) {
-            guard let path, !path.isEmpty else { return }
-            let expandedPath = NSString(string: path).expandingTildeInPath
-            let descriptor = open(expandedPath, O_EVTONLY)
-            guard descriptor >= 0 else { return }
-            let source = DispatchSource.makeFileSystemObjectSource(
-                fileDescriptor: descriptor,
-                eventMask: eventMask,
-                queue: DispatchQueue.global(qos: .utility)
-            )
-            source.setEventHandler { semaphore.signal() }
-            source.setCancelHandler { close(descriptor) }
-            source.resume()
-            sources.append(source)
-        }
-
-        addFileSource(path: path, eventMask: [.write, .extend, .delete, .rename])
-        addFileSource(path: leasePath, eventMask: [.write, .delete, .rename])
-        guard !sources.isEmpty else {
-            _ = semaphore.wait(timeout: .now() + timeout)
-            return
-        }
-        _ = semaphore.wait(timeout: .now() + timeout)
-        sources.forEach { $0.cancel() }
-    }
 }

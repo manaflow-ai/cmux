@@ -47,9 +47,7 @@ test("shows ACP tool locations and every tool output variant", async () => {
     expect(ends.find((event) => event.toolId === "changed-file")?.detail).toContain("+2/-1");
 
     const mixed = ends.find((event) => event.toolId === "mixed")?.detail ?? "";
-    expect(mixed).toContain("text output");
-    expect(mixed).toContain("src/mixed.ts");
-    expect(mixed).toContain("term-42");
+    expect(mixed).toBe("text output diff src/mixed.ts (+1/-1) new terminal term-42");
   } finally {
     adapter.dispose(sess);
   }

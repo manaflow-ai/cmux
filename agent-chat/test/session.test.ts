@@ -3,7 +3,7 @@ Object.defineProperty(globalThis, "location", {
   value: { pathname: "/" },
 });
 
-const { composerDraftKey, consumeOptimisticUserEcho, foldEvent, latestRouting, readComposerDraft, restoreComposerDraft, shouldAcceptHandoffResponse, writeComposerDraft } = await import("../src/session");
+const { composerDraftKey, consumeOptimisticUserEcho, foldEvent, latestRouting, readComposerDraft, restoreComposerDraft, shouldAcceptSessionActionResponse, transcriptComposerLocked, writeComposerDraft } = await import("../src/session");
 const { latestRouteStatus, normalizeRouteStatus, routeHealthForPhase } = await import("../route-status");
 const { draftStorage } = await import("../src/browser-storage");
 
@@ -42,16 +42,10 @@ const draftFixture = {
   removeItem: (key: string) => { delete draftValues[key]; },
 };
 writeComposerDraft(draftFixture, "typed while Cloud was reconnecting");
-if (readComposerDraft(draftFixture) !== "typed while Cloud was reconnecting") {
-  throw new Error("a live composer draft was not recoverable from session storage");
-}
+if (readComposerDraft(draftFixture) !== "typed while Cloud was reconnecting") throw new Error("live draft was not recoverable");
 writeComposerDraft(draftFixture, "");
-if (readComposerDraft(draftFixture) !== "") throw new Error("clearing a submitted draft did not remove it");
-const unavailableStorage = {
-  getItem() { throw new Error("storage unavailable"); },
-  setItem() { throw new Error("storage unavailable"); },
-  removeItem() { throw new Error("storage unavailable"); },
-};
+if (readComposerDraft(draftFixture) !== "") throw new Error("clearing draft did not remove it");
+const unavailableStorage = { getItem() { throw new Error("storage unavailable"); }, setItem() { throw new Error("storage unavailable"); }, removeItem() { throw new Error("storage unavailable"); } };
 writeComposerDraft(unavailableStorage, "still usable");
 if (readComposerDraft(unavailableStorage) !== "") throw new Error("storage failures should not break draft access");
 
@@ -81,13 +75,13 @@ if (!consumeOptimisticUserEcho(stuck, "next") || stuck.length !== 1 || stuck[0] 
   throw new Error("a later echo should match past an entry whose echo never landed");
 }
 
-if (!shouldAcceptHandoffResponse("session-1", "session-1", "session-1")) {
+if (!shouldAcceptSessionActionResponse("session-1", "session-1", "session-1")) {
   throw new Error("current pending handoff response should be accepted");
 }
-if (shouldAcceptHandoffResponse("session-1", null, "session-1")) {
+if (shouldAcceptSessionActionResponse("session-1", null, "session-1")) {
   throw new Error("cleared handoff must ignore a late response");
 }
-if (shouldAcceptHandoffResponse("session-1", "session-1", "session-2")) {
+if (shouldAcceptSessionActionResponse("session-1", "session-1", "session-2")) {
   throw new Error("handoff response from a session the user left must be ignored");
 }
 
@@ -134,6 +128,16 @@ if (latest?.health !== "degraded" || latest?.parentSessionId !== "session-1") {
 }
 if (latestRouteStatus([{ kind: "routing", phase: "invalid", conversationId: "c", requestId: "r", attempt: 1 }]) !== null) {
   throw new Error("malformed routing events should not become route health state");
+}
+
+if (!transcriptComposerLocked({ mode: "transcript", attention: "Codex needs approval" })) {
+  throw new Error("terminal attention should lock the transcript composer");
+}
+if (
+  transcriptComposerLocked({ mode: "transcript", attention: "   " })
+  || transcriptComposerLocked({ mode: undefined, attention: "Codex needs approval" })
+) {
+  throw new Error("only non-empty transcript attention should lock the composer");
 }
 
 console.log("session store assertions passed");
