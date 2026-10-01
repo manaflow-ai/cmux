@@ -242,7 +242,7 @@ struct CodexAutoNamingArguments: Sendable {
         return arguments
     }
 
-        func removingComment(from rawLine: Substring) -> Substring {
+        static func removingComment(from rawLine: Substring) -> Substring {
             var quote: Character?
             var escaped = false
             for index in rawLine.indices {

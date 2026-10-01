@@ -1183,6 +1183,51 @@ class SideLanes(unittest.TestCase):
         self.assertIn("attempt 2 takes the side lane's Blacksmith default", summary)
         self.assertNotIn("jobs:2", api.calls)
 
+    def test_a_stuck_side_job_never_cancels_a_sibling_running_on_a_mini(self):
+        # #16463: cmux-next's swift test ran on a mini while release-compile waited
+        # for one; the rescue cancelled both and moved them to Blacksmith.
+        def cmux_next(done_at):
+            def jobs(seconds):
+                test = job("cmux-next swift test", labels=[SIDE], status="in_progress", runner="mini-5-glaeda-3")
+                test["started_at"] = stamp(5)
+                if done_at is not None and seconds >= done_at:
+                    test.update(status="completed", conclusion="success")
+                return [test, job("cmux-next Release compile (Xcode 26)", labels=[SIDE], created=0)]
+            return jobs
+
+        payload = side_event(path=".github/workflows/cmux-next.yml")
+        clock = Clock()
+        api = FakeAPI(clock, cmux_next(done_at=None))
+        code, summary = run_main(api, clock, payload=payload)
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("watch limit reached", summary)
+
+        # Once the mini's job ends, cancelling the run touches only the stuck job.
+        clock = Clock()
+        api = FakeAPI(clock, cmux_next(done_at=600))
+        code, summary = run_main(api, clock, payload=payload)
+        self.assertEqual(code, 0)
+        self.assertIn("cancel", api.calls)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertGreaterEqual(clock.seconds, 600)
+
+    def test_a_sibling_on_a_mini_does_not_hide_a_refusal_or_a_held_job(self):
+        running = job("macos / shard 1", status="in_progress", labels=[MINI], runner="mini-2")
+        running["started_at"] = stamp(5)
+        stuck = job("macos / shard 2", labels=[MINI], created=0)
+        late = START + dt.timedelta(seconds=44 + rescue.SETUP_WAIT_SECONDS)
+        look = rescue.assess([running, stuck], now=late, budget_seconds=90)
+        self.assertEqual((look.action, look.waiting), ("watch", True))
+        self.assertIn("running on a persistent runner", look.reason)
+        look = rescue.assess([running, stuck, refused_job("macos / shard 3")], now=late, budget_seconds=90)
+        self.assertEqual(look.action, "refused")
+        closing = late + dt.timedelta(seconds=rescue.END_MARGIN_SECONDS - 1)
+        look = rescue.assess([running, stuck, setup_job()], now=late, budget_seconds=90, deadline=closing)
+        self.assertEqual(look.action, "rescue")
+        self.assertIn("runner setup", look.reason)
+
     def test_a_side_lane_retry_takes_blacksmith(self):
         target = rescue.target_from_event(side_event(), "manaflow-ai/cmux")
         self.assertIn("Blacksmith default", rescue.next_attempt(target))
