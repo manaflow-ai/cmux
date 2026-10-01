@@ -23,8 +23,30 @@ export function setTranscriptRpcForTest(next: Rpc | null) {
   rpc = next ?? cmuxRpc;
 }
 
+/** Preserves diagnostics and prompt recovery while giving the UI a copy key. */
+export function transcriptRpcErrorEvent(res: CmuxRpcResult, message: string, prompt?: string): Extract<AgentEvent, { kind: "error" }> {
+  return {
+    kind: "error", message,
+    ...(prompt !== undefined ? { prompt } : {}),
+    ...(res.errorCode === "timeout" ? { code: "terminal-rpc-timeout" as const } : {}),
+  };
+}
+
 export function transcriptTarget(sess: SessionCtx): TranscriptTarget | undefined {
   return sess.internal.transcriptTarget as TranscriptTarget | undefined;
+}
+
+function transcriptRpcGuard(sess: SessionCtx): () => boolean {
+  const generation = Number(sess.internal.transcriptRpcGeneration ?? 0);
+  const attachment = transcriptState(sess);
+  const target = transcriptTarget(sess);
+  const agentSessionId = target?.agentSessionId;
+  const surfaceId = target?.surfaceId;
+  return () => Number(sess.internal.transcriptRpcGeneration ?? 0) === generation
+    && transcriptState(sess) === attachment
+    && transcriptTarget(sess) === target
+    && target?.agentSessionId === agentSessionId
+    && target?.surfaceId === surfaceId;
 }
 
 function rpcErrorMessage(err: unknown): string {
@@ -34,13 +56,20 @@ function rpcErrorMessage(err: unknown): string {
 
 /** Focuses the terminal pane that runs the agent (for prompts the view cannot answer). */
 export async function focusTranscriptTerminal(sess: SessionCtx): Promise<CmuxRpcResult> {
+  const isCurrent = transcriptRpcGuard(sess);
   const surfaceId = transcriptTarget(sess)?.surfaceId;
-  if (!surfaceId) return { ok: false, error: "The terminal for this session is unknown." };
-  try {
-    return await rpc("surface.focus", { surface_id: surfaceId });
-  } catch (err) {
-    return { ok: false, error: rpcErrorMessage(err) };
+  let res: CmuxRpcResult;
+  if (!surfaceId) {
+    res = { ok: false, error: "The terminal for this session is unknown." };
+  } else {
+    try {
+      res = await rpc("surface.focus", { surface_id: surfaceId });
+    } catch (err) {
+      return { ok: false, error: rpcErrorMessage(err) };
+    }
   }
+  if (!res.ok && isCurrent()) sess.emit(transcriptRpcErrorEvent(res, `Couldn't focus the terminal: ${res.error}`));
+  return res;
 }
 
 /** A cmux agent message waiting for this terminal's agent to take it. */
@@ -672,25 +701,29 @@ export const transcriptAdapter: Adapter = {
       sess.emit({ kind: "error", message: "This view is not attached to a terminal session.", prompt });
       return;
     }
+    const isCurrent = transcriptRpcGuard(sess);
     try {
       const res = await rpc("mobile.chat.send", { session_id: target.agentSessionId, text: prompt });
-      if (!res.ok) sess.emit({ kind: "error", message: `Couldn't send to the terminal: ${res.error}`, prompt });
+      if (!res.ok && isCurrent()) sess.emit(transcriptRpcErrorEvent(res, `Couldn't send to the terminal: ${res.error}`, prompt));
     } catch (err) {
-      sess.emit({ kind: "error", message: `Couldn't send to the terminal: ${rpcErrorMessage(err)}`, prompt });
+      if (isCurrent()) sess.emit({ kind: "error", message: `Couldn't send to the terminal: ${rpcErrorMessage(err)}`, prompt });
     }
   },
   stop(sess: SessionCtx) {
     const target = transcriptTarget(sess);
     if (!target) return;
-    void rpc("mobile.chat.interrupt", { session_id: target.agentSessionId })
-      .then((res) => {
-        if (!res.ok) sess.emit({ kind: "error", message: `Couldn't interrupt the terminal: ${res.error}` });
-      })
+    const isCurrent = transcriptRpcGuard(sess);
+    void rpc("mobile.chat.interrupt", { session_id: target.agentSessionId }).then((res) => {
+      if (!res.ok && isCurrent()) sess.emit(transcriptRpcErrorEvent(res, `Couldn't interrupt the terminal: ${res.error}`));
+    })
       .catch((err) => {
-        sess.emit({ kind: "error", message: `Couldn't interrupt the terminal: ${rpcErrorMessage(err)}` });
+        if (isCurrent()) sess.emit({ kind: "error", message: `Couldn't interrupt the terminal: ${rpcErrorMessage(err)}` });
       });
   },
   dispose(sess: SessionCtx) {
+    // Invalidate RPCs even when no reader is attached (for example teardown
+    // while resolving a view). Target IDs can be reused by a later attachment.
+    sess.internal.transcriptRpcGeneration = Number(sess.internal.transcriptRpcGeneration ?? 0) + 1;
     const st = transcriptState(sess);
     if (!st) return;
     st.tail.stop();

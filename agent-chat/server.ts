@@ -2457,9 +2457,7 @@ export function handleSessionMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) 
     case "focus-terminal": {
       const sess = sessions.get(String(msg.sessionId));
       if (!sess?.transcript) return;
-      Promise.resolve(focusTranscriptTerminal(sess)).then((res) => {
-        if (!res.ok) sess.emit({ kind: "error", message: `Couldn't focus the terminal: ${res.error}` });
-      });
+      void focusTranscriptTerminal(sess);
       break;
     }
     case "stop": {
