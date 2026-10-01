@@ -738,6 +738,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Daemon-authoritative grid used for modes that need exact remote-cell
     /// replay. When nil, the surface fills the phone's natural capacity.
     var effectiveGrid: (cols: Int, rows: Int)?
+    /// Effective-grid echoes are asynchronous with respect to native scrolling.
+    /// Keep the latest one out of Ghostty until a local content anchor reaches
+    /// the tail, otherwise `set_size` reflows the row space under the rows the
+    /// user is reading.
+    private var effectiveGridScrollGate = TerminalEffectiveGridScrollGate()
     /// Cached cell metrics derived from the most recent
     /// `ghostty_surface_size` measurement. Used to translate an effective
     /// cols×rows pin into a pixel box without re-round-tripping through
@@ -2908,6 +2913,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Drops scroll work tied to a surface generation that will no longer run.
     func resetScrollStateForSurfaceReplacement() {
+        effectiveGridScrollGate.reset()
         pendingScrollLines = 0
         linePathFractionCarry = 0
         pendingScrollPixels = 0
@@ -4638,6 +4644,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
         }
         sampleHostedKeyboardPresentation()
+        flushDeferredEffectiveGridIfSafe()
         // Apply geometry at most once per frame. Every trigger (resize, zoom,
         // keyboard, effective-grid pin) only marks `needsGeometrySync`, so a
         // fast pinch can no longer drive a synchronous per-event storm of
@@ -5353,6 +5360,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// - Returns: `false` when the surface reset before the geometry applied.
     @discardableResult
     public func applyViewSizeAndWait(cols: Int, rows: Int) async -> Bool {
+        effectiveGridScrollGate.reset()
         let changed = updateEffectiveGrid(cols: cols, rows: rows, confirmedViewportEcho: false)
         if changed || needsGeometrySync {
             return await syncSurfaceGeometryAndWait(shouldReassertNaturalSize: false)
@@ -5446,13 +5454,80 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func applyViewSize(cols: Int, rows: Int, confirmedViewportEcho: Bool) {
-        guard updateEffectiveGrid(cols: cols, rows: rows, confirmedViewportEcho: confirmedViewportEcho) else { return }
+        guard cols > 0, rows > 0 else { return }
+        if confirmedViewportEcho {
+            // The report handshake can settle while the visual grid remains
+            // deferred behind a local scroll anchor. Confirmation owns retry
+            // state; it does not make the resize safe to apply mid-gesture.
+            markViewportReportConfirmed()
+        }
+        let update = TerminalEffectiveGridScrollGate.Update.remoteGrid(
+            columns: cols,
+            rows: rows
+        )
+        guard let ready = effectiveGridScrollGate.submit(
+            update,
+            anchorUndocked: localScrollAnchorUndocked || scrollInteractionActive
+        ) else {
+            MobileDebugLog.anchormux(
+                "zoom.deferViewSize grid=\(cols)x\(rows) "
+                    + "anchor=\(localScrollAnchorUndocked ? 1 : 0) "
+                    + "active=\(scrollInteractionActive ? 1 : 0)"
+            )
+            needsDraw = true
+            return
+        }
+        guard commitEffectiveGridUpdate(ready) else { return }
         // Mark dirty instead of recomputing synchronously. This breaks the
         // feedback loop (didResize → updateTerminalViewport RPC → applyViewSize
         // → syncSurfaceGeometry → didResize …) that, under fast zoom, drove a
         // storm of set_size calls + viewport RPCs. Geometry now settles once
         // per frame, and reassert=false avoids re-reporting the unchanged
         // natural grid back through the round trip.
+        setNeedsGeometrySync(reassertNaturalSize: false)
+    }
+
+    /// True when the local pixel path has a content anchor away from the live
+    /// tail. The anchor survives UIKit deceleration, which is the important
+    /// window: a late viewport echo can otherwise land after `isDecelerating`
+    /// becomes false and still move the visible rows.
+    private var localScrollAnchorUndocked: Bool {
+        localPixelScrollState.withLock { state in
+            guard let held = state.lastApplied else { return false }
+            return !held.dockedAtTail
+        }
+    }
+
+    /// Commit a deferred grid at the same ownership boundary as an immediate
+    /// grid update. The gate is reset before the geometry pass so an older
+    /// echo cannot be replayed after this one.
+    @discardableResult
+    private func commitEffectiveGridUpdate(
+        _ update: TerminalEffectiveGridScrollGate.Update
+    ) -> Bool {
+        effectiveGridScrollGate.reset()
+        switch update {
+        case .natural:
+            return clearEffectiveGrid()
+        case .remoteGrid(let columns, let rows):
+            return updateEffectiveGrid(
+                cols: columns,
+                rows: rows,
+                confirmedViewportEcho: false
+            )
+        }
+    }
+
+    /// Releases the latest echo only after native scrolling has stopped and a
+    /// held local anchor is docked. This is display-link driven, so no timer
+    /// can race a new touch or add work to the scroll callback.
+    private func flushDeferredEffectiveGridIfSafe() {
+        let anchorUndocked = localScrollAnchorUndocked || scrollInteractionActive
+        guard let update = effectiveGridScrollGate.flushIfSafe(
+            anchorUndocked: anchorUndocked
+        ) else { return }
+        MobileDebugLog.anchormux("zoom.flushViewSize anchor=0")
+        guard commitEffectiveGridUpdate(update) else { return }
         setNeedsGeometrySync(reassertNaturalSize: false)
     }
 
@@ -5468,7 +5543,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     public func useNaturalViewSize() {
-        guard clearEffectiveGrid() else { return }
+        guard let ready = effectiveGridScrollGate.submit(
+            .natural,
+            anchorUndocked: localScrollAnchorUndocked || scrollInteractionActive
+        ) else {
+            MobileDebugLog.anchormux(
+                "zoom.deferNaturalViewSize anchor=\(localScrollAnchorUndocked ? 1 : 0) "
+                    + "active=\(scrollInteractionActive ? 1 : 0)"
+            )
+            needsDraw = true
+            return
+        }
+        guard commitEffectiveGridUpdate(ready) else { return }
         setNeedsGeometrySync(reassertNaturalSize: false)
     }
 
@@ -5477,6 +5563,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// - Returns: `false` when the surface reset before the geometry applied.
     @discardableResult
     public func useNaturalViewSizeAndWait() async -> Bool {
+        effectiveGridScrollGate.reset()
         let changed = clearEffectiveGrid()
         if changed || needsGeometrySync {
             return await syncSurfaceGeometryAndWait(shouldReassertNaturalSize: false)

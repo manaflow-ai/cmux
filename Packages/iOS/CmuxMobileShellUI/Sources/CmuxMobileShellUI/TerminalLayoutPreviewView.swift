@@ -1,5 +1,6 @@
 #if canImport(UIKit) && DEBUG
 import CMUXMobileCore
+import CmuxMobileDiagnostics
 import CmuxMobileTerminal
 import Foundation
 import SwiftUI
@@ -183,6 +184,7 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
         private var didFeedContent = false
         private var rainbowWorkload: ScrollRainbowWorkload?
         private var rainbowStreamTask: Task<Void, Never>?
+        private var rainbowEchoTask: Task<Void, Never>?
         private let environment = ProcessInfo.processInfo.environment
         private let feedContent =
             ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_PREVIEW_CONTENT"] == "1"
@@ -195,6 +197,7 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
 
         deinit {
             rainbowStreamTask?.cancel()
+            rainbowEchoTask?.cancel()
         }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
@@ -230,6 +233,9 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
                 surfaceView.processOutput(workload.initialOutput())
                 if environment["CMUX_UITEST_SCROLL_RAINBOW_STREAM"] == "1" {
                     startRainbowStream(on: surfaceView)
+                }
+                if environment["CMUX_UITEST_RAINBOW_ECHO_STRESS"] == "1" {
+                    startRainbowEcho(on: surfaceView, naturalSize: size)
                 }
                 return
             }
@@ -273,6 +279,53 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
                     let chunk = workload.nextOutput(rowCount: linesPerChunk)
                     self.rainbowWorkload = workload
                     surfaceView.processOutput(chunk)
+                }
+            }
+        }
+
+        /// Simulates delayed effective-grid echoes from a busy agent session.
+        /// The alternating grids deliberately fit inside and then exceed the
+        /// natural terminal size, which exercises the same Ghostty set_size
+        /// path as a remote viewport response without depending on a Mac.
+        private func startRainbowEcho(
+            on surfaceView: GhosttySurfaceView,
+            naturalSize: TerminalGridSize
+        ) {
+            guard rainbowEchoTask == nil else { return }
+            let intervalNanoseconds = UInt64(
+                max(50, environment["CMUX_UITEST_RAINBOW_ECHO_MS"].flatMap(Int.init) ?? 1_500)
+            ) * 1_000_000
+            let durationNanoseconds = UInt64(
+                max(1, environment["CMUX_UITEST_RAINBOW_ECHO_SECONDS"].flatMap(Int.init) ?? 45)
+            ) * 1_000_000_000
+            let phaseAGrid = (
+                columns: max(1, naturalSize.columns - 6),
+                rows: max(1, naturalSize.rows - 12)
+            )
+            let phaseBGrid = (
+                columns: naturalSize.columns + 22,
+                rows: max(1, naturalSize.rows - 28)
+            )
+            rainbowEchoTask = Task { @MainActor [weak surfaceView] in
+                let clock = ContinuousClock()
+                let startedAt = clock.now
+                var phase = 0
+                while !Task.isCancelled {
+                    do {
+                        try await Task.sleep(nanoseconds: intervalNanoseconds)
+                    } catch {
+                        return
+                    }
+                    guard let surfaceView else { return }
+                    guard clock.now - startedAt < .nanoseconds(Int(durationNanoseconds)) else {
+                        return
+                    }
+                    let grid = phase.isMultiple(of: 2) ? phaseAGrid : phaseBGrid
+                    phase += 1
+                    MobileDebugLog.anchormux(
+                        "rainbow.echo phase=\(phase) grid=\(grid.columns)x\(grid.rows)"
+                    )
+                    surfaceView.applyViewSize(cols: grid.columns, rows: grid.rows)
                 }
             }
         }
