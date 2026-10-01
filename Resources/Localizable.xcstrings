@@ -598244,55 +598244,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nيعرض رسائل الوكلاء، الأحدث أولًا. بدون --surface، يعرض الرسائل لكل\nالأسطح. يضع --mark-read علامة مقروءة على الرسائل المعروضة."
+            "value": "الاستخدام: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nيعرض رسائل الوكلاء، الأحدث أولًا. بدون --surface، يعرض الرسائل لكل\nالأسطح. يضع --mark-read علامة مقروءة على الرسائل المعروضة التي تم تسليمها؛ وتبقى الرسائل في قائمة الانتظار."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nListet Agent-Nachrichten auf, neueste zuerst. Ohne --surface werden Nachrichten für\nalle Oberflächen aufgelistet. --mark-read markiert die aufgelisteten Nachrichten als gelesen."
+            "value": "Verwendung: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nListet Agent-Nachrichten auf, neueste zuerst. Ohne --surface werden Nachrichten für\nalle Oberflächen aufgelistet. --mark-read markiert die aufgelisteten zugestellten Nachrichten als gelesen; wartende Nachrichten bleiben in der Warteschlange."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nList agent messages, newest first. Without --surface, lists messages for\nevery surface. --mark-read marks the listed messages read."
+            "value": "Usage: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nList agent messages, newest first. Without --surface, lists messages for\nevery surface. --mark-read marks the listed delivered messages read; queued messages stay queued."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nLista los mensajes de agentes, del más reciente al más antiguo. Sin --surface, lista los mensajes de\ntodas las superficies. --mark-read marca como leídos los mensajes listados."
+            "value": "Uso: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nLista los mensajes de agentes, del más reciente al más antiguo. Sin --surface, lista los mensajes de\ntodas las superficies. --mark-read marca como leídos los mensajes entregados listados; los mensajes en cola siguen en cola."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nListe les messages d'agent, du plus récent au plus ancien. Sans --surface, liste les messages de\ntoutes les surfaces. --mark-read marque les messages listés comme lus."
+            "value": "Utilisation : cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nListe les messages d'agent, du plus récent au plus ancien. Sans --surface, liste les messages de\ntoutes les surfaces. --mark-read marque comme lus les messages listés déjà remis ; les messages en file d’attente y restent."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使い方: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nエージェントのメッセージを新しい順に一覧表示します。--surface を指定しないと\nすべてのサーフェスのメッセージを表示します。--mark-read は表示したメッセージを既読にします。"
+            "value": "使い方: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\nエージェントのメッセージを新しい順に一覧表示します。--surface を指定しないと\nすべてのサーフェスのメッセージを表示します。--mark-read は表示した配信済みメッセージを既読にします。キュー内のメッセージはキューに残ります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\n에이전트 메시지를 최신순으로 나열합니다. --surface가 없으면\n모든 표면의 메시지를 나열합니다. --mark-read는 나열된 메시지를 읽음으로 표시합니다."
+            "value": "사용법: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\n에이전트 메시지를 최신순으로 나열합니다. --surface가 없으면\n모든 표면의 메시지를 나열합니다. --mark-read는 나열된 전달된 메시지를 읽음으로 표시합니다. 대기 중인 메시지는 대기열에 남습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法： cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\n列出代理消息，最新的在前。未指定 --surface 时，列出\n所有表面的消息。--mark-read 会将列出的消息标记为已读。"
+            "value": "用法： cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\n列出代理消息，最新的在前。未指定 --surface 时，列出\n所有表面的消息。--mark-read 会将列出的已送达消息标记为已读；排队中的消息仍留在队列中。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法： cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\n列出代理訊息，最新的在前。未指定 --surface 時，列出\n所有表面的訊息。--mark-read 會將列出的訊息標為已讀。"
+            "value": "用法： cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]\n\n列出代理訊息，最新的在前。未指定 --surface 時，列出\n所有表面的訊息。--mark-read 會將列出的已送達訊息標為已讀；排隊中的訊息仍留在佇列中。"
           }
         }
       }
