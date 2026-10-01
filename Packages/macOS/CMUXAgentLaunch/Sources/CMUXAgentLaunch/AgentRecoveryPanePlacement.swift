@@ -27,9 +27,10 @@ public struct AgentRecoveryPane: Equatable, Sendable {
 /// resume the session in its original panel; only sessions whose panel is gone
 /// fall back to a new workspace.
 ///
-/// A panel takes a candidate when it is a local shell and either binds no
-/// session or the candidate was active after the snapshot was written, since a
-/// panel runs one foreground agent and the newer evidence wins. Candidates that
+/// A panel takes a candidate when it is a local shell and binds no session,
+/// binds that same session (the autosave may have recorded it as stopped), or
+/// the candidate was active after the snapshot was written, since a panel runs
+/// one foreground agent and the newer evidence wins. Candidates that
 /// resume through a recorded launcher keep the new-workspace path, which owns
 /// that launch.
 public struct AgentRecoveryPanePlacement: Equatable, Sendable {
@@ -65,9 +66,10 @@ public struct AgentRecoveryPanePlacement: Equatable, Sendable {
                   let panelId = candidate.surfaceId.flatMap(UUID.init(uuidString:)) else { continue }
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
             guard let pane = panesByKey[key], pane.canHostAgent else { continue }
-            if let boundSessionId = pane.sessionId {
-                guard boundSessionId != candidate.sessionId,
-                      candidate.lastActivity > snapshotCreatedAt else { continue }
+            // The panel's own session always qualifies: the autosave can
+            // record it as stopped while it was still running.
+            if let boundSessionId = pane.sessionId, boundSessionId != candidate.sessionId {
+                guard candidate.lastActivity > snapshotCreatedAt else { continue }
             }
             if let existing = assignments[key], existing.lastActivity >= candidate.lastActivity { continue }
             assignments[key] = candidate

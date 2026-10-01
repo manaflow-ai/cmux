@@ -9,7 +9,8 @@ import Foundation
 /// and hook store already know the session and its panel, so writing it into
 /// the panel before restore lets normal startup restore resume it in place,
 /// with the same admission, launch claim and start-on-visit pacing as any
-/// restored agent. Sessions with no surviving panel stay with
+/// restored agent. A panel whose own session the autosave recorded as stopped
+/// is marked running. Sessions with no surviving panel stay with
 /// ``AgentSessionRecovery``, which reopens them in new workspaces and skips
 /// the ones placed here because their panels now carry them.
 enum AgentRecoverySnapshotMerge {
@@ -78,8 +79,10 @@ enum AgentRecoverySnapshotMerge {
             guard panels[index].terminal != nil,
                   let candidate = placement.assignments[key],
                   let agent = AgentSessionRecovery.restorableAgent(for: candidate) else { continue }
-            panels[index].terminal?.agent = agent
             panels[index].terminal?.wasAgentRunning = true
+            // The snapshot's own record of this session is the richer one.
+            if panels[index].terminal?.agent?.sessionId == candidate.sessionId { continue }
+            panels[index].terminal?.agent = agent
             // Bindings and hibernation describe the session the snapshot saw,
             // which the newer session replaced in this panel.
             panels[index].terminal?.resumeBinding = nil
