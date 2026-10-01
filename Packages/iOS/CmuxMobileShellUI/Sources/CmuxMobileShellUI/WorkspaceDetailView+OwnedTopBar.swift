@@ -47,6 +47,12 @@ extension WorkspaceDetailView {
 
     private var ownedBarTrailingCluster: some View {
         HStack(spacing: 15) {
+            if store.acpmuxClient != nil {
+                Button { isAcpmuxPresented = true } label: {
+                    Image(systemName: "bubble.left.and.text.bubble.right")
+                }
+                .accessibilityLabel("Agent chat")
+            }
             if altScreenNoticeIsVisible {
                 AltScreenNoticeButton {
                     displaySettings.showAltScreenNotice = false

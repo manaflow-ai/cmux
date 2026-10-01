@@ -71,7 +71,7 @@ struct WorkspaceDetailView: View {
     @State var closeConfirmation: MobileWorkspaceCloseConfirmation = .macWorkspace
     #if canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
-    @State private var isAcpmuxPresented = false
+    @State var isAcpmuxPresented = false
     @State private var feedbackText = ""
     @State private var feedbackEmail = ""
     @State private var isSubmittingFeedback = false
