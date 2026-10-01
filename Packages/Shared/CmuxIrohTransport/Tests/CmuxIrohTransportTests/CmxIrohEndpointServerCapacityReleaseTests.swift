@@ -46,6 +46,17 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
         }
     }
 
+    private static func waitForRecordedCount(
+        _ recorder: EndpointServerRecorder,
+        _ expected: Int
+    ) async -> Bool {
+        for _ in 0 ..< 1_000 {
+            if await recorder.recordedCount() >= expected { return true }
+            await Task.yield()
+        }
+        return false
+    }
+
     private static func makeSupervisor(
         endpoint: TestAcceptingIrohEndpoint,
         keyByte: UInt8
@@ -114,18 +125,30 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
             predecessor: deadPredecessor,
             redial: redial
         )
+        let replacementAdmitted: Bool
         switch outcome {
         case let .predecessorClosed(_, reason):
             #expect(reason == "superseded_connection")
+            replacementAdmitted = true
         case let .redialClosed(_, reason):
             Issue.record(
                 "same-identity redial was refused (\(reason)) instead of replacing its dead predecessor"
             )
+            replacementAdmitted = false
         }
         // The close signal is delivered while the replacement handler is
         // still between promotion and its recording step, so wait for the
         // second admission event instead of sampling the actor immediately.
-        #expect(await recorder.next().identity == clientIdentity)
+        let recordedReplacement: Bool
+        if replacementAdmitted {
+            recordedReplacement = await Self.waitForRecordedCount(recorder, 2)
+        } else {
+            recordedReplacement = false
+        }
+        #expect(recordedReplacement)
+        if recordedReplacement {
+            #expect(await recorder.next().identity == clientIdentity)
+        }
         #expect(await recorder.recordedCount() == 2)
         #expect(await redial.observedCloseCallCount() == 0)
 
@@ -192,15 +215,27 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
             predecessor: deadPredecessor,
             redial: redial
         )
+        let replacementAdmitted: Bool
         switch outcome {
         case let .predecessorClosed(_, reason):
             #expect(reason == "superseded_connection")
+            replacementAdmitted = true
         case let .redialClosed(_, reason):
             Issue.record(
                 "same-identity redial was refused (\(reason)) while its own dead predecessor held the global slot"
             )
+            replacementAdmitted = false
         }
-        #expect(await recorder.next().identity == deadClientIdentity)
+        let recordedReplacement: Bool
+        if replacementAdmitted {
+            recordedReplacement = await Self.waitForRecordedCount(recorder, 3)
+        } else {
+            recordedReplacement = false
+        }
+        #expect(recordedReplacement)
+        if recordedReplacement {
+            #expect(await recorder.next().identity == deadClientIdentity)
+        }
         #expect(await recorder.recordedCount() == 3)
         #expect(await redial.observedCloseCallCount() == 0)
         // Replacing your own dead predecessor must never disturb another

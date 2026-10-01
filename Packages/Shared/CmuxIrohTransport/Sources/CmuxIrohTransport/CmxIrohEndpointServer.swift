@@ -419,13 +419,15 @@ public actor CmxIrohEndpointServer {
         guard let active = activeConnections.removeValue(forKey: id) else {
             return
         }
+        // A handler that completes has relinquished the connection even when
+        // the transport has not reported its own close yet. Close first so a
+        // non-cancellation-aware waitUntilClosed implementation can finish
+        // before the watcher task is released.
+        await active.connection.close(
+            errorCode: error == nil ? 0 : 1,
+            reason: error == nil ? "handler_complete" : "connection_failed"
+        )
         active.closeWatcherTask.cancel()
-        if error != nil {
-            await active.connection.close(
-                errorCode: 1,
-                reason: "connection_failed"
-            )
-        }
     }
 
     /// Releases the slot from the transport's terminal signal rather than
