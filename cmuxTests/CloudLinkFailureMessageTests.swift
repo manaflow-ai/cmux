@@ -1,5 +1,6 @@
 import CmuxCloud
 import CmuxSurfaceCatalogModel
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -33,6 +34,37 @@ struct CloudLinkFailureMessageTests {
         let empty = machineInfo(linkState: .error, linkError: "")
         #expect(empty.linkFailureMessage == CloudDiagnosticFailure.network.label)
         #expect(machineInfo(linkState: .error).linkFailureMessage == CloudDiagnosticFailure.network.label)
+    }
+
+    @Test("The socket payload carries prose alongside the diagnostic token")
+    func socketPayloadCarriesLinkFailureMessage() {
+        let info = machineInfo(linkState: .unavailable, linkError: "cloud_api_unavailable")
+        let payload = TerminalController.surfaceMachinePayload(info)
+        #expect(payload["link_error"] as? String == "cloud_api_unavailable")
+        #expect(payload["link_error_message"] as? String == info.linkFailureMessage)
+    }
+
+    @Test("vm tree never prints a raw link failure token")
+    func vmTreeUsesLinkFailureMessage() {
+        let info = machineInfo(linkState: .unavailable, linkError: "cloud_api_unavailable")
+        let message = info.linkFailureMessage
+        var machine = TerminalController.surfaceMachinePayload(info)
+        machine["remote_workspaces"] = [[String: Any]]()
+        let lines = CMUXCLI.vmTreeLines(machine: machine, resources: [])
+        let output = lines.joined(separator: "\n")
+        #expect(output.contains(message))
+        #expect(!output.contains("cloud_api_unavailable"))
+    }
+
+    @Test("vm tree uses readable fallback for legacy link payloads")
+    func vmTreeUsesReadableLegacyFallback() {
+        let info = machineInfo(linkState: .unavailable, linkError: "cloud_api_unavailable")
+        var machine = TerminalController.surfaceMachinePayload(info)
+        machine.removeValue(forKey: "link_error_message")
+        machine["remote_workspaces"] = [[String: Any]]()
+        let output = CMUXCLI.vmTreeLines(machine: machine, resources: []).joined(separator: "\n")
+        #expect(output.contains("Cloud link is unavailable. Refresh to reconnect."))
+        #expect(!output.contains("cloud_api_unavailable"))
     }
 
     private func machineInfo(linkState: SurfaceLinkState, linkError: String? = nil) -> SurfaceMachineInfo {

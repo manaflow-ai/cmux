@@ -117216,6 +117216,131 @@
         }
       }
     },
+    "cli.vm.tree.link.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud link is unavailable. Refresh to reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud リンクを利用できません。更新して再接続してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 链路不可用。请刷新以重新连接。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Link ist nicht verfügbar. Aktualisieren Sie die Verbindung."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le lien Cloud est indisponible. Actualisez pour vous reconnecter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رابط Cloud غير متاح. حدّث الصفحة لإعادة الاتصال."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El enlace de Cloud no está disponible. Actualiza para volver a conectarte."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 連結無法使用。請重新整理以重新連線。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 링크를 사용할 수 없습니다. 새로 고쳐 다시 연결하세요."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud veza nije dostupna. Osvježite za ponovno povezivanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-forbindelse er ikke tilgængelig. Opdater for at oprette forbindelse igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il collegamento Cloud non è disponibile. Aggiorna per riconnetterti."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តំណ Cloud មិនអាចប្រើបានទេ។ ផ្ទុកឡើងវិញ ដើម្បីភ្ជាប់ឡើងវិញ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-tilkoblingen er utilgjengelig. Oppdater for å koble til på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połączenie Cloud jest niedostępne. Odśwież, aby połączyć się ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A conexão Cloud está indisponível. Atualize para se conectar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Связь с Cloud недоступна. Обновите, чтобы подключиться снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลิงก์ Cloud ไม่พร้อมใช้งาน รีเฟรชเพื่อเชื่อมต่ออีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud bağlantısı kullanılamıyor. Yeniden bağlanmak için yenileyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зв’язок із Cloud недоступний. Оновіть, щоб підключитися знову."
+          }
+        }
+      }
+    },
     "cli.vm.tree.link.retry": {
       "extractionState": "manual",
       "localizations": {
