@@ -56,6 +56,9 @@ import CmuxCloudTui
             CloudTuiManualIOCommand.viewAttachmentDetachCapability,
             CloudTuiManualIOCommand.sharedSizingCapability,
             CloudTuiManualIOCommand.sizingViewDetachCapability,
+            "terminal-color-overrides-v1",
+            "attach-identity-v1",
+            "attach-initial-size",
         ] {
             #expect(commands.isStaleReplayDaemon(capabilities: [capability]))
             #expect(!commands.isStaleReplayDaemon(capabilities: [
