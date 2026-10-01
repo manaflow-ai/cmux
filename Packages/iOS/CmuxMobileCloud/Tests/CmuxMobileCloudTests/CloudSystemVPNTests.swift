@@ -211,6 +211,49 @@ import Testing
         #expect(rig.service.calls.revoke.first?.purpose == .browser)
     }
 
+    @Test func signOutTeardownRevokesPersistedBrowserPeerAfterControllerRecreation() async {
+        let service = FakeCloudVMService()
+        let identityStore = InMemoryCloudDeviceIdentityStore()
+        let manager = FakeSystemVPNManager()
+        let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
+
+        let first = CloudSystemVPNController(
+            service: service,
+            identityStore: identityStore,
+            manager: manager,
+            deviceName: "Aziz's iPhone",
+            credentials: {
+                (accessToken: "captured-access", refreshToken: "captured-refresh")
+            },
+            pendingRevocationStore: pendingStore
+        )
+        first.setScope("user-1/team-1", teamID: "team-1")
+        await first.waitForPendingOperation()
+        first.enable()
+        await first.waitForPendingOperation()
+        let enrolledFingerprint = service.calls.enroll.first?.fingerprint
+
+        manager.phase = .off
+        let recreated = CloudSystemVPNController(
+            service: service,
+            identityStore: identityStore,
+            manager: manager,
+            deviceName: "Aziz's iPhone",
+            credentials: {
+                (accessToken: "captured-access", refreshToken: "captured-refresh")
+            },
+            pendingRevocationStore: pendingStore
+        )
+        recreated.setScope("user-1/team-1", teamID: "team-1")
+        await recreated.waitForPendingOperation()
+
+        await recreated.serverTeardown()("captured-access", "captured-refresh")
+
+        #expect(service.calls.revoke.count == 1)
+        #expect(service.calls.revoke.first?.fingerprint == enrolledFingerprint)
+        #expect(service.calls.revoke.first?.purpose == .browser)
+    }
+
     @Test func signOutTeardownReturnsWhenAPlatformOperationIgnoresCancellation() async {
         let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
         let rig = Rig(
