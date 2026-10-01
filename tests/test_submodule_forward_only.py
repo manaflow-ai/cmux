@@ -185,6 +185,25 @@ class SubmoduleForwardOnlyTests(unittest.TestCase):
         # Only a shallow clone lacks history; a complete one already had its answer.
         self.assertIsNone(submodule_forward_only.deepened_relation(str(self.subrepo), self.a, self.a))
 
+    def test_deepening_preserves_an_existing_git_lock(self) -> None:
+        tip = self.commit_sub("tip subject")
+        shallow = self.shallow_clone("locked-shallow", self.a)
+        lock = shallow / ".git" / "shallow.lock"
+        lock.write_text("owned by another fetch\n", encoding="utf-8")
+        original_run = submodule_forward_only.run
+
+        def run(*args, **kwargs):
+            # Process command lines cannot establish ownership of a Git lock.
+            if args[0] == "pgrep":
+                return subprocess.CompletedProcess(args, 1, "", "")
+            return original_run(*args, **kwargs)
+
+        with patch.object(submodule_forward_only, "run", side_effect=run):
+            relation = submodule_forward_only.deepened_relation(str(shallow), self.a, tip)
+        self.assertTrue(lock.exists(), "the guard removed another fetch's lock")
+        self.assertEqual(lock.read_text(), "owned by another fetch\n")
+        self.assertIsNone(relation)
+
     def test_declared_rollback_passes(self) -> None:
         b = self.commit_sub("intentional rollback")
         self.pointer(b)
@@ -204,6 +223,31 @@ class SubmoduleForwardOnlyTests(unittest.TestCase):
         git("commit", "--allow-empty", "-qm", "submodule-forward-only: allow vendor/bonsplit", cwd=self.superrepo)
         result = self.run_guard()
         self.assertNotEqual(result.returncode, 0)
+
+
+class CommandTimeoutTests(unittest.TestCase):
+    def test_timeout_allows_the_command_to_clean_up_its_own_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            lock = Path(root) / "shallow.lock"
+            command = """
+import signal
+import sys
+from pathlib import Path
+lock = Path(sys.argv[1])
+def finish(*_args):
+    lock.unlink()
+    print("cleaned", flush=True)
+    sys.exit(0)
+signal.signal(signal.SIGTERM, finish)
+lock.write_text("owned")
+print("ready", flush=True)
+signal.pause()
+"""
+            result = submodule_forward_only.run(sys.executable, "-c", command, str(lock), timeout=1)
+            self.assertEqual(result.returncode, 124)
+            self.assertIn("ready", result.stdout)
+            self.assertFalse(lock.exists(), "timeout killed the owner before it could clean up")
+            self.assertIn("cleaned", result.stdout)
 
 
 class GitHubRelationTests(unittest.TestCase):
