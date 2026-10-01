@@ -145,6 +145,11 @@ struct CloudTreeMachineRowContent: View {
             parts.append(machine.id)
         }
         parts.append(machine.kindLabel)
+        // Before the age, so "by Ada Lovelace · 3 hours ago" reads as one
+        // thought: who made it and when.
+        if let author = CloudMachineCreatorLabel.text(creator: machine.createdBy) {
+            parts.append(author)
+        }
         if let createdAt = machine.createdAt {
             // `now`, not `Date()`: every other part of this struct reads the
             // injected clock, so the age was the one value a test could not
