@@ -107,6 +107,7 @@ export class AcpmuxDirectClient {
   private hasConnected = false;
   private closed = false;
   private selectionGeneration = 0;
+  private historyExhausted = false;
 
   private constructor(host: AcpmuxHostConfig, listener: Listener, onLost?: () => void) {
     this.host = host;
@@ -169,6 +170,7 @@ export class AcpmuxDirectClient {
   /** Drops everything that belongs to the previously selected session, before another one attaches. */
   private resetSessionState(): void {
     this.events = [];
+    this.historyExhausted = false;
     this.rows.clear();
     this.firstSeq = undefined;
     this.lastSeq = 0;
@@ -246,11 +248,9 @@ export class AcpmuxDirectClient {
     });
   }
 
-  private async attach(sessionId: string, beforeSeq?: number, generation = this.selectionGeneration): Promise<void> {
+  private async attach(sessionId: string, generation = this.selectionGeneration): Promise<void> {
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
-    const params: Record<string, unknown> = { sessionId, limit: 400, kinds: ["transcript"], eventStream: true };
-    if (beforeSeq !== undefined) params.beforeSeq = beforeSeq;
-    const result = await this.request("_acpmux/attach", params);
+    const result = await this.request("_acpmux/attach", { sessionId, limit: 400, kinds: ["transcript"], eventStream: true });
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
     const detail = result?.session ?? {};
     this.summary = detail;
@@ -269,7 +269,7 @@ export class AcpmuxDirectClient {
         const generation = ++this.selectionGeneration;
         this.resetSessionState();
         this.emit("session purged");
-        if (this.selectedSessionId) void this.attach(this.selectedSessionId, undefined, generation).catch(() => undefined);
+        if (this.selectedSessionId) void this.attach(this.selectedSessionId, generation).catch(() => undefined);
       } else {
         this.emit("session purged");
       }
@@ -359,7 +359,7 @@ export class AcpmuxDirectClient {
   private emit(connection = "connected"): void {
     const summary = this.summary;
     const effort = (summary?.configOptions ?? []).find((option: any) => option.category === "thought_level" || option.id === "reasoning_effort");
-    this.listener({ type: "snapshot", protocolVersion: 1, rows: [...this.rows.values()].sort((a, b) => a.at - b.at), sessions: this.sessions.map((session) => ({ sessionId: session.sessionId, displayTitle: session.title ?? session.name, title: session.title, name: session.name, status: session.status, model: session.model })), summary: summary ? { sessionId: summary.sessionId, title: summary.title, name: summary.name, harness: summary.harness, model: summary.model, effort: effort?.currentValue, status: summary.status, modes: summary.modes, configOptions: summary.configOptions } : undefined, connection, sessionId: this.selectedSessionId, isWorking: this.turnOpen || summary?.status === "running", queue: this.queue, permission: this.pendingPermission, catalog: this.catalog, canLoadOlder: (this.firstSeq ?? 1) > 1 });
+    this.listener({ type: "snapshot", protocolVersion: 1, rows: [...this.rows.values()].sort((a, b) => a.at - b.at), sessions: this.sessions.map((session) => ({ sessionId: session.sessionId, displayTitle: session.title ?? session.name, title: session.title, name: session.name, status: session.status, model: session.model })), summary: summary ? { sessionId: summary.sessionId, title: summary.title, name: summary.name, harness: summary.harness, model: summary.model, effort: effort?.currentValue, status: summary.status, modes: summary.modes, configOptions: summary.configOptions } : undefined, connection, sessionId: this.selectedSessionId, isWorking: this.turnOpen || summary?.status === "running", queue: this.queue, permission: this.pendingPermission, catalog: this.catalog, canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1 });
   }
 
   snapshot(): void { this.emit(); }
@@ -391,14 +391,34 @@ export class AcpmuxDirectClient {
     this.selectedSessionId = sessionId;
     this.resetSessionState();
     if (previousSessionId) await this.request("_acpmux/detach", { sessionId: previousSessionId });
-    await this.attach(sessionId, undefined, generation);
+    await this.attach(sessionId, generation);
     return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
   }
   async create(harness?: string): Promise<string | undefined> { const result = await this.request("session/new", { mcpServers: [], _meta: { acpmux: { harness } } }); if (result?.sessionId) return this.select(String(result.sessionId)); return undefined; }
   async setModel(modelId: string): Promise<void> { if (this.selectedSessionId) await this.request("session/set_model", { sessionId: this.selectedSessionId, modelId }); }
   async setMode(modeId: string): Promise<void> { if (this.selectedSessionId) await this.request("session/set_mode", { sessionId: this.selectedSessionId, modeId }); }
   async setConfig(configId: string, value: string): Promise<void> { if (this.selectedSessionId) await this.request("session/set_config_option", { sessionId: this.selectedSessionId, configId, value }); }
-  async loadOlder(): Promise<void> { if (this.selectedSessionId && this.firstSeq && this.firstSeq > 1) await this.attach(this.selectedSessionId, this.firstSeq); }
+  /// Pages older transcript events in without reattaching, so the live summary,
+  /// queue and permission stay as they are. A page that lands after the
+  /// selection changed belongs to another session and is dropped.
+  async loadOlder(): Promise<void> {
+    if (!this.selectedSessionId || !this.firstSeq || this.firstSeq <= 1 || this.historyExhausted) return;
+    const sessionId = this.selectedSessionId;
+    const generation = this.selectionGeneration;
+    const result = await this.request("_acpmux/events", { sessionId, beforeSeq: this.firstSeq, limit: 400, kinds: ["transcript"] });
+    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+    const summary = this.summary;
+    const queue = this.queue;
+    const permission = this.pendingPermission;
+    const older: EventRecord[] = result?.events ?? [];
+    this.events = mergeEventRecords(older, this.events);
+    this.rebuild();
+    this.summary = summary;
+    this.queue = queue;
+    this.pendingPermission = permission;
+    this.historyExhausted = result?.hasMore === false || older.length === 0 || (this.firstSeq ?? 1) <= 1;
+    this.emit("history");
+  }
   close(): void { this.closed = true; if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined; this.socket?.close(); this.socket = undefined; }
 }
 
