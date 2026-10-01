@@ -11,8 +11,9 @@ struct ColumnCloseScrollTests {
         [LayoutScreen(id: "s", name: "", layout: .columns(ids.map { LayoutColumn(id: ColumnID("c\($0)"), width: width, root: .leaf(PaneID($0))) }))]
     }
 
-    private func makeRoot(_ screens: [LayoutScreen], focused: PaneID) -> (LayoutRootView, NSWindow, CloseScrollProvider) {
+    private func makeRoot(_ screens: [LayoutScreen], focused: PaneID, followsDesignMetrics: Bool = true) -> (LayoutRootView, NSWindow, CloseScrollProvider) {
         let model = LayoutModel(screens: screens, activeScreenID: "s", focusedPane: focused)
+        model.followsDesignMetrics = followsDesignMetrics
         let provider = CloseScrollProvider()
         let view = LayoutRootView(model: model, contentProvider: provider)
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -57,8 +58,11 @@ struct ColumnCloseScrollTests {
     }
 
     @Test func closingAColumnLeftOfTheFocusKeepsTheFocusedColumnStill() async {
-        let (view, window, provider) = makeRoot(columns(["a", "b", "c", "d"]), focused: "a")
+        let (view, window, provider) = makeRoot(columns(["a", "b", "c", "d"]), focused: "a", followsDesignMetrics: false)
         defer { window.close() }
+        // This test compares frames across an update. Pin the model to its
+        // base style so another live DesignSettings test cannot change the
+        // strip gap between the two observations.
         let screen = view.screenViews["s"]!
         view.model.focus("c")
         await settle(view) { !view.driver.isRunning && screen.scroll.value > 0 }
