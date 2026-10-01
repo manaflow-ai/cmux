@@ -23,6 +23,15 @@ export function setTranscriptRpcForTest(next: Rpc | null) {
   rpc = next ?? cmuxRpc;
 }
 
+/** Preserves diagnostics and prompt recovery while giving the UI a copy key. */
+export function transcriptRpcErrorEvent(res: CmuxRpcResult, message: string, prompt?: string): Extract<AgentEvent, { kind: "error" }> {
+  return {
+    kind: "error", message,
+    ...(prompt !== undefined ? { prompt } : {}),
+    ...(res.errorCode === "timeout" ? { code: "terminal-rpc-timeout" as const } : {}),
+  };
+}
+
 export function transcriptTarget(sess: SessionCtx): TranscriptTarget | undefined {
   return sess.internal.transcriptTarget as TranscriptTarget | undefined;
 }
@@ -674,7 +683,7 @@ export const transcriptAdapter: Adapter = {
     }
     try {
       const res = await rpc("mobile.chat.send", { session_id: target.agentSessionId, text: prompt });
-      if (!res.ok) sess.emit({ kind: "error", message: `Couldn't send to the terminal: ${res.error}`, prompt });
+      if (!res.ok) sess.emit(transcriptRpcErrorEvent(res, `Couldn't send to the terminal: ${res.error}`, prompt));
     } catch (err) {
       sess.emit({ kind: "error", message: `Couldn't send to the terminal: ${rpcErrorMessage(err)}`, prompt });
     }
@@ -684,7 +693,7 @@ export const transcriptAdapter: Adapter = {
     if (!target) return;
     void rpc("mobile.chat.interrupt", { session_id: target.agentSessionId })
       .then((res) => {
-        if (!res.ok) sess.emit({ kind: "error", message: `Couldn't interrupt the terminal: ${res.error}` });
+        if (!res.ok) sess.emit(transcriptRpcErrorEvent(res, `Couldn't interrupt the terminal: ${res.error}`));
       })
       .catch((err) => {
         sess.emit({ kind: "error", message: `Couldn't interrupt the terminal: ${rpcErrorMessage(err)}` });

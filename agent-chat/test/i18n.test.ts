@@ -25,6 +25,7 @@ const keys: AgentChatTextKey[] = [
   "loadingDiff",
   "diffUnavailable",
   "retryDiff",
+  "terminalRequestTimeout",
 ];
 const english = agentChatCopyForLocale("en");
 
