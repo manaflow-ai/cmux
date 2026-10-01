@@ -123620,6 +123620,34 @@
         }
       }
     },
+    "cloudTree.daemonBuild.observed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Last observed live daemon: %@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "最後に確認したライブデーモン: %@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "上次观察到的实时守护进程：%@"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Zuletzt beobachteter Live-Daemon: %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Dernier démon actif observé : %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "آخر خادم حي تمت ملاحظته: %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Último daemon activo observado: %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "上次觀察到的即時守護程序：%@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "마지막으로 관찰된 라이브 데몬: %@"}}
+      }
+    },
+    "cloudTree.daemonBuild.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "unknown"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "不明"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "未知"}},
+        "de": {"stringUnit": {"state": "translated", "value": "unbekannt"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "inconnu"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "غير معروف"}},
+        "es": {"stringUnit": {"state": "translated", "value": "desconocido"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "未知"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "알 수 없음"}}
+      }
+    },
     "cloudTree.group.browsers": {
       "extractionState": "manual",
       "localizations": {

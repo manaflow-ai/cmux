@@ -13,7 +13,7 @@ enum CloudTreeRowToolTip {
         presenceHeads: [WorkspacePresenceParticipant]
     ) -> CloudTreeRowDescription {
         switch node.kind {
-        case .machine(let machine, _):
+        case .machine(let machine, let info):
             let content = CloudTreeMachineRowContent(machine: machine, info: info, style: style, resources: node.resourceSection)
             return .init(toolTip: content.toolTip, accessibilityLabel: content.accessibilityLabel)
         case .pendingMachine(let operation):

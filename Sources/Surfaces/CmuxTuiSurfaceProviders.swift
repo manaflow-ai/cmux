@@ -444,10 +444,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             let connected = try await links.connected(machineID: machineID)
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+            guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             if let daemonBuild = connected.daemonBuild {
                 observedDaemonBuild = daemonBuild
             }
-            guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             // The port scan and graph snapshot use independent daemon requests.
             // Start both after the link is ready. The graph publishes as soon as
             // the snapshot lands; ports publish when their scan finishes. The

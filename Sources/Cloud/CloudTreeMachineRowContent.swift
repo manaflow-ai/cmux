@@ -70,6 +70,9 @@ struct CloudTreeMachineRowContent: View {
     var accessibilityLabel: String {
         var parts = [machine.displayName, machine.activityLabel, metrics.summary]
         parts.append(subtitle)
+        if let build = info?.observedDaemonBuild {
+            parts.append(Self.daemonBuildSummary(build))
+        }
         parts.append(usageSummary)
         return parts.joined(separator: ", ")
     }
@@ -86,10 +89,7 @@ struct CloudTreeMachineRowContent: View {
         lines.append(subtitle)
         lines.append(machine.image)
         if let build = info?.observedDaemonBuild {
-            lines.append(String(
-                format: String(localized: "cloudTree.daemonBuild.observed", defaultValue: "Last observed live daemon: %@"),
-                build.displayName
-            ))
+            lines.append(Self.daemonBuildSummary(build))
         }
         lines.append(usageSummary)
         // A machine the catalog found before the fleet list named it is built
@@ -186,16 +186,20 @@ struct CloudTreeMachineRowContent: View {
         }
         parts.append(usageSummary)
         if let build = info?.observedDaemonBuild {
-            parts.append(String(
-                format: String(localized: "cloudTree.daemonBuild.observed", defaultValue: "Last observed live daemon: %@"),
-                build.displayName
-            ))
+            parts.append(Self.daemonBuildSummary(build))
         }
         return parts.joined(separator: " · ")
     }
 
     private func scaled(_ size: CGFloat) -> CGFloat {
         GlobalFontMagnification.scaledSize(size, percent: fontMagnification)
+    }
+
+    private static func daemonBuildSummary(_ build: SurfaceDaemonBuild) -> String {
+        String(
+            format: String(localized: "cloudTree.daemonBuild.observed", defaultValue: "Last observed live daemon: %@"),
+            build.displayName
+        )
     }
 
     private static let relativeFormatter: RelativeDateTimeFormatter = {

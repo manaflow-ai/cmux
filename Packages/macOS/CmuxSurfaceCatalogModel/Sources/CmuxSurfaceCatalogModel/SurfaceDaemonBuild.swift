@@ -19,6 +19,6 @@ public struct SurfaceDaemonBuild: Hashable, Codable, Sendable {
     public var displayName: String {
         if let version, !version.isEmpty { return version }
         if let commit, !commit.isEmpty { return String(commit.prefix(12)) }
-        return "unknown"
+        return String(localized: "cloudTree.daemonBuild.unknown", defaultValue: "unknown")
     }
 }

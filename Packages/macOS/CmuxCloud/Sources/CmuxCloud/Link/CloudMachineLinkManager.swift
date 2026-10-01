@@ -600,6 +600,7 @@ public actor CloudMachineLinkManager {
         for task in connecting.values { task.cancel() }
         connecting.removeAll()
         lastFailure.removeAll()
+        observedDaemonBuilds.removeAll()
     }
 
     /// Drops stale routing facts immediately. The registry owns and awaits
@@ -610,6 +611,7 @@ public actor CloudMachineLinkManager {
         machineStatuses = machineStatuses.filter { machineIDs.contains($0.key) }
         localStatusChanges = localStatusChanges.filter { machineIDs.contains($0.key) }
         ownerTeams = ownerTeams.filter { machineIDs.contains($0.key) }
+        observedDaemonBuilds = observedDaemonBuilds.filter { machineIDs.contains($0.key) }
     }
 
     /// Re-sends this Mac's theme to every connected machine (a Ghostty config reload
