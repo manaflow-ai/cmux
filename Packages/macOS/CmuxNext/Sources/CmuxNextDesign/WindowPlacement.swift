@@ -57,7 +57,13 @@ public struct WindowPlacement {
         return CGRect(x: x.rounded(), y: y.rounded(), width: width, height: height)
     }
 
+    /// `frame` moved (and shrunk if needed) inside `visible` (stub).
+    public nonisolated static func contain(_ frame: CGRect, in visible: CGRect) -> CGRect { frame }
+
     // MARK: AppKit
+
+    /// `frame` kept on the test screen in an agent screenshot launch (stub).
+    public static func containedOnTestScreen(_ frame: CGRect) -> CGRect { frame }
 
     /// The shell window an auxiliary window belongs to when the caller has
     /// none: the main window, else the key window's parent chain.
