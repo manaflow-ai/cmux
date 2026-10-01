@@ -31668,8 +31668,6 @@ struct CMUXCLI {
                 return nil
             }
 
-            // Taken before the reads, so a write after them wakes the wait below.
-            let observedTranscriptState = codexTranscriptFileState(path: transcriptPath)
             if let currentTranscriptPath = transcriptPath {
                 let userInput = autoreleasepool(invoking: { readCodexTranscriptUserInput(path: currentTranscriptPath, turnId: turnId, excluding: publishedUserInputCallIds) })
                 if let userInput {
@@ -31770,11 +31768,6 @@ struct CMUXCLI {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return nil }
-            if let observedTranscriptState,
-               let currentState = codexTranscriptFileState(path: transcriptPath),
-               currentState != observedTranscriptState {
-                continue
-            }
             transcriptChanges.wait(timeout: min(ownerGraceActive ? 0.25 : 30, remaining))
         }
         return nil
