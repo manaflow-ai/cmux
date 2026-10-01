@@ -13,7 +13,20 @@ struct MobileTaskModelPrefetchCatalog: Sendable {
     }
 
     func result(for provider: MobileTaskAgentProvider) async -> MobileTaskModelListResult? {
-        try? await task.value[provider]
+        let waiter = MobileTaskModelPrefetchCatalogWaiter()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                Task {
+                    await waiter.start(
+                        continuation: continuation,
+                        task: task,
+                        provider: provider
+                    )
+                }
+            }
+        } onCancel: {
+            Task { await waiter.cancel() }
+        }
     }
 
     func cancel() {

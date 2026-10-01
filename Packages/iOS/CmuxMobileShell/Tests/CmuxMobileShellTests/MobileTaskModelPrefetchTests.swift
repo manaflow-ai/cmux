@@ -155,6 +155,30 @@ struct MobileTaskModelPrefetchTests {
         #expect(await probe.requestCount == 1)
     }
 
+    @Test func canceledCatalogConsumerReturnsBeforeSharedCatalogFinishes() async throws {
+        let probe = MobileTaskModelPrefetchCatalogProbe(data: Data(
+            #"{"schemaVersion":1,"providers":{"claude":{"models":[{"id":"backend-claude","label":"Backend Claude"}]}}}"#.utf8
+        ))
+        await probe.setHold(true)
+        let client = MobileTaskModelCatalogClient(
+            endpoint: URL(string: "https://catalog.example.test/models")!,
+            loader: { _ in await probe.load() }
+        )
+        let catalog = MobileTaskModelPrefetchCatalog(client: client, startedAt: Date())
+        await probe.waitUntilStarted()
+
+        let consumer = Task {
+            await catalog.result(for: .claude)
+        }
+        let cancellationStartedAt = ContinuousClock.now
+        consumer.cancel()
+        #expect(await consumer.value == nil)
+        #expect(ContinuousClock.now - cancellationStartedAt < .seconds(1))
+
+        await probe.release()
+        catalog.cancel()
+    }
+
     @Test func obsoleteConnectionDoesNotPrefetchIntoReplacement() async throws {
         let router = RoutingHostRouter()
         let store = try await makeRoutingConnectedStore(router: router, hostCapabilities: [])
