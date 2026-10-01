@@ -75,8 +75,12 @@ extension CmuxTuiRemoteRouting {
             facts.append(String(format: String(localized: "cli.vm.tree.disk", defaultValue: "%.0f GB disk"), diskMb / 1024))
         }
         let linkState = (machine["link_state"] as? String) ?? ((machine["link"] as? [String: Any])?["state"] as? String) ?? ""
-        let linkError = ((machine["link_error_message"] as? String) ?? ((machine["link"] as? [String: Any])?["error_message"] as? String) ?? (machine["link_error"] as? String) ?? ((machine["link"] as? [String: Any])?["error"] as? String))
+        let linkError = ((machine["link_error_message"] as? String) ?? ((machine["link"] as? [String: Any])?["error_message"] as? String))
             .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+        let linkErrorDescription = linkError ?? String(
+            localized: "cloudTree.placeholder.linkError",
+            defaultValue: "Link failed"
+        )
         if !linkState.isEmpty, linkState != "n/a" {
             facts.append(String(format: String(localized: "cli.vm.tree.link", defaultValue: "link %@"), linkState))
         }
@@ -165,7 +169,7 @@ extension CmuxTuiRemoteRouting {
             lines.append("    " + String(
                 format: String(localized: "cli.vm.tree.link.error", defaultValue: "⚠ link %@: %@"),
                 linkState,
-                linkError ?? linkState
+                linkErrorDescription
             ))
             lines.append("    " + String(
                 format: String(localized: "cli.vm.tree.link.retry", defaultValue: "retry: cmux vm tree %@ --refresh"),

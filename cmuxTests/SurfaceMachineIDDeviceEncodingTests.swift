@@ -140,6 +140,17 @@ struct SurfaceMachineIDDeviceEncodingTests {
         )
         #expect(lines.contains { $0.contains("cmux cannot reach the Cloud service") })
         #expect(!lines.contains { $0.contains("cloud_api_unavailable") })
+
+        let fallbackLines = CMUXCLI.vmTreeLines(
+            machine: [
+                "id": "brave-otter",
+                "status": "running",
+                "link_state": "error",
+                "link_error": "cloud_api_unavailable",
+            ],
+            resources: []
+        )
+        #expect(!fallbackLines.contains { $0.contains("cloud_api_unavailable") })
     }
 
     @Test("Build labels qualify dev, nightly, rc, and tagged instances; stable stays bare")
