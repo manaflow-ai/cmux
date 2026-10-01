@@ -15,46 +15,57 @@ import Testing
 
     @Test func aSmoothScrollStaysAtFullRate() {
         var pacing = AgentPaneFramePacing()
-        #expect(pacing.record(intervals: scroll(display, late: 1, slow: 8), displayInterval: display, at: start))
+        let decision1 = pacing.record(intervals: scroll(display, late: 1, slow: 8), displayInterval: display, at: start)
+        #expect(decision1)
     }
 
     @Test func aScrollThatMissesFramesDropsToTheCappedRate() {
         var pacing = AgentPaneFramePacing()
-        #expect(!pacing.record(intervals: scroll(display, late: 4, slow: 12.5), displayInterval: display, at: start))
+        let decision2 = pacing.record(intervals: scroll(display, late: 4, slow: 12.5), displayInterval: display, at: start)
+        #expect(!decision2)
     }
 
     @Test func aShortScrollDecidesNothing() {
         var pacing = AgentPaneFramePacing()
-        #expect(pacing.record(intervals: scroll(12.5, frames: AgentPaneFramePacing.minimumFrames - 1), displayInterval: display, at: start))
+        let decision3 = pacing.record(intervals: scroll(12.5, frames: AgentPaneFramePacing.minimumFrames - 1), displayInterval: display, at: start)
+        #expect(decision3)
     }
 
     @Test func aCleanCappedScrollRestoresFullRateAfterTheBackoff() {
         var pacing = AgentPaneFramePacing()
         _ = pacing.record(intervals: scroll(12.5), displayInterval: display, at: start)
-        #expect(!pacing.record(intervals: scroll(12.5), displayInterval: display, at: start.addingTimeInterval(backoff / 2)))
-        #expect(pacing.record(intervals: scroll(12.5), displayInterval: display, at: start.addingTimeInterval(backoff + 1)))
+        let decision4 = pacing.record(intervals: scroll(12.5), displayInterval: display, at: start.addingTimeInterval(backoff / 2))
+        #expect(!decision4)
+        let decision5 = pacing.record(intervals: scroll(12.5), displayInterval: display, at: start.addingTimeInterval(backoff + 1))
+        #expect(decision5)
     }
 
     @Test func aCappedScrollThatStillMissesFramesKeepsTheCap() {
         var pacing = AgentPaneFramePacing()
         _ = pacing.record(intervals: scroll(12.5), displayInterval: display, at: start)
-        #expect(!pacing.record(intervals: scroll(12.5, late: 3, slow: 25), displayInterval: display, at: start.addingTimeInterval(backoff + 1)))
+        let decision6 = pacing.record(intervals: scroll(12.5, late: 3, slow: 25), displayInterval: display, at: start.addingTimeInterval(backoff + 1))
+        #expect(!decision6)
     }
 
     @Test func aQuickRelapseDoublesTheBackoff() {
         var pacing = AgentPaneFramePacing()
         _ = pacing.record(intervals: scroll(12.5), displayInterval: display, at: start)
         let restored = start.addingTimeInterval(backoff + 1)
-        #expect(pacing.record(intervals: scroll(12.5), displayInterval: display, at: restored))
+        let decision7 = pacing.record(intervals: scroll(12.5), displayInterval: display, at: restored)
+        #expect(decision7)
         let relapse = restored.addingTimeInterval(2)
-        #expect(!pacing.record(intervals: scroll(12.5), displayInterval: display, at: relapse))
-        #expect(!pacing.record(intervals: scroll(12.5), displayInterval: display, at: relapse.addingTimeInterval(backoff + 1)))
-        #expect(pacing.record(intervals: scroll(12.5), displayInterval: display, at: relapse.addingTimeInterval(2 * backoff + 1)))
+        let decision8 = pacing.record(intervals: scroll(12.5), displayInterval: display, at: relapse)
+        #expect(!decision8)
+        let decision9 = pacing.record(intervals: scroll(12.5), displayInterval: display, at: relapse.addingTimeInterval(backoff + 1))
+        #expect(!decision9)
+        let decision10 = pacing.record(intervals: scroll(12.5), displayInterval: display, at: relapse.addingTimeInterval(2 * backoff + 1))
+        #expect(decision10)
     }
 
     /// At 60 Hz the cap and the full rate are the same rate.
     @Test func aDisplayNearSixtyHertzIsLeftAtItsRate() {
         var pacing = AgentPaneFramePacing()
-        #expect(pacing.record(intervals: scroll(33.3), displayInterval: 1000 / 60, at: start))
+        let decision11 = pacing.record(intervals: scroll(33.3), displayInterval: 1000 / 60, at: start)
+        #expect(decision11)
     }
 }
