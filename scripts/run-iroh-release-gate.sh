@@ -81,6 +81,10 @@ if [[ "$REAL_USAGE" -eq 1 && -z "$REPORT_OUTPUT" ]]; then
   echo "error: --real-usage requires --report-output" >&2
   exit 2
 fi
+if [[ "$MODE" == relay-only && "$SOAK_PROFILE" == stress && -z "$REPORT_OUTPUT" ]]; then
+  echo "error: relay-only stress requires --report-output so latency evidence is retained" >&2
+  exit 2
+fi
 [[ "$PHASE_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || {
   echo "error: CMUX_IROH_RELEASE_GATE_PHASE_TIMEOUT_SECONDS must be a positive integer" >&2
   exit 2
@@ -455,7 +459,10 @@ cleanup() {
   trap - EXIT INT TERM
   set +e
   if [[ -n "$LATENCY_STATE_FILE" ]]; then
-    "$SCRIPT_DIR/e2e/iroh-latency-impairment.sh" stop "$LATENCY_STATE_FILE" >/dev/null 2>&1 || true
+    if ! "$SCRIPT_DIR/e2e/iroh-latency-impairment.sh" stop "$LATENCY_STATE_FILE" >/dev/null 2>&1; then
+      echo "error: latency impairment cleanup failed; the gate cannot pass with network rules still uncertain" >&2
+      cleanup_code=1
+    fi
   fi
   if [[ -n "$REPORT_WAITER_PID" ]]; then
     kill "$REPORT_WAITER_PID" >/dev/null 2>&1 || true
@@ -505,9 +512,10 @@ cleanup() {
       --credentials-file "$PROD_CREDENTIALS_FILE" \
       --api-base-url "$STAGING_BASE_URL" \
       --recovery-file "$PROD_RECOVERY_FILE" >/dev/null
-    cleanup_code=$?
-    if [[ "$cleanup_code" -ne 0 ]]; then
+    account_cleanup_code=$?
+    if [[ "$account_cleanup_code" -ne 0 ]]; then
       echo "error: production account cleanup gate failed; redacted report: $PROD_RECOVERY_FILE" >&2
+      cleanup_code=1
       exit_code=1
     fi
   fi
@@ -550,6 +558,9 @@ cleanup() {
     else
       rm -rf "$STATE_DIR"
     fi
+  fi
+  if [[ "$cleanup_code" -ne 0 ]]; then
+    exit_code=1
   fi
   exit "$exit_code"
 }
@@ -1213,7 +1224,8 @@ if [[ -n "$REPORT_OUTPUT" ]]; then
     "$SCRIPT_DIR/e2e/summarize-iroh-latency.py" \
       "$LATENCY_STATE_FILE" \
       "${REPORT_OUTPUT%.json}-latency.json" \
-      "$(dirname "$REPORT_OUTPUT")"
+      "$(dirname "$REPORT_OUTPUT")" \
+      "${REPORT_OUTPUT%.json}"
   fi
 fi
 

@@ -3,9 +3,10 @@ import json
 import sys
 from pathlib import Path
 
-if len(sys.argv) != 4:
-    raise SystemExit("usage: summarize-iroh-latency.py STATE OUTPUT JOURNAL_DIR")
-state_path, output_path, journal_dir = map(Path, sys.argv[1:])
+if len(sys.argv) not in (4, 5):
+    raise SystemExit("usage: summarize-iroh-latency.py STATE OUTPUT JOURNAL_DIR [JOURNAL_PREFIX]")
+state_path, output_path, journal_dir = map(Path, sys.argv[1:4])
+journal_prefix = Path(sys.argv[4]) if len(sys.argv) == 5 else None
 state = {}
 for line in state_path.read_text(encoding="utf-8").splitlines():
     key, separator, value = line.partition("=")
@@ -17,7 +18,13 @@ except (KeyError, ValueError):
     raise SystemExit("latency state has no valid delay_ms")
 
 samples = []
-for path in sorted(journal_dir.glob("*-ios-iroh-v2-journal-success-*.jsonl")):
+if journal_prefix is None:
+    journal_paths = sorted(journal_dir.glob("*-ios-iroh-v2-journal-success-*.jsonl"))
+else:
+    journal_paths = sorted(journal_prefix.parent.glob(
+        journal_prefix.name + "-ios-iroh-v2-journal-success-*.jsonl"
+    ))
+for path in journal_paths:
     for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
         try:
             value = json.loads(raw)
@@ -28,7 +35,10 @@ for path in sorted(journal_dir.glob("*-ios-iroh-v2-journal-success-*.jsonl")):
             item = stack.pop()
             if isinstance(item, dict):
                 for key, child in item.items():
-                    if key in {"rtt_ms", "a_rtt_ms"}:
+                    # IrxJournal prefixes attributes with a_ in its JSONL
+                    # representation. Keep one source key so a future record
+                    # containing both spellings cannot double-count a ping.
+                    if key == "a_rtt_ms":
                         try:
                             number = float(child)
                         except (TypeError, ValueError):
@@ -52,7 +62,7 @@ summary = {
     "appliedDelayMs": applied_delay,
     "sampleCount": len(samples),
     "rttMs": {"p50": percentile(0.50), "p95": percentile(0.95), "max": samples[-1]},
-    "journalFiles": [str(path) for path in sorted(journal_dir.glob("*-ios-iroh-v2-journal-success-*.jsonl"))],
+    "journalFiles": [str(path) for path in journal_paths],
 }
 output_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 if summary["rttMs"]["p95"] < applied_delay:

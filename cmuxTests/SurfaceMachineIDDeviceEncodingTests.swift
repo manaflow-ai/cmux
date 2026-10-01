@@ -126,7 +126,7 @@ struct SurfaceMachineIDDeviceEncodingTests {
         failed.linkError = "cloud_api_unavailable"
         let payload = TerminalController.surfaceMachinePayload(failed)
         #expect(payload["link_error"] as? String == "cloud_api_unavailable")
-        #expect(payload["link_error_message"] as? String == "cmux cannot reach the Cloud service for this machine right now.")
+        #expect(payload["link_error_message"] as? String == "The Cloud connection did not complete. Check your connection and try again.")
 
         // CLI rendering is compiled into the CLI executable, while this test
         // target links the app module. Keep the payload assertion here and

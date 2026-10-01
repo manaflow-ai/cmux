@@ -3654,7 +3654,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
         startAgentHookMockServerAccepting(context: context)
 
-        let oldPromptEnd = context.state.commands.count
+        let oldPromptStart = context.state.commands.count
         let oldPrompt = runCodexHook(
             context: context,
             subcommand: "prompt-submit",
@@ -3680,7 +3680,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         // (agent.turn.completed) or by this Stop's transcript-terminal check
         // (agent.idle.observed). Either must retire old-turn without notifying.
         func oldTurnRetirements() -> [AgentJournalAppendCapture] {
-            AgentJournalAppendCapture.captures(in: Array(context.state.snapshot().dropFirst(oldPromptEnd))).filter {
+            AgentJournalAppendCapture.captures(in: Array(context.state.snapshot().dropFirst(oldPromptStart))).filter {
                 ($0.kind == "agent.idle.observed" || $0.kind == "agent.turn.completed")
                     && ($0.draft["attention"] as? [String: Any])?["turnIdentity"] as? String == "old-turn"
             }

@@ -425,6 +425,7 @@ jobs:
         run: |
           set -euo pipefail
           curl --fail --silent --show-error --retry 3 --retry-connrefused \
+            --connect-timeout 10 --max-time 30 \
             "$EXPECTED_V2_URL/v2/health" > "$HEALTH_OUTPUT"
           EXPECTED_ENVIRONMENT="$EXPECTED_ENVIRONMENT" EXPECTED_V2_URL="$EXPECTED_V2_URL" HEALTH_OUTPUT="$HEALTH_OUTPUT" \
             /usr/bin/python3 - <<'PY'
@@ -440,7 +441,7 @@ jobs:
               raise SystemExit("Worker health schema is not health.v1")
           if health.get("environment") != expected_environment:
               raise SystemExit("Worker health environment does not match the gate")
-          if not isinstance(health.get("sourceRevision"), str) or not health["sourceRevision"]:
+          if not isinstance(health.get("sourceRevision"), str) or not health["sourceRevision"] or health["sourceRevision"] == "unknown":
               raise SystemExit("Worker health did not identify its source revision")
           if health.get("storage", {}).get("maxSchemaVersion", 0) < 7:
               raise SystemExit("Worker storage schema is older than v2")
@@ -462,7 +463,7 @@ jobs:
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-ios-*.jsonl
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-ios-*.log
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-mac-failure.cmuxdiag
-            ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-latency.state
+            ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-latency.state*
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-latency.json
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-worker-health.json
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-real-usage/**
