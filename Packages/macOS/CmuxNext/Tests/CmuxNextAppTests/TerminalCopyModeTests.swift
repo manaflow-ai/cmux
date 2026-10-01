@@ -27,18 +27,11 @@ struct TerminalCopyModeBindingTests {
 /// `ghostty_surface_new` to succeed (a Ghostty runtime and a Metal device);
 /// the suite reports itself skipped where it cannot.
 @MainActor
-@Suite(.enabled("needs a live Ghostty surface") { await TerminalCopyModeTests.liveSurfaceAvailable() })
+@Suite(.enabled("needs a live Ghostty surface") { await CopyModeLiveSurface.available() })
 struct TerminalCopyModeTests {
-    static func liveSurfaceAvailable() -> Bool {
-        (try? terminal())?.2.surface != nil
-    }
-
     private static func terminal() throws -> (AppServices, TabModel, TerminalSurfaceView) {
-        let services = ActionBindingCoverageTests.boundServices()
-        services.daemon.store.apply(snapshot: try BridgeTreeFixture.tree())
-        let tab = try #require(services.daemon.store.workspaces.first?.screens.first?.panes.first?.tabs.first)
-        let view = services.cache.terminal(for: tab, daemon: services.daemon).session.surfaceView
-        return (services, tab, view)
+        let view = try #require(CopyModeLiveSurface.make())
+        return (view.services, view.tab, view.view)
     }
 
     private static func key(_ characters: String, keyCode: UInt16, flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
@@ -57,6 +50,7 @@ struct TerminalCopyModeTests {
         let controller = try #require(services.windows.openWindow(workspaces: [workspace.id]))
         defer { controller.window?.close() }
         await ReopenClosedTabTests.settle { services.paneController(for: pane) != nil }
+        try #require(services.paneController(for: pane) != nil, "the window never showed the pane")
         let target = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id))
         services.registry.context.insert(.terminalFocused)
 
@@ -96,5 +90,22 @@ struct TerminalCopyModeTests {
         #expect(view.isCopyModeActive)
         #expect(view.copyMode?.input == CopyModeInputState())
         view.exitCopyMode()
+    }
+}
+
+/// A terminal on a fresh service graph, outside any window. Separate from
+/// the suite so its `.enabled` trait can probe without naming the suite.
+@MainActor
+enum CopyModeLiveSurface {
+    static func make() -> (services: AppServices, tab: TabModel, view: TerminalSurfaceView)? {
+        let services = ActionBindingCoverageTests.boundServices()
+        guard let tree = try? BridgeTreeFixture.tree() else { return nil }
+        services.daemon.store.apply(snapshot: tree)
+        guard let tab = services.daemon.store.workspaces.first?.screens.first?.panes.first?.tabs.first else { return nil }
+        return (services, tab, services.cache.terminal(for: tab, daemon: services.daemon).session.surfaceView)
+    }
+
+    static func available() -> Bool {
+        make()?.view.surface != nil
     }
 }
