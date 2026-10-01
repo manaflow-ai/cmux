@@ -61,7 +61,6 @@ NOT_IN_CMUX_JSON = frozenset({
     # "#RRGGBB" app.accentColor value.
     "app.accentColorCustomHex",
     "app.fileDropDefaultBehavior",
-    "app.installUpdatesAutomatically",
     "app.systemWideHotkeyEnabled",
     "app.titlebarControlsStyle",
     "app.workspaceButtonFade",
@@ -76,7 +75,6 @@ NOT_IN_CMUX_JSON = frozenset({
     "extensions.beta.enabled",
     "remoteTmux.beta.enabled",
     "rightSidebar.beta.feed.enabled",
-    "terminal.beta.predictedEcho.enabled",
     # Device discovery and pairing state.
     "devices.discovery.enabled",
     "devices.incomingAccess.enabled",

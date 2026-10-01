@@ -204,7 +204,11 @@ extension CMUXCLI {
 
     private var agentsCommandsHelp: String {
         return """
+        \(String(localized: "cli.help.agents.message", defaultValue: "agent message <target> [--from <name>] <text|->"))
+        \(String(localized: "cli.help.agents.reply", defaultValue: "agent message --reply-to <id> [--from <name>] <text|->"))
+        \(String(localized: "cli.help.agents.inbox", defaultValue: "agent inbox [--surface <target>] [--state <state>] [--mark-read]"))
         agent-hibernation <on|off>
+        agent-hibernation <hibernate|wake> <surface>
         claude-teams [claude-args...]
         codex-teams [codex-args...]
         omo [opencode-args...]
@@ -279,6 +283,8 @@ extension CMUXCLI {
         current-workspace [--window <id|ref|index>]
         \(Self.readSelectionUsageLine)
         \(Self.readScreenUsageLine)
+        \(Self.recordUsageLine)
+        \(Self.shotUsageLine)
         sidebar-state [--workspace <id|ref|index>] [--window <id|ref|index>]
         markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
         diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>] (open patch input or git source in a browser split)
@@ -289,7 +295,7 @@ extension CMUXCLI {
         return """
         guide | --skill
         welcome
-        docs [settings|shortcuts|api|browser|agents|dock]
+        docs [settings|shortcuts|api|browser|capture|agents|dock]
         settings [open [target]|path|docs|<target>]
         config <doctor|check|validate|path|paths|docs|documentation|reload>
         shortcuts
@@ -324,6 +330,7 @@ extension CMUXCLI {
         open-notification --id <uuid>
         jump-to-unread
         clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+        \(String(localized: "cli.help.command.pr", defaultValue: "pr <url|number> [flags] | pr clear [flags]"))
         set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
         clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]
         list-status [--workspace <id|ref|index>] [--window <id|ref|index>]
@@ -366,7 +373,7 @@ extension CMUXCLI {
         browser find <role|text|label|placeholder|alt|title|testid|first|last|nth> ...
         browser frame <selector|main>
         browser dialog <accept|dismiss> [text]
-        browser download list [--limit <1...25>] | download [wait] [--path <path>] [--timeout-ms <ms>]
+        browser download list [--limit <1...25>] [--json] | download [wait] [--path <path>] [--timeout-ms <ms>]
         browser profiles <list|add|rename|clear|delete> [...]
         browser profiles clear <profile|--all> [--force]
         browser import [...]

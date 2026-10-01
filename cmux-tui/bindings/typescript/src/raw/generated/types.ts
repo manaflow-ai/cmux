@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 363026d3df79b03f9370d4cd36991f33820e164d0895fe1d991754fb78449787. */
+/* cmux-tui mux protocol 12, IR 45d5f5eee71a41e566a469983f04b4e23ebc018dbd440ee24c7a1f25ad540f43. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -453,6 +453,11 @@ export type ReadScrollbackResult = {
   "total": number;
 };
 
+export type ReattachViewResult = {
+  "participant": string;
+  "state": SizeState;
+};
+
 export type RenderCursor = {
   "blink": boolean;
   "color": (ColorHex) | null;
@@ -722,6 +727,7 @@ export type SizeMode = "latest" | "smallest" | "largest" | "priority" | "fixed";
 export type SizeParticipant = {
   "counts": boolean;
   "counts_override": (boolean) | null;
+  "device_id": (string) | null;
   "device_kind": SizeDeviceKind;
   "device_name": (string) | null;
   "display_name": (string) | null;
@@ -751,6 +757,7 @@ export type SizeState = {
 };
 
 export type SizingIdentity = {
+  "device_id"?: (string) | null;
   "device_kind"?: (string) | null;
   "device_name"?: (string) | null;
   "display_name"?: (string) | null;

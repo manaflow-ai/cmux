@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "363026d3df79b03f9370d4cd36991f33820e164d0895fe1d991754fb78449787";
+inline constexpr std::string_view kProtocolIrSha256 = "45d5f5eee71a41e566a469983f04b4e23ebc018dbd440ee24c7a1f25ad540f43";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -90,6 +90,7 @@ struct ProcessInfoResult;
 struct ProviderWorkspaceMutationResult;
 struct ReadScreenResult;
 struct ReadScrollbackResult;
+struct ReattachViewResult;
 struct RenderCursor;
 enum class RenderGraphicFormat;
 struct RenderGraphicImage;
@@ -274,6 +275,7 @@ struct PutFrontendProjectionRequest;
 struct PutSessionRequest;
 struct ReadScreenRequest;
 struct ReadScrollbackRequest;
+struct ReattachViewRequest;
 struct RegisterBrowserProviderRequest;
 struct ReleaseAttachedViewSizeRequest;
 struct ReleaseSurfaceSizeRequest;
@@ -1344,6 +1346,7 @@ struct SizeDetachActor {
 struct DetachClientRequest {
     Field<SizeDetachActor> by{};
     DetachClientTarget client{};
+    Field<Id> surface{};
     friend bool operator==(const DetachClientRequest&, const DetachClientRequest&) = default;
 };
 
@@ -1357,6 +1360,7 @@ enum class DetachReason {
 struct DetachedEvent {
     std::optional<SizeDetachActor> by{};
     std::optional<DetachReason> reason{};
+    std::optional<std::string> scope{};
     Id surface{};
     std::optional<std::string> view{};
     friend bool operator==(const DetachedEvent&, const DetachedEvent&) = default;
@@ -1566,6 +1570,7 @@ enum class SizeDeviceKind {
 struct SizeParticipant {
     bool counts{};
     std::optional<bool> counts_override{};
+    std::optional<std::string> device_id{};
     SizeDeviceKind device_kind{};
     std::optional<std::string> device_name{};
     std::optional<std::string> display_name{};
@@ -2509,6 +2514,18 @@ struct ReadScrollbackResult {
     friend bool operator==(const ReadScrollbackResult&, const ReadScrollbackResult&) = default;
 };
 
+struct ReattachViewRequest {
+    Field<bool> counts{};
+    Id surface{};
+    friend bool operator==(const ReattachViewRequest&, const ReattachViewRequest&) = default;
+};
+
+struct ReattachViewResult {
+    std::string participant{};
+    SizeState state{};
+    friend bool operator==(const ReattachViewResult&, const ReattachViewResult&) = default;
+};
+
 struct RegisterBrowserProviderRequest {
     BrowserProviderAuthentication authentication{};
     Field<std::string> bearer_token{};
@@ -2717,6 +2734,7 @@ struct ReportFocusRequest {
 };
 
 struct SizingIdentity {
+    Field<std::string> device_id{};
     Field<std::string> device_kind{};
     Field<std::string> device_name{};
     Field<std::string> display_name{};
@@ -3005,6 +3023,7 @@ struct SetCellPixelsResult {
 
 struct SetClientInfoRequest {
     Field<std::vector<std::string>> capabilities{};
+    Field<std::string> device_id{};
     Field<std::string> device_kind{};
     Field<std::string> device_name{};
     Field<std::string> display_name{};
@@ -4149,6 +4168,12 @@ struct Codec<ReadScrollbackResult> {
 };
 
 template <>
+struct Codec<ReattachViewResult> {
+    static Result<Json> encode(const ReattachViewResult& value);
+    static Result<ReattachViewResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<RenderCursor> {
     static Result<Json> encode(const RenderCursor& value);
     static Result<RenderCursor> decode(const Json& value);
@@ -5250,6 +5275,12 @@ template <>
 struct Codec<ReadScrollbackRequest> {
     static Result<Json> encode(const ReadScrollbackRequest& value);
     static Result<ReadScrollbackRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ReattachViewRequest> {
+    static Result<Json> encode(const ReattachViewRequest& value);
+    static Result<ReattachViewRequest> decode(const Json& value);
 };
 
 template <>

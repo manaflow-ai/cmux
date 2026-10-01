@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 363026d3df79b03f9370d4cd36991f33820e164d0895fe1d991754fb78449787. */
+/* cmux-tui mux protocol 12, IR 45d5f5eee71a41e566a469983f04b4e23ebc018dbd440ee24c7a1f25ad540f43. */
 
 
 import type * as T from "./types.js";
@@ -493,6 +493,7 @@ export interface DetachClientRequest extends CmuxRequestBase {
   cmd: "detach-client";
   "by"?: (T.SizeDetachActor) | null;
   "client": T.DetachClientTarget;
+  "surface"?: (T.Id) | null;
 }
 export type DetachClientResult = T.EmptyResult;
 
@@ -1063,6 +1064,13 @@ export interface ReadScrollbackRequest extends CmuxRequestBase {
   "surface": T.Id;
 }
 
+/** Protocol v12; authority: control. */
+export interface ReattachViewRequest extends CmuxRequestBase {
+  cmd: "reattach-view";
+  "counts"?: (boolean) | null;
+  "surface": T.Id;
+}
+
 /** Protocol v10; authority: local-admin. */
 export interface RegisterBrowserProviderRequest extends CmuxRequestBase {
   cmd: "register-browser-provider";
@@ -1317,6 +1325,7 @@ export interface SetCellPixelsRequest extends CmuxRequestBase {
 export interface SetClientInfoRequest extends CmuxRequestBase {
   cmd: "set-client-info";
   "capabilities"?: (Array<string>) | null;
+  "device_id"?: (string) | null;
   "device_kind"?: (string) | null;
   "device_name"?: (string) | null;
   "display_name"?: (string) | null;
@@ -1844,6 +1853,7 @@ export type CmuxRequest =
   | PutSessionRequest
   | ReadScreenRequest
   | ReadScrollbackRequest
+  | ReattachViewRequest
   | RegisterBrowserProviderRequest
   | ReleaseAttachedViewSizeRequest
   | ReleaseSurfaceSizeRequest
@@ -2816,6 +2826,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 7;
     capability: null;
+    stream: null;
+  };
+  "reattach-view": {
+    request: ReattachViewRequest;
+    result: T.ReattachViewResult;
+    authority: "control";
+    since: 12;
+    capability: "sizing-view-detach-v1";
     stream: null;
   };
   "register-browser-provider": {
