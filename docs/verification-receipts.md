@@ -133,6 +133,7 @@ it does not assert that the entire CI checkout equals the PR head.
 | --- | --- |
 | `xcstrings` | Localization catalog structure |
 | `localization` | macOS localization parity |
+| `localization-defaults` | Swift `defaultValue` literals consume the same format arguments as their catalog `en` value |
 | `project-tests` | Five project normalizer unit tests at the demonstrated revision; counts are read from each execution |
 | `project` | Xcode project version pin and normalization |
 | `config-schema` | Embedded cmux.json schema matches its source |
