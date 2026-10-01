@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import CmuxSettings
+import Observation
 import OSLog
 
 /// Coordinates cmux's mirroring of remote tmux servers.
@@ -306,8 +307,15 @@ final class RemoteTmuxController {
     /// Active session→workspace mirrors keyed `connectionHash\u{1}session`
     /// (see ``connectionKey(host:sessionName:)``).
     var sessionMirrors: [String: RemoteTmuxSessionMirror] = [:] {
-        didSet { hostDestinationsGeneration &+= 1 }
+        didSet {
+            hostDestinationsGeneration &+= 1
+            if Set(oldValue.keys) != Set(sessionMirrors.keys) { mirrorSet.noteChanged() }
+        }
     }
+
+    /// Changes whenever a session starts or stops being mirrored. A SwiftUI view
+    /// reads this revision so detaching a selected mirror refreshes routing UI.
+    let mirrorSet = RemoteTmuxMirrorSetRevision()
 
     /// Outstanding login offers, keyed by ``RemoteTmuxHost/connectionHash``.
     ///
@@ -609,6 +617,17 @@ final class RemoteTmuxController {
         self?.presentNewSessionFailureAlert(host: host, detail: detail, manager: manager)
     }
 
+    /// Returns a bounded, control-character-free line suitable for a diagnostic
+    /// detail in the failure alert. Long banners and control sequences never enter UI.
+    static func newSessionFailureReason(_ detail: String) -> String? {
+        let lines = detail.split(whereSeparator: \.isNewline).map { line in
+            String(String.UnicodeScalarView(line.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }))
+                .trimmingCharacters(in: .whitespaces)
+        }
+        guard let reason = lines.last(where: { !$0.isEmpty }) else { return nil }
+        return reason.count > 200 ? String(reason.prefix(200)) + "…" : reason
+    }
+
     private func presentNewSessionFailureAlert(host: RemoteTmuxHost, detail: String, manager: TabManager) {
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -616,13 +635,11 @@ final class RemoteTmuxController {
             localized: "dialog.remoteTmux.newSessionFailed.title",
             defaultValue: "Couldn't Create a tmux Session on \(host.destination)"
         )
-        let trimmedDetail = detail.trimmingCharacters(in: .whitespacesAndNewlines)
-        alert.informativeText = trimmedDetail.isEmpty
-            ? String(
-                localized: "dialog.remoteTmux.newSessionFailed.message",
-                defaultValue: "tmux new-session failed on the remote host. No workspace was created."
-            )
-            : trimmedDetail
+        let message = String(
+            localized: "dialog.remoteTmux.newSessionFailed.message",
+            defaultValue: "tmux new-session failed on the remote host. No workspace was created."
+        )
+        alert.informativeText = Self.newSessionFailureReason(detail).map { "\(message)\n\n\($0)" } ?? message
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         if let window = manager.window ?? NSApp.keyWindow ?? NSApp.mainWindow {
             alert.beginSheetModal(for: window, completionHandler: nil)
@@ -1238,4 +1255,13 @@ final class RemoteTmuxController {
     static func connectionKey(host: RemoteTmuxHost, sessionName: String) -> String {
         "\(host.connectionHash)\u{1}\(sessionName)"
     }
+}
+
+
+/// A counter that changes when the set of mirrored sessions changes.
+@MainActor
+@Observable
+final class RemoteTmuxMirrorSetRevision {
+    private(set) var value = 0
+    func noteChanged() { value &+= 1 }
 }
