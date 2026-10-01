@@ -1824,6 +1824,9 @@ extension SurfaceMachineInfo {
         default:
             guard let linkError else { return CloudDiagnosticFailure.network.label }
             let message = linkError.trimmingCharacters(in: .whitespacesAndNewlines)
+            if message == "cloud_api_unavailable" {
+                return String(localized: "cloud.operation.failure.machineUnavailable", defaultValue: "cmux cannot reach the Cloud service for this machine right now.")
+            }
             guard !message.isEmpty,
                   message.range(of: #"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$"#, options: .regularExpression) == nil else {
                 return CloudDiagnosticFailure.network.label
