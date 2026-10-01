@@ -104,8 +104,12 @@ public final class MobileWorkspaceSnapshotStore {
         }
 
         func remove(key: String, revision: UInt64, force: Bool) {
-            if !force, let latest = latestRevisionByKey[key], revision < latest { return }
-            latestRevisionByKey[key] = revision
+            if force {
+                latestRevisionByKey[key] = (latestRevisionByKey[key] ?? revision) &+ 1
+            } else {
+                if let latest = latestRevisionByKey[key], revision < latest { return }
+                latestRevisionByKey[key] = revision
+            }
             defaults.value.removeObject(forKey: key)
             knownKeys?.remove(key)
             savedAtByKey[key] = nil
