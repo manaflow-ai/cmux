@@ -78,7 +78,8 @@ nonisolated extension ActionCatalog {
                 title: String(localized: "action.findInDirectory", defaultValue: "Find in Directory…", bundle: .module),
                 keywords: ["search", "grep"], defaultShortcut: Shortcut("f", modifiers: [.command, .shift]),
                 category: .terminal, symbol: "folder.badge.magnifyingglass", surfaces: [.palette, .keyboard, .menu],
-                targets: [.pane], cliName: "terminal find-in-directory", mainMenu: .edit
+                arguments: [CatalogArgument.textString], targets: [.pane],
+                cliName: "terminal find-in-directory", mainMenu: .edit
             ),
             ActionDescriptor(
                 id: "findNext", title: String(localized: "action.findNext", defaultValue: "Find Next", bundle: .module),
