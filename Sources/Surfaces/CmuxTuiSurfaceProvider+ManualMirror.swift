@@ -5,44 +5,6 @@ import CmuxTerminal
 import CmuxRemoteSession
 import Foundation
 
-/// Bridges a shared projection task to one caller without making that caller
-/// wait for a cancellation-deaf remote RPC. The shared task keeps running for
-/// other panes; only this waiter is resumed with CancellationError.
-final class CloudProjectionWaiter<Value: Sendable>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Value, Error>?
-    private var result: Result<Value, Error>?
-
-    func install(_ continuation: CheckedContinuation<Value, Error>) {
-        lock.lock()
-        if let result {
-            lock.unlock()
-            continuation.resume(with: result)
-            return
-        }
-        self.continuation = continuation
-        lock.unlock()
-    }
-
-    func resolve(_ result: Result<Value, Error>) {
-        lock.lock()
-        guard self.result == nil else {
-            lock.unlock()
-            return
-        }
-        self.result = result
-        let continuation = self.continuation
-        self.continuation = nil
-        lock.unlock()
-        guard let continuation else { return }
-        continuation.resume(with: result)
-    }
-
-    func cancel() {
-        resolve(.failure(CancellationError()))
-    }
-}
-
 @MainActor
 extension CmuxTuiSurfaceProvider {
     /// Creates a native manual-I/O pane and attaches it to the remote PTY.
@@ -273,7 +235,7 @@ extension CmuxTuiSurfaceProvider {
                 preferringRemoteWorkspace: destination.target.workspaceID
             )
         }
-        return try await remoteTerminalProjectionRegistry.awaitValue(shared.task)
+        return try await remoteTerminalProjectionRegistry.awaitValue(shared)
     }
 
     /// Refreshes attachment identities and repairs a backing placement that
