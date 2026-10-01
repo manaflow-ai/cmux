@@ -4,7 +4,6 @@ import Darwin
 import Foundation
 import os
 import Testing
-
 /// Thread-safe recorder for the server's event seam.
 private final class ServerEventRecorder: Sendable {
     struct FailureEvent {
@@ -35,7 +34,12 @@ private final class ServerEventRecorder: Sendable {
         state.withLock { $0.rearms }
     }
 
-    func makeEvents() -> SocketControlServerEvents {
+    let missingEvents = AsyncStream<(path: String, generation: UInt64)>.makeStream()
+
+    /// Builds callbacks that record listener lifecycle events for assertions.
+    func makeEvents(
+        onStart: @escaping @MainActor @Sendable (String) -> Void = { _ in }
+    ) -> SocketControlServerEvents {
         SocketControlServerEvents(
             breadcrumb: { message, _ in
                 self.state.withLock { $0.breadcrumbs.append(message) }
@@ -47,6 +51,7 @@ private final class ServerEventRecorder: Sendable {
             },
             listenerDidStart: { path, generation in
                 self.state.withLock { $0.started.append((path: path, generation: generation)) }
+                onStart(path)
             },
             recordLastSocketPath: { path in
                 self.state.withLock { $0.recordedPaths.append(path) }
@@ -67,6 +72,7 @@ private final class ServerEventRecorder: Sendable {
             },
             pathMissingDetected: { path, generation in
                 self.state.withLock { $0.pathMissing.append((path: path, generation: generation)) }
+                self.missingEvents.continuation.yield((path, generation))
             },
             rearmRequested: { generation, errnoCode, consecutiveFailures, delayMs in
                 self.state.withLock {
@@ -89,7 +95,8 @@ private struct ServerHarness: ~Copyable {
     let recorder: ServerEventRecorder
     let server: SocketControlServer
 
-    init() throws {
+    /// Creates an isolated temporary socket server for path-monitor tests.
+    init(onStart: @escaping @MainActor @Sendable (String) -> Void = { _ in }) throws {
         directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("scs-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -98,7 +105,7 @@ private struct ServerHarness: ~Copyable {
         server = SocketControlServer(
             initialSocketPath: socketPath,
             notificationCenter: NotificationCenter(),
-            events: recorder.makeEvents()
+            events: recorder.makeEvents(onStart: onStart)
         )
     }
 
@@ -414,6 +421,7 @@ struct SocketControlServerLifecycleTests {
         #expect(stat(harness.socketPath, &info) == 0)
         #expect(info.st_mode & 0o777 == 0o600)
     }
+
 }
 
 @MainActor
@@ -452,6 +460,109 @@ struct SocketControlServerReservationTests {
 @MainActor
 @Suite("SocketControlServer path monitor")
 struct SocketControlServerPathMonitorTests {
+    /// Reports an unlink that happens before the watcher registration callback.
+    @Test func detectsUnlinkBeforeMonitorRegistration() async throws {
+        let harness = try ServerHarness(onStart: { path in
+            #expect(unlink(path) == 0)
+        })
+        defer { harness.shutdown() }
+        #expect(harness.server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
+        let generation = try #require(harness.recorder.started.last?.generation)
+        let event = await Self.nextMissingEvent(harness.recorder, generation: generation)
+        #expect(event?.path == harness.socketPath)
+        #expect(harness.server.shouldRestartForMissingPath(path: harness.socketPath, generation: generation))
+    }
+
+    /// Ignores path events from listener generations that have already stopped.
+    @Test func repeatedRecoveryRejectsCallbacksFromOlderGenerations() async throws {
+        let harness = try ServerHarness()
+        defer { harness.shutdown() }
+        let server = harness.server
+        var retiredGenerations: [UInt64] = []
+        #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
+        for _ in 0..<3 {
+            let generation = try #require(harness.recorder.started.last?.generation)
+            #expect(unlink(harness.socketPath) == 0)
+            _ = try #require(await Self.nextMissingEvent(harness.recorder, generation: generation))
+            for retired in retiredGenerations {
+                #expect(!server.shouldRestartForMissingPath(path: harness.socketPath, generation: retired))
+            }
+            #expect(server.shouldRestartForMissingPath(path: harness.socketPath, generation: generation))
+            server.stop()
+            retiredGenerations.append(generation)
+            #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
+            let fd = connect(to: harness.socketPath)
+            #expect(fd >= 0)
+            if fd >= 0 { close(fd) }
+        }
+    }
+
+    /// Stops the stale listener without replacing a socket or regular-file inode.
+    @Test(arguments: [false, true])
+    func replacementInodeFailsReconfigurationAndIsPreserved(isSocket: Bool) async throws {
+        let harness = try ServerHarness()
+        defer { harness.shutdown() }
+        let server = harness.server
+        #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
+        let generation = try #require(harness.recorder.started.last?.generation)
+        let original = try #require(server.transport.pathIdentity(at: harness.socketPath))
+        // Rename keeps the original inode alive, preventing inode reuse in the fixture.
+        let movedPath = harness.directory.appendingPathComponent("original.sock").path
+        #expect(rename(harness.socketPath, movedPath) == 0)
+        let replacementFD: Int32
+        if isSocket {
+            let replacementPath = harness.directory.appendingPathComponent("replacement.sock").path
+            replacementFD = try UnixSocketFixture.bindListeningSocket(at: replacementPath)
+            #expect(rename(replacementPath, harness.socketPath) == 0)
+        } else {
+            replacementFD = -1
+            try Data("replacement".utf8).write(to: URL(fileURLWithPath: harness.socketPath))
+        }
+        defer { if replacementFD >= 0 { close(replacementFD) } }
+        let replacement = server.transport.pathIdentity(at: harness.socketPath)
+        _ = try #require(await Self.nextMissingEvent(harness.recorder, generation: generation))
+        #expect(server.transport.pathIdentity(at: harness.socketPath) != original)
+        #expect(server.shouldRestartForMissingPath(path: harness.socketPath, generation: generation))
+        #expect(chmod(harness.socketPath, 0o640) == 0)
+        #expect(!server.reconfigure(accessMode: .allowAll))
+        #expect(!server.isRunning)
+        #expect(server.transport.pathIdentity(at: harness.socketPath) == replacement)
+        var replacementStat = stat()
+        #expect(lstat(harness.socketPath, &replacementStat) == 0)
+        #expect(replacementStat.st_mode & 0o777 == 0o640)
+        if !isSocket {
+            #expect(try String(contentsOfFile: harness.socketPath, encoding: .utf8) == "replacement")
+        }
+        server.stop()
+        #expect(unlink(harness.socketPath) == 0)
+        #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
+        #expect(!server.shouldRestartForMissingPath(path: harness.socketPath, generation: generation))
+        let fd = connect(to: harness.socketPath)
+        #expect(fd >= 0)
+        if fd >= 0 { close(fd) }
+    }
+
+    /// Waits for a matching path-missing event or a bounded test timeout.
+    private static func nextMissingEvent(
+        _ recorder: ServerEventRecorder, generation: UInt64
+    ) async -> (path: String, generation: UInt64)? {
+        await withTaskGroup(of: (String, UInt64)?.self) { group in
+            group.addTask {
+                for await event in recorder.missingEvents.stream {
+                    if event.generation == generation { return event }
+                }
+                return nil
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(5))
+                return nil
+            }
+            let event = await group.next() ?? nil
+            group.cancelAll()
+            return event
+        }
+    }
+
     @Test func detectsDeletedSocketPathAndSupportsRestart() throws {
         let harness = try ServerHarness()
         defer { harness.shutdown() }

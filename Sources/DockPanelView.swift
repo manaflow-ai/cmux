@@ -82,6 +82,8 @@ struct DockPanelView: View {
             )
             .frame(width: 0, height: 0)
         )
+        // Keep the container identifiable without replacing its hosted controls' identities.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("DockPanel")
         .onAppear {
             refreshAppearance(reason: "onAppear")
@@ -99,14 +101,17 @@ struct DockPanelView: View {
             store.setRootDirectory(rootDirectory)
             store.setActive(isVisible: isSidebarVisible, mode: mode, visibilityHostId: visibilityHostId)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            refreshAppearance(reason: "ghosttyConfigDidReload")
-        }
         .onReceive(NotificationCenter.default.publisher(for: PaneChromeSettings.didChangeNotification)) { _ in
             refreshAppearance(reason: "paneChromeSettingsDidChange")
         }
+        .onDisplayAccessibilityOptionsChange { _ in
+            refreshAppearance(reason: "displayAccessibilityOptionsDidChange")
+        }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
             refreshAppearance(reason: "ghosttyDefaultBackgroundDidChange")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyChromeConfigurationDidChange)) { _ in
+            refreshAppearance(reason: "ghosttyChromeConfigurationDidChange")
         }
         .onChange(of: windowAppearance.resolvedColorScheme) { _, _ in
             // The Dock's Bonsplit controller is an AppKit subtree and does not
@@ -152,6 +157,7 @@ struct DockPanelView: View {
 struct DockEmptyPaneView: View {
     let onNewTerminal: () -> Void
     let onNewBrowser: () -> Void
+    @State private var browserAvailable = BrowserAvailabilitySettings.isEnabled()
 
     var body: some View {
         VStack(spacing: 12) {
@@ -168,11 +174,13 @@ struct DockEmptyPaneView: View {
                         systemImage: "terminal.fill"
                     )
                 }
-                Button(action: onNewBrowser) {
-                    Label(
-                        String(localized: "dock.action.newBrowser", defaultValue: "New Browser"),
-                        systemImage: "globe"
-                    )
+                if BrowserAvailabilitySettings.offersBrowserAffordance(isEnabled: browserAvailable) {
+                    Button(action: onNewBrowser) {
+                        Label(
+                            String(localized: "dock.action.newBrowser", defaultValue: "New Browser"),
+                            systemImage: "globe"
+                        )
+                    }
                 }
             }
             .buttonStyle(.bordered)
@@ -180,6 +188,7 @@ struct DockEmptyPaneView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(16)
+        .trackingBrowserAffordanceAvailability($browserAvailable)
     }
 }
 

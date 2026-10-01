@@ -10,18 +10,21 @@ import {
   test,
 } from "bun:test";
 
-// Route-level coverage for /api/stripe/founders-welcome. Founder's Edition
-// purchases retain their personal founder welcome, while cmux Pro purchases
-// are fulfilled by the separate billing webhook and must not receive this
-// message as well.
+// Route-level coverage for /api/stripe/founders-welcome. Founder's Edition and
+// Pro purchases receive the personal message; Team and unrelated checkouts are
+// acknowledged without mail.
 
 // Pinned by tests/test-preload.ts before @/app/env loads.
 const WEBHOOK_SECRET = process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET ?? "";
 
 type SentEmail = {
   payload: {
+    from: string;
     subject: string;
     to: string[];
+    cc: string[];
+    replyTo: string;
+    text: string;
     headers: Record<string, string>;
   };
   options: { idempotencyKey: string };
@@ -43,7 +46,33 @@ mock.module("resend", () => ({
   },
 }));
 
-const { POST } = await import("../app/api/stripe/founders-welcome/route");
+let personalProWelcomeEnabled = true;
+let subscriptionRetrieveError: Error | null = null;
+let retrievedSubscription: Record<string, unknown> = {
+  id: "sub_test_pro",
+  metadata: { stackUserId: "user-1", plan: "pro", app: "cmux" },
+};
+const retrieveSubscription = mock(
+  async (...args: unknown[]): Promise<{
+    metadata?: Record<string, string> | null;
+  }> => {
+    void args;
+    if (subscriptionRetrieveError) throw subscriptionRetrieveError;
+    return retrievedSubscription as {
+      metadata?: Record<string, string> | null;
+    };
+  },
+);
+
+const { makeFoundersWelcomeHandler } = await import(
+  "../app/api/stripe/founders-welcome/route"
+);
+const POST = makeFoundersWelcomeHandler({
+  personalProWelcomeEnabled: () => personalProWelcomeEnabled,
+  retrieveSubscription: retrieveSubscription as unknown as (
+    subscriptionId: string,
+  ) => Promise<{ metadata?: Record<string, string> | null }>,
+});
 
 // Freeze the clock so the test's signature timestamps and the route's
 // freshness check (Date.now inside POST) share one virtual time. Signature
@@ -57,6 +86,13 @@ beforeEach(() => {
   resendSend.mockClear();
   sentEmails.length = 0;
   resendError = null;
+  personalProWelcomeEnabled = true;
+  subscriptionRetrieveError = null;
+  retrievedSubscription = {
+    id: "sub_test_pro",
+    metadata: { stackUserId: "user-1", plan: "pro", app: "cmux" },
+  };
+  retrieveSubscription.mockClear();
 });
 
 afterAll(() => {
@@ -66,18 +102,25 @@ afterAll(() => {
 type SessionOverrides = {
   id?: string;
   metadata?: Record<string, string> | null;
+  subscription?: string | { metadata?: Record<string, string> | null } | null;
   customer_details?: { email?: string | null; name?: string | null } | null;
+  payment_status?: string | null;
+  locale?: string | null;
 };
 
-function checkoutCompletedEvent(overrides: SessionOverrides = {}): string {
+function checkoutCompletedEvent(
+  overrides: SessionOverrides = {},
+  eventType = "checkout.session.completed",
+): string {
   return JSON.stringify({
     id: "evt_1",
-    type: "checkout.session.completed",
+    type: eventType,
     data: {
       object: {
         id: "cs_test_123",
         metadata: { founders_edition: "true" },
-        customer_details: { email: "customer@example.com", name: "Ada Lovelace" },
+        customer_details: { email: "customer@example.com", name: "Sample Buyer" },
+        payment_status: "paid",
         ...overrides,
       },
     },
@@ -150,7 +193,7 @@ describe("founders welcome route", () => {
     expect(resendSend).toHaveBeenCalledTimes(1);
   });
 
-  test("does not send the Founder's Edition email for a cmux Pro purchase", async () => {
+  test("sends the personal Pro email with the Pro subject", async () => {
     const response = await POST(
       signedRequest(
         checkoutCompletedEvent({
@@ -161,11 +204,164 @@ describe("founders welcome route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, skipped: "pro_plan" });
+    expect(await response.json()).toEqual({ ok: true, sent: true });
+    expect(resendSend).toHaveBeenCalledTimes(1);
+    expect(sentEmails[0].payload.subject).toBe("Welcome to cmux Pro 🎉");
+    expect(sentEmails[0].payload.from).toBe(
+      "Austin Wang <austin@manaflow.ai>",
+    );
+    expect(sentEmails[0].payload.to).toEqual(["customer@example.com"]);
+    expect(sentEmails[0].payload.cc).toEqual([
+      "austin@manaflow.ai",
+      "lawrence@manaflow.ai",
+    ]);
+    expect(sentEmails[0].payload.replyTo).toBe("austin@manaflow.ai");
+    expect(sentEmails[0].payload.text).toContain("Thanks for joining cmux Pro!");
+    expect(sentEmails[0].payload.text).toContain(
+      "Sign up for TestFlight: https://cmux.com/dashboard/testflight",
+    );
+    expect(sentEmails[0].payload.headers["X-Entity-Ref-ID"]).toBe(
+      "founders-welcome/cs_test_pro",
+    );
+    expect(sentEmails[0].options.idempotencyKey).toBe(
+      "founders-welcome/cs_test_pro",
+    );
+  });
+
+  test("preserves regional locale keys and accepts lowercase Stripe aliases", async () => {
+    const cases = [
+      { locale: "pt-BR", subject: "Boas-vindas ao cmux Pro 🎉" },
+      { locale: "zh-cn", subject: "欢迎加入 cmux Pro 🎉" },
+      { locale: "zh-TW", subject: "歡迎加入 cmux Pro 🎉" },
+    ];
+
+    for (const [index, testCase] of cases.entries()) {
+      const response = await POST(
+        signedRequest(
+          checkoutCompletedEvent({
+            id: `cs_test_regional_${index}`,
+            metadata: { stackUserId: "user-1", plan: "pro", app: "cmux" },
+            locale: testCase.locale,
+          }),
+        ),
+      );
+
+      expect(response.status).toBe(200);
+      expect(sentEmails[index]?.payload.subject).toBe(testCase.subject);
+    }
+    expect(resendSend).toHaveBeenCalledTimes(cases.length);
+  });
+
+  test("sends the personal Pro email when metadata is only on the expanded subscription", async () => {
+    const response = await POST(
+      signedRequest(
+        checkoutCompletedEvent({
+          id: "cs_test_pro_subscription_metadata",
+          metadata: {},
+          subscription: {
+            metadata: { stackUserId: "user-1", plan: "pro", app: "cmux" },
+          },
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, sent: true });
+    expect(resendSend).toHaveBeenCalledTimes(1);
+    expect(sentEmails[0].payload.subject).toBe("Welcome to cmux Pro 🎉");
+  });
+
+  test("retrieves subscription metadata when Stripe sends only a subscription id", async () => {
+    const response = await POST(
+      signedRequest(
+        checkoutCompletedEvent({
+          id: "cs_test_pro_subscription_id",
+          metadata: {},
+          subscription: "sub_test_pro",
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, sent: true });
+    expect(retrieveSubscription).toHaveBeenCalledWith("sub_test_pro");
+    expect(sentEmails[0].payload.subject).toBe("Welcome to cmux Pro 🎉");
+  });
+
+  test("keeps Stripe retryable when subscription metadata cannot be retrieved", async () => {
+    subscriptionRetrieveError = new Error("Stripe unavailable");
+
+    const response = await POST(
+      signedRequest(
+        checkoutCompletedEvent({
+          id: "cs_test_pro_subscription_failure",
+          metadata: {},
+          subscription: "sub_test_pro",
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(503);
     expect(resendSend).not.toHaveBeenCalled();
   });
 
-  test("sends the identical welcome for a Team plan checkout", async () => {
+  test("skips Pro delivery until its explicit rollout flag is enabled", async () => {
+    personalProWelcomeEnabled = false;
+
+    const response = await POST(
+      signedRequest(
+        checkoutCompletedEvent({
+          id: "cs_test_pro_rollout_disabled",
+          metadata: { stackUserId: "user-1", plan: "pro", app: "cmux" },
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ok: true,
+      skipped: "pro_rollout_disabled",
+    });
+    expect(resendSend).not.toHaveBeenCalled();
+  });
+
+  test("also sends the personal Pro email after an async payment succeeds", async () => {
+    const response = await POST(
+      signedRequest(
+        checkoutCompletedEvent(
+          {
+            id: "cs_test_pro_async",
+            metadata: { stackUserId: "user-1", plan: "pro", app: "cmux" },
+          },
+          "checkout.session.async_payment_succeeded",
+        ),
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(resendSend).toHaveBeenCalledTimes(1);
+    expect(sentEmails[0].options.idempotencyKey).toBe(
+      "founders-welcome/cs_test_pro_async",
+    );
+  });
+
+  test("does not send a welcome for an unsettled completed Pro checkout", async () => {
+    const response = await POST(
+      signedRequest(
+        checkoutCompletedEvent({
+          id: "cs_test_pro_pending",
+          metadata: { stackUserId: "user-1", plan: "pro", app: "cmux" },
+          payment_status: "unpaid",
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, skipped: "payment_pending" });
+    expect(resendSend).not.toHaveBeenCalled();
+  });
+
+  test("skips a Team plan checkout", async () => {
     const response = await POST(
       signedRequest(
         checkoutCompletedEvent({
@@ -176,14 +372,14 @@ describe("founders welcome route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, sent: true });
-    expect(resendSend).toHaveBeenCalledTimes(1);
-    expect(sentEmails[0].options.idempotencyKey).toBe(
-      "founders-welcome/cs_test_team",
-    );
+    expect(await response.json()).toEqual({
+      ok: true,
+      skipped: "not_welcome_eligible",
+    });
+    expect(resendSend).not.toHaveBeenCalled();
   });
 
-  test("sends the welcome for any other completed checkout (no recognized metadata)", async () => {
+  test("skips any other completed checkout (no recognized metadata)", async () => {
     const response = await POST(
       signedRequest(
         checkoutCompletedEvent({
@@ -194,11 +390,11 @@ describe("founders welcome route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, sent: true });
-    expect(resendSend).toHaveBeenCalledTimes(1);
-    expect(sentEmails[0].options.idempotencyKey).toBe(
-      "founders-welcome/cs_test_other",
-    );
+    expect(await response.json()).toEqual({
+      ok: true,
+      skipped: "not_welcome_eligible",
+    });
+    expect(resendSend).not.toHaveBeenCalled();
   });
 
   test("skips a session without a customer email", async () => {

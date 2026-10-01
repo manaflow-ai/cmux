@@ -8,6 +8,7 @@ import {
   POSTHOG_HOST,
   POSTHOG_PROJECT_KEY,
 } from "../../../../services/analytics/iosEventPolicy";
+import { reportMissingRateLimitRule } from "../../../../services/rateLimitObservability";
 import {
   recordSpanError,
   setSpanAttributes,
@@ -16,7 +17,7 @@ import {
 import { checkEmailDeliverable } from "../../waitlist/email-check";
 
 
-const enterpriseRecipient = "founders@manaflow.com";
+const enterpriseRecipient = "founders@cmux.com";
 
 const enterpriseContactSchema = z.object({
   firstName: z.string().trim().min(1).max(80),
@@ -49,6 +50,9 @@ export async function POST(request: Request) {
         return jsonError("Enterprise contact endpoint is not configured", 503);
       }
 
+      if (process.env.VERCEL === "1" && !config.rateLimitId) {
+        void reportMissingRateLimitRule({ route: "/api/enterprise/contact", reason: "unset" });
+      }
       if (process.env.VERCEL === "1" && config.rateLimitId) {
         let result: Awaited<ReturnType<typeof checkRateLimit>>;
         try {
@@ -69,10 +73,7 @@ export async function POST(request: Request) {
           return jsonError("Rate limit exceeded", 429);
         }
         if (error === "not-found") {
-          console.error(
-            "enterprise.contact.rate_limit_not_found",
-            config.rateLimitId,
-          );
+          void reportMissingRateLimitRule({ route: "/api/enterprise/contact", reason: "not-found" });
         } else if (error) {
           console.error("enterprise.contact.rate_limit_error", {
             failure: "check_error",

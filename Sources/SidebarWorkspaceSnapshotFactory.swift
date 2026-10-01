@@ -16,48 +16,52 @@ struct SidebarWorkspaceSnapshotFactory {
     let settings: SidebarTabItemSettingsSnapshot
     let showsAgentActivity: Bool
 
+    /// Creates the current immutable presentation snapshot for the workspace row.
     func makeSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         let detailVisibility = settings.visibleAuxiliaryDetails
-        let orderedPanelIds: [UUID]? =
-            (detailVisibility.showsBranchDirectory || detailVisibility.showsPullRequests)
-                ? workspace.sidebarOrderedPanelIds()
-                : nil
+        // Compact status folds the lines cmux generates for you into the
+        // glyph's tooltip: the branch/directory line and the pull request
+        // rows. The visibility itself stays, since it also drives git and PR
+        // polling, which the glyph reads.
+        let showsBranchDirectoryRows = detailVisibility.showsBranchDirectory && !settings.compactsAgentStatus
+        let showsPullRequestRows = detailVisibility.showsPullRequests && !settings.compactsAgentStatus
+        let orderedPanelIds = workspace.sidebarOrderedPanelIds()
+        let cloud = CloudWorkspaceSidebarPresentation(workspace: workspace, orderedPanelIDs: orderedPanelIds, usesLastSegmentPath: settings.usesLastSegmentPath)
+        let taskStatusInput = SidebarWorkspaceTaskStatusSnapshot.capture(workspace: workspace, orderedPanelIds: orderedPanelIds)
         let compactGitBranchSummaryText: String? = {
-            guard detailVisibility.showsBranchDirectory,
+            guard showsBranchDirectoryRows,
                   settings.branchDirectory.branchLayout == .inline,
-                  settings.showsGitBranch,
-                  let orderedPanelIds else {
+                  settings.showsGitBranch else {
                 return nil
             }
             return gitBranchSummaryText(orderedPanelIds: orderedPanelIds)
         }()
         let compactDirectoryCandidates: [String] = {
-            guard detailVisibility.showsBranchDirectory,
-                  settings.branchDirectory.branchLayout == .inline,
-                  let orderedPanelIds else {
+            guard showsBranchDirectoryRows,
+                  settings.branchDirectory.branchLayout == .inline else {
                 return []
             }
-            return compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds)
+            return cloud?.directoryCandidates ?? compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds)
         }()
         let compactBranchDirectoryCandidates = compactBranchDirectoryCandidatesList(
             gitSummary: compactGitBranchSummaryText,
             directoryCandidates: compactDirectoryCandidates
         )
         let branchDirectoryLines: [SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine] = {
-            guard detailVisibility.showsBranchDirectory,
-                  settings.branchDirectory.branchLayout == .vertical,
-                  let orderedPanelIds else {
+            guard showsBranchDirectoryRows,
+                  settings.branchDirectory.branchLayout == .vertical else {
                 return []
             }
+            if let cloud { return [.init(branch: nil, directoryCandidates: cloud.directoryCandidates)] }
             return verticalBranchDirectoryLines(orderedPanelIds: orderedPanelIds)
         }()
         let pullRequestRows: [SidebarWorkspaceSnapshotBuilder.PullRequestDisplay] = {
-            guard detailVisibility.showsPullRequests, let orderedPanelIds else { return [] }
+            guard showsPullRequestRows else { return [] }
             return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
         }()
         let todoControlsEnabled = WorkspaceTodoFeature.isEnabled
         let workspaceStatusVisible = todoControlsEnabled && !workspace.todoState.statusHidden
-        let inferredTaskStatus = workspaceStatusVisible ? workspace.inferredTaskStatus : nil
+        let inferredTaskStatus = workspaceStatusVisible ? taskStatusInput.inferred : nil
         let taskStatusResolution: WorkspaceTaskStatusOverride.Resolution? = inferredTaskStatus.map { inferred in
             WorkspaceTaskStatusOverride.effectiveStatus(
                 override: workspace.todoState.statusOverride,
@@ -74,13 +78,36 @@ struct SidebarWorkspaceSnapshotFactory {
             )
         }
         let checklistProgress = workspace.checklistProgressSummary
-
+        let statusEntries = SidebarCompactStatusGlyph.partition(
+            detailVisibility.showsMetadata || settings.compactsAgentStatus
+                ? workspace.sidebarStatusEntriesInDisplayOrder()
+                : [],
+            compacts: settings.compactsAgentStatus
+        )
+        let activeCodingAgentCount = SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
+            showsAgentActivity: showsAgentActivity,
+            statesByPanelId: workspace.agentLifecycleStatesByPanelId
+        )
+        let compactStatusGlyph = settings.compactsAgentStatus
+            ? SidebarCompactStatusGlyph.resolve(compactStatusInput(
+                agentEntries: statusEntries.agent,
+                hasActiveAgent: activeCodingAgentCount > 0,
+                // The directory toggle itself, like the branch and PR ones, so
+                // the tooltip keeps it under Hide All Details.
+                directory: settings.details.showBranchDirectory
+                    ? (cloud?.directoryCandidates ?? compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds)).first
+                    : nil,
+                orderedPanelIds: orderedPanelIds
+            ))
+            : nil
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey,
             title: workspace.title,
             customDescription: settings.showsWorkspaceDescription ? visibleCustomDescription : nil,
             isPinned: workspace.isPinned,
+            isMuted: workspace.isMuted,
             customColorHex: workspace.customColor,
+            cloudWorkspaceLabel: cloud?.isDeviceWorkspace == true ? nil : cloud?.machineLabel,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
@@ -89,18 +116,13 @@ struct SidebarWorkspaceSnapshotFactory {
                     || workspace.remoteConnectionState == .disconnected),
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: workspace.latestConversationMessage,
-            metadataEntries: detailVisibility.showsMetadata
-                ? workspace.sidebarStatusEntriesInDisplayOrder()
-                : [],
+            metadataEntries: detailVisibility.showsMetadata ? statusEntries.rows : [],
             metadataBlocks: detailVisibility.showsMetadata
                 ? workspace.sidebarMetadataBlocksInDisplayOrder()
                 : [],
             latestLog: detailVisibility.showsLog ? workspace.logEntries.last : nil,
             progress: detailVisibility.showsProgress ? workspace.progress : nil,
-            activeCodingAgentCount: SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
-                showsAgentActivity: showsAgentActivity,
-                statesByPanelId: workspace.agentLifecycleStatesByPanelId
-            ),
+            activeCodingAgentCount: activeCodingAgentCount,
             compactGitBranchSummaryText: compactGitBranchSummaryText,
             compactDirectoryCandidates: compactDirectoryCandidates,
             compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,
@@ -117,7 +139,10 @@ struct SidebarWorkspaceSnapshotFactory {
             checklistItems: workspace.todoState.checklist,
             checklistCompletedCount: checklistProgress.completedCount,
             checklistTotalCount: checklistProgress.totalCount,
-            checklistFirstUncheckedText: checklistProgress.firstUncheckedText
+            checklistFirstUncheckedText: checklistProgress.firstUncheckedText,
+            taskStatusInput: taskStatusInput,
+            deviceWorkspaceLabel: cloud?.deviceLabel,
+            compactStatusGlyph: compactStatusGlyph
         )
     }
 
@@ -135,6 +160,8 @@ struct SidebarWorkspaceSnapshotFactory {
             showsGitBranch: settings.showsGitBranch,
             usesViewportAwarePath: settings.usesLastSegmentPath,
             showsAgentActivity: showsAgentActivity,
+            compactsAgentStatus: settings.compactsAgentStatus,
+            compactStatusIcons: settings.compactStatusIcons,
             visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails
         )
     }
@@ -332,6 +359,54 @@ struct SidebarWorkspaceSnapshotFactory {
             indices[index] += 1
         }
         return result
+    }
+
+    /// Inputs for the compact status glyph. Read independently of detail
+    /// visibility: like the loading spinner, the glyph is a live status
+    /// signal that stays on the title line when the detail rows are hidden.
+    /// Only the branch and PR toggles themselves turn their part off.
+    private func compactStatusInput(
+        agentEntries: [SidebarStatusEntry],
+        hasActiveAgent: Bool,
+        directory: String?,
+        orderedPanelIds: [UUID]
+    ) -> SidebarCompactStatusGlyph.Input {
+        SidebarCompactStatusGlyph.Input(
+            agentEntries: agentEntries,
+            lifecycleStates: workspace.agentLifecycleStatesByPanelId.values.flatMap { states in
+                states.filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }.values
+            },
+            hasActiveAgent: hasActiveAgent,
+            // Honor the user's branch and PR toggles themselves (not detail
+            // visibility), so the glyph still works under Hide All Details.
+            pullRequests: settings.details.showPullRequests
+                ? workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds).map {
+                    .init(label: $0.label, number: $0.number, status: $0.status, isStale: $0.isStale)
+                }
+                : [],
+            branch: settings.showsGitBranch
+                ? workspace.sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds).first?.branch
+                : nil,
+            directory: directory,
+            iconOverrides: settings.compactStatusIcons,
+            profiles: agentProfileLabels(orderedPanelIds: orderedPanelIds)
+        )
+    }
+
+    /// Unique config-profile labels of the workspace's live agents, in panel order.
+    private func agentProfileLabels(orderedPanelIds: [UUID]) -> [String] {
+        guard let index = SharedLiveAgentIndex.shared.index else { return [] }
+        let home = NSHomeDirectory()
+        var labels: [String] = []
+        for panelId in orderedPanelIds {
+            let environment = index.entry(workspaceId: workspace.id, panelId: panelId)?
+                .snapshot.launchCommand?.environment
+            if let label = SidebarAgentProfileLabel.label(environment: environment, homeDirectory: home),
+               !labels.contains(label) {
+                labels.append(label)
+            }
+        }
+        return labels
     }
 
     private func pullRequestDisplays(

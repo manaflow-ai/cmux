@@ -6,29 +6,69 @@ extension ControlCommandCoordinator {
         guard let groupID = uuid(params, "group_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
         }
-        guard let keptCount = context?.controlUngroupWorkspaceGroup(
-            routing: routingSelectors(params),
-            groupID: groupID
-        ) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        let removeGeneratedAnchor: Bool
+        switch params["remove_generated_anchor"] {
+        case nil, .null:
+            removeGeneratedAnchor = false
+        case .bool(let value):
+            removeGeneratedAnchor = value
+        default:
+            return .err(
+                code: "invalid_params",
+                message: workspaceGroupStrings().removeGeneratedAnchorMustBeBoolean,
+                data: nil
+            )
         }
-        guard keptCount != -2 else {
+        let resolution = context?.controlUngroupWorkspaceGroup(
+            routing: routingSelectors(params),
+            groupID: groupID,
+            removeGeneratedAnchor: removeGeneratedAnchor
+        ) ?? .tabManagerUnavailable
+        switch resolution {
+        case .tabManagerUnavailable:
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        case .notFound:
+            return .err(code: "not_found", message: "Group not found", data: .object([
+                "group_id": .string(groupID.uuidString),
+            ]))
+        case .emptyPinnedCannotUngroup:
             return .err(
                 code: "invalid_request",
                 message: workspaceGroupStrings().emptyPinnedCannotUngroup,
                 data: .object(["group_id": .string(groupID.uuidString)])
             )
-        }
-        guard keptCount >= 0 else {
-            return .err(code: "not_found", message: "Group not found", data: .object([
+        case .dissolved(let keptCount):
+            return .ok(.object([
                 "group_id": .string(groupID.uuidString),
+                "operation": .string("dissolved"),
+                "kept_workspace_count": .int(Int64(keptCount)),
             ]))
+        case .removedGeneratedAnchor(let workspaceID):
+            return .ok(.object([
+                "group_id": .string(groupID.uuidString),
+                "operation": .string("dissolved"),
+                "kept_workspace_count": .int(0),
+                "removed_anchor_workspace_id": .string(workspaceID.uuidString),
+            ]))
+        case .generatedAnchorRequiresAnchorOnly(let memberCount):
+            return .err(
+                code: "invalid_state",
+                message: workspaceGroupStrings().generatedAnchorRequiresAnchorOnly,
+                data: .object(["member_workspace_count": .int(Int64(memberCount))])
+            )
+        case .generatedAnchorNotOwned:
+            return .err(
+                code: "invalid_state",
+                message: workspaceGroupStrings().generatedAnchorNotOwned,
+                data: .object(["group_id": .string(groupID.uuidString)])
+            )
+        case .generatedAnchorRemovalFailed:
+            return .err(
+                code: "not_removed",
+                message: workspaceGroupStrings().generatedAnchorRemovalFailed,
+                data: .object(["group_id": .string(groupID.uuidString)])
+            )
         }
-        return .ok(.object([
-            "group_id": .string(groupID.uuidString),
-            "operation": .string("dissolved"),
-            "kept_workspace_count": .int(Int64(keptCount)),
-        ]))
     }
 
     /// `workspace.group.delete` — dissolve by default; close only with explicit intent.

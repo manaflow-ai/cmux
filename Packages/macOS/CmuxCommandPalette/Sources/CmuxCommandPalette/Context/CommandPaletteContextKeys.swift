@@ -53,6 +53,8 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let panelBrowserFocusModeActive = CommandPaletteContextKeys(rawValue: "panel.browserFocusModeActive")
     /// Whether the browser omnibar is visible.
     public static let panelBrowserOmnibarVisible = CommandPaletteContextKeys(rawValue: "panel.browser.omnibarVisible")
+    /// Whether the browser page is pinned to stay active while hidden.
+    public static let panelBrowserKeepsPageActive = CommandPaletteContextKeys(rawValue: "panel.browser.keepsPageActive")
     /// Whether the focused panel is markdown.
     public static let panelIsMarkdown = CommandPaletteContextKeys(rawValue: "panel.isMarkdown")
     /// Whether the focused panel is a native Simulator.
@@ -95,6 +97,8 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let authSignedIn = CommandPaletteContextKeys(rawValue: "auth.signedIn")
     /// Whether an auth operation is in flight.
     public static let authWorking = CommandPaletteContextKeys(rawValue: "auth.working")
+    /// Whether the Computer Use UX and its onboarding actions are available.
+    public static let computerUseUXEnabled = CommandPaletteContextKeys(rawValue: "computerUse.uxEnabled")
 
     /// Key for one terminal open-target's availability; `rawValue` is the
     /// target's raw identifier (the app layers a typed overload on top).

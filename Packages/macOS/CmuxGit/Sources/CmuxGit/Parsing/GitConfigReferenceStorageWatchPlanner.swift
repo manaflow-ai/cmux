@@ -2,7 +2,7 @@ import Dispatch
 import Foundation
 
 /// Derives bounded watcher paths for a configured Git reference store.
-nonisolated struct GitConfigReferenceStorageWatchPlanner: Sendable {
+struct GitConfigReferenceStorageWatchPlanner: Sendable {
     private let repository: ResolvedGitRepository
     private let branchContext: GitConfigBranchContext
     private let configReader: GitConfigFileReader

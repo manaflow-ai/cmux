@@ -6,6 +6,36 @@ struct WorkspaceToolbarTitleView: View {
     let title: String
     let subtitle: String?
     let connectionStatus: MobileMacConnectionStatus
+#if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+#endif
+
+    private var regularWidthHorizontalPadding: CGFloat {
+#if os(iOS)
+        if horizontalSizeClass == .regular {
+            return WorkspaceRootToolbarSizing.regularControlHorizontalPadding
+        }
+#endif
+        return MobileCompactToolbarTitleStack.horizontalContentPadding
+    }
+
+    private var regularWidthVerticalPadding: CGFloat {
+#if os(iOS)
+        if horizontalSizeClass == .regular {
+            return WorkspaceRootToolbarSizing.regularControlVerticalPadding
+        }
+#endif
+        return 0
+    }
+
+    private var regularWidthMinHeight: CGFloat? {
+#if os(iOS)
+        if horizontalSizeClass == .regular {
+            return WorkspaceRootToolbarSizing.controlHeight
+        }
+#endif
+        return nil
+    }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -33,7 +63,21 @@ struct WorkspaceToolbarTitleView: View {
 
             MobileCompactToolbarTitleStack(title: title, subtitle: subtitleLine)
         }
-        .padding(.horizontal, MobileCompactToolbarTitleStack.horizontalContentPadding)
+        .padding(
+            .horizontal,
+            regularWidthHorizontalPadding
+        )
+        // The regular-width iPad title lives in a standalone glass capsule.
+        // Give its two-line label enough vertical breathing room to avoid
+        // crowding the capsule edge, while leaving the compact iPhone toolbar
+        // metrics unchanged.
+        .padding(
+            .vertical,
+            regularWidthVerticalPadding
+        )
+        .frame(
+            minHeight: regularWidthMinHeight
+        )
         .accessibilityElement(children: .combine)
         .accessibilityValue(connectionStatus == .connected ? "" : connectionStatus.label)
     }

@@ -1,18 +1,85 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { vmToken } from "./vm-authorization-fixture";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import * as analytics from "../services/coderouter/analytics";
+import { VM_PLACEHOLDER_API_KEY } from "../services/coderouter/routeTokenAuth";
+import { newCoderouterRequestContext, runWithCoderouterRequest } from "../services/coderouter/requestTelemetry";
+import {
+  createRefreshCompletionRegistry,
+  createStickyRefreshPatience,
+  STICKY_REFRESH_PATIENCE_MS,
+  type RefreshCompletionRegistry,
+  type StickyRefreshPatience,
+} from "../services/coderouter/refreshSignal";
+import { createFakeRefreshWaitClock, type FakeRefreshWaitClock } from "./refresh-wait-clock-fixture";
 
 type SelectInput = {
   teamId: string;
-  provider: string;
+  provider: string | readonly string[];
   sessionKey: string | null;
   excludedAccountIds?: readonly string[];
+  signal?: AbortSignal;
 };
 
 let selectInputs: SelectInput[] = [];
 let accountsToServe: { id: string; sticky: boolean }[] = [];
 let cooldowns: string[] = [];
+let capacityCooldowns: { accountId: string; durationMs: number; failureCode?: string }[] = [];
 let upstreamStatuses: number[] = [];
 let credentialBusyBudgets = new Map<string, number>();
 let credentialCalls: string[] = [];
+let authenticatedTokens: string[] = [];
+let refreshClock: FakeRefreshWaitClock = createFakeRefreshWaitClock();
+let refreshRegistry: RefreshCompletionRegistry = createRefreshCompletionRegistry();
+let refreshPatience: StickyRefreshPatience;
+let refreshWaits: string[] = [];
+let settleOnWait = false;
+let abortOnWait: AbortController | null = null;
+let leaseActiveAnswers: boolean[] = [];
+let leaseProbeTimes: number[] = [];
+
+function resetRefreshPatience(): void {
+  refreshClock = createFakeRefreshWaitClock();
+  refreshWaits = [];
+  settleOnWait = false;
+  abortOnWait = null;
+  leaseActiveAnswers = [];
+  leaseProbeTimes = [];
+  // The registry stands in for this instance's refresh winner: a test decides
+  // whether the winner settles here, on another instance, or never.
+  refreshRegistry = createRefreshCompletionRegistry({
+    onWait: (accountId) => {
+      refreshWaits.push(accountId);
+      if (settleOnWait) queueMicrotask(() => refreshRegistry.settled(accountId));
+      const controller = abortOnWait;
+      if (controller) {
+        queueMicrotask(() => controller.abort(new DOMException("caller left", "AbortError")));
+      }
+    },
+  });
+  refreshPatience = createStickyRefreshPatience({
+    registry: refreshRegistry,
+    clock: refreshClock,
+    leaseActive: async () => {
+      leaseProbeTimes.push(refreshClock.now());
+      return leaseActiveAnswers.shift() ?? true;
+    },
+  });
+}
+resetRefreshPatience();
+/** Logical clock for capacity holds; the fake sleep advances it instead of waiting. */
+let clock = 0;
+let sleeps: number[] = [];
+const holdRuntime = {
+  now: () => clock,
+  wallNow: () => clock,
+  sleep: async (ms: number) => {
+    sleeps.push(ms);
+    clock += ms;
+  },
+  random: () => 0,
+};
+const BOUND_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
+const SIGNED_VM_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
 
 const originalFetch = globalThis.fetch;
 beforeAll(() => {
@@ -28,10 +95,17 @@ afterAll(() => {
   globalThis.fetch = originalFetch;
 });
 
-const { createCodexResponsesProxy } = await import("../services/coderouter/codexProxy");
+const { createCodexModelsProxy, createCodexResponsesProxy } = await import("../services/coderouter/codexProxy");
 
 const proxy = createCodexResponsesProxy({
-  authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1" }),
+  authenticate: async (token) => {
+    authenticatedTokens.push(token);
+    return {
+      teamId: "team-1",
+      stackUserId: "stack-user-1",
+      vmId: token === BOUND_TOKEN || token === SIGNED_VM_TOKEN ? "vm-1" : null,
+    };
+  },
   select: async (input) => {
     selectInputs.push({
       ...(input as SelectInput),
@@ -41,6 +115,7 @@ const proxy = createCodexResponsesProxy({
     return next
       ? {
         id: next.id,
+        provider: "codex" as const,
         vaultRevision: 1,
         credentialExpiresAt: null,
         sticky: next.sticky,
@@ -69,15 +144,21 @@ const proxy = createCodexResponsesProxy({
   cooldown: async (accountId) => {
     cooldowns.push(accountId);
   },
-});
+  refreshPatience: (input, attempt) => refreshPatience(input, attempt),
+}, holdRuntime);
 
 beforeEach(() => {
+  clock = 0;
+  sleeps = [];
   selectInputs = [];
   accountsToServe = [];
   cooldowns = [];
+  capacityCooldowns = [];
   upstreamStatuses = [];
   credentialBusyBudgets = new Map();
   credentialCalls = [];
+  authenticatedTokens = [];
+  resetRefreshPatience();
 });
 
 function responsesRequest(headers: Record<string, string> = {}): Request {
@@ -93,6 +174,335 @@ function responsesRequest(headers: Record<string, string> = {}): Request {
 }
 
 describe("codex responses proxy session routing", () => {
+  function testCredential(accountId: string) {
+    return {
+      provider: "codex" as const,
+      accessToken: `access-${accountId}`,
+      refreshToken: "refresh",
+      idToken: "id",
+      accountId: "chatgpt-account",
+      email: "person@example.com",
+      expiresAt: Date.now() + 60_000,
+    };
+  }
+
+  function capacityProxy(fetchImpl: typeof fetch) {
+    const candidates = ["acct-capacity", "acct-healthy"];
+    return createCodexResponsesProxy({
+      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
+      select: async (input) => {
+        const excluded = new Set(input.excludedAccountIds ?? []);
+        const id = candidates.find((candidate) => !excluded.has(candidate));
+        if (!id) return null;
+        return { id, provider: "codex" as const, vaultRevision: 1, credentialExpiresAt: null, sticky: false };
+      },
+      credential: async ({ accountId }) => testCredential(accountId),
+      cooldown: async (accountId, durationMs, _signal, failureCode) => {
+        cooldowns.push(accountId);
+        capacityCooldowns.push({ accountId, durationMs, failureCode });
+      },
+    }, { ...holdRuntime, fetch: fetchImpl });
+  }
+
+  test("fails over a pre-output usage_limit_reached SSE event", async () => {
+    const bodies = [
+      `data: ${JSON.stringify({ type: "response.created" })}\n\n` +
+        `data: ${JSON.stringify({ type: "error", code: "usage_limit_reached" })}\n\n`,
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n\n`,
+    ];
+    const response = await capacityProxy((async () => new Response(bodies.shift()!, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"delta":"ok"');
+    expect(cooldowns).toEqual(["acct-capacity"]);
+  });
+
+  test("fails over the Codex server_overloaded error code", async () => {
+    const bodies = [
+      `data: ${JSON.stringify({
+        type: "error",
+        message: "Try again later.",
+        codex_error_info: "server_overloaded",
+      })}\n\n`,
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n\n`,
+    ];
+    const response = await capacityProxy((async () => new Response(bodies.shift()!, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"delta":"ok"');
+    expect(cooldowns).toEqual(["acct-capacity"]);
+  });
+
+  test("fails over a usage_limit_exceeded response before exposing it", async () => {
+    const bodies = [
+      JSON.stringify({
+        error: {
+          code: "usage_limit_exceeded",
+          message: "You've hit your usage limit.",
+        },
+      }),
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n\n`,
+    ];
+    const statuses = [400, 200];
+    const response = await capacityProxy((async () => new Response(bodies.shift()!, {
+      status: statuses.shift()!,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"delta":"ok"');
+    expect(cooldowns).toEqual(["acct-capacity"]);
+  });
+
+  test("uses the provider reset instead of a generic minute for a 429 quota", async () => {
+    const bodies = [
+      JSON.stringify({
+        error: {
+          type: "usage_limit_reached",
+          resets_in_seconds: 7_200,
+        },
+      }),
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n\n`,
+    ];
+    const statuses = [429, 200];
+    const response = await capacityProxy((async () => new Response(bodies.shift()!, {
+      status: statuses.shift()!,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(capacityCooldowns).toEqual([{
+      accountId: "acct-capacity",
+      durationMs: 7_200_000,
+      failureCode: "usage_limit_exceeded",
+    }]);
+  });
+
+  test("fails over a capacity event in an NDJSON response", async () => {
+    const bodies = [
+      `${[
+        JSON.stringify({ type: "response.created" }),
+        JSON.stringify({ type: "error", code: "usage_limit_reached" }),
+      ].join("\n")}\n`,
+      `${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n`,
+    ];
+    const response = await capacityProxy((async () => new Response(bodies.shift()!, {
+      status: 200,
+      headers: { "content-type": "application/x-ndjson" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"delta":"ok"');
+    expect(cooldowns).toEqual(["acct-capacity"]);
+  });
+
+  test("fails over an NDJSON capacity event split across chunks", async () => {
+    const record = JSON.stringify({ type: "error", code: "usage_limit_reached" });
+    const encoder = new TextEncoder();
+    let fetchCalls = 0;
+    const response = await capacityProxy((async () => {
+      if (fetchCalls++ === 0) {
+        return new Response(new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(encoder.encode(record.slice(0, -4)));
+            controller.enqueue(encoder.encode(`${record.slice(-4)}\n`));
+            controller.close();
+          },
+        }), { status: 200, headers: { "content-type": "application/x-ndjson" } });
+      }
+      return new Response(`${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n`, {
+        status: 200,
+        headers: { "content-type": "application/x-ndjson" },
+      });
+    }) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"delta":"ok"');
+    expect(cooldowns).toEqual(["acct-capacity"]);
+  });
+
+  test("does not fail over when output text contains a capacity marker", async () => {
+    const body = `data: ${JSON.stringify({
+      type: "response.output_text.delta",
+      delta: "the literal code is rate_limit_exceeded",
+    })}\n\n`;
+    const response = await capacityProxy((async () => new Response(body, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(body);
+    expect(cooldowns).toEqual([]);
+  });
+
+  test("preserves complete NDJSON streams without failover", async () => {
+    const body = `${[
+      JSON.stringify({ type: "response.created" }),
+      JSON.stringify({ type: "response.output_text.delta", delta: "full" }),
+    ].join("\n")}\n`;
+    const response = await capacityProxy((async () => new Response(body, {
+      status: 200,
+      headers: { "content-type": "application/x-ndjson; charset=utf-8" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(body);
+    expect(cooldowns).toEqual([]);
+  });
+
+  test("preserves an unterminated final NDJSON record at EOF", async () => {
+    const body = JSON.stringify({ type: "response.output_text.delta", delta: "full" });
+    const response = await capacityProxy((async () => new Response(body, {
+      status: 200,
+      headers: { "content-type": "application/x-ndjson" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(body);
+    expect(cooldowns).toEqual([]);
+  });
+
+  test("fails over a capacity response returned as a non-2xx JSON body", async () => {
+    const bodies = [
+      JSON.stringify({ error: { code: "model_capacity", message: "Selected model is at capacity" } }),
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n\n`,
+    ];
+    const statuses = [503, 200];
+    const response = await capacityProxy((async () => new Response(bodies.shift()!, {
+      status: statuses.shift()!,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"delta":"ok"');
+    expect(cooldowns).toEqual(["acct-capacity"]);
+  });
+
+  test("treats response.created as metadata and preserves the complete stream", async () => {
+    const body = [
+      `data: ${JSON.stringify({ type: "response.created" })}\n\n`,
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "full" })}\n\n`,
+    ].join("");
+    const response = await capacityProxy((async () => new Response(body, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(body);
+    expect(cooldowns).toEqual([]);
+  });
+
+  test("hands a quiet pre-output stream back after a bounded probe", async () => {
+    const body = [
+      `data: ${JSON.stringify({ type: "response.created" })}\n\n`,
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "late" })}\n\n`,
+    ];
+    const response = await capacityProxy((async () => new Response(new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(new TextEncoder().encode(body[0]!));
+        await new Promise<void>((resolve) => setTimeout(resolve, 600));
+        controller.enqueue(new TextEncoder().encode(body[1]!));
+        controller.close();
+      },
+    }), { status: 200, headers: { "content-type": "text/event-stream" } })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(body.join(""));
+  });
+
+  test("aborts an idle pre-output probe when the request is cancelled", async () => {
+    let resolveFetch: (() => void) | undefined;
+    const fetchStarted = new Promise<void>((resolve) => { resolveFetch = resolve; });
+    let cancelled = false;
+    const abortingProxy = capacityProxy((async () => {
+      resolveFetch?.();
+      return new Response(new ReadableStream<Uint8Array>({
+        cancel() {
+          cancelled = true;
+        },
+      }), { status: 200, headers: { "content-type": "text/event-stream" } });
+    }) as typeof fetch);
+    const controller = new AbortController();
+    const request = new Request(responsesRequest(), { signal: controller.signal });
+    const pending = abortingProxy(request);
+    await fetchStarted;
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(cancelled).toBe(true);
+  });
+
+  for (const rejectedStatus of [401, 429]) {
+    test(`closes a discarded ${rejectedStatus} body when retry succeeds`, async () => {
+      let cancelled = 0;
+      let calls = 0;
+      const rejected = new ReadableStream<Uint8Array>({
+        cancel() { cancelled += 1; },
+      });
+      const retryingProxy = capacityProxy((async () => {
+        calls += 1;
+        return calls === 1
+          ? new Response(rejected, { status: rejectedStatus })
+          : new Response("data: done\n\n", {
+            headers: { "content-type": "text/event-stream" },
+          });
+      }) as typeof fetch);
+      try {
+        const response = await retryingProxy(responsesRequest());
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe("data: done\n\n");
+        expect(cancelled).toBe(1);
+        expect(calls).toBe(2);
+      } finally {
+        // Also release the fixture on the intentionally failing regression commit.
+        if (!rejected.locked) await rejected.cancel().catch(() => undefined);
+      }
+    });
+  }
+
+  test("closes a discarded 401 body when the refresh exhausts the header budget", async () => {
+    let cancelled = 0;
+    let logicalNow = 0;
+    const rejected = new ReadableStream<Uint8Array>({
+      cancel() { cancelled += 1; },
+    });
+    const boundedProxy = createCodexResponsesProxy({
+      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
+      select: async () => ({
+        id: "acct-1",
+        provider: "codex" as const,
+        vaultRevision: 1,
+        credentialExpiresAt: null,
+        sticky: false,
+      }),
+      credential: async ({ accountId, force }) => {
+        // The forced refresh uses up the rest of the request's header budget.
+        if (force) logicalNow += 1_000;
+        return testCredential(accountId);
+      },
+      cooldown: async () => {},
+    }, {
+      fetch: (async () => new Response(rejected, { status: 401 })) as typeof fetch,
+      now: () => logicalNow,
+      upstreamHeadersBudgetMs: 200,
+      upstreamHeadersTimeoutMs: 120,
+    });
+    try {
+      const response = await boundedProxy(responsesRequest());
+      expect(response.status).not.toBe(200);
+      expect(cancelled).toBe(1);
+    } finally {
+      if (!rejected.locked) await rejected.cancel().catch(() => undefined);
+    }
+  });
+
+  test("keeps the final rejection body readable when no retry succeeds", async () => {
+    let calls = 0;
+    const retryingProxy = capacityProxy((async () => {
+      calls += 1;
+      if (calls > 1) throw new TypeError("connection reset");
+      return new Response("rate limited", { status: 429 });
+    }) as typeof fetch);
+    const response = await retryingProxy(responsesRequest());
+    expect(response.status).toBe(429);
+    expect(await response.text()).toBe("rate limited");
+  });
+
   test("passes the session_id header to account selection", async () => {
     accountsToServe = [{ id: "acct-1", sticky: true }];
     const response = await proxy(responsesRequest({ session_id: "session-abc" }));
@@ -100,7 +510,8 @@ describe("codex responses proxy session routing", () => {
     expect(selectInputs).toHaveLength(1);
     expect(selectInputs[0]?.sessionKey).toBe("session-abc");
     expect(selectInputs[0]?.teamId).toBe("team-1");
-    expect(selectInputs[0]?.provider).toBe("codex");
+    // The Responses surface pools Codex sign-ins with OpenAI and OpenRouter keys.
+    expect(selectInputs[0]?.provider).toEqual(["codex", "openai-apikey", "openrouter-apikey"]);
   });
 
   test("selects without a session key when the header is missing", async () => {
@@ -130,13 +541,208 @@ describe("codex responses proxy session routing", () => {
     expect(selectInputs[1]?.sessionKey).toBe("session-move");
   });
 
-  test("a sticky session waits out an in-flight refresh instead of moving", async () => {
+  test("bounds all upstream header waits to one request budget", async () => {
+    const selected: string[] = [];
+    let logicalNow = 0;
+    const rateLimitedFetch = (async () => {
+      // Advance a deterministic clock as each simulated header wait elapses.
+      logicalNow += 120;
+      return new Response("rate limited", {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    const boundedProxy = createCodexResponsesProxy({
+      authenticate: async () => ({
+        teamId: "team-1",
+        stackUserId: "stack-user-1",
+        vmId: null,
+      }),
+      select: async () => {
+        const id = `acct-${selected.length + 1}`;
+        selected.push(id);
+        return { id, provider: "codex" as const, vaultRevision: 1, credentialExpiresAt: null, sticky: false };
+      },
+      credential: async ({ accountId }) => ({
+        provider: "codex" as const,
+        accessToken: `access-${accountId}`,
+        refreshToken: "refresh",
+        idToken: "id",
+        accountId: "chatgpt-account",
+        email: "person@example.com",
+        expiresAt: Date.now() + 60_000,
+      }),
+      cooldown: async () => {},
+    }, {
+      fetch: rateLimitedFetch,
+      now: () => logicalNow,
+      upstreamHeadersBudgetMs: 200,
+      upstreamHeadersTimeoutMs: 120,
+    });
+
+    const response = await boundedProxy(responsesRequest());
+
+    expect(response.status).toBe(429);
+    expect(selected).toEqual(["acct-1", "acct-2"]);
+  });
+
+  test("bounds account selection to the request failover deadline and aborts it", async () => {
+    let selectionSignal: AbortSignal | undefined;
+    const boundedProxy = createCodexResponsesProxy({
+      authenticate: async () => ({
+        teamId: "team-1",
+        stackUserId: "stack-user-1",
+        vmId: null,
+      }),
+      select: async (input) => {
+        selectionSignal = (input as SelectInput).signal;
+        return await new Promise<null>(() => undefined);
+      },
+      credential: async () => {
+        throw new Error("credential should not run");
+      },
+      cooldown: async () => {},
+    }, {
+      now: () => 0,
+      upstreamHeadersBudgetMs: 30,
+      upstreamHeadersTimeoutMs: 10,
+    });
+
+    const started = performance.now();
+    const response = await boundedProxy(responsesRequest());
+
+    expect(response.status).toBe(503);
+    expect(selectionSignal).toBeDefined();
+    expect(selectionSignal?.aborted).toBe(true);
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
+  test("bounds credential loading to the request failover deadline and aborts it", async () => {
+    let credentialSignal: AbortSignal | undefined;
+    const boundedProxy = createCodexResponsesProxy({
+      authenticate: async () => ({
+        teamId: "team-1",
+        stackUserId: "stack-user-1",
+        vmId: null,
+      }),
+      select: async () => ({ id: "acct-1", provider: "codex" as const, vaultRevision: 1, credentialExpiresAt: null, sticky: false }),
+      credential: async (input) => {
+        credentialSignal = (input as typeof input & { signal?: AbortSignal }).signal;
+        return await new Promise<never>(() => undefined);
+      },
+      cooldown: async () => {},
+    }, {
+      now: () => 0,
+      upstreamHeadersBudgetMs: 30,
+      upstreamHeadersTimeoutMs: 10,
+    });
+
+    const started = performance.now();
+    const response = await boundedProxy(responsesRequest());
+
+    expect(response.status).toBe(503);
+    expect(credentialSignal).toBeDefined();
+    expect(credentialSignal?.aborted).toBe(true);
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
+  test("does not fail over after the caller cancels the request", async () => {
+    const controller = new AbortController();
+    const selected: string[] = [];
+    const abortingFetch = (async () => {
+      controller.abort();
+      throw new DOMException("aborted", "AbortError");
+    }) as typeof fetch;
+    const abortingProxy = createCodexResponsesProxy({
+      authenticate: async () => ({
+        teamId: "team-1",
+        stackUserId: "stack-user-1",
+        vmId: null,
+      }),
+      select: async () => {
+        const id = `acct-${selected.length + 1}`;
+        selected.push(id);
+        return { id, provider: "codex" as const, vaultRevision: 1, credentialExpiresAt: null, sticky: false };
+      },
+      credential: async ({ accountId }) => ({
+        provider: "codex" as const,
+        accessToken: `access-${accountId}`,
+        refreshToken: "refresh",
+        idToken: "id",
+        accountId: "chatgpt-account",
+        email: "person@example.com",
+        expiresAt: Date.now() + 60_000,
+      }),
+      cooldown: async () => {},
+    }, { fetch: abortingFetch });
+    const request = new Request("https://coderouter.dev/v1/responses", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer crt_token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ model: "gpt-test", input: [] }),
+      signal: controller.signal,
+    });
+
+    await expect(abortingProxy(request)).rejects.toMatchObject({ name: "AbortError" });
+    expect(selected).toEqual(["acct-1"]);
+  });
+
+  test("a sticky session retries on the refresh-completion signal instead of moving", async () => {
     accountsToServe = [{ id: "acct-1", sticky: true }];
     credentialBusyBudgets.set("acct-1", 2);
+    settleOnWait = true;
     const response = await proxy(responsesRequest({ session_id: "session-wait" }));
     expect(response.status).toBe(200);
     expect(selectInputs).toHaveLength(1);
     expect(credentialCalls).toEqual(["acct-1"]);
+    expect(refreshWaits).toEqual(["acct-1", "acct-1"]);
+    // The in-process signal resolves the wait: no clock time and no lease re-read.
+    expect(refreshClock.now()).toBe(0);
+    expect(leaseProbeTimes).toEqual([]);
+  });
+
+  test("a sticky session waits for another instance's refresh by re-reading the lease", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: true }];
+    credentialBusyBudgets.set("acct-1", 1);
+    leaseActiveAnswers = [true, false];
+    const response = await refreshClock.runUntilSettled(proxy(responsesRequest({ session_id: "session-remote" })));
+    expect(response.status).toBe(200);
+    expect(selectInputs).toHaveLength(1);
+    expect(credentialCalls).toEqual(["acct-1"]);
+    expect(leaseProbeTimes).toEqual([100, 300]);
+  });
+
+  test("a sticky session moves once the refresh outlasts the patience deadline", async () => {
+    accountsToServe = [
+      { id: "acct-1", sticky: true },
+      { id: "acct-2", sticky: false },
+    ];
+    credentialBusyBudgets.set("acct-1", 99);
+    const response = await refreshClock.runUntilSettled(proxy(responsesRequest({ session_id: "session-stuck" })));
+    expect(response.status).toBe(200);
+    expect(credentialCalls).toEqual(["acct-2"]);
+    expect(selectInputs).toHaveLength(2);
+    expect(selectInputs[1]?.excludedAccountIds).toEqual(["acct-1"]);
+    expect(refreshClock.now()).toBe(STICKY_REFRESH_PATIENCE_MS);
+    expect(leaseProbeTimes.at(-1)).toBe(STICKY_REFRESH_PATIENCE_MS);
+  });
+
+  test("a caller abort during a sticky refresh wait cancels without moving", async () => {
+    accountsToServe = [
+      { id: "acct-1", sticky: true },
+      { id: "acct-2", sticky: false },
+    ];
+    credentialBusyBudgets.set("acct-1", 99);
+    const controller = new AbortController();
+    abortOnWait = controller;
+    const request = new Request(responsesRequest({ session_id: "session-abort" }), { signal: controller.signal });
+    await expect(proxy(request)).rejects.toMatchObject({ name: "AbortError" });
+    expect(selectInputs).toHaveLength(1);
+    expect(credentialCalls).toEqual([]);
+    expect(leaseProbeTimes).toEqual([]);
+    expect(refreshClock.pendingSleeps()).toBe(0);
   });
 
   test("a non-sticky request moves immediately on refresh-busy", async () => {
@@ -149,6 +755,8 @@ describe("codex responses proxy session routing", () => {
     expect(response.status).toBe(200);
     expect(credentialCalls).toEqual(["acct-2"]);
     expect(selectInputs).toHaveLength(2);
+    expect(refreshWaits).toEqual([]);
+    expect(leaseProbeTimes).toEqual([]);
   });
 
   test("returns no_usable_account when selection is exhausted", async () => {
@@ -157,5 +765,235 @@ describe("codex responses proxy session routing", () => {
     expect(response.status).toBe(503);
     const body = await response.json() as { error: string };
     expect(body.error).toBe("no_usable_account");
+  });
+});
+
+describe("codex responses proxy capacity hold", () => {
+  /**
+   * One-account pool that models cooldowns on the logical clock, the way the
+   * database does: a cooling account is not selectable, and
+   * `nextAvailableAt` reports the soonest transient recovery.
+   */
+  function holdingProxy(fetchImpl: typeof fetch, overrides: { capacityHoldBudgetMs?: number } = {}) {
+    const cooldownUntil = new Map<string, { at: number; failureCode?: string }>();
+    const bodies: string[] = [];
+    const proxy = createCodexResponsesProxy({
+      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
+      select: async (input) => {
+        const excluded = new Set(input.excludedAccountIds ?? []);
+        const cooling = cooldownUntil.get("acct-1");
+        if (excluded.has("acct-1") || (cooling && cooling.at > clock)) return null;
+        return { id: "acct-1", provider: "codex" as const, vaultRevision: 1, credentialExpiresAt: null, sticky: true };
+      },
+      credential: async () => ({
+        provider: "codex" as const,
+        accessToken: "access-acct-1",
+        refreshToken: "refresh",
+        idToken: "id",
+        accountId: "chatgpt-account",
+        email: "person@example.com",
+        expiresAt: Date.now() + 60_000,
+      }),
+      cooldown: async (accountId, durationMs, _signal, failureCode) => {
+        capacityCooldowns.push({ accountId, durationMs, failureCode });
+        cooldownUntil.set(accountId, { at: clock + durationMs, failureCode });
+      },
+      nextAvailableAt: async () => {
+        const cooling = cooldownUntil.get("acct-1");
+        return cooling && cooling.at > clock ? new Date(cooling.at) : null;
+      },
+    }, {
+      ...holdRuntime,
+      ...overrides,
+      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+        bodies.push(await new Response(init?.body).text());
+        return await fetchImpl(input, init);
+      }) as typeof fetch,
+    });
+    return { proxy, bodies };
+  }
+
+  const capacityEvent = `data: ${JSON.stringify({
+    type: "error",
+    message: "Selected model is at capacity. Please try a different model.",
+  })}\n\n`;
+  const outputEvent = `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n\n`;
+
+  test("holds a capacity storm on the same model until the upstream answers", async () => {
+    const replies = [
+      () => new Response(capacityEvent, { status: 200, headers: { "content-type": "text/event-stream" } }),
+      () => new Response("{}", { status: 429, headers: { "retry-after": "5" } }),
+      () => { throw new TypeError("fetch failed"); },
+      () => new Response(capacityEvent, { status: 200, headers: { "content-type": "text/event-stream" } }),
+      () => new Response(outputEvent, { status: 200, headers: { "content-type": "text/event-stream" } }),
+    ];
+    const { proxy: holding, bodies } = holdingProxy((async () => replies.shift()!()) as typeof fetch);
+    const context = newCoderouterRequestContext({ request: responsesRequest(), surface: "responses", route: "/v1/responses" });
+    const response = await runWithCoderouterRequest(context, () => holding(responsesRequest({ session_id: "session-hold" })));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"delta":"ok"');
+    expect(bodies).toHaveLength(5);
+    expect(new Set(bodies.map((body) => JSON.parse(body).model))).toEqual(new Set(["gpt-test"]));
+    // Every wait honors the account cooldown the failure recorded.
+    expect(sleeps).toHaveLength(4);
+    expect(sleeps[0]).toBeGreaterThanOrEqual(60_000);
+    expect(sleeps[1]).toBeGreaterThanOrEqual(5_000);
+    expect(context.outcome).toMatchObject({ outcome: "success", attempts: 5, holdCount: 4 });
+    expect(context.outcome?.heldMs).toBe(sleeps.reduce((total, ms) => total + ms, 0));
+  });
+
+  test("answers at once when the quota resets after the hold budget", async () => {
+    const quota = JSON.stringify({ error: { code: "usage_limit_exceeded", message: "You've hit your usage limit." } });
+    const { proxy: holding, bodies } = holdingProxy((async () =>
+      new Response(quota, { status: 400, headers: { "content-type": "application/json" } })) as typeof fetch);
+    const response = await holding(responsesRequest());
+    expect(response.status).toBe(503);
+    expect(bodies).toHaveLength(1);
+    expect(sleeps).toEqual([]);
+    expect(capacityCooldowns).toEqual([{ accountId: "acct-1", durationMs: 60 * 60_000, failureCode: "usage_limit_exceeded" }]);
+  });
+
+  test("stops holding once the capacity hold budget is spent", async () => {
+    const { proxy: holding, bodies } = holdingProxy((async () =>
+      new Response(capacityEvent, { status: 200, headers: { "content-type": "text/event-stream" } })) as typeof fetch, {
+      capacityHoldBudgetMs: 5 * 60_000,
+    });
+    const response = await holding(responsesRequest());
+    expect(response.status).toBe(503);
+    expect(bodies.length).toBeGreaterThan(2);
+    expect(clock).toBeLessThanOrEqual(5 * 60_000);
+  });
+
+  test("never replays a stream once output has reached the client", async () => {
+    const { proxy: holding, bodies } = holdingProxy((async () =>
+      new Response(outputEvent + capacityEvent, { status: 200, headers: { "content-type": "text/event-stream" } })) as typeof fetch);
+    const response = await holding(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("at capacity");
+    expect(bodies).toHaveLength(1);
+    expect(sleeps).toEqual([]);
+  });
+});
+
+describe("codex models proxy outcomes", () => {
+  test("reports provider unavailable when upstream headers time out", async () => {
+    let selected = false;
+    const modelsProxy = createCodexModelsProxy({
+      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
+      select: async () => {
+        if (selected) return null;
+        selected = true;
+        return { id: "acct-1", provider: "codex" as const, vaultRevision: 1, credentialExpiresAt: null };
+      },
+      credential: async () => ({
+        provider: "codex" as const,
+        accessToken: "access",
+        refreshToken: "refresh",
+        idToken: "id",
+        accountId: "chatgpt-account",
+        email: "person@example.com",
+        expiresAt: Date.now() + 60_000,
+      }),
+      cooldown: async () => {},
+      providerRead: async () => {
+        throw new Error("upstream headers timed out");
+      },
+    });
+    const response = await modelsProxy(new Request("https://coderouter.dev/v1/models", {
+      headers: { authorization: "Bearer crt_token", "anthropic-version": "2023-06-01" },
+    }));
+    expect(response.status).toBe(503);
+    const body = await response.json() as { error: string };
+    expect(body.error).toBe("provider_unavailable");
+  });
+});
+
+describe("codex responses proxy VM-bound route tokens", () => {
+  function edgeRequest(headers: Record<string, string>): Request {
+    return new Request("https://coderouter.dev/v1/responses", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${VM_PLACEHOLDER_API_KEY}`,
+        "content-type": "application/json",
+        ...headers,
+      },
+      body: JSON.stringify({ model: "gpt-test", input: [] }),
+    });
+  }
+
+  test("a bound token with the matching x-cmux-vm-id header is routed", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: false }];
+    const response = await proxy(edgeRequest({
+      "x-cmux-authorization": `Bearer ${BOUND_TOKEN}`,
+      "x-cmux-vm-id": "vm-1",
+    }));
+    expect(response.status).toBe(200);
+    expect(authenticatedTokens).toEqual([BOUND_TOKEN]);
+    expect(selectInputs[0]?.teamId).toBe("team-1");
+  });
+
+  test("a signed new-machine token reaches the typed no-account outcome", async () => {
+    accountsToServe = [];
+    const response = await proxy(edgeRequest({
+      "x-cmux-authorization": `Bearer ${SIGNED_VM_TOKEN}`,
+    }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: "no_usable_account",
+      retryable: true,
+    });
+    expect(selectInputs[0]?.teamId).toBe("team-1");
+  });
+
+  test("a bound token without x-cmux-vm-id is rejected as vm_mismatch", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: false }];
+    const capture = spyOn(analytics, "captureCoderouterEvent");
+    try {
+      const response = await proxy(edgeRequest({
+        "x-coderouter-route-token": BOUND_TOKEN,
+      }));
+      expect(response.status).toBe(401);
+      const body = await response.json() as { error: string; message: string };
+      expect(body.error).toBe("unauthorized");
+      expect(body.message).toBe(
+        "This machine's coderouter credential does not match the machine it was issued to.",
+      );
+      expect(selectInputs).toHaveLength(0);
+      const rejection = capture.mock.calls
+        .map((call) => call[0])
+        .find((event) => event.event === "coderouter_auth_rejected");
+      expect(rejection?.properties).toEqual({
+        surface: "responses",
+        reason: "vm_mismatch",
+      });
+    } finally {
+      capture.mockRestore();
+    }
+  });
+
+  test("a bound token with another machine's x-cmux-vm-id is rejected", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: false }];
+    const response = await proxy(edgeRequest({
+      "x-coderouter-route-token": BOUND_TOKEN,
+      "x-cmux-vm-id": "vm-2",
+    }));
+    expect(response.status).toBe(401);
+    expect(selectInputs).toHaveLength(0);
+  });
+
+  test("a VM header cannot substitute an unbound token", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: false }];
+    const response = await proxy(responsesRequest({ "x-cmux-vm-id": "vm-9" }));
+    expect(response.status).toBe(401);
+    expect(selectInputs).toHaveLength(0);
+  });
+
+  test("the placeholder API key alone is never a credential", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: false }];
+    const response = await proxy(edgeRequest({ "x-cmux-vm-id": "vm-1" }));
+    expect(response.status).toBe(401);
+    expect(authenticatedTokens).toEqual([]);
+    const body = await response.json() as { message: string };
+    expect(body.message).toBe("Sign in with `cr login` and retry.");
   });
 });

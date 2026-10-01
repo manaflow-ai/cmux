@@ -606,6 +606,14 @@ def runtime_event_stream_hints() -> dict[str, set[str]]:
 
     add(function_event_names(server, "subscribed_event_json"), "subscribe")
     add(function_event_names(server, "tree_delta_json"), "subscribe-deltas")
+    if re.search(
+        r"\bfn\s+complete_daemon_shutdown_after_ack(?:\s*<[^>]*>)?\s*\(",
+        server,
+    ):
+        add(
+            function_event_names(server, "complete_daemon_shutdown_after_ack"),
+            "control",
+        )
     add(
         first_function_event_names(server, "render_state_message", "render_state_json"),
         "attach-render",
@@ -800,6 +808,10 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
         "classification": "direct",
         "route": "browser-activate",
     },
+    "MoveTabToWorkspace": {
+        "classification": "direct",
+        "route": "move-tab-to-workspace",
+    },
     "RenameSurface": {
         "classification": "composite",
         "route": "frontend prompt + rename-surface",
@@ -839,6 +851,18 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
     "DisconnectClient": {
         "classification": "composite",
         "route": "self: close frontend transport; peer: detach-client",
+    },
+    "SetSizeMode": {
+        "classification": "direct",
+        "route": "set-size-policy",
+    },
+    "SetSizeCounts": {
+        "classification": "direct",
+        "route": "set-size-counts participant",
+    },
+    "DisconnectSizeParticipant": {
+        "classification": "composite",
+        "route": "self: close frontend transport; peer: detach-client participant",
     },
     "SelectProviderScope": {
         "classification": "external-protocol",

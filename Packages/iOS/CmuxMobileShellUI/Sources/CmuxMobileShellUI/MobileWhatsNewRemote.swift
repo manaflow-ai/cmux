@@ -9,13 +9,23 @@ import Foundation
 /// news) targeted at a version range.
 struct MobileWhatsNewRemoteList: Codable {
     var visibleEntryIds: [String]
+    /// Per-binary-entry channel targeting, keyed by catalog entry id, with
+    /// `MobileBuildType.token` values. When present for an entry it REPLACES
+    /// the entry's compiled-in channel declaration, so a specific page can be
+    /// opted into (or out of) the official App Store channel remotely.
+    /// Absent key or absent map: the compiled-in declaration (usually the
+    /// team-lanes-only default) applies. Old clients decode and ignore
+    /// unknown keys, so serving this field is backward compatible.
+    var entryChannels: [String: [String]]?
     var announcements: [MobileWhatsNewRemoteAnnouncement]
 
     init(
         visibleEntryIds: [String],
+        entryChannels: [String: [String]]? = nil,
         announcements: [MobileWhatsNewRemoteAnnouncement]
     ) {
         self.visibleEntryIds = visibleEntryIds
+        self.entryChannels = entryChannels
         self.announcements = announcements
     }
 
@@ -24,6 +34,10 @@ struct MobileWhatsNewRemoteList: Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         visibleEntryIds = try container.decode([String].self, forKey: .visibleEntryIds)
+        entryChannels = try container.decodeIfPresent(
+            [String: [String]].self,
+            forKey: .entryChannels
+        )
         var decoded: [MobileWhatsNewRemoteAnnouncement] = []
         if var elements = try? container.nestedUnkeyedContainer(forKey: .announcements) {
             while !elements.isAtEnd {
@@ -61,6 +75,32 @@ struct MobileWhatsNewRemoteAnnouncement: Codable, Identifiable {
         var detail: String
     }
 
+    struct LocalizedContent: Codable {
+        var title: String
+        var releaseLabel: String?
+        var features: [Feature]
+    }
+
+    /// Complete translated content. Base fields remain an English fallback
+    /// for older clients and unsupported languages; identity and targeting
+    /// never vary by language.
+    var localizations: [String: LocalizedContent]? = nil
+
+    func localized(for preferredLanguages: [String]) -> Self {
+        guard let localizations else { return self }
+        let languages = Bundle.preferredLocalizations(
+            from: localizations.keys.sorted(),
+            forPreferences: preferredLanguages + ["en"]
+        )
+        guard let language = languages.first,
+              let content = localizations[language] else { return self }
+        var result = self
+        result.title = content.title
+        result.releaseLabel = content.releaseLabel
+        result.features = content.features
+        return result
+    }
+
     var id: String
     var minVersion: String
     var maxVersion: String
@@ -69,12 +109,19 @@ struct MobileWhatsNewRemoteAnnouncement: Codable, Identifiable {
     var features: [Feature]?
     var nativeEntryId: String?
     var webUrl: String?
+    /// Build channels this announcement targets (`MobileBuildType.token`
+    /// values). `nil` means the ``MobileWhatsNewChannelPolicy`` default:
+    /// team lanes only, never the official App Store app. Must list "prod"
+    /// explicitly to reach official builds.
+    var channels: [String]?
 }
 
 /// Dotted-numeric ("1.0.4"-style) version comparison; missing components are
 /// zero and non-numeric components compare as zero.
-enum MobileAppVersionCompare {
-    static func compare(_ lhs: String, _ rhs: String) -> ComparisonResult {
+struct MobileAppVersionCompare: Sendable {
+    init() {}
+
+    func compare(_ lhs: String, _ rhs: String) -> ComparisonResult {
         let lhsParts = components(of: lhs)
         let rhsParts = components(of: rhs)
         for index in 0..<max(lhsParts.count, rhsParts.count) {
@@ -86,16 +133,17 @@ enum MobileAppVersionCompare {
         return .orderedSame
     }
 
-    static func version(
+    func version(
         _ version: String,
         isWithinMin minVersion: String,
-        max maxVersion: String
+        max maxVersion: String?
     ) -> Bool {
-        compare(version, minVersion) != .orderedAscending
-            && compare(version, maxVersion) != .orderedDescending
+        guard compare(version, minVersion) != .orderedAscending else { return false }
+        guard let maxVersion else { return true }
+        return compare(version, maxVersion) != .orderedDescending
     }
 
-    private static func components(of version: String) -> [Int] {
+    private func components(of version: String) -> [Int] {
         version.split(separator: ".").map { Int($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
     }
 }

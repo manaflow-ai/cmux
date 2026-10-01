@@ -136,7 +136,7 @@ final class MarkdownViewerAssets {
 
     private static func loadDeflatedTextAsset(url: URL) -> String? {
         guard let compressed = try? Data(contentsOf: url),
-              let decompressed = MarkdownViewerAssetCompression.inflate(compressed) else {
+              let decompressed = Data.inflateMarkdownViewerAsset(compressed) else {
             return nil
         }
         return String(data: decompressed, encoding: .utf8)

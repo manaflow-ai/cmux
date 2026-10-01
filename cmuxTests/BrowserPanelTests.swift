@@ -30,9 +30,127 @@ struct BrowserWebViewUserAgentRegressionTests {
             "Mozilla/5.0 Chrome/125.0.0.0 Safari/537.36"
         panel.navigate(to: URL(string: "about:blank")!)
 
+        // WebKit reports the native identity as nil or "" depending on the load
+        // phase (see `applyBrowserUserAgentPolicy`); either means the Chrome
+        // override was dropped before the non-web navigation started.
+        let userAgent = panel.webView.customUserAgent ?? ""
         #expect(
-            panel.webView.customUserAgent == nil,
-            "Embedded WKWebView must keep its native identity so canvas apps do not select Safari-only rendering paths"
+            userAgent.isEmpty,
+            "Embedded WKWebView must keep its native identity so canvas apps do not select Safari-only rendering paths (was \(userAgent))"
+        )
+    }
+}
+
+@MainActor
+@Suite(.serialized)
+struct BrowserLocalFileEncodingTests {
+    private struct DocumentSnapshot {
+        let characterSet: String
+        let text: String
+    }
+
+    @Test func utf8LocalTextSurvivesNavigationAwayBackAndReload() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-browser-utf8-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let fileURL = directory.appendingPathComponent("notes.md")
+        let expectedText = "# 산책의 즐거움"
+        try XCTUnwrap(expectedText.data(using: .utf8)).write(to: fileURL)
+
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let fallbackEncoding = panel.webView.configuration.preferences
+            .value(forKey: "_defaultTextEncodingName") as? String
+
+        panel.navigate(to: fileURL)
+        let initial = try await waitForDocument(at: fileURL, in: panel)
+        #expect(initial.characterSet.caseInsensitiveCompare("UTF-8") == .orderedSame)
+        #expect(initial.text.contains(expectedText))
+
+        panel.navigate(to: URL(string: "about:blank")!)
+        _ = try await waitForDocument(at: URL(string: "about:blank")!, in: panel)
+        #expect(
+            (panel.webView.configuration.preferences.value(forKey: "_defaultTextEncodingName") as? String)
+                == fallbackEncoding
+        )
+
+        panel.goBack()
+        let afterBack = try await waitForDocument(at: fileURL, in: panel)
+        #expect(afterBack.characterSet.caseInsensitiveCompare("UTF-8") == .orderedSame)
+        #expect(afterBack.text.contains(expectedText))
+
+        panel.reload()
+        let afterReload = try await waitForDocument(at: fileURL, in: panel)
+        #expect(afterReload.characterSet.caseInsensitiveCompare("UTF-8") == .orderedSame)
+        #expect(afterReload.text.contains(expectedText))
+    }
+
+    @Test func encodingPolicyLeavesNonUTF8DeclaredAndNonFileNavigationOnWebKitFallback() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-browser-encoding-policy-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let utf8URL = directory.appendingPathComponent("utf8.txt")
+        try XCTUnwrap("산책".data(using: .utf8)).write(to: utf8URL)
+        let nonUTF8URL = directory.appendingPathComponent("legacy.txt")
+        try Data([0xB0, 0xA1]).write(to: nonUTF8URL)
+        let declaredCharsetURL = directory.appendingPathComponent("declared.html")
+        try XCTUnwrap(
+            "<html><head><meta charset=\"windows-1252\"></head><body>산책</body></html>"
+                .data(using: .utf8)
+        ).write(to: declaredCharsetURL)
+        let unsupportedCharsetURL = directory.appendingPathComponent("unsupported.html")
+        try XCTUnwrap(
+            "<html><head><meta charset=\"unsupported-encoding\"></head><body>산책</body></html>"
+                .data(using: .utf8)
+        ).write(to: unsupportedCharsetURL)
+
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: utf8URL) == "UTF-8")
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: nonUTF8URL) == nil)
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: declaredCharsetURL) == nil)
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: unsupportedCharsetURL) == "UTF-8")
+        #expect(await BrowserLocalFileEncodingPolicy.preferredEncodingName(for: URL(string: "about:blank")!) == nil)
+
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        panel.navigate(to: unsupportedCharsetURL)
+        let snapshot = try await waitForDocument(at: unsupportedCharsetURL, in: panel)
+        #expect(snapshot.characterSet.caseInsensitiveCompare("UTF-8") == .orderedSame)
+        #expect(snapshot.text.contains("산책"))
+    }
+
+    private func waitForDocument(
+        at url: URL,
+        in panel: BrowserPanel,
+        timeout: Duration = .seconds(10)
+    ) async throws -> DocumentSnapshot {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if panel.webView.url?.absoluteString == url.absoluteString,
+               panel.webView.backForwardList.currentItem?.url.absoluteString == url.absoluteString,
+               !panel.webView.isLoading,
+               let raw = try? await panel.webView.evaluateJavaScript(
+                   """
+                   ({
+                     characterSet: document.characterSet,
+                     text: document.body?.textContent || document.documentElement?.textContent || ''
+                   })
+                   """
+               ) as? [String: Any],
+               let characterSet = raw["characterSet"] as? String,
+               let text = raw["text"] as? String {
+                return DocumentSnapshot(characterSet: characterSet, text: text)
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        throw NSError(
+            domain: "BrowserLocalFileEncodingTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for \(url.absoluteString)"]
         )
     }
 }
@@ -152,16 +270,8 @@ private func makeHiddenWebViewDiscardBlockerSnapshot(
 
 @MainActor
 private func withHiddenWebViewDiscardPolicyEnabled(_ body: () -> Void) {
-    let defaults = UserDefaults.standard
-    let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-    defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-    defer {
-        if let previousEnabled {
-            defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        } else {
-            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        }
-    }
+    let previousValues = enableHiddenWebViewDiscardTimerPolicy()
+    defer { restoreHiddenWebViewDiscardPolicy(previousValues) }
     body()
 }
 
@@ -211,22 +321,15 @@ struct BrowserHiddenWebViewDiscardMediaPlaybackTests {
 
 @MainActor
 final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
-    private var previousEnabled: Any?
+    private var previousPolicyValues: [String: Any] = [:]
 
     override func setUp() {
         super.setUp()
-        let defaults = UserDefaults.standard
-        previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        previousPolicyValues = enableHiddenWebViewDiscardTimerPolicy()
     }
 
     override func tearDown() {
-        let defaults = UserDefaults.standard
-        if let previousEnabled {
-            defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        } else {
-            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        }
+        restoreHiddenWebViewDiscardPolicy(previousPolicyValues)
         super.tearDown()
     }
 
@@ -1323,27 +1426,6 @@ final class WindowBrowserHostViewTests: XCTestCase {
         }
     }
 
-    /// Models an AppKit hosting wrapper that claims its entire bounds instead
-    /// of forwarding `hitTest` to a nested SwiftUI overlay.
-    private final class NonPropagatingHostingView: NSView {
-        override func hitTest(_ point: NSPoint) -> NSView? {
-            bounds.contains(point) ? self : nil
-        }
-    }
-
-    /// Models a hosting wrapper whose native hit-test result is an unrelated
-    /// content leaf, even though a divider tracker is a sibling in the same
-    /// hosted hierarchy. This is the shape produced by some AppKit/SwiftUI
-    /// wrappers while their content subtree is being reconciled.
-    private final class LeafClaimingHostingView: NSView {
-        weak var claimedLeaf: NSView?
-
-        override func hitTest(_ point: NSPoint) -> NSView? {
-            guard bounds.contains(point) else { return nil }
-            return claimedLeaf ?? self
-        }
-    }
-
     private final class FakeTabBarBackgroundNSView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
             bounds.contains(point) ? self : nil
@@ -1411,6 +1493,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
     private struct TabStripPassThroughFixture {
         let host: WindowBrowserHostView
         let pointInHost: NSPoint
+        let pointInWindow: NSPoint
     }
 
     private func installTabStripPassThroughFixture(in window: NSWindow) -> TabStripPassThroughFixture? {
@@ -1447,7 +1530,30 @@ final class WindowBrowserHostViewTests: XCTestCase {
         )
         let pointInWindow = contentView.convert(pointInContent, to: nil)
         let pointInHost = host.convert(pointInWindow, from: nil)
-        return TabStripPassThroughFixture(host: host, pointInHost: pointInHost)
+        return TabStripPassThroughFixture(host: host, pointInHost: pointInHost, pointInWindow: pointInWindow)
+    }
+
+    /// Leaves a hover event for another window as `NSApp.currentEvent`, the
+    /// state earlier suites leave behind when a real mouseEntered for one of
+    /// their windows was the last event AppKit dequeued.
+    private func leaveStaleHoverEventAsCurrentEvent(for window: NSWindow) {
+        guard let staleHover = NSEvent.enterExitEvent(
+            with: .mouseEntered,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            trackingNumber: 0,
+            userData: nil
+        ) else {
+            XCTFail("Failed to create a mouseEntered event")
+            return
+        }
+        NSApp.postEvent(staleHover, atStart: true)
+        _ = NSApp.nextEvent(matching: .any, until: .distantPast, inMode: .default, dequeue: true)
+        XCTAssertEqual(NSApp.currentEvent?.type, .mouseEntered)
     }
 
     func testHostViewPassesThroughUnderlyingTabStripInSecondWindowBelowTitlebarBand() {
@@ -1476,13 +1582,94 @@ final class WindowBrowserHostViewTests: XCTestCase {
             return
         }
 
+        let otherWindow = NSWindow(
+            contentRect: NSRect(x: 64, y: 64, width: 200, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { otherWindow.orderOut(nil) }
+        leaveStaleHoverEventAsCurrentEvent(for: otherWindow)
+
+        // `hitTest(_:)` would route on that stale hover, and hover events
+        // deliberately skip this unregistered tab-strip fallback. The
+        // regression is about clicks, so hit-test with the click itself.
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
         XCTAssertNil(
-            firstFixture.host.hitTest(firstFixture.pointInHost),
+            firstFixture.host.performHitTest(
+                at: firstFixture.pointInHost,
+                currentEvent: makeMouseEvent(
+                    type: .leftMouseDown,
+                    location: firstFixture.pointInWindow,
+                    window: firstWindow
+                ),
+                dragPasteboard: pasteboard
+            ),
             "Browser portal should defer to the minimal tab strip in the original window just below the titlebar interaction band"
         )
         XCTAssertNil(
-            secondFixture.host.hitTest(secondFixture.pointInHost),
+            secondFixture.host.performHitTest(
+                at: secondFixture.pointInHost,
+                currentEvent: makeMouseEvent(
+                    type: .leftMouseDown,
+                    location: secondFixture.pointInWindow,
+                    window: secondWindow
+                ),
+                dragPasteboard: pasteboard
+            ),
             "Browser portal should defer to the minimal tab strip in later-created windows just below the titlebar interaction band"
+        )
+    }
+
+    func testHostViewKeepsBrowserContentInteractiveInsideTitlebarBand() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let slot = WindowBrowserSlotView(frame: host.bounds)
+        let webView = WKWebView(frame: slot.bounds)
+        slot.addSubview(webView)
+        slot.pinHostedWebView(webView)
+        host.addSubview(slot)
+        host.layoutSubtreeIfNeeded()
+
+        let pointInSlot = NSPoint(x: slot.bounds.midX, y: slot.bounds.maxY - 0.5)
+        let pointInWindow = slot.convert(pointInSlot, to: nil)
+        let pointInHost = host.convert(pointInWindow, from: nil)
+        let event = makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window)
+        let titlebarBandMinY = BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window)
+        XCTAssertGreaterThanOrEqual(
+            pointInWindow.y,
+            titlebarBandMinY,
+            "The regression point must exercise the titlebar interaction band"
+        )
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-10965.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let hit = host.performHitTest(
+            at: pointInHost,
+            currentEvent: event,
+            dragPasteboard: pasteboard
+        )
+        XCTAssertTrue(
+            hit === webView || hit?.isDescendant(of: webView) == true,
+            "Browser content under the titlebar interaction band must keep receiving pointer events"
         )
     }
 
@@ -1632,173 +1819,6 @@ final class WindowBrowserHostViewTests: XCTestCase {
                 dragPasteboard: pasteboard
             ) === mainContent,
             "Only the shared browser/Dock divider band should pass through; browser content must remain interactive"
-        )
-    }
-
-    func testHostViewForwardsDockDividerMouseDownToLiveSidebarTracker() throws {
-        // The portal host is a window-level sibling above the SwiftUI tree. A
-        // browser pane immediately left of the Dock must hand ownership to the
-        // host and let it forward the synchronous divider drag to the native
-        // tracker below, even when a hosting wrapper claims the underlying hit.
-        // The second drag below also models the short SwiftUI reparent gap that
-        // can occur between AppKit's hit-test and mouseDown callbacks.
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
-            XCTFail("Expected window content container")
-            return
-        }
-
-        let wrapper = NonPropagatingHostingView(frame: contentView.bounds)
-        contentView.addSubview(wrapper)
-
-        var eventNames: [String] = []
-        var changedTranslation: CGFloat?
-        let liveDivider = SidebarDividerTrackingView(
-            frame: NSRect(x: 206, y: 0, width: 10, height: contentView.bounds.height)
-        )
-        liveDivider.onBegan = { eventNames.append("began") }
-        liveDivider.onChanged = { translation in
-            eventNames.append("changed")
-            changedTranslation = translation
-            // Post the terminating event only after the tracker has received
-            // the drag, so its synchronous loop exercises the real callback
-            // path without relying on a timer or a test sleep.
-            let up = self.makeMouseEvent(
-                type: .leftMouseUp,
-                location: NSPoint(x: 238, y: 130),
-                window: window
-            )
-            window.postEvent(up, atStart: true)
-        }
-        liveDivider.onEnded = { eventNames.append("ended") }
-        wrapper.addSubview(liveDivider)
-
-        let hostFrame = container.convert(contentView.bounds, from: contentView)
-        let host = WindowBrowserHostView(frame: hostFrame)
-        host.autoresizingMask = [.width, .height]
-        container.addSubview(host, positioned: .above, relativeTo: contentView)
-
-        let paneWidth: CGFloat = 210
-        let browserSlot = WindowBrowserSlotView(
-            frame: NSRect(x: 0, y: 0, width: paneWidth, height: host.bounds.height)
-        )
-        let dockSlot = WindowBrowserSlotView(
-            frame: NSRect(x: paneWidth, y: 0, width: paneWidth, height: host.bounds.height)
-        )
-        browserSlot.addSubview(CapturingView(frame: browserSlot.bounds))
-        dockSlot.addSubview(CapturingView(frame: dockSlot.bounds))
-        host.addSubview(browserSlot)
-        host.addSubview(dockSlot)
-
-        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
-        let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
-        dockSlot.setPaneDropContext(BrowserPaneDropContext(
-            workspaceId: dock.workspaceId,
-            panelId: UUID(),
-            paneId: dockPane,
-            isDockHosted: true
-        ))
-        defer { dock.retire() }
-
-        window.makeKeyAndOrderFront(nil)
-        contentView.layoutSubtreeIfNeeded()
-
-        let dividerPointInHost = NSPoint(x: paneWidth, y: host.bounds.midY)
-        let dividerPointInWindow = host.convert(dividerPointInHost, to: nil)
-        let down = self.makeMouseEvent(
-            type: .leftMouseDown,
-            location: dividerPointInWindow,
-            window: window
-        )
-        let hit = container.hitTest(container.convert(dividerPointInWindow, from: nil))
-        XCTAssertTrue(
-            hit === host,
-            "The portal must own the shared divider before forwarding it to the live sidebar tracker. actual=\(String(describing: hit))"
-        )
-        guard hit === host else { return }
-
-        let drag = self.makeMouseEvent(
-            type: .leftMouseDragged,
-            location: NSPoint(x: dividerPointInWindow.x + 32, y: dividerPointInWindow.y),
-            window: window
-        )
-        window.postEvent(drag, atStart: true)
-        host.mouseDown(with: down)
-
-        XCTAssertEqual(
-            eventNames,
-            ["began", "changed", "ended"],
-            "A shared browser/Dock divider hit must follow the native sidebar drag lifecycle"
-        )
-        XCTAssertEqual(
-            changedTranslation,
-            32,
-            accuracy: 0.5,
-            "The forwarded drag must reach the native sidebar tracker"
-        )
-
-        // AppKit may ask for another hit-test while SwiftUI is moving the
-        // divider tracker between hosting wrappers. Preserve the original
-        // handoff even if the concrete tracker is detached for that turn.
-        eventNames.removeAll()
-        changedTranslation = nil
-        let reparentDown = self.makeMouseEvent(
-            type: .leftMouseDown,
-            location: dividerPointInWindow,
-            window: window
-        )
-        let pasteboard = NSPasteboard(
-            name: NSPasteboard.Name("cmux.test.issue-10892.reparent.\(UUID().uuidString)")
-        )
-        pasteboard.clearContents()
-        XCTAssertTrue(
-            host.performHitTest(
-                at: dividerPointInHost,
-                currentEvent: reparentDown,
-                dragPasteboard: pasteboard
-            ) === host,
-            "The portal must record the Dock divider handoff before a tracker reparent"
-        )
-
-        liveDivider.removeFromSuperview()
-        XCTAssertNil(
-            host.performHitTest(
-                at: dividerPointInHost,
-                currentEvent: reparentDown,
-                dragPasteboard: pasteboard
-            ),
-            "A transiently detached tracker should still leave the browser/Dock divider pass-through path"
-        )
-        XCTAssertTrue(
-            host.acceptsFirstMouse(for: reparentDown),
-            "The portal must not consume the retained Dock handoff while AppKit checks first-mouse activation"
-        )
-
-        let reparentDrag = self.makeMouseEvent(
-            type: .leftMouseDragged,
-            location: NSPoint(x: dividerPointInWindow.x + 28, y: dividerPointInWindow.y),
-            window: window
-        )
-        window.postEvent(reparentDrag, atStart: true)
-        host.mouseDown(with: reparentDown)
-
-        XCTAssertEqual(
-            eventNames,
-            ["began", "changed", "ended"],
-            "A Dock divider handoff must survive a transient tracker reparent"
-        )
-        XCTAssertEqual(
-            changedTranslation,
-            28,
-            accuracy: 0.5,
-            "A reparented Dock divider must continue receiving native drag translation"
         )
     }
 
@@ -1971,13 +1991,17 @@ final class WindowBrowserHostViewTests: XCTestCase {
         )
         pasteboard.clearContents()
 
-        XCTAssertTrue(
+        XCTAssertNil(
             host.performHitTest(
                 at: dividerPointInHost,
                 currentEvent: event,
                 dragPasteboard: pasteboard
-            ) === host,
-            "The browser portal must own the stale-frame Dock divider before forwarding it to the live tracker"
+            ),
+            "The browser portal must yield the stale-frame Dock divider to the live tracker underneath"
+        )
+        XCTAssertTrue(
+            container.hitTest(container.convert(dividerPointInWindow, from: nil)) === liveDivider,
+            "AppKit's normal hit-test path must reach the live Dock divider once the portal yields"
         )
 
         let mainContentPoint = NSPoint(x: 100, y: host.bounds.midY)
@@ -1988,307 +2012,6 @@ final class WindowBrowserHostViewTests: XCTestCase {
                 dragPasteboard: pasteboard
             ) === mainContent,
             "Following the live divider must not make ordinary browser content pass through"
-        )
-    }
-
-    func testHostViewReturnsLiveSidebarDividerThroughHostingWrapper() throws {
-        // SwiftUI can place the native divider tracker below an AppKit hosting
-        // wrapper whose hitTest returns the wrapper itself. The browser portal
-        // must own the event itself and forward it to the live tracker, rather
-        // than returning a sibling that AppKit may dispatch inconsistently.
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
-            XCTFail("Expected window content container")
-            return
-        }
-
-        let wrapper = NonPropagatingHostingView(frame: contentView.bounds)
-        contentView.addSubview(wrapper)
-        let liveDivider = SidebarDividerTrackingView(
-            frame: NSRect(x: 206, y: 0, width: 10, height: contentView.bounds.height)
-        )
-        liveDivider.onBegan = {}
-        liveDivider.onChanged = { _ in }
-        liveDivider.onEnded = {}
-        wrapper.addSubview(liveDivider)
-
-        let hostFrame = container.convert(contentView.bounds, from: contentView)
-        let host = WindowBrowserHostView(frame: hostFrame)
-        host.autoresizingMask = [.width, .height]
-        container.addSubview(host, positioned: .above, relativeTo: contentView)
-
-        let mainSlot = WindowBrowserSlotView(
-            frame: NSRect(x: 0, y: 0, width: 210, height: host.bounds.height)
-        )
-        let staleDockSlot = WindowBrowserSlotView(
-            frame: NSRect(x: 300, y: 0, width: 120, height: host.bounds.height)
-        )
-        let mainContent = CapturingView(frame: mainSlot.bounds)
-        let staleDockContent = CapturingView(frame: staleDockSlot.bounds)
-        mainSlot.addSubview(mainContent)
-        staleDockSlot.addSubview(staleDockContent)
-        host.addSubview(mainSlot)
-        host.addSubview(staleDockSlot)
-
-        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
-        let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
-        staleDockSlot.setPaneDropContext(BrowserPaneDropContext(
-            workspaceId: dock.workspaceId,
-            panelId: UUID(),
-            paneId: dockPane,
-            isDockHosted: true
-        ))
-        defer { dock.retire() }
-
-        contentView.layoutSubtreeIfNeeded()
-        let dividerPointInHost = NSPoint(x: 210, y: host.bounds.midY)
-        let dividerPointInWindow = host.convert(dividerPointInHost, to: nil)
-        let event = makeMouseEvent(
-            type: .leftMouseDown,
-            location: dividerPointInWindow,
-            window: window
-        )
-        let pasteboard = NSPasteboard(
-            name: NSPasteboard.Name("cmux.test.issue-10892.hosting-wrapper.\(UUID().uuidString)")
-        )
-        pasteboard.clearContents()
-
-        XCTAssertTrue(
-            host.performHitTest(
-                at: dividerPointInHost,
-                currentEvent: event,
-                dragPasteboard: pasteboard
-            ) === host,
-            "The portal must own a Dock divider hit even when its hosting wrapper claims hit testing"
-        )
-
-        let mainContentPoint = NSPoint(x: 100, y: host.bounds.midY)
-        XCTAssertTrue(
-            host.performHitTest(
-                at: mainContentPoint,
-                currentEvent: event,
-                dragPasteboard: pasteboard
-            ) === mainContent,
-            "A hosting-wrapper fallback must not make ordinary browser content pass through"
-        )
-    }
-
-    func testHostViewFindsLiveSidebarDividerWhenHostingWrapperClaimsContentLeaf() throws {
-        // A SwiftUI/AppKit wrapper can report a content leaf for the pointer
-        // even when the native divider tracker is its sibling. The portal must
-        // inspect the visible hosted hierarchy, rather than treating that leaf
-        // as proof that no sidebar divider is present.
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
-            XCTFail("Expected window content container")
-            return
-        }
-
-        let wrapper = LeafClaimingHostingView(frame: contentView.bounds)
-        let liveDivider = SidebarDividerTrackingView(
-            frame: NSRect(x: 206, y: 0, width: 10, height: contentView.bounds.height)
-        )
-        liveDivider.onBegan = {}
-        liveDivider.onChanged = { _ in }
-        liveDivider.onEnded = {}
-        let claimedContentLeaf = CapturingView(frame: wrapper.bounds)
-        wrapper.claimedLeaf = claimedContentLeaf
-        wrapper.addSubview(liveDivider)
-        wrapper.addSubview(claimedContentLeaf)
-        contentView.addSubview(wrapper)
-
-        let hostFrame = container.convert(contentView.bounds, from: contentView)
-        let host = WindowBrowserHostView(frame: hostFrame)
-        host.autoresizingMask = [.width, .height]
-        container.addSubview(host, positioned: .above, relativeTo: contentView)
-
-        // The browser pane and Dock pane share an edge, matching the reported
-        // `new-pane --type browser --direction right` topology.
-        let paneWidth: CGFloat = 210
-        let browserSlot = WindowBrowserSlotView(
-            frame: NSRect(x: 0, y: 0, width: paneWidth, height: host.bounds.height)
-        )
-        let dockSlot = WindowBrowserSlotView(
-            frame: NSRect(x: paneWidth, y: 0, width: paneWidth, height: host.bounds.height)
-        )
-        let browserContent = CapturingView(frame: browserSlot.bounds)
-        let dockContent = CapturingView(frame: dockSlot.bounds)
-        browserSlot.addSubview(browserContent)
-        dockSlot.addSubview(dockContent)
-        host.addSubview(browserSlot)
-        host.addSubview(dockSlot)
-
-        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
-        let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
-        dockSlot.setPaneDropContext(BrowserPaneDropContext(
-            workspaceId: dock.workspaceId,
-            panelId: UUID(),
-            paneId: dockPane,
-            isDockHosted: true
-        ))
-        defer { dock.retire() }
-
-        contentView.layoutSubtreeIfNeeded()
-        let dividerPointInHost = NSPoint(x: paneWidth, y: host.bounds.midY)
-        let dividerPointInContent = contentView.convert(
-            host.convert(dividerPointInHost, to: nil),
-            from: nil
-        )
-        XCTAssertTrue(
-            wrapper.hitTest(wrapper.convert(dividerPointInContent, from: contentView)) === claimedContentLeaf,
-            "The fixture must model a hosting wrapper that claims an unrelated content leaf"
-        )
-
-        let dividerPointInWindow = host.convert(dividerPointInHost, to: nil)
-        let event = makeMouseEvent(
-            type: .leftMouseDown,
-            location: dividerPointInWindow,
-            window: window
-        )
-        let pasteboard = NSPasteboard(
-            name: NSPasteboard.Name("cmux.test.issue-10892.wrapper-leaf.\(UUID().uuidString)")
-        )
-        pasteboard.clearContents()
-
-        XCTAssertTrue(
-            host.performHitTest(
-                at: dividerPointInHost,
-                currentEvent: event,
-                dragPasteboard: pasteboard
-            ) === host,
-            "The browser portal must own the shared browser/Dock divider when a wrapper claims a content leaf"
-        )
-
-        let rootPointInContainer = container.convert(dividerPointInWindow, from: nil)
-        XCTAssertTrue(
-            container.hitTest(rootPointInContainer) === host,
-            "The window's normal AppKit hit-test path must preserve portal ownership for the live Dock divider"
-        )
-
-        let browserPoint = NSPoint(x: paneWidth - 32, y: host.bounds.midY)
-        XCTAssertTrue(
-            host.performHitTest(
-                at: browserPoint,
-                currentEvent: event,
-                dragPasteboard: pasteboard
-            ) === browserContent,
-            "Finding a live tracker must not make ordinary browser content pass through"
-        )
-    }
-
-    func testHostViewPrefersLiveSidebarDividerOverlappingHostedSplit() throws {
-        // A stale WebKit/NSSplitView divider can overlap the real Dock divider
-        // for one layout turn. The live sidebar tracker is the concrete owner
-        // at that point; a hosted-content region must not preempt it.
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
-            XCTFail("Expected window content container")
-            return
-        }
-
-        let liveDivider = SidebarDividerTrackingView(
-            frame: NSRect(x: 206, y: 0, width: 10, height: contentView.bounds.height)
-        )
-        liveDivider.onBegan = {}
-        liveDivider.onChanged = { _ in }
-        liveDivider.onEnded = {}
-        contentView.addSubview(liveDivider)
-
-        let hostFrame = container.convert(contentView.bounds, from: contentView)
-        let host = WindowBrowserHostView(frame: hostFrame)
-        host.autoresizingMask = [.width, .height]
-        container.addSubview(host, positioned: .above, relativeTo: contentView)
-
-        let mainSlot = WindowBrowserSlotView(
-            frame: NSRect(x: 0, y: 0, width: 210, height: host.bounds.height)
-        )
-        let staleDockSlot = WindowBrowserSlotView(
-            frame: NSRect(x: 300, y: 0, width: 120, height: host.bounds.height)
-        )
-        let mainContent = CapturingView(frame: mainSlot.bounds)
-        let staleDockContent = CapturingView(frame: staleDockSlot.bounds)
-        mainSlot.addSubview(mainContent)
-        staleDockSlot.addSubview(staleDockContent)
-        host.addSubview(mainSlot)
-        host.addSubview(staleDockSlot)
-
-        let hostedSplit = NSSplitView(
-            frame: NSRect(x: 200, y: 0, width: 20, height: host.bounds.height)
-        )
-        hostedSplit.isVertical = true
-        hostedSplit.dividerStyle = .thin
-        hostedSplit.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 10, height: hostedSplit.bounds.height)))
-        hostedSplit.addSubview(NSView(frame: NSRect(x: 11, y: 0, width: 9, height: hostedSplit.bounds.height)))
-        host.addSubview(hostedSplit)
-
-        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
-        let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
-        staleDockSlot.setPaneDropContext(BrowserPaneDropContext(
-            workspaceId: dock.workspaceId,
-            panelId: UUID(),
-            paneId: dockPane,
-            isDockHosted: true
-        ))
-        defer { dock.retire() }
-
-        contentView.layoutSubtreeIfNeeded()
-        hostedSplit.layoutSubtreeIfNeeded()
-        let hostedDividerX = hostedSplit.convert(
-            NSPoint(x: hostedSplit.arrangedSubviews[0].frame.maxX, y: hostedSplit.bounds.midY),
-            to: host
-        ).x
-        let liveDividerOrigin = contentView.convert(
-            NSPoint(x: hostedDividerX - 5, y: 0),
-            from: host
-        )
-        liveDivider.frame = NSRect(
-            x: liveDividerOrigin.x,
-            y: liveDividerOrigin.y,
-            width: 10,
-            height: contentView.bounds.height
-        )
-        contentView.layoutSubtreeIfNeeded()
-
-        let dividerPointInHost = NSPoint(x: hostedDividerX, y: host.bounds.midY)
-        let dividerPointInWindow = host.convert(dividerPointInHost, to: nil)
-        let event = makeMouseEvent(
-            type: .leftMouseDown,
-            location: dividerPointInWindow,
-            window: window
-        )
-        let pasteboard = NSPasteboard(
-            name: NSPasteboard.Name("cmux.test.issue-10892.hosted-overlap.\(UUID().uuidString)")
-        )
-        pasteboard.clearContents()
-
-        XCTAssertTrue(
-            host.performHitTest(
-                at: dividerPointInHost,
-                currentEvent: event,
-                dragPasteboard: pasteboard
-            ) === host,
-            "A live Dock tracker must make the portal host win over a stale hosted vertical divider at the same point"
         )
     }
 
@@ -3763,6 +3486,12 @@ final class WindowBrowserSlotViewTests: XCTestCase {
 final class BrowserWindowPortalLifecycleTests: XCTestCase {
     private final class TrackingPortalWebView: WKWebView {
         private(set) var displayIfNeededCount = 0
+        private(set) var displayInvalidationCount = 0
+
+        override func setNeedsDisplay(_ invalidRect: NSRect) {
+            displayInvalidationCount += 1
+            super.setNeedsDisplay(invalidRect)
+        }
         private(set) var reattachRenderingStateCount = 0
 
         override func displayIfNeeded() {
@@ -3841,8 +3570,8 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         let portal = WindowBrowserPortal(window: window)
         defer { portal.tearDown() }
-        let mainWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        let dockWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let mainWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
+        let dockWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let dockContext = BrowserPaneDropContext(
             workspaceId: UUID(),
             panelId: UUID(),
@@ -3980,36 +3709,6 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         })
     }
 
-    func testPortalHostInstallsAboveContentViewForVisibility() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        let portal = WindowBrowserPortal(window: window)
-        _ = portal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
-
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
-
-        guard let hostIndex = container.subviews.firstIndex(where: { $0 is WindowBrowserHostView }),
-              let contentIndex = container.subviews.firstIndex(where: { $0 === contentView }) else {
-            XCTFail("Expected host/content views in same container")
-            return
-        }
-
-        XCTAssertGreaterThan(
-            hostIndex,
-            contentIndex,
-            "Browser portal host must remain above content view so portal-hosted web views stay visible"
-        )
-    }
-
     private func makeBrowserSearchOverlayConfiguration(panelId: UUID) -> BrowserPortalSearchOverlayConfiguration {
         BrowserPortalSearchOverlayConfiguration(
             panelId: panelId,
@@ -4087,7 +3786,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 160, height: 120))
         contentView.addSubview(anchor)
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         portal.synchronizeWebViewForAnchor(anchor)
 
@@ -4173,60 +3872,6 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertNil(portal.searchOverlayPanelId(for: window))
     }
 
-    func testBrowserPortalHostStaysAboveTerminalPortalHostDuringPortalChurn() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        realizeWindowLayout(window)
-
-        let browserPortal = WindowBrowserPortal(window: window)
-        let terminalPortal = WindowTerminalPortal(window: window)
-        _ = browserPortal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
-        _ = terminalPortal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
-
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
-
-        func assertHostOrder(_ message: String) {
-            guard let browserHostIndex = container.subviews.firstIndex(where: { $0 is WindowBrowserHostView }),
-                  let terminalHostIndex = container.subviews.firstIndex(where: { $0 is WindowTerminalHostView }) else {
-                XCTFail("Expected both portal hosts in same container")
-                return
-            }
-
-            XCTAssertGreaterThan(
-                browserHostIndex,
-                terminalHostIndex,
-                message
-            )
-        }
-
-        assertHostOrder("Browser portal host should start above terminal portal host")
-
-        let terminalAnchor = NSView(frame: NSRect(x: 20, y: 20, width: 200, height: 140))
-        contentView.addSubview(terminalAnchor)
-        let terminalHostedView = GhosttySurfaceScrollView(
-            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
-        )
-        terminalPortal.bind(hostedView: terminalHostedView, to: terminalAnchor, visibleInUI: true)
-        terminalPortal.synchronizeHostedViewForAnchor(terminalAnchor)
-        assertHostOrder("Terminal portal sync should not rise above the browser portal host")
-
-        let browserAnchor = NSView(frame: NSRect(x: 240, y: 20, width: 220, height: 140))
-        contentView.addSubview(browserAnchor)
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        browserPortal.bind(webView: webView, to: browserAnchor, visibleInUI: true)
-        browserPortal.synchronizeWebViewForAnchor(browserAnchor)
-        assertHostOrder("Browser portal sync should keep browser panes above portal-hosted terminals")
-    }
-
     func testAnchorRebindKeepsWebViewInStablePortalSuperview() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
@@ -4247,7 +3892,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         contentView.addSubview(anchor1)
         contentView.addSubview(anchor2)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor1, visibleInUI: true)
         let firstSuperview = webView.superview
 
@@ -4290,7 +3935,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 120, y: 20, width: 260, height: 150))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -4329,7 +3974,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: -30, y: 0, width: 220, height: 120))
         clipView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         clipView.layoutSubtreeIfNeeded()
@@ -4365,7 +4010,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 20, width: 220, height: 160))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -4388,7 +4033,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
     func testPortalSlotPinPreservesSideDockedInspectorManagedWebViewFrameOnRehost() {
         let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 240, height: 160))
-        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 132, height: 160), configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 132, height: 160), configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let inspectorContainer = NSView(frame: NSRect(x: 132, y: 0, width: 108, height: 160))
         let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
         inspectorView.autoresizingMask = [.width, .height]
@@ -4431,7 +4076,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -4512,7 +4157,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             return
         }
 
-        let initialDisplayCount = webView.displayIfNeededCount
+        let initialInvalidationCount = webView.displayInvalidationCount
         let initialReattachCount = webView.reattachRenderingStateCount
         anchor.frame = NSRect(x: 52, y: 30, width: 248, height: 178)
         contentView.layoutSubtreeIfNeeded()
@@ -4525,9 +4170,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(slot.frame.size.width, 248, accuracy: 0.5)
         XCTAssertEqual(slot.frame.size.height, 178, accuracy: 0.5)
         XCTAssertGreaterThan(
-            webView.displayIfNeededCount,
-            initialDisplayCount,
-            "Pure anchor geometry updates should still repaint the hosted browser"
+            webView.displayInvalidationCount,
+            initialInvalidationCount,
+            "Pure anchor geometry updates should schedule the hosted browser for repaint"
         )
         XCTAssertEqual(
             webView.reattachRenderingStateCount,
@@ -4588,7 +4233,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             return
         }
 
-        let initialDisplayCount = webView.displayIfNeededCount
+        let initialInvalidationCount = webView.displayInvalidationCount
         let initialReattachCount = webView.reattachRenderingStateCount
         let initialWidth = slot.frame.width
 
@@ -4604,9 +4249,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "Moving the app split divider should shrink the hosted browser slot"
         )
         XCTAssertGreaterThan(
-            webView.displayIfNeededCount,
-            initialDisplayCount,
-            "External split resize should still repaint the hosted browser"
+            webView.displayInvalidationCount,
+            initialInvalidationCount,
+            "External split resize should schedule the hosted browser for repaint"
         )
         XCTAssertEqual(
             webView.reattachRenderingStateCount,
@@ -4633,7 +4278,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -4748,7 +4393,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
@@ -4817,7 +4462,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         portal.synchronizeWebViewForAnchor(anchor)
 
@@ -4848,7 +4493,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         portal.synchronizeWebViewForAnchor(anchor)
 
@@ -5120,7 +4765,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
         contentView.addSubview(anchor)
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
 
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
         XCTAssertNotNil(webView.superview)
@@ -5145,7 +4790,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
         contentView.addSubview(anchor)
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
 
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)

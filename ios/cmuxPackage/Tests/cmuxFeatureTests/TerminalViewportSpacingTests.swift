@@ -52,7 +52,10 @@ private final class ViewportSpacingDelegate: NSObject, GhosttySurfaceViewDelegat
         reports.append(size)
         reportIDs[size] = reportID
         if let mac = autoEchoMacGrid {
-            surfaceView.markViewportReportConfirmed()
+            // The production coordinator settles the report by ID before it
+            // applies the echo (`GhosttySurfaceRepresentable`); the sizing
+            // chrome waits for that settlement.
+            surfaceView.markViewportReportConfirmed(reportID: reportID)
             surfaceView.applyConfirmedViewSize(
                 cols: min(size.columns, mac.cols),
                 rows: min(size.rows, mac.rows),
@@ -116,15 +119,17 @@ private final class ViewportSpacingHarness {
     }
 
     /// Empty space above the terminal content, the exact artifact in the
-    /// opencode screenshot. The render rect is bottom-pinned to the viewport,
-    /// so all letterbox slack shows at the top.
+    /// opencode screenshot. The natural render is bottom-pinned to the
+    /// viewport, so its sub-row remainder shows at the top; a grid at least
+    /// one row shorter pins to the top instead.
     var topGap: CGFloat {
         let snap = snapshot
         return snap.renderRect.minY - snap.viewportRect.minY
     }
 
-    /// Gap between the render bottom and the viewport bottom; must stay ~0 in
-    /// every state (content rides the keyboard/toolbar edge).
+    /// Gap between the render bottom and the viewport bottom; ~0 whenever the
+    /// render fills the viewport (content rides the keyboard/toolbar edge),
+    /// and the letterbox slack when a shorter grid is top-pinned.
     var bottomGap: CGFloat {
         let snap = snapshot
         return snap.viewportRect.maxY - snap.renderRect.maxY
@@ -164,11 +169,12 @@ private final class ViewportSpacingHarness {
     /// the ID the view stamped on that report — exactly what the production
     /// coordinator hands back when the RPC for that report resolves.
     func echo(_ report: TerminalGridSize, macColumns: Int = .max, macRows: Int = .max) {
-        view.markViewportReportConfirmed()
+        let reportID = delegate.reportIDs[report] ?? 0
+        view.markViewportReportConfirmed(reportID: reportID)
         view.applyConfirmedViewSize(
             cols: min(report.columns, macColumns),
             rows: min(report.rows, macRows),
-            reportID: delegate.reportIDs[report] ?? 0
+            reportID: reportID
         )
     }
 
@@ -300,10 +306,11 @@ struct TerminalViewportSpacingTests {
 
     /// Mac window resize arriving as a DAEMON PUSH (`applyViewSize`, the
     /// remote-grid output-stream path) rather than a report echo: a shrink
-    /// stretches via the font fit, a grow restores the base font, and a shrink
-    /// too deep for the maximum font falls back to the bottom-pinned letterbox
-    /// with the separator border (all slack at the top, none at the bottom).
-    @Test("daemon-push shrink stretches, grow restores, extreme shrink letterboxes")
+    /// letterboxes at the base font, a grow restores the fill, and a shrink
+    /// too deep still lands on the top-pinned letterbox with the separator
+    /// border (all slack at the bottom, none at the top). #10616 removed the
+    /// stretch-to-fill auto-fit, so no push changes the user's chosen font.
+    @Test("daemon-push shrink letterboxes at base font, grow restores, extreme shrink letterboxes")
     func macResizeShrinkGrowRestoresFill() async throws {
         let harness = try ViewportSpacingHarness()
         defer { harness.tearDown() }
@@ -316,13 +323,13 @@ struct TerminalViewportSpacingTests {
         // renegotiation echoes flow automatically from here.
         harness.delegate.autoEchoMacGrid = (cols: initial.columns + 100, rows: initial.rows - 10)
         await harness.view.applyViewSizeAndWait(cols: initial.columns, rows: initial.rows - 10)
-        let stretched = await harness.pump(timeout: 8) {
+        let shrunkToLetterbox = await harness.pump(timeout: 8) {
             let snap = harness.snapshot
-            return harness.topGap <= harness.cellHeightPoints * 1.5
-                && harness.bottomGap <= 1
-                && snap.liveFontSize > snap.baseFontSize + 0.25
+            return harness.topGap <= 1
+                && harness.bottomGap > harness.cellHeightPoints
+                && abs(snap.liveFontSize - snap.baseFontSize) < 0.5
         }
-        #expect(stretched, "push shrink: top gap \(harness.topGap)pt, live font \(harness.snapshot.liveFontSize)")
+        #expect(shrunkToLetterbox, "push shrink: bottom gap \(harness.bottomGap)pt, live font \(harness.snapshot.liveFontSize)")
 
         // Mac window grows back: daemon pushes the full grid again; the font
         // decays to base and the phone still fills.
@@ -337,14 +344,14 @@ struct TerminalViewportSpacingTests {
         #expect(restored, "push grow: top gap \(harness.topGap)pt, live font \(harness.snapshot.liveFontSize)")
 
         // Extreme shrink (8 rows) exceeds what the maximum font can fill: the
-        // residual letterbox stays bottom-pinned with the separator border.
+        // residual letterbox stays top-pinned with the separator border.
         harness.delegate.autoEchoMacGrid = (cols: initial.columns + 100, rows: 8)
         await harness.view.applyViewSizeAndWait(cols: initial.columns, rows: 8)
         let letterboxed = await harness.pump(timeout: 8) {
             let snap = harness.snapshot
             return snap.effectiveGrid?.rows == 8
-                && harness.bottomGap <= 1
-                && harness.topGap > harness.cellHeightPoints * 2
+                && harness.topGap <= 1
+                && harness.bottomGap > harness.cellHeightPoints * 2
                 && snap.isLetterboxBorderVisible
         }
         #expect(letterboxed, """
@@ -394,6 +401,71 @@ struct TerminalViewportSpacingTests {
         #expect(await harness.waitForFill(), "after retry echo: top gap \(harness.topGap)pt")
     }
 
+    /// Reproduces #13474's relay feedback loop without timing luck:
+    /// exhaust the timeout retry budget for one natural grid, then inject the
+    /// stale-grid replay reassertion that used to reset that budget. Main would
+    /// emit another report here and could repeat forever; the fixed path stays
+    /// quiet until the phone's actual capacity changes.
+    @Test("stale replay reasserts cannot reopen an exhausted viewport retry budget")
+    func staleReplayReassertsStayBounded() async throws {
+        let harness = try ViewportSpacingHarness()
+        defer { harness.tearDown() }
+
+        let initial = try #require(await harness.waitForReport(after: 0))
+        harness.echo(initial)
+        #expect(await harness.waitForFill())
+
+        let beforeChange = harness.delegate.reports.count
+        harness.view.setComposerBandHeight(
+            ViewportSpacingHarness.tallComposerBand,
+            animated: false
+        )
+        let unanswered = try #require(
+            await harness.waitForReport(after: beforeChange),
+            "natural-grid change never emitted its viewport report"
+        )
+
+        // Model three relay timeout callbacks. Each retry is allowed once and
+        // emits the same natural grid with a new report ID.
+        for _ in 0..<3 {
+            let beforeRetry = harness.delegate.reports.count
+            harness.view.retryViewportReport()
+            let retry = try #require(
+                await harness.waitForReport(after: beforeRetry),
+                "bounded viewport retry did not emit"
+            )
+            #expect(retry.columns == unanswered.columns)
+            #expect(retry.rows == unanswered.rows)
+        }
+
+        // One more timeout retires the unresolved negotiation without sending.
+        let exhaustedCount = harness.delegate.reports.count
+        harness.view.retryViewportReport()
+        await harness.settle(0.3)
+        #expect(harness.delegate.reports.count == exhaustedCount)
+
+        // A stale full-grid replay now asks the view to reassert the same
+        // capacity. Before #13474 this reset viewportReportRetries to zero and
+        // restarted the loop. The exhausted grid now stays silent.
+        harness.view.reassertViewportCapacityReport()
+        await harness.settle(0.8)
+        #expect(
+            harness.delegate.reports.count == exhaustedCount,
+            "stale replay reopened an exhausted viewport retry budget"
+        )
+
+        // A real capacity change owns a fresh budget and must still propagate.
+        harness.view.setComposerBandHeight(
+            ViewportSpacingHarness.tallComposerBand / 2,
+            animated: false
+        )
+        let changed = try #require(
+            await harness.waitForReport(after: exhaustedCount),
+            "legitimate viewport change was suppressed after retry exhaustion"
+        )
+        #expect(changed.rows != unanswered.rows || changed.columns != unanswered.columns)
+    }
+
     /// Mac-constrained rows LETTERBOX (main removed the stretch-to-fill
     /// auto-fit: the rendered font is always the user's explicit choice), and
     /// keyboard toggles change nothing about it: no report, no font change,
@@ -412,18 +484,37 @@ struct TerminalViewportSpacingTests {
         harness.delegate.autoEchoMacGrid = macGrid
         harness.echo(initial, macColumns: macGrid.cols, macRows: macGrid.rows)
 
-        // The grant pins below capacity: bottom-pinned letterbox at the
-        // user's base font (slack at the top), never a rescale.
+        // The grant pins below capacity: top-pinned letterbox at the
+        // user's base font (slack at the bottom), never a rescale. Wait for the
+        // RENDER to reach the pin, not just the grant: the geometry pass that
+        // shrinks the render to the granted rows runs asynchronously after
+        // `applyConfirmedViewSize`, so the grant alone is still the
+        // full-height render, and everything below compares against this
+        // settled state.
         let letterboxed = await harness.pump(timeout: 8) {
             let snap = harness.snapshot
             return snap.effectiveGrid?.rows == macGrid.rows
-                && harness.bottomGap <= 1
+                && self.renderMatchesPin(harness)
+                && harness.topGap <= 1
+                && harness.bottomGap > harness.cellHeightPoints
                 && abs(snap.liveFontSize - snap.baseFontSize) < 0.5
         }
         #expect(letterboxed, """
             no letterbox: eff \(harness.snapshot.effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil"), \
+            top gap \(harness.topGap)pt, bottom gap \(harness.bottomGap)pt, \
+            render \(harness.snapshot.renderRect.height)pt, \
             live font \(harness.snapshot.liveFontSize) vs base \(harness.snapshot.baseFontSize)
             """)
+
+        // The 12 rows the Mac withheld are exactly the slack at the bottom:
+        // the grid floors to whole cells, so the gap is 12 cells plus the
+        // sub-cell remainder the natural grid could not use.
+        let cell = harness.cellHeightPoints
+        #expect(
+            harness.bottomGap >= cell * 12 - 1 && harness.bottomGap <= cell * 13 + 1,
+            "letterbox slack must be the 12 withheld rows: bottom gap \(harness.bottomGap)pt, cell \(cell)pt"
+        )
+        #expect(harness.snapshot.isLetterboxBorderVisible)
 
         // Keyboard toggles are invisible to the grid: no report, no font
         // change, no render movement in surface coordinates.
@@ -439,7 +530,7 @@ struct TerminalViewportSpacingTests {
         await harness.settle(1.0)
         #expect(harness.delegate.reports.count == reportsBeforeKeyboard)
         #expect(harness.snapshot.renderRect == settled.renderRect)
-        #expect(harness.bottomGap <= 1)
+        #expect(harness.topGap <= 1)
     }
 
     /// Whether the render rect currently reflects the effective pin (used to

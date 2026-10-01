@@ -6,8 +6,8 @@ import Foundation
 ///
 /// Ghostty's own `theme = light:X,dark:Y` setting remains independent and
 /// appearance-adaptive. This setting only controls whether cmux supplies its
-/// historical managed light/dark palette when the Ghostty config contains no
-/// directives.
+/// managed light/dark palette when the Ghostty config contains no authored
+/// theme or terminal colors. Non-color settings preserve the adaptive base.
 struct TerminalAdaptiveDefaultThemeSettings {
     private static let key = SettingCatalog().terminal.adaptiveDefaultTheme
 

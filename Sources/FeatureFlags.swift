@@ -1,16 +1,9 @@
+import CMUXMobileCore
+import CmuxSettings
 import Foundation
 import Observation
 import PostHog
 import os
-
-struct CmuxFeatureFlagDefinition: Identifiable, Equatable, Sendable {
-    var id: String { key }
-
-    let key: String
-    let title: String
-    let flagDescription: String
-    let defaultWhenUnavailable: Bool
-}
 
 /// PostHog-backed runtime feature flags for the macOS app (PostHog project
 /// 244066, same public key analytics uses). Values are cached in memory and
@@ -19,8 +12,9 @@ struct CmuxFeatureFlagDefinition: Identifiable, Equatable, Sendable {
 ///
 /// Resolution semantics (flags must never break the app):
 /// - A remote value is authoritative when present, so rollout and kill-switch
-///   changes cannot be masked by a stale local override.
-/// - Without a remote value, a local override applies, followed by the explicit
+///   changes cannot be masked by a stale local override. Cloud alone permits
+///   explicit overrides when the injected Nightly/debug capability allows it.
+/// - Without a remote value, a permitted override applies, then the explicit
 ///   per-flag default.
 /// - Until a payload arrives, the last remote value survives restarts. A flag
 ///   that has never loaded keeps its safe default.
@@ -45,11 +39,6 @@ final class CmuxFeatureFlags {
     private static let mobileConnectButtonDefault = false
     private static let sidebarAccountButtonDefault = true
 
-    #if DEBUG
-    private nonisolated static let cloudVMUIDefault = true
-    #else
-    private nonisolated static let cloudVMUIDefault = false
-    #endif
     private static let agentChatUIDefault = false
     #if DEBUG
     private nonisolated static let mobileWorkspaceChangesDefault = true
@@ -63,6 +52,14 @@ final class CmuxFeatureFlags {
     private static let appKitSidebarListDefault = true
     private static let mobileTerminalFilesChipDefault = true
     private nonisolated static let mobileTaskComposerDefault = true
+    private static let goPlanDefault = false
+    private static let agentInboxQuickViewDefault = false
+    #if DEBUG
+    nonisolated static let cloudMachinesDefault = true
+    #else
+    nonisolated static let cloudMachinesDefault = false
+    #endif
+    private nonisolated static let conversationSidebarDefault = false
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
@@ -71,9 +68,10 @@ final class CmuxFeatureFlags {
     private static let releaseControlDistinctIDPrefix =
         releaseControlProductWideDistinctID + "-"
     private nonisolated static let maximumPostHogControlPlaneResponseBytes = 1_048_576
+    private nonisolated static let releaseControlRetryAfterGate = CmxRetryAfterGate()
 
     // FLAG(key: sidebar-appkit-list-experiment, owner: lawrencecchen,
-    //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+    //      reviewBy: 2026-11-16, defaultWhenUnavailable: true)
     // Renders the workspace sidebar with the AppKit NSTableView list
     // (virtualized rows, measured-once heights) instead of the SwiftUI
     // LazyVStack. On by default after the remote rollout reached 100%.
@@ -91,7 +89,7 @@ final class CmuxFeatureFlags {
     )
 
     // FLAG(key: mobile-workspace-changes-enabled-release, owner: lawrencecchen,
-    //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+    //      reviewBy: 2027-01-19, defaultWhenUnavailable: false)
     // Serves the iOS diff viewer: advertises workspace.changes.v1 to phones
     // and answers the mobile.workspace.changes.* RPCs behind it. Every iOS
     // entry point (workspace-row chip, toolbar button, one-time hint, Changes
@@ -131,31 +129,12 @@ final class CmuxFeatureFlags {
     )
 
     // FLAG(key: simulator-enabled-release, owner: lawrencecchen,
-    //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+    //      reviewBy: 2027-02-16, defaultWhenUnavailable: true)
     // Controls every Simulator entrypoint and active pane. The enabled
     // fallback preserves access when PostHog is unavailable, while the
     // remote value provides a release kill switch. Declared nonisolated so
     // the mobile host's off-main capability list can gate the advertised
     // simulator capabilities on the same flag as RPC dispatch.
-    // FLAG(key: cloud-vm-ui-enabled-release, owner: lawrencecchen,
-    //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
-    // Shows the Cloud VM entrypoints: the new-workspace dropdown section
-    // (Open/Fork/Checkpoint/Restore/Advanced), the caret's direct Cloud
-    // VM menu, the command-palette Cloud VM commands, and the right-sidebar
-    // Machines tab. Release builds hide them until the PostHog flag is
-    // enabled; DEBUG keeps them visible for dogfood. Declared nonisolated so
-    // off-main readers (right-sidebar mode availability) can consult the
-    // published snapshot.
-    nonisolated static let cloudVMUIFlag = CmuxFeatureFlagDefinition(
-        key: "cloud-vm-ui-enabled-release",
-        title: String(localized: "featureFlags.cloudVM.title", defaultValue: "Cloud VM UI"),
-        flagDescription: String(
-            localized: "featureFlags.cloudVM.description",
-            defaultValue: "Shows Cloud VM entrypoints in the new-workspace dropdown and command palette."
-        ),
-        defaultWhenUnavailable: CmuxFeatureFlags.cloudVMUIDefault
-    )
-
     nonisolated static let simulatorFlag = CmuxFeatureFlagDefinition(
         key: "simulator-enabled-release",
         title: String(
@@ -170,7 +149,7 @@ final class CmuxFeatureFlags {
     )
 
     // FLAG(key: mobile-task-composer-enabled-release, owner: lawrencecchen,
-    //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+    //      reviewBy: 2026-12-15, defaultWhenUnavailable: true)
     // Controls the iOS Task Composer from the Mac host. When off, the Mac stops
     // advertising task-create/model/directory/attachment capabilities and
     // task-specific RPCs fail with capability_disabled, so paired phones hide
@@ -188,13 +167,59 @@ final class CmuxFeatureFlags {
         defaultWhenUnavailable: CmuxFeatureFlags.mobileTaskComposerDefault
     )
 
+    // FLAG(key: go-plan-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-12-01, defaultWhenUnavailable: false)
+    // Controls the $10/month Go plan rollout. Keep this off until capacity and
+    // support are ready; existing Go subscribers keep their entitlements.
+    static let goPlanFlag = CmuxFeatureFlagDefinition(
+        key: "go-plan-enabled-release",
+        title: String(localized: "featureFlags.goPlan.title", defaultValue: "Go plan"),
+        flagDescription: String(
+            localized: "featureFlags.goPlan.description",
+            defaultValue: "Shows and sells the $10/month Go personal Cloud VM plan."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.goPlanDefault
+    )
+
+    // FLAG(key: agent-inbox-quick-view-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-10-15, defaultWhenUnavailable: false)
+    // Keeps the agent inbox quick view behind an explicit rollout while the
+    // placement and cross-agent attention model are evaluated.
+    static let agentInboxQuickViewFlag = CmuxFeatureFlagDefinition(
+        key: "agent-inbox-quick-view-enabled-release",
+        title: String(localized: "featureFlags.agentInbox.title", defaultValue: "Agent Inbox quick view"),
+        flagDescription: String(localized: "featureFlags.agentInbox.description", defaultValue: "Shows a keyboard-summoned inbox for agent messages, pending Feed decisions, and finished turns."),
+        defaultWhenUnavailable: CmuxFeatureFlags.agentInboxQuickViewDefault
+    )
+
+    // FLAG(key: cloud-machines-enabled-release, owner: austinwang,
+    //      reviewBy: 2026-12-15, defaultWhenUnavailable: false)
+    // FLAG(key: conversation-sidebar-release, owner: teamleaderleo,
+    //      reviewBy: 2026-10-18, defaultWhenUnavailable: false)
+    // Controls availability of the opt-in multi-provider conversation sidebar.
+    // The user-facing beta setting is evaluated separately by the sidebar
+    // integration; this flag is the remote rollout gate and emergency kill
+    // switch for the feature.
+    nonisolated static let conversationSidebarFlag = CmuxFeatureFlagDefinition(
+        key: "conversation-sidebar-release",
+        title: String(
+            localized: "featureFlags.conversationSidebar.title",
+            defaultValue: "Multi-provider conversation sidebar"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.conversationSidebar.description",
+            defaultValue: "Enables the opt-in sidebar for conversations from multiple coding-agent providers."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.conversationSidebarDefault
+    )
+
     // Order is load-bearing for the positional typed accessors below. Flags
     // that need a stable public definition are declared independently and
     // included here without repeating their key literal.
     static let allFlags: [CmuxFeatureFlagDefinition] = {
         [
             // FLAG(key: pro-upgrade-ui-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            //      reviewBy: 2027-01-19, defaultWhenUnavailable: false)
             // Shows the Pro upgrade entrypoints (sidebar badge, Settings Account
             // card, palette command, Help menu item). Release builds hide them until
             // the PostHog flag is enabled; DEBUG keeps them visible for dogfood.
@@ -209,22 +234,22 @@ final class CmuxFeatureFlags {
             ),
 
             // FLAG(key: mobile-connect-button-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            //      reviewBy: 2026-12-15, defaultWhenUnavailable: false)
             // Shows the bottom-left sidebar iPhone button that opens the Tailscale
             // Pairing workspace. It stays hidden until the remote flag or a
             // local debug override enables it.
             CmuxFeatureFlagDefinition(
                 key: "mobile-connect-button-enabled-release",
-                title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Tailscale Pairing button"),
+                title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Mobile Pairing button"),
                 flagDescription: String(
                     localized: "featureFlags.mobileConnect.description",
-                    defaultValue: "Shows the Tailscale Pairing button in the sidebar footer."
+                    defaultValue: "Shows the Mobile Pairing button in the sidebar footer."
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.mobileConnectButtonDefault
             ),
 
             // FLAG(key: sidebar-account-button-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+            //      reviewBy: 2027-02-16, defaultWhenUnavailable: true)
             // Shows the account control in the bottom-left sidebar footer. The
             // Settings account section remains available when this shortcut is off.
             CmuxFeatureFlagDefinition(
@@ -237,10 +262,8 @@ final class CmuxFeatureFlags {
                 defaultWhenUnavailable: CmuxFeatureFlags.sidebarAccountButtonDefault
             ),
 
-            CmuxFeatureFlags.cloudVMUIFlag,
-
             // FLAG(key: agent-chat-ui-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            //      reviewBy: 2026-11-16, defaultWhenUnavailable: false)
             // Shows the Agent Chat entrypoints: the new-workspace dropdown item,
             // command-palette command, surface-tab-bar button, and shared action
             // executor. Hidden by default until the sidecar UX is ready to ship.
@@ -255,7 +278,7 @@ final class CmuxFeatureFlags {
             ),
 
             // FLAG(key: sidebar-workspace-agent-spinner-experiment, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            //      reviewBy: 2026-11-16, defaultWhenUnavailable: false)
             // Shows the coding-agent activity spinner in workspace rows. Hidden
             // by default while multi-agent lifecycle edge cases are investigated.
             CmuxFeatureFlagDefinition(
@@ -272,13 +295,13 @@ final class CmuxFeatureFlags {
             ),
 
             // FLAG(key: computer-use-ux-enabled-release, owner: austinwang,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+            //      reviewBy: 2027-01-19, defaultWhenUnavailable: true)
             // Shows the computer-use status item and allows automatic onboarding.
             // The settings and terminal kill switch remain available if this UI
             // flag is remotely disabled.
             CmuxFeatureFlagDefinition(
                 key: "computer-use-ux-enabled-release",
-                title: String(localized: "featureFlags.computerUseUX.title", defaultValue: "Computer Use UX"),
+                title: String(localized: "featureFlags.computerUseUX.title", defaultValue: "cmux Computer Use UX"),
                 flagDescription: String(
                     localized: "featureFlags.computerUseUX.description",
                     defaultValue: "Shows the Computer Use menu-bar item and automatic onboarding."
@@ -289,7 +312,7 @@ final class CmuxFeatureFlags {
             CmuxFeatureFlags.simulatorFlag,
 
             // FLAG(key: workspace-todo-controls-enabled-release, owner: lawrencecchen,
-            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            //      reviewBy: 2027-02-16, defaultWhenUnavailable: false)
             // Shows user-facing workspace todo controls that create checklist
             // items or set completion/status lanes. Hidden until the local
             // beta setting opts in or the PostHog flag is enabled.
@@ -312,6 +335,10 @@ final class CmuxFeatureFlags {
 
             CmuxFeatureFlags.mobileTerminalFilesChipFlag,
             CmuxFeatureFlags.mobileTaskComposerFlag,
+            CmuxFeatureFlags.goPlanFlag,
+            CmuxFeatureFlags.cloudMachinesFlag,
+            CmuxFeatureFlags.agentInboxQuickViewFlag,
+            CmuxFeatureFlags.conversationSidebarFlag
         ]
     }()
 
@@ -323,19 +350,8 @@ final class CmuxFeatureFlags {
         effectiveValue(for: Self.allFlags[1])
     }
 
-    var isCloudVMUIEnabled: Bool {
-        effectiveValue(for: Self.cloudVMUIFlag)
-    }
-
-    /// Mirror of ``isCloudVMUIEnabled`` for nonisolated readers (right-sidebar
-    /// mode availability). Reads the published off-main snapshot; before the
-    /// shared instance publishes, it falls back to the compile-time default.
-    nonisolated static var offMainIsCloudVMUIEnabled: Bool {
-        offMainEffectiveValue(for: cloudVMUIFlag)
-    }
-
     var isAgentChatUIEnabled: Bool {
-        effectiveValue(for: Self.allFlags[4])
+        effectiveValue(for: Self.allFlags[3])
     }
 
     var isSidebarAccountButtonEnabled: Bool {
@@ -343,21 +359,18 @@ final class CmuxFeatureFlags {
     }
 
     var isSidebarWorkspaceAgentSpinnerEnabled: Bool {
-        effectiveValue(for: Self.allFlags[5])
+        effectiveValue(for: Self.allFlags[4])
     }
 
     var isComputerUseUXEnabled: Bool {
-        effectiveValue(for: Self.allFlags[6])
+        effectiveValue(for: Self.allFlags[5])
     }
-
     var isSimulatorEnabled: Bool {
         effectiveValue(for: Self.simulatorFlag)
     }
-
     var isWorkspaceTodoControlsEnabled: Bool {
-        effectiveValue(for: Self.allFlags[8])
+        effectiveValue(for: Self.allFlags[7])
     }
-
     var isAppKitSidebarListEnabled: Bool {
         effectiveValue(for: Self.appKitSidebarListFlag)
     }
@@ -372,6 +385,18 @@ final class CmuxFeatureFlags {
 
     var isMobileTaskComposerEnabled: Bool {
         effectiveValue(for: Self.mobileTaskComposerFlag)
+    }
+
+    var isGoPlanEnabled: Bool {
+        effectiveValue(for: Self.goPlanFlag)
+    }
+
+    var isAgentInboxQuickViewEnabled: Bool {
+        effectiveValue(for: Self.agentInboxQuickViewFlag)
+    }
+
+    var isConversationSidebarAvailable: Bool {
+        effectiveValue(for: Self.conversationSidebarFlag)
     }
 
     /// Effective values mirrored for nonisolated readers: the mobile host
@@ -393,6 +418,8 @@ final class CmuxFeatureFlags {
     @ObservationIgnored
     private let publishesOffMainSnapshot: Bool
     @ObservationIgnored
+    private let overrideCapability: CmuxFeatureFlagOverrideCapability
+    @ObservationIgnored
     private let defaults: UserDefaults
     @ObservationIgnored
     private let remoteFlagValueProvider: (String) -> Any?
@@ -405,18 +432,47 @@ final class CmuxFeatureFlags {
 
     private var localOverridesByKey: [String: Bool] = [:]
     private var remoteValuesByKey: [String: Bool] = [:]
+    /// A remote value outranks a local override, so a UI-test launch pins flags
+    /// to their local values: otherwise a cached or freshly fetched rollout value
+    /// swaps the surface under a test that deliberately selected the other one.
+    private let pinsFlagsToLocalValues: Bool
+
+    nonisolated static var pinsFlagsToLocalValuesForCurrentLaunch: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1"
+    }
     private var resolutionsByKey: [String: CmuxFeatureFlagResolution] = [:]
 
     init(
         defaults: UserDefaults = .standard,
+        overrideCapability: CmuxFeatureFlagOverrideCapability = .init(),
         telemetryEnabled: Bool = TelemetrySettings.enabledForCurrentLaunch,
         remoteFlagValueProvider: @escaping (String) -> Any? = { PostHogSDK.shared.getFeatureFlag($0) },
         remoteFlagLoader: (@Sendable () async -> [String: Bool]?)? = nil,
-        publishesOffMainSnapshot: Bool = false
+        publishesOffMainSnapshot: Bool = false,
+        pinsFlagsToLocalValues: Bool = CmuxFeatureFlags.pinsFlagsToLocalValuesForCurrentLaunch
     ) {
         self.defaults = defaults
+        self.overrideCapability = overrideCapability
         self.publishesOffMainSnapshot = publishesOffMainSnapshot
+        self.pinsFlagsToLocalValues = pinsFlagsToLocalValues
         self.remoteFlagValueProvider = remoteFlagValueProvider
+        // Reload's marker travels with the signed artifact, including an HQ
+        // restore on a fresh Mac. Seed both gates before publishing any flag
+        // snapshot; a remote false remains authoritative for release builds.
+        if overrideCapability.enablesCloudDogfood {
+            defaults.set(true, forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
+            defaults.set(true, forKey: Self.overrideDefaultsKey(for: Self.cloudMachinesFlag.key))
+        } else if overrideCapability.isTaggedDebugArtifact {
+            // A later tagged artifact can explicitly disable Cloud. Clear the
+            // previous debug marker's persisted gates so the old app identity
+            // cannot re-enable Cloud after a reload.
+            defaults.removeObject(forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
+            defaults.removeObject(forKey: Self.overrideDefaultsKey(for: Self.cloudMachinesFlag.key))
+            if overrideCapability.hasCloudDogfoodMarker {
+                defaults.set(false, forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
+                defaults.set(false, forKey: Self.overrideDefaultsKey(for: Self.cloudMachinesFlag.key))
+            }
+        }
         if let remoteFlagLoader {
             self.remoteFlagLoader = remoteFlagLoader
         } else {
@@ -436,14 +492,16 @@ final class CmuxFeatureFlags {
                 values[definition.key] = value
             }
         }
-        remoteValuesByKey = Self.allFlags.reduce(into: [:]) { values, definition in
-            if let value = Self.storedBoolValue(
-                forKey: Self.remoteCacheKey(for: definition.key),
-                defaults: defaults
-            ) {
-                values[definition.key] = value
+        remoteValuesByKey = pinsFlagsToLocalValues
+            ? [:]
+            : Self.allFlags.reduce(into: [:]) { values, definition in
+                if let value = Self.storedBoolValue(
+                    forKey: Self.remoteCacheKey(for: definition.key),
+                    defaults: defaults
+                ) {
+                    values[definition.key] = value
+                }
             }
-        }
         recomputeEffectiveValues()
     }
 
@@ -460,6 +518,7 @@ final class CmuxFeatureFlags {
     }
 
     private func refreshRemoteFlags() {
+        guard !pinsFlagsToLocalValues else { return }
         guard refreshTask == nil else { return }
         let loader = remoteFlagLoader
         refreshTask = Task { @MainActor [weak self] in
@@ -580,6 +639,7 @@ final class CmuxFeatureFlags {
         distinctID: String,
         personProperties: [String: String]
     ) async -> [String: Bool]? {
+        guard (try? await releaseControlRetryAfterGate.wait()) != nil else { return nil }
         guard let request = postHogControlPlaneRequest(
             distinctID: distinctID,
             personProperties: personProperties
@@ -590,8 +650,16 @@ final class CmuxFeatureFlags {
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
         guard let (bytes, response) = try? await session.bytes(for: request),
-              let http = response as? HTTPURLResponse,
-              (200..<300).contains(http.statusCode),
+              let http = response as? HTTPURLResponse else { return nil }
+        if http.statusCode == 429 {
+            let seconds = CmxRetryAfterPolicy().seconds(
+                from: http,
+                defaultSeconds: CmxRetryAfterPolicy().defaultRateLimitSeconds
+            ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
+            await releaseControlRetryAfterGate.extend(by: seconds)
+            return nil
+        }
+        guard (200..<300).contains(http.statusCode),
               response.expectedContentLength < 0
                 || response.expectedContentLength <= maximumPostHogControlPlaneResponseBytes,
               let data = try? await boundedPostHogControlPlaneData(
@@ -645,7 +713,8 @@ final class CmuxFeatureFlags {
         resolutionsByKey[definition.key] ?? CmuxFeatureFlagResolution(
             remoteValue: remoteValuesByKey[definition.key],
             overrideValue: localOverridesByKey[definition.key],
-            defaultValue: definition.defaultWhenUnavailable
+            defaultValue: definition.defaultWhenUnavailable,
+            overridePolicy: overrideCapability.policy(for: definition)
         )
     }
 
@@ -658,7 +727,7 @@ final class CmuxFeatureFlags {
     }
 
     func setOverride(_ value: Bool?, for definition: CmuxFeatureFlagDefinition) {
-        guard value == nil || remoteValuesByKey[definition.key] == nil else { return }
+        guard value == nil || resolution(for: definition).allowsLocalOverride else { return }
 
         let previousResolutions = resolutionsByKey
         if let value {
@@ -706,7 +775,8 @@ final class CmuxFeatureFlags {
             values[definition.key] = CmuxFeatureFlagResolution(
                 remoteValue: remoteValuesByKey[definition.key],
                 overrideValue: localOverridesByKey[definition.key],
-                defaultValue: definition.defaultWhenUnavailable
+                defaultValue: definition.defaultWhenUnavailable,
+                overridePolicy: overrideCapability.policy(for: definition)
             )
         }
         if publishesOffMainSnapshot {

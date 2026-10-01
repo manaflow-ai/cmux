@@ -29,6 +29,7 @@ extension MobileShellComposite {
     /// in flight, newer deltas are summed into the next request instead of
     /// piling up stale scroll packets.
     public func scrollTerminal(surfaceID: String, lines: Double, col: Int, row: Int) async {
+        guard terminalAllowsTraffic(surfaceID: surfaceID) else { return }
         // Screen-anchored sessions own primary-screen scrolling: the gesture
         // already moved the local mirror's viewport over locally accumulated
         // scrollback, the Mac's viewport is not shared, and no prefetch window
@@ -122,8 +123,14 @@ extension MobileShellComposite {
                   remoteClient === client else {
                 return
             }
-            guard let payload = try? MobileTerminalReplayResponse.decode(data),
-                  let renderGrid = payload.renderGrid,
+            // The prefetch payload is a full replay response (render grid plus
+            // deep scrollback); decode it off the main actor like the replay
+            // path. The decode suspends, so re-validate the client identity
+            // afterwards: a reconnect while decoding means this payload
+            // describes the previous session.
+            let decoded = await Self.decodeTerminalReplayResponseOffMain(data)
+            guard remoteClient === client,
+                  let renderGrid = decoded.payload?.renderGrid,
                   renderGrid.surfaceID == delivery.surfaceID else {
                 return
             }

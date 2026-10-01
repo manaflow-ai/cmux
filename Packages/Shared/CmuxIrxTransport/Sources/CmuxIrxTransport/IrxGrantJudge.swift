@@ -30,6 +30,11 @@ public struct IrxGrantJudge: Sendable {
         let trustProvider = trustProvider
         let revokedGrantIDs = revokedGrantIDs
         return { grantJWS, remoteEndpointIDHex in
+            // Grant verification needs a grant; a grantless (list-auth v2)
+            // hello reaching this judge is a composition error, denied loud.
+            guard let grantJWS else {
+                throw IrxAdmissionDenied(code: .invalidGrant)
+            }
             guard let trust = trustProvider() else {
                 throw IrxAdmissionDenied(code: .invalidGrant)
             }

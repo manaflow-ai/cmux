@@ -23,6 +23,32 @@ public struct MobileRootAuthGate {
         stackAuthenticated || attachTicketAuthenticated
     }
 
+    /// Whether the root should remain on the sign-in surface.
+    ///
+    /// Sign-in owns the screen while Stack auth is absent. A primed cached
+    /// session — authenticated from the persisted identity while launch
+    /// validation is still in flight — mounts the authenticated shell
+    /// immediately, whose restoring inputs cover the validation window;
+    /// keeping sign-in up instead showed a loading sign-in screen on every
+    /// launch for the whole network round trip. The one exception is an
+    /// unfinished first-run onboarding: onboarding must not present for a
+    /// cached identity that may still be rejected, and the pre-onboarding
+    /// shell would flash the add-device surface, so sign-in keeps the screen
+    /// (showing its restore status) until validation settles. A live attach
+    /// ticket always proceeds directly to the shell to complete the attach
+    /// flow. Signed out there is no other surface: every user signs in
+    /// before using the app, including SSH computers.
+    public static func shouldShowSignIn(
+        stackAuthenticated: Bool,
+        attachTicketAuthenticated: Bool = false,
+        isRestoringSession: Bool,
+        onboardingPending: Bool = false
+    ) -> Bool {
+        if attachTicketAuthenticated { return false }
+        if !stackAuthenticated { return true }
+        return isRestoringSession && onboardingPending
+    }
+
     /// Whether the restoring-session UI should be shown.
     /// - Parameters:
     ///   - stackAuthenticated: Whether Stack auth is established.
@@ -93,6 +119,35 @@ public struct MobileRootAuthGate {
             && didFinishAuthBootstrap
             && !isRestoringSession
             && !attachTicketAuthenticated
+            && connectionState != .connected
+    }
+
+    /// Whether launch may dial the saved Mac with the cached account while
+    /// restore still validates it over the network.
+    ///
+    /// Restore primes the cached user and the persisted team selection before
+    /// validating the token, reloading the user and refreshing teams in
+    /// series. The saved Mac's dial only needs that cached account scope, so
+    /// it runs alongside validation. A rejected session signs the shell out,
+    /// and a changed account or team supersedes the dial.
+    /// - Parameters:
+    ///   - stackAuthenticated: Whether Stack auth is established, including a primed cached session.
+    ///   - isRestoringSession: Whether cached auth is still being validated.
+    ///   - attachTicketAuthenticated: Whether a temporary attach ticket grants access.
+    ///   - hasLaunchConnectionRoute: Whether a pending URL or injected attach route owns startup.
+    ///   - connectionState: The current connection state.
+    /// - Returns: `true` when a primed cached session is still restoring, nothing else owns startup, and the Mac is not yet connected.
+    public static func shouldReconnectStoredMacDuringRestore(
+        stackAuthenticated: Bool,
+        isRestoringSession: Bool,
+        attachTicketAuthenticated: Bool,
+        hasLaunchConnectionRoute: Bool,
+        connectionState: MobileConnectionState
+    ) -> Bool {
+        stackAuthenticated
+            && isRestoringSession
+            && !attachTicketAuthenticated
+            && !hasLaunchConnectionRoute
             && connectionState != .connected
     }
 

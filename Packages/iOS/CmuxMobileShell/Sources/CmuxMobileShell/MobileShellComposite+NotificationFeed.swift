@@ -111,6 +111,14 @@ extension MobileShellComposite {
         let hasSuccessfulSnapshot = notificationFeedSuccessfulMacIDs.contains(where: ownerKeyMatches)
         let isRefreshing = notificationFeedRefreshTasksByMac.keys.contains(where: ownerKeyMatches)
 
+        // A scope covering the demonstration computer is served entirely from
+        // its seeded snapshot; it has no RPC client to count as "connected".
+        if demonstrationNotificationFeedSeeded,
+           let session = demoContentSession,
+           matches(deviceID: session.pairingKey.canonicalMacDeviceID, tag: nil) {
+            return .ready
+        }
+
         guard hasConnectedMac else { return .unavailable }
         guard hasCapableMac else { return .requiresMacUpdate }
         if isRefreshing, !hasSnapshot, !hasSuccessfulSnapshot { return .loading }
@@ -171,6 +179,14 @@ extension MobileShellComposite {
         _ item: MobileNotificationFeedItem,
         isRead: Bool
     ) async {
+        if applyDemonstrationNotificationReadState(item, isRead: isRead) {
+            recordAppEvent(
+                .notificationFeedItemMarkedRead,
+                correlationID: item.notificationID,
+                count: isRead ? 1 : 0
+            )
+            return
+        }
         guard item.isRead != isRead,
               let target = notificationFeedTarget(for: notificationFeedOwnerKey(for: item)) else {
             recordAppEvent(
@@ -234,6 +250,7 @@ extension MobileShellComposite {
     /// the user without deriving mutation targets from the capped visible rows.
     public func markNotificationFeedItemsRead(scopedTo macDeviceIDs: Set<String>?) async {
         if macDeviceIDs?.isEmpty == true { return }
+        markDemonstrationNotificationFeedItemsRead(scopedTo: macDeviceIDs)
         let parsedScopeEntries = macDeviceIDs.map(
             MobileWorkspaceListFilter.parsedMachineEntries
         )
@@ -387,6 +404,9 @@ extension MobileShellComposite {
 
     /// Starts an initial feed fetch after a capable foreground connection is established.
     func scheduleForegroundNotificationFeedRefresh(client: MobileCoreRPCClient) {
+        // The agent feed shares this connection-ready trigger and applies its
+        // own capability gate.
+        scheduleForegroundAgentFeedRefresh(client: client)
         guard let macDeviceID = normalizedForegroundNotificationFeedOwnerKey(),
               supportedHostCapabilities.contains(Self.notificationFeedCapability),
               remoteClient === client else { return }
@@ -406,6 +426,13 @@ extension MobileShellComposite {
         client: MobileCoreRPCClient,
         displayName: String?
     ) {
+        // The agent feed shares this connection-ready trigger and applies its
+        // own capability gate.
+        scheduleSecondaryAgentFeedRefresh(
+            macDeviceID: macDeviceID,
+            client: client,
+            displayName: displayName
+        )
         let ownerKey = MacPairingKey(pairingID: macDeviceID)
         guard secondaryMacSubscriptions[ownerKey]?.client === client,
               client !== remoteClient,
@@ -424,6 +451,13 @@ extension MobileShellComposite {
         client: MobileCoreRPCClient,
         displayName: String?
     ) async -> Bool {
+        // A control-stream gap may have swallowed `feed.changed` events too;
+        // the agent feed repairs with a plain non-awaited refresh.
+        scheduleSecondaryAgentFeedRefresh(
+            macDeviceID: macDeviceID,
+            client: client,
+            displayName: displayName
+        )
         let reconcileOwnerKey = MacPairingKey(pairingID: macDeviceID)
         guard let subscription = secondaryMacSubscriptions[reconcileOwnerKey],
               subscription.client === client,
@@ -488,7 +522,10 @@ extension MobileShellComposite {
     }
 
     /// Cancels all feed work and removes account-scoped notification content.
+    /// The agent feed shares the notification feed's lifecycle triggers, so
+    /// every reset here resets it too.
     func resetNotificationFeed() {
+        resetAgentFeed()
         cancelPendingNotificationFeedOpen()
         for task in notificationFeedRefreshTasksByMac.values {
             task.cancel()
@@ -547,8 +584,11 @@ extension MobileShellComposite {
     }
 
     /// Removes one hidden Mac's content and cancels work that could restore it.
+    /// The agent feed shares this trigger: hiding or re-keying a pairing must
+    /// drop its workstream rows for the same reasons it drops notifications.
     /// - Parameter macDeviceID: The hidden Mac's stable device id.
     func removeNotificationFeedSnapshot(macDeviceID: String) {
+        removeAgentFeedSnapshot(macDeviceID: macDeviceID)
         notificationFeedRefreshTasksByMac[macDeviceID]?.cancel()
         notificationFeedRefreshRetryTasksByMac[macDeviceID]?.cancel()
         notificationFeedRefreshTasksByMac[macDeviceID] = nil
@@ -1182,9 +1222,16 @@ extension MobileShellComposite {
             connectedClientIDs.insert(ObjectIdentifier(remoteClient))
         }
         let connectedClientCount = connectedClientIDs.count
-        guard connectedClientCount > 0 else { return .unavailable }
+        // Demonstration content is a live feed source without an RPC client:
+        // with no real Macs connected (or none capable), a seeded demo
+        // snapshot keeps the feed presentable instead of "unavailable".
+        guard connectedClientCount > 0 else {
+            return demonstrationNotificationFeedSeeded ? .ready : .unavailable
+        }
         let targets = notificationFeedTargets()
-        guard !targets.isEmpty else { return .requiresMacUpdate }
+        guard !targets.isEmpty else {
+            return demonstrationNotificationFeedSeeded ? .ready : .requiresMacUpdate
+        }
         let targetOwnerKeys = Set(targets.map(\.ownerKey))
         if notificationFeedItems.isEmpty,
            notificationFeedSuccessfulMacIDs.isDisjoint(with: targetOwnerKeys) {

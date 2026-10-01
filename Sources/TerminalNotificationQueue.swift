@@ -1,5 +1,6 @@
 import CmuxRemoteSession
 import CmuxNotifications
+import CmuxSettings
 import Foundation
 
 fileprivate struct QueuedTerminalNotificationKey: Hashable, Sendable {
@@ -14,6 +15,7 @@ fileprivate struct QueuedTerminalNotification: Sendable {
     let body: String
     let replyShape: TerminalNotificationReplyShape
     let agent: TerminalNotificationPolicyAgentContext?
+    let soundContext: NotificationSoundOverrideContext?
     let correlationKey: String?
 }
 
@@ -78,6 +80,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         body: String,
         replyShape: TerminalNotificationReplyShape = .none,
         agent: TerminalNotificationPolicyAgentContext? = nil,
+        soundContext: NotificationSoundOverrideContext? = nil,
         correlationKey: String? = nil,
         coalesces: Bool = true
     ) {
@@ -88,6 +91,7 @@ final class TerminalMutationBus: @unchecked Sendable {
             body: body,
             replyShape: replyShape,
             agent: agent,
+            soundContext: soundContext,
             correlationKey: correlationKey
         ), coalesces: coalesces)
     }
@@ -400,6 +404,17 @@ final class TerminalMutationBus: @unchecked Sendable {
     }
 
 #if DEBUG
+    /// Drops every queued mutation for deterministic test fixture teardown.
+    /// Production code never needs to discard non-notification mutations.
+    @MainActor
+    func discardAllMutationsForTesting() {
+        lock.lock()
+        pending.removeAll()
+        drainScheduled = false
+        currentNotificationGeneration &+= 1
+        lock.unlock()
+    }
+
     nonisolated func setDrainsSuspendedForTesting(_ suspended: Bool) {
         let shouldScheduleDrain: Bool
         lock.lock()
@@ -497,7 +512,8 @@ final class TerminalMutationBus: @unchecked Sendable {
                     replyShape: notification.replyShape,
                     agent: notification.agent,
                     correlationKey: notification.correlationKey,
-                    notificationGeneration: entry.notificationGeneration ?? 0
+                    notificationGeneration: entry.notificationGeneration ?? 0,
+                    soundContext: notification.soundContext
                 )
             case .clearAllNotifications(let boundary):
                 TerminalNotificationStore.shared.clearAll(discardQueuedNotifications: false, throughNotificationGeneration: boundary)

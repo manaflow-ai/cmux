@@ -105,6 +105,20 @@ extension TerminalPanel {
         onRequestAgentHibernationTerminationRetry?()
     }
 
+    /// Banner action: type the resume command again and restart the wake check.
+    func retryAgentWake() {
+        onRequestAgentWakeRetry?()
+    }
+
+    /// Banner action: close the wake failure banner.
+    func dismissAgentWakeFailure() {
+        if let onDismissAgentWakeFailure {
+            onDismissAgentWakeFailure()
+        } else {
+            agentWakeFailure = nil
+        }
+    }
+
     private func suspendRuntimeForAgentHibernation(reason: String) -> Bool {
         guard surface.suspendRuntimeSurfaceForAgentHibernation(reason: reason) else {
             return false
@@ -117,6 +131,7 @@ extension TerminalPanel {
         return true
     }
 
+    /// Recreates the terminal runtime while retaining the old-generation intent until a new process is recorded.
     @discardableResult
     func prepareAgentHibernationResume() -> AgentHibernationResumePreparation {
         guard case .hibernated(let state) = agentHibernationPhase else {

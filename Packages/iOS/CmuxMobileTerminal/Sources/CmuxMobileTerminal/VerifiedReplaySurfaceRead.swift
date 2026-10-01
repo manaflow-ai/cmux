@@ -4,7 +4,7 @@ import Foundation
 import GhosttyKit
 
 /// Immutable payload dereferenced only by the surface's serial Ghostty queue.
-nonisolated struct VerifiedReplaySurfaceRead: @unchecked Sendable {
+struct VerifiedReplaySurfaceRead: @unchecked Sendable {
     // Safety: the raw surface pointer is used only on `GhosttySurfaceWorkQueue`,
     // which also owns output, rendering, export, and eventual surface free.
     let surface: ghostty_surface_t
@@ -23,7 +23,7 @@ nonisolated struct VerifiedReplaySurfaceRead: @unchecked Sendable {
 }
 
 /// Tokened render invocation dereferenced only by the surface's serial queue.
-nonisolated struct VerifiedReplayRenderSubmission: @unchecked Sendable {
+struct VerifiedReplayRenderSubmission: @unchecked Sendable {
     // Safety: the surface pointer remains owned by GhosttySurfaceView and every
     // use is enqueued on the same generation-bound surface work queue.
     let surface: ghostty_surface_t

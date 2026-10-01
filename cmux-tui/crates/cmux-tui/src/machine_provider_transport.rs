@@ -179,7 +179,8 @@ impl UnixProviderConnector {
         Self { socket_path: socket_path.into(), token: None }
     }
 
-    /// Compatibility seam for callers that still perform `hello` separately.
+    /// Test-only seam for exercising the control socket before `hello`.
+    #[cfg(test)]
     pub(crate) fn open_unauthenticated(
         socket_path: impl Into<PathBuf>,
     ) -> io::Result<(ProviderIo, Arc<dyn MachineStreamConnector>)> {
@@ -296,6 +297,8 @@ pub(crate) struct SshProviderConnector {
 }
 
 impl SshProviderConnector {
+    /// Test-only raw-destination constructor. Runtime callers use `cloud`.
+    #[cfg(test)]
     pub(crate) fn new(destination: impl Into<OsString>) -> io::Result<Self> {
         Self::with_program("ssh", destination)
     }
@@ -334,6 +337,7 @@ impl SshProviderConnector {
         Ok(Self { ssh_program, destination: OsString::from(destination), port, identity_file })
     }
 
+    #[cfg(test)]
     fn with_program(
         ssh_program: impl Into<OsString>,
         destination: impl Into<OsString>,
@@ -697,6 +701,7 @@ fn random_hex(byte_count: usize) -> io::Result<String> {
     Ok(encoded)
 }
 
+#[cfg(test)]
 fn validate_ssh_destination(destination: &OsStr) -> io::Result<()> {
     let Some(destination) = destination.to_str() else {
         return Err(io::Error::new(
@@ -875,17 +880,16 @@ mod tests {
             "{}::command_connector_does_not_inherit_provider_capability_secrets",
             module_path!()
         );
-        let output = std::process::Command::new(
-            std::env::current_exe().expect("locate provider environment test binary"),
-        )
-        .arg("--exact")
-        .arg(&helper_test)
-        .arg("--nocapture")
-        .env(CHILD_MARKER, "1")
-        .env("CMUX_MACHINE_PROVIDER_TOKEN", "provider-token-test")
-        .env("CMUX_PROVIDER_WORKSPACE_AUTHORITY", "provider-authority-test")
-        .output()
-        .expect("run provider environment test helper");
+        let output =
+            Command::new(std::env::current_exe().expect("locate provider environment test binary"))
+                .arg("--exact")
+                .arg(&helper_test)
+                .arg("--nocapture")
+                .env(CHILD_MARKER, "1")
+                .env("CMUX_MACHINE_PROVIDER_TOKEN", "provider-token-test")
+                .env("CMUX_PROVIDER_WORKSPACE_AUTHORITY", "provider-authority-test")
+                .output()
+                .expect("run provider environment test helper");
         assert!(
             output.status.success(),
             "provider environment test helper failed:\nstdout:\n{}\nstderr:\n{}",

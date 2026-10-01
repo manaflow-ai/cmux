@@ -106,6 +106,21 @@ public final class SimulatorStreamV2Store {
         refreshPhase()
     }
 
+    /// User-requested refresh: tears the session down and reattaches through
+    /// the single lifecycle path, immediately when the transport is ready.
+    /// Clears the last host status so the UI reports the reconnect in
+    /// progress instead of a stale terminal state; a still-broken host
+    /// re-reports through the fresh session's state flow.
+    public func refresh() {
+        hostStatus = nil
+        hostDetail = ""
+        apply(lifecycle.handle(.refreshRequested))
+        if transportReady() {
+            apply(lifecycle.handle(.transportReady))
+        }
+        refreshPhase()
+    }
+
     // MARK: - Input forwarding
 
     public func send(_ event: SimStreamInputEvent) {

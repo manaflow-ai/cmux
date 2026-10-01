@@ -215,7 +215,7 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
     @Test
     func cachedPolicyRecoveryFailsClosedForAuthRejections() {
         #expect(CmxIrohClientRuntime.recoversWithCachedPolicy(
-            CmxIrohTrustBrokerClientError.connectivity
+            CmxIrohTrustBrokerClientError.connectivity(nil)
         ))
         #expect(!CmxIrohClientRuntime.recoversWithCachedPolicy(
             CmxIrohTrustBrokerClientError.rejected(

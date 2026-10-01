@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxNotifications
 import CmuxAppKitSupportUI
 import SwiftUI
@@ -16,6 +17,9 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
 
     let contentUpdate: ContentUpdate
     let workspaceIds: [UUID]
+    /// Stable row identities currently owned by the sidebar. Group headers
+    /// use their group id here because their anchor workspace can be promoted.
+    let liveRowIds: [SidebarWorkspaceRenderItemID]
     let selectedWorkspaceId: UUID?
     let selectedScrollTargetWorkspaceId: UUID?
     let isPresented: Bool
@@ -38,18 +42,24 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
         let container = context.coordinator.makeContainerView()
         container.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
         container.emptyDropIndicatorView.colorScheme = colorScheme
+        container.emptyDropIndicatorView.accentColor = context.environment.cmuxAccentColor
         return container
     }
 
     func updateNSView(_ nsView: SidebarWorkspaceTableContainerView, context: Context) {
         nsView.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
         nsView.emptyDropIndicatorView.colorScheme = colorScheme
+        nsView.emptyDropIndicatorView.accentColor = context.environment.cmuxAccentColor
 #if DEBUG
         context.coordinator.reconfigurationProbe = sidebarLazyContractProbe.tableRootViewReconfigure
 #endif
         context.coordinator.setUnreadSource(unreadSource)
         context.coordinator.onDeferredRowClickAwaitingApply = onDeferredClickAwaitingApply
-        context.coordinator.setPresentationActive(isPresented, workspaceIds: workspaceIds)
+        context.coordinator.setPresentationActive(
+            isPresented,
+            workspaceIds: workspaceIds,
+            rowIds: liveRowIds
+        )
         guard isPresented else { return }
         guard case let .apply(rows, actions) = contentUpdate else { return }
         context.coordinator.apply(

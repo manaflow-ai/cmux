@@ -402,9 +402,7 @@ struct TextBoxPendingPasteReservationTests {
             replacementRange: textView.selectedRange()
         )
         let detectedAttachmentRange = (textView.string as NSString).range(
-            of: String(
-                UnicodeScalar(NSTextAttachment.character)!
-            )
+            of: "\u{FFFC}"
         )
         let attachmentRange = try #require(
             detectedAttachmentRange.location == NSNotFound
