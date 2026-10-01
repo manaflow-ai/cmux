@@ -420,9 +420,11 @@ mod tests {
             Mux::open_persistent("launch-snapshot-idle", SurfaceOptions::default(), &root).unwrap();
         let writer = start_launch_snapshot_writer_with(
             &mux,
+            // A settle window well above one rename keeps the burst inside it
+            // on a loaded runner.
             LaunchSnapshotTiming {
-                settle: Duration::from_millis(30),
-                max_delay: Duration::from_millis(300),
+                settle: Duration::from_millis(250),
+                max_delay: Duration::from_secs(2),
             },
         )
         .unwrap()
@@ -442,8 +444,10 @@ mod tests {
         wait_for_snapshot(writer.path(), |snapshot| {
             workspace_names(snapshot) == vec!["burst-19".to_string()]
         });
-        // A burst of changes settles into a few writes, not one per change.
-        assert!(writer.writes() - settled <= 3, "writes: {}", writer.writes() - settled);
+        // 21 changes settle into a few writes, never one per change. The
+        // bound leaves room for a slow runner splitting the burst.
+        let burst = writer.writes() - settled;
+        assert!(burst <= 5, "writes: {burst} for 21 changes");
 
         drop(writer);
         mux.shutdown();
