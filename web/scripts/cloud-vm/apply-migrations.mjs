@@ -1,8 +1,9 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 
-const concurrentIndexPattern = /CREATE\s+INDEX\s+CONCURRENTLY/i;
-const concurrentIndexNamePattern = /CREATE\s+INDEX\s+CONCURRENTLY(?:\s+IF\s+NOT\s+EXISTS)?\s+"([^"]+)"/i;
+const concurrentIndexPattern = /CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY/i;
+const concurrentIndexNamePattern = /CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY(?:\s+IF\s+NOT\s+EXISTS)?\s+"([^"]+)"/i;
+const concurrentIndexTargetPattern = /CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY(?:\s+IF\s+NOT\s+EXISTS)?\s+"[^"]+"\s+ON\s+(?:(?:"([^"]+)"|([A-Za-z_][\w$]*))\.)?(?:"([^"]+)"|([A-Za-z_][\w$]*))/i;
 
 async function recordMigration(client, migration) {
   for (const statement of migration.sql) await client.query(statement);
@@ -17,12 +18,15 @@ async function recordMigration(client, migration) {
 async function dropInvalidConcurrentIndex(pool, migration) {
   const indexStatement = migration.sql.find((statement) => concurrentIndexPattern.test(statement));
   const indexName = indexStatement?.match(concurrentIndexNamePattern)?.[1];
-  if (!indexName) return;
+  const target = indexStatement?.match(concurrentIndexTargetPattern);
+  const schemaName = target?.[1] ?? target?.[2] ?? "public";
+  const tableName = target?.[3] ?? target?.[4];
+  if (!indexName || !tableName) return;
   const existing = await pool.query(
-    "select n.nspname as schema_name, c.relname as index_name, i.indisvalid from pg_class c join pg_namespace n on n.oid = c.relnamespace join pg_index i on i.indexrelid = c.oid where c.relname = $1",
-    [indexName],
+    "select n.nspname as schema_name, c.relname as index_name from pg_class c join pg_namespace n on n.oid = c.relnamespace join pg_index i on i.indexrelid = c.oid join pg_class t on t.oid = i.indrelid join pg_namespace tn on tn.oid = t.relnamespace where c.relname = $1 and n.nspname = $2 and i.indisvalid = false and t.relname = $3 and tn.nspname = $2",
+    [indexName, schemaName, tableName],
   );
-  const invalid = existing.rows.find((row) => row.indisvalid === false);
+  const invalid = existing.rows[0];
   if (!invalid) return;
   const quoteIdentifier = (value) => `"${String(value).replaceAll('"', '""')}"`;
   await pool.query(

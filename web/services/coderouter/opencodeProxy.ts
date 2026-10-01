@@ -811,7 +811,10 @@ function pinnedFetch(pin: ProviderPin): typeof fetch {
         // Read the web stream directly. Bun 1.3 can surface a stream error
         // from Readable.fromWeb as an unhandled error even when pipeline's
         // callback receives it, leaving the test runner and request hanging.
-        void writeRequestBody(body, outgoing, reject);
+        void writeRequestBody(body, outgoing, reject).catch((error) => {
+          outgoing.destroy(error instanceof Error ? error : new Error(String(error)));
+          reject(error);
+        });
       } else {
         outgoing.end();
       }
@@ -824,8 +827,14 @@ async function writeRequestBody(
   outgoing: ClientRequest,
   reject: (reason?: unknown) => void,
 ): Promise<void> {
-  const reader = body.getReader();
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  const cancelBody = (reason: unknown) => {
+    if (reader) void reader.cancel(reason).catch(() => {});
+  };
+  const onOutgoingError = (error: Error) => cancelBody(error);
+  outgoing.once("error", onOutgoingError);
   try {
+    reader = body.getReader();
     while (true) {
       const { done, value } = await reader.read();
       if (done) {
@@ -839,7 +848,12 @@ async function writeRequestBody(
     outgoing.destroy(reason);
     reject(reason);
   } finally {
-    reader.releaseLock();
+    outgoing.off("error", onOutgoingError);
+    try {
+      reader?.releaseLock();
+    } catch {
+      // A failed or already-cancelled source is fully closed by the reader.
+    }
   }
 }
 

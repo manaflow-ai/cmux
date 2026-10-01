@@ -13,10 +13,20 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 MARKER_PREFIX = "submodule-forward-only: allow "
+FETCH_TIMEOUT_SECONDS = 15
+DEEPEN_CHUNK = 256
+MAX_DEEPEN_ROUNDS = 8
 
 
-def run(*args: str, cwd: str | None = None) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+def run(*args: str, cwd: str | None = None, timeout: float = FETCH_TIMEOUT_SECONDS) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            args, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return subprocess.CompletedProcess(
+            args, 124, stdout=exc.stdout or "", stderr=exc.stderr or "command timed out",
+        )
 
 
 def gitlink(ref: str, path: str) -> str | None:
@@ -46,10 +56,11 @@ def merge_base(base: str, head: str) -> str:
     return result.stdout.strip()
 
 
-def local_relation(path: str, base: str, new: str) -> str | None:
-    fetch = run("git", "-C", path, "fetch", "origin", base, new)
-    # Fetch failure is expected in partial or shallow clones. Try the checks
-    # anyway because the objects may already be present locally.
+def local_relation(path: str, base: str, new: str, *, fetch_remote: bool = True) -> str | None:
+    if fetch_remote:
+        fetch = run("git", "-C", path, "fetch", "origin", base, new)
+        # Fetch failure is expected in partial or shallow clones. Try the checks
+        # anyway because the objects may already be present locally.
     forward = run("git", "-C", path, "merge-base", "--is-ancestor", base, new)
     backward = run("git", "-C", path, "merge-base", "--is-ancestor", new, base)
     if forward.returncode == 0:
@@ -84,8 +95,31 @@ def deepened_relation(path: str, base: str, new: str) -> str | None:
     shallow = run("git", "-C", path, "rev-parse", "--is-shallow-repository")
     if shallow.returncode != 0 or shallow.stdout.strip() != "true":
         return None
-    run("git", "-C", path, "fetch", "--quiet", "--filter=blob:none", "--unshallow", "origin", base, new)
-    return local_relation(path, base, new)
+    for round_number in range(1, MAX_DEEPEN_ROUNDS + 1):
+        fetched = run(
+            "git", "-C", path, "fetch", "--quiet", "--filter=blob:none",
+            f"--deepen={DEEPEN_CHUNK}", "origin", base, new,
+        )
+        if fetched.returncode:
+            detail = fetched.stderr.strip() or "git fetch failed"
+            print(
+                f"submodule-forward-only: bounded history fetch failed for {path} "
+                f"(round {round_number}/{MAX_DEEPEN_ROUNDS}): {detail}",
+                file=sys.stderr,
+            )
+            return None
+        relation = local_relation(path, base, new, fetch_remote=False)
+        if relation:
+            return relation
+        state = run("git", "-C", path, "rev-parse", "--is-shallow-repository")
+        if state.returncode == 0 and state.stdout.strip() != "true":
+            return local_relation(path, base, new, fetch_remote=False)
+    print(
+        f"submodule-forward-only: bounded history fetch reached {MAX_DEEPEN_ROUNDS * DEEPEN_CHUNK} "
+        f"commits for {path} without resolving {base} -> {new}",
+        file=sys.stderr,
+    )
+    return None
 
 
 def github_relation(url: str, new: str, base: str) -> str | None:

@@ -16,8 +16,14 @@ if (!connectionString) {
 }
 const { Pool } = createRequire(path.join(webDir, "package.json"))("pg");
 const pool = new Pool({ connectionString });
+let poolError;
+pool.on("error", (error) => {
+  poolError ??= error;
+  console.error(`db-migrate: idle pool connection failed: ${error instanceof Error ? error.message : String(error)}`);
+});
 try {
   const applied = await applyPendingMigrations(pool, webDir);
+  if (poolError) throw poolError;
   console.log(`db-migrate: applied ${applied} pending migration(s)`);
 } catch (error) {
   console.error(`db-migrate: ${error instanceof Error ? error.message : String(error)}`);
