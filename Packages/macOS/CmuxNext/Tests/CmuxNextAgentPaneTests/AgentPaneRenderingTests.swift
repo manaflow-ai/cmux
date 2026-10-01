@@ -58,7 +58,8 @@ import WebKit
         pane.rendersAtFullRate = true
         await pane.rateReapply?.value
         #expect(steps.first?.hidden == true)
-        #expect(steps.allSatisfy(\.covered))
+        let coveredThroughout = steps.allSatisfy { $0.covered }
+        #expect(coveredThroughout)
         #expect(!pane.webView.isHidden)
         #expect(!pane.subviews.contains { $0 is NSImageView })
         // Setting the rate it already has changes nothing.
