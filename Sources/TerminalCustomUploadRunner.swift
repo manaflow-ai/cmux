@@ -31,6 +31,7 @@ struct TerminalCustomUploadRunner {
         let port: Int?
         let identityFile: String?
         let sshOptions: [String]
+        let remotePastePolicy: RemotePasteFileTransferPolicy = RemotePasteFileTransferPolicy()
     }
 
     private let runProcess: ProcessRunner
@@ -113,7 +114,7 @@ struct TerminalCustomUploadRunner {
                 guard normalizedLocalURL.isFileURL else {
                     throw Self.uploadError("Dropped item is not a local file.")
                 }
-                let remotePath = session.remotePastePolicy.remotePath(for: normalizedLocalURL)
+                let remotePath = endpoint.remotePastePolicy.remotePath(for: normalizedLocalURL)
                 let env = TerminalUploadCommand.environment(
                     localPath: normalizedLocalURL.path,
                     remotePath: remotePath,
@@ -179,7 +180,7 @@ struct TerminalCustomUploadRunner {
             destination: session.destination,
             port: session.port,
             identityFile: session.identityFile,
-            sshOptions: session.sshOptions
+            sshOptions: session.sshOptions, remotePastePolicy: session.remotePastePolicy
         )
         guard let command = matchedCommand(for: endpoint) else { return false }
 
@@ -196,7 +197,6 @@ struct TerminalCustomUploadRunner {
     }
 
     // MARK: - Process bridge
-
     private static func uploadError(_ message: String) -> NSError {
         NSError(domain: "cmux.upload.command", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
