@@ -55,6 +55,7 @@ public struct AppSection: View {
     @State private var paneRing: DefaultsValueModel<Bool>
     @State private var paneFlash: DefaultsValueModel<Bool>
     @State private var paneFlashDoubleBlink: DefaultsValueModel<Bool>
+    @State private var paneFlashOnTyping: DefaultsValueModel<Bool>
     @State private var paneFlashThemeColor: DefaultsValueModel<Bool>
     @State private var desktopNotifications: DesktopNotificationAuthorizationModel
     @State private var agentPermissionPrompt: DefaultsValueModel<Bool>
@@ -127,6 +128,7 @@ public struct AppSection: View {
         _paneRing = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.unreadPaneRing))
         _paneFlash = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlash))
         _paneFlashDoubleBlink = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlashDoubleBlink))
+        _paneFlashOnTyping = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlashOnTyping))
         _paneFlashThemeColor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlashThemeColor))
         _desktopNotifications = State(initialValue: DesktopNotificationAuthorizationModel(hostActions: hostActions))
         _agentPermissionPrompt = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentPermissionPrompt))
@@ -171,7 +173,7 @@ public struct AppSection: View {
             AppChannelSwitchCard(hostActions: hostActions)
         }
         .task {
-            startSettingsObservation([language, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, paneFlashDoubleBlink, paneFlashThemeColor, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, paneFlashDoubleBlink, paneFlashOnTyping, paneFlashThemeColor, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
             await soundAgentCache.loadIfNeeded { await hostActions.notificationSoundAgentOptions() }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
@@ -717,6 +719,18 @@ public struct AppSection: View {
                 subtitle: String(localized: "settings.notifications.paneFlashDoubleBlink.subtitle", defaultValue: "Blink the pane flash twice instead of one short pulse.")
             ) {
                 Toggle("", isOn: Binding(get: { paneFlashDoubleBlink.current }, set: { paneFlashDoubleBlink.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .disabled(!paneFlash.current)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("notifications.paneFlashOnTyping"),
+                String(localized: "settings.notifications.paneFlashOnTyping.title", defaultValue: "Flash While Typing"),
+                subtitle: String(localized: "settings.notifications.paneFlashOnTyping.subtitle", defaultValue: "Flash the pane when typing dismisses its notification.")
+            ) {
+                Toggle("", isOn: Binding(get: { paneFlashOnTyping.current }, set: { paneFlashOnTyping.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
                     .disabled(!paneFlash.current)
