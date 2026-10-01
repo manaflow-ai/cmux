@@ -21,6 +21,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         view?.applyTheme()
+        view?.replayCustomization()
     }
 
     /// A crashed web content process leaves a blank pane; reload the page,

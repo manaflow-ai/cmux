@@ -21,7 +21,12 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         else {
             return (AgentPaneReply.failure(code: "untrusted_frame", message: "Untrusted frame"), nil)
         }
-        let reply = await view.model.respond(to: AgentPaneRequest(body: message.body))
+        let request = AgentPaneRequest(body: message.body)
+        // The page installs its bridge and registry before asking for the
+        // handshake, which can be after didFinish; replay the customization
+        // so registry.js finds them.
+        if request == .ready { view.replayCustomization() }
+        let reply = await view.model.respond(to: request)
         return (reply, nil)
     }
 }

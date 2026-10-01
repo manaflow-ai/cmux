@@ -17,6 +17,13 @@ public final class AgentPaneView: NSView {
 
     /// The page this pane shows; navigation and the handshake trust only it.
     public let source: AgentPaneSource
+    /// The user's `agent-pane` files, pushed to the page when they change,
+    /// after each load, and when the page asks for the handshake.
+    public var customization = AgentPaneCustomization() {
+        didSet {
+            if customization != oldValue { applyCustomization() }
+        }
+    }
     private let navigation = AgentPaneNavigation()
 
     /// The bundled page, nil when it is missing (a broken build).
@@ -80,6 +87,22 @@ public final class AgentPaneView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyTheme()
+    }
+
+    /// Pushes ``customization`` to the page, even an empty one (it clears
+    /// what removed files left behind).
+    func applyCustomization() {
+        for script in customization.scripts() {
+            webView.evaluateJavaScript(script, completionHandler: nil)
+        }
+    }
+
+    /// Re-pushes a non-empty ``customization`` to a page that may not have
+    /// had its bridge yet (a load finishing, the page asking for the
+    /// handshake once its bridge exists).
+    func replayCustomization() {
+        guard !customization.isEmpty else { return }
+        applyCustomization()
     }
 
     /// Pushes this view's scope tokens to the page (and to the area WebKit
