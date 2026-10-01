@@ -28,20 +28,32 @@ public struct CloudMachinesUsage: Equatable, Sendable {
         return activeCount >= maxActiveVms
     }
 
+    /// The ceiling the header renders as a fraction. A cap of zero or less is
+    /// not a quota the count can sit inside: the server closes provisioning
+    /// for the plan entirely, so "3/0" reads as arithmetic nonsense while the
+    /// fleet it describes is real. Only the fraction drops; `isAtLimit`,
+    /// `help` and the upgrade surfaces keep reading the cap itself, so the
+    /// paywall is unchanged.
+    private var displayedCeiling: Int? {
+        guard let maxActiveVms, maxActiveVms > 0 else { return nil }
+        return maxActiveVms
+    }
+
     /// Single-machine plans (free) read "1 of 1 machine", never "machines".
     public var isSingleMachinePlan: Bool { maxActiveVms == 1 }
 
-    /// The header's count beside "Cloud Machines": "1/50", or "3" with no ceiling.
+    /// The header's count beside "Cloud Machines": "1/50", or "3" when there is
+    /// no ceiling to count against.
     public var compactCount: String {
-        guard let maxActiveVms else { return String(activeCount) }
+        guard let maxActiveVms = displayedCeiling else { return String(activeCount) }
         let format = String(localized: "cloudTree.group.cloudMachines.usage", defaultValue: "%1$d/%2$d")
         return String(format: format, activeCount, maxActiveVms)
     }
 
     /// The spelled-out count, singular/plural chosen by the plan's ceiling.
-    /// Uncapped plans read "3 machines": there is no "of N" to show.
+    /// Plans with no countable ceiling read "3 machines": there is no "of N" to show.
     public var countLabel: String {
-        guard let maxActiveVms else {
+        guard let maxActiveVms = displayedCeiling else {
             if activeCount == 1 {
                 return String(localized: "machines.meter.count.unlimited.single", defaultValue: "1 machine")
             }

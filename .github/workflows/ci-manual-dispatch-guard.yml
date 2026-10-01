@@ -35,5 +35,6 @@ jobs:
           SOURCE_REF_NAME: ${{ github.event.workflow_run.head_branch }}
           SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
           SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_COVERAGE_FINGERPRINT: ${{ github.event.workflow_run.display_title }}
           SOURCE_WORKFLOW_PATH: ${{ github.event.workflow_run.path }}
         run: python3 scripts/ci/manual_dispatch_guard.py

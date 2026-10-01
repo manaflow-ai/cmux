@@ -181,6 +181,7 @@ Socket control and automation settings from Settings > Automation.
 | `automation.autoNamingAgent` | string | `"auto"` | Which agent generates auto-names for every session. "auto" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks. |
 | `automation.ripgrepBinaryPath` | string | `""` | Custom path to the ripgrep (rg) binary used by project search. |
 | `automation.suppressSubagentNotifications` | boolean | `true` | Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry. |
+| `automation.agentAutoResume` | boolean | `true` | Send `continue` to a cmux-launched agent whose turn ended on a retryable upstream error (model at capacity, overloaded, or connection lost), with backoff. Turns waiting on a human are never resumed. |
 | `automation.ampIntegration` | boolean | `true` | Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed. |
 | `automation.kiroIntegration` | boolean | `true` | Enable cmux integration hooks for Kiro CLI. |
 | `automation.kiroNotificationLevel` | `"minimal"` or `"standard"` or `"verbose"` | `"standard"` | Controls how many Kiro tool events appear in Feed. |
@@ -204,8 +205,11 @@ Embedded browser settings from Settings > Browser.
 | `browser.reactGrabVersion` | string | `"0.1.29"` | Pinned react-grab version for the browser toolbar helper. |
 | `browser.customSearchEngineName` | string | `""` | Display name used when defaultSearchEngine is custom. |
 | `browser.customSearchEngineURLTemplate` | string | `"https://www.google.com/search?q={query}"` | Search URL used when defaultSearchEngine is custom. Include {query} or %s for the encoded query. If omitted, cmux appends q= to the URL. |
-| `browser.discardHiddenWebViews` | boolean | `true` | Allow hidden browser tabs to release page memory and restore when shown again. |
-| `browser.hiddenWebViewDiscardDelaySeconds` | number | `300` | Seconds a browser tab must stay hidden before cmux frees its page memory. |
+| `browser.discardHiddenWebViews` | boolean | `true` | Allow hidden browser tabs to release page memory. Scroll position, form input, and history come back when a tab is shown again. |
+| `browser.hiddenWebViewDiscardMode` | string | `"budget"` | How cmux picks hidden browser tabs to free. `budget` frees the tabs hidden longest once hidden tabs use more than `hiddenWebViewMemoryBudgetMB`; `timer` frees every tab hidden longer than `hiddenWebViewDiscardDelaySeconds`. |
+| `browser.hiddenWebViewMemoryBudgetMB` | integer | `2048` | Megabytes of memory hidden browser tabs may use before cmux frees the tabs hidden longest (256 to 65536). Applies when `hiddenWebViewDiscardMode` is `budget`. |
+| `browser.hiddenWebViewDiscardDelaySeconds` | number | `300` | Seconds a browser tab must stay hidden before cmux may free its page memory. In timer mode, every tab hidden this long is freed. |
+| `browser.autoRestoreUnloadedPages` | boolean | `true` | Restore a browser page unloaded to save memory, or whose web process ended while hidden, as soon as its tab is shown. When `false`, the tab shows the page's last snapshot until you click Restore. |
 | `browser.askWhereToSaveDownloads` | boolean | `false` | Show a save panel for browser downloads instead of saving directly to Downloads. |
 | `browser.urlAllowlist` | array<string> | `["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]` | Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies. |
 

@@ -401,6 +401,20 @@ Opt-in AI auto-naming of workspaces and tabs from agent conversation content. Wh
 
 Default: `false`. Manual renames (sidebar, command palette, CLI, or `/rename`) always win: a workspace or tab you renamed yourself is never auto-named again until you clear its custom name. Enable it from **Settings > Automation > Workspace Auto-Naming**.
 
+## `automation.agentAutoResume`
+
+Sends `continue` to a cmux-launched agent whose turn ended on a retryable upstream error, such as the model being at capacity, an overloaded API, or a lost connection. Retries back off between attempts. A turn that ended waiting on a human (a question, a permission prompt, or a normal finish) is never resumed.
+
+```json
+{
+  "automation": {
+    "agentAutoResume": false
+  }
+}
+```
+
+Default: `true`. Toggle it from **Settings > Automation > Auto-Resume Agents After Errors** or the command palette.
+
 ## `diffViewer.defaultLayout`
 
 Controls the initial layout for newly opened diff viewers.
