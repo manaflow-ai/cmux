@@ -24,7 +24,7 @@ Each message moves through three states: `queued`, then `delivered`, then `read`
 
 While the recipient is waiting on a human (a question, permission or plan prompt is open), delivery holds until that prompt is answered.
 
-A message becomes `read` when the recipient finishes the turn it was delivered in, or when someone marks it read (`cmux agent inbox --mark-read`).
+A message becomes `read` when the recipient finishes the turn it was delivered in, or when someone marks it read after delivery (`cmux agent inbox --mark-read` marks only delivered messages; queued messages stay queued).
 
 The recipient sees:
 
