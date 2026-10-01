@@ -11,7 +11,7 @@ struct NotificationPopoverRow: View, Equatable {
 
     let notification: TerminalNotification
     let workspaceTitle: String?
-    let accentColor: CmuxAccentColor = .init()
+    let accentColor: CmuxAccentColor
     let onOpen: () -> Void
     let onClear: () -> Void
     let onToggleRead: () -> Void

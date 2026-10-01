@@ -24,6 +24,7 @@ struct NotificationRowSnapshotBoundaryTests {
         let left = NotificationPopoverRow(
             notification: notification,
             workspaceTitle: "main",
+            accentColor: .init(),
             onOpen: {},
             onClear: {},
             onToggleRead: {}
@@ -33,6 +34,7 @@ struct NotificationRowSnapshotBoundaryTests {
         let right = NotificationPopoverRow(
             notification: notification,
             workspaceTitle: "main",
+            accentColor: .init(),
             onOpen: { _ = 1 },
             onClear: { _ = 2 },
             onToggleRead: { _ = 3 }
@@ -49,9 +51,9 @@ struct NotificationRowSnapshotBoundaryTests {
         let read = Self.makeNotification(id: unread.id, isRead: true)
 
         let left = NotificationPopoverRow(
-            notification: unread, workspaceTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {})
+            notification: unread, workspaceTitle: "main", accentColor: .init(), onOpen: {}, onClear: {}, onToggleRead: {})
         let right = NotificationPopoverRow(
-            notification: read, workspaceTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {})
+            notification: read, workspaceTitle: "main", accentColor: .init(), onOpen: {}, onClear: {}, onToggleRead: {})
 
         #expect(
             left != right,
@@ -62,9 +64,9 @@ struct NotificationRowSnapshotBoundaryTests {
     @Test func popoverRowEqualityDetectsWorkspaceTitleChange() {
         let notification = Self.makeNotification()
         let left = NotificationPopoverRow(
-            notification: notification, workspaceTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {})
+            notification: notification, workspaceTitle: "main", accentColor: .init(), onOpen: {}, onClear: {}, onToggleRead: {})
         let right = NotificationPopoverRow(
-            notification: notification, workspaceTitle: "feature", onOpen: {}, onClear: {}, onToggleRead: {})
+            notification: notification, workspaceTitle: "feature", accentColor: .init(), onOpen: {}, onClear: {}, onToggleRead: {})
 
         #expect(
             left != right,
