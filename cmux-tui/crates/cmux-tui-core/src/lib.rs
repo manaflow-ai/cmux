@@ -80,13 +80,16 @@ pub use layout::{
     exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
     layout_screen_with_viewport, split_for_pane_edge, split_sides, zellij_default_pane_layout,
 };
-pub use model::{Node, Pane, Screen, State, ViewportColumn, Workspace};
+pub use model::{
+    ColumnSticky, Node, Pane, Screen, State, StickyEdge, StickyMode, ViewportColumn, Workspace,
+};
 pub(crate) use mux::BatchCloseTarget;
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
-    CellPixelUpdateFailure, ConfigReloadError, DiagnosticReporter, Direction, GraphicsStatus,
-    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoError, LayoutUndoResult, MachineUsage,
-    Mux, MuxEvent, NotificationEvent, NotificationLevel, NotificationSource,
+    CellPixelUpdateFailure, ColumnStickyError, ColumnStickyOutcome, ConfigReloadError,
+    DiagnosticReporter, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
+    LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEvent, NotificationEvent,
+    NotificationLevel, NotificationSource,
     ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
     ProviderWorkspaceAuthorityUpdateError, ResourceNotification, RunPlacement, ScreenDestination,
     ScreenGroupOutcome, ScreenMoveOutcome, ScreenSpec, SidebarPluginOptions, SidebarPluginStatus,

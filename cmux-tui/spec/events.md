@@ -542,8 +542,9 @@ object{event:"tab-renamed",workspace:Id,screen:Id,pane:Id,surface:Id,entity:Tab}
 | status | implemented |
 | since | protocol 12 additive extension; capability `screen-metadata-v1` |
 
-Emitted when a screen's color, icon, pin, or group changed, or when it moved
-(within its workspace or into another one). `entity` is the full refreshed
+Emitted when a screen's color, icon, pin, or group changed, when it moved
+(within its workspace or into another one), or, with `sticky-columns-v1`, when
+`set-column-sticky` changed a column's `sticky` flag. `entity` is the full refreshed
 `Screen` and `index` its position in the workspace. Commands that reorder
 screens also emit `tree-changed` first. It carries no workspace revision.
 

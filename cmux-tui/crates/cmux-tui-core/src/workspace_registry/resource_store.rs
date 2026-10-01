@@ -1846,6 +1846,11 @@ pub struct RegistryViewportColumn {
     pub width: f32,
     pub layout: RegistryLayoutNode,
     pub auto_layout: Option<Vec<PanePublicId>>,
+    /// `sticky-columns-v1`. Additive: records written before it omit the
+    /// field, and it is omitted while the column is not sticky, so an older
+    /// daemon still reads every record that has no sticky column.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sticky: Option<crate::model::ColumnSticky>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2363,6 +2368,15 @@ fn validate_registry_viewport(
     }
     if &column_panes != screen_panes {
         anyhow::bail!("viewport columns do not cover the screen panes");
+    }
+    let sticky = viewport.columns.iter().filter_map(|column| column.sticky).collect::<Vec<_>>();
+    if sticky.len() >= viewport.columns.len() {
+        anyhow::bail!("viewport must keep at least one scrolling column");
+    }
+    for edge in [crate::model::StickyEdge::Left, crate::model::StickyEdge::Right] {
+        if sticky.iter().filter(|flag| flag.edge == edge).count() > 1 {
+            anyhow::bail!("viewport has more than one {} sticky column", edge.as_str());
+        }
     }
     let owners = viewport.columns.iter().skip(1).map(|column| &column.id).collect::<HashSet<_>>();
     if owners.iter().any(|owner| internal_splits.contains(*owner)) {
