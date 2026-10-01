@@ -193,8 +193,8 @@ class Run:
                     if not found:
                         try:
                             windows = (self.app.call("debug.cef").get("result") or {}).get("windows") or {}
-                            self.popup_panels = {"panels": self.popup_panels, "fork_foreign": windows.get("fork_foreign_browsers"),
-                                                 "recent": windows.get("recent"), "popup_windows": windows.get("popup_windows")}
+                            self.popup_panels = {"popup_windows": windows.get("popup_windows"), "panels": self.popup_panels,
+                                                 "fork_foreign": windows.get("fork_foreign_browsers")}
                         except Exception:  # noqa: BLE001 - diagnostics only
                             pass
             if found:

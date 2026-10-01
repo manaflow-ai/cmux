@@ -49,6 +49,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var sidePanelHeader: SidePanelHeaderView?
     @ObservationIgnored var sidePanelState: CEFSidePanelState?
     @ObservationIgnored var sidePanelRefreshPending = false
+    /// A toolbar click that came before the browser existed.
+    @ObservationIgnored var pendingExtensionAction: (id: String, anchor: CGRect)?
     @ObservationIgnored public weak var devToolsObserver: (any BrowserDevToolsObserving)?
 
     var machine = BrowserTabStateMachine()
@@ -128,6 +130,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         let shown = host.visibleTab === self && !isOccluded
         host.lifecycleTrace.record(id, "attach pendingFocus=\(pendingFocus) shown=\(shown)")
         if pendingFocus, shown { grantFocus(browser) }
+        if let action = pendingExtensionAction {
+            pendingExtensionAction = nil
+            runExtensionAction(action.id, anchor: action.anchor)
+        }
         if let state = pendingRestore {
             pendingRestore = nil
             // 1 = restored; fork API 10 reports why not (-1 committed entries,
