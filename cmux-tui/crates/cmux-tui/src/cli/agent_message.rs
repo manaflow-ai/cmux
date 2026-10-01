@@ -792,7 +792,7 @@ mod tests {
                 codex_app_server::Outcome::Delivered("codex.turn-start")
             },
             |fields| {
-                marked = Some(fields.clone());
+                marked = Some(fields);
                 Ok(
                     json!([{"id": "msg_new", "deliveries": [{"recipient": "term_a", "state": "delivered"}]}]),
                 )
