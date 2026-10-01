@@ -35,6 +35,24 @@ private actor WebRTCExchangeProbe {
     ])
 }
 
+@Test func webRTCConfigurationParsesCloudflareTurnObjectShape() throws {
+    let json = #"{"iceServers":{"urls":["stun:stun.cloudflare.com:3478","turn:turn.cloudflare.com:3478?transport=udp"],"username":"user","credential":"credential"}}"#
+    let configuration = CmxWebRTCConfiguration(
+        environment: ["CMUX_WEBRTC_ICE_SERVERS_JSON": json]
+    )
+
+    #expect(configuration.iceServers == [
+        CmxWebRTCICEServer(
+            urls: [
+                "stun:stun.cloudflare.com:3478",
+                "turn:turn.cloudflare.com:3478?transport=udp"
+            ],
+            username: "user",
+            credential: "credential"
+        )
+    ])
+}
+
 @Test func webRTCSignalMessageRoundTripsWithoutChangingToken() throws {
     let message = CmxWebRTCSignalMessage.candidate(CmxWebRTCCandidate(
         sdp: "candidate:1 1 UDP 1 127.0.0.1 1234 typ host",
