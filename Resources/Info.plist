@@ -99,6 +99,8 @@
 	<string>$(CMUX_IROH_V2_BASE_URL)</string>
 	<key>CMUX_IROH_V2_FORCE_RELAY</key>
 	<string>$(CMUX_IROH_V2_FORCE_RELAY)</string>
+	<key>CMUXWebRTCExperiment</key>
+	<string>$(CMUX_WEBRTC_EXPERIMENT)</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>

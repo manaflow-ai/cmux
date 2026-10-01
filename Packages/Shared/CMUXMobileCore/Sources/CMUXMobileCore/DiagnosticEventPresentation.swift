@@ -90,6 +90,7 @@ public struct DiagnosticEventPresentation: Sendable {
         case .tailscale: localized("diagnostics.transport.tailscale", defaultValue: "Tailscale")
         case .websocket: localized("diagnostics.transport.websocket", defaultValue: "WebSocket")
         case .debugLoopback: localized("diagnostics.transport.debugLoopback", defaultValue: "Debug loopback")
+        case .webrtc: localized("diagnostics.transport.webrtc", defaultValue: "WebRTC")
         }
     }
 

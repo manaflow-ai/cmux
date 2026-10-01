@@ -20,15 +20,19 @@ enum MobileAttachTarget: String, Sendable {
         case .ticketOnly:
             selected = routes
         case .simulatorInjection:
+            let webRTCRoutes = routes.filter { $0.kind == .webrtc }
             let irohRoutes = try Self.identityOnlyIrohRoutes(
                 from: routes.filter(Self.hasUsableIrohPath)
             )
-            selected = irohRoutes.isEmpty
+            selected = !webRTCRoutes.isEmpty
+                ? webRTCRoutes
+                : irohRoutes.isEmpty
                 ? routes.filter { route in
                     route.kind == .debugLoopback && CmxLoopbackHost().matches(route)
                 }
                 : irohRoutes
         case .physicalDevice:
+            let webRTCRoutes = routes.filter { $0.kind == .webrtc }
             // An Iroh identity without a current relay or direct hint is only
             // a directory record. It cannot be dialed in an offline or local
             // dev broker, so let the authenticated Tailscale listener carry
@@ -36,6 +40,10 @@ enum MobileAttachTarget: String, Sendable {
             let irohRoutes = try Self.identityOnlyIrohRoutes(
                 from: routes.filter(Self.hasUsableIrohPath)
             )
+            if !webRTCRoutes.isEmpty {
+                selected = webRTCRoutes
+                break
+            }
             guard irohRoutes.isEmpty else {
                 selected = irohRoutes
                 break

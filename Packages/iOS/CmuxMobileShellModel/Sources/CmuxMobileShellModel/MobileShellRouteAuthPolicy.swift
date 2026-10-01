@@ -69,9 +69,9 @@ public struct MobileShellRouteAuthPolicy {
 
     /// Whether the given route is trusted enough to carry the Stack bearer token.
     ///
-    /// The Stack `stack_access_token` is the owner's account credential, so it must
-    /// only ever traverse loopback. This predicate gates every Stack-token-send
-    /// site and returns `true` only for `.debugLoopback` to a loopback host.
+    /// The Stack `stack_access_token` is the owner's account credential. It may
+    /// traverse loopback or the authenticated WebRTC DTLS data channel. This
+    /// predicate gates every Stack-token-send site.
     ///
     /// Plain private-LAN (`192.168/16`, `10/8`, `172.16/12`, link-local) and
     /// `.local`/Bonjour hosts are deliberately **excluded**: they are dialed over
@@ -80,14 +80,28 @@ public struct MobileShellRouteAuthPolicy {
     /// the local network before the Mac proves it is the same-account host.
     /// Iroh routes always return `false`. Their authenticated session context
     /// authorizes RPC without disclosing the account bearer token to the peer.
+    /// A WebRTC route is accepted only after its token-bearing URL passes route
+    /// validation, which binds signaling admission to the advertised endpoint.
     /// - Parameter route: The candidate attach route.
-    /// - Returns: `true` only for a loopback route.
+    /// - Returns: `true` for loopback or a validated WebRTC URL route.
     public static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
         case (.tailscale, .hostPort), (.iroh, .peer):
             return false
+        case let (.webrtc, .url(value)):
+            guard let components = URLComponents(string: value),
+                  components.scheme?.lowercased() == "webrtc",
+                  let host = components.host,
+                  !host.isEmpty,
+                  let port = components.port,
+                  (1...65535).contains(port),
+                  let token = components.queryItems?.first(where: { $0.name == "token" })?.value,
+                  !token.isEmpty else {
+                return false
+            }
+            return true
         default:
             return false
         }

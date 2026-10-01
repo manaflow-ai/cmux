@@ -73,6 +73,14 @@ struct cmuxApp: App {
         // real transports. Force-relay mode (soak rigs) registers NO fallback
         // kinds so even a simulator exercises the real relay path.
         let forceRelay = irx.forceRelayOnly
+        #if DEBUG
+        let webRTCExperimentEnabled = CmxWebRTCExperiment.isEnabled(
+            environment: ProcessInfo.processInfo.environment,
+            infoDictionary: Bundle.main.infoDictionary
+        )
+        #else
+        let webRTCExperimentEnabled = false
+        #endif
         #if targetEnvironment(simulator) || DEBUG
         let supportedKinds: [CmxAttachTransportKind] =
             forceRelay ? [] : [.debugLoopback, .tailscale]
@@ -83,12 +91,20 @@ struct cmuxApp: App {
         let fallbackRegistrations = supportedKinds.map { kind in
             CmxRouteTransportFactoryRegistration(kind: kind, factory: networkFactory)
         }
+        let webRTCFactory = CmxWebRTCByteTransportFactory(
+            configuration: CmxWebRTCConfiguration(
+                environment: ProcessInfo.processInfo.environment,
+                userDefaults: .standard
+            )
+        )
         let registrations = [
             CmxRouteTransportFactoryRegistration(
                 kind: .iroh,
                 factory: irx.transportFactory
             ),
-        ] + fallbackRegistrations
+        ] + (webRTCExperimentEnabled
+            ? [CmxRouteTransportFactoryRegistration(kind: .webrtc, factory: webRTCFactory)]
+            : []) + fallbackRegistrations
         let transportFactory: CmxRouteTransportFactory
         do {
             transportFactory = try CmxRouteTransportFactory(registrations)
@@ -101,30 +117,30 @@ struct cmuxApp: App {
             stackAccessTokenProvider: CMUXMobileRuntime.stackAccessTokenProvider(from: auth.coordinator),
             stackAccessTokenForStatusProvider: CMUXMobileRuntime.stackAccessTokenForStatusProvider(from: auth.coordinator),
             stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator),
-            independentEventByteStreamProvider: { request in
+            independentEventByteStreamProvider: webRTCExperimentEnabled ? nil : { request in
                 try await irx.serverEventByteStream(for: request)
             },
-            terminalLaneProvider: { request, surfaceID, cursor in
+            terminalLaneProvider: webRTCExperimentEnabled ? nil : { request, surfaceID, cursor in
                 guard let surfaceUUID = UUID(uuidString: surfaceID) else { throw MobileIrohTerminalLaneError.invalidSurfaceID }
                 return try await irx.openTerminalLane(for: request, surfaceID: surfaceUUID, cursor: cursor)
             },
-            terminalInputLaneProvider: { request, surfaceID, _ in
+            terminalInputLaneProvider: webRTCExperimentEnabled ? nil : { request, surfaceID, _ in
                 guard let surfaceUUID = UUID(uuidString: surfaceID) else { throw MobileIrohTerminalLaneError.invalidSurfaceID }
                 return try await irx.openTerminalInputLane(for: request, surfaceID: surfaceUUID)
             },
-            artifactLaneProvider: { request, resourceID, offset in
+            artifactLaneProvider: webRTCExperimentEnabled ? nil : { request, resourceID, offset in
                 try await irx.openArtifactLane(for: request, resourceID: resourceID, offset: offset)
             },
-            simulatorStreamLaneProvider: { request, panelID in
+            simulatorStreamLaneProvider: webRTCExperimentEnabled ? nil : { request, panelID in
                 guard let panelUUID = UUID(uuidString: panelID) else { throw MobileIrohSimulatorStreamLaneError.invalidPanelID }
                 return try await irx.openSimulatorStreamLane(for: request, panelID: panelUUID)
             },
             // irx.serverEventByteStream merges every per-surface event lane.
-            independentEventsMergeSurfaceLanes: true,
-            tunnelConnectProvider: { request, host, port in
+            independentEventsMergeSurfaceLanes: !webRTCExperimentEnabled,
+            tunnelConnectProvider: webRTCExperimentEnabled ? nil : { request, host, port in
                 try await irx.openTunnelConnection(for: request, host: host, port: port)
             },
-            tunnelListeningPortsProvider: { request in
+            tunnelListeningPortsProvider: webRTCExperimentEnabled ? nil : { request in
                 try await irx.tunnelListeningPorts(for: request)
             }
         )

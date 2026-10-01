@@ -17,11 +17,16 @@ let package = Package(
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../CmuxMobileDiagnostics"),
+        .package(url: "https://github.com/stasel/WebRTC.git", branch: "latest"),
     ],
     targets: [
         .target(
             name: "CmuxMobileTransport",
-            dependencies: ["CMUXMobileCore", "CmuxMobileDiagnostics"],
+            dependencies: [
+                "CMUXMobileCore",
+                "CmuxMobileDiagnostics",
+                .product(name: "WebRTC", package: "webrtc"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

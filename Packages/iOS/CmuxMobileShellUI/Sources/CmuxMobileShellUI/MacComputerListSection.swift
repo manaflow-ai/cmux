@@ -60,6 +60,8 @@ extension CmxAttachTransportKind {
         switch self {
         case .iroh:
             L10n.string("mobile.connections.method.iroh", defaultValue: "Iroh")
+        case .webrtc:
+            L10n.string("mobile.connections.method.webrtc", defaultValue: "WebRTC")
         case .tailscale:
             L10n.string("mobile.connections.method.tailscale", defaultValue: "Tailscale")
         case .websocket:
