@@ -45,6 +45,9 @@ public final class DaemonStore {
     /// none (it predates them, or the stream has not delivered its snapshot).
     /// The store lays it over the tree's records (`applyStateOverlay`).
     public internal(set) var sessionState: SessionStateMirror?
+    /// True once this connection's daemon answered whether it serves state
+    /// resources (a snapshot, or a stream it refused); reset on connect.
+    public internal(set) var sessionStateKnown = false
     /// Recent notifications, newest last (bounded).
     public internal(set) var notifications: [DaemonNotification] = []
     /// True once the first snapshot is applied.

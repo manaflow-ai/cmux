@@ -38,13 +38,25 @@ extension DaemonStore {
         }
     }
 
+    /// Returns once this daemon answered whether it serves state resources
+    /// (`sessionStateKnown`), or the connection changed.
+    public func sessionStateResolved() async {
+        guard !sessionStateKnown else { return }
+        let state = connectionState
+        for await done in Observations({ self.sessionStateKnown || self.connectionState != state }) where done {
+            return
+        }
+    }
+
     /// Applies one `session.events` item.
     func applySessionState(_ item: SessionStreamItem) {
         switch item {
         case .snapshot(let mirror):
             if sessionState != mirror { sessionState = mirror }
+            if !sessionStateKnown { sessionStateKnown = true }
         case .unsupported:
             if sessionState != nil { sessionState = nil }
+            if !sessionStateKnown { sessionStateKnown = true }
         case .delta(let changes):
             guard var state = sessionState else { return }
             state.apply(changes)

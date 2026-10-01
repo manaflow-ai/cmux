@@ -213,6 +213,11 @@ public actor DaemonConnection {
         return try ResourceRequestEnvelope.decodeResult(R.self, from: response.line)
     }
 
+    /// Delivers an event the connection itself produced, after those routed so far.
+    func yieldEvent(_ envelope: DaemonEventEnvelope) {
+        continuation.yield(envelope)
+    }
+
     /// `list-workspaces` plus the sequence of the last event it supersedes.
     public func snapshot() async throws -> (tree: DaemonTree, barrier: UInt64) {
         guard case .ready(let transport, let serial) = phase else { throw DaemonError.notConnected }

@@ -33,7 +33,13 @@ extension DaemonConnection {
                                         params: ["stream_id": .string(id)], idempotencyKey: nil)
             }, as: StreamOpened.self)
         } catch {
-            if sessionStream == id { sessionStream = nil }
+            guard sessionStream == id else { return }
+            sessionStream = nil
+            // No stream: the store learns the daemon serves no state
+            // resources instead of waiting for a snapshot.
+            if let sequence = eventSequence() {
+                yieldEvent(DaemonEventEnvelope(sequence: sequence, event: .sessionState(.unsupported)))
+            }
         }
     }
 
