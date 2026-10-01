@@ -93,7 +93,7 @@ extension KeyboardShortcutSettings.Action {
              .simulatorToggleAppearance,
              .simulatorToggleSoftwareKeyboard,
              .diffViewerNextFile, .diffViewerPreviousFile,
-             .diffViewerNextHunk, .diffViewerPreviousHunk:
+             .diffViewerNextHunk, .diffViewerPreviousHunk, .diffViewerToggleViewed:
             .focusResolved
 
         case .openSettings, .openTeamPicker, .reloadConfiguration,
@@ -102,7 +102,7 @@ extension KeyboardShortcutSettings.Action {
              .toggleSidebar, .newTab, .newBrowserWorkspace, .newCloudWorkspace, .newCloudMachine,
              .saveLayoutTemplate, .openFolder,
              .reopenPreviousSession, .goToWorkspace,
-             .commandPalette, .sendFeedback,
+             .commandPalette, .agentInbox, .sendFeedback,
              .showNotifications, .jumpToUnread, .toggleUnread,
              .markOldestUnreadAndJumpNext,
              .markAllNotificationsRead, .clearAllNotifications,

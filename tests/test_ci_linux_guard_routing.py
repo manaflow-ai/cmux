@@ -330,7 +330,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
     def test_linux_preflight_skips_when_macos_route_is_false(self):
         block = workflow_job_block("linux-preflight")
         self.assertIn(
-            "if: ${{ always() && needs.changes.outputs.macos != 'false' }}",
+            "if: ${{ !cancelled() && needs.changes.outputs.macos != 'false' }}",
             block,
         )
 
@@ -633,7 +633,7 @@ class GuardLegBalanceTests(unittest.TestCase):
     def test_the_ci_leg_does_not_rerun_what_its_profile_runs(self):
         profile = self.profile_paths()
         for name, step in self.steps_by_name().items():
-            if step.get("if") != "${{ matrix.group == 'ci' }}":
+            if "matrix.group == 'ci'" not in step.get("if", ""):
                 continue
             if "cmux_workload_profile.py run cmux.ci.guard" in step.get("run", ""):
                 continue

@@ -87,11 +87,22 @@ def spool_producer_command(agent: str, subcommand: str, fallback: str) -> str:
 def generated_claude_hook_settings() -> str:
     direct_cli = '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}"'
 
-    def direct(command: str, timeout: int, *, matcher: str = "", asynchronous: bool = False) -> dict:
+    def direct(
+        command: str,
+        timeout: int,
+        *,
+        matcher: str = "",
+        asynchronous: bool = False,
+        async_rewake: bool = False,
+    ) -> dict:
         hook = {"type": "command", "command": command, "timeout": timeout}
         if asynchronous:
             hook["async"] = True
+        if async_rewake:
+            hook["asyncRewake"] = True
         return {"matcher": matcher, "hooks": [hook]}
+
+    inbox_wait = direct(f"{direct_cli} hooks claude inbox-wait", 86400, asynchronous=True, async_rewake=True)
 
     def queued(subcommand: str, *, matcher: str = "") -> dict:
         return direct(
@@ -105,17 +116,21 @@ def generated_claude_hook_settings() -> str:
         )
 
     hooks = {
-        "SessionStart": [queued("session-start")],
+        "SessionStart": [queued("session-start"), inbox_wait],
         "Stop": [
             queued("stop"),
             queued("feed"),
             direct(f"{direct_cli} hooks claude auto-name", 120, asynchronous=True),
+            inbox_wait,
         ],
-        "StopFailure": [queued("stop")],
+        "StopFailure": [queued("stop"), inbox_wait],
         "SubagentStop": [queued("feed")],
         "SessionEnd": [queued("session-end")],
         "Notification": [queued("notification")],
-        "UserPromptSubmit": [queued("prompt-submit")],
+        "UserPromptSubmit": [
+            queued("prompt-submit"),
+            direct(f"{direct_cli} hooks claude inbox-drain 2>/dev/null || echo '{{}}'", 5),
+        ],
         "PreToolUse": [
             direct(f"{direct_cli} hooks claude cron-create-guard", 5, matcher="CronCreate"),
             queued("pre-tool-use"),
@@ -490,6 +505,7 @@ def run_wrapper_terminal_env_probe(
             "CMUX_SURFACE_ID": "surface:test",
             "CMUX_TAB_ID": "tab:test",
             "CMUX_WORKSPACE_ID": "workspace:test",
+            "CMUX_CLAUDE_HEADLESS": "0",
             "TERMINFO": str(tmp / "terminfo"),
         }
         if hooks_disabled:
@@ -1740,6 +1756,14 @@ def test_explicit_prompt_modes_skip_subcommand_discovery(failures: list[str]) ->
             expect(code == 0 and "--settings" in observed,
                    f"session entry {argv}: missing hooks: {observed}: {stderr}", failures)
             expect(not calls.exists(), f"session entry {argv}: unexpectedly probed help", failures)
+
+
+def test_headless_detection_ignores_option_values(failures: list[str]) -> None:
+    for argv in (["--append-system-prompt", "-p"], ["--model", "--print"], ["--append-system-prompt=-p"]):
+        code, observed_env, _, stderr, _ = run_wrapper_terminal_env_probe(argv)
+        expect(code == 0, f"option value {argv}: wrapper failed: {stderr}", failures)
+        expect(observed_env.get("CMUX_CLAUDE_HEADLESS") == "0",
+               f"option value {argv}: incorrectly marked headless: {observed_env}", failures)
 
 
 def test_subcommand_help_cancellation_cleans_up_children(failures: list[str]) -> None:
@@ -3559,6 +3583,7 @@ def main() -> int:
     test_subcommand_cache_expires_for_unchanged_launchers(failures)
     test_subcommand_help_failure_falls_back_and_is_cached(failures)
     test_explicit_prompt_modes_skip_subcommand_discovery(failures)
+    test_headless_detection_ignores_option_values(failures)
     test_subcommand_help_cancellation_cleans_up_children(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
     test_live_socket_attaches_cmux_cua_when_available(failures)
