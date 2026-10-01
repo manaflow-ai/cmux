@@ -87,6 +87,7 @@ pub(crate) fn apply_config_to_local_owner(mux: &Mux, config: &crate::config::Con
     });
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     mux.configure_journal_plugin(config.agents.plugin.clone());
+    mux.configure_agent_messages(config.agents.messages_enabled);
 }
 
 #[derive(Clone)]

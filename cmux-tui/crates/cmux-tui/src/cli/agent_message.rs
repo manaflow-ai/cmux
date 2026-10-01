@@ -1,4 +1,5 @@
-//! `cmux agent message` and `cmux agent inbox` (plans/feat-agent-rooms).
+//! `cmux agent message`, `cmux agent inbox` and `cmux agent messages`
+//! (plans/feat-agent-rooms).
 //!
 //! A message is stored by the daemon first (`agent.message.send`), so it
 //! survives a restart. Then the CLI delivers it to every acpmux recipient as
@@ -48,6 +49,35 @@ pub(super) struct InboxPlan {
     pub state: Option<String>,
     pub limit: Option<u32>,
     pub ack: bool,
+}
+
+/// `agent messages [status]` and `agent messages on|off [<agent>]`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum ReceivingPlan {
+    Status,
+    /// `None`: the caller's own address.
+    Set {
+        target: Option<String>,
+        enabled: bool,
+    },
+}
+
+pub(super) fn parse_receiving(words: &[&str]) -> Result<ReceivingPlan, UsageError> {
+    let enabled = match words.first() {
+        None | Some(&"status") if words.len() <= 1 => return Ok(ReceivingPlan::Status),
+        Some(&"on") => true,
+        Some(&"off") => false,
+        _ => {
+            return Err(UsageError::new(
+                "use agent messages [status], or agent messages on|off [<agent>]",
+            ));
+        }
+    };
+    match words {
+        [_] => Ok(ReceivingPlan::Set { target: None, enabled }),
+        [_, target] => Ok(ReceivingPlan::Set { target: Some((*target).to_owned()), enabled }),
+        _ => Err(UsageError::new("agent messages on|off takes at most one agent")),
+    }
 }
 
 /// `agent message <target> [--from NAME] [--thread ID] <text…|->` and
@@ -677,6 +707,81 @@ fn inbox(global: &GlobalArgs, plan: &InboxPlan) -> Result<(Vec<Value>, Option<St
     Ok((messages, recipient))
 }
 
+pub(super) fn run_receiving(global: GlobalArgs, plan: ReceivingPlan) -> i32 {
+    let output = global.output;
+    match receiving(&global, &plan) {
+        Ok(value) => {
+            match output {
+                OutputMode::Human => print!("{}", receiving_text(&value)),
+                OutputMode::Quiet => {}
+                _ => println!("{value}"),
+            }
+            0
+        }
+        Err(failure) => failure.report(output),
+    }
+}
+
+fn receiving(global: &GlobalArgs, plan: &ReceivingPlan) -> Result<Value, Failure> {
+    let mut connection = Connection::open(global)?;
+    let (target, enabled) = match plan {
+        ReceivingPlan::Status => {
+            return connection.read(ResourceOperation::AgentMessageReceivingGet, json!({}));
+        }
+        ReceivingPlan::Set { target, enabled } => (target, *enabled),
+    };
+    let recipient = match target {
+        Some(target) => resolve_target(&mut connection, target)?,
+        None => own_address().ok_or_else(|| {
+            Failure::Resource(json!({
+                "code": "validation.invalid",
+                "message": "name the agent, or run this from an agent's terminal or acpmux session",
+                "details": {},
+                "retryable": false,
+            }))
+        })?,
+    };
+    connection.mutate(
+        ResourceOperation::AgentMessageReceivingSet,
+        json!({"recipient": recipient, "enabled": enabled}),
+        None,
+    )
+}
+
+/// `agent messages` output: the session switch and opted-out recipients,
+/// or the result of turning one recipient on or off.
+fn receiving_text(value: &Value) -> String {
+    if let Some(recipient) = value["recipient"].as_str() {
+        let failed = value["failed"].as_array().map_or(0, Vec::len);
+        return match (value["enabled"].as_bool(), failed) {
+            (Some(true), _) => format!("Messages to {recipient} are on.\n"),
+            (_, 0) => format!("Messages to {recipient} are off.\n"),
+            (_, 1) => format!("Messages to {recipient} are off; 1 queued message failed.\n"),
+            (_, count) => {
+                format!("Messages to {recipient} are off; {count} queued messages failed.\n")
+            }
+        };
+    }
+    let mut text = if value["enabled"].as_bool() == Some(false) {
+        String::from("Agent messages are off for this session (agents.messages.enabled).\n")
+    } else {
+        String::from("Agent messages are on.\n")
+    };
+    let disabled: Vec<&str> = value["disabled_recipients"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|row| row["recipient"].as_str())
+        .collect();
+    if !disabled.is_empty() {
+        text.push_str("Turned off by:\n");
+        for recipient in disabled {
+            text.push_str(&format!("  {recipient}\n"));
+        }
+    }
+    text
+}
+
 fn delivery_state<'a>(message: &'a Value, recipient: &str) -> Option<&'a str> {
     message["deliveries"]
         .as_array()?
@@ -991,6 +1096,44 @@ mod tests {
         assert!(parse_inbox(&[], Some("read".into()), None, false).is_err());
         assert!(parse_inbox(&[], None, Some("0".into()), false).is_err());
         assert_eq!(parse_inbox(&[], None, Some("5".into()), true).unwrap().limit, Some(5));
+    }
+
+    #[test]
+    fn messages_on_off_and_status_parse() {
+        assert_eq!(parse_receiving(&[]).unwrap(), ReceivingPlan::Status);
+        assert_eq!(parse_receiving(&["status"]).unwrap(), ReceivingPlan::Status);
+        assert_eq!(
+            parse_receiving(&["off"]).unwrap(),
+            ReceivingPlan::Set { target: None, enabled: false }
+        );
+        assert_eq!(
+            parse_receiving(&["on", "reviewer"]).unwrap(),
+            ReceivingPlan::Set { target: Some("reviewer".into()), enabled: true }
+        );
+        assert!(parse_receiving(&["off", "a", "b"]).is_err());
+        assert!(parse_receiving(&["status", "a"]).is_err());
+        assert!(parse_receiving(&["mute"]).is_err());
+    }
+
+    #[test]
+    fn messages_status_text_names_the_switch_and_opted_out_agents() {
+        let status = json!({
+            "enabled": false,
+            "disabled_recipients": [{"recipient": "acp:review", "updated_at_ms": "1"}],
+        });
+        assert_eq!(
+            receiving_text(&status),
+            "Agent messages are off for this session (agents.messages.enabled).\n\
+             Turned off by:\n  acp:review\n"
+        );
+        let off =
+            json!({"recipient": "acp:review", "enabled": false, "failed": ["msg_1", "msg_2"]});
+        assert_eq!(
+            receiving_text(&off),
+            "Messages to acp:review are off; 2 queued messages failed.\n"
+        );
+        let on = json!({"recipient": "acp:review", "enabled": true, "failed": []});
+        assert_eq!(receiving_text(&on), "Messages to acp:review are on.\n");
     }
 
     #[test]

@@ -156,6 +156,8 @@ TypeScript broker stays the reference for the envelope and states.
 | Native delivery to Codex: the CLI hands a Codex terminal agent its queued messages through the shared app-server daemon (`turn/start` when idle, `turn/steer` when running), only for a thread the daemon already loaded | implemented | `cmux-tui` `cli/codex_app_server.rs` |
 | Native delivery to Claude Code through its peer socket: not built. The socket's message format is not documented (only its path and auth line are), so Claude stays on hooks | not planned | |
 | `cmux agent list` from acpmux sessions and terminal agents, with the address `agent message` takes and the queued message count (cmux #16417) | implemented | `cmux-tui` `cli/agent_list.rs` |
+| Turning messages off: the session setting `agents.messages.enabled` refuses every send and fails queued receipts; a recipient opts out with `agent.message.receiving.set` (`cmux agent messages off`), which fails its queued receipts and refuses later sends to it with "<address> has messages disabled" | implemented | `cmux-tui-core` `agent_message_store.rs`, `cmux-tui` `config.rs` |
+| Turning messages off per workspace | not planned | |
 
 Choices in the port, compared with the TypeScript broker:
 
@@ -171,6 +173,14 @@ Choices in the port, compared with the TypeScript broker:
   and any caller can list or mark any message.
 - Retention: messages beyond the newest 2000 are pruned once none of their
   receipts is queued. A `failed` delivery is not retried automatically.
+- Off switches refuse at send time rather than hold messages: a sender learns
+  at once that nothing will arrive, and no receipt stays queued for a
+  recipient that will never take it. Turning messages off fails what is
+  already queued for the same reason. Opt-outs are keyed by address and kept
+  apart from messages, so pruning never drops one. There is no workspace
+  switch: an acpmux session belongs to no workspace and a terminal can move
+  between workspaces, so a workspace switch is better built as opting out
+  each of its agents.
 
 Room left for the proposals that build on this (not implemented):
 

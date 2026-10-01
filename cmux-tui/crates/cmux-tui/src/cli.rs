@@ -254,6 +254,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             CommandPlan::RawCommand(command) => raw::run(global, command),
             CommandPlan::AgentMessage(plan) => agent_message::run_message(global, *plan),
             CommandPlan::AgentInbox(plan) => agent_message::run_inbox(global, plan),
+            CommandPlan::AgentReceiving(plan) => agent_message::run_receiving(global, plan),
             CommandPlan::AgentList(plan) => agent_list::run(global, plan),
         },
         Err(failure) => {
@@ -964,6 +965,8 @@ USAGE
   cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
   cmux agent message --reply-to <message-id> [--from <name>] [--] <text...|->
   cmux agent inbox [<agent>] [--state queued|delivered|acknowledged|failed] [--limit <n>] [--ack]
+  cmux agent messages [status]
+  cmux agent messages on|off [<agent>]
   cmux agent list [OPTIONS]
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]
