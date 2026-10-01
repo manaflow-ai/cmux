@@ -147,6 +147,161 @@ struct SessionsCommand: SharedLegacyFacadeCommand {
     static let configuration = CommandConfiguration(commandName: "sessions", helpNames: [])
 }
 
+/// Dispatched before the legacy parser's command switch.
+struct SessionCommand: SharedLegacyFacadeCommand {
+    // See AuthCommand's comment: no catch-all argument alongside `subcommands`.
+    static let configuration = CommandConfiguration(
+        commandName: "session",
+        subcommands: [
+            SessionRestoreCommand.self,
+            SessionMoveCommand.self,
+        ],
+        helpNames: []
+    )
+}
+
+struct SessionRestoreCommand: SharedLegacyFacadeCommand {
+    @Flag(name: .customLong("list")) var list = false
+    @Option(name: .customLong("session")) var session: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "restore", helpNames: [])
+}
+
+struct SessionMoveCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("to")) var to: String?
+    @Option(name: .customLong("from")) var from: String?
+    @Option(name: .customLong("name")) var name: String?
+    @Flag(name: .customLong("no-code")) var noCode = false
+    @Option(name: .customLong("port")) var port: String?
+    @Option(name: .customLong("identity"), completion: .file()) var identity: String?
+    @Option(name: .customLong("ssh-option")) var sshOption: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "move", helpNames: [])
+}
+
+/// Dispatched before the legacy parser's command switch.
+struct ImportCommand: SharedLegacyFacadeCommand {
+    @Flag(name: .customLong("dry-run")) var dryRun = false
+    @Flag(name: .customLong("yes")) var yes = false
+    @Option(name: .customLong("path"), completion: .file()) var path: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "import", helpNames: [])
+}
+
+/// Dispatched before the legacy parser's command switch.
+struct ReviewCommand: SharedLegacyFacadeCommand {
+    // See AuthCommand's comment: no catch-all argument alongside `subcommands`.
+    static let configuration = CommandConfiguration(
+        commandName: "review",
+        subcommands: [
+            ReviewListCommand.self,
+            ReviewShowCommand.self,
+            ReviewFindingsCommand.self,
+        ],
+        helpNames: []
+    )
+}
+
+struct ReviewListCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("repo"), completion: .directory) var repo: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "list", helpNames: [])
+}
+
+struct ReviewShowCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("repo"), completion: .directory) var repo: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "show", helpNames: [])
+}
+
+struct ReviewFindingsCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("repo"), completion: .directory) var repo: String?
+    @Flag(name: .customLong("all")) var all = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "findings", helpNames: [])
+}
+
+struct RecoverCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("query")) var query: String?
+    @Option(name: .customLong("session")) var session: String?
+    @Option(name: .customLong("limit")) var limit: String?
+    @Flag(name: .customLong("focus")) var focus = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "recover", helpNames: [])
+}
+
+struct ShotCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("format"), completion: .list(["png", "jpg"])) var format: String?
+    @Flag(name: .customLong("jpg")) var jpg = false
+    @Option(name: .customLong("scale")) var scale: String?
+    @Option(name: .customLong("max-width")) var maxWidth: String?
+    @Option(name: .customLong("quality")) var quality: String?
+    @Option(name: .customLong("region")) var region: String?
+    @Option(name: .customLong("out"), completion: .file()) var out: String?
+    @Option(name: .customLong("label")) var label: String?
+    @Option(name: .customLong("caption")) var caption: String?
+    @Option(name: .customLong("window"), completion: windowCompletion) var window: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "shot", helpNames: [], aliases: ["screenshot"])
+}
+
+struct RecordCommand: SharedLegacyFacadeCommand {
+    // See AuthCommand's comment: no catch-all argument alongside `subcommands`.
+    // `start` is the default: a bare `cmux record --gif` starts a recording.
+    static let configuration = CommandConfiguration(
+        commandName: "record",
+        subcommands: [
+            RecordStartCommand.self,
+            RecordStopCommand.self,
+            RecordStatusCommand.self,
+            RecordNoteCommand.self,
+            RecordListCommand.self,
+        ],
+        defaultSubcommand: RecordStartCommand.self,
+        helpNames: []
+    )
+}
+
+struct RecordStartCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("format"), completion: .list(["mp4", "gif"])) var format: String?
+    @Flag(name: .customLong("gif")) var gif = false
+    @Option(name: .customLong("fps")) var fps: String?
+    @Option(name: .customLong("max-seconds")) var maxSeconds: String?
+    @Option(name: .customLong("scale")) var scale: String?
+    @Option(name: .customLong("max-width")) var maxWidth: String?
+    @Option(name: .customLong("region")) var region: String?
+    @Option(name: .customLong("out"), completion: .file()) var out: String?
+    @Option(name: .customLong("label")) var label: String?
+    @Flag(name: .customLong("no-captions")) var noCaptions = false
+    @Option(name: .customLong("window"), completion: windowCompletion) var window: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "start", helpNames: [])
+}
+
+struct RecordStopCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("id")) var id: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "stop", helpNames: [])
+}
+
+struct RecordStatusCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("id")) var id: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "status", helpNames: [])
+}
+
+struct RecordNoteCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("id")) var id: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "note", helpNames: [])
+}
+
+struct RecordListCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "list", helpNames: [])
+}
+
 struct RPCCommand: SharedLegacyFacadeCommand {
     @Argument var method: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
@@ -626,6 +781,23 @@ struct VPNStatusCommand: SharedLegacyFacadeCommand {
 struct VPNRevokeCommand: SharedLegacyFacadeCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "revoke", helpNames: [])
+}
+
+struct BillingCommand: SharedLegacyFacadeCommand {
+    // See AuthCommand's comment: no catch-all argument alongside `subcommands`.
+    // No `defaultSubcommand`: a bare `cmux billing` throws its usage.
+    static let configuration = CommandConfiguration(
+        commandName: "billing",
+        subcommands: [BillingCheckoutCommand.self],
+        helpNames: []
+    )
+}
+
+struct BillingCheckoutCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("plan"), completion: .list(["go", "pro", "max"])) var plan: String?
+    @Flag(name: .customLong("no-open")) var noOpen = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "checkout", helpNames: [])
 }
 
 /// Dispatched before the legacy parser's command switch; its argv (including

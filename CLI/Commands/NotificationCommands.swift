@@ -126,6 +126,23 @@ struct ClearStatusCommand: SharedLegacyFacadeCommand {
     static let configuration = CommandConfiguration(commandName: "clear-status", helpNames: [])
 }
 
+/// Internal shell-integration entrypoints: a terminal's shell hooks forward one
+/// piece of sidebar metadata each. Hidden from help and completion.
+struct ReportPwdCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "report_pwd", shouldDisplay: false, helpNames: [])
+}
+
+struct ReportGitBranchCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "report_git_branch", shouldDisplay: false, helpNames: [])
+}
+
+struct ReportPRActionCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "report_pr_action", shouldDisplay: false, helpNames: [])
+}
+
 struct SetProgressCommand: SharedLegacyFacadeCommand {
     @Argument var progress: String?
     @Option(name: .customLong("label")) var label: String?

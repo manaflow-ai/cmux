@@ -46,6 +46,11 @@ command  automation show  aliases=-
 command  automation test  aliases=-
   arg  --event  kind=option  completion=-
   arg  arguments  kind=argument  completion=-
+command  billing  aliases=-
+command  billing checkout  aliases=-
+  arg  --no-open  kind=flag  completion=-
+  arg  --plan  kind=option  completion=list(go,max,pro)
+  arg  arguments  kind=argument  completion=-
 command  bind-key  aliases=-
   arg  arguments  kind=argument  completion=-
 command  break-pane  aliases=-
@@ -438,7 +443,7 @@ command  display-message  aliases=-
   arg  --print  kind=flag  completion=-
   arg  text  kind=argument  completion=-
 command  docs  aliases=-
-  arg  arguments  kind=argument  completion=list(agents,all,api,browser,completion,dock,list,managed-policies,settings,shortcuts,sidebars,workflows)
+  arg  arguments  kind=argument  completion=list(agents,all,api,browser,capture,completion,dock,list,managed-policies,settings,shortcuts,sidebars,workflows)
 command  drag-surface-to-split  aliases=-
   arg  --focus  kind=option  completion=-
   arg  --panel  kind=option  completion=custom-deprecated
@@ -515,6 +520,11 @@ command  identify  aliases=-
   arg  --surface  kind=option  completion=custom-deprecated
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  import  aliases=-
+  arg  --dry-run  kind=flag  completion=-
+  arg  --path  kind=option  completion=file()
+  arg  --yes  kind=flag  completion=-
   arg  arguments  kind=argument  completion=-
 command  ios  aliases=-
   arg  --surface  kind=option  completion=custom-deprecated
@@ -810,6 +820,37 @@ command  read-selection  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+command  record  aliases=-
+command  record list  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  record note  aliases=-
+  arg  --id  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+command  record start  aliases=-
+  arg  --format  kind=option  completion=list(gif,mp4)
+  arg  --fps  kind=option  completion=-
+  arg  --gif  kind=flag  completion=-
+  arg  --label  kind=option  completion=-
+  arg  --max-seconds  kind=option  completion=-
+  arg  --max-width  kind=option  completion=-
+  arg  --no-captions  kind=flag  completion=-
+  arg  --out  kind=option  completion=file()
+  arg  --region  kind=option  completion=-
+  arg  --scale  kind=option  completion=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  record status  aliases=-
+  arg  --id  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+command  record stop  aliases=-
+  arg  --id  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+command  recover  aliases=-
+  arg  --focus  kind=flag  completion=-
+  arg  --limit  kind=option  completion=-
+  arg  --query  kind=option  completion=-
+  arg  --session  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
 command  refresh-surfaces  aliases=-
   arg  arguments  kind=argument  completion=-
 command  reload-config  aliases=-
@@ -867,6 +908,12 @@ command  reorder-workspaces  aliases=-
   arg  --order  kind=option  completion=custom-deprecated
   arg  --window  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+command  report_git_branch  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  report_pr_action  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  report_pwd  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  resize-pane  aliases=-
   arg  --amount  kind=option  completion=-
   arg  --pane  kind=option  completion=custom-deprecated
@@ -892,6 +939,17 @@ command  restore  aliases=-
   arg  --surface  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  restore-session  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  review  aliases=-
+command  review findings  aliases=-
+  arg  --all  kind=flag  completion=-
+  arg  --repo  kind=option  completion=directory
+  arg  arguments  kind=argument  completion=-
+command  review list  aliases=-
+  arg  --repo  kind=option  completion=directory
+  arg  arguments  kind=argument  completion=-
+command  review show  aliases=-
+  arg  --repo  kind=option  completion=directory
   arg  arguments  kind=argument  completion=-
 command  right-sidebar  aliases=-
   arg  --no-focus  kind=flag  completion=-
@@ -925,6 +983,21 @@ command  send-panel  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  text  kind=argument  completion=-
+command  session  aliases=-
+command  session move  aliases=-
+  arg  --from  kind=option  completion=-
+  arg  --identity  kind=option  completion=file()
+  arg  --name  kind=option  completion=-
+  arg  --no-code  kind=flag  completion=-
+  arg  --no-focus  kind=flag  completion=-
+  arg  --port  kind=option  completion=-
+  arg  --ssh-option  kind=option  completion=-
+  arg  --to  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+command  session restore  aliases=-
+  arg  --list  kind=flag  completion=-
+  arg  --session  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
 command  sessions  aliases=-
   arg  arguments  kind=argument  completion=list(list)
 command  set-app-focus  aliases=-
@@ -956,6 +1029,18 @@ command  settings  aliases=-
 command  setup-hooks  aliases=-
   arg  arguments  kind=argument  completion=-
 command  shortcuts  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  shot  aliases=screenshot
+  arg  --caption  kind=option  completion=-
+  arg  --format  kind=option  completion=list(jpg,png)
+  arg  --jpg  kind=flag  completion=-
+  arg  --label  kind=option  completion=-
+  arg  --max-width  kind=option  completion=-
+  arg  --out  kind=option  completion=file()
+  arg  --quality  kind=option  completion=-
+  arg  --region  kind=option  completion=-
+  arg  --scale  kind=option  completion=-
+  arg  --window  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  sidebar  aliases=-
   arg  arguments  kind=argument  completion=-
