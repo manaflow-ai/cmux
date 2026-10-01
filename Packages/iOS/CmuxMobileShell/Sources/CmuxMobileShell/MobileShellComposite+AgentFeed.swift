@@ -1035,7 +1035,7 @@ extension MobileShellComposite {
         return workspacesByMac[MacPairingKey(pairingID: macDeviceID)]?.status ?? .unavailable
     }
 
-    private func resolvedAgentFeedStatus() -> MobileNotificationFeedStatus {
+    func resolvedAgentFeedStatus() -> MobileNotificationFeedStatus {
         var connectedClientIDs = Set(
             secondaryMacSubscriptions.map { ObjectIdentifier($0.value.client) }
         )

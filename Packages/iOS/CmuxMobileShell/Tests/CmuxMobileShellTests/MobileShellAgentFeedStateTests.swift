@@ -186,6 +186,24 @@ struct MobileShellAgentFeedStateTests {
         #expect(store.agentFeedNeedsInputCount == 1)
     }
 
+    @Test("A capable Mac keeps Feed available beside an older pairing")
+    func capableMacHidesMixedVersionWarning() async throws {
+        let capableRouter = RoutingHostRouter()
+        let legacyRouter = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(
+            router: capableRouter,
+            hostCapabilities: [MobileShellComposite.agentFeedCapability]
+        )
+        try installSecondaryClient(
+            on: store,
+            macDeviceID: "legacy-mac",
+            router: legacyRouter
+        )
+        store.agentFeedSuccessfulMacIDs.insert("test-mac")
+
+        #expect(store.resolvedAgentFeedStatus() == .ready)
+    }
+
     @Test("Recorded terminal replies mark their row and survive refreshes")
     func recordedRepliesSurviveRefresh() throws {
         let store = MobileShellComposite()
