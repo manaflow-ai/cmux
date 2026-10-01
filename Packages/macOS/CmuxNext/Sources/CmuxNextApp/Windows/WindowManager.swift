@@ -340,7 +340,7 @@ final class WindowManager {
     func prepareForTermination() async {
         geometryTimer.cancel()
         await closeIncognitoWindowsForTermination()
-        await saveNow()
+        await flushSaves()
         isTerminating = true
         membershipObservation?.cancel()
         // Close Chromium before exit without spinning the run loop (5a).

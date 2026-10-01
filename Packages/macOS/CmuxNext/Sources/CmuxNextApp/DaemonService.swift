@@ -258,7 +258,7 @@ final class DaemonService {
         }
         do {
             try await body(connection)
-            await closeTicket(ticket, label: label, error: nil)
+            await closeTicket(ticket, label: label, error: nil, replying: connection)
             return .succeeded
         } catch DaemonError.timedOut(let what) {
             logger.info("\(label, privacy: .public) outcome unknown: \(what, privacy: .public)")
@@ -322,7 +322,7 @@ final class DaemonService {
         }
         do {
             try await body(connection)
-            await closeTicket(ticket, label: label, error: nil)
+            await closeTicket(ticket, label: label, error: nil, replying: connection)
             return nil
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
@@ -348,7 +348,7 @@ final class DaemonService {
             try await store.perform(patch, expectEcho: expectEcho) { transaction in
                 try await body(connection, transaction)
             }
-            await closeTicket(ticket, label: label, error: nil)
+            await closeTicket(ticket, label: label, error: nil, replying: connection)
             return true
         } catch {
             logger.error("\(label, privacy: .public) rejected: \(String(describing: error), privacy: .public)")
@@ -372,7 +372,7 @@ final class DaemonService {
         do {
             let value = try await body(connection)
             if !expectEcho { store.settleOptimistic(transaction) }
-            await closeTicket(ticket, label: label, error: nil)
+            await closeTicket(ticket, label: label, error: nil, replying: connection)
             return value
         } catch {
             store.rejectOptimistic(transaction)

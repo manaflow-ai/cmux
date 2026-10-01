@@ -11,6 +11,8 @@ struct WindowRecordSaves {
     /// close once it lands, so `action.run` answers after the record is
     /// stored (plans/cmux-next/state-ownership.md 3 and 4).
     var tickets: [CommandTicket] = []
+    /// The task draining saves, so the quit flush can await it.
+    var drain: Task<Void, Never>?
 }
 
 /// Window records in the daemon's `personal` projection (state-ownership.md 3):
@@ -53,8 +55,15 @@ extension WindowManager {
         // mutation id (its CAS retries must not replay an earlier write).
         DaemonCommandScope.$current.withValue(nil) {
             // task-owner: one coalesced save per main-actor turn; drainSaves ends when no save is requested
-            Task { @MainActor [weak self] in await self?.drainSaves() }
+            saves.drain = Task { @MainActor [weak self] in await self?.drainSaves() }
         }
+    }
+
+    /// Writes the records once more through the same queue, after any write
+    /// in flight, so an older write cannot land after it (quit).
+    func flushSaves() async {
+        requestSave()
+        await saves.drain?.value
     }
 
     private func drainSaves() async {
@@ -66,8 +75,8 @@ extension WindowManager {
             saves.requested = false
             let tickets = saves.tickets
             saves.tickets = []
-            await saveNow()
-            for ticket in tickets { await services.daemon.closeTicket(ticket, label: "save window records", error: nil) }
+            let failure = await saveNow()
+            for ticket in tickets { await services.daemon.closeTicket(ticket, label: "save window records", error: failure) }
         }
         saves.inFlight = false
         let leftover = saves.tickets
@@ -75,8 +84,10 @@ extension WindowManager {
         for ticket in leftover { await services.daemon.closeTicket(ticket, label: "save window records", error: nil) }
     }
 
-    func saveNow() async {
-        guard let windowState = services.daemon.windowState else { return }
+    /// Writes the records; returns why they were not stored, or nil.
+    @discardableResult
+    func saveNow() async -> (any Error)? {
+        guard let windowState = services.daemon.windowState else { return DaemonError.notConnected }
         captureGeometry()
         let records = currentRecords()
         // Keys on every machine, plus those whose machine has not loaded yet
@@ -88,8 +99,10 @@ extension WindowManager {
                 document.windows = records
                 document.prune(liveWorkspaces: live)
             }
+            return nil
         } catch {
             services.daemon.logger.error("window state save failed: \(String(describing: error), privacy: .public)")
+            return error
         }
     }
 
