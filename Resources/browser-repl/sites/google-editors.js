@@ -15,13 +15,13 @@
   const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;
   if (!S) return;
 
-  // Runs in a docs.google.com page: fetches an export (same-origin, the
-  // session's cookies), unzips it and returns the text of entries whose
-  // names match arg.want.
+  // Runs in a blank page (for DecompressionStream): unzips base64 bytes and
+  // returns the text of entries whose names match arg.want.
   async function unzipExport(arg) {
-    const r = await fetch(arg.url, { credentials: "include" });
-    if (!r.ok) return { status: r.status };
-    const buf = new Uint8Array(await r.arrayBuffer());
+    const bin = atob(arg.base64);
+    const buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    const r = { status: 200 };
     const view = new DataView(buf.buffer);
     let eocd = -1;
     for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) if (view.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
@@ -113,13 +113,14 @@
     const editors = {
       colName,
       colIndex,
-      // Unzipped export parts of a file (xlsx or pptx).
+      // Unzipped export parts of a file (xlsx or pptx). The export
+      // redirects to a googleusercontent host without CORS headers, so the
+      // session's fetch downloads it and a blank tab unzips it.
       async exportParts(name, ref, format, want) {
-        const url = g.exportURL(ref, format, name).replace(/^https:\/\/docs\.google\.com/, "");
-        const r = await t.inOrigin("https://docs.google.com", unzipExport, { url, want });
-        if (r.status === 401 || r.status === 403) throw new S.SiteError(r.status === 401 ? "not_signed_in" : "forbidden", `${name}: Google returned HTTP ${r.status}; this account cannot open the file`);
-        if (r.status === 404) throw new S.SiteError("not_found", `${name}: the file does not exist or this account cannot open it`);
-        if (!r.files) throw new S.SiteError("unexpected", `${name}: ${r.error || `HTTP ${r.status}`}`);
+        const { response } = await g.fetchFile(t, name, g.exportURL(ref, format, name));
+        const base64 = t.Buffer.from(await response.arrayBuffer()).toString("base64");
+        const r = await t.withTab("about:blank", (page) => page.evaluate(unzipExport, { base64, want }));
+        if (!r.files) throw new S.SiteError("unexpected", `${name}: ${r.error || "the export could not be read"}`);
         return r.files;
       },
       async workbook(name, ref) {
@@ -140,11 +141,13 @@
         });
       },
       // The Share button's description: "Share. Private to only me" and the like.
-      sharing(page) {
-        return page.evaluate(() => {
-          const b = document.querySelector("#docs-titlebar-share-client-button, [aria-label^='Share'], [data-tooltip^='Share']");
-          return b ? (b.getAttribute("aria-label") || b.getAttribute("data-tooltip") || "").trim() : "";
-        });
+      // The button renders a moment after the editor; wait for it.
+      async sharing(page) {
+        const label = await t.waitIn(page, () => {
+          const b = document.querySelector("#docs-titlebar-share-client-button, [role='button'][aria-label^='Share.'], [aria-label^='Share. '], [data-tooltip^='Share.']");
+          return b ? (b.getAttribute("aria-label") || b.getAttribute("data-tooltip") || "").trim() || null : null;
+        }, undefined, { timeout: 15000, what: "the Share button" }).catch(() => "");
+        return label || "";
       },
       isPrivate: (label) => /private to only me/i.test(label),
       // A write: at once on a private file, else a draft confirmed later.
