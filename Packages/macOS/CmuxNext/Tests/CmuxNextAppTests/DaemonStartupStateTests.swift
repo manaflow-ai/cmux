@@ -10,7 +10,7 @@ import Testing
     private func waitFor(_ expected: DaemonStartupState, service: DaemonService,
                          timeout: Duration = .seconds(10)) async throws {
         try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask {
+            group.addTask { @MainActor in
                 for await state in Observations({ service.startup }) where state == expected { return }
             }
             group.addTask {
