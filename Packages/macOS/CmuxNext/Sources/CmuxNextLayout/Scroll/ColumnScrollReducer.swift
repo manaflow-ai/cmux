@@ -50,6 +50,8 @@ extension ColumnScrollState {
             moveFocusAfterScroll(to: target, snaps: snaps, forward: forward, into: &effects)
             effects.reportOnSettle = true
             finish(animated: animated, into: &effects)
+        case .page:
+            break
         case let .wheel(direction, animated):
             guard gesture == nil, let strip else { return effects }
             let snaps = ColumnViewOffset.snaps(strip: strip, mode: mode)
