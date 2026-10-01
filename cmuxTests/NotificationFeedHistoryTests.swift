@@ -794,6 +794,32 @@ struct NotificationFeedHistoryTests {
         #expect((rows.first?["body"] as? String)?.utf8.count == NotificationFeedHistoryRecord.historyBodyByteLimit)
     }
 
+    @Test func agentFeedDoesNotImportNotificationHistory() async throws {
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([])
+        let notification = notification(
+            workspaceID: UUID(),
+            title: "Notification said",
+            body: "Hello from Codex",
+            date: Date(timeIntervalSince1970: 2_000),
+            isRead: false
+        )
+        store.notificationFeedHistory.record(notification, supersededIDs: [])
+        defer { store.replaceNotificationsForTesting([]) }
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "agent-feed-list",
+                method: "feed.list",
+                params: [:],
+                auth: nil
+            )
+        )
+        let payload = try responsePayload(response)
+        let rows = try #require(payload["items"] as? [[String: Any]])
+        #expect(rows.allSatisfy { $0["source"] as? String != "notification" })
+    }
+
     @Test func feedListBoundsOversizedLeadingRowWithoutDroppingFeed() async throws {
         let store = TerminalNotificationStore.shared
         let workspaceID = UUID()
