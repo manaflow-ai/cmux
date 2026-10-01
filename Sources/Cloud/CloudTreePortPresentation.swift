@@ -1,7 +1,7 @@
 import CmuxSurfaceCatalogModel
 import Foundation
 
-/// Describes the in-app port action without presenting its routing address as a public link.
+/// Describes the port identity without adding an inline open action.
 struct CloudTreePortPresentation {
     let resource: SurfaceResource
     let url: String?
@@ -12,13 +12,11 @@ struct CloudTreePortPresentation {
     }
 
     var detail: String? {
-        guard url != nil else { return resource.detail }
-        return String(localized: "cloudTree.port.openInCmux", defaultValue: "Open in cmux")
+        resource.detail
     }
 
     var toolTip: String? {
-        guard url != nil else { return resource.detail }
-        return String(localized: "cloudTree.port.openInCmux.help", defaultValue: "Open in cmux. No VPN setup needed.")
+        detail ?? title
     }
 
     var accessibilityLabel: String {
