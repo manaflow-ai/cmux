@@ -9618,7 +9618,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     private func codexLaunchEnvironment(
         context: ClaudeHookContext,
-        sessionId: String,
+        sessionId _: String,
         observedHookPID: String? = nil
     ) -> [String: String] {
         var environment = agentLaunchEnvironment(
