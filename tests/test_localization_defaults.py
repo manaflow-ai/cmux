@@ -99,6 +99,24 @@ class LocalizationDefaultsTests(unittest.TestCase):
         self.fixture.swift(swift_call("conflicting", "Open %@"), "Sources/B.swift")
         self.assertEqual(self.fixture.check(), ([], 0))
 
+    def test_a_conflict_inside_one_file_is_not_settled_by_another_file(self):
+        self.fixture.catalog({"conflicting": ("Open %@", "%@ を開く")})
+        self.fixture.swift(swift_call("conflicting", "Open") + swift_call("conflicting", "Open %@"), "Sources/A.swift")
+        self.fixture.swift(swift_call("conflicting", "Open"), "Sources/B.swift")
+        self.assertEqual(self.fixture.check(), ([], 0))
+
+    def test_mismatch_names_the_other_catalogs_carrying_the_key(self):
+        self.fixture.catalog({"shared": ("Open %@", "%@ を開く")})
+        self.fixture.catalog({"shared": ("Open", "開く")}, "Packages/macOS/Pkg/Sources/Pkg/Localizable.xcstrings")
+        self.fixture.swift(swift_call("shared", "Open %@"), "Packages/macOS/Pkg/Sources/Pkg/View.swift")
+        errors, compared = self.fixture.check()
+        self.assertEqual(compared, 2)
+        self.assertEqual(errors, [
+            "Packages/macOS/Pkg/Sources/Pkg/Localizable.xcstrings:shared: catalog en placeholders [] != "
+            "Swift defaultValue [(1, '@')] (Packages/macOS/Pkg/Sources/Pkg/View.swift)"
+            "; Resources/Localizable.xcstrings carries [(1, '@')]"
+        ])
+
     def test_test_targets_and_vendored_trees_are_not_scanned(self):
         self.fixture.catalog({"age": ("%lld minutes", "%lld 分")})
         for path in ("cmuxTests/AgeTests.swift", "Packages/macOS/Pkg/Tests/PkgTests/T.swift", "vendor/Dep/Sources/D.swift"):
@@ -130,7 +148,7 @@ class LocalizationDefaultsTests(unittest.TestCase):
             status = MODULE.main(["--root", str(self.fixture.root)])
         self.assertEqual(status, 1)
         self.assertIn("Resources/Localizable.xcstrings:bad:", stderr.getvalue())
-        self.assertEqual(stdout.getvalue(), "2 Swift defaultValue literals compared with their catalogs: 1 mismatches\n")
+        self.assertEqual(stdout.getvalue(), "2 Swift defaultValue/catalog en comparisons: 1 mismatch\n")
         (self.fixture.root / "Sources/App.swift").write_text(swift_call("ok", "Open %@") + swift_call("bad", "Close"))
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(MODULE.main(["--root", str(self.fixture.root)]), 0)

@@ -62,16 +62,15 @@ def swift_defaults(root: Path) -> dict[str, tuple[str, str]]:
     conflicts: set[str] = set()
     for path in swift_files(root):
         relative = path.relative_to(root).as_posix()
-        messages, _ = CHANGES.parse_swift_messages(relative, path.read_text(encoding="utf-8"))
+        messages, _ = CHANGES.parse_swift_messages(relative, path.read_text(encoding="utf-8"), conflicts=conflicts)
         for key, message in messages.items():
-            if key in conflicts:
-                continue
             previous = defaults.get(key)
             if previous is not None and previous[0] != message.source:
                 conflicts.add(key)
-                del defaults[key]
-                continue
-            defaults[key] = (message.source, relative)
+            else:
+                defaults[key] = (message.source, relative)
+    for key in conflicts:
+        defaults.pop(key, None)
     return defaults
 
 
@@ -98,26 +97,32 @@ def arguments(text: str) -> list[tuple[int, str]]:
 
 
 def check(root: Path, allowlist: dict[str, str]) -> tuple[list[str], int]:
-    """Return (errors, compared key count) for every Swift default with a catalog entry."""
+    """Return (errors, comparison count); a key carried by several catalogs is compared with each."""
     errors: list[str] = []
     index = catalog_index(root)
     compared = 0
     still_mismatched: set[str] = set()
     for key, (default, swift_path) in sorted(swift_defaults(root).items()):
+        catalogs = []
         for catalog_path, entry in index.get(key, []):
             try:
-                expected, actual = arguments(default), arguments(CATALOG.source(entry))
+                catalogs.append((catalog_path, arguments(CATALOG.source(entry))))
             except ValueError:
                 continue  # localization_catalog.py check already names a malformed entry
+        expected = arguments(default)
+        for catalog_path, actual in catalogs:
             compared += 1
             if expected == actual:
                 continue
             if key in allowlist:
                 still_mismatched.add(key)
                 continue
+            # The same key can live in more than one product's catalog with
+            # different copy; name the siblings so the fix lands in the right one.
+            siblings = "".join(f"; {other} carries {sibling!r}" for other, sibling in catalogs if other != catalog_path)
             errors.append(
                 f"{catalog_path}:{key}: catalog en placeholders {actual!r} != "
-                f"Swift defaultValue {expected!r} ({swift_path})"
+                f"Swift defaultValue {expected!r} ({swift_path}){siblings}"
             )
     for key in sorted(set(allowlist) - still_mismatched):
         errors.append(f"{ALLOWLIST}: {key} no longer mismatches its Swift defaultValue; remove the entry")
@@ -136,7 +141,8 @@ def main(argv: list[str] | None = None) -> int:
     errors, compared = check(root, load_allowlist(args.allowlist or root / ALLOWLIST))
     for error in errors[:args.limit or None]:
         print(error, file=sys.stderr)
-    print(f"{compared} Swift defaultValue literals compared with their catalogs: {len(errors)} mismatches")
+    noun = "mismatch" if len(errors) == 1 else "mismatches"
+    print(f"{compared} Swift defaultValue/catalog en comparisons: {len(errors)} {noun}")
     return int(bool(errors))
 
 
