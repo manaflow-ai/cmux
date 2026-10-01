@@ -42,6 +42,81 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(context.statusClearCall?.panelID == panelID)
     }
 
+    @Test func statusUpsertForwardsAgentWorkState() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_status",
+            args: "claude_code Running subagents --icon=bolt.fill --work=SUBAGENTS --tab=\(workspaceID.uuidString)"
+        )
+
+        #expect(response == "OK")
+        #expect(context.statusUpsertCall?.key == "claude_code")
+        #expect(context.statusUpsertCall?.value == "Running subagents")
+        #expect(context.statusUpsertCall?.workState == .subagents)
+    }
+
+    /// Every existing reporter omits `--work`, and those rows must keep
+    /// resolving the way they did before the option existed.
+    @Test func statusUpsertWithoutWorkOptionForwardsNoWorkState() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_status",
+            args: "claude_code Running --icon=bolt.fill --tab=\(UUID().uuidString)"
+        )
+
+        #expect(response == "OK")
+        #expect(context.statusUpsertCall?.workState == nil)
+    }
+
+    @Test func statusUpsertRejectsUnknownWorkStateBeforeMutation() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_status",
+            args: "claude_code Thinking --work=thinking --tab=\(UUID().uuidString)"
+        )
+
+        #expect(response?.hasPrefix("ERROR: Invalid work state 'thinking'") == true,
+                "An unknown work state must be named in the error; saw \(response ?? "nil")")
+        #expect(context.statusUpsertCall == nil)
+    }
+
+    /// The work state drives a glyph with no text of its own, so the
+    /// `list_status` / `sidebar_state` line has to carry it: it is the only
+    /// way a test or a user can see which state a row is actually in.
+    @Test func statusListingLineCarriesTheWorkState() {
+        let coordinator = ControlCommandCoordinator(context: FakeSidebarV1ControlCommandContext())
+        let waiting = ControlSidebarStatusEntrySnapshot(
+            key: "claude_code",
+            value: "Waiting",
+            icon: "hourglass",
+            color: "#8E8E93",
+            urlAbsoluteString: nil,
+            priority: 0,
+            format: .plain,
+            workState: .waiting
+        )
+        #expect(coordinator.sidebarMetadataLine(waiting)
+            == "claude_code=Waiting icon=hourglass color=#8E8E93 work=waiting")
+
+        let plain = ControlSidebarStatusEntrySnapshot(
+            key: "deploy",
+            value: "staging green",
+            icon: nil,
+            color: nil,
+            urlAbsoluteString: nil,
+            priority: 0,
+            format: .plain
+        )
+        #expect(coordinator.sidebarMetadataLine(plain) == "deploy=staging green")
+    }
+
     @Test func workspaceLoadingFailureReasonReturnsErrorLine() {
         let context = FakeSidebarV1ControlCommandContext()
         context.workspaceLoadingResult = ControlSidebarWorkspaceLoadingState(

@@ -3,7 +3,7 @@ import { createRouterClient, ORPCError } from "@orpc/server";
 import { type DataTag, dehydrate, type DehydratedState, QueryClient, type QueryKey } from "@tanstack/react-query";
 import { dashboardRouter } from "@/orpc/server/dashboard/router";
 import { sessionQuery } from "./lib/session";
-import { dashboardBillingQuery, teamBillingQuery } from "./queries/billing";
+import { dashboardBillingQuery, planQuery, teamBillingQuery } from "./queries/billing";
 import { cloudDevicesQuery } from "./queries/cloud";
 import { coderouterOverviewQuery } from "./queries/coderouter";
 import {
@@ -116,6 +116,8 @@ export async function prefetchDashboard(request: Request, path: string, search: 
     if (error instanceof ORPCError && error.status === 401) return { kind: "signedOut" };
     return { kind: "ready", state: dehydrate(queryClient) };
   }
-  await Promise.all(routePrefetches(path, search).map((prefetch) => prefetch(client, queryClient).catch(() => undefined)));
+  // Every page reads the viewer's plan (account menu badge, upgrade prompts).
+  const prefetches = [...routePrefetches(path, search), query(planQuery, (server) => server.billing.current())];
+  await Promise.all(prefetches.map((prefetch) => prefetch(client, queryClient).catch(() => undefined)));
   return { kind: "ready", state: dehydrate(queryClient) };
 }

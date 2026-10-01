@@ -14,6 +14,8 @@ private final class FakeControlCommandContext: ControlCommandContext {
     var createResult: UUID?
     var closeResult = false
     var closedID: UUID?
+    var closedForce: Bool?
+    var closeResolution: ControlWindowCloseResolution?
     var displays: [ControlDisplayInfo] = []
     var existingWindowIDs: Set<UUID> = []
     var moveWindowResult: String?
@@ -37,6 +39,12 @@ private final class FakeControlCommandContext: ControlCommandContext {
     func controlCloseWindow(id: UUID) -> Bool {
         closedID = id
         return closeResult
+    }
+
+    func controlCloseWindow(id: UUID, force: Bool) -> ControlWindowCloseResolution {
+        closedID = id
+        closedForce = force
+        return closeResolution ?? (closeResult ? .resolved : .notFound)
     }
 
     func controlAvailableDisplays() -> [ControlDisplayInfo] { displays }
@@ -218,6 +226,45 @@ struct ControlCommandCoordinatorWindowTests {
             "window_id": .string(windowID.uuidString),
             "window_ref": .string("window:1"),
         ])))
+    }
+
+    @Test func windowCloseForwardsForce() {
+        let (coordinator, context) = makeCoordinator()
+        let windowID = UUID()
+        context.closeResolution = .resolved
+
+        #expect(coordinator.handle(request("window.close", [
+            "window_id": .string(windowID.uuidString),
+            "force": .bool(true),
+        ])) == .ok(.object([
+            "window_id": .string(windowID.uuidString),
+            "window_ref": .string("window:1"),
+        ])))
+        #expect(context.closedID == windowID)
+        #expect(context.closedForce == true)
+    }
+
+    @Test func windowCloseConfirmationIncludesWorkspaceIDs() {
+        let (coordinator, context) = makeCoordinator()
+        let windowID = UUID()
+        let firstWorkspaceID = UUID()
+        let secondWorkspaceID = UUID()
+        context.closeResolution = .confirmationRequired(workspaceIDs: [firstWorkspaceID, secondWorkspaceID])
+
+        #expect(coordinator.handle(request("window.close", [
+            "window_id": .string(windowID.uuidString),
+        ])) == .err(code: "confirmation_required", message:
+            "One or more workspaces or Dock surfaces have a running process; retry with --force",
+            data: .object([
+                "window_id": .string(windowID.uuidString),
+                "window_ref": .string("window:1"),
+                "workspace_ids": .array([
+                    .string(firstWorkspaceID.uuidString),
+                    .string(secondWorkspaceID.uuidString),
+                ]),
+            ])))
+        #expect(context.closedID == windowID)
+        #expect(context.closedForce == false)
     }
 
     @Test func windowDisplaysBuildsPayload() {
