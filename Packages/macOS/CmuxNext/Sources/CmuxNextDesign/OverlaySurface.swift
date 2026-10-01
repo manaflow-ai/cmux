@@ -42,6 +42,7 @@ public final class OverlaySurfaceView: NSView {
     public private(set) var material: OverlayMaterial
     public let contentView = NSView()
     private var materialView: NSView?
+    private var tintView: NSView?
     private var observer: (any NSObjectProtocol)?
     /// Pins one material (tests, `debug.drop_highlight`); nil follows this Mac.
     public var materialOverride: OverlayMaterial? {
@@ -102,6 +103,7 @@ public final class OverlaySurfaceView: NSView {
     private func rebuild() {
         materialView?.removeFromSuperview()
         contentView.removeFromSuperview()
+        tintView = nil
         let view: NSView
         switch material {
         case .liquidGlass:
@@ -110,11 +112,17 @@ public final class OverlaySurfaceView: NSView {
             view = glass
         case .vibrancy:
             let effect = NSVisualEffectView()
-            effect.material = .hudWindow
+            effect.material = .popover
             effect.blendingMode = .withinWindow
             effect.state = .active
             effect.wantsLayer = true
-            effect.addSubview(contentView)
+            // The Ghostty-derived tint sits on the blur, under the content.
+            let tint = NSView(frame: effect.bounds)
+            tint.wantsLayer = true
+            tint.autoresizingMask = [.width, .height]
+            tint.addSubview(contentView)
+            effect.addSubview(tint)
+            tintView = tint
             view = effect
         case .opaque:
             let plain = NSView()
@@ -124,7 +132,14 @@ public final class OverlaySurfaceView: NSView {
         }
         view.frame = bounds
         view.autoresizingMask = [.width, .height]
-        contentView.frame = view.bounds
+        // NSGlassEffectView lays its contentView out with constraints; out
+        // of the glass it must size by its frame again.
+        if material != .liquidGlass {
+            contentView.translatesAutoresizingMaskIntoConstraints = true
+            contentView.autoresizingMask = [.width, .height]
+            tintView?.frame = view.bounds
+            contentView.frame = view.bounds
+        }
         addSubview(view)
         materialView = view
         applyShape()
@@ -150,7 +165,7 @@ public final class OverlaySurfaceView: NSView {
             case .liquidGlass:
                 (materialView as? NSGlassEffectView)?.tintColor = Palette.glassTint
             case .vibrancy:
-                materialView?.layer?.backgroundColor = Palette.glassTint.cgColor
+                tintView?.layer?.backgroundColor = Palette.glassTint.cgColor
                 materialView?.layer?.borderColor = Palette.separator.cgColor
             case .opaque:
                 let base = Palette.windowBackground.usingColorSpace(.sRGB) ?? Palette.windowBackground

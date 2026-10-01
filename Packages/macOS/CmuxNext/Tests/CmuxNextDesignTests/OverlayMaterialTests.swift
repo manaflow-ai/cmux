@@ -55,7 +55,14 @@ import Testing
         let surface = OverlaySurfaceView(material: .liquidGlass)
         let label = NSTextField(labelWithString: "Split")
         surface.contentView.addSubview(label)
-        surface.materialOverride = .opaque
+        surface.frame = CGRect(x: 0, y: 0, width: 400, height: 300)
+        for material in [OverlayMaterial.opaque, .vibrancy, .liquidGlass, .opaque] {
+            surface.materialOverride = material
+            surface.layoutSubtreeIfNeeded()
+            // The content fills the surface on every path (the label stays centered).
+            let frame = surface.contentView.convert(surface.contentView.bounds, to: surface)
+            #expect(frame == surface.bounds, "\(material): \(frame)")
+        }
         #expect(surface.material == .opaque)
         #expect(label.superview === surface.contentView)
         #expect(surface.contentView.isDescendant(of: surface))
