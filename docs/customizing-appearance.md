@@ -186,8 +186,8 @@ In `cmux.json`:
 
 - `sidebarAppearance.tintColor`, `lightModeTintColor`, `darkModeTintColor`, and
   `tintOpacity` (0 to 1, default 0.18) tint the sidebar.
-- `sidebarAppearance.matchTerminalBackground: true` uses the terminal
-  background instead of a tint.
+- `sidebarAppearance.matchTerminalBackground` (default `true`) uses the
+  terminal background instead of a tint. Set it to `false` to use the tint.
 - `sidebar.*` keys pick which rows appear (branch, PRs, ports, logs, progress,
   notification text, and so on), and `sidebar.workspaceDescriptionColor`
   recolors workspace descriptions. See the

@@ -134,9 +134,9 @@ struct WorkspaceDetailView: View {
     /// not activate its panel over a selection the user made in the meantime,
     /// so completion applies only while its request is still current.
     @State private var browserCreateRequest: UUID?
-    @State var terminalPickerRows: [TerminalPickerMenuRow] = []
     /// Local presenter identity remains separate from the artifact popover payload.
     @State var isTerminalArtifactFilesPresented = false
+    @State var isTerminalSizeSheetPresented = false
     /// The SFTP browser an SSH terminal's Files chip opened.
     @State var sshFilesContext: SSHFilesContext?
     @State var terminalArtifactFilesContext: TerminalArtifactContext?
@@ -285,7 +285,6 @@ struct WorkspaceDetailView: View {
             }
             .onChange(of: selectedTerminalID) { _, _ in
                 visibleArtifactCount = 0
-                syncTerminalPickerRows(includeTitleChanges: true)
             }
             .onChange(of: store.supportsTerminalArtifacts) { _, supportsArtifacts in
                 visibleArtifactCount = 0
@@ -552,7 +551,8 @@ struct WorkspaceDetailView: View {
             measuredTrailingItemCount: measuredWidths.count,
             trailingItemCount: structuralTrailingItemKeys.count,
             hadTrailingCollapse: trailingToolbarCollapseDetected,
-            isEnabled: hasTitleMenuActions || canReconnect || sshFilesTerminalID != nil,
+            isEnabled: hasTitleMenuActions || canReconnect || sshFilesTerminalID != nil
+                || connectedDevicesMenuItem != nil,
             workspaceName: workspace.name,
             hasUnread: workspace.hasUnread,
             canCustomizeWorkspace: customizeWorkspace != nil,
@@ -561,6 +561,7 @@ struct WorkspaceDetailView: View {
             canCloseWorkspace: closeWorkspace != nil,
             canReconnect: canReconnect,
             canBrowseFiles: sshFilesTerminalID != nil,
+            connectedDevices: connectedDevicesMenuItem,
             labelToken: toolbarTitleLabelToken,
             terminalTheme: store.activeTerminalTheme
         )
@@ -577,12 +578,14 @@ struct WorkspaceDetailView: View {
                     canCloseWorkspace: value.canCloseWorkspace,
                     canReconnect: value.canReconnect,
                     canBrowseFiles: value.canBrowseFiles,
+                    connectedDevices: value.connectedDevices,
                     presentCustomization: presentCustomizationFromMenu,
                     presentRename: presentRenameFromMenu,
                     toggleReadState: toggleWorkspaceReadStateFromMenu,
                     requestClose: requestCloseWorkspaceFromMenu,
                     reconnect: reconnectToWorkspaceMac,
-                    browseFiles: browseFilesFromMenu
+                    browseFiles: browseFilesFromMenu,
+                    presentConnectedDevices: presentTerminalSizeSheet
                 )
             },
             label: {
@@ -675,6 +678,20 @@ struct WorkspaceDetailView: View {
         // Reconnect in the title menu, and last-known content stays visible
         // throughout.
         #if os(iOS)
+        .overlay {
+            // Shared sizing chrome (reconnecting capsule, detached card, size
+            // sheet). Attached after `allowsHitTesting` so the detached
+            // card's Reattach buttons stay tappable while terminal input is
+            // blocked.
+            if let terminal = selectedTerminal {
+                TerminalSharedSizingOverlay(
+                    store: store,
+                    surfaceID: terminal.id.rawValue,
+                    topInset: terminalSurfaceTopContentInset,
+                    isSizeSheetPresented: $isTerminalSizeSheetPresented
+                )
+            }
+        }
         .overlay(alignment: .topTrailing) {
             if let terminalID = selectedTerminal?.id.rawValue,
                !store.isComposerPresented {
@@ -803,7 +820,11 @@ struct WorkspaceDetailView: View {
     /// in). Internal so the +Surfaces chrome-return refocus can share the
     /// same policy.
     var terminalInputIsBlocked: Bool {
-        effectiveConnectionStatus == .unavailable
+        if effectiveConnectionStatus == .unavailable { return true }
+        // Another participant detached this phone from the terminal: the
+        // detached card owns the surface until the user reattaches.
+        guard let terminalID = selectedTerminal?.id.rawValue else { return false }
+        return !store.terminalAllowsTraffic(surfaceID: terminalID)
     }
 
     #if os(iOS)
@@ -924,7 +945,6 @@ struct WorkspaceDetailView: View {
             value: TerminalPickerMenuValue(
                 liveTerminals: workspace.terminals,
                 liveSurfaces: workspace.surfaces,
-                snapshotRows: terminalPickerRows,
                 selectedID: store.selectedTerminalID,
                 // Resolved through the workspace so the auto-presented
                 // fallback surface (no terminals, no explicit selection)
@@ -935,7 +955,9 @@ struct WorkspaceDetailView: View {
                 hasActiveBrowser: activeBrowser != nil,
                 browserStreamRows: browserStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(BrowserStreamPickerRow.init),
                 supportsBrowserStream: store.supportsBrowserStream(inWorkspace: workspace.id),
+                browserStreamSupportKnown: effectiveConnectionStatus == .connected,
                 activeBrowserStreamPanelID: activeBrowserStream?.id,
+                onDeviceBrowserStreamPanelID: activeBrowser?.linkedStreamPanelID,
                 simulatorStreamRows: simulatorStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(SimulatorStreamPickerRow.init),
                 supportsSimulatorStream: store.supportsSimulatorStream,
                 activeSimulatorStreamPanelID: activeSimulatorStream?.id,
@@ -961,10 +983,6 @@ struct WorkspaceDetailView: View {
             ),
             terminalTheme: store.activeTerminalTheme
         )
-        .equatable()
-        .simultaneousGesture(TapGesture().onEnded { syncTerminalPickerRows(includeTitleChanges: true) })
-        .onAppear { syncTerminalPickerRows(includeTitleChanges: true) }
-        .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }
     }
 
     #if canImport(UIKit)
@@ -1252,9 +1270,15 @@ struct WorkspaceDetailView: View {
     /// detail view flips to the browser because `activeBrowser` becomes
     /// non-nil; the picker shows a check next to "New Browser" while it is up.
     func openLocalBrowserFallback() {
+        showLocalBrowser { browserStore.openBrowser(for: $0) }
+    }
+
+    /// Makes the phone-local browser that `open` reveals (for this
+    /// workspace's raw id) the visible surface.
+    func showLocalBrowser(_ open: (String) -> BrowserSurfaceState) {
         let workspaceID = workspace.id.rawValue
         store.recordAppEvent(.browserCreateStarted, correlationID: workspaceID)
-        _ = browserStore.openBrowser(for: workspaceID)
+        _ = open(workspaceID)
         store.recordAppEvent(.browserCreateSucceeded, correlationID: workspaceID)
         store.recordLastOpenedLocalBrowserTab(in: workspace.id)
         stopActiveBrowserStream()

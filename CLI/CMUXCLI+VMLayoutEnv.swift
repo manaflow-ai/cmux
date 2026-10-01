@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// `cmux vm layout export|apply` and `cmux vm env set|ls|rm`: layouts as data, and a
@@ -202,7 +203,20 @@ extension CMUXCLI {
 
     /// How long `--open` keeps trying before handing the human the manual command.
     static let vmLayoutOpenAttempts = 5
-    static let vmLayoutOpenRetryDelay: TimeInterval = 1
+    /// Seconds between open attempts. `CMUX_VM_LAYOUT_OPEN_RETRY_DELAY_SECONDS`
+    /// overrides the default so tests against a mock socket do not wait it out.
+    static func vmLayoutOpenRetryDelay(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> TimeInterval {
+        guard let raw = environment["CMUX_VM_LAYOUT_OPEN_RETRY_DELAY_SECONDS"],
+              let parsed = TimeInterval(raw),
+              parsed.isFinite,
+              parsed > 0,
+              parsed <= 1 else {
+            return 1
+        }
+        return parsed
+    }
 
     /// The geometry-honoring open (`vm.workspace_open`, the same method the sidebar row
     /// and `cmux vm workspace open` use) for a workspace the shim built moments ago.
@@ -230,7 +244,7 @@ extension CMUXCLI {
                 lastFailure = error.message
             }
             if attempt < Self.vmLayoutOpenAttempts {
-                Thread.sleep(forTimeInterval: Self.vmLayoutOpenRetryDelay)
+                Thread.sleep(forTimeInterval: Self.vmLayoutOpenRetryDelay())
             }
         }
         throw CLIError(message: String(format: String(localized: "cli.vm.layout.applyTheLayoutIsAppliedToWorkspace", defaultValue: "vm layout apply: the layout is applied to workspace %1$@ on %2$@, but it could not be opened here yet (%3$@). Open it with: cmux vm workspace open %4$@ %5$@"), String(describing: remoteWorkspace), String(describing: machine), String(describing: lastFailure), String(describing: machine), String(describing: remoteWorkspace)))
@@ -529,7 +543,7 @@ extension CMUXCLI {
     }
 
     static func isValidVMEnvKey(_ key: String) -> Bool {
-        key.range(of: "^[A-Za-z_][A-Za-z0-9_]*$", options: .regularExpression) != nil
+        key.range(of: "^[A-Za-z_][A-Za-z0-9_]*\\z", options: .regularExpression) != nil
     }
 
     /// One argv `KEY=VALUE`. The value is taken literally (it already went through the
@@ -786,10 +800,6 @@ extension CMUXCLI {
     /// The instance `shellQuote` rules, as a static so the pure command builders (and
     /// their tests) need no CLI instance: bare when safe, else single-quoted.
     static func vmShimShellQuote(_ value: String) -> String {
-        let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
-        if value.range(of: safePattern, options: .regularExpression) != nil {
-            return value
-        }
-        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        value.posixShellWord
     }
 }

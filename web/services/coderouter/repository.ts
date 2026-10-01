@@ -6,6 +6,7 @@ import { runWithCloudDbQuerySignal } from "../../db/queryScope";
 import {
   cloudVms,
   coderouterPools,
+  coderouterPoolInitializations,
   coderouterPoolAccounts,
   coderouterAccounts,
   coderouterApiKeys,
@@ -28,6 +29,10 @@ import { accountAccessPredicate, scopedSessionKey, type CoderouterAccountAccess 
 import { signVmAuthorization, verifyVmAuthorization, type VmAuthorizationClaims } from "./vmAuthorization";
 import { createLastUsedWriter } from "./lastUsedWriter";
 import { refreshCompletionRegistry } from "./refreshSignal";
+import {
+  buildCooldownWriteExpressions,
+  nonTransientFailureCodePredicate,
+} from "./cooldownWrite";
 
 const ROUTE_TOKEN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1_000;
 const VAULT_LEASE_MS = 30_000;
@@ -133,6 +138,47 @@ export async function issueVmAuthorizationToken(
   vmId: string,
 ): Promise<{ token: string; expiresAt: Date }> {
   const expiresAt = new Date(Date.now() + ROUTE_TOKEN_LIFETIME_MS);
+  // The default pool is the VM's initial snapshot of the selected team's
+  // shared accounts. Mark it before inserting grants so later token refreshes
+  // preserve deliberate pool revocations instead of rebuilding the snapshot.
+  await cloudDb().transaction(async (tx) => {
+    const marker = await tx.execute(sql`
+      insert into ${coderouterPoolInitializations} (pool_id)
+      select vm.coderouter_pool_id
+      from ${cloudVms} vm
+      join ${coderouterPools} pool
+        on pool.id = vm.coderouter_pool_id
+       and pool.team_id = vm.owner_team_id
+       and pool.is_default = true
+      where vm.id = ${vmId}::uuid
+        and vm.owner_team_id = ${teamId}
+        and vm.coderouter_pool_id is not null
+      on conflict (pool_id) do nothing
+      returning pool_id
+    `);
+    if (databaseRows(marker).length === 0) return;
+
+    await tx.execute(sql`
+      insert into coderouter_pool_accounts (team_id, pool_id, account_id, granted_by_user_id)
+      select vm.owner_team_id, vm.coderouter_pool_id, account.id, account.created_by
+      from cloud_vms vm
+      join coderouter_accounts account on account.team_id = vm.owner_team_id
+      where vm.id = ${vmId}::uuid
+        and vm.owner_team_id = ${teamId}
+        and account.visibility = 'team'
+      on conflict (pool_id, account_id) do nothing
+    `);
+    await tx.execute(sql`
+      insert into coderouter_pool_accounts (team_id, pool_id, claude_account_id, granted_by_user_id)
+      select vm.owner_team_id, vm.coderouter_pool_id, account.id, account.created_by
+      from cloud_vms vm
+      join coderouter_claude_accounts account on account.team_id = vm.owner_team_id
+      where vm.id = ${vmId}::uuid
+        and vm.owner_team_id = ${teamId}
+        and account.visibility = 'team'
+      on conflict (pool_id, claude_account_id) do nothing
+    `);
+  });
   const token = await signVmAuthorization({
     vmId,
     teamId,
@@ -183,6 +229,24 @@ export async function revokeRouteTokensForVm(
     .set({ revokedAt: now })
     .where(and(
       eq(coderouterRouteTokens.vmId, vmId),
+      isNull(coderouterRouteTokens.revokedAt),
+    ));
+}
+
+/** A member left the team (Stack team_membership.deleted): their sessions
+ * for that team end now. Other teams' sessions and VM-bound tokens of the
+ * team's machines are untouched (machines are team resources). */
+export async function revokeRouteTokensForTeamMember(
+  input: { readonly teamId: string; readonly userId: string },
+  now = new Date(),
+): Promise<void> {
+  await cloudDb()
+    .update(coderouterRouteTokens)
+    .set({ revokedAt: now })
+    .where(and(
+      eq(coderouterRouteTokens.teamId, input.teamId),
+      eq(coderouterRouteTokens.stackUserId, input.userId),
+      isNull(coderouterRouteTokens.vmId),
       isNull(coderouterRouteTokens.revokedAt),
     ));
 }
@@ -1347,6 +1411,35 @@ function databaseRows(result: unknown): readonly Record<string, unknown>[] {
   return Array.isArray(rows) ? rows as readonly Record<string, unknown>[] : [];
 }
 
+/**
+ * When the soonest account of the pool cooling down for a transient reason
+ * (capacity, rate limit, outage) becomes usable again; `null` when none is.
+ * The Codex proxy holds a request for capacity only while this is in reach.
+ */
+export async function nextCapacityAvailableAt(input: {
+  teamId: string;
+  provider: ProviderPool;
+  signal?: AbortSignal;
+  access?: CoderouterAccountAccess;
+}): Promise<Date | null> {
+  const nonTransientFailure = nonTransientFailureCodePredicate(sql`account."last_failure_code"`);
+  const result = await runWithCloudDbQuerySignal(input.signal, () => cloudDb().execute(sql`
+      select min(account."cooldown_until") as "availableAt"
+      from "coderouter_accounts" as account
+      where account."team_id" = ${input.teamId}
+        and ${nativeAccess(input.access, true)}
+        and ${providerMatch(sql`account."provider"`, input.provider)}
+        and account."state" = 'active'
+        and account."cooldown_until" > now()
+        and not (${nonTransientFailure})
+    `));
+  const [row] = databaseRows(result);
+  const value = row?.availableAt;
+  if (value === null || value === undefined) return null;
+  const at = value instanceof Date ? value : new Date(String(value));
+  return Number.isFinite(at.getTime()) ? at : null;
+}
+
 export async function markAccountCooldown(
   accountId: string,
   durationMs: number,
@@ -1354,15 +1447,16 @@ export async function markAccountCooldown(
   failureCode = "rate_limited",
 ): Promise<void> {
   const bounded = Math.min(Math.max(durationMs, 1_000), 7 * 24 * 60 * 60 * 1_000);
-  const cooldownUntilIso = new Date(Date.now() + bounded).toISOString();
+  const cooldownUntil = new Date(Date.now() + bounded);
   await runWithCloudDbQuerySignal(signal, () => cloudDb()
     .update(coderouterAccounts)
     .set({
-      // A late provider error must never shorten a longer cooldown already
-      // recorded by another request. Keep the database value authoritative so
-      // every web instance avoids a capacity-hit account consistently.
-      cooldownUntil: sql`GREATEST(COALESCE(${coderouterAccounts.cooldownUntil}, ${cooldownUntilIso}::timestamptz), ${cooldownUntilIso}::timestamptz)`,
-      lastFailureCode: failureCode,
+      ...buildCooldownWriteExpressions(
+        coderouterAccounts.cooldownUntil,
+        coderouterAccounts.lastFailureCode,
+        cooldownUntil,
+        failureCode,
+      ),
       updatedAt: new Date(),
     })
     .where(eq(coderouterAccounts.id, accountId)));

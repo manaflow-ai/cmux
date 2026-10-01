@@ -1,6 +1,7 @@
 import CMUXAgentLaunch
 import CmuxControlSocket
 import CmuxSettings
+import CryptoKit
 import Darwin
 import Foundation
 import SQLite3
@@ -4333,6 +4334,29 @@ import Testing
             [.posixPermissions: 0o755],
             ofItemAtPath: fakeCLIURL.path
         )
+        // The copy keeps the bundled CLI's rpaths. Its bundle-relative one,
+        // @executable_path/../../Frameworks, is where the app ships the package
+        // frameworks the CLI was linked against. Without that directory, a copy
+        // run with a scrubbed environment (`env -i`) loads them from the
+        // machine-wide fallback rpath instead, which CI refills with whatever
+        // commit last ran on that Mac, and dyld aborts on any symbol newer than
+        // that commit. Link the fake bundle's Frameworks to the source app's.
+        let sourceFrameworksURL = URL(fileURLWithPath: sourceCLIPath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Frameworks", isDirectory: true)
+        let fakeFrameworksURL = binURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Frameworks", isDirectory: true)
+        if FileManager.default.fileExists(atPath: sourceFrameworksURL.path),
+           !FileManager.default.fileExists(atPath: fakeFrameworksURL.path) {
+            try FileManager.default.createSymbolicLink(
+                at: fakeFrameworksURL,
+                withDestinationURL: sourceFrameworksURL
+            )
+        }
         return fakeCLIURL.path
     }
 
@@ -5123,8 +5147,8 @@ final class RelaySocketResponder {
             socklen_t(MemoryLayout<Int32>.size)
         )
         let challenge = #"{"protocol":"cmux-relay-auth","version":1,"relay_id":"\#(relayID)","nonce":"test-nonce"}"#
-        guard writeLine(challenge, to: clientFD), readLine(from: clientFD) != nil else { return }
-        guard writeLine(#"{"ok":true}"#, to: clientFD),
+        guard writeLine(challenge, to: clientFD), let authLine = readLine(from: clientFD) else { return }
+        guard writeLine(Self.authResult(authLine: authLine, relayID: relayID), to: clientFD),
               let request = readLine(from: clientFD) else { return }
 
         lock.lock()
@@ -5160,6 +5184,22 @@ final class RelaySocketResponder {
             }
             return true
         }
+    }
+
+    /// Token the relay tests pass in `CMUX_RELAY_TOKEN`.
+    static let relayToken = Data(repeating: 0x11, count: 32)
+
+    /// Success line proving the token over the client's nonce, as the app's
+    /// relay does; the CLI sends nothing further without it.
+    private static func authResult(authLine: String, relayID: String) -> String {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(authLine.utf8)) as? [String: Any],
+              let clientNonce = object["client_nonce"] as? String else {
+            return #"{"ok":true}"#
+        }
+        let message = "cmux-relay-server-proof\nrelay_id=\(relayID)\nclient_nonce=\(clientNonce)\nserver_nonce=test-nonce\nversion=1"
+        let proof = HMAC<SHA256>.authenticationCode(for: Data(message.utf8), using: SymmetricKey(data: relayToken))
+        let proofHex = Data(proof).map { String(format: "%02x", $0) }.joined()
+        return #"{"ok":true,"relay_mac":"\#(proofHex)"}"#
     }
 
     private static func posixError(_ operation: String) -> NSError {

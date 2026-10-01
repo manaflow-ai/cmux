@@ -8,6 +8,19 @@ import Foundation
 /// localized respawn strings. Split out of `TerminalController+ControlSurfaceContext`
 /// to keep the conformance readable; see that file's doc comment for the overview.
 extension TerminalController {
+    func controlSurfaceCloseStrings() -> ControlSurfaceCloseStrings {
+        ControlSurfaceCloseStrings(
+            confirmationRequired: String(
+                localized: "socket.surface.close.confirmationRequired",
+                defaultValue: "Surface has a running process; retry with force=true"
+            ),
+            failed: String(
+                localized: "socket.surface.close.failed",
+                defaultValue: "Failed to close surface"
+            )
+        )
+    }
+
     func controlSurfaceRespawnStrings() -> ControlSurfaceRespawnStrings {
         ControlSurfaceRespawnStrings(
             invalidFocus: String(
@@ -376,10 +389,6 @@ extension TerminalController {
         if case .invalid(let raw) = placement {
             return .invalidPlacement(rawValue: raw)
         }
-        if case .dock = placement, !RightSidebarMode.dock.isAvailable() {
-            return .dockUnavailable(message: dockUnavailableMessage())
-        }
-
         let url = inputs.urlRaw.flatMap { URL(string: $0) }
         if case .dock = placement,
            let invalid = validateDockSurfaceCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
@@ -504,7 +513,8 @@ extension TerminalController {
     func controlSurfaceClose(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
-        hasSurfaceIDParam: Bool
+        hasSurfaceIDParam: Bool,
+        force: Bool = false
     ) -> ControlSurfaceCloseResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -521,7 +531,8 @@ extension TerminalController {
             routing: routing,
             surfaceID: surfaceID,
             hasSurfaceIDParam: hasSurfaceIDParam,
-            tabManager: tabManager
+            tabManager: tabManager,
+            force: force
         ) {
             return resolution
         }
@@ -548,7 +559,8 @@ extension TerminalController {
             tabManager: tabManager,
             surfaceID: surfaceId,
             isImplicitTarget: surfaceID == nil && routing.surfaceID == nil,
-            routedPaneID: routing.paneID
+            routedPaneID: routing.paneID,
+            force: force
         ) {
             return remote
         }
@@ -556,7 +568,11 @@ extension TerminalController {
             if windowDockMismatchesExplicitWindow(routing, dock: windowDock) {
                 return .surfaceNotFound(surfaceId)
             }
-            guard windowDock.closePanel(surfaceId, force: true) else {
+            if !force,
+               windowDock.panel(for: TabID(uuid: surfaceId)).map({ windowDock.dockPanelNeedsConfirmClose($0) }) == true {
+                return .confirmationRequired(surfaceId)
+            }
+            guard windowDock.closePanel(surfaceId, force: force) else {
                 return .closeFailed(surfaceId)
             }
             AppDelegate.shared?.notificationStore?.clearNotifications(
@@ -569,7 +585,13 @@ extension TerminalController {
                 surfaceID: surfaceId
             )
         } else if ws.containsDockPanel(surfaceId) {
-            guard ws.closeDockPanelAndClearNotifications(surfaceId, force: true) else {
+            if !force,
+               let dock = ws.dockSplit,
+               let panel = dock.panel(for: TabID(uuid: surfaceId)),
+               dock.dockPanelNeedsConfirmClose(panel) {
+                return .confirmationRequired(surfaceId)
+            }
+            guard ws.closeDockPanelAndClearNotifications(surfaceId, force: force) else {
                 return .closeFailed(surfaceId)
             }
             return .closed(
@@ -584,8 +606,10 @@ extension TerminalController {
         if ws.panels.count <= 1 {
             return .lastSurface
         }
-        // Socket API must be non-interactive: bypass close-confirmation gating.
-        guard controlCloseSurfaceRecordingHistory(in: ws, surfaceId: surfaceId, force: true) else {
+        if !force, ws.panelNeedsConfirmClose(panelId: surfaceId) {
+            return .confirmationRequired(surfaceId)
+        }
+        guard controlCloseSurfaceRecordingHistory(in: ws, surfaceId: surfaceId, force: force) else {
             return .closeFailed(surfaceId)
         }
         return .closed(

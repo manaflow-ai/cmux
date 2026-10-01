@@ -4,6 +4,8 @@ Keep repo-wide decisions here; procedures belong in [CONTRIBUTING.md](CONTRIBUTI
 [area instructions](#area-instructions) and [task skills](skills/README.md).
 Read the matching skill before changing an area, then only the references needed.
 
+**Manaflow AI team members and their agents:** read the private [cmuxterm-hq CLAUDE.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/CLAUDE.md) and [AGENTS.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/AGENTS.md) before fleet or CI work. They are the entry point for fleet builds, CI routing, agent coordination, and landing rules. Start fleet work at [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md). External contributors can ignore this block; those links return 404 for them.
+
 ## Verification and isolation
 
 - Before committing, setup or a native build, [choose scoped verification](skills/cmux-testing/references/local-vs-ci-validation.md).
@@ -12,7 +14,8 @@ Read the matching skill before changing an area, then only the references needed
   including `verify-local.py --help`, `--list` and `--repo`. Push does not run checks for you.
 - Use [CONTRIBUTING.md](CONTRIBUTING.md#getting-started) for setup. Outside cmuxterm-hq-created
   checkouts, set `CMUX_DEV_BACKEND_MODE=local` for dev builds. Follow [tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md)
-  for commands and cache reuse; team fleet rules live in cmuxterm-hq.
+  for commands and cache reuse; team fleet tasks start at
+  [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md).
   Never use bare `xcodebuild` or an untagged `cmux DEV.app`. Clean up only your own tags.
 - A same-repo app PR gets a fleet dogfood build and link comment only while it has the
   `dev-build` label. Add it when someone will dogfood the PR, not by default; under load
@@ -64,8 +67,8 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
 - Check executed tests on the current SHA; green skipped jobs do not establish coverage.
   Add `full-ci` only for a user-requested or agreed broad validation plan,
   naming the extra lanes and why ([CI coverage](skills/cmux-testing/references/pr-ci-coverage.md)).
-- Let PR catch-up handle main. When needed locally, use `scripts/merge-main.sh`;
-  never overwrite a catch-up merge with a force-push ([branch updates](docs/ci/merge-main.md)).
+- Keep branches current locally with `scripts/merge-main.sh`; follow
+  [the merge-main guide](docs/ci/merge-main.md) and never force-push over its merge.
 - A first implementation pass ends with passed scoped verification and an open PR;
   do not watch CI or run speculative reviews by default.
 - Before merging, use a [review subagent](skills/cmux-review/SKILL.md), correctness
@@ -95,8 +98,8 @@ Use these existing owners instead of duplicating their checklists here:
 
 For v2 socket methods and remote CLI changes, read [relay authorization](skills/cmux-socket-policy/references/remote-relay-authorization.md).
 `RemoteRelayCommandPolicy` defaults to deny. Allowlist only for a needed remote
-flow, scoped to the session's objects; command-bearing params stay denied except
-for the documented audited exception. The PR must analyze local command/content
+flow, scoped to the session's objects; command-bearing params stay denied on
+every method. The PR must analyze local command/content
 execution, access to unowned objects and local-state exposure, and include the
 required policy tests and ID scoping. Unsafe local effects must be redesigned.
 Never allowlist terminal spawn/respawn without live verification that it executes

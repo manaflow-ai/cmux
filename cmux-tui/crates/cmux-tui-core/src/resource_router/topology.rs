@@ -1103,7 +1103,9 @@ mod tests {
             ),
         )
         .unwrap_err();
-        assert_eq!(error.code, "mutation.indeterminate");
+        // The close transaction rolled back before any effect ran, so its
+        // failure is committed as the key's durable outcome.
+        assert_eq!(error.code, "operation.failed");
         mux.set_resource_patch_failure_for_test(false);
 
         let replay = dispatch(
@@ -1116,7 +1118,8 @@ mod tests {
             ),
         )
         .unwrap_err();
-        assert_eq!(replay.code, "mutation.indeterminate");
+        assert_eq!(replay.code, error.code);
+        assert_eq!(replay.message, error.message);
 
         assert_eq!(mux.with_state(|state| state.resource_revision), before_resource);
         assert_eq!(mux.with_state(|state| state.workspace_revision), before_workspace);

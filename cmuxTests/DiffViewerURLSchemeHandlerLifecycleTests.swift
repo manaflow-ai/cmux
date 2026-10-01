@@ -135,6 +135,79 @@ struct DiffViewerURLSchemeHandlerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func streamRefreshesManifestWhenTypedSessionAddsPatch() async throws {
+        let token = UUID().uuidString.lowercased()
+        let trustedRoot = CmuxDiffViewerSessionPreparer.defaultTrustedRootURL
+        let fixtureRoot = trustedRoot
+            .appendingPathComponent("typed-session-refresh-\(UUID().uuidString)", isDirectory: true)
+        let pageURL = fixtureRoot.appendingPathComponent("viewer.html", isDirectory: false)
+        let patchURL = fixtureRoot.appendingPathComponent("diff-session-\(UUID().uuidString).patch", isDirectory: false)
+        let manifestURL = trustedRoot.appendingPathComponent(".manifest-\(token).json", isDirectory: false)
+        let leaseURL = trustedRoot.appendingPathComponent(".session-lease-\(token).lock", isDirectory: false)
+        let pagePath = "/viewer.html"
+        let patchPath = "/\(patchURL.lastPathComponent)"
+        let patch = "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+new\n"
+        try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
+        try Data("<!doctype html><title>viewer</title>".utf8).write(to: pageURL, options: .atomic)
+        try Data(patch.utf8).write(to: patchURL, options: .atomic)
+        defer {
+            try? FileManager.default.removeItem(at: leaseURL)
+            try? FileManager.default.removeItem(at: manifestURL)
+            try? FileManager.default.removeItem(at: fixtureRoot)
+        }
+
+        func manifestFiles(_ includePatch: Bool) -> [[String: String]] {
+            var files: [[String: String]] = [[
+                "request_path": pagePath,
+                "file_path": pageURL.path,
+                "mime_type": "text/html",
+            ]]
+            if includePatch {
+                files.append([
+                    "request_path": patchPath,
+                    "file_path": patchURL.path,
+                    "mime_type": "text/x-diff",
+                ])
+            }
+            return files
+        }
+
+        try JSONSerialization.data(withJSONObject: [
+            "token": token,
+            "files": manifestFiles(false),
+        ]).write(to: manifestURL, options: .atomic)
+
+        let handler = CmuxDiffViewerURLSchemeHandler()
+        try await handler.register(
+            token: token,
+            files: [
+                .init(requestPath: pagePath, fileURL: pageURL, mimeType: "text/html"),
+            ]
+        )
+        let patchViewerURL = try #require(URL(
+            string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)\(patchPath)"
+        ))
+        #expect(handler.registeredFile(for: patchViewerURL) == nil)
+
+        try JSONSerialization.data(withJSONObject: [
+            "token": token,
+            "files": manifestFiles(true),
+        ]).write(to: manifestURL, options: .atomic)
+
+        let schemeTask = DiffViewerRecordingSchemeTask(request: URLRequest(url: patchViewerURL))
+        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        handler.webView(webView, start: schemeTask)
+
+        var callbacks: [DiffViewerRecordingSchemeTask.Callback] = []
+        for await callback in schemeTask.callbacks {
+            callbacks.append(callback)
+        }
+        let body = callbacks.compactMap(\.data).reduce(into: Data()) { $0.append($1) }
+        #expect(callbacks.map(\.kind) == [.response, .data, .finish])
+        #expect(body == Data(patch.utf8))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func concurrentCompressedStreamsRemainCorrectAndMainThreadBound() async throws {
         let token = UUID().uuidString.lowercased()
         let rootURL = URL(fileURLWithPath: "/tmp", isDirectory: true)

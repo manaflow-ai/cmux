@@ -241,6 +241,7 @@ extension AgentJournalLifecycleCenter {
         switch phase {
         case .unknown: .unknown
         case .running: .running
+        case .backgroundWorkPending: .backgroundWorkPending
         case .needsInput: .needsInput
         case .idle: .idle
         case .error: .needsInput

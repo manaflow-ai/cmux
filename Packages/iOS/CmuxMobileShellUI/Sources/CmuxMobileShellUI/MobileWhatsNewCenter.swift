@@ -27,6 +27,7 @@ public final class MobileWhatsNewCenter {
     public typealias Loader = @Sendable (URL) async throws -> Data
 
     static let markerKey = "dev.cmux.mobile.whatsNew.newestAcknowledgedEntryId"
+
     static let acknowledgedAnnouncementsKey = "dev.cmux.mobile.whatsNew.acknowledgedAnnouncementIds"
     static let cacheKey = "dev.cmux.mobile.whatsNew.remoteList.v1"
     static let requestPath = "/api/whats-new"
@@ -319,4 +320,3 @@ public final class MobileWhatsNewCenter {
 
 }
 #endif
-

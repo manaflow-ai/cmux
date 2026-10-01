@@ -18,6 +18,10 @@ enum PaneChromeSettings {
         normalizedColorHex(configuredHex) ?? fallback
     }
 
+    static func paneBorderColorHexIsUnset(_ configuredHex: String?) -> Bool {
+        normalizedColorHex(configuredHex) == nil
+    }
+
     static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
         notificationCenter.post(name: Self.didChangeNotification, object: nil)
     }

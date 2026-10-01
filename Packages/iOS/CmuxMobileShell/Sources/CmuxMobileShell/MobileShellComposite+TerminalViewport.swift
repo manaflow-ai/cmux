@@ -212,6 +212,26 @@ extension MobileShellComposite {
                 renderRevisionFloor: nil
             )
         }
+        if !terminalAllowsTraffic(surfaceID: surfaceID) {
+            // Detached by another participant: the host ignores this phone's
+            // viewport until the user reattaches. Answer locally with the
+            // last granted grid so the mounted view does not enter its
+            // retry loop, and leave the Mac untouched.
+            let heldGrid = effectiveViewportSizesBySurfaceID[surfaceID] ?? reportedGrid
+            reportedTerminalViewportSizesBySurfaceID[surfaceID] = reportedGrid
+            recordAppEvent(
+                .terminalViewportReportFailed,
+                correlationID: surfaceID,
+                failure: .superseded
+            )
+            finishPreparation()
+            return (
+                columns: heldGrid.columns,
+                rows: heldGrid.rows,
+                renderEpoch: nil,
+                renderRevisionFloor: nil
+            )
+        }
         guard let client = remoteClient else {
             recordAppEvent(
                 .terminalViewportReportFailed,
@@ -231,14 +251,15 @@ extension MobileShellComposite {
             let remoteWorkspaceID = remoteWorkspaceID(for: preparedWorkspaceID)
             let request = try MobileCoreRPCClient.requestData(
                 method: "mobile.terminal.viewport",
-                params: [
-                    "workspace_id": remoteWorkspaceID.rawValue,
-                    "surface_id": surfaceID,
-                    "client_id": clientID,
-                    "viewport_columns": columns,
-                    "viewport_rows": rows,
-                    "viewport_generation": Int(clamping: requestGeneration),
-                ]
+                params: MobileTerminalViewportParameters(
+                    clientID: clientID,
+                    identity: terminalDeviceIdentity
+                ).report(
+                    workspaceID: remoteWorkspaceID.rawValue,
+                    surfaceID: surfaceID,
+                    viewport: reportedGrid,
+                    generation: requestGeneration
+                )
             )
             let data = try await client.sendRequest(request)
             guard remoteClient === client else {

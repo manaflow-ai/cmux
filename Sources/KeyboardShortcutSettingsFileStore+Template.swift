@@ -147,6 +147,9 @@ extension CmuxSettingsFileStore {
                     "showWorkspaceDescription": SettingCatalog().sidebar.showWorkspaceDescription.defaultValue,
                     "workspaceDescriptionColor": NSNull(),
                     "beta": [
+                        "conversations": [
+                            "enabled": SettingCatalog().betaFeatures.conversationSidebar.defaultValue,
+                        ],
                         "workspaceTodos": [
                             "controls": [
                                 "enabled": SettingCatalog().betaFeatures.workspaceTodoControls.defaultValue,
@@ -188,7 +191,7 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "sidebarAppearance": [
-                    "matchTerminalBackground": false,
+                    "matchTerminalBackground": SettingCatalog().sidebarAppearance.matchTerminalBackground.defaultValue,
                     "tintColor": SidebarTintDefaults().hex,
                     "lightModeTintColor": NSNull(),
                     "darkModeTintColor": NSNull(),
@@ -223,7 +226,10 @@ extension CmuxSettingsFileStore {
                     "showSearchSuggestions": BrowserSearchSettingsStore.defaultSearchSuggestionsEnabled,
                     "theme": BrowserThemeSettings.defaultMode.rawValue,
                     "discardHiddenWebViews": BrowserHiddenWebViewDiscardPolicy.defaultEnabled,
+                    "hiddenWebViewDiscardMode": BrowserHiddenWebViewDiscardPolicy.defaultMode.rawValue,
+                    "hiddenWebViewMemoryBudgetMB": BrowserHiddenWebViewDiscardPolicy.defaultMemoryBudgetMB,
                     "hiddenWebViewDiscardDelaySeconds": BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay,
+                    "autoRestoreUnloadedPages": BrowserHiddenWebViewDiscardPolicy.defaultAutoRestore,
                     "askWhereToSaveDownloads": SettingCatalog().browser.askWhereToSaveDownloads.defaultValue,
                     "openTerminalLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser,
                     "interceptTerminalOpenCommandInCmuxBrowser": BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser,
@@ -238,6 +244,9 @@ extension CmuxSettingsFileStore {
             [
                 "mobile": [
                     "artifactFolderAccess": SettingCatalog().mobile.artifactFolderAccess.defaultValue.rawValue,
+                    "browserTunnel": [
+                        "allowOtherHosts": SettingCatalog().mobile.browserTunnelAllowOtherHosts.defaultValue,
+                    ],
                 ],
             ],
             [

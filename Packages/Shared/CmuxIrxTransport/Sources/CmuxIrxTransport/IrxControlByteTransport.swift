@@ -438,11 +438,14 @@ public actor IrxControlByteTransport: CmxByteTransport {
         defer { connectInFlight = nil }
         let established = try await task.value
         guard !isClosed else {
+            // Closed while the dial was in flight, typically because a newer
+            // RPC client generation replaced this one. This owner never read
+            // or wrote the lane, so the admitted session is intact: hand the
+            // claim back and leave the session to the owner that replaced
+            // us. Retiring it here forced a second dial on every supersede.
+            // Revocation and scope changes close the engine directly.
             lastConnection = established.0
-            await closeEstablishedPair(
-                connection: established.0,
-                lane: established.1
-            )
+            await onClose?(established.0, closeCode, false)
             throw IrxConnectionError.closed(nil)
         }
         lastConnection = established.0

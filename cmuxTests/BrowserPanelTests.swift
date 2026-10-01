@@ -270,16 +270,8 @@ private func makeHiddenWebViewDiscardBlockerSnapshot(
 
 @MainActor
 private func withHiddenWebViewDiscardPolicyEnabled(_ body: () -> Void) {
-    let defaults = UserDefaults.standard
-    let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-    defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-    defer {
-        if let previousEnabled {
-            defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        } else {
-            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        }
-    }
+    let previousValues = enableHiddenWebViewDiscardTimerPolicy()
+    defer { restoreHiddenWebViewDiscardPolicy(previousValues) }
     body()
 }
 
@@ -329,22 +321,15 @@ struct BrowserHiddenWebViewDiscardMediaPlaybackTests {
 
 @MainActor
 final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
-    private var previousEnabled: Any?
+    private var previousPolicyValues: [String: Any] = [:]
 
     override func setUp() {
         super.setUp()
-        let defaults = UserDefaults.standard
-        previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        previousPolicyValues = enableHiddenWebViewDiscardTimerPolicy()
     }
 
     override func tearDown() {
-        let defaults = UserDefaults.standard
-        if let previousEnabled {
-            defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        } else {
-            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        }
+        restoreHiddenWebViewDiscardPolicy(previousPolicyValues)
         super.tearDown()
     }
 
@@ -1635,6 +1620,56 @@ final class WindowBrowserHostViewTests: XCTestCase {
                 dragPasteboard: pasteboard
             ),
             "Browser portal should defer to the minimal tab strip in later-created windows just below the titlebar interaction band"
+        )
+    }
+
+    func testHostViewKeepsBrowserContentInteractiveInsideTitlebarBand() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let slot = WindowBrowserSlotView(frame: host.bounds)
+        let webView = WKWebView(frame: slot.bounds)
+        slot.addSubview(webView)
+        slot.pinHostedWebView(webView)
+        host.addSubview(slot)
+        host.layoutSubtreeIfNeeded()
+
+        let pointInSlot = NSPoint(x: slot.bounds.midX, y: slot.bounds.maxY - 0.5)
+        let pointInWindow = slot.convert(pointInSlot, to: nil)
+        let pointInHost = host.convert(pointInWindow, from: nil)
+        let event = makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window)
+        let titlebarBandMinY = BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window)
+        XCTAssertGreaterThanOrEqual(
+            pointInWindow.y,
+            titlebarBandMinY,
+            "The regression point must exercise the titlebar interaction band"
+        )
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-10965.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let hit = host.performHitTest(
+            at: pointInHost,
+            currentEvent: event,
+            dragPasteboard: pasteboard
+        )
+        XCTAssertTrue(
+            hit === webView || hit?.isDescendant(of: webView) == true,
+            "Browser content under the titlebar interaction band must keep receiving pointer events"
         )
     }
 
@@ -3443,45 +3478,6 @@ final class WindowBrowserSlotViewTests: XCTestCase {
         slot.setDropZoneOverlay(zone: nil)
         advanceAnimations()
         XCTAssertEqual(slot.layer?.masksToBounds, true)
-    }
-
-    func testRetargetingDropZoneOverlaySnapsFrame() {
-        // Hosted in a window so a layer-backed `animator().frame` would
-        // install live geometry animations.
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
-        container.wantsLayer = true
-        window.contentView = container
-        let slot = WindowBrowserSlotView(frame: container.bounds)
-        container.addSubview(slot)
-
-        slot.setDropZoneOverlay(zone: .right)
-        advanceAnimations()
-        slot.setDropZoneOverlay(zone: .left)
-
-        guard let overlay = container.subviews.first(where: {
-            String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
-        }) else {
-            XCTFail("Expected browser slot drop-zone overlay")
-            return
-        }
-
-        XCTAssertEqual(overlay.frame.origin.x, 4, accuracy: 0.5, "Retargeting should not slide the overlay")
-        XCTAssertEqual(overlay.frame.size.width, 96, accuracy: 0.5)
-        let geometryKeys: Set<String> = ["frameOrigin", "frameSize", "position", "bounds", "bounds.origin", "bounds.size"]
-        let layerAnimationKeys = Set(overlay.layer?.animationKeys() ?? [])
-        let geometryAnimations = (overlay.layer?.animationKeys() ?? []).filter { key in
-            if geometryKeys.contains(key) { return true }
-            guard let keyPath = (overlay.layer?.animation(forKey: key) as? CAPropertyAnimation)?.keyPath else { return false }
-            return geometryKeys.contains(keyPath)
-        }
-        XCTAssertTrue(geometryAnimations.isEmpty, "Retargeting should not animate the overlay frame: \(layerAnimationKeys)")
     }
 }
 

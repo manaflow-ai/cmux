@@ -207,7 +207,9 @@ struct GitStatusProvider: Sendable {
         if let identityFile { args += ["-i", identityFile] }
         for option in sshOptions { args += ["-o", option] }
         args += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
-        args += [destination, command]
+        // Forwarding stays as configured: without `ControlMaster=no` this run
+        // can become the shared master that interactive sessions reuse.
+        args += ["--", destination, command]
         process.arguments = args
         process.environment = environment
         let pipe = Pipe()

@@ -6,6 +6,9 @@ import Foundation
 /// Runs a fixed workload against the real mobile shell for a full observation window.
 @MainActor
 final class MobileIrohSoakRunner {
+    private static let normalCycleLimitSeconds = 30.0
+    private static let recoveredCycleLimitSeconds = 60.0
+
     enum Profile: String, Codable, Sendable {
         case basic
         case stress
@@ -33,12 +36,13 @@ final class MobileIrohSoakRunner {
             }
         }
 
-        let planVersion = 1
+        let planVersion = 2
         let profile: Profile
         let requestedDurationSeconds: Int
         var elapsedSeconds: Double = 0
         var completedCycles = 0
         var operationCounts: [String: Int] = [:]
+        var recoverableFailures: [String: Int] = [:]
         var operationLatencies: [String: OperationTiming] = [:]
         var currentOperation = "starting"
         var maximumCycleSeconds: Double = 0
@@ -49,6 +53,7 @@ final class MobileIrohSoakRunner {
         case connectionChanged = "soak_connection_changed"
         case connectionUnavailable = "soak_connection_unavailable"
         case cycleTooSlow = "soak_cycle_exceeded_30_seconds"
+        case recoveryCycleTooSlow = "soak_recovery_cycle_exceeded_60_seconds"
         case insufficientCoverage = "soak_insufficient_coverage"
         case pathPolicyMismatch = "soak_native_path_policy_mismatch"
     }
@@ -62,6 +67,7 @@ final class MobileIrohSoakRunner {
     private let requiresRelay: Bool
     private let allowForcedReconnect: Bool
     private var operationDeadline = ContinuousClock.now
+    private var terminalRecoveryAttempts = 0
 
     init(
         profile: Profile, durationSeconds: Int? = nil, minimumCycles: Int? = nil,
@@ -83,8 +89,10 @@ final class MobileIrohSoakRunner {
         marker: String,
         connection: @escaping @MainActor () async -> CmxTransportConnectionObservation?,
         probe: @escaping @MainActor (String) async throws -> MobileIrohReleaseGateProbeResult,
-        stress: @escaping @MainActor (Int, String) async throws -> [String: Double]
+        stress: @escaping @MainActor (Int, String) async throws -> [String: Double],
+        recovery: @escaping @MainActor () async -> Bool = { false }
     ) async throws -> MobileIrohReleaseGateProbeResult {
+        terminalRecoveryAttempts = 0
         let started = ContinuousClock.now
         operationDeadline = started.advanced(by: operationTimeout)
         // A task group would wait for an uncooperative terminal stream to finish.
@@ -94,9 +102,11 @@ final class MobileIrohSoakRunner {
             let work = Task { @MainActor in
                 do {
                     continuation.yield(.success(try await self.runWorkload(
-                        clock: clock, marker: marker, connection: connection, probe: probe, stress: stress
+                        clock: clock, marker: marker, connection: connection, probe: probe, stress: stress,
+                        recovery: recovery
                     )))
                 } catch {
+                    self.evidence.elapsedSeconds = Self.seconds(started.duration(to: .now))
                     continuation.yield(.failure(error))
                 }
                 continuation.finish()
@@ -111,7 +121,13 @@ final class MobileIrohSoakRunner {
                         self.evidence.maximumCycleSeconds = max(
                             self.evidence.maximumCycleSeconds, Self.seconds(self.operationTimeout)
                         )
-                        continuation.yield(.failure(Failure.cycleTooSlow))
+                        let failure: Failure = switch self.evidence.currentOperation {
+                        case "terminal_round_trip_recovery", "terminal_round_trip_retry":
+                            .recoveryCycleTooSlow
+                        default:
+                            .cycleTooSlow
+                        }
+                        continuation.yield(.failure(failure))
                         continuation.finish()
                         return
                     }
@@ -131,7 +147,8 @@ final class MobileIrohSoakRunner {
         marker: String,
         connection: () async -> CmxTransportConnectionObservation?,
         probe: (String) async throws -> MobileIrohReleaseGateProbeResult,
-        stress: (Int, String) async throws -> [String: Double]
+        stress: (Int, String) async throws -> [String: Double],
+        recovery: () async -> Bool
     ) async throws -> MobileIrohReleaseGateProbeResult {
         let started = clock.now
         let deadline = started.advanced(by: .seconds(durationSeconds))
@@ -145,8 +162,19 @@ final class MobileIrohSoakRunner {
             guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
             let cycle = evidence.completedCycles
             let cycleMarker = "\(marker)_\(cycle)"
+            var recoveredInCycle = false
             evidence.currentOperation = "app_rpc_and_terminal_round_trip"
-            last = try await probe(cycleMarker)
+            let transaction = try await operationWithRecovery(
+                marker: cycleMarker,
+                connection: connection,
+                operation: probe,
+                recovery: recovery
+            )
+            last = transaction.value
+            recoveredInCycle = transaction.recoveredConnection != nil
+            if let recoveredConnection = transaction.recoveredConnection {
+                expectedConnection = recoveredConnection
+            }
             try Task.checkCancellation()
             for (operation, seconds) in last?.operationLatencies ?? [:] {
                 evidence.operationLatencies[operation, default: .init()].record(seconds)
@@ -161,20 +189,35 @@ final class MobileIrohSoakRunner {
                 evidence.currentOperation = shouldForceReconnect ? "forced_reconnect" : [
                     "workspace_navigation", "unicode_output_burst", "workspace_create_close", "terminal_after_refresh",
                 ][cycle % 4]
-                for (operation, seconds) in try await stress(cycle, cycleMarker) {
+                let usage = try await operationWithRecovery(
+                    marker: cycleMarker,
+                    connection: connection,
+                    operation: { try await stress(cycle, $0) },
+                    recovery: recovery
+                )
+                for (operation, seconds) in usage.value {
                     try Task.checkCancellation()
                     evidence.operationCounts[operation, default: 0] += 1
                     evidence.operationLatencies[operation, default: .init()].record(seconds)
                 }
+                if let recoveredConnection = usage.recoveredConnection {
+                    expectedConnection = recoveredConnection
+                    recoveredInCycle = true
+                }
                 if shouldForceReconnect {
                     expectedConnection = try observe(await connection())
-                } else if try observe(await connection()) != expectedConnection {
-                    throw Failure.connectionChanged
+                } else {
+                    guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
                 }
             }
             let duration = Self.seconds(cycleStarted.duration(to: clock.now))
             evidence.maximumCycleSeconds = max(evidence.maximumCycleSeconds, duration)
-            guard duration <= 30 else { throw Failure.cycleTooSlow }
+            let cycleLimit = recoveredInCycle
+                ? Self.recoveredCycleLimitSeconds
+                : Self.normalCycleLimitSeconds
+            guard duration <= cycleLimit else {
+                throw recoveredInCycle ? Failure.recoveryCycleTooSlow : Failure.cycleTooSlow
+            }
             evidence.completedCycles += 1
             evidence.elapsedSeconds = Self.seconds(started.duration(to: clock.now))
             evidence.currentOperation = "interval"
@@ -185,7 +228,16 @@ final class MobileIrohSoakRunner {
         evidence.currentOperation = "final_terminal_round_trip"
         operationDeadline = ContinuousClock.now.advanced(by: operationTimeout)
         guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
-        last = try await probe("\(marker)_FINAL")
+        let final = try await operationWithRecovery(
+            marker: "\(marker)_FINAL",
+            connection: connection,
+            operation: probe,
+            recovery: recovery
+        )
+        last = final.value
+        if let recoveredConnection = final.recoveredConnection {
+            expectedConnection = recoveredConnection
+        }
         try Task.checkCancellation()
         for (operation, seconds) in last?.operationLatencies ?? [:] {
             evidence.operationLatencies[operation, default: .init()].record(seconds)
@@ -197,6 +249,44 @@ final class MobileIrohSoakRunner {
         }
         evidence.currentOperation = "complete"
         return last
+    }
+
+    private func operationWithRecovery<Value>(
+        marker: String,
+        connection: () async -> CmxTransportConnectionObservation?,
+        operation: (String) async throws -> Value,
+        recovery: () async -> Bool
+    ) async throws -> (value: Value, recoveredConnection: UInt64?) {
+        do {
+            return (try await operation(marker), nil)
+        } catch let failure as MobileIrohReleaseGateProbeFailure
+            where profile == .stress && failure == .terminalRoundTripFailed {
+            try Task.checkCancellation()
+            evidence.recoverableFailures[failure.rawValue, default: 0] += 1
+            guard terminalRecoveryAttempts == 0 else { throw failure }
+            terminalRecoveryAttempts += 1
+            evidence.currentOperation = "terminal_round_trip_recovery"
+            // A reconnect is a bounded recovery phase. Give it a fresh
+            // deadline so the normal 30-second transaction budget cannot
+            // terminate the run while the replacement connection is settling.
+            operationDeadline = ContinuousClock.now.advanced(by: .seconds(60))
+            let recovered = await recovery()
+            try Task.checkCancellation()
+            guard recovered else {
+                throw MobileIrohReleaseGateProbeFailure.soakReconnectFailed
+            }
+            // Pin the replacement before the retry. Another redial during the
+            // retried operation must still fail the outer continuity check.
+            let recoveredConnection = try observe(await connection())
+            evidence.currentOperation = "terminal_round_trip_retry"
+            do {
+                return (try await operation(marker + "_RETRY"), recoveredConnection)
+            } catch let retryFailure as MobileIrohReleaseGateProbeFailure
+                where retryFailure == .terminalRoundTripFailed {
+                evidence.recoverableFailures[retryFailure.rawValue, default: 0] += 1
+                throw retryFailure
+            }
+        }
     }
 
     private func observe(_ connection: CmxTransportConnectionObservation?) throws -> UInt64 {
