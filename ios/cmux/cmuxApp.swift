@@ -111,10 +111,12 @@ struct cmuxApp: App {
         } catch {
             preconditionFailure("Invalid mobile transport registrations: \(error)")
         }
+        let runtimeSupportedRouteKinds = transportFactory.supportedKinds
+        let runtimeTransportFactory: any CmxByteTransportFactory = transportFactory
 
         let runtime = CMUXMobileRuntime(
-            supportedRouteKinds: transportFactory.supportedKinds,
-            transportFactory: transportFactory,
+            supportedRouteKinds: runtimeSupportedRouteKinds,
+            transportFactory: runtimeTransportFactory,
             stackAccessTokenProvider: CMUXMobileRuntime.stackAccessTokenProvider(from: auth.coordinator),
             stackAccessTokenForStatusProvider: CMUXMobileRuntime.stackAccessTokenForStatusProvider(from: auth.coordinator),
             stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator),
