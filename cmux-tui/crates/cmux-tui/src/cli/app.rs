@@ -781,7 +781,10 @@ mod tests {
 
     #[test]
     fn app_requests_wait_for_the_app_to_catch_up_with_the_daemon() {
-        assert_eq!(with_read_barrier(json!({ "action": "x" })), json!({ "action": "x", "after": "sync" }));
+        assert_eq!(
+            with_read_barrier(json!({ "action": "x" })),
+            json!({ "action": "x", "after": "sync" })
+        );
         assert_eq!(with_read_barrier(json!({ "after": 12 })), json!({ "after": 12 }));
     }
 
