@@ -698,6 +698,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private nonisolated static let persistedWindowGeometryDefaultsKey = "cmux.session.lastWindowGeometry.v2"
 #if DEBUG
     nonisolated static var debugPersistedWindowGeometryDefaultsKey: String { persistedWindowGeometryDefaultsKey }
+
+    private nonisolated static func forgetPersistedWindowGeometryForTestProcess() {
+        UserDefaults.standard.removeObject(forKey: persistedWindowGeometryDefaultsKey)
+        removeLegacyPersistedWindowGeometry()
+    }
 #endif
     private nonisolated static let legacyPersistedWindowGeometryDefaultsKeys = [
         "cmux.session.lastWindowGeometry.v1"
