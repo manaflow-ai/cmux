@@ -127,6 +127,13 @@ public final class ConversationStore {
     }
 
     private func ingestLive(_ incoming: ConversationMessage) {
+        // An edit, tapback or receipt for a message above the loaded window
+        // must not pull it into the transcript (that would leave a gap); the
+        // page that contains it will carry its current state.
+        if indexByID[incoming.id] == nil, let seq = incoming.seq,
+           let oldest = messages.first(where: { $0.seq != nil })?.seq, seq < oldest {
+            return
+        }
         let isNew = upsert(incoming)
         if isNew {
             sortAndReindex()

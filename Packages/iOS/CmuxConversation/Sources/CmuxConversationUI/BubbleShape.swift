@@ -44,10 +44,10 @@ enum BubbleShape {
         let shoulder = max(r, h - r * 0.55)
         p.addLine(to: CGPoint(x: w, y: shoulder))
         // Outer edge of the tail: a concave sweep from the side down to the tip.
-        let tip = CGPoint(x: w + t * 0.55, y: h + d)
+        let tip = CGPoint(x: w + t * 0.95, y: h + d)
         p.addCurve(to: tip, controlPoint1: CGPoint(x: w, y: h - r * 0.05), controlPoint2: CGPoint(x: w - 1.5, y: h + d * 0.55))
         // Rounded tip, then the inner edge back into the bottom of the body.
-        p.addCurve(to: CGPoint(x: w - 4, y: h + d - 1.2), controlPoint1: CGPoint(x: w + t * 0.55 + 0.8, y: h + d + 0.9), controlPoint2: CGPoint(x: w - 2.2, y: h + d - 0.2))
+        p.addCurve(to: CGPoint(x: w - 4, y: h + d - 1.2), controlPoint1: CGPoint(x: w + t * 0.95 + 0.6, y: h + d + 0.9), controlPoint2: CGPoint(x: w - 2.2, y: h + d - 0.2))
         p.addCurve(to: CGPoint(x: w - r * 1.05, y: h), controlPoint1: CGPoint(x: w - 7, y: h + d * 0.55), controlPoint2: CGPoint(x: w - r * 0.65, y: h))
         p.addLine(to: CGPoint(x: r, y: h))
         p.addCurve(to: CGPoint(x: 0, y: h - r), controlPoint1: CGPoint(x: r * k, y: h), controlPoint2: CGPoint(x: 0, y: h - r * k))

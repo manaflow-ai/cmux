@@ -28,12 +28,16 @@ public struct ConversationRunPlan: Sendable, Equatable {
     public init(messages: [ConversationMessage], meID: String?, typingParticipantIDs: [String] = []) {
         // Status sits under the newest delivered/read message of mine; it moves
         // only once a newer one is delivered, never while that one is in flight.
-        let lastAckedOutgoing = messages.lastIndex { message in
+        var lastAckedOutgoing = messages.lastIndex { message in
             guard message.senderID == meID else { return false }
             switch message.delivery {
             case .delivered, .read: return true
             default: return false
             }
+        }
+        // Once someone replies below it, the status has done its job.
+        if let index = lastAckedOutgoing, messages[(index + 1)...].contains(where: { $0.senderID != meID }) {
+            lastAckedOutgoing = nil
         }
         var entries: [Entry] = []
         entries.reserveCapacity(messages.count)

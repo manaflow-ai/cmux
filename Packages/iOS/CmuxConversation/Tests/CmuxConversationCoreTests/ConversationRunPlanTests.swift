@@ -67,3 +67,13 @@ extension ConversationRunPlanTests {
         #expect(plan.entries.map(\.status) == [.delivered, .none])
     }
 }
+
+extension ConversationRunPlanTests {
+    @Test func statusHidesOnceSomeoneRepliesBelowIt() {
+        let plan = ConversationRunPlan(messages: [
+            ConversationMessage(id: "m1", seq: 1, clientMessageID: nil, senderID: "me", sentAt: Date(timeIntervalSince1970: 0), text: "a", delivery: .read(nil)),
+            ConversationMessage(id: "m2", seq: 2, clientMessageID: nil, senderID: "a", sentAt: Date(timeIntervalSince1970: 60), text: "b"),
+        ], meID: "me")
+        #expect(plan.entries.map(\.status) == [.none, .none])
+    }
+}

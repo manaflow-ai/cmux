@@ -29,6 +29,7 @@ final class MessageCell: UICollectionViewCell {
 
     private(set) var model: MessageRowModel?
     private var previousRowID: String?
+    private var imageRowID: String?
     private(set) var cellLayout: MessageCellLayout?
     private var imageTasks: [Task<Void, Never>] = []
 
@@ -87,6 +88,7 @@ final class MessageCell: UICollectionViewCell {
         imageTasks.forEach { $0.cancel() }
         imageTasks = []
         previousRowID = nil
+        imageRowID = nil
         timestampReveal = 0
         replyDrag = 0
         contentView.alpha = 1
@@ -169,10 +171,23 @@ final class MessageCell: UICollectionViewCell {
         // "Delivered" fades in over ~0.4 s when it first lands on this row.
         let sameRow = previousRowID == model.rowID
         let footerWasHidden = footerLabel.isHidden
+        let previousFooterText = footerLabel.text
         defer {
             if sameRow, footerWasHidden, !footerLabel.isHidden {
-                footerLabel.alpha = 0
-                UIView.animate(withDuration: 0.4, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) { self.footerLabel.alpha = 1 }
+                // A status landing on this row fades in over ~0.4 s.
+                UIView.performWithoutAnimation { self.footerLabel.alpha = 0 }
+                UIView.animate(withDuration: 0.45, delay: 0, options: [.curveEaseOut, .allowUserInteraction, .overrideInheritedDuration, .overrideInheritedCurve]) {
+                    self.footerLabel.alpha = 1
+                }
+            } else if sameRow, !footerWasHidden, footerLabel.isHidden {
+                // A status leaving this row fades out instead of vanishing.
+                footerLabel.isHidden = false
+                footerLabel.text = previousFooterText
+                UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseIn, .allowUserInteraction, .overrideInheritedDuration, .overrideInheritedCurve]) {
+                    self.footerLabel.alpha = 0
+                } completion: { _ in
+                    if self.model?.footer == MessageFooter.none { self.footerLabel.isHidden = true }
+                }
             } else if !footerLabel.isHidden {
                 footerLabel.alpha = 1
             }
@@ -232,6 +247,8 @@ final class MessageCell: UICollectionViewCell {
     }
 
     private func configureImages(model: MessageRowModel, layout: MessageCellLayout) {
+        let sameImageRow = imageRowID == model.rowID
+        imageRowID = model.rowID
         imageTasks.forEach { $0.cancel() }
         imageTasks = []
         while imageViews.count < layout.imageFrames.count {
@@ -265,7 +282,9 @@ final class MessageCell: UICollectionViewCell {
                 view.image = cached
                 continue
             }
-            view.image = nil
+            // Keep what this row already shows (the local copy) while the
+            // server copy decodes, so an ack never flashes the placeholder.
+            if !sameImageRow { view.image = nil }
             let rowID = model.rowID
             imageTasks.append(Task { @MainActor [weak self, weak view] in
                 let image = await ConversationImageLoader.shared.image(for: attachment, pixelWidth: pixelWidth)

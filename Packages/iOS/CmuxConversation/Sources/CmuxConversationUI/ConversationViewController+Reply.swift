@@ -7,6 +7,8 @@ import UIKit
 /// the header's trailing button becomes an X.
 final class ReplyThreadOverlay: UIView {
     let blur = UIVisualEffectView(effect: nil)
+    /// Darkens the blurred transcript so thread bubbles stand out (B05/B08).
+    let dim = UIView()
     let content = UIScrollView()
     var contentHeight: CGFloat = 0
     var onClose: (() -> Void)?
@@ -15,6 +17,9 @@ final class ReplyThreadOverlay: UIView {
         super.init(frame: frame)
         accessibilityIdentifier = "conversation.replyThread"
         addSubview(blur)
+        dim.backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor.black.withAlphaComponent(0.62) : UIColor.white.withAlphaComponent(0.45) }
+        dim.alpha = 0
+        addSubview(dim)
         addSubview(content)
         content.alwaysBounceVertical = true
         content.keyboardDismissMode = .interactive
@@ -60,7 +65,8 @@ extension ConversationViewController {
         overlay.content.transform = CGAffineTransform(translationX: 0, y: 24)
         composer.textView.becomeFirstResponder()
         UIView.animate(withDuration: 0.37, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
-            overlay.blur.effect = UIBlurEffect(style: .systemThinMaterial)
+            overlay.blur.effect = UIBlurEffect(style: .systemUltraThinMaterial)
+            overlay.dim.alpha = 1
             overlay.content.alpha = 1
             overlay.content.transform = .identity
         }
@@ -102,6 +108,7 @@ extension ConversationViewController {
         guard let overlay = replyOverlay else { return }
         overlay.frame = view.bounds
         overlay.blur.frame = overlay.bounds
+        overlay.dim.frame = overlay.bounds
         let width = view.bounds.width
         let y = overlay.contentHeight
         let headerBottom = header.frame.maxY
@@ -120,6 +127,7 @@ extension ConversationViewController {
         header.setTrailingMode(isSelecting ? .close : .action, animated: true)
         UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0) {
             overlay.blur.effect = nil
+            overlay.dim.alpha = 0
             overlay.content.alpha = 0
         } completion: { _ in
             overlay.removeFromSuperview()

@@ -64,7 +64,9 @@ final class MessageActionOverlay: UIView {
         dim.alpha = 0
         addSubview(blur)
         addSubview(dim)
-        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(backgroundTapped)))
+        let backgroundTap = UITapGestureRecognizer(target: self, action: #selector(backgroundTapped))
+        backgroundTap.cancelsTouchesInView = false
+        addGestureRecognizer(backgroundTap)
 
         snapshotClip.clipsToBounds = true
         snapshotClip.layer.cornerCurve = .continuous
@@ -299,6 +301,7 @@ final class MessageActionOverlay: UIView {
             accessibilityTraits = .button
             isAccessibilityElement = true
             accessibilityIdentifier = "conversation.menu.\(item.symbol)"
+            addAction(UIAction { [weak self] _ in self?.action() }, for: .touchUpInside)
         }
 
         @available(*, unavailable)
@@ -314,10 +317,6 @@ final class MessageActionOverlay: UIView {
             didSet { backgroundColor = isHighlighted ? UIColor.label.withAlphaComponent(0.08) : .clear }
         }
 
-        override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
-            super.endTracking(touch, with: event)
-            if let touch, bounds.contains(touch.location(in: self)) { action() }
-        }
     }
 }
 

@@ -40,6 +40,8 @@ public final class ConversationViewController: UIViewController {
     /// Set while `composerDidTapSend` inserts the optimistic row.
     var pendingFlight: SendFlight?
     var composerBottomConstraint: NSLayoutConstraint?
+    /// Shown until the newest page arrives (slow links can take seconds).
+    let initialSpinner = UIActivityIndicatorView(style: .medium)
     lazy var cameraDelegate: ConversationMediaDelegate = {
         let delegate = ConversationMediaDelegate()
         delegate.controller = self
@@ -153,6 +155,14 @@ public final class ConversationViewController: UIViewController {
         }
 
         installGestures()
+        initialSpinner.translatesAutoresizingMaskIntoConstraints = false
+        initialSpinner.startAnimating()
+        initialSpinner.accessibilityIdentifier = "conversation.initialLoading"
+        view.insertSubview(initialSpinner, belowSubview: header)
+        NSLayoutConstraint.activate([
+            initialSpinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            initialSpinner.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+        ])
         NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.dismissPhotoDrawer() }
         }
@@ -193,10 +203,13 @@ public final class ConversationViewController: UIViewController {
         let old = collectionView.contentInset
         guard old.top != top || old.bottom != bottom else { return }
         let delta = bottom - old.bottom
+        // Measured against the old inset: a reader at the bottom stays pinned
+        // as the keyboard or composer grows; a reader scrolled up stays put.
+        let wasAtBottom = isNearBottom(tolerance: 44)
         collectionView.contentInset = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
         collectionView.verticalScrollIndicatorInsets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
         if old.top != top { layout.invalidateLayout() }
-        if delta != 0, !collectionView.isTracking, hasPositionedInitially {
+        if delta != 0, !collectionView.isTracking, hasPositionedInitially, wasAtBottom || delta < 0 {
             let maxOffset = max(-top, collectionView.contentSize.height + bottom - collectionView.bounds.height)
             var offset = collectionView.contentOffset
             offset.y = min(max(-top, offset.y + delta), maxOffset)
@@ -229,6 +242,10 @@ public final class ConversationViewController: UIViewController {
     }
 
     func rebuild(change: ConversationStoreChange) {
+        if store.hasLoadedNewest, initialSpinner.isAnimating {
+            initialSpinner.stopAnimating()
+            initialSpinner.isHidden = true
+        }
         let newRows = ConversationRowBuilder.rows(store: store)
         apply(newRows, change: change)
         if let info = store.info, header.window != nil, !hasConfiguredHeader {
@@ -289,15 +306,14 @@ public final class ConversationViewController: UIViewController {
         let inserted = newIDs.enumerated().compactMap { oldIndex[$0.element] == nil ? IndexPath(item: $0.offset, section: 0) : nil }
         let commonOld = oldIDs.filter { newIndex[$0] != nil }
         let commonNew = newIDs.filter { oldIndex[$0] != nil }
-        // Reconfigure takes pre-update index paths (like reload), so a prepend
-        // above a changed row must not shift the path we pass.
+        // Changed rows are refreshed after the structural batch applies, with
+        // post-update paths: inside a batch, reconfigure would dequeue against
+        // the new data at a pre-update path and hit a different row kind.
         var updated: [IndexPath] = []
-        var updatedOld: [IndexPath] = []
         if commonOld == commonNew {
             for id in commonNew {
                 guard let o = oldIndex[id], let n = newIndex[id], rows[o] != newRows[n] else { continue }
                 updated.append(IndexPath(item: n, section: 0))
-                updatedOld.append(IndexPath(item: o, section: 0))
             }
         }
         let structural = commonOld == commonNew
@@ -339,16 +355,24 @@ public final class ConversationViewController: UIViewController {
             if structural {
                 self.collectionView.deleteItems(at: deleted)
                 self.collectionView.insertItems(at: inserted)
-                if !updatedOld.isEmpty { self.collectionView.reconfigureItems(at: updatedOld) }
             } else {
                 self.collectionView.reloadSections(IndexSet(integer: 0))
             }
         }
 
+        if animateLive, sentByMe, !wasAtBottom {
+            // Far from the bottom, jump there first so the send never animates
+            // through unloaded history (which would flash blank frames).
+            UIView.performWithoutAnimation {
+                self.collectionView.contentOffset = self.bottomOffset
+                self.collectionView.layoutIfNeeded()
+            }
+        }
         if animateLive, wasAtBottom || sentByMe {
             // Pinned: insertions and the scroll to the new bottom share one spring.
             UIView.animate(withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
                 self.collectionView.performBatchUpdates(updates)
+                if structural, !updated.isEmpty { self.collectionView.reconfigureItems(at: updated) }
                 self.collectionView.layoutIfNeeded()
                 self.collectionView.contentOffset = self.bottomOffset
             }
@@ -356,12 +380,14 @@ public final class ConversationViewController: UIViewController {
             // Away from bottom: animate in place, keep the reader's anchor fixed.
             UIView.animate(withDuration: 0.3, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
                 self.collectionView.performBatchUpdates(updates)
+                if structural, !updated.isEmpty { self.collectionView.reconfigureItems(at: updated) }
                 self.collectionView.layoutIfNeeded()
                 self.restore(anchor)
             }
         } else {
             UIView.performWithoutAnimation {
                 self.collectionView.performBatchUpdates(updates)
+                if structural, !updated.isEmpty { self.collectionView.reconfigureItems(at: updated) }
                 self.collectionView.layoutIfNeeded()
                 self.restore(anchor)
             }
@@ -466,6 +492,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         // A flight is pinned to the screen; once the reader scrolls, show the real row.
         landAllFlights()
+        dismissPhotoDrawer()
     }
 
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {

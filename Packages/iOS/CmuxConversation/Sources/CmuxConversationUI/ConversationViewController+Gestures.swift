@@ -137,6 +137,10 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
 
     @objc private func handleTap(_ tap: UITapGestureRecognizer) {
         let point = tap.location(in: collectionView)
+        if photoDrawer != nil {
+            dismissPhotoDrawer()
+            return
+        }
         guard let cell = messageCell(at: point, requireContentHit: false), let model = cell.model else {
             return
         }

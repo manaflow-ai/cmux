@@ -298,3 +298,21 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
         #expect(store.messages.count == 60)
     }
 }
+
+@MainActor
+@Suite struct ConversationStoreWindowTests {
+    @Test func updatesAboveTheLoadedWindowAreNotInserted() async throws {
+        let backend = ScriptedBackend(total: 100)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        var old = backend.makeMessage(seq: 12, sender: "lc")
+        old.reactions = [ConversationReactionMark(participantID: "aw", reaction: .question)]
+        store.apply(.message(old, eventSeq: 1))
+        #expect(store.message(id: "m12") == nil)
+        #expect(store.messages.compactMap(\.seq) == Array(71...100))
+        store.loadOlder()
+        try await waitUntil { store.messages.count == 60 }
+        #expect(store.messages.compactMap(\.seq) == Array(41...100))
+    }
+}
