@@ -67,7 +67,7 @@ struct ColumnCloseScrollTests {
         view.model.focus("c")
         await settle(view) {
             guard let frame = view.frame(of: "c") else { return false }
-            return !view.driver.isRunning && frame.minX > 0 && frame.maxX <= view.bounds.maxX
+            return !view.driver.isRunning && frame.minX > 0 && frame.maxX <= screen.bounds.maxX
         }
         let before = view.frame(of: "c")
         #expect(before != nil)
@@ -76,7 +76,7 @@ struct ColumnCloseScrollTests {
         await settle(view) {
             guard let frame = view.frame(of: "c") else { return false }
             return screen.geometry.columnOrder.count == 3 && !view.driver.isRunning
-                && frame.minX > 0 && frame.maxX <= view.bounds.maxX
+                && frame.minX > 0 && frame.maxX <= screen.bounds.maxX
         }
         #expect(view.frame(of: "c") == before)
         withExtendedLifetime(provider) {}
