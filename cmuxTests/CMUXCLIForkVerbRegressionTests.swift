@@ -15,51 +15,6 @@ struct CMUXCLIForkVerbRegressionTests {
     private final class BundleToken {}
 
     @Test
-    func claudeForkSeedsTranscriptWhenDestinationCwdDiffers() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-claude-fork-seed-\(UUID().uuidString)")
-        let config = root.appendingPathComponent("claude-config")
-        let source = root.appendingPathComponent("source")
-        let destination = root.appendingPathComponent("destination")
-        let sessionID = "seed-session"
-        let sourceProject = config.appendingPathComponent("projects").appendingPathComponent(
-            source.path.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
-        )
-        try FileManager.default.createDirectory(at: sourceProject, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
-        let sourceTranscript = sourceProject.appendingPathComponent("\(sessionID).jsonl")
-        try Data("{\"type\":\"user\"}\n".utf8).write(to: sourceTranscript)
-        let sourceSidecar = sourceProject.appendingPathComponent(sessionID)
-        try FileManager.default.createDirectory(at: sourceSidecar, withIntermediateDirectories: true)
-        let sourceSidecarFile = sourceSidecar.appendingPathComponent("state.json")
-        try Data("{\"state\":\"fixture\"}".utf8).write(to: sourceSidecarFile)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let targetProject = config.appendingPathComponent("projects").appendingPathComponent(
-            destination.path.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
-        )
-        try await ClaudeTranscriptForkSeeder().seed(ClaudeTranscriptForkSeedRequest(
-            sessionID: sessionID,
-            sourceWorkingDirectory: source.path,
-            targetWorkingDirectory: destination.path,
-            configDirectory: config.path
-        ))
-
-        let targetTranscript = targetProject.appendingPathComponent("\(sessionID).jsonl")
-        #expect(FileManager.default.fileExists(atPath: targetTranscript))
-        let copiedTranscript = try Data(contentsOf: targetTranscript)
-        let sourceTranscriptData = try Data(contentsOf: sourceTranscript)
-        #expect(copiedTranscript == sourceTranscriptData)
-        let targetSidecar = targetTranscript.deletingPathExtension()
-        #expect(FileManager.default.fileExists(atPath: targetSidecar.path))
-        let targetSidecarFile = targetSidecar.appendingPathComponent("state.json")
-        let copiedSidecar = try Data(contentsOf: targetSidecarFile)
-        let sourceSidecarData = try Data(contentsOf: sourceSidecarFile)
-        #expect(copiedSidecar == sourceSidecarData)
-    }
-
-    @Test
     func snapshotForkVerbUsesNativeAndRegistrationForkArgv() throws {
         let sessionID = "fork-session"
         let nativeCases: [(RestorableAgentKind, String, [String])] = [

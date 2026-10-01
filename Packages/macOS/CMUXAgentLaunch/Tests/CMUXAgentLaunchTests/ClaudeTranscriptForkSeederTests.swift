@@ -13,10 +13,8 @@ struct ClaudeTranscriptForkSeederTests {
         let source = root.appendingPathComponent("source")
         let destination = root.appendingPathComponent("destination")
         let sessionID = "seed-session"
-        let encodedSource = source.path.replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ".", with: "-")
-        let encodedDestination = destination.path.replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ".", with: "-")
+        let encodedSource = ClaudeProjectSlug().slug(forWorkingDirectory: source.path)
+        let encodedDestination = ClaudeProjectSlug().slug(forWorkingDirectory: destination.path)
         let sourceProject = config.appendingPathComponent("projects").appendingPathComponent(encodedSource)
         try FileManager.default.createDirectory(at: sourceProject, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
@@ -48,5 +46,43 @@ struct ClaudeTranscriptForkSeederTests {
         try FileManager.default.removeItem(at: targetProject.appendingPathComponent(sessionID))
         try await ClaudeTranscriptForkSeeder().seed(request)
         #expect(FileManager.default.fileExists(atPath: targetSidecarFile.path))
+    }
+}
+
+extension ClaudeTranscriptForkSeederTests {
+    @Test
+    func findsNestedTranscriptWithClaudeSlugAndRejectsDirectoryCandidate() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-seeder-nested-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let config = root.appendingPathComponent("config")
+        let source = root.appendingPathComponent("source folder/é")
+        let destination = root.appendingPathComponent("destination folder/é")
+        let sessionID = "nested-session"
+        let sourceProject = config.appendingPathComponent("projects")
+            .appendingPathComponent(ClaudeProjectSlug().slug(forWorkingDirectory: source.path))
+        let nestedDirectory = sourceProject.appendingPathComponent(sessionID).appendingPathComponent("messages")
+        try FileManager.default.createDirectory(at: nestedDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: sourceProject.appendingPathComponent("\(sessionID).jsonl"), withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        let sourceTranscript = nestedDirectory.appendingPathComponent("\(sessionID).jsonl")
+        try Data("{\"type\":\"nested\"}\n".utf8).write(to: sourceTranscript)
+
+        try await ClaudeTranscriptForkSeeder().seed(ClaudeTranscriptForkSeedRequest(
+            sessionID: sessionID,
+            sourceWorkingDirectory: source.path,
+            targetWorkingDirectory: destination.path,
+            configDirectory: config.path
+        ))
+
+        let targetTranscript = config.appendingPathComponent("projects")
+            .appendingPathComponent(ClaudeProjectSlug().slug(forWorkingDirectory: destination.path))
+            .appendingPathComponent(sessionID).appendingPathComponent("messages/\(sessionID).jsonl")
+        let copied = try Data(contentsOf: targetTranscript)
+        let sourceData = try Data(contentsOf: sourceTranscript)
+        #expect(copied == sourceData)
     }
 }

@@ -38,10 +38,8 @@ public struct ClaudeTranscriptForkSeeder: Sendable {
         let fileManager = FileManager.default
         let projectsRoot = (request.configDirectory as NSString).appendingPathComponent("projects")
         let targetProject = (projectsRoot as NSString).appendingPathComponent(
-            encodeProjectDirectory(request.targetWorkingDirectory)
+            ClaudeProjectSlug().slug(forWorkingDirectory: request.targetWorkingDirectory)
         )
-        let targetTranscript = (targetProject as NSString).appendingPathComponent("\(request.sessionID).jsonl")
-        let targetSidecar = (targetTranscript as NSString).deletingPathExtension
         let sourceTranscript = findSourceTranscript(
             sessionID: request.sessionID,
             sourceWorkingDirectory: request.sourceWorkingDirectory,
@@ -49,8 +47,10 @@ public struct ClaudeTranscriptForkSeeder: Sendable {
             fileManager: fileManager
         )
         guard let sourceTranscript else { return }
+        let targetTranscript = (targetProject as NSString).appendingPathComponent(sourceTranscript.relativePath)
+        let targetSidecar = (targetProject as NSString).appendingPathComponent(request.sessionID)
 
-        let sourceSidecar = (sourceTranscript as NSString).deletingPathExtension
+        let sourceSidecar = (sourceTranscript.projectPath as NSString).appendingPathComponent(request.sessionID)
         var sourceSidecarIsDirectory: ObjCBool = false
         let hasSourceSidecar = fileManager.fileExists(
             atPath: sourceSidecar,
@@ -61,11 +61,11 @@ public struct ClaudeTranscriptForkSeeder: Sendable {
         guard !hasTargetTranscript || (hasSourceSidecar && !hasTargetSidecar) else { return }
 
         try fileManager.createDirectory(atPath: targetProject, withIntermediateDirectories: true)
-        if !hasTargetTranscript {
-            try copyAtomically(sourceTranscript, to: targetTranscript, fileManager: fileManager)
-        }
         if hasSourceSidecar && !hasTargetSidecar {
             try copyAtomically(sourceSidecar, to: targetSidecar, fileManager: fileManager)
+        }
+        if !hasTargetTranscript && !fileManager.fileExists(atPath: targetTranscript) {
+            try copyAtomically(sourceTranscript.path, to: targetTranscript, fileManager: fileManager)
         }
     }
 
@@ -74,32 +74,56 @@ public struct ClaudeTranscriptForkSeeder: Sendable {
         sourceWorkingDirectory: String?,
         projectsRoot: String,
         fileManager: FileManager
-    ) -> String? {
+    ) -> TranscriptLocation? {
         if let sourceWorkingDirectory {
             let sourceProject = (projectsRoot as NSString).appendingPathComponent(
-                encodeProjectDirectory(sourceWorkingDirectory)
+                ClaudeProjectSlug().slug(forWorkingDirectory: sourceWorkingDirectory)
             )
-            let candidate = (sourceProject as NSString).appendingPathComponent("\(sessionID).jsonl")
-            if fileManager.fileExists(atPath: candidate) { return candidate }
+            if let location = transcriptLocation(
+                projectPath: sourceProject, sessionID: sessionID, fileManager: fileManager
+            ) { return location }
         }
         guard let projectNames = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else { return nil }
         for projectName in projectNames {
-            let candidate = ((projectsRoot as NSString).appendingPathComponent(projectName) as NSString)
-                .appendingPathComponent("\(sessionID).jsonl")
-            if fileManager.fileExists(atPath: candidate) { return candidate }
+            let projectPath = (projectsRoot as NSString).appendingPathComponent(projectName)
+            if let location = transcriptLocation(
+                projectPath: projectPath, sessionID: sessionID, fileManager: fileManager
+            ) { return location }
         }
         return nil
     }
 
+    private static func transcriptLocation(
+        projectPath: String, sessionID: String, fileManager: FileManager
+    ) -> TranscriptLocation? {
+        let candidates = [
+            "\(sessionID).jsonl",
+            "\(sessionID)/messages/\(sessionID).jsonl"
+        ]
+        for relativePath in candidates {
+            let path = (projectPath as NSString).appendingPathComponent(relativePath)
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue,
+                  (try? fileManager.attributesOfItem(atPath: path)[.type] as? FileAttributeType) == .typeRegular
+            else { continue }
+            return TranscriptLocation(path: path, projectPath: projectPath, relativePath: relativePath)
+        }
+        return nil
+    }
+
+    private struct TranscriptLocation {
+        let path: String
+        let projectPath: String
+        let relativePath: String
+    }
+
     private static func copyAtomically(_ source: String, to destination: String, fileManager: FileManager) throws {
+        let destinationDirectory = (destination as NSString).deletingLastPathComponent
+        try fileManager.createDirectory(atPath: destinationDirectory, withIntermediateDirectories: true)
         let temporaryDestination = "\(destination).tmp-\(UUID().uuidString)"
         defer { try? fileManager.removeItem(atPath: temporaryDestination) }
         try fileManager.copyItem(atPath: source, toPath: temporaryDestination)
         try fileManager.moveItem(atPath: temporaryDestination, toPath: destination)
     }
 
-    private static func encodeProjectDirectory(_ path: String) -> String {
-        path.replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ".", with: "-")
-    }
 }
