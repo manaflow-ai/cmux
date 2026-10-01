@@ -13,9 +13,9 @@ import Testing
 
     @Test func crashesOutsideTheWindowAreForgotten() {
         var reloads = AgentPaneCrashReloads()
-        for second in 0..<AgentPaneCrashReloads.limit {
-            #expect(reloads.shouldReload(at: start.addingTimeInterval(Double(second))))
-        }
-        #expect(reloads.shouldReload(at: start.addingTimeInterval(AgentPaneCrashReloads.window + 1)))
+        let decisions = (0..<AgentPaneCrashReloads.limit).map { reloads.shouldReload(at: start.addingTimeInterval(Double($0))) }
+        #expect(decisions.allSatisfy { $0 })
+        let later = reloads.shouldReload(at: start.addingTimeInterval(AgentPaneCrashReloads.window + 1))
+        #expect(later)
     }
 }
