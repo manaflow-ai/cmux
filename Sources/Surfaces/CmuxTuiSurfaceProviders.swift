@@ -99,14 +99,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         info.portDiscoveryState = portDiscovery.state
         catalog.updateMachine(info, from: self)
     }
-
     @discardableResult
     func requestPortDiscovery() -> UInt64 {
         let request = portDiscovery.request()
         publishPortDiscovery()
         return request
     }
-
     func abandonPortDiscoveryRequest(_ request: UInt64) {
         let previousState = portDiscovery.state
         portDiscovery.abandonRequest(request)
@@ -209,7 +207,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             installNotificationSync()
         }
     }
-
     /// Stops machine-bound activity while retaining this provider and its graph.
     /// The control plane may report the machine running again later.
     func stopTransportResources() {
@@ -217,7 +214,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         displayCoordinator.stop()
         portDiscovery.invalidate()
     }
-
     private func stopSharedTransportResources() {
         lifecycleGeneration &+= 1
         guestURLService?.stop()
@@ -243,7 +239,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         for task in remoteTerminalProjectionTasks.values { task.cancel() }
         remoteTerminalProjectionTasks.removeAll()
     }
-
     func update(summary: VMSummary) {
         guard let current = catalog.provider(for: machine), ObjectIdentifier(current) == ObjectIdentifier(self) else { return }
         isFeatureSuspended = false
@@ -292,7 +287,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let inactive = current.withStatus(status)
         update(summary: inactive)
     }
-
     /// Retires every attachment and transport task this provider owns.
     ///
     /// - Parameter stopReason: What open panes present afterwards. Panes stay
@@ -343,7 +337,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         info.linkError = detail
         catalog.updateMachine(info, from: self)
     }
-
     /// One refresh pass. Sleeping machines retain their graph without being woken.
     func performRefresh(force: Bool) async -> Bool {
         guard !hasLostAccess else { return false }
@@ -1777,9 +1770,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             await Task.yield()
             guard !Task.isCancelled, let self else { return }
             self.scheduledRefresh = nil
-            guard self.lifecycleGeneration == lifecycle, self.isRegisteredInCatalog() else { return }
             let requestedForce = self.scheduledRefreshForce
             self.scheduledRefreshForce = false
+            guard self.lifecycleGeneration == lifecycle, self.isRegisteredInCatalog() else { return }
+            if requestedForce { await self.refreshDisplays() }
             await self.refreshCurrentGraph(force: requestedForce)
         }
     }
