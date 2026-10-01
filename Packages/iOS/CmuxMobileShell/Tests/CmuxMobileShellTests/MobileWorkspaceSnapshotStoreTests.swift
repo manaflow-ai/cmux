@@ -6,7 +6,7 @@ import Testing
 @MainActor
 struct MobileWorkspaceSnapshotStoreTests {
     @Test
-    func snapshotsRoundTripWithoutAuthorityOrTerminalOutput() {
+    func snapshotsRoundTripWithoutAuthorityOrTerminalOutput() async {
         let defaults = UserDefaults(suiteName: "cmux.snapshot-tests.\(UUID().uuidString)")!
         let store = MobileWorkspaceSnapshotStore(defaults: defaults)
         let pairing = MacPairingKey(macDeviceID: "mac-a", instanceTag: "nightly")
@@ -29,7 +29,7 @@ struct MobileWorkspaceSnapshotStoreTests {
             )
         )
 
-        store.save(state: state, userID: "user-a", teamID: "team-a", pairing: pairing)
+        await store.save(state: state, userID: "user-a", teamID: "team-a", pairing: pairing)
         let restored = store.load(userID: "user-a", teamID: "team-a", pairing: pairing)
 
         #expect(restored?.workspaces == [workspace])
@@ -41,7 +41,7 @@ struct MobileWorkspaceSnapshotStoreTests {
     }
 
     @Test
-    func loadAllReturnsOnlyTheCurrentAccountAndTeamScope() {
+    func loadAllReturnsOnlyTheCurrentAccountAndTeamScope() async {
         let defaults = UserDefaults(suiteName: "cmux.snapshot-tests." + UUID().uuidString)!
         let store = MobileWorkspaceSnapshotStore(defaults: defaults)
         let nightly = MacPairingKey(macDeviceID: "mac-a", instanceTag: "nightly")
@@ -63,9 +63,9 @@ struct MobileWorkspaceSnapshotStoreTests {
             )
         }
 
-        store.save(state: state(for: nightly), userID: "user-a", teamID: "team-a", pairing: nightly)
-        store.save(state: state(for: stable), userID: "user-a", teamID: "team-a", pairing: stable)
-        store.save(state: state(for: other), userID: "user-b", teamID: "team-a", pairing: other)
+        await store.save(state: state(for: nightly), userID: "user-a", teamID: "team-a", pairing: nightly)
+        await store.save(state: state(for: stable), userID: "user-a", teamID: "team-a", pairing: stable)
+        await store.save(state: state(for: other), userID: "user-b", teamID: "team-a", pairing: other)
 
         let loaded = store.loadAll(userID: "user-a", teamID: "team-a")
         #expect(Set(loaded.map(\.0)) == [nightly, stable])
@@ -74,7 +74,7 @@ struct MobileWorkspaceSnapshotStoreTests {
     }
 
     @Test
-    func authoritativeEmptyListRemovesThePreviousPreview() {
+    func authoritativeEmptyListRemovesThePreviousPreview() async {
         let defaults = UserDefaults(suiteName: "cmux.snapshot-tests." + UUID().uuidString)!
         let store = MobileWorkspaceSnapshotStore(defaults: defaults)
         let pairing = MacPairingKey(macDeviceID: "mac-a", instanceTag: "nightly")
@@ -99,15 +99,15 @@ struct MobileWorkspaceSnapshotStoreTests {
             workspaceSnapshotIsAuthoritative: true
         )
 
-        store.save(state: connected, userID: "user-a", teamID: "team-a", pairing: pairing)
-        store.save(state: empty, userID: "user-a", teamID: "team-a", pairing: pairing)
+        await store.save(state: connected, userID: "user-a", teamID: "team-a", pairing: pairing)
+        await store.save(state: empty, userID: "user-a", teamID: "team-a", pairing: pairing)
 
         #expect(store.load(userID: "user-a", teamID: "team-a", pairing: pairing) == nil)
         #expect(store.loadAll(userID: "user-a", teamID: "team-a").isEmpty)
     }
 
     @Test
-    func authoritativeEmptyGroupsRemainAuthoritativeAfterRestore() {
+    func authoritativeEmptyGroupsRemainAuthoritativeAfterRestore() async {
         let defaults = UserDefaults(suiteName: "cmux.snapshot-tests." + UUID().uuidString)!
         let store = MobileWorkspaceSnapshotStore(defaults: defaults)
         let pairing = MacPairingKey(macDeviceID: "mac-a", instanceTag: "nightly")
@@ -120,13 +120,13 @@ struct MobileWorkspaceSnapshotStoreTests {
             workspaceSnapshotIsAuthoritative: true
         )
 
-        store.save(state: state, userID: "user-a", teamID: "team-a", pairing: pairing)
+        await store.save(state: state, userID: "user-a", teamID: "team-a", pairing: pairing)
 
         #expect(store.load(userID: "user-a", teamID: "team-a", pairing: pairing)?.workspaceGroupsAreAuthoritative == true)
     }
 
     @Test
-    func malformedSnapshotsAreRemovedWhenTheStoreIsTouched() {
+    func malformedSnapshotsAreRemovedWhenTheStoreIsTouched() async {
         let defaults = UserDefaults(suiteName: "cmux.snapshot-tests." + UUID().uuidString)!
         let store = MobileWorkspaceSnapshotStore(defaults: defaults)
         let pairing = MacPairingKey(macDeviceID: "mac-a", instanceTag: "nightly")
@@ -137,7 +137,7 @@ struct MobileWorkspaceSnapshotStoreTests {
             status: .connected,
             workspaceSnapshotIsAuthoritative: true
         )
-        store.save(state: state, userID: "user-a", teamID: "team-a", pairing: pairing)
+        await store.save(state: state, userID: "user-a", teamID: "team-a", pairing: pairing)
         let storageKey = defaults.dictionaryRepresentation().keys.first { $0.contains("cmux.mobile.v2.workspace-snapshot.") }!
         defaults.set(Data("not-json".utf8), forKey: storageKey)
 
@@ -146,7 +146,7 @@ struct MobileWorkspaceSnapshotStoreTests {
     }
 
     @Test
-    func expiredSnapshotsAreRemovedWhenTheStoreIsTouched() {
+    func expiredSnapshotsAreRemovedWhenTheStoreIsTouched() async {
         let defaults = UserDefaults(suiteName: "cmux.snapshot-tests." + UUID().uuidString)!
         let store = MobileWorkspaceSnapshotStore(defaults: defaults)
         let pairing = MacPairingKey(macDeviceID: "mac-a", instanceTag: "nightly")
@@ -157,7 +157,7 @@ struct MobileWorkspaceSnapshotStoreTests {
             status: .connected,
             workspaceSnapshotIsAuthoritative: true
         )
-        store.save(state: state, userID: "user-a", teamID: "team-a", pairing: pairing)
+        await store.save(state: state, userID: "user-a", teamID: "team-a", pairing: pairing)
         let storageKey = defaults.dictionaryRepresentation().keys.first { $0.contains("cmux.mobile.v2.workspace-snapshot.") }!
         var object = try! JSONSerialization.jsonObject(with: defaults.data(forKey: storageKey)!) as! [String: Any]
         object["savedAt"] = Date(timeIntervalSinceNow: -8 * 24 * 60 * 60).timeIntervalSinceReferenceDate

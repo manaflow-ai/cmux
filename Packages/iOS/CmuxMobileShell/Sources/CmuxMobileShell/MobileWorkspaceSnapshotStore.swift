@@ -7,7 +7,83 @@ public import Foundation
 /// mutations or terminal streaming are allowed.
 @MainActor
 public final class MobileWorkspaceSnapshotStore {
-    private struct Record: Codable {
+    private final class DefaultsBox: @unchecked Sendable {
+        let value: UserDefaults
+
+        init(_ value: UserDefaults) {
+            self.value = value
+        }
+    }
+
+    private actor Persistence {
+        private let defaults: DefaultsBox
+        private let maxRecords: Int
+        private var knownKeys: Set<String>?
+        private var savedAtByKey: [String: Date] = [:]
+        private var latestRevisionByKey: [String: UInt64] = [:]
+
+        init(defaults: DefaultsBox, maxRecords: Int) {
+            self.defaults = defaults
+            self.maxRecords = maxRecords
+        }
+
+        func save(
+            data: Data,
+            key: String,
+            savedAt: Date,
+            revision: UInt64,
+            namespace: String
+        ) {
+            if let latest = latestRevisionByKey[key], revision < latest { return }
+            latestRevisionByKey[key] = revision
+            defaults.value.set(data, forKey: key)
+            var keys = knownKeys ?? Set(
+                defaults.value.dictionaryRepresentation().keys.filter { $0.hasPrefix(namespace) }
+            )
+            keys.insert(key)
+            knownKeys = keys
+            savedAtByKey[key] = savedAt
+            enforceLimit(keys: keys)
+        }
+
+        func remove(key: String, revision: UInt64) {
+            if let latest = latestRevisionByKey[key], revision < latest { return }
+            latestRevisionByKey[key] = revision
+            defaults.value.removeObject(forKey: key)
+            knownKeys?.remove(key)
+            savedAtByKey[key] = nil
+        }
+
+        private func enforceLimit(keys: Set<String>) {
+            guard keys.count > maxRecords else { return }
+            for key in keys where savedAtByKey[key] == nil {
+                savedAtByKey[key] = Self.savedAt(
+                    from: defaults.value.data(forKey: key)
+                ) ?? .distantPast
+            }
+            let keep = Set(
+                keys.sorted {
+                    (savedAtByKey[$0] ?? .distantPast) > (savedAtByKey[$1] ?? .distantPast)
+                }.prefix(maxRecords)
+            )
+            for key in keys where !keep.contains(key) {
+                defaults.value.removeObject(forKey: key)
+                savedAtByKey[key] = nil
+                latestRevisionByKey[key] = nil
+            }
+            knownKeys = keep
+        }
+
+        private static func savedAt(from data: Data?) -> Date? {
+            guard let data,
+                  let object = try? JSONSerialization.jsonObject(with: data),
+                  let dictionary = object as? [String: Any],
+                  let seconds = dictionary["savedAt"] as? NSNumber else { return nil }
+            return Date(timeIntervalSinceReferenceDate: seconds.doubleValue)
+        }
+    }
+
+    private struct Record: Codable, Sendable {
         let savedAt: Date
         // Scope fields are stored inside the value as well as in its key. This
         // lets startup enumerate only the current account/team's snapshots
@@ -24,7 +100,15 @@ public final class MobileWorkspaceSnapshotStore {
         let workspaceGroupsAreAuthoritative: Bool?
     }
 
-    private struct Workspace: Codable {
+    private struct SaveRequest: Sendable {
+        let state: MacWorkspaceState
+        let userID: String
+        let teamID: String?
+        let pairing: MacPairingKey
+        let savedAt: Date
+    }
+
+    private struct Workspace: Codable, Sendable {
         let id: String
         let remoteWorkspaceID: String?
         let macDeviceID: String?
@@ -91,7 +175,7 @@ public final class MobileWorkspaceSnapshotStore {
         }
     }
 
-    private struct Terminal: Codable {
+    private struct Terminal: Codable, Sendable {
         let id: String
         let name: String
         let currentDirectory: String?
@@ -117,7 +201,7 @@ public final class MobileWorkspaceSnapshotStore {
         }
     }
 
-    private struct Group: Codable {
+    private struct Group: Codable, Sendable {
         let id: String
         let remoteGroupID: String?
         let macDeviceID: String?
@@ -165,11 +249,32 @@ public final class MobileWorkspaceSnapshotStore {
     private let pruneInterval: TimeInterval = 60
     private let maxRecords = 64
     private let maxRecordBytes = 512 * 1024
+    private let persistence: Persistence
     private var knownStorageKeys: Set<String>?
     private var lastPruneAt: Date?
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        self.persistence = Persistence(
+            defaults: DefaultsBox(defaults),
+            maxRecords: maxRecords
+        )
+    }
+
+    private nonisolated static func encode(_ request: SaveRequest) -> Data? {
+        let state = request.state
+        let record = Record(
+            savedAt: request.savedAt,
+            userID: request.userID,
+            teamID: request.teamID,
+            macDeviceID: request.pairing.canonicalMacDeviceID,
+            instanceTag: request.pairing.normalizedInstanceTag,
+            displayName: state.displayName,
+            workspaces: state.workspaces.map(Workspace.init),
+            groups: state.groups.map(Group.init),
+            workspaceGroupsAreAuthoritative: state.workspaceGroupsAreAuthoritative
+        )
+        return try? JSONEncoder().encode(record)
     }
 
     public func load(
@@ -241,43 +346,54 @@ public final class MobileWorkspaceSnapshotStore {
         state: MacWorkspaceState,
         userID: String,
         teamID: String?,
-        pairing: MacPairingKey
-    ) {
-        pruneExpiredSnapshotsIfNeeded()
+        pairing: MacPairingKey,
+        revision: UInt64 = 0
+    ) async {
+        let storageKey = key(userID: userID, teamID: teamID, pairing: pairing)
         // An authoritative empty list is a deletion, not a reason to retain
         // the previous preview. Otherwise a closed workspace would reappear
         // on the next launch until the snapshot TTL expired.
         guard !state.workspaces.isEmpty else {
-            remove(userID: userID, teamID: teamID, pairing: pairing)
+            await persistence.remove(
+                key: storageKey,
+                revision: revision
+            )
+            knownStorageKeys?.remove(storageKey)
             return
         }
-        let record = Record(
-            savedAt: Date(),
+        let savedAt = Date()
+        let request = SaveRequest(
+            state: state,
             userID: userID,
             teamID: teamID,
-            macDeviceID: pairing.canonicalMacDeviceID,
-            instanceTag: pairing.normalizedInstanceTag,
-            displayName: state.displayName,
-            workspaces: state.workspaces.map(Workspace.init),
-            groups: state.groups.map(Group.init),
-            workspaceGroupsAreAuthoritative: state.workspaceGroupsAreAuthoritative
+            pairing: pairing,
+            savedAt: savedAt
         )
-        guard let data = try? JSONEncoder().encode(record) else { return }
+        let data = await Task.detached(priority: .utility) {
+            Self.encode(request)
+        }.value
+        guard let data else { return }
         guard data.count <= maxRecordBytes else { return }
-        let storageKey = key(userID: userID, teamID: teamID, pairing: pairing)
-        defaults.set(data, forKey: storageKey)
-        if knownStorageKeys == nil { _ = storageKeys() }
-        knownStorageKeys?.insert(storageKey)
-        enforceRecordLimitIfNeeded()
+        guard !Task.isCancelled else { return }
+        await persistence.save(
+            data: data,
+            key: storageKey,
+            savedAt: savedAt,
+            revision: revision,
+            namespace: namespace
+        )
+        knownStorageKeys = nil
+        lastPruneAt = nil
     }
 
     public func remove(
         userID: String,
         teamID: String?,
-        pairing: MacPairingKey
-    ) {
+        pairing: MacPairingKey,
+        revision: UInt64 = 0
+    ) async {
         let storageKey = key(userID: userID, teamID: teamID, pairing: pairing)
-        defaults.removeObject(forKey: storageKey)
+        await persistence.remove(key: storageKey, revision: revision)
         knownStorageKeys?.remove(storageKey)
     }
 

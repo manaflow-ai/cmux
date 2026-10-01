@@ -4043,11 +4043,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   self.foregroundWorkspaceStateRevision == sourceWorkspaceStateRevision,
                   self.identityProvider?.currentUserID == sourceUserID else { return }
             guard !Task.isCancelled else { return }
-            workspaceSnapshotStore.save(
+            await workspaceSnapshotStore.save(
                 state: state,
                 userID: scope.userID,
                 teamID: scope.teamID,
-                pairing: pairing
+                pairing: pairing,
+                revision: sourceWorkspaceStateRevision
             )
             if self.foregroundWorkspaceStateRevision == sourceWorkspaceStateRevision {
                 self.foregroundWorkspaceSnapshotPersistenceTask = nil
