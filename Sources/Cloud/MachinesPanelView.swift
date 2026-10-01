@@ -408,7 +408,6 @@ struct MachinesPanelView: View {
             selectLocalWorkspace: { workspaceID in
                 tabManager?.selectedTabId = workspaceID
             },
-            onWillMutate: { _ in },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
             refresh: { refreshMachines() },

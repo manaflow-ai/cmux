@@ -247,7 +247,7 @@ struct MachinesCloudStatusTests {
     /// Confirms the empty status is quiet and proves the traversal reaches a populated row.
     @Test("An empty Cloud status contains no progress indicator or operation text")
     func emptyStatusHasNoProgressPresentation() {
-        let hosted = Self.host(treeError: nil) { _ in }
+        let hosted = Self.host(treeError: nil, listStatus: .reconnecting) { _ in }
         let empty = Self.accessibilitySnapshot(in: hosted.view)
         #expect(!empty.roles.contains(NSAccessibility.Role.progressIndicator.rawValue))
         #expect(!empty.texts.contains { $0.contains("Opening") })
@@ -274,11 +274,12 @@ struct MachinesCloudStatusTests {
 
     private static func host(
         treeError: String?,
+        listStatus: MachineListStatus? = nil,
         onDismissTreeError: @escaping (String) -> Void
     ) -> Hosted {
         let view = NSHostingView(
             rootView: MachinesCloudStatus(
-                listStatus: nil,
+                listStatus: listStatus,
                 listError: nil,
                 treeError: treeError,
                 onDismissStale: { _ in },
