@@ -340,10 +340,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          checksum="$(cat assets/CmuxTerminalClient.xcframework.zip.sha256)"
-          archive_checksum="$(sha256sum assets/CmuxTerminalClient.xcframework.zip | awk '{print $1}')"
+          archive="assets/CmuxTerminalClient.xcframework.zip"
+          checksum="$(tr -d '[:space:]' < assets/CmuxTerminalClient.xcframework.zip.sha256)"
+          archive_checksum="$(sha256sum "$archive" | awk '{print $1}')"
           if [[ "$archive_checksum" != "$checksum" ]]; then
             echo "::error::new artifact checksum $checksum does not match its archive $archive_checksum" >&2
+            exit 1
+          fi
+          if ! (cd assets && sha256sum --check --strict SHA256SUMS); then
+            echo "::error::new artifact has an invalid SHA256SUMS entry" >&2
             exit 1
           fi
           notes="cmux-terminal-client $VERSION as CmuxTerminalClient.xcframework (static frameworks: iOS arm64, universal iOS simulator arm64/x86_64, universal macOS arm64/x86_64). Source ${SOURCE_SHA}. SwiftPM binaryTarget checksum: ${checksum}"
@@ -363,7 +368,7 @@ jobs:
                 exit 1
               fi
             done
-            published_checksum="$(cat "$existing/CmuxTerminalClient.xcframework.zip.sha256")"
+            published_checksum="$(tr -d '[:space:]' < "$existing/CmuxTerminalClient.xcframework.zip.sha256")"
             published_archive_checksum="$(sha256sum "$existing/CmuxTerminalClient.xcframework.zip" | awk '{print $1}')"
             if [[ "$published_checksum" != "$checksum" || "$published_archive_checksum" != "$published_checksum" ]]; then
               echo "::error::release $TAG checksum metadata does not match the expected or published archive checksum" >&2
