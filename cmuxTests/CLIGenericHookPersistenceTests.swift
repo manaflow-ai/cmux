@@ -1848,6 +1848,79 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(customEntries.compactMap { $0["command"] as? String }, [userCustomCommand])
     }
 
+    func testCopilotHookInstallUsesNativeEventNamesAndBashEntries() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-copilot-hook-install-\(UUID().uuidString)", isDirectory: true)
+        let copilotDirectory = root.appendingPathComponent(".copilot", isDirectory: true)
+        let hookURL = copilotDirectory.appendingPathComponent("config.json", isDirectory: false)
+        try FileManager.default.createDirectory(at: copilotDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let userCommand = "/usr/local/bin/user-copilot-hook"
+        let existing: [String: Any] = [
+            "userSetting": "preserve-me",
+            "hooks": [
+                "userPromptSubmitted": [[
+                    "type": "command",
+                    "bash": userCommand,
+                    "timeoutSec": 2,
+                ]],
+                "SessionStart": [[
+                    "hooks": [[
+                        "type": "command",
+                        "command": "cmux hooks copilot session-start",
+                        "timeout": 5,
+                    ]],
+                ]],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
+            .write(to: hookURL, options: .atomic)
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        for _ in 0..<2 {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "copilot", "install", "--yes"],
+                environment: environment,
+                timeout: 5
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+        }
+
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any]
+        )
+        XCTAssertEqual(json["userSetting"] as? String, "preserve-me")
+        let hooks = try XCTUnwrap(json["hooks"] as? [String: Any])
+        XCTAssertNil(hooks["SessionStart"])
+        XCTAssertNil(hooks["Stop"])
+        XCTAssertNil(hooks["Notification"])
+        XCTAssertNil(hooks["SessionEnd"])
+
+        let expectedEvents = ["userPromptSubmitted", "agentStop", "errorOccurred", "sessionEnd"]
+        for event in expectedEvents {
+            let entries = try XCTUnwrap(hooks[event] as? [[String: Any]], "Missing Copilot hook \(event)")
+            XCTAssertEqual(entries.count, event == "userPromptSubmitted" ? 2 : 1)
+            XCTAssertTrue(entries.allSatisfy { ($0["type"] as? String) == "command" })
+            XCTAssertTrue(entries.allSatisfy { ($0["bash"] as? String)?.contains("cmux hooks") == true || ($0["bash"] as? String) == userCommand })
+            XCTAssertTrue(entries.allSatisfy { ($0["command"] as? String) == nil })
+            XCTAssertTrue(entries.allSatisfy { ($0["timeoutSec"] as? Int) == 5 || ($0["timeoutSec"] as? Int) == 2 })
+        }
+
+        let preToolUse = try XCTUnwrap(hooks["PreToolUse"] as? [[String: Any]])
+        XCTAssertEqual(preToolUse.count, 1)
+        let preToolUseCommand = try XCTUnwrap(preToolUse[0]["bash"] as? String)
+        XCTAssertTrue(preToolUseCommand.contains("hooks feed --source copilot"))
+        XCTAssertEqual(preToolUse[0]["timeoutSec"] as? Int, 5)
+    }
+
     func testHermesAgentSessionEndIsTurnBoundaryButFinalizeTearsDown() throws {
         // Hermes fires the `on_session_end` plugin hook once per conversation turn
         // (end of every run_conversation()), not at the true session boundary, and a
