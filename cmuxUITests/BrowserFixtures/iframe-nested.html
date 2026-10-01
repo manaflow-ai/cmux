@@ -26,13 +26,15 @@
     '  window.top.__cmuxPush({ type: ev.type, target: "#deep-btn", isTrusted: ev.isTrusted });' +
     '});' +
     SCRIPT_CLOSE;
+  // Encode '<' so the inner document stays inside the outer script's string literal.
+  const innerHtmlJSON = JSON.stringify(innerHtml).replace(/</g, '\\u003c');
   const outerHtml =
     '<button id="mid-btn">mid</button><iframe id="inner"></iframe>' +
     SCRIPT_OPEN +
     'document.getElementById("mid-btn").addEventListener("click", function (ev) {' +
     '  window.top.__cmuxPush({ type: ev.type, target: "#mid-btn", isTrusted: ev.isTrusted });' +
     '});' +
-    'document.getElementById("inner").srcdoc = ' + JSON.stringify(innerHtml) + ';' +
+    'document.getElementById("inner").srcdoc = ' + innerHtmlJSON + ';' +
     SCRIPT_CLOSE;
 
   const outer = document.createElement('iframe');

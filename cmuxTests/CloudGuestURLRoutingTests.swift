@@ -1,4 +1,5 @@
 import AppKit
+import struct CmuxSettings.BrowserCatalogSection
 import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
@@ -72,6 +73,7 @@ struct CloudGuestURLRoutingTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
         defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        defaults.set("samePane", forKey: BrowserCatalogSection().terminalLinkBrowserPlacement.userDefaultsKey)
         let workspace = UUID()
         let panel = UUID()
         let container = CloudGuestURLTestContainer()
@@ -89,6 +91,7 @@ struct CloudGuestURLRoutingTests {
         #expect(coordinator.open(request))
         #expect(container.opened == [URL(string: url)!])
         #expect(container.focus == false)
+        #expect(container.placement == .samePane)
         #expect(external.isEmpty)
         defaults.set(false, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
         #expect(coordinator.open(request))

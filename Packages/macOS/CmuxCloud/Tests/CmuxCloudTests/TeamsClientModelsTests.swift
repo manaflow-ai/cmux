@@ -22,10 +22,10 @@ struct TeamsClientModelsTests {
           "profileImageUrl": null, "role": "member", "isViewer": false }
       ],
       "invitations": [
-        { "id": "inv-1", "email": "carol@example.com", "role": "member", "expiresAt": "2026-10-05T12:00:00.000Z" }
+        { "id": "inv-1", "email": "carol@example.com", "role": "member", "expiresAt": "2026-10-05T12:00:00Z" }
       ],
       "links": [
-        { "id": "link-1", "role": "member", "createdAt": "2026-09-28T12:00:00.000Z",
+        { "id": "link-1", "role": "member", "createdAt": "2026-09-28T12:00:00Z",
           "createdByUserId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "expiresAt": null, "maxUses": 5, "useCount": 2 }
       ],
       "billing": { "planId": "pro", "seats": null, "memberLimit": 3, "memberCount": 2, "hasActiveSubscription": true }
@@ -72,7 +72,7 @@ struct TeamsClientModelsTests {
     func decodesReceivedInvitation() throws {
         let json = """
         {"invitations": [{ "id": "inv-9", "teamId": "22222222-2222-4222-8222-222222222222", "teamName": "Acme",
-          "email": "me@example.com", "role": "admin", "invitedBy": "Ada", "expiresAt": "2026-10-07T00:00:00.000Z" }]}
+          "email": "me@example.com", "role": "admin", "invitedBy": "Ada", "expiresAt": "2026-10-07T00:00:00Z" }]}
         """
         struct Envelope: Decodable { let invitations: [CloudReceivedInvitation] }
         let invitations = try TeamsClient.decoder.decode(Envelope.self, from: Data(json.utf8)).invitations

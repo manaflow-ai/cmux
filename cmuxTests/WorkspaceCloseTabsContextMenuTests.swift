@@ -12,7 +12,7 @@ import CmuxTerminal
 
 /// A @MainActor Swift Testing body already runs inside a main queue block, so
 /// the main queue cannot drain until the test returns and every
-/// `drainMainQueue` call spins the run loop until its timeout. Spin briefly.
+/// `drainMainQueueForCloseTest` yields briefly to let product callbacks run.
 private let mainActorTestMainQueueSpin: TimeInterval = 0.1
 
 @MainActor
@@ -96,8 +96,8 @@ struct WorkspaceCloseTabsContextMenuTests {
                 for: tab,
                 inPane: fixture.paneId
             )
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
 
             #expect(promptCount == 1)
             #expect(fixture.workspace.panelIdFromSurfaceId(tabId) == nil)

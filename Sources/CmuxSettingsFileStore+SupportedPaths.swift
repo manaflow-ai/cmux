@@ -157,6 +157,7 @@ extension CmuxSettingsFileStore {
         "browser.hiddenWebViewDiscardDelaySeconds",
         "browser.askWhereToSaveDownloads",
         "browser.openTerminalLinksInCmuxBrowser",
+        "browser.terminalLinkBrowserPlacement",
         "browser.interceptTerminalOpenCommandInCmuxBrowser",
         "browser.hostsToOpenInEmbeddedBrowser",
         "browser.urlsToAlwaysOpenExternally",
