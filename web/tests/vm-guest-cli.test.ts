@@ -478,6 +478,49 @@ esac
       expect(run.stdout.trim().split("\n")).toEqual(["exec", "reply exactly pong"]);
     });
 
+    test("keeps prompt mode as the default and opts into full access explicitly", async () => {
+      const setup = (directory: string) => {
+        for (const binary of ["codex", "claude"]) {
+          const path = join(directory, binary);
+          writeFileSync(path, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n");
+          chmodSync(path, 0o755);
+        }
+      };
+      const prompt = await runShim(["agent", "codex", "--", "reply exactly pong"], {}, setup);
+      expect(prompt.status).toBe(0);
+      expect(prompt.stdout.trim().split("\n")).toEqual(["exec", "reply exactly pong"]);
+
+      const full = await runShim(
+        ["agent", "codex", "--permission-mode", "full-access", "--", "reply exactly pong"],
+        {},
+        setup,
+      );
+      expect(full.status).toBe(0);
+      expect(full.stdout.trim().split("\n")).toEqual([
+        "exec",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "reply exactly pong",
+      ]);
+
+      const claude = await runShim(
+        ["agent", "claude", "--permission-mode=full-access", "reply exactly pong"],
+        {},
+        setup,
+      );
+      expect(claude.status).toBe(0);
+      expect(claude.stdout.trim().split("\n")).toEqual([
+        "-p",
+        "--dangerously-skip-permissions",
+        "reply exactly pong",
+      ]);
+    });
+
+    test("rejects full access for agents without a supported bypass", async () => {
+      const run = await runShim(["agent", "opencode", "--permission-mode", "full-access", "--", "do work"]);
+      expect(run.status).toBe(2);
+      expect(run.stderr).toContain("full-access is only supported for claude and codex");
+    });
+
     test("keeps cmux-tui's local agent scope available", async () => {
       const run = await runShim(["agent", "list"]);
       expect(run.status).toBe(0);
@@ -880,7 +923,7 @@ describe("in-VM cmux shim: agent primitives", () => {
       "cmux vm ls [--json]",
       "cmux file receive <path> [--mode <octal>]",
       "cmux vm push <machine> <local-file> <remote-path> [--mode <octal>]",
-      "cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--wait [--output] [--timeout <s>]] -- <prompt>",
+      "cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--permission-mode prompt|full-access] [--wait [--output] [--timeout <s>]] -- <prompt>",
       "cmux agent <claude|codex|opencode|pi> [--timeout <s>] [args...]",
     ]) {
       expect(run.stdout).toContain(line);
@@ -1449,6 +1492,34 @@ describe("in-VM cmux shim: agent primitives", () => {
       expect((await runStateful(dir, ["vm", "agent", peer, "--agent", "emacs", "--", "x"])).status).toBe(2);
       // `vm agent <peer> list` is still cmux-tui's agent scope on the peer.
       expect((await runStateful(dir, ["vm", "agent", peer, "list"])).calls).toEqual([["--socket", sockPath, "agent", "list"]]);
+    });
+
+    test("forwards an explicit full-access mode without changing the default", async () => {
+      const dir = peerDir();
+      const full = await runStateful(dir, ["vm", "agent", peer, "--agent", "codex", "--permission-mode", "full-access", "--", "write docs"]);
+      expect(full.status).toBe(0);
+      expect(full.calls.at(-1)).toEqual([
+        "--socket",
+        sockPath,
+        "--json",
+        "workspace",
+        "current",
+        "run",
+        "--on-exit",
+        "keep",
+        "--name",
+        "codex",
+        "--",
+        "cmux",
+        "agent",
+        "codex",
+        "--permission-mode",
+        "full-access",
+        "write docs",
+      ]);
+      const unsupported = await runStateful(dir, ["vm", "agent", peer, "--agent", "opencode", "--permission-mode", "full-access", "--", "write docs"]);
+      expect(unsupported.status).toBe(2);
+      expect(unsupported.stderr).toContain("full-access is only supported for claude and codex");
     });
 
     test("vm env set delivers values only inside the typed base64 payload of the receive handshake", async () => {
