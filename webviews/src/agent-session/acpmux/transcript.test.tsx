@@ -454,3 +454,56 @@ describe("acpmux host handshake", () => {
     }
   });
 });
+
+describe("acpmux turn diff", () => {
+  test("Review changes opens the turn's files, and the layout toggles between unified and split", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window;
+    const document = dom.window.document;
+    const diffRow: AcpmuxRow = { id: "activity-2", version: 1, at: 2, kind: "activity", toolCount: 2, items: [
+      { kind: "tool", text: "Edit main.ts", tool: { id: "t1", title: "Edit main.ts", kind: "edit", status: "completed", diffs: [{ path: "/repo/src/main.ts", oldText: "a\nb\nc\n", newText: "a\nB\nc\n" }] } },
+      { kind: "tool", text: "Write notes.md", tool: { id: "t2", title: "Write notes.md", kind: "edit", status: "completed", diffs: [{ path: "/repo/notes.md", newText: "hello\n" }] } },
+    ] };
+    const turn: AcpmuxRow[] = [{ id: "user-1", version: 1, at: 1, kind: "user", text: "fix it" }, diffRow, { id: "assistant-3", version: 1, at: 3, kind: "assistant", text: "done" }];
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () => host.cmuxAcpmuxBridge!.receive({ type: "snapshot", protocolVersion: 1, rows: turn, sessions: [], connection: "connected", isWorking: false, queue: [], catalog: [], canLoadOlder: false }));
+      const review = [...document.querySelectorAll("button")].find((button) => button.textContent === "Review changes");
+      expect(review).toBeDefined();
+      await act(async () => review!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+      const panel = document.querySelector('section.acpmux-diff-panel')!;
+      expect(panel.querySelector(".acpmux-diff-header strong")?.textContent).toBe("2 files changed");
+      expect([...panel.querySelectorAll(".acpmux-diff-tree-file .acpmux-diff-tree-name")].map((node) => node.textContent)).toEqual(["main.ts", "notes.md"]);
+      expect([...panel.querySelectorAll(".acpmux-diff-file-path")].map((node) => node.textContent)).toEqual(["src/main.ts", "notes.md"]);
+      expect([...panel.querySelectorAll(".acpmux-diff-file")][0].querySelectorAll("tr.acpmux-diff-del, tr.acpmux-diff-add").length).toBe(2);
+      const split = [...panel.querySelectorAll(".acpmux-diff-layout button")].find((button) => button.textContent === "Split")!;
+      await act(async () => split.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+      expect(split.getAttribute("aria-pressed")).toBe("true");
+      const firstFile = panel.querySelectorAll(".acpmux-diff-file")[0];
+      expect(firstFile.querySelector("table")?.classList.contains("acpmux-diff-split")).toBe(true);
+      const changed = [...firstFile.querySelectorAll("tr")].find((row) => row.querySelector("td.acpmux-diff-del"))!;
+      expect(changed.querySelector("td.acpmux-diff-add")?.textContent).toBe("+B");
+      const back = panel.querySelector('[aria-label="Back to transcript"]')!;
+      await act(async () => back.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+      expect(document.querySelector(".acpmux-diff-panel")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
+    }
+  });
+
+  test("a file in the edited-files row opens the changes at that file", async () => {
+    const opened: [string, string | undefined][] = [];
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const row: AcpmuxRow = { id: "activity-1", version: 1, at: 1, kind: "activity", items: [{ kind: "tool", text: "Edit", tool: { id: "t1", title: "Edit", kind: "edit", status: "completed", diffs: [{ path: "/repo/a.ts", oldText: "1", newText: "2" }] } }] };
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: [row], onToggleActivity: () => {}, onOpenDiff: (rowId: string, path?: string) => opened.push([rowId, path]), expanded: new Set<string>() })));
+      const file = dom.window.document.querySelector(".acpmux-edited-file")!;
+      expect(file.textContent).toBe("▤ a.ts");
+      await act(async () => file.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+      expect(opened).toEqual([["activity-1", "/repo/a.ts"]]);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+});
