@@ -323,6 +323,12 @@ struct TmuxCompatParsedArguments: Equatable, Sendable {
     let message: String?
 }
 
+struct TmuxCompatArgumentError: Error, LocalizedError, Equatable, Sendable {
+    let message: String
+
+    var errorDescription: String? { message }
+}
+
 enum TmuxCompatArgumentParser {
     private struct ScanResult {
         var values: [String: String] = [:]
@@ -400,12 +406,8 @@ enum TmuxCompatArgumentParser {
         )
     }
 
-    private static func invalid(_ message: String) -> NSError {
-        NSError(
-            domain: "cmux.tmux-compat.arguments",
-            code: 1,
-            userInfo: [NSLocalizedDescriptionKey: message]
-        )
+    private static func invalid(_ message: String) -> TmuxCompatArgumentError {
+        TmuxCompatArgumentError(message: message)
     }
 
     private static func scan(

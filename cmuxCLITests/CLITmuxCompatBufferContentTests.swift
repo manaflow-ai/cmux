@@ -171,25 +171,25 @@ struct CLITmuxCompatArgumentParserTests {
         ["--surface="]
     ])
     func rejectsMalformedClearHistory(arguments: [String]) {
-        #expect(throws: NSError.self) {
+        #expect(throws: TmuxCompatArgumentError.self) {
             try TmuxCompatArgumentParser.parseClearHistory(arguments)
         }
     }
 
     @Test func rejectsUnknownAndMissingValuesAcrossCommands() {
-        #expect(throws: NSError.self) {
+        #expect(throws: TmuxCompatArgumentError.self) {
             try TmuxCompatArgumentParser.parsePasteBuffer(["--typo"])
         }
-        #expect(throws: NSError.self) {
+        #expect(throws: TmuxCompatArgumentError.self) {
             try TmuxCompatArgumentParser.parseRespawnPane(["--command"])
         }
-        #expect(throws: NSError.self) {
+        #expect(throws: TmuxCompatArgumentError.self) {
             try TmuxCompatArgumentParser.parseRespawnPane(["--commnad", "echo hi"])
         }
-        #expect(throws: NSError.self) {
+        #expect(throws: TmuxCompatArgumentError.self) {
             try TmuxCompatArgumentParser.parseDisplayMessage(["--pritn", "done"])
         }
-        #expect(throws: NSError.self) {
+        #expect(throws: TmuxCompatArgumentError.self) {
             try TmuxCompatArgumentParser.parseDisplayMessage(["done", "--typo"])
         }
     }
