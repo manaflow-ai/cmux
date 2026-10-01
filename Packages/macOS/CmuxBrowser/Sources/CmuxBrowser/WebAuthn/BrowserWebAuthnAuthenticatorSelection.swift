@@ -34,11 +34,3 @@ struct BrowserWebAuthnAuthenticatorSelection: Decodable {
         }
     }
 }
-
-extension BrowserWebAuthnAuthenticatorSelection {
-    func validateNativeRequestShape() throws {
-        try authenticatorAttachment.validateWebAuthnString(maxUTF8Bytes: BrowserWebAuthnRequestParser.maximumShortStringUTF8Bytes)
-        try residentKey.validateWebAuthnString(maxUTF8Bytes: BrowserWebAuthnRequestParser.maximumShortStringUTF8Bytes)
-        try userVerification.validateWebAuthnString(maxUTF8Bytes: BrowserWebAuthnRequestParser.maximumShortStringUTF8Bytes)
-    }
-}

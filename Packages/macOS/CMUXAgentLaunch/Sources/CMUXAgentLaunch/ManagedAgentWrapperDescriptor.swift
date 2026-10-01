@@ -87,7 +87,7 @@ struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
     }
 
     /// Single-quotes a value as one POSIX `sh` word.
-    private static func posixSingleQuoted(_ value: String) -> String {
+    static func posixSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

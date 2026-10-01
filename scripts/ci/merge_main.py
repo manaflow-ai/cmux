@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Merge the newest green main commit into this branch, then run the guards.
+"""Merge the newest green main commit into this branch; optionally run the guards.
 
 scripts/merge-main.sh is the entry point; agents use it instead of a raw
 `git merge origin/main`. It:
@@ -9,12 +9,12 @@ scripts/merge-main.sh is the entry point; agents use it instead of a raw
 2. picks the newest main commit whose CI fast guards passed
    (last_green_base.py) and says which newer commits it skipped and why
    (failure or pending); `--tip` merges main's tip anyway,
-3. merges it through catch_up_pr.py, so the generated files (project.pbxproj,
-   the config schema Swift, string catalogs) resolve the same way the PR
-   catch-up workflow resolves them; any other conflict aborts the merge and
-   names the paths,
-4. runs the local guards (scripts/ci/guards-local.sh, the `ci` group by
-   default, `--all-guards` for every group) and labels each failure: a step
+3. merges it through merge_main_resolver.py, so generated files (project.pbxproj,
+   the config schema Swift, and string catalogs) resolve consistently; any
+   other conflict aborts the merge and names the paths,
+4. with `--guards` (off by default: pushing runs them in CI), runs the local
+   guards (scripts/ci/guards-local.sh, the `ci` group, `--all-guards` for
+   every group) and labels each failure: a step
    that also fails on the merged main commit alone is "inherited from main",
    one that passes there is "introduced by this branch". A local pass stamp
    for that main commit settles it without a rerun; otherwise the failed
@@ -45,7 +45,7 @@ from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import catch_up_pr  # noqa: E402
+import merge_main_resolver  # noqa: E402
 import last_green_base  # noqa: E402
 
 CMUX_REMOTE_RE = re.compile(r"github\.com[:/]manaflow-ai/cmux(?:\.git)?/?$")
@@ -345,8 +345,9 @@ def merge_main(options: Options, source: last_green_base.VerdictSource | None = 
     skipped = len(selection.skipped) if base == selection.chosen else 0
     note = (f"Merged by scripts/merge-main.sh: {remote}/{BASE_BRANCH} at {base[:12]}"
             + (f", the newest commit with green CI fast guards ({skipped} newer skipped)." if skipped else "."))
-    result = catch_up_pr.catch_up(repo, base, catch_up_pr.DEFAULT_TOOLS_ROOT, note,
-                                  title=f"Merge {BASE_BRANCH} ({base[:12]}) into {branch}")
+    result = merge_main_resolver.merge_and_resolve(
+        repo, base, merge_main_resolver.DEFAULT_TOOLS_ROOT, note,
+        title=f"Merge {BASE_BRANCH} ({base[:12]}) into {branch}")
     if result.status == "blocked":
         output("merge-main: merge aborted; these paths conflict and need a person:")
         for item in result.blocking:
@@ -382,23 +383,28 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--remote", help="remote for manaflow-ai/cmux (default: detected)")
     parser.add_argument("--tip", action="store_true", help="merge main's tip even if its guards are not green")
     parser.add_argument("--dry-run", action="store_true", help="say which commit would be merged; change nothing")
-    parser.add_argument("--no-guards", action="store_true", help="skip the guard run after the merge")
-    parser.add_argument("--all-guards", action="store_true", help="run every guard group, not only `ci`")
-    parser.add_argument("--strict", action="store_true", help="exit 3 when the branch introduced a guard failure")
+    # Off by default: guards include swift test and package builds, and many
+    # agents merging main at once drove a laptop's load past 300 (2026-09-27).
+    # Pushing runs the same guards in CI.
+    parser.add_argument("--guards", action="store_true", help="run the `ci` guards locally after the merge")
+    parser.add_argument("--no-guards", action="store_true", help="the default; kept for older callers")
+    parser.add_argument("--all-guards", action="store_true", help="run every guard group locally (implies --guards)")
+    parser.add_argument("--strict", action="store_true",
+                        help="exit 3 when the branch introduced a guard failure (implies --guards)")
     parser.add_argument("--limit", type=int, default=last_green_base.DEFAULT_LIMIT,
                         help="newest main commits to consider")
     args = parser.parse_args(argv)
     try:
         repo = Path(git(Path(args.repo), "rev-parse", "--show-toplevel"))
         options = Options(repo=repo, remote=args.remote, tip=args.tip, dry_run=args.dry_run,
-                          guards=not args.no_guards, all_guards=args.all_guards, strict=args.strict,
+                          guards=(args.guards or args.all_guards or args.strict) and not args.no_guards, all_guards=args.all_guards, strict=args.strict,
                           limit=args.limit)
         return merge_main(options)
-    except (MergeMainError, catch_up_pr.CatchUpError) as error:
+    except (MergeMainError, merge_main_resolver.MergeResolverError) as error:
         print(f"merge-main: {error}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
-        # catch_up aborts an unfinished merge itself; a finished one stands.
+        # The resolver aborts an unfinished merge itself; a finished one stands.
         print("merge-main: interrupted", file=sys.stderr)
         return 130
 

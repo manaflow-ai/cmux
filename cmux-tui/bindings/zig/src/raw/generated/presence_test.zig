@@ -33,6 +33,10 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "overrides");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "palette");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "surface");
+    try expectExplicitNullRejected(protocol.DetachedEvent, "by");
+    try expectExplicitNullRejected(protocol.DetachedEvent, "reason");
+    try expectExplicitNullRejected(protocol.DetachedEvent, "scope");
+    try expectExplicitNullRejected(protocol.DetachedEvent, "view");
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "attempts");
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "cell_height");
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "cell_width");
@@ -55,6 +59,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ResizedEvent, "kitty_graphics_state");
     try expectExplicitNullRejected(protocol.ResizedEvent, "kitty_image_aliases");
     try expectExplicitNullRejected(protocol.ResizedEvent, "replay");
+    try expectExplicitNullRejected(protocol.SizeStateEvent, "self_participant");
     try expectExplicitNullRejected(protocol.TitleChangedEvent, "title");
     try expectExplicitNullRejected(protocol.VtStateEvent, "colors");
     try expectExplicitNullRejected(protocol.VtStateEvent, "kitty_graphics_state");
@@ -67,6 +72,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.WorkspaceMovedEvent, "origin");
     try expectExplicitNullRejected(protocol.WorkspaceRenamedEvent, "mutation_id");
     try expectExplicitNullRejected(protocol.WorkspaceRenamedEvent, "origin");
+    try expectExplicitNullRejected(protocol.AttachedViewResizeResult, "participant");
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "authentication");
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "clients");
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "endpoint");
@@ -88,6 +94,11 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.RenderRun, "underline");
     try expectExplicitNullRejected(protocol.RenderRun, "width_hint");
     try expectExplicitNullRejected(protocol.Screen, "short_id");
+    try expectExplicitNullRejected(protocol.SetSizeCountsResult, "changed");
+    try expectExplicitNullRejected(protocol.SetSizeCountsResult, "participant");
+    try expectExplicitNullRejected(protocol.SetSizePolicyResult, "state");
+    try expectExplicitNullRejected(protocol.SizePolicy, "mode");
+    try expectExplicitNullRejected(protocol.SizePolicy, "priority");
     try expectExplicitNullRejected(protocol.Tab, "short_id");
     try expectExplicitNullRejected(protocol.Tab, "supports_clear_history_key_fallback");
     try expectExplicitNullRejected(protocol.TerminalColors, "overrides");

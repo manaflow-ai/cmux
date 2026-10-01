@@ -242,6 +242,32 @@ struct SessionSnapshotRepositoryTests {
         #expect(repository.loadReopenSessionSnapshot(fileURL: nil) == backupSnapshot)
     }
 
+    @Test("a primary written by a newer schema survives the startup sync and the next save")
+    func newerSchemaPrimarySurvivesNextSave() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let repository = makeRepository(appSupport: dir)
+        let primaryURL = try #require(repository.defaultSnapshotFileURL())
+        // A newer cmux wrote this; a downgraded build cannot restore it, but
+        // must not destroy it with its own next autosave either.
+        let newerData = Data(
+            #"{"futureField":true,"version":\#(schemaVersion + 1),"windows":[{"name":"newer"}]}"#.utf8
+        )
+        try FileManager.default.createDirectory(
+            at: primaryURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try newerData.write(to: primaryURL)
+
+        repository.syncManualRestoreSnapshotCache()
+        #expect(repository.save(makeSnapshot(windowNames: ["current"]), fileURL: nil))
+
+        let survivors = try FileManager.default
+            .contentsOfDirectory(at: primaryURL.deletingLastPathComponent(), includingPropertiesForKeys: nil)
+            .filter { (try? Data(contentsOf: $0)) == newerData }
+        #expect(survivors.count == 1, "the newer-schema snapshot must be kept on disk")
+    }
+
     @Test("startup snapshot prefers the primary and falls back to the backup when unusable")
     func startupSnapshotFallback() throws {
         let dir = try makeTempDirectory()

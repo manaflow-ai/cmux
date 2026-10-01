@@ -1,0 +1,40 @@
+name: CI manual dispatch guard
+
+# A requested workflow_run starts from the default branch, so this watcher
+# keeps its cancellation token and code outside the workflow_dispatch branch.
+# CI's read-only changes guard blocks fanout while this watcher cancels the run.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [requested]
+
+permissions: {}
+
+env:
+  SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
+
+jobs:
+  guard:
+    if: github.event.workflow_run.path == '.github/workflows/ci.yml' && github.event.workflow_run.event == 'workflow_dispatch'
+    runs-on: ubuntu-24.04 # github-hosted-required: trusted Actions control-plane token
+    timeout-minutes: 3
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out trusted guard code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Cancel stale or duplicate manual dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_EVENT_NAME: ${{ github.event.workflow_run.event }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_REF_NAME: ${{ github.event.workflow_run.head_branch }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_COVERAGE_FINGERPRINT: ${{ github.event.workflow_run.display_title }}
+          SOURCE_WORKFLOW_PATH: ${{ github.event.workflow_run.path }}
+        run: python3 scripts/ci/manual_dispatch_guard.py

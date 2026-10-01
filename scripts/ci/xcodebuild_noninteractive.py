@@ -12,7 +12,14 @@ import signal
 import subprocess
 import sys
 import time
+from pathlib import Path
 from typing import BinaryIO
+
+# Running as a script puts this directory on sys.path. Tests load this module
+# through importlib, so mirror the other CI helpers' import path setup.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from ci_process_tree import terminate_pid  # noqa: E402
 
 
 SWIFT_CRASH_PROMPT = b"Press space to interact, D to debug, or any other key to quit"
@@ -323,35 +330,10 @@ def heartbeat_seconds() -> float | None:
 
 
 def terminate_child(pid: int) -> None:
-    try:
-        os.killpg(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-    except OSError:
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            return
-
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        try:
-            finished, _ = os.waitpid(pid, os.WNOHANG)
-        except ChildProcessError:
-            return
-        if finished:
-            return
-        time.sleep(0.1)
-
-    try:
-        os.killpg(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        return
-    except OSError:
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            return
+    # xcodebuild can detach the XCTest app host into a new process group. The
+    # shared helper snapshots parent links before signalling the group, so a
+    # cancellation cannot leave that host running after this PTY wrapper exits.
+    terminate_pid(pid)
 
 
 def write_child_output(chunk: bytes, log_file: BinaryIO | None, stdout_fd: int) -> None:
@@ -438,7 +420,9 @@ def main() -> int:
     # that to the whole xcodebuild process group so the test host cannot
     # outlive the wrapper and hold the batch's output pipe open.
     def forward_termination(signum: int, _frame: object) -> None:
-        message = f"Terminated by signal {signum}; stopping xcodebuild process group\n"
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        message = f"Terminated by signal {signum}; stopping xcodebuild process tree\n"
         write_child_output(message.encode(), log_file, stdout_fd)
         if log_file is not None:
             try:

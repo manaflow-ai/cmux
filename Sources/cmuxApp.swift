@@ -524,6 +524,11 @@ struct cmuxApp: App {
                 splitCommandButton(title: String(localized: "menu.app.settings", defaultValue: "Settings…"), shortcut: menuShortcut(for: .openSettings)) {
                     appDelegate.openPreferencesWindow(debugSource: "menu.cmdComma")
                 }
+                Button(AppDelegate.actionsAndLaunchersMenuTitle) {
+                    appDelegate.presentActionsAndLaunchersCustomization(
+                        preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                    )
+                }
                 Button(String(localized: "menu.app.openCmuxSettingsFile", defaultValue: "Open cmux.json")) {
                     openCmuxSettingsFileInEditor()
                 }
@@ -552,6 +557,11 @@ struct cmuxApp: App {
                 }
                 Button(String(localized: "menu.app.checkForUpdates", defaultValue: "Check for Updates…")) {
                     appDelegate.checkForUpdates(nil)
+                }
+                if let target = appDelegate.appChannelSwitchTarget {
+                    Button(AppChannelSwitchPresenter.menuTitle(for: target)) {
+                        appDelegate.switchAppChannel(nil)
+                    }
                 }
                 InstallUpdateMenuItem(model: appDelegate.updateViewModel, actions: appDelegate)
             }
@@ -1091,6 +1101,7 @@ struct cmuxApp: App {
         }
         helpCommands
         historyCommands
+        cloudCommands
         CommandGroup(after: .toolbar) {
             splitCommandButton(title: String(localized: "menu.view.toggleLeftSidebar", defaultValue: "Toggle Left Sidebar"), shortcut: menuShortcut(for: .toggleSidebar)) {
                 // The AppKit-hosted Settings window has no SwiftUI
@@ -1100,6 +1111,15 @@ struct cmuxApp: App {
                 if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
                     sidebarState.toggle()
                 }
+            }
+
+            splitCommandButton(
+                title: String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input"),
+                shortcut: menuShortcut(for: .focusTextBoxInput)
+            ) {
+                _ = AppDelegate.shared?.performFocusTextBoxInputShortcut(
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                )
             }
 
             splitCommandButton(title: String(localized: "menu.view.toggleRightSidebar", defaultValue: "Toggle Right Sidebar"), shortcut: menuShortcut(for: .toggleRightSidebar)) {
@@ -1721,6 +1741,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.configEditor",
     "cmux.computerUse.onboarding",
     "cmux.defaultTerminalRegistrationError",
+    "cmux.featureFlags",
     "cmux.feedButtonStyleDebug",
     "cmux.feedPreview",
     "cmux.feedTextEditorDebug",
@@ -1748,6 +1769,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.mobilePairingWindow",
     "cmux.sidebarFooterIconBalanceDebug",
     "cmux.cloudPaneCreationFailure.card",
+    "cmux.cloudCreateTeam",
     "cmux.sudo.approval",
 ]
 
@@ -1864,6 +1886,7 @@ private final class DebugWindowControlsWindowController: ReleasingWindowControll
 }
 
 private struct DebugWindowControlsView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     @AppStorage(WorkspaceColorsCatalogSection().indicatorStyle.userDefaultsKey)
     private var sidebarActiveTabIndicatorStyle = WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var browserDevToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
@@ -2053,7 +2076,7 @@ private struct DebugWindowControlsView: View {
                             Spacer()
                             Image(systemName: selectedDevToolsIconOption.rawValue)
                                 .cmuxFont(size: 12, weight: .medium)
-                                .foregroundStyle(selectedDevToolsColorOption.color)
+                                .foregroundStyle(selectedDevToolsColorOption.color(accent: cmuxAccent))
                         }
 
                         HStack(spacing: 12) {
@@ -3408,7 +3431,8 @@ private struct SidebarFooterHelpIconReference: View {
 #endif
 
 private struct SidebarDebugView: View {
-    @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
+    @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = SidebarAppearanceCatalogSection().matchTerminalBackground.defaultValue
     @AppStorage("sidebarPreset") private var sidebarPreset = SidebarPresetOption.nativeSidebar.rawValue
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults().opacity
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults().hex
@@ -3449,7 +3473,7 @@ private struct SidebarDebugView: View {
                 if let hex = sidebarSelectionColorHex, let nsColor = NSColor(hex: hex) {
                     return Color(nsColor: nsColor)
                 }
-                return cmuxAccentColor()
+                return cmuxAccent.color
             },
             set: { newColor in
                 let nsColor = NSColor(newColor)
