@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "45d5f5eee71a41e566a469983f04b4e23ebc018dbd440ee24c7a1f25ad540f43";
+inline constexpr std::string_view kProtocolIrSha256 = "54dd952d8d4d362773f4b8161376a17465d9010722b0bd8de8c0ab396a2fbb4e";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -259,6 +259,7 @@ struct NewBrowserTabRequest;
 struct NewFrontendBrowserTabRequest;
 struct NewPaneRequest;
 struct NewPaneRightRequest;
+struct NewRemoteTerminalTabRequest;
 struct NewScreenRequest;
 struct NewTabRequest;
 struct NewWorkspaceRequest;
@@ -281,6 +282,7 @@ struct ReleaseAttachedViewSizeRequest;
 struct ReleaseSurfaceSizeRequest;
 struct ReloadConfigRequest;
 struct ReloadConfigResult;
+struct RemoteTerminalSnapshotRequest;
 struct RemoveScreensFromScreenGroupRequest;
 struct RemoveTabsFromTabGroupRequest;
 struct RenamePaneRequest;
@@ -342,6 +344,7 @@ struct UpdateBrowserProfileRequest;
 struct UpdateFrontendBrowserTabRequest;
 struct UpdatePersonalGroupRequest;
 struct UpdateProfileRequest;
+struct UpdateRemoteTerminalTabRequest;
 struct UpdateScreenGroupRequest;
 struct UpdateTabGroupRequest;
 struct UpdateWorkspaceGroupRequest;
@@ -1250,6 +1253,7 @@ struct CreateTerminalRequest {
     Field<std::uint16_t> cols{};
     Field<std::string> command{};
     Field<std::string> cwd{};
+    std::optional<bool> detached{};
     Field<std::map<std::string, std::string, std::less<>>> env{};
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_revision{};
@@ -2228,6 +2232,17 @@ struct NewPaneRightRequest {
     friend bool operator==(const NewPaneRightRequest&, const NewPaneRightRequest&) = default;
 };
 
+struct NewRemoteTerminalTabRequest {
+    Field<std::uint16_t> cols{};
+    Field<Id> pane{};
+    Field<std::uint16_t> rows{};
+    std::string session_id{};
+    std::string session_name{};
+    std::string terminal_id{};
+    Field<std::string> title{};
+    friend bool operator==(const NewRemoteTerminalTabRequest&, const NewRemoteTerminalTabRequest&) = default;
+};
+
 struct NewScreenRequest {
     Field<std::string> color{};
     Field<std::uint16_t> cols{};
@@ -2554,6 +2569,11 @@ struct ReloadConfigRequest {
 struct ReloadConfigResult {
     std::optional<std::string> path{};
     friend bool operator==(const ReloadConfigResult&, const ReloadConfigResult&) = default;
+};
+
+struct RemoteTerminalSnapshotRequest {
+    Id surface{};
+    friend bool operator==(const RemoteTerminalSnapshotRequest&, const RemoteTerminalSnapshotRequest&) = default;
 };
 
 struct RemoveScreensFromScreenGroupRequest {
@@ -3376,6 +3396,7 @@ struct TerminalPlacement {
     std::optional<Id> surface{};
     std::string terminal_id{};
     std::optional<std::string> terminal_incarnation{};
+    std::optional<std::string> terminal_resource_id{};
     std::uint64_t terminal_revision{};
     std::optional<Id> workspace{};
     friend bool operator==(const TerminalPlacement&, const TerminalPlacement&) = default;
@@ -3535,6 +3556,14 @@ struct UpdateProfileRequest {
     std::string profile{};
     Field<std::string> theme{};
     friend bool operator==(const UpdateProfileRequest&, const UpdateProfileRequest&) = default;
+};
+
+struct UpdateRemoteTerminalTabRequest {
+    Field<std::string> session_name{};
+    Field<std::string> snapshot{};
+    Id surface{};
+    Field<std::string> title{};
+    friend bool operator==(const UpdateRemoteTerminalTabRequest&, const UpdateRemoteTerminalTabRequest&) = default;
 };
 
 struct UpdateScreenGroupRequest {
@@ -5182,6 +5211,12 @@ struct Codec<NewPaneRightRequest> {
 };
 
 template <>
+struct Codec<NewRemoteTerminalTabRequest> {
+    static Result<Json> encode(const NewRemoteTerminalTabRequest& value);
+    static Result<NewRemoteTerminalTabRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<NewScreenRequest> {
     static Result<Json> encode(const NewScreenRequest& value);
     static Result<NewScreenRequest> decode(const Json& value);
@@ -5311,6 +5346,12 @@ template <>
 struct Codec<ReloadConfigResult> {
     static Result<Json> encode(const ReloadConfigResult& value);
     static Result<ReloadConfigResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoteTerminalSnapshotRequest> {
+    static Result<Json> encode(const RemoteTerminalSnapshotRequest& value);
+    static Result<RemoteTerminalSnapshotRequest> decode(const Json& value);
 };
 
 template <>
@@ -5677,6 +5718,12 @@ template <>
 struct Codec<UpdateProfileRequest> {
     static Result<Json> encode(const UpdateProfileRequest& value);
     static Result<UpdateProfileRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UpdateRemoteTerminalTabRequest> {
+    static Result<Json> encode(const UpdateRemoteTerminalTabRequest& value);
+    static Result<UpdateRemoteTerminalTabRequest> decode(const Json& value);
 };
 
 template <>

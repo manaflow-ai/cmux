@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 45d5f5eee71a41e566a469983f04b4e23ebc018dbd440ee24c7a1f25ad540f43.
+// cmux-tui mux protocol 12, IR 54dd952d8d4d362773f4b8161376a17465d9010722b0bd8de8c0ab396a2fbb4e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -588,6 +588,8 @@ pub struct CreateTerminalRequest {
     pub command: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cwd: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub detached: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub env: Optional<BTreeMap<String, String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1326,6 +1328,25 @@ pub struct NewPaneRightRequest {
 pub type NewPaneRightResult = T::SurfaceResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewRemoteTerminalTabRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cols: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub rows: Optional<u16>,
+    pub session_id: String,
+    pub session_name: String,
+    pub terminal_id: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub title: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type NewRemoteTerminalTabResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct NewScreenRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1587,6 +1608,15 @@ pub struct ReloadConfigResult {
     pub path: Nullable<String>,
     pub reloaded: bool,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RemoteTerminalSnapshotRequest {
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type RemoteTerminalSnapshotResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2364,6 +2394,21 @@ pub type UpdateProfileResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdateRemoteTerminalTabRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub session_name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub snapshot: Optional<String>,
+    pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub title: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type UpdateRemoteTerminalTabResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UpdateScreenGroupRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub collapsed: Optional<bool>,
@@ -2685,6 +2730,10 @@ impl CmuxClient {
     }
 
     pub fn create_terminal(&mut self, request: CreateTerminalRequest) -> Result<CreateTerminalResult> {
+        if request.detached.is_some() {
+            self.require_protocol_field("create-terminal", 12)?;
+            self.require_capability_field("create-terminal", "detached-terminals-v1")?;
+        }
         if !request.env.is_missing() {
             self.require_protocol_field("create-terminal", 12)?;
             self.require_capability_field("create-terminal", "terminal-env-v1")?;
@@ -3015,6 +3064,10 @@ impl CmuxClient {
         self.execute(&NEW_PANE_RIGHT_METADATA, &request)
     }
 
+    pub fn new_remote_terminal_tab(&mut self, request: NewRemoteTerminalTabRequest) -> Result<NewRemoteTerminalTabResult> {
+        self.execute(&NEW_REMOTE_TERMINAL_TAB_METADATA, &request)
+    }
+
     pub fn new_screen(&mut self, request: NewScreenRequest) -> Result<NewScreenResult> {
         self.execute(&NEW_SCREEN_METADATA, &request)
     }
@@ -3117,6 +3170,10 @@ impl CmuxClient {
 
     pub fn reload_config(&mut self, request: ReloadConfigRequest) -> Result<ReloadConfigResult> {
         self.execute(&RELOAD_CONFIG_METADATA, &request)
+    }
+
+    pub fn remote_terminal_snapshot(&mut self, request: RemoteTerminalSnapshotRequest) -> Result<RemoteTerminalSnapshotResult> {
+        self.execute(&REMOTE_TERMINAL_SNAPSHOT_METADATA, &request)
     }
 
     pub fn remove_screens_from_screen_group(&mut self, request: RemoveScreensFromScreenGroupRequest) -> Result<RemoveScreensFromScreenGroupResult> {
@@ -3483,6 +3540,10 @@ impl CmuxClient {
 
     pub fn update_profile(&mut self, request: UpdateProfileRequest) -> Result<UpdateProfileResult> {
         self.execute(&UPDATE_PROFILE_METADATA, &request)
+    }
+
+    pub fn update_remote_terminal_tab(&mut self, request: UpdateRemoteTerminalTabRequest) -> Result<UpdateRemoteTerminalTabResult> {
+        self.execute(&UPDATE_REMOTE_TERMINAL_TAB_METADATA, &request)
     }
 
     pub fn update_screen_group(&mut self, request: UpdateScreenGroupRequest) -> Result<UpdateScreenGroupResult> {
