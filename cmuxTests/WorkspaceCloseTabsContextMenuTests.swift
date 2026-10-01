@@ -11,11 +11,12 @@ import CmuxTerminal
 #endif
 
 /// A @MainActor Swift Testing body already runs inside a main queue block, so
-/// the main queue cannot drain until the test returns and every
-/// `drainMainQueue` call spins the run loop until its timeout. Spin briefly.
+/// the main queue cannot drain until the test returns. The test-run-loop helper
+/// therefore spins briefly rather than using the module-global XCTest waiter.
 private let mainActorTestMainQueueSpin: TimeInterval = 0.1
 
 private enum WorkspaceCloseTabsTestRunLoop {
+    /// Runs the local run loop for the short test spin interval.
     static func drain(timeout: TimeInterval) {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
