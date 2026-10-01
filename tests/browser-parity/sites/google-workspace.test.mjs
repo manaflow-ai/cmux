@@ -23,7 +23,7 @@ test("googleDocs.read: Markdown by default, title from the export's file name", 
   assert.equal((await s.value('sites.googleDocs.read("https://docs.google.com/document/d/DOC1/edit", { format: "txt" })')).text, "Design Notes\n\nThe plan, in brief.\n");
 });
 
-test("googleDocs.read drops inline image data (Google's Markdown export embeds images as data: definitions)", async () => {
+test("Docs Markdown reads drop inline image data (Google's Markdown export embeds images as data: definitions)", async () => {
   const r = await s.value('sites.googleDocs.read("https://docs.google.com/document/d/DOC1/edit")');
   assert.ok(!r.text.includes("data:image"), "no image data");
   assert.ok(r.text.length < 200);
