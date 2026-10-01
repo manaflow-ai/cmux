@@ -30,7 +30,7 @@ enum AccountsHandlers {
                 if model.row(provider).connectNeedsPaste {
                     try? services.settingsWindow.show(section: .accounts)
                     model.pasteTarget = provider
-                    return nil
+                    return ActionWorkFailure(AccountsAppStrings.pasteInSettings)
                 }
                 return await model.performConnect(provider).map { ActionWorkFailure($0) }
             })

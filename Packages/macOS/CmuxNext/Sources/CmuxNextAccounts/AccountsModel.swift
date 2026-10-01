@@ -13,6 +13,9 @@ public final class AccountsModel {
     public private(set) var isRefreshing = false
     /// The provider whose paste sheet is open (a key or a Claude token).
     public var pasteTarget: AIProvider?
+    /// The provider whose Connect confirmation is open (Codex: its refresh
+    /// token moves to CodeRouter).
+    public var confirmTarget: AIProvider?
     @ObservationIgnored public let services: any AccountsServices
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
@@ -80,17 +83,26 @@ public final class AccountsModel {
     }
 
     /// Connect: asks for a paste first when there is no local secret to send.
-    public func connect(_ provider: AIProvider, pasted: String? = nil) {
+    public func connect(_ provider: AIProvider, pasted: String? = nil, confirmed: Bool = false) {
         let state = row(provider)
         guard state.canConnect, !state.isBusy else { return }
         if pasted == nil, state.connectNeedsPaste {
             pasteTarget = provider
             return
         }
+        if Self.needsConfirmation(provider), !confirmed {
+            confirmTarget = provider
+            return
+        }
+        confirmTarget = nil
         // The row shows Connecting at once; the request runs after.
         apply(.connectStarted, to: provider)
         Task { await runConnect(provider, pasted: pasted) }
     }
+
+    /// Connecting Codex hands its refresh token to CodeRouter, which then
+    /// refreshes it: the user confirms after reading that note.
+    public static func needsConfirmation(_ provider: AIProvider) -> Bool { provider.codeRouterLink == .codexOAuth }
 
     /// Connects and waits; returns the failure text, or nil on success
     /// (the palette and CLI report it).

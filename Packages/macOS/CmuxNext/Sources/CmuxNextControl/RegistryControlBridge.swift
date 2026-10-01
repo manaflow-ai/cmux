@@ -161,6 +161,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         info.unavailableReason = registry.unavailableReason(for: descriptor.id)
         info.isDestructive = descriptor.isDestructive
         info.startsTerminal = descriptor.startsTerminal
+        info.waitsForResult = descriptor.waitsForResult
         return info
     }
 

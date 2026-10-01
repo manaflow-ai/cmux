@@ -54,6 +54,13 @@ enum AccountsStrings {
     static func linkedCount(_ count: Int) -> String {
         String(format: text("accounts.linked.count", "In CodeRouter: %lld"), count)
     }
+    static var bedrockNeedsKeys: String {
+        String(format: text("accounts.hint.bedrockKeys", "To connect, set %@ in your shell."), "AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY")
+    }
+    static var codexRefreshNote: String {
+        text("accounts.confirm.codexNote", "CodeRouter stores this Codex sign-in, with its refresh token, and refreshes it on the server. The codex command on this Mac may then need codex login again.")
+    }
+    static var confirmConnect: String { text("accounts.confirm.connect", "Connect") }
     static var connected: String { text("accounts.outcome.connected", "Connected to CodeRouter") }
     static var removed: String { text("accounts.outcome.removed", "Removed from CodeRouter") }
     static func codeRouterUnavailable(_ detail: String) -> String {

@@ -54,6 +54,12 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     /// compat layer) uses the terminal start deadline instead of the
     /// control-plane one.
     public var startsTerminal: Bool
+    /// The action's work is a network round trip whose outcome the caller
+    /// needs (Connect to CodeRouter): the CLI runs it with `wait` and the
+    /// control socket gives it ``ActionDescriptor/resultDeadline``.
+    public var waitsForResult: Bool = false
+    /// How long `action.run` with `wait` may take for such an action.
+    public static let resultDeadline: Duration = .seconds(40)
 
     public init(
         id: ActionID,

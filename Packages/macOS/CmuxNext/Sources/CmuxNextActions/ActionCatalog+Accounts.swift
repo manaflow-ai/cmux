@@ -5,7 +5,7 @@
 
 nonisolated extension ActionCatalog {
     static func accountsActions() -> [ActionDescriptor] {
-        [
+        var actions = [
             ActionDescriptor(
                 id: "accounts.show",
                 title: text("action.accounts.show", "Accounts…"),
@@ -41,6 +41,12 @@ nonisolated extension ActionCatalog {
                 cliName: "accounts remove", destructive: true
             ),
         ]
+        // Connect and remove are CodeRouter round trips: the CLI waits for
+        // the outcome and exits non-zero when it failed.
+        for index in actions.indices where ["accounts.connect", "accounts.remove"].contains(actions[index].id.rawValue) {
+            actions[index].waitsForResult = true
+        }
+        return actions
     }
 
     /// Provider ids and product names (never localized).

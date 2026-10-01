@@ -5895,6 +5895,399 @@
           }
         }
       }
+    },
+    "accounts.hint.bedrockKeys": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To connect, set %@ in your shell."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "接続するには、シェルで %@ を設定してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "للربط، اضبط %@ في الصدفة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Za povezivanje postavite %@ u svom shellu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angiv %@ i din shell for at forbinde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Setze zum Verbinden %@ in deiner Shell."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Para conectar, define %@ en tu shell."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pour connecter, définissez %@ dans votre shell."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Per collegare, imposta %@ nella shell."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដើម្បីភ្ជាប់ សូមកំណត់ %@ ក្នុង shell របស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "연결하려면 셸에서 %@을(를) 설정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sett %@ i skallet ditt for å koble til."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aby połączyć, ustaw %@ w powłoce."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Para conectar, defina %@ no seu shell."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чтобы подключить, задайте %@ в оболочке."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หากต้องการเชื่อม ให้ตั้งค่า %@ ในเชลล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlamak için kabuğunuzda %@ ayarlayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Щоб підключити, задайте %@ в оболонці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Để kết nối, hãy đặt %@ trong shell."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要连接，请在 shell 中设置 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "若要連接，請在 shell 中設定 %@。"
+          }
+        }
+      }
+    },
+    "accounts.confirm.connect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "接続"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ربط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poveži"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forbind"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verbinden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connecter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Collega"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្ជាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "연결"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koble til"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Połącz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подключить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เชื่อม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Підключити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết nối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "連接"
+          }
+        }
+      }
+    },
+    "accounts.confirm.codexNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CodeRouter stores this Codex sign-in, with its refresh token, and refreshes it on the server. The codex command on this Mac may then need codex login again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter はこの Codex のサインインをリフレッシュトークンごと保存し、サーバー側で更新します。その後、この Mac の codex コマンドで codex login が再び必要になることがあります。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يخزّن CodeRouter تسجيل دخول Codex هذا مع رمز التحديث الخاص به ويجدده على الخادم. قد يحتاج أمر codex على جهاز Mac هذا بعد ذلك إلى codex login مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter čuva ovu Codex prijavu zajedno s tokenom za osvježavanje i osvježava je na serveru. Naredba codex na ovom Macu tada može ponovo trebati codex login."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter gemmer dette Codex-login med dets opdateringstoken og fornyer det på serveren. Kommandoen codex på denne Mac kan derefter få brug for codex login igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter speichert diese Codex-Anmeldung samt Refresh-Token und erneuert sie auf dem Server. Der Befehl codex auf diesem Mac braucht danach eventuell erneut codex login."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter guarda este inicio de sesión de Codex, con su token de actualización, y lo renueva en el servidor. Después, el comando codex de este Mac puede necesitar codex login de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter stocke cette connexion Codex, avec son jeton d’actualisation, et la renouvelle sur le serveur. La commande codex de ce Mac peut ensuite nécessiter à nouveau codex login."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter memorizza questo accesso a Codex, con il suo token di aggiornamento, e lo rinnova sul server. Il comando codex su questo Mac potrebbe poi richiedere di nuovo codex login."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter រក្សាទុកការចូល Codex នេះ រួមទាំងថូខឹនធ្វើឱ្យថ្មី ហើយធ្វើឱ្យវាថ្មីនៅលើម៉ាស៊ីនមេ។ បន្ទាប់មក ពាក្យបញ្ជា codex នៅលើ Mac នេះអាចត្រូវការ codex login ម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter는 이 Codex 로그인을 새로 고침 토큰과 함께 저장하고 서버에서 갱신합니다. 그 후 이 Mac의 codex 명령에서 codex login이 다시 필요할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter lagrer denne Codex-påloggingen med oppdateringstokenet og fornyer den på serveren. Kommandoen codex på denne Macen kan da trenge codex login igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter przechowuje to logowanie Codex wraz z tokenem odświeżania i odnawia je na serwerze. Polecenie codex na tym Macu może potem znów wymagać codex login."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O CodeRouter guarda este login do Codex, com seu token de atualização, e o renova no servidor. Depois, o comando codex neste Mac pode precisar de codex login novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter сохраняет этот вход в Codex вместе с токеном обновления и обновляет его на сервере. После этого команде codex на этом Mac может снова понадобиться codex login."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter จะเก็บการลงชื่อเข้าใช้ Codex นี้พร้อมโทเค็นรีเฟรช และต่ออายุบนเซิร์ฟเวอร์ หลังจากนั้นคำสั่ง codex บน Mac เครื่องนี้อาจต้องใช้ codex login อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter bu Codex oturumunu yenileme belirteciyle birlikte saklar ve sunucuda yeniler. Bundan sonra bu Mac'teki codex komutu yeniden codex login gerektirebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter зберігає цей вхід у Codex разом із токеном оновлення й оновлює його на сервері. Після цього команді codex на цьому Mac може знову знадобитися codex login."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter lưu đăng nhập Codex này cùng token làm mới và gia hạn nó trên máy chủ. Sau đó lệnh codex trên máy Mac này có thể cần codex login lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter 会保存此 Codex 登录及其刷新令牌，并在服务器上刷新。之后，此 Mac 上的 codex 命令可能需要再次运行 codex login。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter 會儲存此 Codex 登入及其重新整理權杖，並在伺服器上更新。之後，這台 Mac 上的 codex 指令可能需要再次執行 codex login。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

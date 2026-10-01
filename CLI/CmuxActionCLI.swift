@@ -276,6 +276,9 @@ final class CmuxActionCLI {
         var params: [String: Any] = ["action": action.id, "args": parsed.arguments]
         if let target = parsed.target { params["target"] = target }
         if parsed.interactive { params["interactive"] = true }
+        // A network action (Connect to CodeRouter) answers with its outcome:
+        // a failure exits non-zero instead of printing OK before it ran.
+        if action.raw["waits_for_result"] as? Bool == true { params["wait"] = true }
         let result = try call("action.run", params)
         output(jsonOutput ? Self.json(result) : "OK")
     }

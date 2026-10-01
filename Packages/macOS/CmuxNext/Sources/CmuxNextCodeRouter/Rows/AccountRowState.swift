@@ -121,10 +121,19 @@ public struct AccountRowState: Sendable, Equatable {
         guard cmuxSignedIn, isLinkable else { return false }
         switch provider.codeRouterLink {
         case .claudeOAuthToken, .apiKey, .anthropicAPIKey: return true
-        case .codexOAuth, .bedrockKeys: return status == .signedIn
+        case .codexOAuth: return status == .signedIn
+        case .bedrockKeys: return hasBedrockKeys
         case .unsupported: return false
         }
     }
+
+    /// Bedrock Connect sends AWS keys from the shell; a profile alone is not enough.
+    public var hasBedrockKeys: Bool {
+        let sources = detection?.sources ?? []
+        return Self.bedrockKeyNames.allSatisfy { sources.contains(.environment($0)) }
+    }
+
+    public static let bedrockKeyNames = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
 
     /// Whether Connect must first ask for a secret (no local one to send).
     public var connectNeedsPaste: Bool {

@@ -31,7 +31,12 @@ extension ControlRouter {
                 // Only a run that awaits its work waits for the terminal.
                 request.params["wait"]?.boolValue == true
                     && ((try? Self.resolveAction(request.params, in: snapshot.catalog))?.startsTerminal ?? false)
-            }),
+            }).withLimit { request, snapshot in
+                // A network action the caller awaits (Connect to CodeRouter).
+                guard request.params["wait"]?.boolValue == true,
+                      (try? Self.resolveAction(request.params, in: snapshot.catalog))?.waitsForResult == true else { return nil }
+                return ActionDescriptor.resultDeadline
+            },
             .async("settings.get") { [weak self] call in
                 guard let self else { throw Self.stopped }
                 return try await self.settingsGet(call)

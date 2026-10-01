@@ -655,6 +655,137 @@
           }
         }
       }
+    },
+    "accounts.refusal.pasteInSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This provider needs a pasted key or token. Settings > Accounts is open at its paste field."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このプロバイダにはキーまたはトークンの貼り付けが必要です。設定 > アカウントの貼り付け欄を開きました。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يحتاج هذا المزود إلى مفتاح أو رمز ملصوق. تم فتح الإعدادات > الحسابات عند حقل اللصق."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj provajder treba zalijepljeni ključ ili token. Postavke > Računi su otvorene na polju za lijepljenje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne udbyder skal have en indsat nøgle eller et token. Indstillinger > Konti er åbnet ved indsætningsfeltet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Anbieter braucht einen eingefügten Schlüssel oder ein Token. Einstellungen > Konten ist beim Einfügefeld geöffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este proveedor necesita una clave o un token pegado. Ajustes > Cuentas está abierto en su campo para pegar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce fournisseur nécessite une clé ou un jeton collé. Réglages > Comptes est ouvert sur son champ de collage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo provider richiede una chiave o un token incollato. Impostazioni > Account è aperto sul campo da incollare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អ្នកផ្តល់សេវានេះត្រូវការកូនសោ ឬថូខឹនដែលបិទភ្ជាប់។ ការកំណត់ > គណនី ត្រូវបានបើកនៅវាលបិទភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 제공업체에는 붙여 넣은 키나 토큰이 필요합니다. 설정 > 계정의 붙여 넣기 필드를 열었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne leverandøren trenger en innlimt nøkkel eller et token. Innstillinger > Kontoer er åpnet ved innlimingsfeltet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten dostawca wymaga wklejonego klucza lub tokenu. Otwarto Ustawienia > Konta w polu wklejania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este provedor precisa de uma chave ou token colado. Ajustes > Contas está aberto no campo de colar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этому провайдеру нужен вставленный ключ или токен. Открыты Настройки > Аккаунты на поле вставки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ผู้ให้บริการนี้ต้องใช้คีย์หรือโทเค็นที่วาง เปิดการตั้งค่า > บัญชี ที่ช่องวางแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sağlayıcı yapıştırılmış bir anahtar veya belirteç gerektirir. Ayarlar > Hesaplar yapıştırma alanında açıldı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цьому провайдеру потрібен вставлений ключ або токен. Відкрито Параметри > Облікові записи на полі вставлення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhà cung cấp này cần khóa hoặc token được dán. Đã mở Cài đặt > Tài khoản ở ô dán."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此提供商需要粘贴密钥或令牌。已在“设置 > 账号”中打开粘贴栏。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此供應商需要貼上金鑰或權杖。已在「設定 > 帳號」中開啟貼上欄位。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

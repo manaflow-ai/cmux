@@ -45,7 +45,9 @@ extension CMUXCLI {
 
         let cli = CmuxActionCLI(call: { method, params in
             do {
-                return try client.sendV2(method: method, params: params)
+                // `wait` runs may take the server's result deadline (40 s).
+                let waits = params["wait"] as? Bool == true
+                return try client.sendV2(method: method, params: params, responseTimeout: waits ? 45 : nil)
             } catch let error as CLIError where error.v2Code == "method_not_found" {
                 throw CmuxActionCLI.ServerLacksActions()
             } catch let error as CLIError where error.isStructuredProtocolResponse {

@@ -47,7 +47,8 @@ extension AIProvider {
     public var reauthPlan: ReauthPlan {
         switch self {
         case .codex: .command(["codex", "login"])
-        case .claude: .command(["claude", "/login"])
+        // `claude auth login` (Claude Code's `auth` command, per `claude auth --help`).
+        case .claude: .command(["claude", "auth", "login"])
         case .gemini: .command(["gemini"])
         case .bedrock: .command(["aws", "sso", "login"])
         case .vertex: .command(["gcloud", "auth", "application-default", "login"])

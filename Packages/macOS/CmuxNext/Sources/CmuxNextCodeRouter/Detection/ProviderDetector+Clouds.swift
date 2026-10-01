@@ -20,7 +20,7 @@ extension ProviderDetector {
     /// Bedrock: AWS keys or a Bedrock API key in the environment, or named
     /// profiles in the shared AWS files. Only section names are read.
     func detectBedrock() -> ProviderDetection {
-        var sources: [DetectionSource] = ["AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID"]
+        var sources: [DetectionSource] = ["AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
             .filter { environment.value($0) != nil }.map(DetectionSource.environment)
         var profiles: [String] = []
         let aws = environment.home.appendingPathComponent(".aws", isDirectory: true)

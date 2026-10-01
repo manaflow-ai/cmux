@@ -94,6 +94,9 @@ public struct ControlActionInfo: Sendable, Hashable {
     /// Starts a terminal (`ActionDescriptor.startsTerminal`): `action.run`
     /// with `wait` uses the terminal start deadline.
     public var startsTerminal = false
+    /// The CLI waits for the work's result (`ActionDescriptor.waitsForResult`);
+    /// `action.run` with `wait` then gets the result deadline.
+    public var waitsForResult = false
 
     public init(
         id: String, title: String, category: String, categoryTitle: String, cliName: String, symbol: String,
@@ -140,6 +143,7 @@ public struct ControlActionInfo: Sendable, Hashable {
             "debug_only": .bool(isDebugOnly),
             "destructive": .bool(isDestructive),
             "starts_terminal": .bool(startsTerminal),
+            "waits_for_result": .bool(waitsForResult),
         ]
         if let mainMenu { members["main_menu"] = .string(mainMenu) }
         if let unavailableReason { members["unavailable_reason"] = .string(unavailableReason) }
