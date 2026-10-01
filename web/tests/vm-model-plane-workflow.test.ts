@@ -561,17 +561,6 @@ describe("token revocation on machine end", () => {
 });
 
 describe("model-plane error responses", () => {
-  test("team mismatch maps to a non-retryable 409", async () => {
-    const err = new VmModelPlaneError({ kind: "team_mismatch", cause: new Error("owner mismatch") });
-    const response = await vmWorkflowErrorResponse(err);
-    expect(response?.status).toBe(409);
-    expect(await response!.json()).toMatchObject({
-      error: "vm_model_plane_team_mismatch",
-      retryable: false,
-      phase: "create",
-    });
-  });
-
   test("unavailable maps to a retryable 503 for create and restore", async () => {
     const err = new VmModelPlaneError({ kind: "unavailable", cause: new Error("db down") });
     const create = await vmWorkflowErrorResponse(err);

@@ -750,8 +750,7 @@ export function vmModelPlaneErrorResponse(
   _err: VmModelPlaneError,
   phase: "create" | VmCreateLikeOperation = "create",
 ): Response {
-  if (_err.kind === "team_mismatch") {
-    return vmErrorResponse({
+  return vmErrorResponse({
       error: "vm_model_plane_team_mismatch",
       status: 409,
       message: "The Cloud VM team does not match its CodeRouter team.",

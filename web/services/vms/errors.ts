@@ -197,12 +197,11 @@ export class VmAccountDeletionIdentityRevocationError extends Data.TaggedError(
  * `unavailable`: coderouter itself failed (503, retry). There is no plan or
  * entitlement gate on the model plane.
  */
-export type VmModelPlaneFailureKind = "unavailable" | "team_mismatch";
+export type VmModelPlaneFailureKind = "unavailable";
 
 /** Failure codes stored on the VM row for each {@link VmModelPlaneFailureKind}. */
 export const VM_MODEL_PLANE_FAILURE_CODES = {
   unavailable: "model_plane_unavailable",
-  team_mismatch: "model_plane_team_mismatch",
 } as const satisfies Record<VmModelPlaneFailureKind, string>;
 
 /**

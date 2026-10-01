@@ -37,6 +37,11 @@ ALTER TABLE "coderouter_claude_accounts" ADD CONSTRAINT "coderouter_claude_accou
 CREATE UNIQUE INDEX "coderouter_accounts_team_id_unique" ON "coderouter_accounts" ("team_id", "id");
 CREATE UNIQUE INDEX "coderouter_claude_accounts_team_id_unique" ON "coderouter_claude_accounts" ("team_id", "id");
 
+CREATE TABLE "coderouter_pool_initializations" (
+  "pool_id" uuid PRIMARY KEY REFERENCES "coderouter_pools" ("id") ON DELETE CASCADE,
+  "created_at" timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE "coderouter_pool_accounts" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "team_id" text NOT NULL,
