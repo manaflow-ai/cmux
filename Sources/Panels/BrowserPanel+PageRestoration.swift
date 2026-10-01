@@ -79,7 +79,8 @@ extension BrowserPanel {
         var interactionState: Data?
         // Error pages and pending recoveries restore to a URL WebKit never
         // committed, so their session state would bring back the wrong page.
-        if navigationDelegate?.activeErrorPageDisplayURL == nil,
+        if let documentURL,
+           navigationDelegate?.activeErrorPageDisplayURL == nil,
            pendingRecoveryURL == nil,
            BrowserDiscardRestoreStrategy.canRestoreSessionState(for: documentURL),
            let restoreURL,
