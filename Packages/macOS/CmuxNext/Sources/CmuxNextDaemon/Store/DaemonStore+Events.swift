@@ -173,7 +173,10 @@ extension DaemonStore {
         case .tabRenamed(let delta), .tabChanged(let delta):
             guard let tab = tabsBySurface[delta.surface] else { return .resync }
             tab.update(delta.entity)
-            panesByHandle[delta.pane]?.recomputeSpans()
+            // tab-drag-v1 reports a move as the moved tab's tab-changed
+            // naming its new pane (another pane, screen or a new workspace).
+            guard let target = panesByHandle[delta.pane] else { return .resync }
+            if relocate(tab, to: target, index: delta.index) { structureChanged() } else { target.recomputeSpans() }
             return .none
 
         case .treeChanged, .layoutChanged, .overflow:
@@ -206,6 +209,18 @@ extension DaemonStore {
         case .scrollChanged, .bell, .frontendProjectionChanged, .terminalRegistryChanged, .client, .unknown:
             return .none
         }
+    }
+
+    /// Moves `tab` into `target` at `index` when another pane holds it.
+    /// Returns whether anything moved.
+    private func relocate(_ tab: TabModel, to target: PaneModel, index: Int?) -> Bool {
+        let holders = panesByHandle.values.filter { $0 !== target && $0.tabs.contains { $0.surface == tab.surface } }
+        guard !holders.isEmpty else { return false }
+        for pane in holders { _ = pane.removeTab(surface: tab.surface) }
+        if !target.tabs.contains(where: { $0.surface == tab.surface }) {
+            target.insertTab(tab, at: min(max(index ?? target.tabs.count, 0), target.tabs.count))
+        }
+        return true
     }
 
     private func applyWorkspaceDelta(_ delta: WorkspaceDelta, _ body: (DaemonStore, WorkspaceDelta) -> Void) -> Followup {
