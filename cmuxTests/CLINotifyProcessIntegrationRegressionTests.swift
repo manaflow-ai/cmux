@@ -9616,13 +9616,20 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
-    private func codexLaunchEnvironment(context: ClaudeHookContext, sessionId: String, observedHookPID: String? = nil) -> [String: String] {
-        // A fixture may pin the hook PID to model a late terminal update from an older turn.
+    private func codexLaunchEnvironment(
+        context: ClaudeHookContext,
+        sessionId: String,
+        observedHookPID: String? = nil
+    ) -> [String: String] {
         var environment = agentLaunchEnvironment(
-            context: context, kind: "codex", executable: "/usr/local/bin/codex",
+            context: context,
+            kind: "codex",
+            executable: "/usr/local/bin/codex",
             arguments: ["/usr/local/bin/codex", "--model", "gpt-5.4"]
         )
-        if let observedHookPID { environment["CMUX_CODEX_HOOK_PID"] = observedHookPID }
+        if let observedHookPID {
+            environment["CMUX_CODEX_HOOK_PID"] = observedHookPID
+        }
         return environment
     }
     func agentLaunchEnvironment(

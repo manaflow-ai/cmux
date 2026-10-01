@@ -478,6 +478,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let poolData = try Data(contentsOf: isolatedHome.appendingPathComponent(".cmuxterm/vm-run-pool.json"))
         let pool = try JSONSerialization.jsonObject(with: poolData) as? [String: Any]
         XCTAssertEqual(pool?["machines"] as? [String], ["recovered-1"])
+
+        let next = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "run", "--new", "--", "echo", "recovered"],
+            environment: environment,
+            timeout: 30
+        )
+        XCTAssertFalse(next.timedOut, next.stderr)
+        XCTAssertEqual(next.status, 0, "a completed create should permit a fresh create: stderr=\(next.stderr)")
+        let completedKeys = attempts.snapshot()
+        XCTAssertEqual(completedKeys.count, 3)
+        guard completedKeys.count == 3 else { return }
+        XCTAssertNotEqual(completedKeys[2], keys[0], "a completed create must not reuse its retry key")
     }
 
     /// Two routers provisioning at the same moment must both end up in the pool
