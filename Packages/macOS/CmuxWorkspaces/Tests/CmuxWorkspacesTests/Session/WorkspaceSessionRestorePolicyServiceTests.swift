@@ -345,7 +345,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(!service.shouldReplaySessionScrollback(hasRestorableAgent: true))
         #expect(!service.shouldReplaySessionScrollback(
             hasRestorableAgent: false,
-            tmuxStartCommand: "oh-my-codex hud"
+            tmuxStartCommand: "oh-my-codex hud --watch"
         ))
         #expect(!service.shouldReplaySessionScrollback(
             hasRestorableAgent: false,
@@ -353,14 +353,30 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         ))
     }
 
-    @Test("tmux start command is restorable only for OMX HUD commands")
+    @Test("tmux start command is restorable only for OMX/OMP HUD commands")
     func restorableTmuxStartCommandRequiresOmxHud() {
         let service = makeService()
 
-        #expect(service.restorableTmuxStartCommand("  oh-my-codex hud  ") == "oh-my-codex hud")
+        #expect(service.restorableTmuxStartCommand("  oh-my-codex hud --watch  ") == "oh-my-codex hud --watch")
         #expect(service.restorableTmuxStartCommand("omx run") == nil)
         #expect(service.restorableTmuxStartCommand("hudson omx") == nil)
-        #expect(service.restorableTmuxStartCommand("omx hud") == "omx hud")
+        // The providers run the HUD as a watch loop; without it the command is not a HUD launch.
+        #expect(service.restorableTmuxStartCommand("omx hud") == nil)
+        #expect(service.restorableTmuxStartCommand("  oh-my-pi hud --watch  ") == "oh-my-pi hud --watch")
+        #expect(service.restorableTmuxStartCommand("omp run") == nil)
+        #expect(service.restorableTmuxStartCommand("omp hud") == nil)
+        // "prompt" must not be misread as an OMP command via substring matching.
+        #expect(service.restorableTmuxStartCommand("prompt hud") == nil)
+        // A quoted mention is not a HUD launch, so its side effects must not replay on restore.
+        #expect(service.restorableTmuxStartCommand("echo \"omp hud\"") == nil)
+        // A shell-wrapped mention is not a HUD launch either, even with the watch flag.
+        #expect(service.restorableTmuxStartCommand("sh -c 'printf x >> /tmp/log; echo omp hud --watch'") == nil)
+        // The HUD script an interpreter runs — behind the env prefix the launcher
+        // records — is a HUD launch.
+        #expect(service.restorableTmuxStartCommand("node /opt/oh-my-pi/dist/omp.js hud --watch")
+            == "node /opt/oh-my-pi/dist/omp.js hud --watch")
+        #expect(service.restorableTmuxStartCommand("env OMP_SESSION_ID=x node '/opt/oh-my-pi/dist/cli/omp.js' hud --watch")
+            == "env OMP_SESSION_ID=x node '/opt/oh-my-pi/dist/cli/omp.js' hud --watch")
     }
 
     @Test("cmux-generated local tmux attach commands are restorable")

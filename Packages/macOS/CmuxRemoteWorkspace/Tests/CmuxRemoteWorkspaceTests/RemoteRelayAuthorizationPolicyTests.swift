@@ -48,6 +48,53 @@ struct RemoteRelayAuthorizationPolicyTests {
         ))
     }
 
+    @Test("relay splits require the exact surface selector their handler reads")
+    func splitRequiresExactSurfaceSelector() {
+        let policy = RemoteRelayAuthorizationPolicy()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let allowed = policy.validate(
+            method: "surface.split",
+            parameters: [
+                "workspace_id": workspaceID.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "direction": "down",
+            ],
+            ownerWorkspaceID: workspaceID,
+            surfaceIDs: [surfaceID]
+        )
+        #expect(allowed == .allowed)
+
+        // Without the selector the handler falls back to the focused panel,
+        // which can be a terminal moved in from another owner's workspace.
+        let missingSurface = policy.validate(
+            method: "surface.split",
+            parameters: ["workspace_id": workspaceID.uuidString, "direction": "down"],
+            ownerWorkspaceID: workspaceID,
+            surfaceIDs: [surfaceID]
+        )
+        #expect(missingSurface == .denied(
+            code: "remote_relay_surface_denied",
+            message: "Relay method requires an explicit surface selector"
+        ))
+
+        // Naming a surface outside the authorized set cannot route a split to it.
+        let foreignSurface = policy.validate(
+            method: "surface.split",
+            parameters: [
+                "workspace_id": workspaceID.uuidString,
+                "surface_id": UUID().uuidString,
+                "direction": "down",
+            ],
+            ownerWorkspaceID: workspaceID,
+            surfaceIDs: [surfaceID]
+        )
+        guard case .denied = foreignSurface else {
+            Issue.record("a split naming a surface outside the authorized set must be denied")
+            return
+        }
+    }
+
     @Test("selectors cannot cross the authenticated workspace")
     func crossWorkspaceSelectorIsDenied() {
         let policy = RemoteRelayAuthorizationPolicy()

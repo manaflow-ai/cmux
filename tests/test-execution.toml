@@ -1006,6 +1006,11 @@ path = "tests/test_cli_omx_hud_tmux_split.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_cli_omp_hud_tmux_split.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_sigpipe_ignore.py"
 lane = "legacy"
 

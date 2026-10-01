@@ -5271,6 +5271,15 @@ struct CMUXCLI {
             return
         }
 
+        if command == "omp" {
+            try runOMP(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg
+            )
+            return
+        }
+
         if command == "__debug-tmux-compat-env" {
             try debugDumpTmuxCompatEnvironment(
                 socketPath: resolvedSocketPath,
@@ -8573,6 +8582,8 @@ struct CMUXCLI {
             return omoIsNonLaunchInvocation(commandArgs: commandArgs)
         case "omx":
             return omxIsNonLaunchInvocation(commandArgs: commandArgs)
+        case "omp":
+            return ompIsNonLaunchInvocation(commandArgs: commandArgs)
         case "omc":
             return AgentLaunchInvocationClassifier().omcLaunchIsNonLaunch(args: commandArgs)
         default:
@@ -19470,6 +19481,27 @@ struct CMUXCLI {
               cmux omx --madmax --high
               cmux omx team
             """)
+        case "omp":
+            return String(localized: "cli.omp.usage", defaultValue: """
+            Usage: cmux omp [omp-args...]
+
+            Launch oh-my-pi (OMP) with native cmux pane integration.
+
+            OMP is a coding agent harness. This command sets up a tmux shim so
+            the OMP HUD and its tmux-backed panes become native cmux splits.
+
+            This command:
+              - sets a tmux-like environment so OMP uses cmux splits
+              - prepends a private tmux shim to PATH
+              - forwards all remaining arguments to omp
+
+            Install: bun install -g @oh-my-pi/pi-coding-agent
+
+            Examples:
+              cmux omp
+              cmux omp --continue
+              cmux omp -p "explain this repo"
+            """)
         case "omc":
             return String(localized: "cli.omc.usage", defaultValue: """
             Usage: cmux omc [omc-args...]
@@ -27073,6 +27105,141 @@ struct CMUXCLI {
         throw CLIError(message: "Failed to launch omx: \(String(cString: strerror(code)))\n\nIs oh-my-codex installed? Install with:\n  npm install -g oh-my-codex")
     }
 
+    // MARK: - cmux omp (Oh My Pi)
+
+    private func resolveOMPExecutable(searchPath: String?) -> String? {
+        resolveExecutableInSearchPath("omp", searchPath: searchPath)
+    }
+
+    private func createOMPShimDirectory() throws -> URL {
+        let tmuxScript = """
+        #!/usr/bin/env bash
+        set -euo pipefail
+        case "${1:-}" in
+          -V|-v) echo "tmux 3.4"; exit 0 ;;
+          show-options|show-option|show)
+            shift
+            value_only=0
+            option_name=""
+            while (($#)); do
+              arg="$1"
+              shift
+              case "$arg" in
+                --) ;;
+                -t)
+                  if (($#)); then shift; fi
+                  ;;
+                -t*) ;;
+                -*)
+                  case "$arg" in
+                    *v*) value_only=1 ;;
+                  esac
+                  ;;
+                *) option_name="$arg" ;;
+              esac
+            done
+            case "$option_name" in
+              extended-keys)
+                if [[ "$value_only" == "1" ]]; then
+                  echo "on"
+                else
+                  echo "extended-keys on"
+                fi
+                exit 0
+                ;;
+            esac
+            ;;
+        esac
+        exec "${CMUX_OMP_CMUX_BIN:-cmux}" __tmux-compat "$@"
+        """
+        return try createTmuxCompatShimDirectory(
+            directoryName: "omp-bin",
+            tmuxShimScript: tmuxScript
+        )
+    }
+
+    private func configureOMPEnvironment(
+        processEnvironment: [String: String],
+        shimDirectory: URL,
+        executablePath: String,
+        socketPath: String,
+        explicitPassword: String?,
+        launchContext: TmuxCompatLaunchContext?
+    ) {
+        configureTmuxCompatEnvironment(
+            processEnvironment: processEnvironment,
+            shimDirectory: shimDirectory,
+            executablePath: executablePath,
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            launchContext: launchContext,
+            tmuxPathPrefix: "cmux-omp",
+            cmuxBinEnvVar: "CMUX_OMP_CMUX_BIN",
+            termOverrideEnvVar: "CMUX_OMP_TERM"
+        )
+    }
+
+    private func runOMP(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
+        let processEnvironment = ProcessInfo.processInfo.environment
+        var launcherEnvironment = processEnvironment
+        launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath; launcherEnvironment.removeValue(forKey: "CMUX_SOCKET")
+        if let explicitPassword,
+           !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
+        }
+
+        guard let ompExecutablePath = resolveOMPExecutable(searchPath: launcherEnvironment["PATH"]) else {
+            throw CLIError(message: "omp is not installed. Install it first:\n  bun install -g @oh-my-pi/pi-coding-agent\n\nThen run: cmux omp")
+        }
+        launcherEnvironment["PATH"] = providerExecutableSearchPath(
+            searchPath: launcherEnvironment["PATH"],
+            includingExecutableAt: ompExecutablePath
+        )
+
+        let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
+        let launchContext = try tmuxCompatLaunchContext(
+            processEnvironment: launcherEnvironment,
+            explicitPassword: explicitPassword
+        )
+        if !ompIsNonLaunchInvocation(commandArgs: commandArgs),
+           normalizedTmuxTarget(launchContext?.surfaceId) == nil {
+            throw CLIError(message: managedTerminalRequiredMessage(displayName: "cmux omp"))
+        }
+        let shimDirectory = try createOMPShimDirectory()
+        configureOMPEnvironment(
+            processEnvironment: launcherEnvironment,
+            shimDirectory: shimDirectory,
+            executablePath: executablePath,
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            launchContext: launchContext
+        )
+
+        let launchPath = ompExecutablePath
+        exportAgentLaunchCommandEnvironment(
+            launcher: "omp",
+            executablePath: executablePath,
+            arguments: [executablePath, "omp"] + commandArgs,
+            workingDirectory: launcherEnvironment["PWD"]
+        )
+        var argv = ([launchPath] + commandArgs).map { strdup($0) }
+        defer {
+            for item in argv {
+                free(item)
+            }
+        }
+        argv.append(nil)
+
+        let code = cliExecFailureErrno {
+            execv(launchPath, &argv)
+        }
+        throw CLIError(message: "Failed to launch omp: \(String(cString: strerror(code)))\n\nIs oh-my-pi installed? Install with:\n  bun install -g @oh-my-pi/pi-coding-agent")
+    }
+
     // MARK: - cmux omc (Oh My Claude Code)
     private func resolveOMCExecutable(searchPath: String?) -> String? {
         resolveExecutableInSearchPath("omc", searchPath: searchPath)
@@ -27287,10 +27454,10 @@ struct CMUXCLI {
                 valueFlags: ["-c", "-F", "-l", "-t"],
                 boolFlags: ["-P", "-b", "-d", "-f", "-h", "-v"]
             )
-            let isOMXHud = tmuxCommandLooksLikeOMXHud(parsed.positional)
-            if isOMXHud && tmuxOMXHudConfigDisablesHud(cwd: parsed.value("-c")) {
+            let hudProvider = tmuxHudProviderForCommand(parsed.positional)
+            if let hudProvider, tmuxHudConfigDisablesHud(cwd: parsed.value("-c"), provider: hudProvider) {
                 tmuxWriteDebugDiagnostic(
-                    "OMX HUD disabled by config; cwd=\(parsed.value("-c") ?? "<default>") command=\(parsed.positional.joined(separator: " "))"
+                    "\(hudProvider.displayName) HUD disabled by config; cwd=\(parsed.value("-c") ?? "<default>") command=\(parsed.positional.joined(separator: " "))"
                 )
                 return
             }
@@ -27334,7 +27501,7 @@ struct CMUXCLI {
                !cwd.isEmpty {
                 splitParams["working_directory"] = resolvePath(cwd)
             }
-            let startupScript = isOMXHud
+            let startupScript = hudProvider != nil
                 ? tmuxStartupScript(commandTokens: parsed.positional, cwd: parsed.value("-c"))
                 : nil
             if let startupScript {
@@ -27381,7 +27548,7 @@ struct CMUXCLI {
             let paneId = created["pane_id"] as? String
 
             // Track the newly created pane for main-vertical layout.
-            if !isOMXHud {
+            if hudProvider == nil {
                 try withLockedTmuxCompatStore { store in
                     store.lastSplitSurface[target.workspaceId] = surfaceId
                     if store.mainVerticalLayouts[target.workspaceId] != nil {
@@ -27598,7 +27765,7 @@ struct CMUXCLI {
                 if tmuxFormatRequestsPaneCommand(parsed.value("-F")),
                    context["pane_start_command"] == nil,
                    let surfaceId = context["surface_id"],
-                   let legacyHudStartCommand = tmuxLegacyOMXHudStartCommand(
+                   let legacyHudStartCommand = tmuxLegacyManagedHudStartCommand(
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         client: client
@@ -27637,7 +27804,7 @@ struct CMUXCLI {
                 && parsed.value("-x") == nil
                 && parsed.value("-y") != nil
             if isAbsoluteHeightOnlyResize,
-               tmuxPaneLooksLikeOMXHud(
+               tmuxPaneLooksLikeManagedHud(
                     workspaceId: target.workspaceId,
                     paneId: target.paneId,
                     client: client

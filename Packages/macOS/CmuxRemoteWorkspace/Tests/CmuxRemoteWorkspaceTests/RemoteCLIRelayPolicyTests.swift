@@ -285,6 +285,45 @@ struct RemoteCLIRelayPolicyTests {
         }
     }
 
+    @Test("a terminal split on an aliased remote surface is forwarded")
+    func allowsAliasedSurfaceSplit() throws {
+        let alias = (remote: UUID(), local: UUID())
+        try withServer(surfaceAliases: [alias.remote: alias.local]) { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"p4s","method":"surface.split","params":{"surface_id":"\(alias.remote.uuidString)","direction":"down","focus":true}}
+                """
+            )
+            #expect(exchange.responseLines.first?["ok"] as? Bool == true)
+            #expect(unixServer.requests.count == 1)
+        }
+    }
+
+    @Test("split command-bearing parameters and non-terminal targets are denied")
+    func deniesSplitCommandParametersAndNonTerminalTargets() throws {
+        try withServer { port, unixServer in
+            for (label, request) in [
+                ("working directory", #"{"id":"p4w","method":"surface.split","params":{"working_directory":"/tmp"}}"#),
+                ("startup command", #"{"id":"p4c","method":"surface.split","params":{"initial_command":"touch /tmp/pwned"}}"#),
+                ("tmux start command", #"{"id":"p4t","method":"surface.split","params":{"tmux_start_command":"/bin/sh -c id"}}"#),
+                ("startup environment", #"{"id":"p4e","method":"surface.split","params":{"startup_environment":{"PATH":"/tmp"}}}"#),
+                ("browser surface", #"{"id":"p4b","method":"surface.split","params":{"type":"browser"}}"#),
+                ("browser url", #"{"id":"p4u","method":"surface.split","params":{"url":"https://example.com"}}"#),
+            ] {
+                let exchange = try runPolicyRelayExchange(
+                    port: port,
+                    relayID: relayID,
+                    tokenHex: tokenHex,
+                    commandLine: request
+                )
+                expectDenial(exchange, unixServer, label)
+            }
+        }
+    }
+
     @Test("methods outside the relay allowlist are denied")
     func deniesNonAllowlistedMethod() throws {
         try withServer { port, unixServer in

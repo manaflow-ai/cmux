@@ -169,22 +169,47 @@ struct ManagedLauncherNonLaunchTests {
         #expect(classifier.omxLaunchIsNonLaunch(args: ["team", "resume", "--help"]))
     }
 
-    @Test("OMX rejects sessions, unknown commands, and command-shaped values")
-    func omxLaunches() {
-        for args in [
-            ["resume"],
-            ["team"],
-            ["team", "resume"],
-            ["unknown-command"],
-            ["--scope", "project", "setup"],
-            ["--scope", "project", "ask"],
-            ["--scope", "--version"],
-            ["--", "--version"],
-            ["--high"],
+    @Test("OMP preserves documented management commands")
+    func ompManagementCommands() {
+        for command in [
+            "acp", "agents", "auth-broker", "auth-gateway", "bench", "browser-relay",
+            "cleanse", "clip", "collab", "commit", "completions", "compress", "config",
+            "dry-balance", "find", "gallery", "gc", "grievances", "help", "hooks",
+            "hud", "if-bench", "images", "install", "login", "models", "plugin", "ps",
+            "read", "search", "setup", "share", "skill", "ssh", "stats", "tiny-models",
+            "token", "toks", "ttsr", "update", "usage", "version", "worktree",
         ] {
             #expect(
-                !classifier.omxLaunchIsNonLaunch(args: args),
-                "OMX input \(args) must stay launch-capable"
+                classifier.ompLaunchIsNonLaunch(args: [command]),
+                "OMP command \(command) must stay non-launch"
+            )
+        }
+        #expect(classifier.ompLaunchIsNonLaunch(args: ["--help"]))
+        #expect(classifier.ompLaunchIsNonLaunch(args: ["-h"]))
+        #expect(classifier.ompLaunchIsNonLaunch(args: ["--version"]))
+        #expect(classifier.ompLaunchIsNonLaunch(args: ["config", "--help"]))
+    }
+
+    @Test("OMP rejects interactive surfaces, option dispatches, and prompts")
+    func ompLaunches() {
+        for args in [
+            [],
+            ["--model", "opus", "explain this repo"],
+            ["-p", "explain this repo"],
+            ["--continue"],
+            ["shell"],
+            ["git"],
+            ["play"],
+            ["predict"],
+            ["render"],
+            ["stream"],
+            ["join"],
+            ["prompt the model"],
+            ["--", "version"],
+        ] {
+            #expect(
+                !classifier.ompLaunchIsNonLaunch(args: args),
+                "OMP input \(args) must stay launch-capable"
             )
         }
     }
