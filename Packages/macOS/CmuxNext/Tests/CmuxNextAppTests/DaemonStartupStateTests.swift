@@ -7,8 +7,19 @@ import Testing
 /// A daemon that never answers is shown as "connecting" and then, after
 /// the startup deadline, as a typed failure; the app keeps retrying.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct DaemonStartupStateTests {
-    private func waitFor(_ expected: DaemonStartupState, service: DaemonService) async {
-        for await state in Observations({ service.startup }) where state == expected { return }
+    private func waitFor(_ expected: DaemonStartupState, service: DaemonService,
+                         timeout: Duration = .seconds(10)) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                for await state in Observations({ service.startup }) where state == expected { return }
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw DaemonError.timedOut("daemon startup state did not become (expected)")
+            }
+            try await group.next()
+            group.cancelAll()
+        }
     }
 
     @Test func unreachableDaemonBecomesUnavailableAfterTheDeadline() async throws {
@@ -31,7 +42,7 @@ import Testing
         // startup deadline, even if the failure callback is scheduled first.
         await clock.sleepers(atLeast: 2)
         clock.advance(by: service.startupDeadline)
-        await waitFor(.unavailable(failure), service: service)
+        try await waitFor(.unavailable(failure), service: service)
         #expect(service.startup == .unavailable(failure))
         #expect(service.connection == nil)
         view.apply(service.startup)
@@ -46,7 +57,7 @@ import Testing
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil)) { throw failure }
         }
         defer { service.shutdownConnection() }
-        await waitFor(.unavailable(failure), service: service)
+        try await waitFor(.unavailable(failure), service: service)
         #expect(service.startup == .unavailable(failure))
     }
 }

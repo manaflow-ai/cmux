@@ -30,13 +30,35 @@ import Testing
         }
     }
 
-    private func waitFor(_ expected: DaemonStartupState, service: DaemonService) async {
-        for await state in Observations({ service.startup }) where state == expected { return }
+    private func waitFor(_ expected: DaemonStartupState, service: DaemonService,
+                         timeout: Duration = .seconds(10)) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                for await state in Observations({ service.startup }) where state == expected { return }
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw DaemonError.timedOut("daemon startup state did not become (expected)")
+            }
+            try await group.next()
+            group.cancelAll()
+        }
     }
 
-    private func waitForConnected(_ service: DaemonService) async {
-        for await state in Observations({ service.store.connectionState }) {
-            if case .connected = state { return }
+    private func waitForConnected(_ service: DaemonService,
+                                  timeout: Duration = .seconds(10)) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                for await state in Observations({ service.store.connectionState }) {
+                    if case .connected = state { return }
+                }
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw DaemonError.timedOut("daemon connection did not become connected")
+            }
+            try await group.next()
+            group.cancelAll()
         }
     }
 
@@ -52,7 +74,7 @@ import Testing
         service.start(remote: { path })
         defer { service.shutdownConnection() }
 
-        await waitFor(.unavailable(.missingCapabilities(["view-attachment-detach-v1"])), service: service)
+        try await waitFor(.unavailable(.missingCapabilities(["view-attachment-detach-v1"])), service: service)
         #expect(service.startup == .unavailable(.missingCapabilities(["view-attachment-detach-v1"])))
         let header = SidebarBridge.machine(for: service, name: "vm", kind: .cloud)
         #expect(header.status != .connecting, "an incompatible machine must not look like it is still connecting")
@@ -63,7 +85,7 @@ import Testing
         // The machine is updated in place: same link socket, newer daemon.
         updated.withLock { $0 = true }
         service.retryWake.fire()
-        await waitForConnected(service)
+        try await waitForConnected(service)
         guard case .connected = service.store.connectionState else {
             Issue.record("the updated machine never connected: \(service.store.connectionState)")
             return

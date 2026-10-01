@@ -90,24 +90,24 @@ struct ColumnCloseScrollTests {
         view.model.focus("c")
         let settledBeforeRequest = await settle(view) { screen.scroll.target > 0 }
         #expect(settledBeforeRequest)
+        guard settledBeforeRequest else { return }
         runToRest(view)
         let before = view.frame(of: "c")
         #expect(before != nil)
+        guard let before else { return }
         #expect(screen.scroll.value > 0)
-        if let before {
-            #expect(before.minX > 0)
-            #expect(before.maxX <= screen.bounds.maxX)
-        }
+        #expect(before.minX > 0)
+        #expect(before.maxX <= screen.bounds.maxX)
 
         view.model.apply(screens: columns(["b", "c", "d"]))
         let settledAfterUpdate = await settle(view) { screen.geometry.columnOrder.count == 3 }
         #expect(settledAfterUpdate)
+        guard settledAfterUpdate else { return }
         runToRest(view)
         let after = view.frame(of: "c")
-        if let after {
-            #expect(after.minX > 0)
-            #expect(after.maxX <= screen.bounds.maxX)
-        }
+        guard let after else { return }
+        #expect(after.minX > 0)
+        #expect(after.maxX <= screen.bounds.maxX)
         #expect(after == before)
         withExtendedLifetime(provider) {}
     }
