@@ -979,48 +979,35 @@ fn v1_screen_tables_from_a_feat_cmux_next_daemon_migrate_at_open() {
             .unwrap();
     }
 
+    // Reopening runs the migration. These screens' terminals ended with the
+    // first daemon, so the open closes the screens; the rows are checked
+    // directly rather than through screen_group.get, which lists only live
+    // members.
     let mux = session.open();
-    let group = send(
-        &mux,
-        "screen_group.get",
-        json!({"screen_group": "sgrp_00000000000000000000000000000001"}),
-        None,
-    )
-    .unwrap_or_else(|error| {
-        let rows = mux
-            .read_registry_state(|connection| {
-                let mut dump = Vec::new();
-                for query in [
-                    "SELECT group_id || ' ' || workspace_id FROM screen_groups",
-                    "SELECT screen_id || ' ' || group_id FROM screen_group_members",
-                    "SELECT public_id || ' ' || workspace_id || ' ' ||
-                            COALESCE(deleted_revision, '-') FROM resource_screens",
-                ] {
-                    let mut statement = connection.prepare(query)?;
-                    let rows = statement
-                        .query_map([], |row| row.get::<_, String>(0))?
-                        .collect::<Result<Vec<_>, _>>()?;
-                    dump.push(rows);
-                }
-                Ok(dump)
-            })
-            .unwrap();
-        panic!("screen_group.get failed: {error:?}; tables {rows:?}")
-    });
-    assert_eq!(group["workspace_id"], workspace);
-    assert_eq!(group["name"], "Build");
-    assert_eq!(group["screen_ids"], json!([screen]));
-    let listed = read(&mux, "screen_group.list", json!({}));
-    assert_eq!(listed.as_array().unwrap().len(), 1, "{listed}");
-    let snapshot = snapshot(&mux);
-    let screen_value = |id: &str| {
-        snapshot["screens"].as_array().unwrap().iter().find(|value| value["id"] == id).unwrap()
+    let rows = |query: &str| {
+        mux.read_registry_state(|connection| {
+            let mut statement = connection.prepare(query)?;
+            let rows = statement
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+        .unwrap()
     };
-    assert_eq!(screen_value(&pinned)["extra"]["pinned"], true);
-    assert_eq!(screen_value(&pinned)["extra"]["color"], "green");
     assert_eq!(
-        screen_value(&screen)["extra"]["screen_group_id"],
-        "sgrp_00000000000000000000000000000001"
+        rows("SELECT group_id || ' ' || workspace_id || ' ' || name || ' ' || color || ' ' ||
+                     collapsed FROM screen_groups"),
+        vec![format!("sgrp_00000000000000000000000000000001 {workspace} Build orange 1")]
+    );
+    assert_eq!(
+        rows("SELECT screen_id || ' ' || group_id FROM screen_group_members"),
+        vec![format!("{screen} sgrp_00000000000000000000000000000001")]
+    );
+    assert_eq!(
+        rows(&format!(
+            "SELECT pinned || ' ' || color FROM screen_state WHERE screen_id = '{pinned}'"
+        )),
+        vec!["1 green".to_string()]
     );
     drop(mux);
     // The copied v1 tables are gone, so the next open does not migrate again.
