@@ -149,7 +149,7 @@ mod tests {
             "cwd": "/repo", "agentSessionId": "c1", "updatedAt": 5,
         });
         let queued = HashMap::from([(TERM.to_owned(), 2), ("acp:s1".to_owned(), 1)]);
-        let rows = rows(&[terminal.clone()], &[session], &queued, None);
+        let rows = rows(std::slice::from_ref(&terminal), &[session], &queued, None);
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0]["id"], "agent_1");
         assert_eq!(rows[0]["extra"], terminal["extra"]);
