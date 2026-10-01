@@ -5,6 +5,7 @@
 //! accidentally fall back to the private command protocol.
 
 mod agent_message;
+#[cfg(unix)]
 mod app;
 mod command;
 mod lifecycle;
