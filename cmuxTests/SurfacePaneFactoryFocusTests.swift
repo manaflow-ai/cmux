@@ -841,18 +841,17 @@ import SwiftUI
     }
 
     @MainActor
-    private static func middleMouseDownEvent() -> NSEvent? {
-        NSEvent.mouseEvent(
-            with: .otherMouseDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
-            context: nil,
-            eventNumber: 0,
-            clickCount: 1,
-            pressure: 1
+    private static func middleMouseDownEvent() throws -> NSEvent {
+        let cgEvent = try #require(
+            CGEvent(
+                mouseEventSource: nil,
+                mouseType: .otherMouseDown,
+                mouseCursorPosition: .zero,
+                mouseButton: .center
+            )
         )
+        cgEvent.setIntegerValueField(.mouseEventButtonNumber, value: 2)
+        return try #require(NSEvent(cgEvent: cgEvent))
     }
 
     private struct Harness {
