@@ -1024,6 +1024,7 @@ public actor VMClient {
     ///   - operations: The recorder for Cloud operation diagnostics.
     ///   - telemetry: The request telemetry with the app's analytics sinks.
     ///   - isCloudEnabled: The app's Cloud availability decision, readable off the main actor.
+    ///   - isCloudAvailable: The rollout and managed-policy decision used by activation-only requests before the local marker is committed.
     /// - Returns: The read coordinator the client shares with its callers.
     @MainActor
     @discardableResult
@@ -1033,7 +1034,8 @@ public actor VMClient {
         session: URLSession = .shared,
         operations: CloudOperationRecorder? = nil,
         telemetry: VMClientTelemetry,
-        isCloudEnabled: @escaping @Sendable () -> Bool
+        isCloudEnabled: @escaping @Sendable () -> Bool,
+        isCloudAvailable: @escaping @Sendable () -> Bool = { true }
     ) -> CloudReadRequestCoordinator {
         let reads = CloudReadRequestCoordinator(onNetworkChange: { online in
             await MainActor.run {
@@ -1041,7 +1043,7 @@ public actor VMClient {
                 if online { NotificationCenter.default.post(name: .cmuxCloudReadNetworkRecovered, object: nil) }
             }
         })
-        shared = VMClient(session: session, auth: auth, resourceStats: VMResourceStatsStore(), checkpointRenames: checkpointRenames, telemetry: telemetry, operations: operations, readRequests: reads, isCloudEnabled: isCloudEnabled)
+        shared = VMClient(session: session, auth: auth, resourceStats: VMResourceStatsStore(), checkpointRenames: checkpointRenames, telemetry: telemetry, operations: operations, readRequests: reads, isCloudEnabled: isCloudEnabled, isCloudAvailable: isCloudAvailable)
         Task { await reads.observeNetwork(CloudReadNetworkMonitor()) }
         return reads
     }
@@ -1081,14 +1083,15 @@ public actor VMClient {
     private static let attachTimeoutSeconds: TimeInterval = 16 * 60
 
     private let session: URLSession
-    private let auth: AuthCoordinator
+    let auth: AuthCoordinator
     private let checkpointRenames: CloudRenameCoordinator
     private let telemetry: VMClientTelemetry
     public nonisolated let operations: CloudOperationRecorder?
     public nonisolated let resourceStats: VMResourceStatsStore
-    private let machineCache: CloudMachineCache
+    let machineCache: CloudMachineCache
     private let readRequests: CloudReadRequestCoordinator
     private let isCloudEnabled: @Sendable () -> Bool
+    private let isCloudAvailable: @Sendable () -> Bool
     private let isDisabledByManagedPolicy: (@Sendable () -> Bool)?
 
     public init(
@@ -1101,7 +1104,8 @@ public actor VMClient {
         machineCache: CloudMachineCache = CloudMachineCache(),
         isDisabledByManagedPolicy: (@Sendable () -> Bool)? = nil,
         readRequests: CloudReadRequestCoordinator = CloudReadRequestCoordinator(),
-        isCloudEnabled: @escaping @Sendable () -> Bool = { true }
+        isCloudEnabled: @escaping @Sendable () -> Bool = { true },
+        isCloudAvailable: @escaping @Sendable () -> Bool = { true }
     ) {
         self.session = session
         self.auth = auth
@@ -1112,6 +1116,7 @@ public actor VMClient {
         self.machineCache = machineCache
         self.readRequests = readRequests
         self.isCloudEnabled = isCloudEnabled
+        self.isCloudAvailable = isCloudAvailable
         self.isDisabledByManagedPolicy = isDisabledByManagedPolicy
     }
 
@@ -1514,13 +1519,13 @@ public actor VMClient {
 
     /// A valid `kind` string → the kind; anything else → nil so the image
     /// heuristic decides.
-    private static func decodeKind(_ raw: Any?) -> VMMachineKind? {
+    static func decodeKind(_ raw: Any?) -> VMMachineKind? {
         guard let raw = raw as? String else { return nil }
         return VMMachineKind(rawValue: raw.lowercased())
     }
 
     /// `limits.imageKinds: [{kind, image}]`; malformed entries are skipped.
-    private static func decodeImageKinds(_ raw: Any?) -> [VMImageKindOption] {
+    static func decodeImageKinds(_ raw: Any?) -> [VMImageKindOption] {
         guard let items = raw as? [[String: Any]] else { return [] }
         return items.compactMap { item in
             guard let kind = decodeKind(item["kind"]),
@@ -1530,7 +1535,7 @@ public actor VMClient {
     }
 
     /// `limits.memoryOptionsMb: [number]`; malformed or non-positive entries are skipped.
-    private static func decodeIntArray(_ raw: Any?) -> [Int] {
+    static func decodeIntArray(_ raw: Any?) -> [Int] {
         guard let items = raw as? [Any] else { return [] }
         return items.compactMap { item in
             let value: Int?
@@ -1544,7 +1549,7 @@ public actor VMClient {
     }
 
     /// JSON numbers arrive as Int64 or Double depending on magnitude; `null`/absent → nil.
-    private static func epochMilliseconds(_ raw: Any?) -> Int64? {
+    static func epochMilliseconds(_ raw: Any?) -> Int64? {
         if let value = raw as? Int64 { return value }
         if let value = raw as? Int { return Int64(value) }
         if let value = raw as? Double, value.isFinite { return Int64(value) }
@@ -2265,7 +2270,7 @@ public actor VMClient {
         }
     }
 
-    private func decodeBaseSummary(_ raw: Any?) -> VMBaseSummary? {
+    func decodeBaseSummary(_ raw: Any?) -> VMBaseSummary? {
         guard let obj = raw as? [String: Any] else { return nil }
         guard let id = obj["id"] as? String, !id.isEmpty else { return nil }
         let rawName = (obj["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
