@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 775c143e40049003fdc122b643a0f7d56fee06b3e9c46dff2d40bf7fc9767faa. */
+/* cmux-tui mux protocol 12, IR 129f76e6d7e7cb2cf56984ad52972a58eb72fc3fae092c90253aad0638cb054b. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -881,6 +881,7 @@ export type TerminalPlacement = {
   "surface": (Id) | null;
   "terminal_id": string;
   "terminal_incarnation": (string) | null;
+  "terminal_resource_id"?: string;
   "terminal_revision": bigint;
   "workspace": (Id) | null;
 };
