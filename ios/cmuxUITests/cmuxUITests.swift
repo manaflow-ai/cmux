@@ -4746,7 +4746,6 @@ final class cmuxUITests: XCTestCase {
     func testNotificationTabPreservesSharedRootToolbar() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
-            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW_TAB_SWITCH": "1",
         ])
         defer { app.terminate() }
 
@@ -4774,6 +4773,7 @@ final class cmuxUITests: XCTestCase {
     func testNotificationTabSwitchKeepsSharedRootToolbarMounted() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
+            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW_TAB_SWITCH": "1",
         ])
         defer { app.terminate() }
 
