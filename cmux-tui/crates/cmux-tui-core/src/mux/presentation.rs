@@ -602,8 +602,8 @@ impl Mux {
 }
 
 impl Mux {
-    /// Set, clear, or keep a workspace's shared color, icon, and custom
-    /// title. The write commits one workspace-registry revision (the
+    /// Set, clear, or keep a workspace's shared color, icon, custom title,
+    /// and sidebar pin. The write commits one workspace-registry revision (the
     /// registry order is unchanged), so it takes the durable mutation
     /// envelope and emits `workspace-changed` with the full entity.
     pub fn set_workspace_metadata(
@@ -624,6 +624,7 @@ impl Mux {
             "color": update.color,
             "icon": update.icon,
             "title": update.title,
+            "pinned": update.pinned,
         });
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
@@ -645,6 +646,9 @@ impl Mux {
             }
             if let Some(title) = &update.title {
                 after.title = title.clone();
+            }
+            if let Some(pinned) = update.pinned {
+                after.pinned = pinned;
             }
             let changed = before != after;
             let desired = self.registry_projection(&state);
@@ -1065,6 +1069,7 @@ mod tests {
             color: Some(Some("gray".into())),
             icon: Some(Some("terminal.fill".into())),
             title: Some(Some("Release train".into())),
+            pinned: Some(true),
         };
         let result = mux
             .set_workspace_metadata(
@@ -1089,6 +1094,7 @@ mod tests {
         assert_eq!(delta.entity["color"], "gray");
         assert_eq!(delta.entity["icon"], "terminal.fill");
         assert_eq!(delta.entity["title"], "Release train");
+        assert_eq!(delta.entity["pinned"], true);
         // Absent fields are unchanged; null clears one field.
         mux.set_workspace_metadata(
             None,
@@ -1127,6 +1133,7 @@ mod tests {
         assert_eq!(record.color.as_deref(), Some("gray"));
         assert_eq!(record.icon.as_deref(), Some("terminal.fill"));
         assert_eq!(record.title, None);
+        assert!(record.pinned);
         let replay = mux
             .set_workspace_metadata(
                 None,

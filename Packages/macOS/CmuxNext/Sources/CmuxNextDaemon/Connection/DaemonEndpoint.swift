@@ -38,6 +38,8 @@ public enum DaemonCapabilities {
     public static let notificationAck = "notification-ack-v1"
     public static let tabGroups = "tab-groups-v1"
     public static let savedTabGroups = "saved-tab-groups-v1"
+    /// The sidebar workspace pin: `pinned` on `set-workspace-metadata` and workspaces.
+    public static let workspacePin = "workspace-pin-v1"
     /// Screen color, icon, pin, and order (`set-screen-metadata`, `set-screen-pinned`, `move-screen`).
     public static let screenMetadata = "screen-metadata-v1"
     /// Screen groups and saved screen groups.
@@ -109,7 +111,7 @@ public enum DaemonCapabilities {
     /// but they are not in `optional` (the pinned daemon must serve every
     /// `optional` capability, BranchDaemonTests). The pin commit that brings
     /// one moves it into `optional`.
-    public static let awaitingPin: [String] = [remoteTerminalTabs, detachedTerminals, bookmarks]
+    public static let awaitingPin: [String] = [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin]
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     public static let advertised: [String] = required + optional + awaitingPin + [

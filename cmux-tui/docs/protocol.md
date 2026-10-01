@@ -110,6 +110,11 @@ custom `title` on every workspace. `set-workspace-metadata` treats an absent
 field as unchanged and `null` as clear, commits one workspace-registry
 revision, and emits `workspace-changed` with the full workspace entity.
 
+`workspace-pin-v1` adds `pinned` to every workspace and to
+`set-workspace-metadata`. An absent `pinned` is unchanged; `true` or `false`
+sets it. The daemon keeps the workspace order; frontends list pinned
+workspaces in a Pinned section at the top of the sidebar.
+
 `tab-metadata-v1` adds `pinned`, `cwd`, `git_branch`, and `git_detached` to
 every tab. `set-tab-pinned` pins a tab; pinned tabs sort first, and
 `move-tab` keeps them ahead of unpinned tabs. The daemon resolves `cwd` from

@@ -100,7 +100,9 @@ final class SidebarBridge {
     static func sections(_ machines: MachineRegistry, statuses: WorkspaceStatusBoard, members: [String],
                          profile: ProfileID) -> [SidebarRowSection] {
         let visible = WindowProfiles.visible(members, profile: profile, machines: machines)
-        return SidebarMembership.filter(sections(machines, statuses: statuses, profile: profile), members: Set(visible))
+        let pinned = Set(machines.daemons.flatMap { $0.store.workspaces.filter(\.pinned).map(\.id) })
+        let filtered = SidebarMembership.filter(sections(machines, statuses: statuses, profile: profile), members: Set(visible))
+        return SidebarMembership.pinnedFirst(filtered, pinned: pinned)
     }
 
     /// The profile bar of the local daemon's profiles (empty when it has

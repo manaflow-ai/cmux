@@ -28,6 +28,17 @@ enum SidebarMembership {
         }
     }
 
+    /// `sections` with the `pinned` workspaces (`workspace-pin-v1`) moved,
+    /// in sidebar order, into a Pinned section at the top. No pinned
+    /// workspace, no Pinned section.
+    static func pinnedFirst(_ sections: [SidebarRowSection], pinned: Set<String>) -> [SidebarRowSection] {
+        let ids = sections.flatMap(\.workspaces).map(\.id).filter { pinned.contains($0.rawValue) }
+        guard !ids.isEmpty else { return sections }
+        var result = sections
+        _ = SidebarEdits.apply(.setPinned(ids, true), to: &result)
+        return result
+    }
+
     /// The daemon root index for local index `localIndex` into `local` (the
     /// window's remaining workspaces of one machine, in order), given that
     /// machine's full remaining order `global`: before the workspace at that

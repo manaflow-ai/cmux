@@ -32,8 +32,8 @@ extension DaemonConnection {
 
     @discardableResult
     public func setWorkspaceMetadata(_ key: WorkspaceKey, color: FieldUpdate<String> = .unchanged, icon: FieldUpdate<String> = .unchanged,
-                                     title: FieldUpdate<String> = .unchanged) async throws -> WorkspaceMetadataResult {
-        try await request(SetWorkspaceMetadataRequest(workspace: .key(key), color: color, icon: icon, title: title, mutation: mutation()))
+                                     title: FieldUpdate<String> = .unchanged, pinned: Bool? = nil) async throws -> WorkspaceMetadataResult {
+        try await request(SetWorkspaceMetadataRequest(workspace: .key(key), color: color, icon: icon, title: title, pinned: pinned, mutation: mutation()))
     }
 
     // Groups (`workspace-groups-v1`)

@@ -12,6 +12,16 @@ import CmuxNextSidebar
 extension SidebarBridge {
     func handle(_ intent: SidebarIntent) {
         guard let state else { return }
+        // The Pinned section is the daemon's pin, in either organization: a
+        // drop there pins, a pinned workspace dropped on a machine unpins.
+        if case .reorder(let ids, let position) = intent {
+            if case .pinned = position.section {
+                model.apply(intent)
+                return sendPinned(ids, true)
+            }
+            let leaving = ids.filter { services.machines.workspace(id: $0.rawValue)?.0.pinned == true }
+            if !leaving.isEmpty { sendPinned(leaving, false) }
+        }
         if usesPersonalOrganization, handlePersonal(intent) { return }
         switch intent {
         case .select(let id):
@@ -94,10 +104,25 @@ extension SidebarBridge {
             model.apply(intent)
             let id = ProfileID(rawValue: profile.rawValue)
             command("move-profile", on: services.machines.local) { c, _ in try await c.moveProfile(id, to: index) }
-        case .setIcon, .setPinned, .setGroupPinned, .openGroup:
+        case .setPinned(let ids, let pinned):
+            model.apply(intent)
+            sendPinned(ids, pinned)
+        case .setIcon, .setGroupPinned, .openGroup:
             // Needs daemon fields this build does not map yet; apply locally
             // so the UI responds, the next store change restores truth.
             model.apply(intent)
+        }
+    }
+
+    /// `set-workspace-metadata` with the pin, per owning daemon. A daemon
+    /// without `workspace-pin-v1` keeps the row where it was.
+    private func sendPinned(_ ids: [SidebarWorkspaceID], _ pinned: Bool) {
+        for (daemon, key) in keys(ids) {
+            guard daemon.supports(DaemonCapabilities.workspacePin) else {
+                resync()
+                continue
+            }
+            command("set-workspace-metadata", on: daemon) { c, _ in _ = try await c.setWorkspaceMetadata(key, pinned: pinned) }
         }
     }
 
