@@ -210,6 +210,23 @@ struct MachinesCloudStatusTests {
         #expect(dismissed.error == "Unsupported: Browsers on another Mac can’t be opened here yet.")
     }
 
+    @Test("A tree error remains dismissible while an operation is active")
+    func treeErrorRemainsVisibleDuringOperation() throws {
+        let dismissed = ActionLog()
+        let hosted = Self.host(
+            treeError: "Cloud is unavailable.",
+            activeOperation: "Opening Cloud terminal…"
+        ) {
+            dismissed.error = $0
+        }
+        let button = try #require(
+            Self.element("CloudBannerDismissButton", in: hosted),
+            "an operation overlay must not hide the persistent recovery action"
+        )
+        try #require(Self.press(button), "tree error close affordance exposes no press action")
+        #expect(dismissed.error == "Cloud is unavailable.")
+    }
+
     @MainActor
     private final class ActionLog {
         var error: String?
@@ -222,11 +239,12 @@ struct MachinesCloudStatusTests {
 
     private static func host(
         treeError: String,
+        activeOperation: String? = nil,
         onDismissTreeError: @escaping (String) -> Void
     ) -> Hosted {
         let view = NSHostingView(
             rootView: MachinesCloudStatus(
-                activeOperation: nil,
+                activeOperation: activeOperation,
                 listStatus: nil,
                 listError: nil,
                 treeError: treeError,

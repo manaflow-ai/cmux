@@ -17,24 +17,27 @@ struct MachinesCloudStatus: View {
     let performListStatusAction: (MachineListStatusPresentation.Action) -> Void
 
     var body: some View {
-        if let activeOperation {
-            // Opening a Cloud surface is usually fast enough that a status row
-            // would only flash. Keep the progress affordance at the status row's
-            // origin, but give it no layout height so the tree never jumps.
-            Color.clear
-                .frame(maxWidth: .infinity, height: 0)
-                .overlay(alignment: .topLeading) {
-                    operationMessage(activeOperation)
-                        .allowsHitTesting(false)
-                        .zIndex(1)
+        ZStack(alignment: .topLeading) {
+            if listStatus != nil || treeError != nil {
+                HStack(spacing: 6) {
+                    persistentMessage
+                    Spacer(minLength: 0)
                 }
-        } else if listStatus != nil || treeError != nil {
-            HStack(spacing: 6) {
-                persistentMessage
-                Spacer(minLength: 0)
+                .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
+                .padding(.vertical, RightSidebarChromeMetrics.barVerticalPadding)
             }
-            .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
-            .padding(.vertical, RightSidebarChromeMetrics.barVerticalPadding)
+            if let activeOperation {
+                // Opening a Cloud surface is usually fast enough that a status row
+                // would only flash. Keep the progress affordance at the status row's
+                // origin, but give it no layout height so the tree never jumps.
+                Color.clear
+                    .frame(maxWidth: .infinity, height: 0)
+                    .overlay(alignment: .topLeading) {
+                        operationMessage(activeOperation)
+                            .allowsHitTesting(false)
+                            .zIndex(1)
+                    }
+            }
         }
     }
 
