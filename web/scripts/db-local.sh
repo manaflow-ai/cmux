@@ -123,7 +123,7 @@ case "$command" in
     ;;
   migrate)
     if [[ "$db_provider" == "docker" ]]; then "$0" up >/dev/null; fi
-    node "$ROOT_DIR/scripts/db-migrate-local.mjs"
+    bun "$ROOT_DIR/scripts/db-migrate.mjs"
     ;;
   ready)
     compose exec -T postgres pg_isready -U "$db_user" -d "$db_name" >/dev/null \
@@ -149,8 +149,8 @@ case "$command" in
     export CMUX_DB_PORT="$((cmux_port + ${CMUX_TEST_DB_PORT_OFFSET:-30000}))"
     export DATABASE_URL="postgres://${db_user}:${db_password}@localhost:${CMUX_DB_PORT}/${CMUX_DB_NAME}"
     export DIRECT_DATABASE_URL="$DATABASE_URL"
-    node "$ROOT_DIR/scripts/db-migrate-local.mjs"
-    node "$ROOT_DIR/scripts/db-migrate-local.mjs"
+    bun "$ROOT_DIR/scripts/db-migrate.mjs"
+    bun "$ROOT_DIR/scripts/db-migrate.mjs"
     bash "$ROOT_DIR/scripts/run-db-behavior-tests.sh"
     ;;
   url)

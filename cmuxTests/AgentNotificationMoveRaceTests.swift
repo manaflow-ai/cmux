@@ -10,7 +10,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("Agent notification regressions", .serialized)
+@Suite("Agent notification regressions", .serialized, .exclusiveAppContext)
 @MainActor
 struct AgentNotificationRegressionTests {
     struct Fixture {
