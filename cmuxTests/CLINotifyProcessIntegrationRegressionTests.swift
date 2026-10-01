@@ -2778,15 +2778,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         try [
             #"{"type":"turn_context","payload":{"turn_id":"old-turn"}}"#,
             #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-turn"}}"#,
-            #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"old-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"old-turn","last_agent_message":"old done"}}"#,
             #"{"type":"turn_context","payload":{"turn_id":"current-turn"}}"#,
             #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"current-turn"}}"#,
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
 
-        // The late terminal monitor is asynchronous. Wait for its old-turn
-        // completion journal before invoking the current Stop; this preserves
-        // the race discriminator covered by upstream PR #10143 rather than
-        // allowing the test to pass or fail on monitor scheduling.
+        // A successful terminal record replays Stop through the asynchronous
+        // monitor; turn_aborted only prunes stale depth at the next hook.
+        // Wait for the old-turn journal before the current Stop to preserve
+        // the monitor ordering regression covered by upstream PR #10143.
         XCTAssertTrue(
             waitForMockSocketCommand(in: context.state) {
                 AgentJournalAppendCapture.captures(in: [$0]).contains {
