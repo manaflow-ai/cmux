@@ -69,3 +69,12 @@ test("a block is measured as the text it renders", () => {
   const [list] = markdownBlocks("- [ ] ship it") as Tokens.List[];
   expect(measuredText(list!.items[0]!.tokens, list!.items[0]!.text)).toBe("[ ] ship it");
 });
+
+/// A monospace space is a full cell, wider than the prose font's space; and a link the page won't
+/// open draws its label's source, not the parsed label.
+test("code spaces and unopenable links are measured as drawn", () => {
+  const measured = (source: string) => { const [block] = markdownBlocks(source) as Tokens.Paragraph[]; return measuredText(block!.tokens, block!.text); };
+  expect(measured("Run `a b` now")).toBe("Run 00 0 now");
+  expect(measured("[**b**](mailto:x@y)")).toBe("**b**");
+  expect(measured("[**b**](https://example.com)")).toBe("b");
+});
