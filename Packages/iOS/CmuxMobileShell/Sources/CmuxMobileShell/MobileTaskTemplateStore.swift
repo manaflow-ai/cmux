@@ -29,6 +29,7 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     ]
     private static let lastTemplateIDKey = "cmux.mobile.taskComposer.lastTemplateID"
     private static let lastMacDeviceIDKey = "cmux.mobile.taskComposer.lastMacDeviceID"
+    private static let lastMacPairingIDKey = "cmux.mobile.taskComposer.lastMacPairingID"
     private static let pickerPreferencesPrefix = "cmux.mobile.taskComposer.pickers.v1."
     private static let lastDirectoryPrefix = "cmux.mobile.taskComposer.lastDirectory."
     private static let recentDirectoriesPrefix = "cmux.mobile.taskComposer.recentDirectories.v1."
@@ -130,6 +131,16 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     /// Stores the last selected Mac device id.
     public func setLastMacDeviceID(_ id: String?) {
         setOptional(id, forKey: Self.lastMacDeviceIDKey)
+    }
+
+    /// Returns the last selected Mac app-instance pairing id, if any.
+    public func lastMacPairingID() -> String? {
+        defaults.string(forKey: Self.lastMacPairingIDKey)
+    }
+
+    /// Stores the last selected Mac app-instance pairing id.
+    public func setLastMacPairingID(_ id: String?) {
+        setOptional(id, forKey: Self.lastMacPairingIDKey)
     }
 
     /// Returns the last picker values saved for one paired Mac.
@@ -344,6 +355,7 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
             Self.builtInProtectionMigrationKey,
             Self.lastTemplateIDKey,
             Self.lastMacDeviceIDKey,
+            Self.lastMacPairingIDKey,
             Self.legacyComposerDraftKey,
             Self.composerDraftsKey,
         ] + Self.legacyKeys

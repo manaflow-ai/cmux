@@ -20,6 +20,10 @@ public protocol MobileTaskTemplateStoring: AnyObject {
     func lastMacDeviceID() -> String?
     /// Stores the last selected Mac device id.
     func setLastMacDeviceID(_ id: String?)
+    /// Returns the last selected Mac app-instance pairing id, if any.
+    func lastMacPairingID() -> String?
+    /// Stores the last selected Mac app-instance pairing id.
+    func setLastMacPairingID(_ id: String?)
     /// Returns the last picker choices for one exact Mac pairing.
     func composerPickerPreferences(macPairingID: String) -> MobileTaskComposerPickerPreferences?
     /// Saves picker choices independently of sending or saving a task draft.
@@ -57,6 +61,18 @@ public protocol MobileTaskTemplateStoring: AnyObject {
 }
 
 public extension MobileTaskTemplateStoring {
+    /// Backward-compatible pairing selection for stores that only persist the
+    /// legacy Mac id field.
+    func lastMacPairingID() -> String? {
+        lastMacDeviceID()
+    }
+
+    /// Backward-compatible pairing selection for stores that only persist the
+    /// legacy Mac id field.
+    func setLastMacPairingID(_ id: String?) {
+        setLastMacDeviceID(id)
+    }
+
     /// Deletes one template.
     func deleteTemplate(id: MobileTaskTemplate.ID) {
         deleteTemplates(ids: [id])

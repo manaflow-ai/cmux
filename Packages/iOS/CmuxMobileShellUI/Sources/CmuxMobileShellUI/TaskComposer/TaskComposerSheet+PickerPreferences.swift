@@ -22,7 +22,10 @@ extension TaskComposerSheet {
             ),
             macPairingID: pairingID
         )
-        store.taskTemplateStore?.setLastMacDeviceID(pairingID)
+        // Keep the legacy physical-Mac preference for older callers while the
+        // pairing-aware field preserves Stable/Nightly instance identity.
+        store.taskTemplateStore?.setLastMacDeviceID(selectedMacDeviceID)
+        store.taskTemplateStore?.setLastMacPairingID(pairingID)
     }
 
     /// Called after changing the Mac identity, before the next model refresh.

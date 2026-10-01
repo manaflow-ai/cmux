@@ -183,10 +183,16 @@ struct TaskComposerSheet: View {
         self.restoredDraftAtInitialization = draft != nil
         let foregroundMacID = store.connectedMacDeviceID
         let foregroundMacInstanceTag = store.connectedMacInstanceTag
-        // Restore persisted Mac IDs only while they remain paired.
+        // Restore the exact app-instance pairing before considering legacy
+        // physical-Mac ids. A physical Mac can have Stable and Nightly rows.
         let availablePairedMacs = availableMachines ?? store.taskComposerPairedMacs
-        let restoredMac = store.taskTemplateStore?.lastMacDeviceID()
-            .flatMap { id in availablePairedMacs.first { $0.id == id } }
+        let restoredPairingID = store.taskTemplateStore?.lastMacPairingID()
+        let legacyRestoredMacID = store.taskTemplateStore?.lastMacDeviceID()
+        let restoredMac = availablePairedMacs.first { $0.id == restoredPairingID }
+            ?? availablePairedMacs.first { $0.id == legacyRestoredMacID }
+            ?? availablePairedMacs.first {
+                $0.instanceTag == nil && $0.macDeviceID == legacyRestoredMacID
+            }
         // Restore a draft only when its complete pairing identity still exists.
         // A device-only legacy draft cannot select an arbitrary Stable/Nightly
         // sibling that happens to sort first.

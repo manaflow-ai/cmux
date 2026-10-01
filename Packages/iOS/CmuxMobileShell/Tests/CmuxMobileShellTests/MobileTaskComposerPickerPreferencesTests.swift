@@ -37,6 +37,8 @@ struct MobileTaskComposerPickerPreferencesTests {
         let other = MobilePairedMac.pairingID(macDeviceID: "mac-b", instanceTag: "default")
         store.setComposerPickerPreferences(first, macPairingID: stable)
         store.setComposerPickerPreferences(second, macPairingID: nightly)
+        store.setLastMacDeviceID("mac-a")
+        store.setLastMacPairingID(nightly)
 
         let reloaded = UserDefaultsMobileTaskTemplateStore(
             defaults: defaults,
@@ -48,9 +50,13 @@ struct MobileTaskComposerPickerPreferencesTests {
         // Explicit Default and None must survive, including Default's effort metadata.
         #expect(reloaded.composerPickerPreferences(macPairingID: nightly)?.model == nil)
         #expect(reloaded.composerPickerPreferences(macPairingID: nightly)?.defaultModel?.efforts == model.efforts)
+        #expect(reloaded.lastMacDeviceID() == "mac-a")
+        #expect(reloaded.lastMacPairingID() == nightly)
 
         reloaded.clearAllUserData()
         #expect(store.composerPickerPreferences(macPairingID: stable) == nil)
         #expect(store.composerPickerPreferences(macPairingID: nightly) == nil)
+        #expect(store.lastMacDeviceID() == nil)
+        #expect(store.lastMacPairingID() == nil)
     }
 }
