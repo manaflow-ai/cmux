@@ -45,6 +45,11 @@ export class CodeRouterCredentialRace extends Error {
   readonly _tag = "CodeRouterCredentialRace";
 }
 
+/** The persisted VM owner team disagrees with the team requested for token issuance. */
+export class VmOwnerTeamMismatchError extends Error {
+  readonly _tag = "VmOwnerTeamMismatchError";
+}
+
 export function routeTokenHash(token: string): string {
   return createHash("sha256").update(token, "utf8").digest("hex");
 }
@@ -136,7 +141,29 @@ export async function issueVmAuthorizationToken(
   stackUserId: string,
   vmId: string,
 ): Promise<{ token: string; expiresAt: Date }> {
+  // The VM row is the durable ownership authority. Do not let a stale
+  // selected-team value from the request mint a token for another team.
+  const [vm] = await cloudDb()
+    .select({ ownerTeamId: cloudVms.ownerTeamId })
+    .from(cloudVms)
+    .where(eq(cloudVms.id, vmId))
+    .limit(1);
+  if (!vm || vm.ownerTeamId !== teamId) {
+    throw new VmOwnerTeamMismatchError("VM owner team does not match CodeRouter team");
+  }
   const expiresAt = new Date(Date.now() + ROUTE_TOKEN_LIFETIME_MS);
+  // Ensure eligible team accounts are available in the VM pool. Inserts are
+  // idempotent, so explicitly revoked grants are not recreated.
+  await cloudDb().execute(sql`insert into coderouter_pool_accounts (team_id, pool_id, account_id, granted_by_user_id)
+    select vm.owner_team_id, vm.coderouter_pool_id, account.id, account.created_by
+    from cloud_vms vm join coderouter_accounts account on account.team_id = vm.owner_team_id
+    where vm.id = ${vmId}::uuid and (account.visibility = 'team' or account.created_by = vm.owner_team_id)
+    on conflict (pool_id, account_id) do nothing`);
+  await cloudDb().execute(sql`insert into coderouter_pool_accounts (team_id, pool_id, claude_account_id, granted_by_user_id)
+    select vm.owner_team_id, vm.coderouter_pool_id, account.id, account.created_by
+    from cloud_vms vm join coderouter_claude_accounts account on account.team_id = vm.owner_team_id
+    where vm.id = ${vmId}::uuid and (account.visibility = 'team' or account.created_by = vm.owner_team_id)
+    on conflict (pool_id, claude_account_id) do nothing`);
   const token = await signVmAuthorization({
     vmId,
     teamId,

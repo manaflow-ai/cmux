@@ -140,6 +140,18 @@ dbTest("a signed VM authorization authenticates against the live VM row", async 
   expect(await authenticateRouteToken(signed.token)).toBeNull();
 });
 
+dbTest("VM token issuance rejects a stale team selection", async () => {
+  await expect(issueVmAuthorizationToken(TEAM_B, USER, vmA)).rejects.toThrow("VM owner team does not match CodeRouter team");
+});
+
+dbTest("VM token issuance seeds the VM pool from eligible team accounts", async () => {
+  await db`delete from coderouter_pool_accounts where pool_id = ${poolA}`;
+  await issueVmAuthorizationToken(TEAM_A, USER, vmA);
+  const rows = await db`select account_id from coderouter_pool_accounts where pool_id = ${poolA}`;
+  expect(rows.some(row => row.account_id === sharedA)).toBe(true);
+  expect(rows.some(row => row.account_id === privateA)).toBe(false);
+});
+
 dbTest("pool membership and account visibility constrain selection and cached sessions", async () => {
   const first = await selectAccountForSession({ teamId: TEAM_A, provider: 'openai-apikey', sessionKey: 'same-session', access: access() });
   expect(first?.id).toBe(sharedA);
