@@ -14,7 +14,7 @@ import Testing
 @Suite struct CEFFocusRequestTests {
     private func makeTab(lifecycleTrace: BrowserLifecycleTrace = BrowserLifecycleTrace()) -> CEFTab {
         let runtime = CEFRuntime.shared
-        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: "focus"), profile: .default), runtime: runtime, lifecycleTrace: lifecycleTrace)
+        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: "focus"), profile: .default), runtime: runtime, lifecycleTrace: .shared)
         let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
         host.add(tab)
         return tab
@@ -71,7 +71,7 @@ import Testing
 
     @Test func focusLeavingThePageAsksTheHostForTheOmnibar() {
         let runtime = CEFRuntime.shared
-        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: "take"), profile: .default), runtime: runtime, lifecycleTrace: lifecycleTrace)
+        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: "take"), profile: .default), runtime: runtime, lifecycleTrace: .shared)
         let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
         host.add(tab)
         let recorder = Recorder()
