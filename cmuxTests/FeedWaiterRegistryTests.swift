@@ -162,4 +162,43 @@ struct FeedWaiterRegistryTests {
         }
         registry.replyStored(reply)
     }
+
+    @Test func lateFailureCannotReplaceSessionInvalidation() throws {
+        let registry = FeedWaiterRegistry()
+        let registration = try #require(registry.register(requestID: "request", event: event()))
+        let reply = try #require(registry.invalidate(
+            requestID: "request", source: "claude", sessionID: "session"
+        ))
+
+        // The delivery lane can finish after the surface teardown has already
+        // made the request unavailable. That terminal outcome must win.
+        registry.fail(registration, result: .notFound)
+        #expect(registration.semaphore.wait(timeout: .now()) == .success)
+        guard case .unavailable = registry.finish(registration).outcome.result else {
+            Issue.record("A late failure replaced the invalidated request")
+            return
+        }
+        registry.cleanupStored(requestID: reply.0.requestID, groupID: reply.0.groupID)
+    }
+
+    @Test func lateAcceptedItemsCannotReplaceSessionInvalidation() throws {
+        for (requestID, status) in [("resolved", WorkstreamStatus.resolved),
+                                    ("expired", WorkstreamStatus.expired)] {
+            let registry = FeedWaiterRegistry()
+            let registration = try #require(registry.register(requestID: requestID, event: event()))
+            let reply = try #require(registry.invalidate(
+                requestID: requestID, source: "claude", sessionID: "session"
+            ))
+
+            // A late store acknowledgement or expiry is also a completion from
+            // the old delivery lane and must not replace teardown's outcome.
+            registry.accepted(registration, event: event(), item: item(status: status))
+            #expect(registration.semaphore.wait(timeout: .now()) == .success)
+            guard case .unavailable = registry.finish(registration).outcome.result else {
+                Issue.record("A late accepted item replaced the invalidated request")
+                return
+            }
+            registry.cleanupStored(requestID: reply.0.requestID, groupID: reply.0.groupID)
+        }
+    }
 }

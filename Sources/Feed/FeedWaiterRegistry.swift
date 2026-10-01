@@ -57,7 +57,7 @@ final class FeedWaiterRegistry: Sendable {
             guard var group = groups[registration.requestID], group.id == registration.groupID else { return }
             group.event = event
             group.itemID = item.id
-            if group.decision == nil {
+            if group.decision == nil, group.terminalResult == nil {
                 switch item.status {
                 case .resolved:
                     // A handled retry is a no-op; never grant permission again from history.
@@ -81,7 +81,7 @@ final class FeedWaiterRegistry: Sendable {
     func fail(_ registration: Registration, result: FeedCoordinator.IngestBlockingResult) {
         groups.withLock { groups in
             guard var group = groups[registration.requestID], group.id == registration.groupID else { return }
-            guard group.decision == nil else { return }
+            guard group.decision == nil, group.terminalResult == nil else { return }
             group.terminalResult = result
             group.replyStored = true
             groups[registration.requestID] = group
