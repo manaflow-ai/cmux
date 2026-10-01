@@ -81,7 +81,9 @@ public final class LayoutRootView: NSView {
     @discardableResult
     public func moveFocus(_ direction: LayoutDirection) -> PaneID? {
         guard let active = model.activeScreenID, let view = screenViews[active] else { return nil }
-        return model.moveFocus(direction, frames: view.geometry.panes)
+        // Displayed frames: sticky panes and the scrolled strip share one space.
+        let frames = view.geometry.panes.reduce(into: [PaneID: CGRect]()) { $0[$1.key] = view.displayedRect($1.value, pane: $1.key) }
+        return model.moveFocus(direction, frames: frames)
     }
 
     /// The hosted content view of `pane`, if it has been created.

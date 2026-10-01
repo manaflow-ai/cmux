@@ -309,9 +309,11 @@ final class ScreenContentView: NSView {
         guard let hit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
                                                 style: context.style) else { return nil }
         let target = roomAdjusted(hit)
-        guard let rect = DropZoneGeometry.highlightRectInView(for: target, offset: scroll.value, geometry: geometry,
+        guard var rect = DropZoneGeometry.highlightRectInView(for: target, offset: scroll.value, geometry: geometry,
                                                               style: context.style) else { return nil }
-        return (target, rect)
+        // A strip target's highlight never draws over a sticky column.
+        if case let .pane(pane, _) = target, !geometry.scrolls(pane: pane) {} else { rect = rect.intersection(uncoveredRect) }
+        return rect.isNull ? nil : (target, rect)
     }
 
     /// Where splitting `pane` along `axis` goes on this screen right now.

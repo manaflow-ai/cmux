@@ -151,3 +151,16 @@ import Testing
         #expect(sticky.settingWidth(0.3, for: "b").columns.last?.sticky == StickyColumn())
     }
 }
+
+/// Column focus moves in the order the user sees: left sticky, strip, right sticky.
+@Suite struct StickyColumnVisualOrderTests {
+    @Test func stickyColumnsSitAtTheirEdgesWhateverTheirDaemonIndex() {
+        let layout = ScreenLayout.columns([
+            LayoutColumn(id: "a", root: .leaf("pa")),
+            LayoutColumn(id: "r", root: .leaf("pr"), sticky: StickyColumn(edge: .right)),
+            LayoutColumn(id: "b", root: .leaf("pb")),
+            LayoutColumn(id: "l", root: .leaf("pl"), sticky: StickyColumn(edge: .left)),
+        ])
+        #expect(layout.visualColumns.map(\.id) == ["l", "a", "b", "r"])
+    }
+}

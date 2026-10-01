@@ -41,6 +41,13 @@ public nonisolated enum ScreenLayout: Hashable, Sendable {
         return []
     }
 
+    /// Columns in the order the user sees them: the left sticky column, the
+    /// scrolling strip, the right sticky column (StickyStripGeometry S1, S2).
+    public var visualColumns: [LayoutColumn] {
+        let parts = StickyStripGeometry.partition(columns)
+        return [parts.left].compactMap { $0 } + parts.scrolling + [parts.right].compactMap { $0 }
+    }
+
     /// The column that contains `pane`, in columns mode.
     public func column(containing pane: PaneID) -> LayoutColumn? {
         columns.first { $0.root.contains(pane) }
