@@ -31,7 +31,7 @@ struct TerminalCustomUploadRunner {
         let port: Int?
         let identityFile: String?
         let sshOptions: [String]
-        let remotePastePolicy: RemotePasteFileTransferPolicy = RemotePasteFileTransferPolicy()
+        var remotePastePolicy: RemotePasteFileTransferPolicy = RemotePasteFileTransferPolicy()
     }
 
     private let runProcess: ProcessRunner
@@ -176,12 +176,13 @@ struct TerminalCustomUploadRunner {
             }
             return true
         }
-        let endpoint = Endpoint(
+        var endpoint = Endpoint(
             destination: session.destination,
             port: session.port,
             identityFile: session.identityFile,
-            sshOptions: session.sshOptions, remotePastePolicy: session.remotePastePolicy
+            sshOptions: session.sshOptions
         )
+        endpoint.remotePastePolicy = session.remotePastePolicy
         guard let command = matchedCommand(for: endpoint) else { return false }
 
         run(fileURLs: fileURLs, endpoint: endpoint, command: command, operation: operation) { result in
@@ -200,7 +201,6 @@ struct TerminalCustomUploadRunner {
     private static func uploadError(_ message: String) -> NSError {
         NSError(domain: "cmux.upload.command", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
-
     /// Default ``ProcessRunner``: spawns `/bin/sh -c command` as its own process
     /// group and captures its output.
     ///
