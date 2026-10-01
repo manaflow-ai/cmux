@@ -563,6 +563,7 @@
       "billing": "請求",
       "themeDark": "ダークテーマ",
       "themeLight": "ライトテーマ",
+      "switchAccount": "アカウントを切り替え",
       "signOut": "サインアウト",
       "signingOut": "サインアウト中…",
       "signOutError": "サインアウトできませんでした。もう一度お試しください。",

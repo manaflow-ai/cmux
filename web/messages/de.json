@@ -403,6 +403,7 @@
       "label": "Kontomenü",
       "settings": "Einstellungen",
       "billing": "Abrechnung",
+      "switchAccount": "Konto wechseln",
       "signOut": "Abmelden",
       "signingOut": "Wird abgemeldet…",
       "signOutError": "Abmeldung fehlgeschlagen. Erneut versuchen.",

@@ -403,6 +403,7 @@
       "label": "Menu da conta",
       "settings": "Configurações",
       "billing": "Cobrança",
+      "switchAccount": "Trocar de conta",
       "signOut": "Sair",
       "signingOut": "Saindo…",
       "signOutError": "Não foi possível sair. Tente novamente.",

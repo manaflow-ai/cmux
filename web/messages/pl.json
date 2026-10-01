@@ -403,6 +403,7 @@
       "label": "Menu konta",
       "settings": "Ustawienia",
       "billing": "Rozliczenia",
+      "switchAccount": "Przełącz konto",
       "signOut": "Wyloguj się",
       "signingOut": "Wylogowywanie…",
       "signOutError": "Nie udało się wylogować. Spróbuj ponownie.",

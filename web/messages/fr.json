@@ -403,6 +403,7 @@
       "label": "Menu du compte",
       "settings": "Réglages",
       "billing": "Facturation",
+      "switchAccount": "Changer de compte",
       "signOut": "Se déconnecter",
       "signingOut": "Déconnexion…",
       "signOutError": "Impossible de se déconnecter. Réessayez.",

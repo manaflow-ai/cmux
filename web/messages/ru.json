@@ -403,6 +403,7 @@
       "label": "Меню аккаунта",
       "settings": "Настройки",
       "billing": "Оплата",
+      "switchAccount": "Сменить аккаунт",
       "signOut": "Выйти",
       "signingOut": "Выход…",
       "signOutError": "Не удалось выйти. Повторите попытку.",

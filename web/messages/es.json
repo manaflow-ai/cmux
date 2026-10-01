@@ -403,6 +403,7 @@
       "label": "Menú de la cuenta",
       "settings": "Configuración",
       "billing": "Facturación",
+      "switchAccount": "Cambiar de cuenta",
       "signOut": "Cerrar sesión",
       "signingOut": "Cerrando sesión…",
       "signOutError": "No se pudo cerrar la sesión. Inténtalo de nuevo.",

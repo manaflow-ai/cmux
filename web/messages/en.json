@@ -563,6 +563,7 @@
       "billing": "Billing",
       "themeDark": "Dark theme",
       "themeLight": "Light theme",
+      "switchAccount": "Switch account",
       "signOut": "Sign out",
       "signingOut": "Signing out…",
       "signOutError": "Could not sign out. Try again.",

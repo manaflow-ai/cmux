@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { UserAvatar, useStackApp } from "@hexclave/next";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
-import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
+import { localizedVaultPath, vaultSignInHref, vaultSwitchAccountHref } from "@/app/lib/vault-auth";
 import { Link } from "@tanstack/react-router";
 import type { DashboardSessionUser } from "../lib/session-types";
 import { localeHomeHref } from "../lib/locale-href";
@@ -70,6 +70,7 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
   const [signOutPending, setSignOutPending] = useState(false);
   const [signOutError, setSignOutError] = useState(false);
   const signInHref = vaultSignInHref(localizedVaultPath(locale, "/dashboard"));
+  const switchAccountHref = vaultSwitchAccountHref(localizedVaultPath(locale, "/dashboard"));
 
   if (!user) {
     return (
@@ -144,6 +145,12 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
                 />
               ) : null}
               <Menu.Separator className="mx-1 my-1 h-px bg-border" />
+              {/* A document load into the sign-in page's chooser: picking a
+                  saved account switches straight back here, signed in as it. */}
+              <Menu.Item render={<a href={switchAccountHref} />} className={menuItemClass}>
+                <SwitchAccountIcon />
+                <span>{t("switchAccount")}</span>
+              </Menu.Item>
               <Menu.Item
                 className={`${menuItemClass} text-red-600 dark:text-red-400`}
                 disabled={signOutPending}
@@ -327,6 +334,14 @@ function BillingIcon() {
     <svg aria-hidden="true" className="size-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25">
       <rect x="1.75" y="3.25" width="12.5" height="9.5" />
       <path d="M1.75 6h12.5M4 10h2.5" />
+    </svg>
+  );
+}
+
+function SwitchAccountIcon() {
+  return (
+    <svg aria-hidden="true" className="size-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25">
+      <path d="M2.75 5.25h9.5M9.75 2.75l2.5 2.5-2.5 2.5M13.25 10.75h-9.5M6.25 8.25l-2.5 2.5 2.5 2.5" />
     </svg>
   );
 }

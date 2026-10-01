@@ -403,6 +403,7 @@
       "label": "Menu account",
       "settings": "Impostazioni",
       "billing": "Fatturazione",
+      "switchAccount": "Cambia account",
       "signOut": "Esci",
       "signingOut": "Uscita…",
       "signOutError": "Impossibile uscire. Riprova.",

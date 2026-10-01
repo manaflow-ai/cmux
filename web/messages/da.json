@@ -403,6 +403,7 @@
       "label": "Kontomenu",
       "settings": "Indstillinger",
       "billing": "Fakturering",
+      "switchAccount": "Skift konto",
       "signOut": "Log ud",
       "signingOut": "Logger ud…",
       "signOutError": "Kunne ikke logge ud. Prøv igen.",

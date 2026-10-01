@@ -294,3 +294,16 @@ describe("login hint for a remembered account", () => {
     expect(oauthLoginHint("google", "not-an-email")).toBeNull();
   });
 });
+
+describe("switch account from the dashboard", () => {
+  test("opens the chooser and comes back to the dashboard through after-sign-in", async () => {
+    const { vaultSwitchAccountHref } = await import("../app/lib/vault-auth");
+    const href = new URL(vaultSwitchAccountHref("/en/dashboard"), "https://cmux.test");
+    expect(href.pathname).toBe("/handler/sign-in");
+    expect(href.searchParams.get("prompt")).toBe(SELECT_ACCOUNT_PROMPT);
+    const afterSignIn = new URL(href.searchParams.get("after_auth_return_to")!, "https://cmux.test");
+    expect(afterSignIn.pathname).toBe("/handler/after-sign-in");
+    expect(afterSignIn.searchParams.get("after_auth_return_to")).toBe("/en/dashboard");
+    expect(signInEntry({ ...signedIn, prompt: href.searchParams.get("prompt") })).toBe("choose-account");
+  });
+});

@@ -403,6 +403,7 @@
       "label": "Meni računa",
       "settings": "Postavke",
       "billing": "Naplata",
+      "switchAccount": "Promijeni račun",
       "signOut": "Odjavi se",
       "signingOut": "Odjava…",
       "signOutError": "Odjava nije uspjela. Pokušajte ponovo.",

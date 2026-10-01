@@ -403,6 +403,7 @@
       "label": "帳戶選單",
       "settings": "設定",
       "billing": "帳單",
+      "switchAccount": "切換帳號",
       "signOut": "登出",
       "signingOut": "正在登出…",
       "signOutError": "無法登出，請再試一次。",

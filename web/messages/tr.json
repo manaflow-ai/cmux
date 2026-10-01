@@ -403,6 +403,7 @@
       "label": "Hesap menüsü",
       "settings": "Ayarlar",
       "billing": "Faturalandırma",
+      "switchAccount": "Hesap değiştir",
       "signOut": "Çıkış yap",
       "signingOut": "Çıkış yapılıyor…",
       "signOutError": "Çıkış yapılamadı. Tekrar deneyin.",
