@@ -3596,7 +3596,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(terminalObservations.allSatisfy { ($0["attention"] as? [String: Any])?["notification"] == nil })
 
         XCTAssertTrue(
-            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            AgentJournalAppendCapture.captures(in: currentStopCommands).contains { capture in
+                guard capture.kind == "agent.turn.completed",
+                      capture.agentKey == "codex",
+                      capture.workspaceId == context.workspaceId,
+                      capture.surfaceId == context.surfaceId,
+                      let attention = capture.draft["attention"] as? [String: Any],
+                      let notification = attention["notification"] as? [String: Any]
+                else { return false }
+                return notification["category"] as? String == "turn-complete"
+                    && notification["body"] as? String == "current done"
+            },
             "A Stop after a missed prompt-submit must clear terminal stale turns and notify, saw \(currentStopCommands)"
         )
         XCTAssertTrue(
