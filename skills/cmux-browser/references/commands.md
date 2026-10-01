@@ -67,7 +67,7 @@ cmux browser browser_… close
 These run the same action as the menu or palette and return no page data:
 `browser screenshot-page`, `browser screenshot-section`,
 `browser toggle-developer-tools`, `browser show-javascript-console`,
-`browser delete-site-data`, `browser import-data`, `browser new-profile`,
+`browser delete-site-data`, `browser import-data`,
 `browser zoom-in`, `browser zoom-out`, `browser toggle-design-mode`,
 `browser toggle-focus-mode`, `browser toggle-react-grab`.
 

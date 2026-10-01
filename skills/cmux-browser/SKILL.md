@@ -89,10 +89,11 @@ profiles and proxies.
 Some have UI actions that act on the focused browser and return no data:
 `cmux browser screenshot-page`, `browser screenshot-section`,
 `browser toggle-developer-tools`, `browser show-javascript-console`,
-`browser delete-site-data`, `browser import-data`, `browser new-profile`,
+`browser delete-site-data`, `browser import-data`,
 `browser zoom-in`, `browser zoom-out`, `browser toggle-design-mode`,
 `browser toggle-focus-mode`, `browser toggle-react-grab`. List them with
-`cmux action list --noun browser`.
+`cmux action list --noun browser`. Browser profiles are their own
+`browser-profile` actions (`cmux action list --noun browser-profile`).
 
 ## Troubleshooting
 

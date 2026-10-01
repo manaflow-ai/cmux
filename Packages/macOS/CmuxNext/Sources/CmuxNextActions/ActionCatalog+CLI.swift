@@ -48,7 +48,7 @@ nonisolated extension ActionCatalog {
         "tabGroup.newTab", "tabGroup.save", "tabGroup.unsave", "tabGroup.deleteSaved", "tabGroup.reopenSaved",
         // Browser
         "browserBack", "browserForward", "browserReload", "browserHardReload", "splitBrowserRight", "splitBrowserDown",
-        "browserScreenshotPage", "palette.browserClearHistory", "browserNewProfile", "browserRenameProfile",
+        "browserScreenshotPage", "palette.browserClearHistory", "browserProfile.new", "browserProfile.rename",
         "browser.pageInfo.deleteSiteData", "browser.pageInfo.setPermission",
         // Terminals
         "terminal.keep", "resetTerminal", "reconnectPane", "resumeCommandSet", "resumeCommandClear",
