@@ -986,7 +986,6 @@ private struct TitlebarNotificationBadge: View {
     @Environment(\.cmuxAccentColor) private var cmuxAccent
     let unreadModel: SidebarUnreadModel
     let config: TitlebarControlsStyleConfig
-    @Environment(\.cmuxAccentColor) private var cmuxAccent
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     var body: some View {
