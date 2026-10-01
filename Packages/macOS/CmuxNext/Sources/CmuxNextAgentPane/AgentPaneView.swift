@@ -33,6 +33,10 @@ public final class AgentPaneView: NSView {
         webView.autoresizingMask = [.width, .height]
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
+        #if DEBUG
+        // Web Inspector and profiling for the pane (debug.agent_pane).
+        webView.isInspectable = true
+        #endif
         navigation.view = self
         webView.navigationDelegate = navigation
         addSubview(webView)
