@@ -176,28 +176,20 @@ extension TerminalController {
         } else {
             compatibleAgent = nil
         }
-        let continuationCheckpointID = compatibleAgent?.snapshot.sessionId
-            ?? binding?.checkpointId
-        let continuationPrompt = UpdateRelaunchContinuationNudges.shared.prompt(
-            forPanel: target.surfaceID,
-            checkpointID: continuationCheckpointID
-        )
         if let compatibleAgent {
             return controlSurfaceAgentContinuationRecord(
                 agent: compatibleAgent.snapshot,
                 source: compatibleAgent.source,
                 restoredWorkingDirectory: compatibleAgent.restoredWorkingDirectory,
                 binding: binding,
-                compatibilityBinding: compatibilityBinding,
-                continuationPrompt: continuationPrompt
+                compatibilityBinding: compatibilityBinding
             )
         }
         guard let binding else { return nil }
         return controlSurfaceBindingContinuationRecord(
             binding: binding,
             compatibilityBinding: compatibilityBinding,
-            restoredAgentExists: restoredAgent != nil && binding.isAgentHookBinding,
-            continuationPrompt: continuationPrompt
+            restoredAgentExists: restoredAgent != nil && binding.isAgentHookBinding
         )
     }
 
