@@ -223,11 +223,13 @@ final class WorkspaceRowView: SidebarRowView {
         progressTrack.isHidden = false
         progressTrack.frame = CGRect(x: x, y: isFlipped ? bottom - height - 1 : 1, width: width, height: height)
         progressTrack.cornerRadius = height / 2
-        progressTrack.backgroundColor = resolvedCGColor(Palette.textTertiary.withAlphaComponent(0.25))
-        let color = progress.isError ? Palette.danger : Palette.accent
+        progressTrack.backgroundColor = performWithTheme { Palette.textTertiary.withAlphaComponent(0.25).cgColor }
         progressFill.frame = CGRect(x: 0, y: 0, width: width * (progress.value ?? 1), height: height)
         progressFill.cornerRadius = height / 2
-        progressFill.backgroundColor = resolvedCGColor(progress.value == nil ? color.withAlphaComponent(0.4) : color)
+        progressFill.backgroundColor = performWithTheme {
+            let color = progress.isError ? Palette.danger : Palette.accent
+            return (progress.value == nil ? color.withAlphaComponent(0.4) : color).cgColor
+        }
     }
 }
 
