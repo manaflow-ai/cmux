@@ -130,10 +130,13 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         run: ../../../scripts/cmux-next/compile-string-catalogs.sh
 
-      # Samples and fails a run still going after 20 minutes, so a hang shows
-      # its stacks instead of idling until the job timeout.
+      # Samples and fails a run still going after 15 minutes, so a hang shows
+      # its stacks; the step timeout stops it holding the runner regardless.
       - name: Run package tests
+        timeout-minutes: 20
         working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_NEXT_TEST_HANG_SECONDS: "900"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build
 
   release-compile:
