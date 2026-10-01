@@ -6,6 +6,7 @@ import { conversationsQuery, machinesQuery, viewerQuery } from "../chat/queries.
 export const Route = createFileRoute("/_app")({
   beforeLoad: ({ context }) => {
     if (!context.session.auth.signedIn()) throw redirect({ to: "/sign-in" });
+    context.session.watchList();
   },
   loader: ({ context: { queryClient, session } }) =>
     Promise.all([

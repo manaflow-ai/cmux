@@ -32,6 +32,24 @@ export function httpSource(options: {
     async mintLinkToken() {
       return (await json<{ token: string }>("/api/link/token", { method: "POST" })).token;
     },
+    watchConversations(onListChanged) {
+      let socket: WebSocket | undefined;
+      let stopped = false;
+      void options.credential().then((credential) => {
+        if (stopped) return;
+        const url = new URL(`${options.baseUrl}/api/events`, window.location.href);
+        url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+        if (credential.kind === "stack")
+          url.searchParams.set("access_token", credential.accessToken);
+        else if (credential.kind === "dev") url.searchParams.set("dev_user", credential.user);
+        socket = new WebSocket(url);
+        socket.onmessage = () => onListChanged();
+      });
+      return () => {
+        stopped = true;
+        socket?.close();
+      };
+    },
     connect(conversationId, onFrame, onClose) {
       let socket: WebSocket | undefined;
       let closed = false;

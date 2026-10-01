@@ -50,6 +50,10 @@ export type ServerFrame =
   | { type: "participants"; participants: Participant[] }
   | { type: "error"; message: string };
 
+// Account event stream: /api/events (optional; servers without it refuse the socket)
+
+export type AccountFrame = { type: "conversations" };
+
 export function parseClientFrame(data: unknown): ClientFrame | undefined {
   if (typeof data !== "string") return undefined;
   let value: unknown;

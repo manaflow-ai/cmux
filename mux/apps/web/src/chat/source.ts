@@ -26,6 +26,8 @@ export interface ChatSource {
     onFrame: (frame: ServerFrame) => void,
     onClose: () => void,
   ): ChatChannel;
+  /** Calls `onListChanged` whenever the conversation list changes on the server. Returns a stop function. */
+  watchConversations(onListChanged: () => void): () => void;
 }
 
 export interface MachineSummary {
