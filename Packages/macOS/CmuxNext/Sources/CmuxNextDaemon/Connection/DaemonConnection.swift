@@ -48,6 +48,11 @@ public actor DaemonConnection {
         /// Per-terminal `env` the convenience spawn calls send when the daemon
         /// supports `terminal-env-v1` and the caller passed none. Nil sends none.
         public var terminalEnvironment: (@Sendable () async -> [String: String])?
+        /// Opens `session.events` after each connect for the daemon's state
+        /// resources (`DaemonStore.sessionState`). The app turns it on; off
+        /// by default so a client that does not mirror the state (mobile
+        /// compat, tests) sends nothing extra.
+        public var sessionEvents: Bool
 
         public init(
             clientName: String = "cmux-next",
@@ -60,7 +65,8 @@ public actor DaemonConnection {
             requestTimeout: Duration? = DaemonConnection.defaultRequestTimeout,
             snapshotTimeout: Duration? = .seconds(10),
             spawnTimeout: Duration? = DaemonConnection.defaultSpawnTimeout,
-            terminalEnvironment: (@Sendable () async -> [String: String])? = TerminalEnvironment.shared()
+            terminalEnvironment: (@Sendable () async -> [String: String])? = TerminalEnvironment.shared(),
+            sessionEvents: Bool = false
         ) {
             self.clientName = clientName
             self.requiredCapabilities = requiredCapabilities
@@ -73,6 +79,7 @@ public actor DaemonConnection {
             self.snapshotTimeout = snapshotTimeout
             self.spawnTimeout = requestTimeout == nil ? nil : spawnTimeout
             self.terminalEnvironment = terminalEnvironment
+            self.sessionEvents = sessionEvents
         }
     }
 
@@ -92,7 +99,9 @@ public actor DaemonConnection {
     private let clock: any Clock<Duration>
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon")
     private var phase: Phase = .idle
-    private var serial: UInt64 = 0
+    private(set) var serial: UInt64 = 0
+    /// The open `session.events` stream id (`DaemonConnection+SessionEvents`).
+    var sessionStream: String?
     private var reconnectTask: Task<Void, Never>?
     private var pacer: RetryPacer
     private let wake: RetryWake
@@ -246,10 +255,14 @@ public actor DaemonConnection {
             let gate = EventGate()
             let continuation = continuation
             transport.start(
-                onEvent: { name, line, index in
+                onEvent: { [weak self] name, line, index in
                     let envelope = DaemonEventEnvelope(
                         sequence: DaemonEventEnvelope.sequence(serial: serial, index: index),
                         event: DaemonEvent.decode(name: name, line: line))
+                    if case .sessionState(let item) = envelope.event, item.endsStream {
+                        // task-owner: hop onto the actor; a stale serial is ignored there
+                        Task { await self?.sessionStreamEvent(item, serial: serial) }
+                    }
                     gate.deliver(envelope) { continuation.yield($0) }
                 },
                 onClose: { [weak self] reason in
@@ -273,6 +286,8 @@ public actor DaemonConnection {
             let connected = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: 0),
                                                 event: .connected(identity, generationChanged: generationChanged))
             gate.open(first: connected) { continuation.yield($0) }
+            // task-owner: one request with the control deadline; a stale serial returns at once
+            Task { [weak self] in await self?.openSessionEvents(serial: serial) }
             logger.info("connected to cmux-tui \(identity.session, privacy: .public) pid \(identity.pid) gen \(identity.generation.rawValue, privacy: .public)")
             return identity
         } catch {

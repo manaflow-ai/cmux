@@ -34,6 +34,16 @@ public final class TabModel: Identifiable {
     public internal(set) var isFrontendOwned: Bool
     public internal(set) var tabGroup: TabGroupID?
     public internal(set) var agent: AgentStatus?
+    /// Browser page zoom or terminal font scale saved on the tab record;
+    /// nil = 1 (daemon state resources).
+    public internal(set) var zoom: Double?
+    /// A browser tab's saved back URLs (oldest first) and forward URLs
+    /// (nearest first).
+    public internal(set) var backURLs: [String] = []
+    public internal(set) var forwardURLs: [String] = []
+    /// The terminal's OSC 9;4 progress as the daemon parses it, mounted or
+    /// not (`TerminalSnapshot.extra.progress`).
+    public internal(set) var progress: TerminalProgressReport?
     /// Last snapshot, for fields the record does not surface. Views should
     /// read the typed fields; this one changes whenever any field does.
     @ObservationIgnored public private(set) var snapshot: TabSnapshot
@@ -44,6 +54,9 @@ public final class TabModel: Identifiable {
     }
 
     public var hasUnread: Bool { notification?.unread == true }
+
+    /// Public tab id (`tab_…`) on registry daemons.
+    public var resourceID: ResourceID? { snapshot.tabResourceID }
 
     init(_ s: TabSnapshot) {
         id = Self.identity(s)
@@ -95,6 +108,15 @@ public final class TabModel: Identifiable {
         if faviconURL != s.faviconURL { faviconURL = s.faviconURL }
         if isFrontendOwned != s.isFrontendOwned { isFrontendOwned = s.isFrontendOwned }
         if tabGroup != s.tabGroup { tabGroup = s.tabGroup }
+    }
+
+    /// Lays the daemon's tab record and terminal progress over the record.
+    func applyState(_ record: SessionStateMirror.TabRecord?, progress: TerminalProgressReport?) {
+        let record = record ?? SessionStateMirror.TabRecord()
+        if zoom != record.zoom { zoom = record.zoom }
+        if backURLs != record.back { backURLs = record.back }
+        if forwardURLs != record.forward { forwardURLs = record.forward }
+        if self.progress != progress { self.progress = progress }
     }
 
     /// Point updates from surface events (no full snapshot).

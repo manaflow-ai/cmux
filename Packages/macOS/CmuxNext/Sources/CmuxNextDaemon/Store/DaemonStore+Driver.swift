@@ -53,7 +53,9 @@ final class EventInbox: Sendable {
     /// (as a `tree-changed` carrying it), drop the rest.
     private static func keep(_ envelope: DaemonEventEnvelope, in state: inout State) {
         switch envelope.event {
-        case .connected, .disconnected, .daemonShutdown:
+        case .connected, .disconnected, .daemonShutdown, .sessionState:
+            // Session state is not refetched by the snapshot the collapse
+            // triggers, so its items are kept in order.
             state.events.append(envelope)
         default:
             guard let transaction = envelope.event.clientTransactionID, state.echoes.insert(transaction).inserted else { return }
