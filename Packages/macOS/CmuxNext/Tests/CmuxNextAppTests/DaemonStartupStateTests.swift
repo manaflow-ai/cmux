@@ -29,7 +29,7 @@ import Testing
             return result
         }
         guard observed else {
-            throw DaemonError.timedOut("daemon startup state did not become (expected)")
+            throw DaemonError.timedOut("daemon startup state did not become \(expected)")
         }
     }
 
