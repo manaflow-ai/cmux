@@ -105,6 +105,8 @@ extension PaneController {
         var ownPages = 0
         var kind = "none"
         switch content {
+        case .agent:
+            kind = "agent"
         case .terminal(let entry):
             kind = "terminal"
             terminal = entry.session.diagnostics

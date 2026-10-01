@@ -72,6 +72,7 @@ extension PaneController {
         let tabs = stripModel.orderedTabs.map { item -> FocusTopology.Tab in
             let id = item.id.rawValue
             if id.hasPrefix(LocalBrowserTab.prefix) { return FocusTopology.Tab(id: id, kind: .browser) }
+            if id.hasPrefix(LocalAgentTab.prefix) { return FocusTopology.Tab(id: id, kind: .agent) }
             guard let tab = pane.tabs.first(where: { $0.id == id }) else { return FocusTopology.Tab(id: id, kind: .other) }
             return FocusTopology.Tab(id: id, surface: String(tab.surface.rawValue), kind: .of(tab))
         }

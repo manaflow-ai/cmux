@@ -104,6 +104,10 @@ final class FocusEffectApplier: FocusEffectApplying {
             if entry.chrome.region(of: window.firstResponder as? NSView ?? window.contentView ?? NSView()) != .findBar {
                 entry.chrome.perform(.findInPage)
             }
+        case .agentPage(let pane, let tab):
+            guard case .agent(let view)? = presented(pane: pane, tab: tab) else { return }
+            blurChildWindowPage()
+            if !responder(of: window, isInside: view) { window.makeFirstResponder(view.webView) }
         case .emptyPane:
             blurChildWindowPage()
             // Nothing to type into: the previous content must not keep keys.

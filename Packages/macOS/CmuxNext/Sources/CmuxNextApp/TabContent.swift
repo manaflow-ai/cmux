@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -8,6 +9,8 @@ import CmuxNextTerminal
 enum TabContent {
     case terminal(TerminalEntry)
     case browser(BrowserEntry)
+    /// An agent chat tab (`LocalAgentTab`), the React pane in a web view.
+    case agent(AgentPaneView)
     /// A remote-terminal tab whose session is not attached (data-model.md 1.4).
     case placeholder(RemoteTerminalPlaceholderView)
 
@@ -15,6 +18,7 @@ enum TabContent {
         switch self {
         case .terminal(let entry): entry.session.view
         case .browser(let entry): entry.chrome
+        case .agent(let view): view
         case .placeholder(let view): view
         }
     }
@@ -24,6 +28,7 @@ enum TabContent {
         switch self {
         case .terminal(let entry): entry.session.surfaceView
         case .browser(let entry): entry.tab.contentView
+        case .agent(let view): view.webView
         case .placeholder(let view): view
         }
     }

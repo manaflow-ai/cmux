@@ -178,6 +178,11 @@ extension PaneController {
                 services.cache.release(id.rawValue)
                 continue
             }
+            if id.rawValue.hasPrefix(LocalAgentTab.prefix) {
+                services.agentTabs.close(id.rawValue)
+                services.cache.release(id.rawValue)
+                continue
+            }
             guard let tab = tab(id) else { continue }
             pendingClosed.insert(tab.id)
             surfaces.append(tab.surface)
