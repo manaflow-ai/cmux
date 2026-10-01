@@ -22,6 +22,18 @@ extension DaemonStore {
     /// Recently closed tabs, screens, and workspaces, newest first.
     public var closedItems: [ClosedItem] { sessionState?.closed ?? [] }
 
+    /// The public id of workspace `key` when this daemon takes the v2 state
+    /// mutations for it, else nil (callers fall back to raw commands).
+    public func stateResourceID(workspace key: WorkspaceKey) -> ResourceID? {
+        servesStateResources ? workspace(key: key)?.resourceID : nil
+    }
+
+    /// The public id of workspace `key` of session `session` when this (home)
+    /// daemon takes `workspace.place` for it: one of its own live workspaces.
+    public func personalStateID(session: String, key: WorkspaceKey) -> ResourceID? {
+        session == registryID ? stateResourceID(workspace: key) : nil
+    }
+
     /// The workspace whose public id is `id`.
     public func workspace(resourceID id: ResourceID) -> WorkspaceModel? {
         workspaces.first { $0.resourceID == id }

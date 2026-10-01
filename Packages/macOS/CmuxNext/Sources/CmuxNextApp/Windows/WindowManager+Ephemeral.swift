@@ -75,6 +75,7 @@ extension WindowManager {
     /// flagged workspace is a leftover. Waits until the local daemon said
     /// whether it serves state resources.
     func ephemeralLeftovers() async -> [String] {
+        guard services.daemon.connection?.mirrorsSessionState == true else { return [] }
         await services.daemon.store.sessionStateResolved()
         return services.daemon.store.workspaces.filter(\.ephemeral).map(\.id)
     }

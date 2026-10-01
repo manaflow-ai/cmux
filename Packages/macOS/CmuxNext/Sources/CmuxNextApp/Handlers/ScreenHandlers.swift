@@ -102,8 +102,10 @@ enum ScreenHandlers {
                 ScreenCommands.move(ref.screen, to: target, daemon: ref.daemon)
             })
         }
+        // Moving a screen to another workspace has no daemon operation with
+        // the state resources; it shares the saved screen group gate.
         registry.bind("screen.moveToWorkspace", invoke: { invocation in
-            guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.screenMetadata, on: ref.daemon) else { return }
+            guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.savedScreenGroups, on: ref.daemon) else { return }
             guard let id = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue,
                   let target = ctx.services.workspace(id: id) ?? ctx.refuse(RefusalStrings.noWorkspace(invocation["workspace"]?.stringValue ?? "")) else { return }
             guard target !== ref.workspace else { return ctx.refuse(ScreenStrings.sameWorkspace) }
@@ -111,7 +113,7 @@ enum ScreenHandlers {
         })
         for (id, newWindow) in [("screen.moveToNewWorkspace", false), ("screen.moveToNewWindow", true)] as [(ActionID, Bool)] {
             registry.bind(id, invoke: { invocation in
-                guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.screenMetadata, on: ref.daemon) else { return }
+                guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.savedScreenGroups, on: ref.daemon) else { return }
                 ScreenCommands.moveToNewWorkspace(ref.screen, daemon: ref.daemon, services: ctx.services, newWindow: newWindow)
             })
         }

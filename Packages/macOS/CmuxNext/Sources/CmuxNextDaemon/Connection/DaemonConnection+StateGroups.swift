@@ -137,4 +137,21 @@ extension DaemonConnection {
         if let index { params["index"] = .number(Double(max(0, index))) }
         try await stateMutation("workspace.place", params)
     }
+
+    /// A workspace's personal group and order in the home session: through
+    /// `workspace.place` when `resource` (its public id, for a live workspace
+    /// of this session on a daemon with state resources) is given, else the
+    /// raw `set-personal-workspace` (workspaces of other sessions).
+    public func placePersonalWorkspace(session: String, key: WorkspaceKey, resource: ResourceID?,
+                                       group: FieldUpdate<WorkspaceGroupID> = .unchanged, index: Int? = nil) async throws {
+        if let resource {
+            let state: FieldUpdate<String> = switch group {
+            case .unchanged: .unchanged
+            case .clear: .clear
+            case .set(let id): .set(id.rawValue)
+            }
+            return try await placeWorkspace(resource, group: state, index: index)
+        }
+        try await setPersonalWorkspace(SetPersonalWorkspaceRequest(sessionID: session, workspaceKey: key, index: index, group: group))
+    }
 }

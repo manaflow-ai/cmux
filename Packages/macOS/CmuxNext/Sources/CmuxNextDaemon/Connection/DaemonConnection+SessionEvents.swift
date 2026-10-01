@@ -11,6 +11,10 @@ import Foundation
 /// stream is cancelled and the app keeps its own paths. A stream that ends
 /// with `gap` (the app fell behind) is opened again for a fresh snapshot.
 extension DaemonConnection {
+    /// True when this connection mirrors the state resources (it opens
+    /// `session.events`); otherwise the store never learns about them.
+    public nonisolated var mirrorsSessionState: Bool { configuration.sessionEvents }
+
     /// A fresh `stream_<32 hex>` id.
     static func newStreamID() -> String {
         "stream_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()

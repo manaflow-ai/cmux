@@ -4,27 +4,49 @@ import CmuxNextDesign
 
 /// The one mutation path for screen groups (`screen-groups-v1`), shared by
 /// the screen bar's chips and editor bubble, the palette, context menus,
-/// shortcuts, and the CLI. Each change is one daemon command.
+/// shortcuts, and the CLI. Each change is one daemon command: the v2
+/// `screen_group.*` operations on a daemon with state resources; group
+/// moves and saved groups have no daemon operation there
+/// (`DaemonCapabilities.savedScreenGroups`).
 @MainActor
 enum ScreenGroupCommands {
+    /// Public ids of `screens` when their daemon takes the v2 operations.
+    private static func stateIDs(_ screens: [ScreenModel], _ daemon: DaemonService) -> [ResourceID]? {
+        guard daemon.store.servesStateResources else { return nil }
+        let ids = screens.compactMap(\.resourceID)
+        return ids.count == screens.count && !ids.isEmpty ? ids : nil
+    }
+
     static func create(_ screens: [ScreenModel], in workspace: WorkspaceModel, name: String?, color: GroupColor?, daemon: DaemonService) {
-        let handles = screens.map(\.handle), color = (color ?? nextColor(in: workspace)).rawValue
-        daemon.send("create-screen-group") { _ = try await $0.createScreenGroup(handles, name: name, color: color) }
+        let handles = screens.map(\.handle), color = (color ?? nextColor(in: workspace)).rawValue, ids = stateIDs(screens, daemon)
+        daemon.send("create-screen-group") {
+            if let ids { _ = try await $0.createScreenGroup(screens: ids, name: name, color: color); return }
+            _ = try await $0.createScreenGroup(handles, name: name, color: color)
+        }
     }
 
     static func add(_ screens: [ScreenModel], to group: ScreenGroupID, index: Int? = nil, daemon: DaemonService) {
-        let handles = screens.map(\.handle)
-        daemon.send("add-screens-to-screen-group") { _ = try await $0.addScreens(handles, toGroup: group, index: index) }
+        let handles = screens.map(\.handle), ids = stateIDs(screens, daemon)
+        daemon.send("add-screens-to-screen-group") {
+            if let ids { return try await $0.addScreens(ids, toScreenGroup: group.rawValue) }
+            _ = try await $0.addScreens(handles, toGroup: group, index: index)
+        }
     }
 
     static func remove(_ screens: [ScreenModel], daemon: DaemonService) {
-        let handles = screens.map(\.handle)
-        daemon.send("remove-screens-from-screen-group") { _ = try await $0.removeScreensFromGroup(handles) }
+        let handles = screens.map(\.handle), ids = stateIDs(screens, daemon)
+        daemon.send("remove-screens-from-screen-group") {
+            if let ids { return try await $0.removeScreensFromScreenGroup(ids) }
+            _ = try await $0.removeScreensFromGroup(handles)
+        }
     }
 
     static func update(_ group: ScreenGroupID, name: String? = nil, color: GroupColor? = nil, collapsed: Bool? = nil, daemon: DaemonService) {
-        let color = color?.rawValue
-        daemon.send("update-screen-group") { _ = try await $0.updateScreenGroup(group, name: name, color: color, collapsed: collapsed) }
+        let color = color?.rawValue, state = daemon.store.servesStateResources
+        daemon.send("update-screen-group") {
+            if state { return try await $0.updateScreenGroup(group.rawValue, name: name, color: color, collapsed: collapsed) }
+            _ = try await $0.updateScreenGroup(group, name: name, color: color, collapsed: collapsed)
+        }
     }
 
     /// Collapses or expands. Collapsing a group that holds the shown screen
@@ -67,10 +89,19 @@ enum ScreenGroupCommands {
     }
 
     static func ungroup(_ group: ScreenGroupID, daemon: DaemonService) {
-        daemon.send("ungroup-screen-group") { _ = try await $0.ungroupScreenGroup(group) }
+        let state = daemon.store.servesStateResources
+        daemon.send("ungroup-screen-group") {
+            if state { return try await $0.ungroupScreenGroup(group.rawValue) }
+            _ = try await $0.ungroupScreenGroup(group)
+        }
     }
 
+    /// Closes the group's screens: one `close-screen` each on a daemon with
+    /// state resources (no v2 group close), else `close-screen-group`.
     static func close(_ ref: ScreenGroupRef, services: AppServices) {
+        if ref.daemon.store.servesStateResources {
+            return ScreenCommands.close(ref.members, in: ref.workspace, daemon: ref.daemon, services: services)
+        }
         for screen in ref.members { services.closedScreens.record(screen, in: ref.workspace, daemon: ref.daemon.store) }
         let group = ref.group.id
         ref.daemon.send("close-screen-group") { _ = try await $0.closeScreenGroup(group) }

@@ -99,6 +99,15 @@ extension DaemonConnection {
         try await stateMutation("workspace.update", params)
     }
 
+    /// Workspace identity through `workspace.update` when `resource` (the
+    /// workspace's public id on a daemon with state resources) is given,
+    /// else the raw `set-workspace-metadata`.
+    public func setWorkspaceIdentity(_ key: WorkspaceKey, resource: ResourceID?, title: FieldUpdate<String> = .unchanged,
+                                     color: FieldUpdate<String> = .unchanged, icon: FieldUpdate<String> = .unchanged) async throws {
+        if let resource { return try await updateWorkspace(resource, title: title, color: color, icon: icon) }
+        _ = try await setWorkspaceMetadata(key, color: color, icon: icon, title: title)
+    }
+
     // MARK: Tabs
 
     /// `tab.pin` / `tab.unpin`: pinned tabs sort first and leave any group.

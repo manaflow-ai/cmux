@@ -46,8 +46,8 @@ public enum DaemonCapabilities {
     /// Saved screen groups and group moves across workspaces have no daemon
     /// operation yet (`savedScreenGroups`).
     public static let screenGroups = "screen-groups-v1"
-    /// Saved screen groups and moving a screen or group to another
-    /// workspace: no daemon serves them yet.
+    /// Saved screen groups and moving a screen or screen group to another
+    /// position or workspace as a whole: no daemon serves them yet.
     public static let savedScreenGroups = "saved-screen-groups-v1"
     /// The state resources over `cmux.protocol/2` (state-ownership.md steps
     /// A and B): closed history, ephemeral workspaces, workspace status,
