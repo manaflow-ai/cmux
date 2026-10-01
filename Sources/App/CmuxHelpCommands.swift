@@ -83,6 +83,9 @@ extension cmuxApp {
         helpResourceButton(.ssh)
         helpResourceButton(.skills)
         agentIntegrationsHelpMenu
+        Button(String(localized: "menu.help.whatsNew", defaultValue: "What's New in cmux")) {
+            WhatsNewCenter.shared.presentOnDemand(source: "helpMenu")
+        }
         helpResourceButton(.changelog)
     }
 
