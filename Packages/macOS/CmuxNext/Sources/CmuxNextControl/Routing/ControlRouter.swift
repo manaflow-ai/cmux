@@ -214,7 +214,8 @@ public final class ControlRouter: Sendable {
         do {
             // Read barrier (state-ownership.md 4.3): answer from a snapshot
             // that covers the caller's earlier writes.
-            if let after = request.params["after"], !after.isNull {
+            // `debug.hangs` reads its own `after` (a hang log cursor).
+            if request.method != "debug.hangs", let after = request.params["after"], !after.isNull {
                 snapshot = try await readBarrier(after, method: request.method, deadline: deadline)
             }
             let call = ControlCall(request: request, snapshot: snapshot, connection: connection,

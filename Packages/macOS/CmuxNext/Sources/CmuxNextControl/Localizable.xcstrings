@@ -21222,6 +21222,137 @@
           }
         }
       }
+    },
+    "control.error.syncBarrierUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "after: \"sync\" is not available yet; retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "after: \"sync\" はまだ使用できません。再試行してください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after: \"sync\" غير متاح بعد؛ أعد المحاولة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after: \"sync\" još nije dostupan; pokušajte ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after: \"sync\" er ikke tilgængelig endnu; prøv igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after: \"sync\" ist noch nicht verfügbar; erneut versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after: \"sync\" aún no está disponible; vuelve a intentarlo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after: \"sync\" n’est pas encore disponible ; réessayez"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after: \"sync\" non è ancora disponibile; riprova"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after: \"sync\" មិនទាន់អាចប្រើបានទេ សូមព្យាយាមម្តងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after: \"sync\"는 아직 사용할 수 없습니다. 다시 시도하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after: \"sync\" er ikke tilgjengelig ennå; prøv igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after: \"sync\" nie jest jeszcze dostępne; spróbuj ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after: \"sync\" ainda não está disponível; tente novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after: \"sync\" пока недоступен; повторите попытку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after: \"sync\" ยังไม่พร้อมใช้งาน ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after: \"sync\" henüz kullanılamıyor; yeniden deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after: \"sync\" ще недоступний; повторіть спробу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after: \"sync\" chưa khả dụng; hãy thử lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after: \"sync\" 暂不可用，请重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after: \"sync\" 暫時無法使用，請重試"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
