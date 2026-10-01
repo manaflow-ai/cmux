@@ -138,6 +138,15 @@ struct CloudMenuContentTests {
         #expect(plainIDs == ["machine.plain.openShell", "machine.plain.newWorkspace", "machine.plain.openFullClient",
                              "machine.plain.rename", "machine.plain.status", "machine.plain.delete"])
 
+        let lifecycleRecorder = Recorder()
+        let awakeEntries = lifecycleRecorder.actions.machine.submenuEntries(Self.machine("awake", state: .awake))
+        #expect(awakeEntries.contains { $0.id == "machine.awake.shutdown" })
+        try Self.perform("machine.awake.shutdown", in: awakeEntries)
+        let asleepEntries = lifecycleRecorder.actions.machine.submenuEntries(Self.machine("asleep", state: .asleep))
+        #expect(asleepEntries.contains { $0.id == "machine.asleep.restart" })
+        try Self.perform("machine.asleep.restart", in: asleepEntries)
+        #expect(lifecycleRecorder.log == ["shutdown:awake", "restart:asleep"])
+
         var desktop = Self.machine("desk", isDesktop: true)
         desktop.privateAddress = "100.64.0.9"
         let desktopEntries = recorder.actions.machine.submenuEntries(desktop)
@@ -291,8 +300,12 @@ struct CloudMenuContentTests {
         )
     }
 
-    static func machine(_ id: String, isDesktop: Bool = false) -> MachineSnapshot {
-        MachineSnapshot(id: id, provider: "freestyle", image: "cmux-devbox", isDesktop: isDesktop, activity: .ready)
+    static func machine(_ id: String, isDesktop: Bool = false, state: VMStats.State? = nil) -> MachineSnapshot {
+        var machine = MachineSnapshot(id: id, provider: "freestyle", image: "cmux-devbox", isDesktop: isDesktop, activity: .ready)
+        if let state {
+            machine.stats = VMStats(state: state, sampledAt: Date(), cpus: 2, memoryTotalMb: 4 * 1024, diskTotalMb: 16 * 1024)
+        }
+        return machine
     }
 
     static func actionID(_ entry: CloudMenuEntry) -> String? {
