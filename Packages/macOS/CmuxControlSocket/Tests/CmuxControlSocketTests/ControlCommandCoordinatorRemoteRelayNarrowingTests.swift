@@ -63,7 +63,8 @@ private final class RemoteRelayNarrowingContext: ControlCommandContext {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String?,
+        effects: ControlNotificationEffectsPatch?
     ) -> ControlNotificationTargetedDeliveryResolution {
         self.replyShapeWire = .some(replyShapeWire)
         return .delivered(workspaceID: workspaceID, surfaceID: surfaceID, windowID: nil, notificationID: UUID())
