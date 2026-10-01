@@ -45,6 +45,8 @@ enum TerminalHostActionRoute {
             return Route(id: "commandPalette")
         case .promptTitle:
             return Route(id: "renameTab")
+        case .find:
+            return Route(id: "find")
         case .closeAllWindows, .quit, .toggleMaximize, .toggleInspector, .checkForUpdates, .undo, .redo:
             return nil
         }

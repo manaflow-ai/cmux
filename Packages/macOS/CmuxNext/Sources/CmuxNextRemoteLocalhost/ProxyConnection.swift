@@ -163,7 +163,7 @@ final class ProxyConnection: Sendable {
         tcp.connectionTimeout = 15
         tcp.noDelay = true
         guard let port = NWEndpoint.Port(rawValue: head.port) else { return }
-        let upstream = NWConnection(host: NWEndpoint.Host(head.host), port: port, using: NWParameters(tls: nil, tcp: tcp))
+        let upstream = NWConnection(host: proxy.directHost(head.host), port: port, using: NWParameters(tls: nil, tcp: tcp))
         defer { upstream.cancel() }
         guard await upstream.ready(on: proxy.queue) else {
             proxy.count(\.failures)

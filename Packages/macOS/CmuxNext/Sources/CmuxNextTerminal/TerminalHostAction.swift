@@ -28,6 +28,8 @@ public nonisolated enum TerminalHostAction: Sendable, Equatable {
     case checkForUpdates
     case undo
     case redo
+    /// Open the host's find UI (copy mode's `/`).
+    case find
 }
 
 /// Find-in-terminal state (`START_SEARCH`, `SEARCH_TOTAL`, ...). The host

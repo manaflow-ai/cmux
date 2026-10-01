@@ -16,6 +16,9 @@ extension TerminalSurfaceView {
             interpretKeyEvents([event])
             return
         }
+        // Copy mode takes every key except Command chords before Ghostty or
+        // an input method sees it.
+        if handleCopyModeKeyDown(event) { return }
 
         // Ghostty decides which modifiers take part in text translation (for
         // example `macos-option-as-alt`). Rebuild the event only when that
@@ -77,6 +80,7 @@ extension TerminalSurfaceView {
     }
 
     public override func keyUp(with event: NSEvent) {
+        if handleCopyModeKeyUp(event) { return }
         sendKey(GHOSTTY_ACTION_RELEASE, event: event)
     }
 
