@@ -71,6 +71,9 @@ jobs:
       - name: String tables (21 languages)
         run: scripts/cmux-next/check-l10n.sh "$GITHUB_WORKSPACE"
 
+      - name: Module resource bundles
+        run: scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+
   swift-test:
     if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' }}
     name: cmux-next swift test
