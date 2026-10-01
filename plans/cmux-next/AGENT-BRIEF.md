@@ -21,7 +21,7 @@
 ## Landing work: push directly, no PRs (user decision 2026-09-29)
 
 - Work in your own worktree/branch as before (isolation is still required), but do NOT open a PR.
-- To land: `git fetch origin && git rebase origin/feat-cmux-next`, then run the merge gate locally: `swift build --build-tests` in Packages/macOS/CmuxNext, the test targets you touched (or the full package if you touched shared code), `scripts/cmux-next/check-no-godfiles.sh`, `scripts/cmux-next/check-concurrency.sh`, `scripts/cmux-next/check-l10n.sh`, `scripts/cmux-next/check-crash-safety.sh`, `scripts/cmux-next/check-theme-scope.sh`; cmux-tui changes still need the hosted verification green first.
+- To land: `git fetch origin && git rebase origin/feat-cmux-next`, then run the merge gate locally: `swift build --build-tests` in Packages/macOS/CmuxNext, the test targets you touched (or the full package if you touched shared code), `scripts/cmux-next/check-no-godfiles.sh`, `scripts/cmux-next/check-concurrency.sh`, `scripts/cmux-next/check-l10n.sh`, `scripts/cmux-next/check-crash-safety.sh`, `scripts/cmux-next/check-theme-scope.sh`, and for Swift changes under Packages/macOS/CmuxNext `scripts/cmux-next/check-release-compile.sh`; cmux-tui changes still need the hosted verification green first.
 - Then `git push origin HEAD:feat-cmux-next`. If rejected (someone pushed first), rebase again, re-run the gate, push again. Never force-push feat-cmux-next.
 - Keep commits self-describing (what/why, root cause for fixes, failing-test commit before the fix for regressions) since there is no PR body; end each with the Co-Authored-By trailer.
 - Report the landed commit SHAs in your final reply.
@@ -46,3 +46,11 @@ The user types in their own apps while agents test. Keys that reach the wrong ap
 ## Disk budget (added 2026-09-30, disk nearly full)
 
 Twenty agents share one disk that was down to about 20 GB free. Each agent may keep at most ONE tagged DerivedData folder (about 6 GB) and one SwiftPM `.build`. Delete a "before/baseline" comparison build as soon as you have its numbers. Reuse your tag instead of making new ones. Before a build, check `df -g /System/Volumes/Data`; below 40 GB free, do not start a new tagged build: finish with unit tests and report that the live check waits for disk.
+
+## Release compile on Xcode 26 (added 2026-09-30)
+
+The nightly builds the app in Release (-O, whole-module) with Xcode 26.6 (Swift 6.2). Debug `swift build` and the local Xcode 27 (Swift 6.3) accept code that it rejects, so such code passes the gate above and then fails the nightly with exit 65 about 20 minutes in. Three nightlies failed this way on 2026-09-30 (closure captured before declaration, generic inference, `isolated deinit`).
+- Before you push Swift changes under Packages/macOS/CmuxNext, run `scripts/cmux-next/check-release-compile.sh` (about 6 GB in `/tmp/cmux-next-release-compile`; delete it when you finish). It compiles CmuxNextApp for arm64 in Release with the oldest installed `/Applications/Xcode_26*.app` (or `CMUX_RELEASE_COMPILE_XCODE`). The CI job "cmux-next Release compile (Xcode 26)" in `.github/workflows/cmux-next.yml` runs the same script on every push and PR; it is the check of record when the local machine is too loaded.
+- A class with `isolated deinit` must write `@MainActor` itself (or subclass an AppKit view, window or controller). `.defaultIsolation(MainActor.self)` alone is lost across modules in a Swift 6.2 Release build. `check-concurrency.sh` enforces this.
+- Swift 6.0 (skills/cmux-architecture/references/swift-6-0-compatibility.md) does not apply to this package: Package.swift needs tools 6.2, so Xcode 26.0 is the oldest toolchain that can build cmux-next.
+- A failed xcodebuild in CI now repeats each `error:` line as an annotation and at the end of the log (`scripts/ci/run-xcodebuild-with-diagnostics.sh`). `gh run view --log-failed` cuts long logs; read the run's annotations or `gh api repos/manaflow-ai/cmux/actions/jobs/<job-id>/logs`.
