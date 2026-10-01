@@ -185,9 +185,12 @@ final class NotificationsPanelController {
             ? ["notificationOpen", "notificationCopy", "notificationToggleRead", "notificationDismiss"]
             : ["notificationOpen", "notificationCopy", "notificationDismiss"]
         for id in ids {
-            let item = ActionMenuItem(title: context.registry.descriptor(for: id)?.title ?? id.rawValue) { [weak self] in
-                self?.perform(id, row)
-            }
+            let handler = MenuHandler { [weak self] in self?.perform(id, row) }
+            let item = NSMenuItem(title: context.registry.descriptor(for: id)?.title ?? id.rawValue,
+                                  action: #selector(MenuHandler.fire), keyEquivalent: "")
+            // The item's target is weak; its represented object keeps the handler.
+            item.target = handler
+            item.representedObject = handler
             menu.addItem(item)
         }
         return menu
@@ -218,18 +221,14 @@ final class NotificationsPanelController {
     }
 }
 
-/// A menu item that runs a closure.
-private final class ActionMenuItem: NSMenuItem {
+/// Runs a closure when its menu item is chosen.
+private final class MenuHandler: NSObject {
     private let run: () -> Void
 
-    init(title: String, run: @escaping () -> Void) {
+    init(_ run: @escaping () -> Void) {
         self.run = run
-        super.init(title: title, action: #selector(fire), keyEquivalent: "")
-        target = self
+        super.init()
     }
 
-    @available(*, unavailable)
-    required init(coder: NSCoder) { fatalError() }
-
-    @objc private func fire() { run() }
+    @objc func fire() { run() }
 }
