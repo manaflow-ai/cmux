@@ -10,6 +10,12 @@ import CmuxNextDesign
 /// has the keyboard, with its close button, and when its opener's window
 /// closes; closing it closes the page.
 final class BrowserPopupPanels {
+    private let contextMenus: BrowserContextMenuBuilder
+
+    init(contextMenus: BrowserContextMenuBuilder = .shared) {
+        self.contextMenus = contextMenus
+    }
+
     private struct Entry {
         let panel: BrowserPopupPanel
         weak var parent: NSWindow?
@@ -117,7 +123,7 @@ final class BrowserPopupPanels {
             }
             open(child, request: request, over: parent, openerKey: entry.openerKey)
         case .contextMenu(let request):
-            BrowserContextMenuBuilder.present(request, in: page.contentView)
+            contextMenus.present(request, in: page.contentView)
         case .resizePopup(let request):
             resize(entry, to: request)
         case .activate, .download, .notice, .rerouteStore, .takeFocus:

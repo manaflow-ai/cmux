@@ -168,7 +168,7 @@ final class ExtensionActionToolbar {
     func showMenu() {
         guard let host, let handler, presentedMenu == nil else { return }
         host.extensionStore.refresh()
-        let menu = ExtensionsMenu.make(
+        let menu = ExtensionsMenu().make(
             for: host, handler: handler,
             afterClose: { [weak self] work in self?.afterMenu.append(work) },
             presentItemMenu: { [weak self] menu in self?.popUp(menu) }
@@ -183,8 +183,8 @@ final class ExtensionActionToolbar {
     /// Extensions button.
     func showItemMenu(_ id: String) {
         guard let host, let handler,
-              let info = ExtensionsMenu.extensions(of: host).first(where: { $0.id == id }) else { return }
-        let menu = ExtensionsMenu.itemMenu(for: info, supportsManagement: host.extensionStore.supportsManagement,
+              let info = ExtensionsMenu().extensions(of: host).first(where: { $0.id == id }) else { return }
+        let menu = ExtensionsMenu().itemMenu(for: info, supportsManagement: host.extensionStore.supportsManagement,
                                            handler: handler)
         popUp(menu, at: buttons[id])
     }

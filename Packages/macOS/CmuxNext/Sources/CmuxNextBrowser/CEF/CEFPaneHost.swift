@@ -38,9 +38,15 @@ final class CEFPaneHost {
     /// view when the panel first shows it (`CEFPaneHost+PopupWindows`).
     var popupWindow: Int32?
 
-    init(key: CEFPaneKey, runtime: CEFRuntime) {
+    let lifecycleTrace: BrowserLifecycleTrace
+    let contextMenus: BrowserContextMenuBuilder
+
+    init(key: CEFPaneKey, runtime: CEFRuntime, lifecycleTrace: BrowserLifecycleTrace = .shared,
+         contextMenus: BrowserContextMenuBuilder = .shared) {
         self.key = key
         self.runtime = runtime
+        self.lifecycleTrace = lifecycleTrace
+        self.contextMenus = contextMenus
     }
 
     func add(_ tab: CEFTab) {
@@ -75,7 +81,7 @@ final class CEFPaneHost {
 
     /// Called when a tab's content view enters a window: show that tab.
     func present(_ tab: CEFTab, in container: NSView) {
-        BrowserLifecycleTrace.record(tab.id, "host-present hidden=\(hostView.isHidden) created=\(tab.browserID != nil)")
+        lifecycleTrace.record(tab.id, "host-present hidden=\(hostView.isHidden) created=\(tab.browserID != nil)")
         if hostView.superview !== container {
             hostView.removeFromSuperview()
             hostView.frame = container.bounds
@@ -115,7 +121,7 @@ final class CEFPaneHost {
 
     /// Called when a tab's content view leaves its window.
     func conceal(_ tab: CEFTab) {
-        BrowserLifecycleTrace.record(tab.id, "host-conceal wasShown=\(visibleTab === tab)")
+        lifecycleTrace.record(tab.id, "host-conceal wasShown=\(visibleTab === tab)")
         guard visibleTab === tab else { return }
         visibleTab = nil
     }

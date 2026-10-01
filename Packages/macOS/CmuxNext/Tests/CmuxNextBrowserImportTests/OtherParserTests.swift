@@ -24,12 +24,12 @@ import Testing
             "INSERT INTO moz_bookmarks VALUES(9, 2, NULL, 1, 2, 'menu', 0, 'menu________')",
             "INSERT INTO moz_bookmarks VALUES(10, 1, 2, 9, 0, 'Mozilla', 0, 'b4__________')",
         ])
-        let bookmarks = try FirefoxPlacesReader.readBookmarks(file)
+        let bookmarks = try FirefoxPlacesReader().readBookmarks(file)
         #expect(bookmarks.map(\.title).sorted() == ["Mozilla", "cmux home"])
         #expect(bookmarks.first { $0.title == "cmux home" }?.folderPath == ["Bookmarks Toolbar", "Dev"])
         #expect(bookmarks.first { $0.title == "Mozilla" }?.folderPath == ["Bookmarks Menu"])
 
-        let history = try FirefoxPlacesReader.readHistory(file, limit: 10)
+        let history = try FirefoxPlacesReader().readHistory(file, limit: 10)
         #expect(history.map(\.url.host) == ["cmux.com", "mozilla.org"])
         #expect(abs(history[0].lastVisit.timeIntervalSince1970 - 1_700_000_000) < 1)
     }
@@ -45,11 +45,11 @@ import Testing
               {"tabs": [{"index": 1, "entries": [{"url": "https://c.example.com/", "title": "C"}]}]}
             ], "_closedWindows": [{"tabs": [{"index": 1, "entries": [{"url": "https://closed.example.com/"}]}]}]}
             """
-        let tabs = FirefoxSessionReader.parse(FixtureHome.mozLz4(json))
+        let tabs = FirefoxSessionReader().parse(FixtureHome.mozLz4(json))
         #expect(tabs.map(\.url.host) == ["b.example.com", "mail.example.com", "c.example.com"])
         #expect(tabs.map(\.window) == [0, 0, 1])
         #expect(tabs[1].pinned && tabs[1].title == nil)
-        #expect(FirefoxSessionReader.parse(Data("mozLz40\0junkjunk".utf8)).isEmpty)
+        #expect(FirefoxSessionReader().parse(Data("mozLz40\0junkjunk".utf8)).isEmpty)
     }
 
     @Test func safariBookmarksPlist() throws {
@@ -69,7 +69,7 @@ import Testing
             ],
         ]
         let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .binary, options: 0)
-        let bookmarks = try SafariBookmarksParser.parse(data)
+        let bookmarks = try SafariBookmarksParser().parse(data)
         #expect(bookmarks.map(\.title) == ["Apple", "https://news.example.com/", "Later"])
         #expect(bookmarks.map(\.folderPath) == [["Favorites"], ["Favorites", "News"], ["Reading List"]])
     }
@@ -86,7 +86,7 @@ import Testing
             "INSERT INTO history_visits VALUES(2, 1, 800000000, 'Apple')",
             "INSERT INTO history_visits VALUES(3, 2, 750000000, 'WebKit')",
         ])
-        let history = try SafariHistoryReader.read(file, limit: 10)
+        let history = try SafariHistoryReader().read(file, limit: 10)
         #expect(history.map(\.title) == ["Apple", "WebKit"])
         #expect(abs(history[0].lastVisit.timeIntervalSinceReferenceDate - 800_000_000) < 1)
     }

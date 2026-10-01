@@ -24,10 +24,10 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         view?.replayCustomization()
     }
 
-    /// A crashed web content process leaves a blank pane; reload the page,
-    /// which asks for a fresh handshake and reattaches the session.
+    /// A crashed web content process leaves a blank pane; the view reloads
+    /// the page, which asks for a fresh handshake and reattaches the session.
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        view?.source.load(into: webView)
+        view?.webContentProcessDidTerminate()
     }
 
     enum Decision: Equatable {

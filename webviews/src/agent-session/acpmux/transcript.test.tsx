@@ -205,3 +205,54 @@ describe("acpmux renderer registry", () => {
     }
   });
 });
+
+describe("acpmux host handshake", () => {
+  /// A loopback acpmux that answers the open handshake and can drop the socket.
+  class FakeSocket {
+    static OPEN = 1;
+    static made: FakeSocket[] = [];
+    readyState = 0;
+    onopen?: () => void;
+    onerror?: () => void;
+    onclose?: () => void;
+    onmessage?: (message: { data: string }) => void;
+    constructor(readonly url: URL) {
+      FakeSocket.made.push(this);
+      queueMicrotask(() => { this.readyState = 1; this.onopen?.(); });
+    }
+    send(raw: string) {
+      const { id, method } = JSON.parse(raw) as { id: number; method: string };
+      const result = method === "_acpmux/watch" ? { sessions: [] } : {};
+      queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id, result }) }));
+    }
+    close() { this.readyState = 3; }
+    drop() { this.readyState = 3; this.onclose?.(); }
+  }
+
+  /// After losing the daemon the page asks Swift again; that retry restarted a daemon the user had stopped.
+  test("a page that lost its daemon asks for a handshake that does not start one", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Record<string, unknown>;
+    const realSocket = globals.WebSocket;
+    const asked: Record<string, unknown>[] = [];
+    globals.WebSocket = FakeSocket;
+    host.webkit = { messageHandlers: { agentSession: { postMessage(message: { method: string; params: Record<string, unknown> }) {
+      if (message.method !== "ready") return Promise.resolve({ ok: true, value: null });
+      asked.push(message.params);
+      return Promise.resolve({ ok: true, value: { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:4100/acp", token: "t" } });
+    } } } };
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      for (let tries = 0; tries < 100 && FakeSocket.made.length === 0; tries += 1) await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      expect(asked).toEqual([{}]);
+      await act(async () => FakeSocket.made[0]!.drop());
+      for (let tries = 0; tries < 100 && asked.length < 2; tries += 1) await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+      expect(asked[1]).toEqual({ reconnect: true });
+    } finally {
+      await act(async () => root.unmount());
+      globals.WebSocket = realSocket;
+      delete host.webkit;
+      delete host.cmuxAcpmuxRegistry;
+    }
+  });
+});

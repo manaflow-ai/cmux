@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTabs
 
@@ -21,6 +22,9 @@ final class AgentTabStore {
     /// the dev server `CMUX_NEXT_AGENT_PANE_DEV_URL` names (nil only when the
     /// bundled page is missing).
     private let source: AgentPaneSource?
+    /// `CMUX_NEXT_AGENT_PANE_FULL_RATE=1` (Debug builds): panes render at the
+    /// display's full rate, for measuring it (`AgentPaneView.init`).
+    private let rendersAtFullRate: Bool
     /// `~/.config/cmux/agent-pane/` hot reload, watched while any agent tab
     /// has a view.
     private let customization: AgentPaneCustomizationWatcher
@@ -29,6 +33,11 @@ final class AgentTabStore {
     /// Session each tab last showed, kept across a web content crash or a
     /// view rebuilt after the tab was released.
     private var sessions: [String: String] = [:]
+    /// The daemon tree each pane with agent tabs belongs to. It is watched,
+    /// so the tabs of a pane closed out of sight (its window showing another
+    /// workspace, its daemon away) close once the live tree drops the pane.
+    private var paneStores: [String: DaemonStore] = [:]
+    private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
 
     init(tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment) {
         if environment["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" {
@@ -44,6 +53,11 @@ final class AgentTabStore {
         #else
         let allowsDevServer = false
         #endif
+        #if DEBUG
+        rendersAtFullRate = environment["CMUX_NEXT_AGENT_PANE_FULL_RATE"] == "1"
+        #else
+        rendersAtFullRate = false
+        #endif
         source = AgentPaneSource.resolve(
             environment: environment, bundledPage: AgentPaneView.bundledPage, allowsDevServer: allowsDevServer
         )
@@ -57,10 +71,30 @@ final class AgentTabStore {
     }
 
     /// Adds a new chat tab to `paneKey`'s strip and returns its id.
-    func open(in paneKey: String) -> String {
+    ///
+    /// - Parameters:
+    ///   - paneKey: The pane's id (`PaneModel.id`).
+    ///   - store: The tree of the daemon that owns the pane.
+    ///   - after: The tab to place it after; nil appends it.
+    ///   - session: The acpmux session it shows; nil starts a new chat.
+    func open(in paneKey: String, of store: DaemonStore, after: String? = nil, session: String? = nil) -> String {
         let key = LocalAgentTab.prefix + UUID().uuidString.lowercased()
-        tabsByPane[paneKey, default: []].append(key)
+        var tabs = tabsByPane[paneKey] ?? []
+        if let after, let index = tabs.firstIndex(of: after) {
+            tabs.insert(key, at: index + 1)
+        } else {
+            tabs.append(key)
+        }
+        tabsByPane[paneKey] = tabs
+        sessions[key] = session
+        paneStores[paneKey] = store
+        watch(store)
         return key
+    }
+
+    /// Duplicate Tab: a new tab in `paneKey` after `key`, showing its session.
+    func duplicate(_ key: String, in paneKey: String, of store: DaemonStore) -> String {
+        open(in: paneKey, of: store, after: key, session: sessions[key])
     }
 
     func tabIDs(in paneKey: String) -> [String] { tabsByPane[paneKey] ?? [] }
@@ -76,7 +110,7 @@ final class AgentTabStore {
         guard tabsByPane.values.contains(where: { $0.contains(key) }) else { return nil }
         let model = AgentPaneModel(host: host, sessionId: sessions[key])
         model.onSessionChange = { [weak self] session in self?.sessions[key] = session }
-        guard let source, let view = AgentPaneView(model: model, source: source) else { return nil }
+        guard let source, let view = AgentPaneView(model: model, source: source, rendersAtFullRate: rendersAtFullRate) else { return nil }
         view.customization = customization.current
         views[key] = view
         customization.start()
@@ -91,6 +125,7 @@ final class AgentTabStore {
         tabsByPane = tabsByPane.filter { !$0.value.isEmpty }
         views.removeValue(forKey: key)?.close()
         sessions[key] = nil
+        forgetUnusedStores()
         stopCustomizationWhenUnused()
     }
 
@@ -100,7 +135,43 @@ final class AgentTabStore {
             views.removeValue(forKey: key)?.close()
             sessions[key] = nil
         }
+        forgetUnusedStores()
         stopCustomizationWhenUnused()
+    }
+
+    /// Closes the agent tabs of every pane `store` no longer lists, once it
+    /// is connected with a live tree. While the daemon is away its panes
+    /// keep their tabs.
+    func closeGonePanes(in store: DaemonStore) {
+        guard let live = Self.livePanes(store) else { return }
+        for (paneKey, owner) in paneStores where owner === store && !live.contains(paneKey) {
+            closePane(paneKey)
+        }
+    }
+
+    private static func livePanes(_ store: DaemonStore) -> Set<String>? {
+        guard case .connected = store.connectionState, store.isLoaded else { return nil }
+        return Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).map(\.id))
+    }
+
+    private func watch(_ store: DaemonStore) {
+        let id = ObjectIdentifier(store)
+        guard watches[id] == nil else { return }
+        // task-owner: stored in watches; cancelled once no pane of the store has agent tabs
+        watches[id] = Task { [weak self] in
+            for await live in Observations({ Self.livePanes(store) }) where live != nil {
+                guard let self else { return }
+                self.closeGonePanes(in: store)
+            }
+        }
+    }
+
+    private func forgetUnusedStores() {
+        paneStores = paneStores.filter { tabsByPane[$0.key] != nil }
+        let used = Set(paneStores.values.map { ObjectIdentifier($0) })
+        for id in watches.keys where !used.contains(id) {
+            watches.removeValue(forKey: id)?.cancel()
+        }
     }
 
     private func stopCustomizationWhenUnused() {
@@ -111,7 +182,15 @@ final class AgentTabStore {
 extension PaneController {
     /// New Agent Chat: a new agent tab in this pane, selected.
     func newAgentTab() {
-        let key = services.agentTabs.open(in: paneKey)
+        showAgentTab(services.agentTabs.open(in: paneKey, of: daemon.store))
+    }
+
+    /// Duplicate Tab on an agent tab: the same session, right after it.
+    func duplicateAgentTab(_ key: String) {
+        showAgentTab(services.agentTabs.duplicate(key, in: paneKey, of: daemon.store))
+    }
+
+    private func showAgentTab(_ key: String) {
         apply(snapshot())
         select(StripTabID(key))
     }
