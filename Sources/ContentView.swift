@@ -5,6 +5,7 @@ import CmuxCommandPalette
 import CmuxCore
 import CmuxFeedback
 import CmuxFoundation
+import CmuxAgentJournal
 import CmuxNotifications
 import CmuxPanes
 import CmuxSettings
@@ -956,7 +957,11 @@ struct ContentView: View {
     @State private var isResizerBandActive = false
     @State private var isSidebarResizerCursorActive = false
     @State private var sidebarResizerCursorStabilizer = MainActorRepeatingActionScheduler()
-    @State private var isCommandPalettePresented = false
+    @State private var commandPaletteOverlayState: CommandPaletteOverlayState = .closed
+    @State private var agentInboxItems: [AgentInboxItem] = []
+    @State private var agentInboxMoveRequest = 0
+    @State private var agentInboxSubmitRequest = 0
+    @State private var agentInboxOpenGeneration = 0
     @State private var commandPaletteQuery: String = ""
     @State private var commandPaletteCurrentWorkSnapshot: CurrentWorkSnapshot?
     @State private var commandPaletteCurrentWorkRevision = 0
@@ -973,6 +978,14 @@ struct ContentView: View {
     @State private var commandPaletteSearchCorpus: [CommandPaletteSearchCorpusEntry<String>] = []
     @State private var commandPaletteSearchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>] = [:]
     @State private var commandPaletteSearchCommandsByID: [String: CommandPaletteCommand] = [:]
+
+    private var isCommandPalettePresented: Bool {
+        commandPaletteOverlayState.isCommandPalettePresented
+    }
+
+    private var isAgentInboxPresented: Bool {
+        commandPaletteOverlayState.isAgentInboxPresented
+    }
     @State private var commandPaletteNucleoSearchIndex: CommandPaletteNucleoSearchIndex<String>?
     @State private var commandPaletteTaskStore = MainActorTaskStore<CommandPaletteTaskKey>()
     @State private var commandPaletteSearchIndexBuildGeneration: UInt64 = 0
@@ -3220,6 +3233,18 @@ struct ContentView: View {
             openCommandPaletteCommands()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .agentInboxRequested)) { notification in
+            guard CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled else { return }
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            openAgentInbox()
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .savedLayoutSaveRequested)) { notification in
             if Self.shouldHandleSavedLayoutSaveRequest(observedWindow: observedWindow, requestedWindow: notification.object as? NSWindow, keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow) {
                 presentSavedLayoutSavePrompt()
@@ -3250,7 +3275,11 @@ struct ContentView: View {
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
             ) else { return }
-            handleCommandPaletteSubmitRequest()
+            if isAgentInboxPresented {
+                agentInboxSubmitRequest &+= 1
+            } else {
+                handleCommandPaletteSubmitRequest()
+            }
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteDismissRequested)) { notification in
@@ -3262,7 +3291,11 @@ struct ContentView: View {
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
             ) else { return }
-            dismissCommandPalette()
+            if isAgentInboxPresented {
+                dismissAgentInbox()
+            } else {
+                dismissCommandPalette()
+            }
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameTabRequested)) { notification in
@@ -3320,7 +3353,6 @@ struct ContentView: View {
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteMoveSelection)) { notification in
             guard isCommandPalettePresented else { return }
-            guard case .commands = commandPaletteMode else { return }
             let requestedWindow = notification.object as? NSWindow
             guard Self.shouldHandleCommandPaletteRequest(
                 observedWindow: observedWindow,
@@ -3329,7 +3361,12 @@ struct ContentView: View {
                 mainWindow: NSApp.mainWindow
             ) else { return }
             guard let delta = notification.userInfo?["delta"] as? Int, delta != 0 else { return }
-            moveCommandPaletteSelection(by: delta)
+            if isAgentInboxPresented {
+                agentInboxMoveRequest &+= delta
+            } else {
+                guard case .commands = commandPaletteMode else { return }
+                moveCommandPaletteSelection(by: delta)
+            }
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameInputInteractionRequested)) { notification in
@@ -3375,7 +3412,11 @@ struct ContentView: View {
             overlayController.update(
                 isVisible: isCommandPalettePresented,
                 onDismiss: { dismissal in
-                    dismissCommandPalette(for: dismissal, in: window)
+                    if isAgentInboxPresented {
+                        dismissAgentInbox()
+                    } else {
+                        dismissCommandPalette(for: dismissal, in: window)
+                    }
                 }
             ) { AnyView(commandPaletteOverlay) }
         }))
@@ -3640,7 +3681,11 @@ struct ContentView: View {
                 .update(
                     isVisible: isCommandPalettePresented,
                     onDismiss: { dismissal in
-                        dismissCommandPalette(for: dismissal, in: window)
+                        if isAgentInboxPresented {
+                            dismissAgentInbox()
+                        } else {
+                            dismissCommandPalette(for: dismissal, in: window)
+                        }
                     }
                 ) { commandPaletteOverlayView }
             TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
@@ -4005,7 +4050,9 @@ struct ContentView: View {
     private var commandPaletteOverlay: some View {
         GeometryReader { proxy in
             let maxAllowedWidth = max(340, proxy.size.width - 260)
-            let targetWidth = min(560, maxAllowedWidth)
+            let targetWidth = isAgentInboxPresented
+                ? min(920, maxAllowedWidth)
+                : min(560, maxAllowedWidth)
             let workspaceDescriptionMaxEditorHeight = max(
                 CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight,
                 proxy.size.height - 120
@@ -4022,18 +4069,27 @@ struct ContentView: View {
                     .accessibilityIdentifier("CommandPaletteBackdrop")
 
                 VStack(spacing: 0) {
-                    switch commandPaletteMode {
-                    case .commands:
-                        commandPaletteCommandListView
-                    case .renameInput(let target):
-                        commandPaletteRenameInputView(target: target)
-                    case let .renameConfirm(target, proposedName):
-                        commandPaletteRenameConfirmView(target: target, proposedName: proposedName)
-                    case .workspaceDescriptionInput(let target):
-                        commandPaletteWorkspaceDescriptionInputView(
-                            target: target,
-                            maxEditorHeight: workspaceDescriptionMaxEditorHeight
+                    if isAgentInboxPresented {
+                        AgentInboxView(
+                            items: agentInboxItems,
+                            onDismiss: dismissAgentInbox,
+                            moveRequest: agentInboxMoveRequest,
+                            submitRequest: agentInboxSubmitRequest
                         )
+                    } else {
+                        switch commandPaletteMode {
+                        case .commands:
+                            commandPaletteCommandListView
+                        case .renameInput(let target):
+                            commandPaletteRenameInputView(target: target)
+                        case let .renameConfirm(target, proposedName):
+                            commandPaletteRenameConfirmView(target: target, proposedName: proposedName)
+                        case .workspaceDescriptionInput(let target):
+                            commandPaletteWorkspaceDescriptionInputView(
+                                target: target,
+                                maxEditorHeight: workspaceDescriptionMaxEditorHeight
+                            )
+                        }
                     }
                 }
                 .frame(width: targetWidth)
@@ -4045,7 +4101,11 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onExitCommand {
-            dismissCommandPalette()
+            if isAgentInboxPresented {
+                dismissAgentInbox()
+            } else {
+                dismissCommandPalette()
+            }
         }
         .zIndex(2000)
     }
@@ -10070,6 +10130,48 @@ struct ContentView: View {
         handleCommandPaletteListRequest(scope: .commands)
     }
 
+    private func openAgentInbox() {
+        guard CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled else { return }
+        agentInboxOpenGeneration &+= 1
+        let request = AgentInboxOpenRequest(generation: agentInboxOpenGeneration)
+        let workspaces = (AppDelegate.shared?.mainWindowContexts.values.flatMap { $0.tabManager.tabs } ?? tabManager.tabs)
+        let workspaceTitles = Dictionary(
+            workspaces.map { ($0.id.uuidString, $0.title) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let feedItems = FeedCoordinator.shared.snapshot(pendingOnly: false)
+        let workstreamIDs = AgentInboxProjection.uniqueWorkstreamIDs(from: feedItems)
+        let messages = AgentMessageCenter.store.messages(limit: AgentMessageStore.retainedMessageCount)
+
+        agentInboxItems = AgentInboxProjection.project(
+            messages: messages,
+            workstreamItems: feedItems,
+            workspaceTitles: workspaceTitles
+        )
+        commandPaletteOverlayState = .agentInbox
+
+        Task { @MainActor in
+            let targets = await FeedCoordinator.shared.resolveTargets(for: workstreamIDs)
+            guard !Task.isCancelled,
+                  CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled,
+                  request.isCurrent(generation: agentInboxOpenGeneration, isPresented: isAgentInboxPresented) else { return }
+            agentInboxItems = AgentInboxProjection.project(
+                messages: messages,
+                workstreamItems: feedItems,
+                workspaceTitles: workspaceTitles,
+                workstreamWorkspaceIds: targets.reduce(into: [:]) { result, entry in
+                    result[entry.key] = entry.value.workspaceId
+                }
+            )
+        }
+    }
+
+    private func dismissAgentInbox() {
+        agentInboxOpenGeneration &+= 1
+        commandPaletteOverlayState = .closed
+        agentInboxItems = []
+    }
+
     private func openCommandPaletteSwitcher() {
         handleCommandPaletteListRequest(scope: .switcher)
     }
@@ -10249,7 +10351,7 @@ struct ContentView: View {
         } else {
             commandPaletteRestoreFocusTarget = nil
         }
-        isCommandPalettePresented = true
+        commandPaletteOverlayState = .palette
         commandPaletteAgentLauncherAvailabilityGeneration &+= 1
         commandPaletteAgentLauncherAvailability = nil
         commandPaletteForkableAgentActivePanelKey = nil
@@ -10384,7 +10486,7 @@ struct ContentView: View {
         commandPaletteForkableAgentActivePanelKey = nil
         pruneCommandPaletteForkableAgentProbeResults()
         commandPaletteSearchRequestID &+= 1
-        isCommandPalettePresented = false
+        commandPaletteOverlayState = .closed
         commandPaletteCurrentWorkSnapshot = nil
         commandPaletteMode = .commands
         commandPaletteQuery = ""
