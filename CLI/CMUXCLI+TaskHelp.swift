@@ -302,7 +302,7 @@ extension CMUXCLI {
         import [<terminal>] [--dry-run] [--yes] [--path <file>] [--json]
         reload-config
         right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud|devices> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
-        sidebar <validate|reload|select|open> [name]
+        sidebar <templates|try|new|validate|reload|select|open> [name] [options]
         help
         """
     }
@@ -372,7 +372,7 @@ extension CMUXCLI {
         browser find <role|text|label|placeholder|alt|title|testid|first|last|nth> ...
         browser frame <selector|main>
         browser dialog <accept|dismiss> [text]
-        browser download list [--limit <1...25>] | download [wait] [--path <path>] [--timeout-ms <ms>]
+        browser download list [--limit <1...25>] [--json] | download [wait] [--path <path>] [--timeout-ms <ms>]
         browser profiles <list|add|rename|clear|delete> [...]
         browser profiles clear <profile|--all> [--force]
         browser import [...]

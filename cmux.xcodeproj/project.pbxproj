@@ -639,6 +639,8 @@
 		C0D3F1F20000000000000103 /* CLICodexYoloResumePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3F1F20000000000000104 /* CLICodexYoloResumePersistenceTests.swift */; };
 		C11218000000000000000052 /* CLIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000051 /* CLIError.swift */; };
 		C11218000000000000000053 /* CLIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000051 /* CLIError.swift */; };
+		C11218000000000000000054 /* CLIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000051 /* CLIError.swift */; };
+		C11218000000000000000055 /* CLIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000051 /* CLIError.swift */; };
 		12756C0112756C0112756C01 /* CLIEventsStreamPeerCloseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12756C0212756C0212756C02 /* CLIEventsStreamPeerCloseTests.swift */; };
 		C51600000000000000000001 /* CLIExecInheritedSignalStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51600000000000000000002 /* CLIExecInheritedSignalStateTests.swift */; };
 		C1175700000000000000002E /* CLIExplicitSurfaceRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000015 /* CLIExplicitSurfaceRoutingTests.swift */; };
@@ -13836,6 +13838,7 @@
 				C11757000000000000000043 /* CLICodexHookTimeoutRegressionTestSupport.swift in Sources */,
 				C1175700000000000000002C /* CLICodexQueuedHookContractTests.swift in Sources */,
 				C1175700000000000000002D /* CLICodexResumeNotificationTests.swift in Sources */,
+				C11218000000000000000055 /* CLIError.swift in Sources */,
 				C1175700000000000000002E /* CLIExplicitSurfaceRoutingTests.swift in Sources */,
 				C1175700000000000000002F /* CLIHookNoResponseTests.swift in Sources */,
 				C11757000000000000000044 /* CLIHookProcessRunner.swift in Sources */,
@@ -16476,6 +16479,7 @@
 				89930005AABBCCDDEEFF0001 /* ClaudeHookSessionStore+SupersededCleanup.swift in Sources */,
 				89930004AABBCCDDEEFF0001 /* ClaudeHookSessionStoreFile.swift in Sources */,
 				C11218000000000000000052 /* CLIError.swift in Sources */,
+				C11218000000000000000054 /* CLIError.swift in Sources */,
 				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
 				C12985000000000000000002 /* CLISocketSentryTelemetry.swift in Sources */,
 					575000010000000000000001 /* CLIWriteDescriptor.swift in Sources */,

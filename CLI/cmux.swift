@@ -5393,6 +5393,12 @@ struct CMUXCLI {
             return
         }
 
+        if command == "sidebar",
+           ["templates", "try", "new"].contains(commandArgs.first?.lowercased() ?? "") {
+            try runSidebarTemplateCommand(commandArgs: commandArgs, inheritedJSONOutput: jsonOutput)
+            return
+        }
+
         try validateSurfaceResumeCommandValueOptionsBeforeSocket(
             command: command,
             commandArgs: commandArgs
@@ -20964,9 +20970,13 @@ struct CMUXCLI {
             """)
         case "sidebar":
             return String(localized: "cli.sidebar.usage", defaultValue: """
-            Usage: cmux sidebar <validate|reload|select|open> [name|--all] [--json]
+            Usage: cmux sidebar <templates|try|new|validate|reload|select|open> [name|--all] [--json]
             Validate, reload, select, or open custom sidebars from ~/.config/cmux/sidebars.
             Commands:
+              templates [--json] List the curated built-in templates
+              try <template>    Create a temporary preview file and show open/remove commands
+              new <name> --from <template> [--force]
+                                 Install an editable sidebar from a template
               validate [name]   Validate all custom sidebars, or one named sidebar
               reload [name]     Validate all sidebars, then reload every valid one
               select <name>     Activate one custom sidebar
@@ -21047,7 +21057,7 @@ struct CMUXCLI {
               press|key|keydown|keyup [--key <key> | <key>] [--snapshot-after]  \(String(localized: "cli.browser.help.keyboardNaming", defaultValue: "Named keys follow Playwright/W3C names. Space, Spacebar, and space emit DOM key \" \" with code \"Space\"; --key ' ' passes the raw DOM key."))
               select [--selector <css> | <css>] [--value <value> | <value>] [--snapshot-after]
               scroll [--selector <css>] [--dx <n>] [--dy <n>] [--snapshot-after]
-              screenshot [--out <path>]
+              screenshot [--out <path>] [--json]
               get <url|title|text|html|value|attr|count|box|styles> [...]
                 text|html|value|count|box|styles|attr: [--selector <css> | <css>]
                 attr: [--attr <name> | <name>]
@@ -21060,7 +21070,7 @@ struct CMUXCLI {
                 nth: [--index <n> | <n>] [--selector <css> | <css>]
               frame <main|selector> [--selector <css>]
               dialog <accept|dismiss> [text]
-              download list [--limit <1...25>] | download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
+              download list [--limit <1...25>] [--json] | download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
               profiles <list|add|rename|clear|delete> [...]
               import [--interactive|--non-interactive|-y|--yes] [--from <browser>] [--profile <name>] [--all-profiles] [--to-profile <name|uuid>] [--create-profile] [--domain <domain>]
               \(String(localized: "cli.browser.cookies.help", defaultValue: "cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--http-only] [--all]"))
@@ -21491,6 +21501,126 @@ struct CMUXCLI {
         }
     }
 
+    private func runSidebarTemplateCommand(
+        commandArgs: [String],
+        inheritedJSONOutput: Bool
+    ) throws {
+        var args = commandArgs
+        var jsonOutput = inheritedJSONOutput
+        args.removeAll { arg in
+            guard arg == "--json" else { return false }
+            jsonOutput = true
+            return true
+        }
+        guard let action = args.first?.lowercased() else {
+            throw CLIError(message: String(localized: "cli.sidebar.templates.missingCommand", defaultValue: "sidebar requires a subcommand: templates, try, new, validate, reload, select, or open"))
+        }
+        let remaining = Array(args.dropFirst())
+        switch action {
+        case "templates":
+            guard remaining.isEmpty else {
+                throw CLIError(message: String(localized: "cli.sidebar.templates.unexpectedArguments", defaultValue: "sidebar templates does not accept positional arguments"))
+            }
+            let catalog = CustomSidebarTemplateCatalog()
+            if jsonOutput {
+                let values = catalog.templates.map { descriptor in
+                    [
+                        "id": descriptor.id,
+                        "name": Bundle.main.localizedString(forKey: descriptor.displayNameKey, value: descriptor.displayName, table: nil),
+                        "description": Bundle.main.localizedString(forKey: descriptor.descriptionKey, value: descriptor.description, table: nil),
+                        "kind": descriptor.kind.rawValue,
+                        "file": descriptor.file,
+                    ] as [String: Any]
+                }
+                print(jsonString(["templates": values]))
+            } else {
+                for descriptor in catalog.templates {
+                    let name = Bundle.main.localizedString(forKey: descriptor.displayNameKey, value: descriptor.displayName, table: nil)
+                    let description = Bundle.main.localizedString(forKey: descriptor.descriptionKey, value: descriptor.description, table: nil)
+                    print("\(descriptor.id) - \(name) [\(descriptor.kind.rawValue)]")
+                    print("  \(description)")
+                }
+            }
+        case "try":
+            guard let templateID = remaining.first, remaining.count == 1 else {
+                throw CLIError(message: String(localized: "cli.sidebar.try.usage", defaultValue: "Usage: cmux sidebar try <template>"))
+            }
+            let previewName = "sidebar-preview-\(UUID().uuidString.prefix(8).lowercased())"
+            let directory = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".config/cmux/sidebars", isDirectory: true)
+            do {
+                let path = try CustomSidebarTemplateInstaller().install(
+                    name: previewName,
+                    templateID: templateID,
+                    directory: directory
+                )
+                let removeCommand = "rm -- \(shellQuote(path.path))"
+                if jsonOutput {
+                    print(jsonString(["name": previewName, "template": templateID, "path": path.path, "open": "cmux sidebar open \(previewName)", "remove": removeCommand]))
+                } else {
+                    print(String(format: String(localized: "cli.sidebar.try.created", defaultValue: "Created a temporary preview at %@ from %@."), path.path, templateID))
+                    print(String(format: String(localized: "cli.sidebar.try.openHint", defaultValue: "Open it with: cmux sidebar open %@"), previewName))
+                    print(String(format: String(localized: "cli.sidebar.try.revertHint", defaultValue: "Remove it when finished: %@"), removeCommand))
+                }
+            } catch CustomSidebarTemplateInstallError.unknownTemplate {
+                throw CLIError(message: String(format: String(localized: "cli.sidebar.new.unknownTemplate", defaultValue: "Unknown sidebar template '%@'. Run cmux sidebar templates."), templateID))
+            } catch {
+                throw CLIError(message: String(localized: "cli.sidebar.new.writeFailed", defaultValue: "Could not create the sidebar file."))
+            }
+        case "new":
+            guard let name = remaining.first else {
+                throw CLIError(message: String(localized: "cli.sidebar.new.missingName", defaultValue: "sidebar new requires a kebab-case name"))
+            }
+            var templateID: String?
+            var force = false
+            var index = 1
+            while index < remaining.count {
+                switch remaining[index] {
+                case "--from":
+                    guard index + 1 < remaining.count else {
+                        throw CLIError(message: String(localized: "cli.sidebar.new.missingTemplate", defaultValue: "sidebar new requires --from <template>"))
+                    }
+                    templateID = remaining[index + 1]
+                    index += 2
+                case "--force":
+                    force = true
+                    index += 1
+                default:
+                    throw CLIError(message: String(format: String(localized: "cli.sidebar.new.unknownArgument", defaultValue: "sidebar new received unexpected argument '%@'"), remaining[index]))
+                }
+            }
+            guard let templateID else {
+                throw CLIError(message: String(localized: "cli.sidebar.new.missingTemplate", defaultValue: "sidebar new requires --from <template>"))
+            }
+            let directory = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".config/cmux/sidebars", isDirectory: true)
+            do {
+                let path = try CustomSidebarTemplateInstaller().install(
+                    name: name,
+                    templateID: templateID,
+                    directory: directory,
+                    force: force
+                )
+                if jsonOutput {
+                    print(jsonString(["name": name, "template": templateID, "path": path.path, "open": "cmux sidebar open \(name)"]))
+                } else {
+                    print(String(format: String(localized: "cli.sidebar.new.created", defaultValue: "Created %@ from %@."), path.path, templateID))
+                    print(String(format: String(localized: "cli.sidebar.new.openHint", defaultValue: "Open it with: cmux sidebar open %@"), name))
+                }
+            } catch CustomSidebarTemplateInstallError.invalidName {
+                throw CLIError(message: String(localized: "cli.sidebar.new.invalidName", defaultValue: "Sidebar name must be kebab-case and must not contain a path."))
+            } catch CustomSidebarTemplateInstallError.unknownTemplate {
+                throw CLIError(message: String(format: String(localized: "cli.sidebar.new.unknownTemplate", defaultValue: "Unknown sidebar template '%@'. Run cmux sidebar templates."), templateID))
+            } catch CustomSidebarTemplateInstallError.alreadyExists {
+                throw CLIError(message: String(format: String(localized: "cli.sidebar.new.alreadyExists", defaultValue: "Sidebar '%@' already exists. Use --force to overwrite it."), name))
+            } catch {
+                throw CLIError(message: String(localized: "cli.sidebar.new.writeFailed", defaultValue: "Could not create the sidebar file."))
+            }
+        default:
+            throw CLIError(message: String(format: String(localized: "cli.sidebar.error.unknownCommand", defaultValue: "Unknown sidebar command '%@'"), action))
+        }
+    }
+
     private func runSidebarCommand(
         commandArgs: [String],
         client: SocketClient,
@@ -21514,7 +21644,7 @@ struct CMUXCLI {
 
         guard let action = args.first?.lowercased() else {
             throw CLIError(
-                message: String(localized: "cli.sidebar.error.missingCommand", defaultValue: "sidebar requires a subcommand: validate, reload, select, or open")
+                message: String(localized: "cli.sidebar.error.missingCommand", defaultValue: "sidebar requires a subcommand: templates, try, new, validate, reload, select, or open")
             )
         }
 
@@ -21523,6 +21653,13 @@ struct CMUXCLI {
         var params: [String: Any] = [:]
 
         switch action {
+        case "templates", "try", "new":
+            try runSidebarTemplateCommand(
+                commandArgs: [action] + remaining,
+                inheritedJSONOutput: jsonOutput
+            )
+            return
+
         case "validate", "reload":
             guard remaining.count <= 1 else {
                 throw CLIError(
@@ -30774,7 +30911,7 @@ struct CMUXCLI {
                     candidate = failure
                     candidateCanPublishBeforeTerminal = turnId == nil || payloadTurnId == turnId || sawRelevantTurn
                 }
-            case "task_complete", "turn_complete":
+            case "task_complete", "turn_complete", "turn_aborted":
                 let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
                 if let turnId {
                     guard payloadTurnId == turnId else {
@@ -30783,6 +30920,12 @@ struct CMUXCLI {
                 }
                 sawRelevantTurn = true
                 sawTerminalTurn = true
+                // An interrupted turn is still terminal for the monitor. It
+                // has no final response to classify as a failure, so let the
+                // normal Stop replay retire its stale prompt record.
+                if eventType == "turn_aborted" {
+                    continue
+                }
                 // Codex persists fatal turn failures inside task_complete.error. Standalone
                 // error events are transient, and a failed turn may still contain partial
                 // assistant output, so the terminal error must be authoritative.

@@ -8677,6 +8677,9 @@ struct ContentView: View {
 
     /// Registers runnable handlers for every built-in command-palette contribution.
     private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
+        registry.register(commandId: "palette.browseSidebarTemplates") {
+            CmuxExtensionSidebarSelection.browseTemplates()
+        }
         registry.register(commandId: "palette.findWork") {
             guard let service = AppDelegate.shared?.currentWorkQueryService() else {
                 NSSound.beep()
@@ -12695,6 +12698,9 @@ struct VerticalTabsSidebar: View, Equatable {
 
     @ViewBuilder
     private func extensionSidebarScrollAreaContent(renderContext: WorkspaceListRenderContext) -> some View {
+        let inMemoryTemplatePreview = CmuxExtensionSidebarSelection.inMemoryTemplatePreviewSource(
+            for: effectiveExtensionSidebarProviderId
+        )
         if effectiveExtensionSidebarProviderId == CmuxExtensionSidebarSelection.conversationSidebarProviderId {
             ConversationSidebarView(
                 store: sessionIndexStore,
@@ -12735,7 +12741,9 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             )
         } else if effectiveExtensionSidebarProviderId.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix),
-                  let customSidebarURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId) {
+                  let customSidebarURL = inMemoryTemplatePreview == nil
+                    ? CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId)
+                    : URL(fileURLWithPath: "/__cmux-in-memory-sidebar-preview.js") {
             // Periodic tick so the custom sidebar re-renders live (clock,
             // countdowns, and refreshed workspace/data context), mirroring the
             // default sidebar's TimelineView. No banned timers involved.
@@ -12752,6 +12760,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 TimelineView(.periodic(from: .now, by: 1)) { timeline in
                     CustomSidebarSurface(
                         fileURL: customSidebarURL,
+                        sourceOverride: inMemoryTemplatePreview,
                         dataContext: customSidebarDataContext(
                             now: timeline.date,
                             unreadSnapshot: unreadSnapshot
@@ -12761,7 +12770,7 @@ struct VerticalTabsSidebar: View, Equatable {
                             top: SidebarWorkspaceScrollInsets.workspaceList.top,
                             bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
                         ),
-                        rendersInProcess: customSidebarRenderer == .inProcess,
+                        rendersInProcess: inMemoryTemplatePreview != nil || customSidebarRenderer == .inProcess,
                         client: $sidebarRenderWorkerClient
                     )
                 }

@@ -927,7 +927,10 @@ jobs:
         env:
           HOSTED_COMPILE_SECONDS: ${{ steps.hosted-compile.outputs.seconds }}
           HOSTED_COMPILE_OUTCOME: ${{ steps.hosted-compile.outcome }}
-          SEED_DISTANCE: ${{ steps.seed-derived-data.outputs.seed_distance || steps.prefer-seed.outputs.seed_distance }}
+          # Report only the seed that adopt actually installed. prefer-seed's
+          # distance describes a candidate and can remain set when adoption
+          # fails or is skipped.
+          SEED_DISTANCE: ${{ steps.seed-derived-data.outputs.seed_distance }}
           SEED_SECONDS: ${{ steps.seed-derived-data.outputs.seconds }}
         run: |
           set -euo pipefail
