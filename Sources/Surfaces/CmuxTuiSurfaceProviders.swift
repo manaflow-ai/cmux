@@ -9,8 +9,6 @@ import Foundation
 @MainActor
 final class CmuxTuiSurfaceProvider: SurfaceProvider {
     let fileAccessTeamScope: AuthenticatedTeamScope?
-    /// registered. Every control-plane call this provider makes names it, so a
-    /// Cloud surface keeps working after the selected team changes. Nil for SSH
     /// machines and legacy callers, which follow the selected team.
     let ownerTeamID: String?
     /// Set once the control plane answered that this user can no longer reach

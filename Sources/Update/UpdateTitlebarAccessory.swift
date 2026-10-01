@@ -146,8 +146,6 @@ struct TitlebarControlsLayoutModelSnapshot: Equatable {
     let contentSize: NSSize
 }
 
-/// Owns the expensive shortcut/font-derived titlebar size once for every
-/// titlebar surface. Unrelated defaults and notification activity must not
 /// invalidate titlebar geometry.
 @MainActor
 @Observable
