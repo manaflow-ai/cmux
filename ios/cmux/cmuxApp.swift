@@ -75,7 +75,7 @@ struct cmuxApp: App {
         // kinds so even a simulator exercises the real relay path.
         let forceRelay = irx.forceRelayOnly
         #if DEBUG
-        let webRTCExperimentEnabled = CmxWebRTCExperiment.isEnabled(
+        let webRTCExperimentEnabled = CmxWebRTCConfiguration.isExperimentEnabled(
             environment: ProcessInfo.processInfo.environment,
             infoDictionary: Bundle.main.infoDictionary
         )

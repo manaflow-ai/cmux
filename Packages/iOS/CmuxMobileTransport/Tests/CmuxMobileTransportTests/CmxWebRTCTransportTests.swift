@@ -113,11 +113,11 @@ func webRTCByteTransportExchangesDataOverLoopback() async throws {
 }
 
 @Test func webRTCExperimentRequiresExplicitEnvironmentOptIn() {
-    #expect(CmxWebRTCExperiment.isEnabled(environment: [:]) == false)
-    #expect(CmxWebRTCExperiment.isEnabled(environment: [
-        CmxWebRTCExperiment.environmentKey: "1"
+    #expect(CmxWebRTCConfiguration.isExperimentEnabled(environment: [:]) == false)
+    #expect(CmxWebRTCConfiguration.isExperimentEnabled(environment: [
+        CmxWebRTCConfiguration.experimentEnvironmentKey: "1"
     ]))
-    #expect(CmxWebRTCExperiment.isEnabled(environment: [
-        CmxWebRTCExperiment.environmentKey: "true"
+    #expect(CmxWebRTCConfiguration.isExperimentEnabled(environment: [
+        CmxWebRTCConfiguration.experimentEnvironmentKey: "true"
     ]) == false)
 }

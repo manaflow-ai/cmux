@@ -1416,7 +1416,7 @@ final class MobileHostService {
     #if DEBUG
     private func syncWebRTCExperiment() {
         let environment = ProcessInfo.processInfo.environment
-        guard CmxWebRTCExperiment.isEnabled(
+        guard CmxWebRTCConfiguration.isExperimentEnabled(
             environment: environment,
             infoDictionary: Bundle.main.infoDictionary
         ) else {

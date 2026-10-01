@@ -50,6 +50,9 @@ public struct CmxWebRTCConfiguration: Equatable, Sendable {
     /// Cloudflare's public STUN endpoint, useful when no TURN credentials are configured.
     public static let cloudflareSTUN = CmxWebRTCICEServer(urls: ["stun:stun.cloudflare.com:3478"])
 
+    /// The environment key used by tagged experimental builds.
+    public static let experimentEnvironmentKey = "CMUX_WEBRTC_EXPERIMENT"
+
     /// ICE servers tried by each peer connection.
     public let iceServers: [CmxWebRTCICEServer]
     /// Whether ICE must select a TURN relay candidate.
@@ -109,6 +112,17 @@ public struct CmxWebRTCConfiguration: Equatable, Sendable {
         )
     }
 
+    /// Returns true only for an explicit `1` value in the supplied environment
+    /// or build Info.plist. The plist fallback keeps an isolated tagged build
+    /// enabled when it is launched later by Finder or the tag opener.
+    public static func isExperimentEnabled(
+        environment: [String: String],
+        infoDictionary: [String: Any]? = Bundle.main.infoDictionary
+    ) -> Bool {
+        environment[experimentEnvironmentKey] == "1"
+            || (infoDictionary?["CMUXWebRTCExperiment"] as? String) == "1"
+    }
+
     private static func decodeServers(_ raw: String) -> [CmxWebRTCICEServer]? {
         guard let data = raw.data(using: .utf8) else { return nil }
         if let servers = try? JSONDecoder().decode([CmxWebRTCICEServer].self, from: data) {
@@ -128,22 +142,5 @@ public struct CmxWebRTCConfiguration: Equatable, Sendable {
     private static func nanoseconds(_ value: String?) -> UInt64? {
         guard let value, let number = UInt64(value), number > 0 else { return nil }
         return number
-    }
-}
-
-/// A DEBUG-only switch shared by the iOS and macOS composition roots.
-public enum CmxWebRTCExperiment: Sendable {
-    /// The environment key used by the tagged experimental builds.
-    public static let environmentKey = "CMUX_WEBRTC_EXPERIMENT"
-
-    /// Returns true only for an explicit `1` value in the supplied environment
-    /// or build Info.plist. The plist fallback is what keeps an isolated tagged
-    /// build enabled when it is launched later by Finder or the tag opener.
-    public static func isEnabled(
-        environment: [String: String],
-        infoDictionary: [String: Any]? = Bundle.main.infoDictionary
-    ) -> Bool {
-        environment[environmentKey] == "1"
-            || (infoDictionary?["CMUXWebRTCExperiment"] as? String) == "1"
     }
 }
