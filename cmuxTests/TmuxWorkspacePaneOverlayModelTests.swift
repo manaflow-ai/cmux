@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import Bonsplit
+import CmuxNotifications
 import Testing
 
 #if canImport(cmux_DEV)

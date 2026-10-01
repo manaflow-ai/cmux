@@ -2,6 +2,23 @@ import Foundation
 
 /// Pure remote catalog selector and placement resolution shared by the app and CLI.
 enum CmuxTuiRemoteRouting {
+    /// Seconds between `vm.status` polls, clamped to the command-safe cadence.
+    ///
+    /// The CLI and app test host share this pure parser so test-only environment
+    /// overrides exercise the same bounds without linking the CLI executable.
+    static func vmReadyPollInterval(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> TimeInterval {
+        guard let raw = environment["CMUX_VM_WAIT_POLL_SECONDS"],
+              let parsed = TimeInterval(raw),
+              parsed.isFinite,
+              parsed >= 0.01,
+              parsed <= 3 else {
+            return 3
+        }
+        return parsed
+    }
+
     /// Every `cmux vm agent` option that takes a value, so the alias walk and
     /// the help scan skip the value instead of reading it as the first provider
     /// argument (or as `--help`).
