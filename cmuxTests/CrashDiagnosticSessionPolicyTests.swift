@@ -738,8 +738,9 @@ extension CrashDiagnosticSessionPolicyTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let writer = SessionSnapshotPersistenceWriter(store: store, queue: queue, defaults: defaults)
 
-        writer.persist(nil, removeWhenEmpty: true, persistedGeometryData: nil, synchronously: false)
         writer.persist(nil, removeWhenEmpty: true, persistedGeometryData: nil, synchronously: true)
+        #expect(store.contexts == [true])
+        writer.persist(nil, removeWhenEmpty: true, persistedGeometryData: nil, synchronously: false)
         queue.sync {}
         #expect(store.contexts == [true, true])
     }

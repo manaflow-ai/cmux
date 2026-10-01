@@ -59,8 +59,9 @@ struct SessionSnapshotPersistenceWriter: @unchecked Sendable {
                 )
             }
             if let snapshot {
-                Self.clearCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults)
-                _ = store.save(snapshot, fileURL: nil)
+                if store.save(snapshot, fileURL: nil) {
+                    Self.clearCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults)
+                }
             } else if removeWhenEmpty {
                 if preserveManualRestoreBackupOnMissingPrimary {
                     Self.markCrashOnlyPrimarySnapshotRemoval(defaults: defaults)

@@ -121,6 +121,7 @@ final class SessionAutosaveCoordinator {
 
     func stop() {
         let hadActiveAttempt = activeAttempt != nil
+        todoStatePersistenceCoordinator?.invalidate()
         Self.cancelScheduledWork(
             timer: timer,
             deferredRetryTask: deferredRetryTask,
