@@ -78,7 +78,7 @@ public final class RemoteLocalhostProxy: Sendable {
         self.init(secret: secret, directHost: { NWEndpoint.Host($0) })
     }
 
-    init(secret: String, directHost: @escaping @Sendable (String) -> NWEndpoint.Host) {
+    init(secret: String = ProxyCredential.randomToken(bytes: 32), directHost: @escaping @Sendable (String) -> NWEndpoint.Host) {
         self.secret = secret
         self.directHost = directHost
     }
