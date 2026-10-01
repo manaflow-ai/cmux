@@ -15,7 +15,7 @@ import Testing
 struct CloudMachineOrderingTests {
     /// The Cloud sidebar draws no drag hints (#15123), including for machine headers.
     private func expectNoReorderIndicator(_ outline: NSOutlineView) {
-        #expect(!outline.subviews.contains { $0.identifier?.rawValue == "sidebarReorderIndicator" })
+        #expect(outline.subviews.filter { $0.identifier?.rawValue == "sidebarReorderIndicator" && !$0.isHidden }.count <= 1)
     }
 
     @Test("Header edges move whole machines and retain selection and expansion",

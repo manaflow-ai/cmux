@@ -22,6 +22,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     func clearDragDestination(sequence: Int? = nil) {
         if let sequence, let current = dragDestinationSequenceNumber, current != sequence { return }
         dragDestinationSequenceNumber = nil
+        clearOrganizationDropIndicator()
     }
 
     /// Destination completion also releases a source whose native callback was lost.
