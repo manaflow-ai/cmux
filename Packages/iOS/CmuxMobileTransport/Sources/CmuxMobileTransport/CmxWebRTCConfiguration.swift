@@ -132,9 +132,7 @@ public struct CmxWebRTCConfiguration: Equatable, Sendable {
 }
 
 /// A DEBUG-only switch shared by the iOS and macOS composition roots.
-public struct CmxWebRTCExperiment: Sendable {
-    private init() {}
-
+public enum CmxWebRTCExperiment: Sendable {
     /// The environment key used by the tagged experimental builds.
     public static let environmentKey = "CMUX_WEBRTC_EXPERIMENT"
 
