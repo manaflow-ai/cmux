@@ -127,11 +127,11 @@ extension InputWorld {
             let tabs = panes(window.workspace).flatMap(\.tabs)
             guard !tabs.isEmpty else { return }
             let tab = tabs[n % tabs.count].id
-            let pane = stale.flatMap { pane($0, in: window)?.id } ?? panes(window.workspace).first { $0.tabs.contains { $0.id == tab } }?.id
-            guard let pane else { return }
+            let paneID = stale.flatMap { pane($0, in: window)?.id } ?? panes(window.workspace).first { $0.tabs.contains { $0.id == tab } }?.id
+            guard let paneID else { return }
             // `AppCompatFrontend.selectTab`.
-            window.selection.select(tab, in: pane)
-            window.focus.send(.selectTab(pane: pane, tab: tab, workspace: window.workspace, source: .cli))
+            window.selection.select(tab, in: paneID)
+            window.focus.send(.selectTab(pane: paneID, tab: tab, workspace: window.workspace, source: .cli))
         case .keyWindow(let w):
             // A click on a window with a sheet gives the sheet the keys.
             let window = window(w)
