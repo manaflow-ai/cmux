@@ -40,6 +40,7 @@ extension WKUserScript {
     private static let browserFormStateObserverSource = #"""
     (() => {
       try {
+        // Keep these transport caps in sync with BrowserFormStateSnapshot constants.
         const MAX_FIELDS = 200;
         const MAX_VALUE = 65536;
         const EXCLUDED_TYPES = new Set(["password", "hidden", "file", "button", "submit", "reset", "image"]);
