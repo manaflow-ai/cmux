@@ -116,7 +116,7 @@ struct MobileWorkspaceSnapshotStoreTests {
         let state = MacWorkspaceState(
             macDeviceID: "mac-a",
             instanceTag: "nightly",
-            workspaces: [MobileWorkspacePreview(id: "workspace-a", macDeviceID: "mac-a", name: "Mario")],
+            workspaces: [MobileWorkspacePreview(id: "workspace-a", macDeviceID: "mac-a", name: "Mario", terminals: [])],
             workspaceGroupsAreAuthoritative: true,
             status: .connected,
             workspaceSnapshotIsAuthoritative: true
@@ -135,7 +135,7 @@ struct MobileWorkspaceSnapshotStoreTests {
         let state = MacWorkspaceState(
             macDeviceID: "mac-a",
             instanceTag: "nightly",
-            workspaces: [MobileWorkspacePreview(id: "workspace-a", macDeviceID: "mac-a", name: "Mario")],
+            workspaces: [MobileWorkspacePreview(id: "workspace-a", macDeviceID: "mac-a", name: "Mario", terminals: [])],
             status: .connected,
             workspaceSnapshotIsAuthoritative: true
         )
@@ -155,7 +155,7 @@ struct MobileWorkspaceSnapshotStoreTests {
         let state = MacWorkspaceState(
             macDeviceID: "mac-a",
             instanceTag: "nightly",
-            workspaces: [MobileWorkspacePreview(id: "workspace-a", macDeviceID: "mac-a", name: "Mario")],
+            workspaces: [MobileWorkspacePreview(id: "workspace-a", macDeviceID: "mac-a", name: "Mario", terminals: [])],
             status: .connected,
             workspaceSnapshotIsAuthoritative: true
         )
