@@ -13186,8 +13186,6 @@
 			packageProductDependencies = (
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A77A0002A1B2C3D4E5F60001 /* CmuxAgentJournal */,
-				C750100000000000000000A2 /* CmuxControlSocket */,
-				C51A700000000000000000A2 /* CmuxSimulator */,
 				5E2701040000000000000002 /* CmuxFoundation */,
 				5E27010400000000000000A3 /* CmuxSettings */,
 			);
