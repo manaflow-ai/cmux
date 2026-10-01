@@ -11,9 +11,6 @@ enum LayoutStrings {
     static var stripScrollbarAccessibility: String {
         String(localized: "layout.stripScrollbar.accessibility", defaultValue: "Column Strip Scroll Bar", bundle: .module)
     }
-    static var stickyColumnAccessibility: String {
-        String(localized: "layout.stickyColumn.accessibility", defaultValue: "Sticky Column", bundle: .module)
-    }
     static func screenFallbackName(_ number: Int) -> String {
         String(localized: "layout.screen.fallbackName", defaultValue: "Screen \(number)", bundle: .module)
     }
