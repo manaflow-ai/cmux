@@ -1524,12 +1524,12 @@ struct WorkspaceForkConversationContextMenuTests {
             workingDirectory: root.path,
             executablePath: executable.path
         )
-        let loaderStarted = OSAllocatedUnfairLock(initialState: false)
+        let (loaderStartedEvents, loaderStartedContinuation) = AsyncStream<Void>.makeStream()
         let releaseLoader = OSAllocatedUnfairLock(initialState: false)
         let probedSessionIds = OSAllocatedUnfairLock(initialState: [String]())
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
-                loaderStarted.withLock { $0 = true }
+                loaderStartedContinuation.yield(())
                 while !releaseLoader.withLock({ $0 }) {
                     Thread.sleep(forTimeInterval: 0.005)
                 }
@@ -1565,10 +1565,8 @@ struct WorkspaceForkConversationContextMenuTests {
         )
 
         sharedIndex.scheduleRefreshIfStale(validating: panelKey)
-        for _ in 0..<1000 where !loaderStarted.withLock({ $0 }) {
-            await Task.yield()
-        }
-        #expect(loaderStarted.withLock { $0 })
+        var loaderStartedIterator = loaderStartedEvents.makeAsyncIterator()
+        #expect(await loaderStartedIterator.next() != nil)
 
         await sharedIndex.refreshForkAvailabilityNow(
             workspaceId: workspaceId,
@@ -4499,7 +4497,11 @@ struct WorkspaceForkConversationContextMenuTests {
             )
         )
 
-        #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot)))
+        // The probe only ends at its output timeout here, so shorten it.
+        #expect(!(await AgentForkSupport.supportsFork(
+            snapshot: snapshot,
+            probeOutputTimeoutNanoseconds: 2_000_000_000
+        )))
         try await expectProcessExited(pidFile: childPIDFile)
     }
 
@@ -4539,7 +4541,11 @@ struct WorkspaceForkConversationContextMenuTests {
             )
         )
 
-        #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot)))
+        // The probe only ends at its output timeout here, so shorten it.
+        #expect(!(await AgentForkSupport.supportsFork(
+            snapshot: snapshot,
+            probeOutputTimeoutNanoseconds: 2_000_000_000
+        )))
         try await expectProcessExited(pidFile: childPIDFile)
     }
 

@@ -108,6 +108,7 @@ export const coderouterResponseSchema = z.object({
     z.object({ kind: z.literal("ok"), accounts: z.array(sharedAccountSchema).readonly() }),
     z.object({ kind: z.literal("migrationPending") }),
     z.object({ kind: z.literal("notConfigured") }),
+    z.object({ kind: z.literal("unavailable") }),
     errorState,
   ]),
 }) satisfies z.ZodType<DashboardCoderouterResponse>;

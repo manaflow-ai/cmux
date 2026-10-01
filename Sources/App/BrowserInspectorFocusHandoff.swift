@@ -28,7 +28,7 @@ extension AppDelegate {
     }
 
     func browserPanelOwningInspectorResponder(_ responder: NSResponder) -> BrowserPanel? {
-        for browserPanel in browserPanelsForInspectorFocusHandoff() {
+        for browserPanel in allLiveBrowserPanels() {
             guard let frontendWebView = browserPanel.webView.cmuxInspectorFrontendWebView(),
                   browserInspectorResponder(responder, belongsTo: frontendWebView) else {
                 continue

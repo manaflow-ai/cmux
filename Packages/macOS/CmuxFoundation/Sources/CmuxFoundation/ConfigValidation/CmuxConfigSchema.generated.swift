@@ -75,7 +75,7 @@ enum CmuxEmbeddedConfigSchema {
     },
     "actions": {
       "title": "actions",
-      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", or \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart). Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Layout\" in the plus-button menu writes entries here.",
+      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart), \"setting\" (change one setting in the global cmux.json: path plus exactly one of set, toggle: true, cycle, or unset: true), or \"settingPreset\" (apply a named entry from settingPresets). Setting actions only run when declared in the global ~/.config/cmux/cmux.json or a pack it references; with confirm: true they ask before saving. Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Layout\" in the plus-button menu writes entries here.",
       "type": "object",
       "additionalProperties": true
     },
@@ -106,6 +106,27 @@ enum CmuxEmbeddedConfigSchema {
       "items": {
         "type": "object",
         "additionalProperties": true
+      }
+    },
+    "settingPresets": {
+      "x-cmux-scopes": ["global"],
+      "title": "settingPresets",
+      "description": "Named groups of settings applied together by a \"settingPreset\" action or `cmux config preset <name>`. Each preset is a partial cmux.json holding only settings sections, for example {\"sidebar\": {\"showPorts\": false}}. Nested objects merge key by key; other values replace the current one. Keys the preset doesn't name keep their values.",
+      "type": "object",
+      "default": {},
+      "additionalProperties": {
+        "allOf": [
+          { "$ref": "#" },
+          {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": {
+              "not": {
+                "enum": ["$schema", "schemaVersion", "actions", "commands", "newWorkspaceCommand", "packs", "rightSidebar", "settingPresets", "surfaceTabBarButtons", "ui", "vault"]
+              }
+            }
+          }
+        ]
       }
     },
     "computerUse": {
@@ -693,6 +714,13 @@ enum CmuxEmbeddedConfigSchema {
           "descriptionKey": "schemaDescriptions.app.confirmQuit",
           "description": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback."
         },
+        "whatsNew": {
+          "type": "string",
+          "enum": ["off", "quiet", "sheet"],
+          "default": "quiet",
+          "descriptionKey": "schemaDescriptions.app.whatsNew",
+          "description": "How cmux shows what's new after an update. off shows nothing, quiet marks the sidebar help button with a dot until you open the recap, and sheet opens the recap once after the first launch of a new version. Help > What's New in cmux opens it any time."
+        },
         "warnBeforeQuit": {
           "type": "boolean",
           "default": true,
@@ -834,6 +862,16 @@ enum CmuxEmbeddedConfigSchema {
           "type": "boolean",
           "default": false,
           "description": "When the password input badge is shown, also draw one dot per typed character. cmux keeps only a count, never the typed characters. Backspace removes a dot; Enter or echo turning back on clears them. Pasted text is not counted."
+        },
+        "showJumpToBottomButton": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a Jump to Bottom button at the bottom center of a terminal while its viewport is scrolled up into scrollback. Clicking it scrolls to the bottom and focuses the terminal. A dot marks output that arrived below the viewport. Programs on the alternate screen (vim, less, full-screen agent modes) never get the button because they draw their own scrolling."
+        },
+        "predictiveLocalEcho": {
+          "type": "boolean",
+          "default": true,
+          "description": "Draw typed characters immediately in a terminal whose shell runs on another machine (cmux ssh, Cloud, remote tmux) when the link is slow, underlined until the remote echo confirms them, and withdraw them if the remote disagrees. Local terminals, password prompts and full-screen apps are excluded."
         },
         "autoResumeAgentSessions": {
           "type": "boolean",
@@ -1137,12 +1175,30 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Flash the focused pane when requested."
         },
+        "paneFlashDoubleBlink": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": true,
+          "description": "Blink the pane flash twice instead of one short pulse."
+        },
+        "paneFlashOnTyping": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": true,
+          "description": "Flash the pane when terminal typing dismisses its notification."
+        },
+        "paneFlashThemeColor": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": false,
+          "description": "Use the terminal theme foreground for flashes when paneFlashColor is unset. Unread rings remain cmux blue."
+        },
         "paneFlashColor": {
           "x-cmux-scopes": ["global"],
           "$ref": "#/$defs/colorHexOrNull",
           "default": null,
           "descriptionKey": "schemaDescriptions.notifications.paneFlashColor",
-          "description": "Override the pane flash and unread ring color. Null keeps the built-in blue."
+          "description": "Override the pane flash and unread ring color. Null flashes in the terminal theme's foreground and keeps unread rings in the cmux accent."
         },
         "soundWhenFocused": {
           "x-cmux-scopes": ["global"],
@@ -1326,6 +1382,18 @@ enum CmuxEmbeddedConfigSchema {
           "additionalProperties": false,
           "description": "Experimental sidebar features.",
           "properties": {
+            "conversations": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": false,
+                  "descriptionKey": "schemaDescriptions.sidebar.beta.conversations.enabled",
+                  "description": "Show the unified Conversations view in the sidebar picker."
+                }
+              }
+            },
             "workspaceTodos": {
               "type": "object",
               "additionalProperties": false,
@@ -1432,6 +1500,12 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Show progress indicators."
         },
+        "showAgentUsage": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.sidebar.showAgentUsage",
+          "description": "Append coding-agent usage to the Claude Code or Codex status entry: model and context window used, plus for Claude Code an estimated API cost (main thread and subagents) at published Anthropic list prices. The cost is an estimate, not your subscription bill; batch/priority tiers, partner pricing, fast mode and server-tool fees are not modelled."
+        },
         "showAgentActivity": {
           "type": "boolean",
           "default": true,
@@ -1468,7 +1542,9 @@ enum CmuxEmbeddedConfigSchema {
           "properties": {
             "error": { "type": "string", "minLength": 1 },
             "needsInput": { "type": "string", "minLength": 1 },
+            "subagents": { "type": "string", "minLength": 1 },
             "running": { "type": "string", "minLength": 1 },
+            "waiting": { "type": "string", "minLength": 1 },
             "starting": { "type": "string", "minLength": 1 },
             "unseen": { "type": "string", "minLength": 1 },
             "pullRequestOpen": { "type": "string", "minLength": 1 },
@@ -1648,6 +1724,7 @@ enum CmuxEmbeddedConfigSchema {
           "description": "Enable cmux integration hooks for Claude Code."
         },
         "codexIntegration": {"type": "boolean", "default": true, "description": "Enable cmux integration hooks for Codex. When disabled, cmux no longer wraps the codex command but still tracks live Codex sessions it can observe."},
+        "canonicalAgentScratch": {"type": "boolean", "default": false, "descriptionKey": "schemaDescriptions.automation.canonicalAgentScratch", "description": "Use a cmux-owned scratch directory for native agent panels, organized per session."},
         "piIntegration": {"type": "boolean", "default": true, "description": "Enable cmux integration hooks for Pi."},
         "claudeBinaryPath": {
           "type": "string",
@@ -1676,6 +1753,12 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "descriptionKey": "schemaDescriptions.automation.suppressSubagentNotifications",
           "description": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
+        },
+        "agentAutoResume": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.automation.agentAutoResume",
+          "description": "Send `continue` to a cmux-launched agent whose turn ended on a retryable upstream error (model at capacity, overloaded, or connection lost), with backoff. Turns waiting on a human are never resumed."
         },
         "ampIntegration": {
           "type": "boolean",
@@ -1770,14 +1853,32 @@ enum CmuxEmbeddedConfigSchema {
         "discardHiddenWebViews": {
           "type": "boolean",
           "default": true,
-          "description": "Allow hidden browser tabs to release page memory and restore when shown again."
+          "description": "Allow hidden browser tabs to release page memory. Scroll position, supported form input, and history are restored when recoverable."
+        },
+        "hiddenWebViewDiscardMode": {
+          "type": "string",
+          "enum": ["budget", "timer"],
+          "default": "budget",
+          "description": "How cmux picks hidden browser tabs to free. budget frees the tabs hidden longest once hidden tabs use more than hiddenWebViewMemoryBudgetMB; timer frees every tab hidden longer than hiddenWebViewDiscardDelaySeconds."
+        },
+        "hiddenWebViewMemoryBudgetMB": {
+          "type": "integer",
+          "minimum": 256,
+          "maximum": 65536,
+          "default": 2048,
+          "description": "Megabytes of memory hidden browser tabs may use before cmux frees the tabs hidden longest. Applies when hiddenWebViewDiscardMode is budget."
         },
         "hiddenWebViewDiscardDelaySeconds": {
           "type": "number",
           "minimum": 0,
           "maximum": 3600,
           "default": 300,
-          "description": "Seconds a browser tab must stay hidden before cmux frees its page memory."
+          "description": "Seconds a browser tab must stay hidden before cmux may free its page memory. In timer mode, every tab hidden this long is freed."
+        },
+        "autoRestoreUnloadedPages": {
+          "type": "boolean",
+          "default": true,
+          "description": "Restore a browser page unloaded to save memory, or whose web process ended while hidden, as soon as its tab is shown. When false, the tab shows the page's last snapshot until you click Restore."
         },
         "askWhereToSaveDownloads": {
           "type": "boolean",
@@ -2060,6 +2161,7 @@ enum CmuxEmbeddedConfigSchema {
               "reopenPreviousSession",
               "goToWorkspace",
               "commandPalette",
+              "agentInbox",
               "commandPaletteNext",
               "commandPalettePrevious",
               "sendFeedback",
@@ -2202,7 +2304,8 @@ enum CmuxEmbeddedConfigSchema {
               "diffViewerNextFile",
               "diffViewerPreviousFile",
               "diffViewerNextHunk",
-              "diffViewerPreviousHunk"
+              "diffViewerPreviousHunk",
+              "diffViewerToggleViewed"
             ]
           },
           "properties": {
@@ -2249,6 +2352,9 @@ enum CmuxEmbeddedConfigSchema {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerPreviousHunk": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerToggleViewed": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             }
           },

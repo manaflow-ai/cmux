@@ -41,14 +41,10 @@ describe("dashboard shell", () => {
     // The theme toggle lives inside the account menu, not in the shell footer.
     expect(html).not.toContain("theme-control");
     expect(html).toContain('href="/dashboard/coderouter"');
-    // Account group: settings, then teams, then billing. The legacy
-    // Hexclave route is no longer linked.
-    const settingsIndex = html.indexOf('href="/dashboard/settings"');
-    const teamsIndex = html.indexOf('href="/dashboard/teams"');
-    const billingIndex = html.indexOf('href="/dashboard/billing"');
-    expect(settingsIndex).toBeGreaterThan(-1);
-    expect(teamsIndex).toBeGreaterThan(settingsIndex);
-    expect(billingIndex).toBeGreaterThan(teamsIndex);
+    // Account holds one entry: Settings is the hub for billing and teams.
+    expect(html).toContain('href="/dashboard/settings"');
+    expect(html).not.toContain('href="/dashboard/teams"');
+    expect(html).not.toContain('href="/dashboard/billing"');
     expect(html).not.toContain('href="/dashboard/team"');
     const menuButton = html.match(
       /<button[^>]*aria-controls="dashboard-mobile-nav"[^>]*>/,
@@ -79,11 +75,9 @@ describe("dashboard shell", () => {
     const coderouterIndex = html.indexOf('href="/dashboard/coderouter"');
     const mobileDevicesIndex = html.indexOf('href="/dashboard/mobile-devices"');
     const testflightIndex = html.indexOf('href="/dashboard/testflight"');
-    const billingIndex = html.indexOf('href="/dashboard/billing"');
     expect(coderouterIndex).toBeGreaterThan(-1);
     expect(mobileDevicesIndex).toBeGreaterThan(coderouterIndex);
     expect(testflightIndex).toBeGreaterThan(mobileDevicesIndex);
-    expect(billingIndex).toBeGreaterThan(testflightIndex);
     expect(html.indexOf('href="/dashboard/settings"')).toBeGreaterThan(testflightIndex);
   });
 
@@ -97,6 +91,37 @@ describe("dashboard shell", () => {
       expect(current.every((link) => link.includes('href="/dashboard/vault/sessions"'))).toBe(true);
     } finally {
       pathname = "/dashboard/testflight";
+    }
+  });
+
+  test("labels groups and entries in title case", async () => {
+    const html = await renderShell(false);
+    for (const label of ["Cloud", "Mac access", "Coderouter", "Overview", "Remote control", "Mobile devices", "iOS TestFlight", "Account", "Settings"]) {
+      expect(html).toContain(`>${label}<`);
+    }
+  });
+
+  test.each(["/dashboard/billing", "/dashboard/teams", "/dashboard/teams/t1/members", "/dashboard/settings/sessions"])(
+    "highlights Settings on %s",
+    async (path) => {
+      pathname = path;
+      try {
+        const html = await renderShell(false);
+        const current = html.match(/<a[^>]*aria-current="page"[^>]*>/g) ?? [];
+        expect(current).toHaveLength(2);
+        expect(current.every((link) => link.includes('href="/dashboard/settings"'))).toBe(true);
+      } finally {
+        pathname = "/dashboard/testflight";
+      }
+    },
+  );
+
+  test.each(locales)("capitalizes every navigation label in %s", async (locale) => {
+    const nav = ((await loadMessages(locale)).dashboard as Record<string, Record<string, string>>).nav!;
+    for (const key of ["cloudGroup", "cloudDevices", "coderouterGroup", "coderouterOverview", "remoteControlGroup", "mobileDevices", "accountGroup", "settings"]) {
+      const first = nav[key]!.charAt(0);
+      // Scripts without case (ja, zh, ko, th, km, ar) have first === upper === lower.
+      expect({ key, first }).toEqual({ key, first: first.toLocaleUpperCase(locale) });
     }
   });
 
