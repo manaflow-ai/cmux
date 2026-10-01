@@ -130,6 +130,7 @@ Environment:
 | `workspace-group` | Sidebar workspace group namespace: `list`, `create`, `rename`, `ungroup`, `delete`, `collapse`, `expand`, `pin`, `unpin`, `add`, `remove`, `set-anchor`, `set-color`, `set-icon`, `move`, `focus`, `new-workspace`. `delete` only closes the grouped workspaces when `--close-workspaces` is passed; without it, it ungroups them exactly like `ungroup`. Both accept `--remove-generated-anchor`. |
 | `todo` | Per-workspace checklist namespace: `add "text" [--state <pending\|in-progress\|completed>] [--origin <user\|agent>]`, `list`, `check <index\|id>`, `uncheck <index\|id>`, `start <index\|id>` (in-progress), `edit <index\|id> "text"`, `rm <index\|id>`, `clear`, `set ['<json>']` (atomic replace from a JSON item array, inline or piped on stdin), `open` (open or focus the workspace's todo pane). Targets the caller's workspace by default with `--workspace <id\|ref\|index>` override; `<index>` is the 1-based number printed by `todo list`. Items cap at 50 per workspace. See [Workspace todos](#workspace-todos). |
 | `comments` | Diff review comments namespace: `list` (alias `ls`) `[--repo <path>] [--all] [--json]` — read-only listing of review comments saved from the diff viewer for one git repository (default: the repository containing the current directory). Pending comments only by default; `--all` includes comments already delivered to an agent through a TextBox submission. Backed by the socket v2 method `comments.list`. |
+| `pr` | Attach, replace, or clear a pull-request link for the caller's workspace: `cmux pr <url\|number>` or `cmux pr clear`, with optional `--workspace` and `--window` selectors. Validates the repository and pull-request metadata before changing the sidebar, preserves the link through watcher refreshes, and does not change focus. |
 | `review` | Read local adversarial-review receipts from the repository Git metadata without connecting to the cmux socket. `list` enumerates runs newest first; `show [<id\|latest>]` prints one receipt; `findings [<id\|latest>] [--all]` prints surfaced findings and hides refuted/suppressed findings by default. All subcommands accept `--repo <path>` and `--json`. |
 | `vault` | Vault session-index namespace: `sessions [--agent <id>] [--folder <path>] [--limit <n>]` lists indexed agent sessions newest first; `search <query>` searches them with `agent:`/`repo:`/`ws:`/`before:`/`after:` operators; `checkpoints --agent <id> --session <id>` lists a session's checkpoint timeline (derived turn checkpoints + manual ones); `checkpoint … [--name <text>]` creates a manual checkpoint (capturing the workspace git HEAD when available); `fork … (--checkpoint <id> \| --turn <n>) [--open]` forks a new session from a checkpoint and prints the new session id (plus its resume command when one is available) (`--open` also opens it in a new workspace). Backed by the socket v2 methods `vault.sessions`, `vault.search`, `vault.checkpoints`, `vault.checkpoint`, and `vault.fork`; all support `--json`. |
 | `recover` | `recover [--query <text>] [--session <id>] [--limit <n>] [--focus]` discovers local Claude recovery records through `sr recover`; an exact `--session` creates a new workspace running `sr codex` with bounded continuation context. `--json` lists records without launching. |
@@ -178,11 +179,15 @@ Environment:
 | `current-workspace` | Print current workspace information. |
 | `read-selection` | Read the active selection from a terminal, file preview, Markdown, or browser surface. Plain output includes available source context; `--json` returns the complete socket response. |
 | `read-screen` | Read terminal text from a surface. `--selection` is a text-only compatibility alias for `read-selection`. |
-| `send` | Send text to a terminal surface as keystrokes (`surface.send_text`). `--paste`, before the text, sends it unchanged through the Cmd+V paste path (`terminal.paste`) instead, like `cmux paste`. Without `--paste`, large multi-line text prints a hint on stderr recommending it. |
-| `send-key` | Send one key to a terminal surface. |
-| `paste` | Paste text from an argument or stdin into a terminal surface through the Cmd+V paste path (`terminal.paste`). The CLI sends the text unchanged; Ghostty brackets it when the program enabled bracketed paste (otherwise newlines become Enter) and replaces unsafe control bytes with spaces. `--submit` presses the agent-aware submit key afterwards. Local socket only: `terminal.paste` is not on the `cmux ssh` relay allowlist. |
-| `send-panel` | Send text to a panel/surface. |
-| `send-key-panel` | Send one key to a panel/surface. |
+| `record` | Record a cmux window or a region of one to an mp4 or gif (`window.record.*`). `start` returns a recording id and the output path, `stop` closes the clip, `status` reports progress, `note` adds a caption drawn into later frames, `list` shows the current and recent recordings. One recording at a time; a recording stops itself at `--max-seconds`. The clip appears at its path when the recording ends, so an existing file there is replaced only once there is a finished clip to replace it with, and a recording that never closes leaves the path alone. Local socket only: `window.record.*` is not on the `cmux ssh` relay allowlist. |
+| `shot`, `screenshot` | Screenshot a cmux window or a region of one to a png or a jpeg (`window.screenshot`). Prints the pixel size, the byte count and the output path. `--region` takes the same four window-point numbers as `cmux record --region`, `--caption` draws a caption into the image, and `--quality` applies to jpeg only. Only cmux's own windows are captured, so no Screen Recording permission is involved and this works in a Release build and inside CI. The image is encoded beside the output path and moved into place, so an existing file there is replaced only once there is a complete image to replace it with. Local socket only: `window.screenshot` is not on the `cmux ssh` relay allowlist. |
+| `send` | Send text to a terminal surface as keystrokes (`surface.send_text`). `--paste`, before the text, sends it unchanged through the Cmd+V paste path (`terminal.paste`) instead, like `cmux paste`. Without `--paste`, large multi-line text prints a hint on stderr recommending it. Refuses to type over an agent prompt draft or into an open dialog unless `--force` comes before the text; see [Draft guard](#draft-guard). |
+| `send-key` | Send one key to a terminal surface. Refuses to send into an open agent dialog unless `--force`. |
+| `agent message` | Send a message to the agent in another workspace or surface (`agent.message.send`). Delivered through the recipient's agent hooks, never as keystrokes. `--reply-to <id>` answers a received message; `-` reads the text from stdin. |
+| `agent inbox` | List agent messages newest first (`agent.message.list`); `--mark-read` marks the listed messages read. |
+| `paste` | Paste text from an argument or stdin into a terminal surface through the Cmd+V paste path (`terminal.paste`). The CLI sends the text unchanged; Ghostty brackets it when the program enabled bracketed paste (otherwise newlines become Enter) and replaces unsafe control bytes with spaces. `--submit` presses the agent-aware submit key afterwards. Refuses to paste over an agent prompt draft or into an open dialog unless `--force`. Local socket only: `terminal.paste` is not on the `cmux ssh` relay allowlist. |
+| `send-panel` | Send text to a terminal surface. Same draft guard and `--force` as `send`. |
+| `send-key-panel` | Send one key to a terminal surface. Same dialog guard and `--force` as `send-key`. |
 | `notify` | Send a notification to a workspace/surface and return its notification id; `--clear` clears the resolved caller/target scope. Supports `--id-format refs\|uuids\|both` for human-readable handles. |
 | `list-notifications` | List queued notifications, including `created_at` and `tab_title`. |
 | `dismiss-notification` | Remove one notification, or remove already-read notifications with `--all-read`. |
@@ -283,6 +288,33 @@ lifecycle change, that ordinary CMUX projection reflects it. The execution
 transport, machine placement, physical attempt, and recovery truth remain with
 their existing owners rather than being duplicated into a second CMUX ledger.
 
+## Draft Guard
+
+Before writing, `send`, `send-panel` and `paste` (and `send --paste`) ask the
+app for `surface.input_state` and refuse when an agent's prompt holds text
+someone is typing, or when a question or permission dialog is open in an
+agent. `send-key` and `send-key-panel`, and `send` of text that only presses
+Enter, refuse only for an open dialog: `cmux send "text"` followed by
+`cmux send-key enter` leaves the sent text in the prompt, and the key has to
+go through. Surfaces without an agent are never blocked. A refusal writes nothing, prints the reason on stderr
+and exits non-zero. `--force`, before the text or key, skips the check. When
+the app can't answer `surface.input_state` (an older build, or a `cmux ssh`
+relay, which doesn't forward it) the commands write as before.
+
+`surface.input_state` is a v2 worker-lane socket method. It takes
+`surface_id`, or the usual workspace selectors for that workspace's focused
+surface, and returns:
+
+| Field | Meaning |
+| --- | --- |
+| `state` | `empty`, `draft`, `dialog`, or `unknown` when no agent prompt is on screen. Read from the active screen (not the scrolled viewport): Claude Code's and Codex's input rows, ignoring faint placeholder text, and key hints such as "Esc to cancel" below the input row. |
+| `draft_length` | Characters in the draft, when `state` is `draft`. The text itself is not returned. |
+| `agent` | Whether an agent reports lifecycle state for the surface. |
+| `lifecycle` | The agent's lifecycle: `unknown`, `running`, `idle` or `needsInput`. |
+| `waiting_on_human` | `lifecycle` is `needsInput`. Informational: it can stay set after an interrupt or an API error, so it does not block on its own. |
+| `blocks_typing` | Typing text now could disturb a human: a draft or a dialog, on a surface that runs an agent. |
+| `terminal` | Whether the surface is a terminal. |
+
 ## Surface Selection Contract
 
 `surface.read_selection` is a v2 worker-lane socket method advertised by
@@ -378,6 +410,11 @@ Auth subcommands:
 | `auth login` | Begin sign-in through the app and wait for completion. |
 | `auth logout` | Clear the current session. |
 | `auth team list`, `auth team use <team-id>`, `auth team create <name>` | List teams, select one, or create one. |
+| `auth team members [--team <id>]` | Roster, pending invitations, invite links and seat usage of the active (or named) team. |
+| `auth team invite <email>... [--role admin\|member] [--team <id>]` | Invite by email; the server sends the email. Pro and Max teams hold 3 members. |
+| `auth team link [--expires-days 1\|7\|30] [--max-uses N] [--team <id>]` | Print a reusable member-only invite link (shown once). |
+| `auth team revoke-invite <id> [--link] [--team <id>]` | Revoke a pending email invitation, or an invite link with `--link`. |
+| `auth team remove <user-id> [--team <id>]` | Remove a member, or leave the team with your own user id. |
 
 My Devices connects opted-in Macs on the same account through authenticated Iroh v2 sessions. It runs only while Cloud Machines is enabled. Fresh installations leave both discovery and access to this Mac off. The Cloud sidebar's My Devices menu and **Settings › Remote & Devices › Devices** expose **Discover other Macs** and **Make this Mac discoverable** independently; both write the same preferences. Turning off incoming Mac access disconnects incoming Mac sessions; turning off discovery stops this installation’s outgoing device connections. Existing iPhone pairing remains separately opt-in. Turning Cloud Machines off stops My Devices discovery, connections, and hosting. My Devices requires no Tailscale setup, pairing link, or address entry.
 
@@ -700,6 +737,7 @@ Docs topics:
 | `docs shortcuts` | Print shortcut docs and raw shortcut data resources. |
 | `docs api` | Print API docs and raw CLI contract resources. |
 | `docs browser` | Print browser automation docs and raw browser skill resources. |
+| `docs capture` | Print the capture skill and command reference for `cmux shot` and `cmux record`. Aliases include `screenshot`, `shot`, `record` and `gif`. |
 | `docs agents` | Print agent integration docs and raw integration resources. |
 | `docs workflows` | Print the saved-layout lifecycle plus the shipped workflow-example catalog. `--json` exposes stable example ids, task-fit cues, created/configured surfaces, config files, primitives, requirements, instantiation/adaptation guidance, source recipe links, and save-as-layout steps without a socket. Aliases include `templates`, `presets`, `examples`, and `layouts`. |
 
@@ -919,9 +957,10 @@ the expected text without connecting to a cmux socket.
 - `cmux review --help` -> `Usage: cmux review <subcommand> [options]`
 - `cmux vault --help` -> `Usage: cmux vault <subcommand> [options]`
 - `cmux help --help` -> `Usage: cmux help`
-- `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies]`
+- `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies]`
 - `cmux docs` -> `Topics:`
 - `cmux docs settings` -> `Config files:`
+- `cmux docs capture` -> `capture: Screenshot or record a cmux window`
 - `cmux docs dock` -> `dock: Custom right-sidebar terminal controls`
 - `cmux settings --help` -> `Usage: cmux settings [open [target]|path|docs|<target>]`
 - `cmux settings path` -> `Config files:`
@@ -1030,8 +1069,12 @@ the expected text without connecting to a cmux socket.
 - `cmux respawn-pane --help` -> `Usage: cmux respawn-pane`
 - `cmux display-message --help` -> `Usage: cmux display-message`
 - `cmux read-screen --help` -> `Usage: cmux read-screen`
+- `cmux record --help` -> `Usage: cmux record [start] [flags]`
+- `cmux shot --help` -> `Usage: cmux shot [flags]`
 - `cmux send --help` -> `Usage: cmux send`
 - `cmux send-key --help` -> `Usage: cmux send-key`
+- `cmux agent message --help` -> `Usage: cmux agent message`
+- `cmux agent inbox --help` -> `Usage: cmux agent inbox`
 - `cmux paste --help` -> `Usage: cmux paste`
 - `cmux send-panel --help` -> `Usage: cmux send-panel`
 - `cmux send-key-panel --help` -> `Usage: cmux send-key-panel`

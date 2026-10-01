@@ -1860,7 +1860,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         // value includes registered fallbacks (e.g. BrowserPanel's browser
         // defaults registration), and the restore below would persist such a
         // fallback for a key that was never actually written.
-        let domainName = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+        let domainName = ProcessDefaultsDomain.name ?? ProcessInfo.processInfo.processName
         let persisted = defaults.persistentDomain(forName: domainName) ?? [:]
         let previousValues = keys.map { key in
             (key: key, value: persisted[key])
@@ -1942,7 +1942,7 @@ struct FileEditorSettingsFileParsingTests {
         defaults: UserDefaults,
         _ body: () throws -> Void
     ) rethrows {
-        let domainName = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+        let domainName = ProcessDefaultsDomain.name ?? ProcessInfo.processInfo.processName
         let persisted = defaults.persistentDomain(forName: domainName) ?? [:]
         let previous = keys.map { ($0, persisted[$0]) }
         defer {
