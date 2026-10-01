@@ -87,6 +87,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private var watchedLink: CloudMachineLink?
     private var changeWatcherID: UUID?
     private var scheduledRefresh: Task<Void, Never>?
+    /// A daemon reconnect must upgrade any already-queued ordinary refresh to
+    /// a forced graph read instead of preserving the pre-reconnect graph.
+    private var scheduledRefreshForce = false
     private var portsCache: (ports: [Int], at: Date)?
     var portDiscovery = CloudPortDiscovery()
     private(set) var summaryGeneration: UInt64 = 0
@@ -233,6 +236,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         changeWatcherID = nil
         scheduledRefresh?.cancel()
         scheduledRefresh = nil
+        scheduledRefreshForce = false
         stateRecoveryRefreshTask?.cancel()
         stateRecoveryRefreshTask = nil
         stateRecoveryRefreshQueued = false
@@ -1602,7 +1606,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         watchedLink = nil
         changeWatcherID = nil
         catalog.markCloudStateStale(on: machine, reason: "event_feed_ended")
-        scheduleRefresh()
+        scheduleRefresh(force: true)
     }
     private func handle(_ change: CloudMachineLink.Change, from link: CloudMachineLink) async {
         // Events from a retired link can arrive after a reconnect. They are
@@ -1615,7 +1619,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             // to publish its listener. Always refresh on the successful
             // connection edge so stale hub/link errors disappear from the
             // machine, ports, and display rows immediately.
-            scheduleRefresh()
+            scheduleRefresh(force: true)
             notificationSync?.linkDidConnect()
         case .snapshot(let cursor, _, let payload):
             guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
@@ -1765,15 +1769,18 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Mutations also request a snapshot as a safety check. One main-actor yield
     /// coalesces calls made in the same transaction without adding a time guess.
     func reconcileRemovedRemoteWorkspace(_ id: String) { info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }; catalog.updateMachine(info, from: self) }
-    func scheduleRefresh() {
+    func scheduleRefresh(force: Bool = false) {
         let lifecycle = lifecycleGeneration
+        scheduledRefreshForce = scheduledRefreshForce || force
         guard scheduledRefresh == nil else { return }
         scheduledRefresh = Task { [weak self] in
             await Task.yield()
             guard !Task.isCancelled, let self else { return }
             self.scheduledRefresh = nil
             guard self.lifecycleGeneration == lifecycle, self.isRegisteredInCatalog() else { return }
-            await self.refreshCurrentGraph(force: false)
+            let requestedForce = self.scheduledRefreshForce
+            self.scheduledRefreshForce = false
+            await self.refreshCurrentGraph(force: requestedForce)
         }
     }
     func projectionsRestored() { reprojectRestoredPanes(generation: lifecycleGeneration) }
