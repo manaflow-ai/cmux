@@ -59,7 +59,7 @@ actor AcpmuxAgentService {
                 ?? object["prompt"]?.stringValue
                 ?? ""
             guard !text.isEmpty else { return nil }
-            self.id = "(index)-(role)-(text.hashValue)"
+            self.id = "\(index)-\(role)-\(text.hashValue)"
             self.role = role
             self.text = text
         }
@@ -200,15 +200,15 @@ actor AcpmuxAgentService {
         do {
             try process.run()
         } catch {
-            throw ServiceError.commandFailed("could not launch ACPmux: (error.localizedDescription)")
+            throw ServiceError.commandFailed("could not launch ACPmux: \(error.localizedDescription)")
         }
         let data = output.fileHandleForReading.readDataToEndOfFile()
         let errorData = errors.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
             let message = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-                ?? "ACPmux exited with status (process.terminationStatus)"
-            logger.error("command failed: (message, privacy: .public)")
+                ?? "ACPmux exited with status \(process.terminationStatus)"
+            logger.error("command failed: \(message, privacy: .public)")
             throw ServiceError.commandFailed(message)
         }
         let text = String(data: data, encoding: .utf8) ?? ""

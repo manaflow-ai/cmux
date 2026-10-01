@@ -150,7 +150,7 @@ final class AcpmuxAgentWindowController: NSWindowController, NSTableViewDataSour
                 sessions = try await service.listSessions()
                 sessionTable.reloadData()
                 try await load(id: session.id)
-                status.stringValue = "Session (session.name) is ready"
+                status.stringValue = "Session \(session.name) is ready"
             } catch { status.stringValue = error.localizedDescription }
         }
     }
@@ -217,4 +217,3 @@ final class AcpmuxAgentWindowController: NSWindowController, NSTableViewDataSour
         }
     }
 }
-
