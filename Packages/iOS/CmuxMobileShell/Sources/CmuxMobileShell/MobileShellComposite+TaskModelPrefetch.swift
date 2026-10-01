@@ -33,11 +33,9 @@ extension MobileShellComposite {
             cancelTaskModelPrefetchTasks()
             return
         }
-        // A new target snapshot is a new prefetch wave. Failed keys stay
-        // suppressed until this boundary so a worker cannot spin on a
-        // persistent backend failure, while a later connection or scene
-        // update gets a fresh attempt.
-        taskModelPrefetchFailedKeys.removeAll()
+        // Failed keys stay suppressed while their exact pairing, connection,
+        // and provider key remains desired. A new connection identity creates
+        // a new key and is eligible for its own attempt below.
         let desiredTargets = targets.reduce(
             into: [MobileTaskModelPrefetchKey: MobileTaskModelPrefetchTarget]()
         ) { desiredTargets, target in
