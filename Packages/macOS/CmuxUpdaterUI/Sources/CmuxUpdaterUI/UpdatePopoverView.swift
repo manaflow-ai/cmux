@@ -414,8 +414,14 @@ private struct InstallingView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack {
-                Spacer(minLength: 0)
+            UpdatePopoverButtonRow {
+                Button(String(localized: "common.later", defaultValue: "Later")) {
+                    installing.dismiss()
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                .controlSize(.small)
+            } trailing: {
                 Button(String(localized: "common.restartNow", defaultValue: "Restart Now")) {
                     installing.retryTerminatingApplication()
                     dismiss()
@@ -481,7 +487,7 @@ private struct WaitingToRelaunchView: View {
                 if let updateWhenClear = installing.updateWhenClear {
                     // No default-action shortcut on Update Now here: it can stop what agents run.
                     updateNowButton
-                    Button(String(localized: "update.relaunch.updateWhenAgentsFinish", defaultValue: "Update When Agents Finish")) {
+                    Button(String(localized: "update.updateWhenFinished", defaultValue: "Update When These Finish")) {
                         updateWhenClear()
                         dismiss()
                     }
