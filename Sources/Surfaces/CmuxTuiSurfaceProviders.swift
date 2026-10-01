@@ -1771,8 +1771,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             let requestedForce = self.scheduledRefreshForce
             self.scheduledRefreshForce = false
             guard self.lifecycleGeneration == lifecycle, self.isRegisteredInCatalog() else { return }
-            if requestedForce { await self.refreshDisplays() }
-            await self.refreshCurrentGraph(force: requestedForce)
+            await self.refresh(force: requestedForce)
         }
     }
     func projectionsRestored() { reprojectRestoredPanes(generation: lifecycleGeneration) }
