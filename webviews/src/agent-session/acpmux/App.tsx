@@ -218,8 +218,10 @@ export function VirtualTranscript({ rows, onToggleActivity, expanded, registry =
     if (old && node && old.tops.length === layout.tops.length) {
       // Content that shrank under the viewport has already clamped the live offset to
       // the new end; the offset recorded before this commit is where the reader was.
+      // A clamp lands exactly on the scroller's own end, which rounds the layout's
+      // fractional height, so compare with that rather than allow for the rounding.
       const live = node.scrollTop;
-      const clamped = live < scrolledTo.current.top - 0.5 && live >= layout.totalHeight - node.clientHeight - 1;
+      const clamped = live < scrolledTo.current.top - 0.5 && live >= node.scrollHeight - node.clientHeight - 0.5;
       // An offset that has not moved since it was recorded was at the latest row if it was
       // then; a shorter viewport alone would otherwise read as scrolled up.
       const unmoved = Math.abs(live - scrolledTo.current.top) <= 0.5;
