@@ -71,9 +71,10 @@ import Testing
         let admin = try await call(router, "browser.page.cookies.get", ["path": "/admin"]).get()
         #expect(names(admin) == ["sid@example.com"])
         if case .array(let cookies)? = all["cookies"] {
-            #expect(cookies[0]["http_only"] == true)
+            // The old app's keys: camelCase except session_only.
+            #expect(cookies[0]["httpOnly"] == true)
             #expect(cookies[0]["session_only"] == true)
-            #expect(cookies[1]["host_only"] == false)
+            #expect(cookies[1]["hostOnly"] == false)
         }
     }
 
@@ -98,6 +99,20 @@ import Testing
         let result = try await call(router, "browser.page.cookies.clear", ["domain": ".Example.com"]).get()
         #expect(result["cleared"] == 3)
         #expect(!deleted(engine).contains(Self.other))
+    }
+
+    @Test func aClearFilterIsRefusedRatherThanIgnored() async throws {
+        let (router, engine) = install()
+        let wrong = await call(router, "browser.page.cookies.clear", ["domain": "example.com", "path": 1])
+        #expect(wrong.failure?.code == "invalid_params")
+        #expect(wrong.failure?.data?["param"] == "path")
+        let noHost = await call(router, "browser.page.cookies.clear", ["url": "example.com"])
+        #expect(noHost.failure?.data?["param"] == "url")
+        #expect(engine.operations.isEmpty)
+        // value narrows the clear instead of being dropped.
+        let one = try await call(router, "browser.page.cookies.clear", ["name": "sid", "value": "2"]).get()
+        #expect(one["cleared"] == 1)
+        #expect(deleted(engine) == [Self.admin])
     }
 
     @Test func clearTakesExactlyOneOfAllOrAScope() async throws {
@@ -125,6 +140,14 @@ import Testing
             BrowserPageCookie(name: "c", value: "3", domain: "app.example.com", expires: 1_900_000_000, httpOnly: true),
         ])
         #expect(await call(router, "browser.page.cookies.set", ["name": "d"]).failure?.code == "invalid_params")
+        #expect(await call(router, "browser.page.cookies.set", ["name": "d", "value": "a;b"]).failure?.code == "invalid_params")
+    }
+
+    @Test func aDomainWinsOverTheURLsHost() async throws {
+        let (router, engine) = install()
+        _ = try await call(router, "browser.page.cookies.set",
+                           ["name": "a", "value": "1", "url": "https://app.example.com/", "domain": ".example.com"]).get()
+        #expect(engine.operations == [.cookies(.set([BrowserPageCookie(name: "a", value: "1", domain: ".example.com")]))])
     }
 
     @Test func storageRunsInThePageAndReportsItsArea() async throws {
@@ -144,5 +167,19 @@ import Testing
         #expect(scripts[1].contains("window.localStorage") && scripts[1].contains("setItem(\"theme\", \"light\")"))
         #expect(scripts[2].contains("st.clear()"))
         #expect(await call(router, "browser.page.storage.set", ["value": "x"]).failure?.code == "invalid_params")
+        #expect(await call(router, "browser.page.storage.set", ["key": "k"]).failure?.code == "invalid_params")
+        #expect(await call(router, "browser.page.storage.clear", ["type": "cookies"]).failure?.code == "invalid_params")
+    }
+
+    @Test func storageReadsTheOldParamsToo() async throws {
+        let (router, engine) = install()
+        let got = try await call(router, "browser.page.storage.clear", ["storage": " Session "]).get()
+        #expect(got["type"] == "session")
+        _ = try await call(router, "browser.page.storage.set", ["key": "n", "value": 3]).get()
+        if case .evaluate(let script)? = engine.operations.last {
+            #expect(script.contains("setItem(\"n\", \"3\")"))
+        } else {
+            Issue.record("expected a storage script")
+        }
     }
 }

@@ -49,8 +49,8 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     func cookies() async throws -> [BrowserCookie]
     /// Stores `cookie` in the tab's profile.
     func setCookie(_ cookie: BrowserCookie) async throws
-    /// Deletes the cookies with `cookie`'s name, domain and path.
-    func deleteCookie(_ cookie: BrowserCookie) async throws
+    /// Deletes the cookies with each one's name, domain and path.
+    func deleteCookies(_ cookies: [BrowserCookie]) async throws
 
     /// Highlights the next or previous match of `text`.
     func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult
@@ -78,5 +78,5 @@ extension BrowserTab {
 
     public func cookies() async throws -> [BrowserCookie] { throw BrowserTabError.unsupported("cookies") }
     public func setCookie(_ cookie: BrowserCookie) async throws { throw BrowserTabError.unsupported("cookies") }
-    public func deleteCookie(_ cookie: BrowserCookie) async throws { throw BrowserTabError.unsupported("cookies") }
+    public func deleteCookies(_ cookies: [BrowserCookie]) async throws { throw BrowserTabError.unsupported("cookies") }
 }

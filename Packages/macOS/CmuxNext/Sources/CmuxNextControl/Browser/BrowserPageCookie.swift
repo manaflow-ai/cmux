@@ -29,10 +29,10 @@ public struct BrowserPageCookie: Sendable, Hashable {
     /// The domain without a domain cookie's leading dot, lowercased.
     var host: String { (domain.hasPrefix(".") ? String(domain.dropFirst()) : domain).lowercased() }
 
-    /// The old `cmux browser cookies` shape (`http_only`, `session_only`).
+    /// The old `cmux browser cookies` shape (`hostOnly`, `httpOnly`, `session_only`).
     public var json: JSONValue {
-        ["name": .string(name), "value": .string(value), "domain": .string(domain), "host_only": .bool(hostOnly),
-         "path": .string(path), "secure": .bool(secure), "http_only": .bool(httpOnly), "session_only": .bool(expires == nil),
+        ["name": .string(name), "value": .string(value), "domain": .string(domain), "hostOnly": .bool(hostOnly),
+         "path": .string(path), "secure": .bool(secure), "httpOnly": .bool(httpOnly), "session_only": .bool(expires == nil),
          "expires": expires.map { .number($0.rounded(.down)) } ?? .null]
     }
 
@@ -41,7 +41,7 @@ public struct BrowserPageCookie: Sendable, Hashable {
         guard let name = json["name"]?.stringValue, let domain = json["domain"]?.stringValue else { return nil }
         self.init(name: name, value: json["value"]?.stringValue ?? "", domain: domain, path: json["path"]?.stringValue ?? "/",
                   expires: json["expires"]?.doubleValue, secure: json["secure"]?.boolValue ?? false,
-                  httpOnly: json["http_only"]?.boolValue ?? false)
+                  httpOnly: json["httpOnly"]?.boolValue ?? json["http_only"]?.boolValue ?? false)
     }
 
     /// Whether a request to `url` would carry this cookie (RFC 6265 domain
@@ -51,7 +51,9 @@ public struct BrowserPageCookie: Sendable, Hashable {
         if let expires, expires <= now.timeIntervalSince1970 { return false }
         if secure, url.scheme?.lowercased() != "https" { return false }
         let domainMatch = requestHost == host || (!hostOnly && requestHost.hasSuffix("." + host))
-        let requestPath = url.path.isEmpty ? "/" : url.path
+        // Percent-encoded and with its trailing slash, as the request sends it.
+        let encoded = url.path(percentEncoded: true)
+        let requestPath = encoded.isEmpty ? "/" : encoded
         let pathMatch = requestPath == path || (requestPath.hasPrefix(path) && (path.hasSuffix("/") || requestPath.dropFirst(path.count).hasPrefix("/")))
         return domainMatch && pathMatch
     }

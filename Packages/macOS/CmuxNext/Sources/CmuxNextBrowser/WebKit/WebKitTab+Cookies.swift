@@ -14,21 +14,16 @@ extension WebKitTab {
     }
 
     public func setCookie(_ cookie: BrowserCookie) async throws {
-        var properties: [HTTPCookiePropertyKey: Any] = [
-            .name: cookie.name, .value: cookie.value, .domain: cookie.domain, .path: cookie.path,
-        ]
-        if cookie.secure { properties[.secure] = "TRUE" }
-        if let expires = cookie.expires { properties[.expires] = expires }
-        if cookie.httpOnly { properties[HTTPCookiePropertyKey("HttpOnly")] = "TRUE" }
-        guard let made = HTTPCookie(properties: properties) else {
+        guard let made = cookie.httpCookie else {
             throw BrowserTabError.unsupported("Invalid cookie \(cookie.name) for \(cookie.domain)")
         }
         await cookieStore.setCookie(made)
     }
 
-    public func deleteCookie(_ cookie: BrowserCookie) async throws {
-        for stored in await cookieStore.allCookies()
-        where stored.name == cookie.name && stored.domain == cookie.domain && stored.path == cookie.path {
+    /// Reads the store once, then deletes each match.
+    public func deleteCookies(_ cookies: [BrowserCookie]) async throws {
+        let doomed = Set(cookies.map { [$0.name, $0.domain, $0.path] })
+        for stored in await cookieStore.allCookies() where doomed.contains([stored.name, stored.domain, stored.path]) {
             await cookieStore.deleteCookie(stored)
         }
     }

@@ -55,10 +55,11 @@ for `state`. `fill` replaces the field's value; `type` types into it.
 Selectors are CSS selectors or snapshot refs (`e3`, `@e3`). Add `--json` before
 the scope for machine-readable output (`cmux --json browser "$TAB" state`).
 
-`cookies` reads and changes the tab profile's cookies. `get` filters by
-`--name` (exact), `--domain` (substring) and `--path`. `set NAME VALUE` takes
-the domain from `--url`, else `--domain` (a leading dot covers subdomains),
-else the tab's page; `--path` defaults to `/`, and `--expires` takes Unix
+`cookies` reads and changes the tab profile's cookies (fields `name`, `value`,
+`domain`, `path`, `expires`, `secure`, `httpOnly`, `hostOnly`, `session_only`).
+`get` filters by `--name` (exact), `--domain` (substring) and `--path`.
+`set NAME VALUE` takes the domain from `--domain` (a leading dot covers
+subdomains), else `--url`'s host, else the tab's page; `--path` defaults to `/`, and `--expires` takes Unix
 seconds. `clear` takes `--all` or a scope: `--name`, `--url` (the cookies a
 request there would send), `--domain` (that domain and its subdomains),
 `--path`; it reports how many it cleared.

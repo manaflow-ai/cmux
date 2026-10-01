@@ -13,11 +13,14 @@ extension AppBrowserPage {
             case .set(let cookies):
                 for cookie in cookies { try await page.setCookie(browserCookie(cookie)) }
             case .delete(let cookies):
-                for cookie in cookies { try await page.deleteCookie(browserCookie(cookie)) }
+                try await page.deleteCookies(cookies.map(browserCookie))
             }
             return [:]
         } catch let error as ControlError {
             throw error
+        } catch BrowserTabError.unsupported("cookies") {
+            // A hibernated or still-starting tab has no engine store yet.
+            throw ControlError(code: "unavailable", message: "The browser page is not running; show the tab and retry")
         } catch {
             throw ControlError(code: "app_error", message: String(describing: error))
         }

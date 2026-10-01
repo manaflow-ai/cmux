@@ -31,13 +31,15 @@ extension CEFTab {
             params["url"] = "\(cookie.secure ? "https" : "http")://\(cookie.domain)\(cookie.path)"
         }
         if let expires = cookie.expires { params["expires"] = expires.timeIntervalSince1970 }
-        let json = try await runtime.devTools(browserID, method: "Network.setCookie", params: params)
-        if json.contains("\"success\":false") { throw BrowserTabError.unsupported("Chromium refused cookie \(cookie.name) for \(cookie.domain)") }
+        // A refused cookie is a protocol error from devTools.
+        _ = try await runtime.devTools(browserID, method: "Network.setCookie", params: params)
     }
 
-    public func deleteCookie(_ cookie: BrowserCookie) async throws {
+    public func deleteCookies(_ cookies: [BrowserCookie]) async throws {
         guard let browserID, !isClosed else { throw BrowserTabError.closed }
-        _ = try await runtime.devTools(browserID, method: "Network.deleteCookies",
-                                       params: ["name": cookie.name, "domain": cookie.domain, "path": cookie.path])
+        for cookie in cookies {
+            _ = try await runtime.devTools(browserID, method: "Network.deleteCookies",
+                                           params: ["name": cookie.name, "domain": cookie.domain, "path": cookie.path])
+        }
     }
 }
