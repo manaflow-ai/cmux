@@ -1,5 +1,6 @@
 import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextDaemon
 import CmuxNextSettings
 import Foundation
 
@@ -17,7 +18,10 @@ enum AppBrowserPage {
         }
         switch operation {
         case .navigate(let raw):
-            guard let target = normalizedURL(raw) else { throw ControlError(code: "invalid_params", message: "Invalid url: \(raw)") }
+            let chromium = tab.browserEngine == BrowserEngineTag.cef.rawValue
+            guard let target = BrowserURLResolver(allowsChromiumSchemes: chromium).url(for: raw) else {
+                throw ControlError(code: "invalid_params", message: "Invalid url: \(raw)")
+            }
             page.load(target)
         case .back: page.goBack()
         case .forward: page.goForward()
@@ -33,12 +37,5 @@ enum AppBrowserPage {
             }
         }
         return [:]
-    }
-
-    /// URLs with a scheme pass through; bare hosts get https://.
-    static func normalizedURL(_ raw: String) -> URL? {
-        let text = raw.trimmingCharacters(in: .whitespaces)
-        if let url = URL(string: text), url.scheme != nil { return url }
-        return URL(string: "https://" + text)
     }
 }
