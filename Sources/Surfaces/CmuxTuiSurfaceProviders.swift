@@ -87,8 +87,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private var watchedLink: CloudMachineLink?
     private var changeWatcherID: UUID?
     private var scheduledRefresh: Task<Void, Never>?
-    var recoveryRetryTask: Task<Void, Never>?; var recoveryRetryCount = 0
-    static let recoveryRetryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(5), .seconds(15), .seconds(30)]
     private var portsCache: (ports: [Int], at: Date)?
     var portDiscovery = CloudPortDiscovery()
     private(set) var summaryGeneration: UInt64 = 0
@@ -292,7 +290,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// - Parameter stopReason: What open panes present afterwards. Panes stay
     ///   open; each keeps a card for this reason instead of a frozen frame.
     func suspendForFeatureFlag(stopReason: CloudTuiManualMirrorStopReason = .cloudUnavailable) {
-        isFeatureSuspended = true; resetRecoveryRetry()
+        isFeatureSuspended = true
         // The first read after resuming must arm afresh, never adopt at once.
         equalCursorConflict = nil
         stopSharedTransportResources()
@@ -499,7 +497,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard await reconcileManualMirrorAttachments(
                 connected: connected, link: link, lifecycle: lifecycle, refresh: generation
             ) else { return false }
-            if snapshotEstablishedCurrentGraph { resetRecoveryRetry() } else { scheduleRecoveryRetry() }
+
         } catch {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             if CloudMachineAccessLoss(error: error) != nil {
@@ -512,7 +510,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             linkState = eventsFeedWarning == nil ? (status?.state ?? .error) : .error
             let text = eventsFeedWarning ?? status?.error ?? CloudMachineLink.errorText(error)
             linkError = text
-            scheduleRecoveryRetry()
             #if DEBUG
             cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
             #endif
