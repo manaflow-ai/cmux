@@ -768,6 +768,11 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.publication_list`, `vm.publication_create`, `vm.publication_verify`, `vm.publication_update`, `vm.publication_delete` | `cloud domains list`, `publish`, `access`, `rm`; `vm.publication_verify` is the app-side publication retry path |
 | `vm.domain_list`, `vm.domain_verify` | `cloud domains zones`, `cloud domains verify` |
 | `surface.catalog`, `surface.project`, `surface.new_terminal` | `vm tree` / `surface ls`, `surface open` / `vm open`, `surface new-terminal` / `vm agent` |
+| `vm.env_set`, `vm.file_put` | Secret-safe environment transfer and authenticated file upload primitives used by `vm env set` and `vm push` |
+| `vm.pause`, `vm.resume` | Suspend or resume a machine without deleting it |
+| `vm.reflection` | Provider and transport reflection data used by diagnostics |
+| `vm.snapshot_delete`, `vm.snapshot_list` | List and remove snapshots for the selected machine |
+| `vm.terminal_output`, `vm.terminal_wait_exit` | Read terminal output incrementally and wait for process exit |
 
 The authenticated public-domain workflow is **shipped on this branch**: use
 `cmux cloud domains` for generated or custom HTTPS publications. `cmux vm open
