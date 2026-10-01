@@ -20306,137 +20306,6 @@
         }
       }
     },
-    "control.error.pressKey": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unknown key %@; use a key name such as Enter, Tab, ArrowDown, or one character"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مفتاح غير معروف %@؛ استخدم اسم مفتاح مثل Enter أو Tab أو ArrowDown أو حرفًا واحدًا"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nepoznata tipka %@; koristite naziv tipke kao što su Enter, Tab, ArrowDown ili jedan znak"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ukendt tast %@; brug et tastnavn som Enter, Tab, ArrowDown eller ét tegn"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unbekannte Taste %@; verwende einen Tastennamen wie Enter, Tab, ArrowDown oder ein einzelnes Zeichen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tecla desconocida %@; usa un nombre de tecla como Enter, Tab, ArrowDown o un solo carácter"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Touche inconnue %@ ; utilisez un nom de touche comme Enter, Tab, ArrowDown ou un seul caractère"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tasto sconosciuto %@; usa un nome di tasto come Enter, Tab, ArrowDown o un solo carattere"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不明なキー %@。Enter、Tab、ArrowDown などのキー名か 1 文字を指定してください"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "គ្រាប់ចុចមិនស្គាល់ %@; ប្រើឈ្មោះគ្រាប់ចុចដូចជា Enter, Tab, ArrowDown ឬតួអក្សរមួយ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "알 수 없는 키 %@. Enter, Tab, ArrowDown 같은 키 이름이나 문자 하나를 사용하세요"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ukjent tast %@; bruk et tastnavn som Enter, Tab, ArrowDown eller ett tegn"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nieznany klawisz %@; użyj nazwy klawisza, np. Enter, Tab, ArrowDown, albo jednego znaku"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tecla desconhecida %@; use um nome de tecla como Enter, Tab, ArrowDown ou um único caractere"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Неизвестная клавиша %@; укажите имя клавиши, например Enter, Tab, ArrowDown, или один символ"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ไม่รู้จักแป้น %@ ใช้ชื่อแป้น เช่น Enter, Tab, ArrowDown หรืออักขระหนึ่งตัว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bilinmeyen tuş %@; Enter, Tab, ArrowDown gibi bir tuş adı ya da tek bir karakter kullanın"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Невідома клавіша %@; укажіть назву клавіші, як-от Enter, Tab, ArrowDown, або один символ"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Phím không xác định %@; hãy dùng tên phím như Enter, Tab, ArrowDown hoặc một ký tự"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未知按键 %@；请使用 Enter、Tab、ArrowDown 等按键名称或单个字符"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未知按鍵 %@；請使用 Enter、Tab、ArrowDown 等按鍵名稱或單一字元"
-          }
-        }
-      }
-    },
     "control.error.scrollOffset": {
       "extractionState": "manual",
       "localizations": {
@@ -20564,6 +20433,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "browser.page.scroll 需要 params.dx 或 params.dy"
+          }
+        }
+      }
+    },
+    "control.error.scrollOffsetNumber": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ must be a finite number of pixels"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون params.%@ عددًا محدودًا من البكسلات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ mora biti konačan broj piksela"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ skal være et endeligt antal pixel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ muss eine endliche Anzahl von Pixeln sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ debe ser un número finito de píxeles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ doit être un nombre fini de pixels"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ deve essere un numero finito di pixel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ は有限のピクセル数である必要があります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ ត្រូវតែជាចំនួនភីកសែលកំណត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@는 유한한 픽셀 수여야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ må være et endelig antall piksler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ musi być skończoną liczbą pikseli"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ deve ser um número finito de pixels"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ должно быть конечным числом пикселей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ ต้องเป็นจำนวนพิกเซลที่จำกัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ sonlu bir piksel sayısı olmalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ має бути скінченним числом пікселів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ phải là một số pixel hữu hạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ 必须是有限的像素数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ 必須是有限的像素數"
           }
         }
       }

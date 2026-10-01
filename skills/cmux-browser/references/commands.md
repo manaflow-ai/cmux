@@ -57,15 +57,18 @@ Selectors are CSS selectors or snapshot refs (`e3`, `@e3`). Add `--json` before
 the scope for machine-readable output (`cmux --json browser "$TAB" state`).
 
 `press KEY` sends a key to the focused element (or `--selector`'s element,
-focused first). Keys are W3C names (`Enter`, `Tab`, `Escape`, `ArrowDown`,
-`PageDown`, `F5`, `Space`) or one character; combinations such as `Control+a`
-are not accepted. The events are page-level (untrusted): Space activates
+focused first). Keys are W3C key or code names (`Enter`, `Tab`, `Escape`,
+`ArrowDown`, `PageDown`, `F5`, `Space`, `Shift`, `KeyA`, `Slash`, `Numpad1`) or
+one character; any other name is sent as is, so `Control+a` is one opaque key,
+not a combination. The events are page-level (untrusted): Space activates
 buttons and checkboxes and Enter submits a single-line form field, but browser
 defaults such as Tab moving focus do not run. `hover` sends pointer and mouse
 over, enter and move events. `select SELECTOR VALUE` picks an option by its
 value. `check` and `uncheck` click only when the state differs and fail with
 `not_checkable`, `disabled` or `not_changed`. `scroll` scrolls the page, or
-one element, by `--dx`/`--dy` CSS pixels and prints the new position.
+one element, by `--dx`/`--dy` CSS pixels (`scroll 400` is `--dy 400`) and
+prints the new position. The old flag forms (`--selector`, `--value`, `--key`)
+and verb aliases (`key`, `scrollintoview`) still work.
 These act once and do not retry for an element that is still loading.
 
 ## Daemon browsers (`browser_…`)

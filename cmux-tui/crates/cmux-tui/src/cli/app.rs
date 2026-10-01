@@ -204,61 +204,27 @@ fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
             params.insert("text".into(), json!(text));
             if verb == "fill" { "browser.page.fill" } else { "browser.page.type" }
         }
-        ("hover" | "scroll-into-view" | "check" | "uncheck", [selector]) => {
-            params.insert("selector".into(), json!(selector));
-            match verb.as_str() {
-                "hover" => "browser.page.hover",
-                "check" => "browser.page.check",
-                "uncheck" => "browser.page.uncheck",
-                _ => "browser.page.scroll_into_view",
-            }
-        }
-        ("select", [selector, value]) => {
-            params.insert("selector".into(), json!(selector));
-            params.insert("value".into(), json!(value));
-            "browser.page.select"
-        }
-        ("press" | "scroll", _) => {
-            let split = rest.iter().position(|arg| arg.starts_with("--")).unwrap_or(rest.len());
-            let (positional, flags) = rest.split_at(split);
-            let options = Options::parse(flags, &["selector", "dx", "dy"], &[])?;
-            let selector = match positional {
-                [] => options.value("selector"),
-                [selector] if verb == "scroll" && options.value("selector").is_none() => {
-                    Some(selector.as_str())
-                }
-                [key] if verb == "press" => {
-                    params.insert("key".into(), json!(key));
-                    options.value("selector")
-                }
-                _ => return Err(usage()),
-            };
-            if let Some(selector) = selector {
-                params.insert("selector".into(), json!(selector));
-            }
-            if verb == "press" {
-                if !params.contains_key("key")
-                    || options.value("dx").or(options.value("dy")).is_some()
-                {
-                    return Err(usage());
-                }
-                "browser.page.press"
-            } else {
-                for key in ["dx", "dy"] {
-                    if let Some(offset) = options.value(key) {
-                        let offset: f64 = offset.parse().map_err(|_| usage())?;
-                        params.insert(key.into(), json!(offset));
-                    }
-                }
-                if !params.contains_key("dx") && !params.contains_key("dy") {
-                    return Err(usage());
-                }
-                "browser.page.scroll"
-            }
-        }
+        (
+            "hover" | "scroll-into-view" | "scrollintoview" | "scrollinto" | "check" | "uncheck"
+            | "select" | "press" | "key" | "scroll",
+            _,
+        ) => input_verb(verb, rest, &mut params).ok_or_else(usage)??,
         _ => return Err(usage()),
     };
-    if !matches!(verb.as_str(), "snapshot" | "press" | "scroll") && words.len() != rest.len() {
+    let flagged = [
+        "snapshot",
+        "hover",
+        "scroll-into-view",
+        "scrollintoview",
+        "scrollinto",
+        "check",
+        "uncheck",
+        "select",
+        "press",
+        "key",
+        "scroll",
+    ];
+    if !flagged.contains(&verb.as_str()) && words.len() != rest.len() {
         return Err(usage());
     }
     Ok(AppCommand::Call {
@@ -267,6 +233,95 @@ fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
         timeout: READ_TIMEOUT,
         pick: None,
     })
+}
+
+/// Positional words and `--flags` in any order; a valued flag takes the next word.
+fn words_and_options(
+    args: &[String],
+    valued: &[&str],
+    flags: &[&str],
+) -> Result<(Vec<String>, Options), UsageError> {
+    let (mut words, mut options) = (Vec::new(), Vec::new());
+    let mut index = 0;
+    while index < args.len() {
+        let arg = &args[index];
+        match arg.strip_prefix("--") {
+            Some(name) => {
+                options.push(arg.clone());
+                if valued.contains(&name) && index + 1 < args.len() {
+                    options.push(args[index + 1].clone());
+                    index += 1;
+                }
+            }
+            None => words.push(arg.clone()),
+        }
+        index += 1;
+    }
+    Ok((words, Options::parse(&options, valued, flags)?))
+}
+
+/// `hover|check|uncheck|scroll-into-view SELECTOR`, `select SELECTOR VALUE`,
+/// `press KEY`, `scroll [SELECTOR|DY] [--dx N] [--dy N]`. Each positional
+/// also takes the old CLI's flag (`--selector`, `--value`, `--key`). None is
+/// a usage error.
+fn input_verb(
+    verb: &str,
+    args: &[String],
+    params: &mut Map<String, Value>,
+) -> Option<Result<&'static str, UsageError>> {
+    let (words, options) =
+        match words_and_options(args, &["selector", "value", "key", "dx", "dy"], &[]) {
+            Ok(parsed) => parsed,
+            Err(error) => return Some(Err(error)),
+        };
+    let mut words = words.into_iter();
+    let mut take = |flag: &str| options.value(flag).map(str::to_owned).or_else(|| words.next());
+    let (method, needs): (&'static str, &[&str]) = match verb {
+        "hover" => ("browser.page.hover", &["selector"]),
+        "check" => ("browser.page.check", &["selector"]),
+        "uncheck" => ("browser.page.uncheck", &["selector"]),
+        "select" => ("browser.page.select", &["selector", "value"]),
+        "press" | "key" => ("browser.page.press", &["key"]),
+        "scroll" => ("browser.page.scroll", &[]),
+        _ => ("browser.page.scroll_into_view", &["selector"]),
+    };
+    for key in needs {
+        params.insert((*key).into(), json!(take(key)?));
+    }
+    if method == "browser.page.press" {
+        if let Some(selector) = options.value("selector") {
+            params.insert("selector".into(), json!(selector));
+        }
+    }
+    if method == "browser.page.scroll" {
+        // The old `scroll N` scrolled by N down; any other word is a selector.
+        let mut dy = options.value("dy").map(str::to_owned);
+        let mut selector = options.value("selector").map(str::to_owned);
+        if let Some(word) = words.next() {
+            match word.parse::<f64>() {
+                Ok(_) if dy.is_none() => dy = Some(word),
+                _ if selector.is_none() => selector = Some(word),
+                _ => return None,
+            }
+        }
+        if let Some(selector) = selector {
+            params.insert("selector".into(), json!(selector));
+        }
+        for (key, offset) in [("dx", options.value("dx").map(str::to_owned)), ("dy", dy)] {
+            let Some(offset) = offset else { continue };
+            let offset: f64 = offset.parse().ok().filter(|offset: &f64| offset.is_finite())?;
+            params.insert(key.into(), json!(offset));
+        }
+        if !params.contains_key("dx") && !params.contains_key("dy") {
+            return None;
+        }
+    } else if options.value("dx").or(options.value("dy")).is_some() {
+        return None;
+    }
+    if words.next().is_some() {
+        return None;
+    }
+    Some(Ok(method))
 }
 
 /// `action.run` for an action id or CLI name: `--target ID`, `--no-wait`
@@ -910,8 +965,35 @@ mod tests {
             page(&["scroll", "#list", "--dx=-50"]).unwrap(),
             ("browser.page.scroll", json!({ "tab": "tab_01ab", "selector": "#list", "dx": -50.0 }))
         );
+        // The old CLI's flag forms, flags first, and `scroll N`.
+        assert_eq!(
+            page(&["press", "--selector", "#q", "--key", "Enter"]).unwrap(),
+            ("browser.page.press", json!({ "tab": "tab_01ab", "key": "Enter", "selector": "#q" }))
+        );
+        assert_eq!(page(&["key", "Tab"]).unwrap().0, "browser.page.press");
+        assert_eq!(
+            page(&["select", "--selector", "#size", "--value", "m"]).unwrap(),
+            (
+                "browser.page.select",
+                json!({ "tab": "tab_01ab", "selector": "#size", "value": "m" })
+            )
+        );
+        assert_eq!(
+            page(&["scrollintoview", "--selector", "#f"]).unwrap(),
+            ("browser.page.scroll_into_view", json!({ "tab": "tab_01ab", "selector": "#f" }))
+        );
+        assert_eq!(
+            page(&["scroll", "400"]).unwrap(),
+            ("browser.page.scroll", json!({ "tab": "tab_01ab", "dy": 400.0 }))
+        );
+        assert_eq!(
+            page(&["scroll", "--dy", "-50", "#list"]).unwrap(),
+            ("browser.page.scroll", json!({ "tab": "tab_01ab", "selector": "#list", "dy": -50.0 }))
+        );
         for bad in [
             &["press"][..],
+            &["scroll", "--dy", "inf"],
+            &["scroll", "--dx", "NaN"],
             &["press", "a", "b"],
             &["press", "a", "--dy", "1"],
             &["scroll"],

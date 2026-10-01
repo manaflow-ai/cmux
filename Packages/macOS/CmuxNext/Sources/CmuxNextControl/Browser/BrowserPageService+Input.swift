@@ -1,4 +1,4 @@
-public import CmuxNextSettings
+import CmuxNextSettings
 import Foundation
 
 /// `browser.page.press|hover|scroll|scroll_into_view|select|check|uncheck`:
@@ -10,11 +10,8 @@ extension BrowserPageService {
         let engine = engine
         return [
             input("press", engine: engine) { call in
-                let name = try Self.string(call, "key")
-                guard let key = BrowserPageScripts.keyEvent(name) else {
-                    throw ControlError.invalidParams(ControlStrings.format("control.error.pressKey",
-                                                                           "Unknown key %@; use a key name such as Enter, Tab, ArrowDown, or one character", name))
-                }
+                // Unknown names pass through as an opaque key, as the old app did.
+                let key = BrowserPageKey(try Self.string(call, "key"))
                 return BrowserPageScripts.press(key, selector: Self.optionalString(call, "selector"))
             },
             input("hover", engine: engine) { BrowserPageScripts.hover(try Self.string($0, "selector")) },
@@ -65,7 +62,7 @@ extension BrowserPageService {
     static func offset(_ call: ControlCall, _ key: String) throws -> Double {
         guard let raw = call.request.params[key] else { return 0 }
         guard let value = raw.doubleValue, value.isFinite else {
-            throw ControlError.invalidParams(ControlStrings.text("control.error.scrollOffset", "browser.page.scroll needs params.dx or params.dy"))
+            throw ControlError.invalidParams(ControlStrings.format("control.error.scrollOffsetNumber", "params.%@ must be a finite number of pixels", key))
         }
         return value
     }

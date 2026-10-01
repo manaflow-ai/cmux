@@ -119,8 +119,9 @@ On `feat-cmux-next-browser-input` (browser group 4):
   `press KEY [--selector S]`, `hover`, `scroll [SELECTOR] [--dx N] [--dy N]`,
   `scroll-into-view`, `select SELECTOR VALUE`, `check`, `uncheck`: page scripts like
   `click`, with the old app's events and errors (`not_checkable`, `disabled`,
-  `not_changed`). `press` is the old app's page-world fallback for every key (W3C names or
-  one character, no combinations); the old app replayed mapped keys as trusted native
+  `not_changed`). `press` is the old app's page-world fallback for every key, with its key table
+  (`BrowserPageKey`: names, punctuation codes, legacy keyCode, location; unknown names pass
+  through); the old app replayed mapped keys as trusted native
   events, which needs engine input support (not done). Selector actions do not retry for
   an element that has not appeared yet (browser group 1 adds `wait` for that).
 

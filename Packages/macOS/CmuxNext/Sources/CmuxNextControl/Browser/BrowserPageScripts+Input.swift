@@ -61,7 +61,8 @@ extension BrowserPageScripts {
     /// native setter, since clicking only ever selects it.
     static func check(_ selector: String, _ desired: Bool) -> String {
         wrap(find(selector) + """
-        if (!('checked' in el)) { return { error: 'Element is not checkable: ' + raw, code: 'not_checkable' }; }
+        // Every input has `checked`; only checkboxes and radios use it.
+        if (!('checked' in el) || (el instanceof HTMLInputElement && el.type !== 'checkbox' && el.type !== 'radio')) { return { error: 'Element is not checkable: ' + raw, code: 'not_checkable' }; }
         if (el.disabled) { return { error: 'Element is disabled: ' + raw, code: 'disabled' }; }
         const desired = \(desired);
         el.scrollIntoView({ block: 'nearest', inline: 'nearest' });

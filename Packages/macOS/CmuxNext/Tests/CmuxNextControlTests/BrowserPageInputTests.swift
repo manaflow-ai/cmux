@@ -41,17 +41,22 @@ import Testing
         return await router.handle(ControlRequest(method: "browser.page." + verb, params: params))
     }
 
-    @Test func keyNamesResolveToTheirDomFields() throws {
-        let enter = try #require(BrowserPageScripts.keyEvent("Enter"))
+    @Test func keyNamesResolveAsTheOldAppDid() {
+        let enter = BrowserPageKey("Enter")
         #expect(enter.code == "Enter" && enter.keyCode == 13)
-        #expect(BrowserPageScripts.keyEvent("space")?.key == " ")
-        #expect(BrowserPageScripts.keyEvent("Esc")?.key == "Escape")
-        #expect(BrowserPageScripts.keyEvent("F5")?.keyCode == 116)
-        let letter = try #require(BrowserPageScripts.keyEvent("a"))
-        #expect(letter.key == "a" && letter.code == "KeyA" && letter.keyCode == 65)
-        #expect(BrowserPageScripts.keyEvent("7")?.code == "Digit7")
-        #expect(BrowserPageScripts.keyEvent("ß")?.code == "")
-        #expect(BrowserPageScripts.keyEvent("Control+a") == nil)
+        #expect(BrowserPageKey("space").key == " ")
+        #expect(BrowserPageKey("Esc").key == "Escape")
+        #expect(BrowserPageKey("F5").keyCode == 116)
+        #expect(BrowserPageKey("a") == BrowserPageKey("KeyA"))
+        #expect(BrowserPageKey("A").key == "A" && BrowserPageKey("A").keyCode == 65)
+        #expect(BrowserPageKey("7").code == "Digit7")
+        // US-layout punctuation keeps its code, as page shortcuts check it.
+        #expect(BrowserPageKey("/").code == "Slash" && BrowserPageKey("/").keyCode == 191)
+        #expect(BrowserPageKey("?").code == "Slash")
+        #expect(BrowserPageKey("Shift").location == 1 && BrowserPageKey("NumpadEnter").location == 3)
+        // Other characters keep their UTF-16 unit; unknown names pass through.
+        #expect(BrowserPageKey("é").code == "" && BrowserPageKey("é").keyCode == 0xE9)
+        #expect(BrowserPageKey("Hyper").code == "Hyper" && BrowserPageKey("Hyper").keyCode == 0)
     }
 
     @Test func pressDispatchesToTheFocusedElementOrTheSelector() async throws {
@@ -62,8 +67,8 @@ import Testing
         _ = try await call(router, "press", ["key": "Space", "selector": "#agree"]).get()
         #expect(engine.last.contains("\"#agree\""))
         #expect(engine.last.contains("const key = \" \""))
-        let unknown = await call(router, "press", ["key": "Hyper"])
-        #expect(unknown.failure?.code == "invalid_params")
+        #expect(engine.last.contains("location = 0"))
+        #expect(await call(router, "press", ["key": ""]).failure?.code == "invalid_params")
         #expect(engine.count == 2)
     }
 
@@ -85,6 +90,7 @@ import Testing
         _ = try await call(router, "uncheck", ["selector": "#a"]).get()
         #expect(engine.last.contains("const desired = false"))
         #expect(engine.last.contains("el.type === 'radio'"))
+        #expect(engine.last.contains("el.type !== 'checkbox'"))
     }
 
     @Test func selectTakesAnyValueIncludingEmpty() async throws {
@@ -103,7 +109,9 @@ import Testing
         _ = try await call(router, "scroll", ["dx": -50, "selector": "#list"]).get()
         #expect(engine.last.contains("el.scrollBy({ left: -50.0, top: 0.0"))
         #expect(await call(router, "scroll", [:]).failure?.code == "invalid_params")
-        #expect(await call(router, "scroll", ["dy": "far"]).failure?.code == "invalid_params")
+        let far = await call(router, "scroll", ["dy": "far"])
+        #expect(far.failure?.code == "invalid_params")
+        #expect(far.failure?.message.contains("params.dy") == true)
         _ = try await call(router, "scroll_into_view", ["selector": "#footer"]).get()
         #expect(engine.last.contains("scrollIntoView({ block: 'center'"))
         _ = try await call(router, "hover", ["selector": "#menu"]).get()
