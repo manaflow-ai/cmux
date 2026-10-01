@@ -440,13 +440,23 @@ fn connect(socket: &PathBuf) -> Result<UnixStream, String> {
 
 /// One request and its response. The outer error is transport; the inner
 /// one is the app's `{"ok":false,"error":…}`.
+/// Every app request first lets the app catch up with the daemon
+/// (`after: "sync"`, one daemon round trip), so it sees what an earlier
+/// `cmux` call wrote to the daemon (plans/cmux-next/state-ownership.md 4).
+fn with_read_barrier(mut params: Value) -> Value {
+    if let Some(object) = params.as_object_mut() {
+        object.entry("after").or_insert_with(|| json!("sync"));
+    }
+    params
+}
+
 fn request(
     stream: &mut UnixStream,
     method: &str,
     params: Value,
     timeout: Duration,
 ) -> Result<Result<Value, Value>, String> {
-    let line = json!({ "id": 1, "method": method, "params": params });
+    let line = json!({ "id": 1, "method": method, "params": with_read_barrier(params) });
     send_line(stream, &line)?;
     stream.set_read_timeout(Some(timeout)).map_err(|error| error.to_string())?;
     let mut reader = BufReader::new(
@@ -767,6 +777,12 @@ mod tests {
                 "args": { "title": "Build", "keep_case": "true" },
             })
         );
+    }
+
+    #[test]
+    fn app_requests_wait_for_the_app_to_catch_up_with_the_daemon() {
+        assert_eq!(with_read_barrier(json!({ "action": "x" })), json!({ "action": "x", "after": "sync" }));
+        assert_eq!(with_read_barrier(json!({ "after": 12 })), json!({ "after": 12 }));
     }
 
     #[test]
