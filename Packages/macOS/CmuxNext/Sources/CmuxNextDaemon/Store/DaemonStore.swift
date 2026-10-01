@@ -94,6 +94,11 @@ public final class DaemonStore {
     @ObservationIgnored public var resyncClock: any Clock<Duration> = ContinuousClock()
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.store")
 
+    /// Tab ids of the first snapshot of the current connection: tabs the
+    /// connection found already there (page history skips their reload).
+    @ObservationIgnored public private(set) var restoredTabIDs: Set<String> = []
+    @ObservationIgnored var restoredEpoch: Int?
+
     public init() {}
 
     // MARK: Lookup (O(1))
