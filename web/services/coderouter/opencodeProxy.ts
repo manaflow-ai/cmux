@@ -808,8 +808,12 @@ function pinnedFetch(pin: ProviderPin): typeof fetch {
       });
       outgoing.on("error", reject);
       if (body) {
-        // pipeline destroys the request when the client body fails.
-        pipeline(Readable.fromWeb(body as import("node:stream/web").ReadableStream), outgoing, (error) => {
+        // pipeline destroys the request when the client body fails. The body
+        // is read as an async iterable, not through Readable.fromWeb: Bun
+        // 1.3's fromWeb throws a source stream error as an uncaught
+        // exception instead of passing it to pipeline.
+        const source = Readable.from(body as import("node:stream/web").ReadableStream<Uint8Array>, { objectMode: false });
+        pipeline(source, outgoing, (error) => {
           if (error) reject(error);
         });
       } else {
