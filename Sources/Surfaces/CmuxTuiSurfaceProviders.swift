@@ -6,13 +6,9 @@ import CmuxFoundation
 import CmuxSettings
 import CmuxSurfaceCatalogModel
 import Foundation
-/// One cloud machine's resources: its cmux-tui terminals (over the headless link), its
-/// noVNC screen, and its forwarded ports. Terminals live in the machine's cmux-tui
-/// session, so a local pane closing never touches them (only local browser preparation is cancelled).
 @MainActor
 final class CmuxTuiSurfaceProvider: SurfaceProvider {
     let fileAccessTeamScope: AuthenticatedTeamScope?
-    /// The team that owns this machine, captured when the provider was
     /// registered. Every control-plane call this provider makes names it, so a
     /// Cloud surface keeps working after the selected team changes. Nil for SSH
     /// machines and legacy callers, which follow the selected team.
@@ -342,6 +338,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// One refresh pass. Sleeping machines retain their graph without being woken.
     func performRefresh(force: Bool) async -> Bool {
         guard !hasLostAccess else { return false }
+        if force { await links.resetRetry(machineID: machineID) }
         let lifecycle = lifecycleGeneration
         guard isCurrentLifecycleGeneration(lifecycle), isRegisteredInCatalog() else { return false }
         refreshGeneration &+= 1
@@ -503,7 +500,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             ) else { return false }
         } catch {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
-            if CloudMachineAccessLoss(error: error) != nil {
+            if let typed = (error as? VMClientError)?.cloudHTTPError, typed.rejectsSession {
+                linkFailure = .sessionRejected
+                attachmentRetry.stop()
+            } else if CloudMachineAccessLoss(error: error) != nil {
                 // Retrying cannot succeed; a retry loop would only keep a frozen pane.
                 noteAccessLost()
                 return false

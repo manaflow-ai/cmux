@@ -2955,9 +2955,7 @@ public actor MachineUsageClient {
                 }
                 throw MachineUsageClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
             }
-            let usage = try Self.decodeTeamUsage(data)
-            NotificationCenter.default.post(name: VMClient.sessionRecoveredNotification, object: nil)
-            return usage
+            return try Self.decodeTeamUsage(data)
         }
     }
 

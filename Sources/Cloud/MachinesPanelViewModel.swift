@@ -21,7 +21,7 @@ final class MachinesPanelViewModel: ObservableObject {
     @Published private(set) var isRecoveringList = false
     /// Consecutive transient failures before the first successful list read.
     private(set) var initialTransientFailureCount = 0
-    var cloudSessionRejected = false
+    private(set) var cloudSessionRejected = false
     /// Per-machine coderouter spend from the last successful usage fetch.
     @Published private(set) var usageByMachineID: [String: MachineUsageSnapshot] = [:]
 

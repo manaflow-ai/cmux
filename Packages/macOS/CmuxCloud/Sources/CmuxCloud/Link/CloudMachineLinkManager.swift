@@ -239,6 +239,7 @@ public actor CloudMachineLinkManager {
         )
         if let failure = lastFailure[machineID], !failure.episode.admitsAttempt() {
             if failure.episode.isStopped || failure.episode.hasExpired {
+                if let typed = failure.typed { throw VMClientError.typedHTTPStatus(typed) }
                 throw ManagerError.retryExhausted(failure.error)
             }
             if let typed = failure.typed { throw VMClientError.typedHTTPStatus(typed) }
@@ -406,6 +407,7 @@ public actor CloudMachineLinkManager {
         try Task.checkCancellation()
         if Self.isBackgroundUpkeep, let failure = lastFailure[machineID], !failure.episode.admitsAttempt() {
             if failure.episode.isStopped || failure.episode.hasExpired {
+                if let typed = failure.typed { throw VMClientError.typedHTTPStatus(typed) }
                 throw ManagerError.retryExhausted(failure.error)
             }
             throw ManagerError.retryLater(failure.error)

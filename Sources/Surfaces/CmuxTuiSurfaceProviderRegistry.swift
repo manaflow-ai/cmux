@@ -11,9 +11,6 @@ final class CmuxTuiSurfaceProviderRegistry {
     var providers: [String: CmuxTuiSurfaceProvider] = [:]
     let links: CloudMachineLinkManager
     nonisolated let wireGuardHub: CloudWireGuardHub?
-    /// Loopback forwards to VM ports over the hub (Ports and Desktop rows); nil
-    /// without a hub. One table for the fleet so a (machine, port) keeps its
-    /// local port until the machine leaves the fleet or the account signs out.
     let portAccess = CloudPortAccessStore()
     let portForwards: CloudHubPortForwarder?
     var pollTask: Task<Void, Never>?
@@ -338,7 +335,10 @@ final class CmuxTuiSurfaceProviderRegistry {
     func refresh(force: Bool) async -> Bool {
         guard !isRetired, !sessionRejected, !ManagedDevicePolicy().isEnforced(.disableCloud), isCloudEnabled() else { return false }
         if force { registryRetryEpisode.reset() }
-        guard force || registryRetryEpisode.admitsAttempt() else { pollTask?.cancel(); pollTask = nil; return false }
+        if !force && !registryRetryEpisode.admitsAttempt() {
+            if registryRetryEpisode.isStopped || registryRetryEpisode.hasExpired { pollTask?.cancel(); pollTask = nil }
+            return false
+        }
         let access = accessEpoch
         while true {
             guard access == accessEpoch, isCloudEnabled(), !Task.isCancelled else { return false }

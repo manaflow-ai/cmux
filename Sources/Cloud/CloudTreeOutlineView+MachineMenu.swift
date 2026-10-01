@@ -25,8 +25,8 @@ extension CloudTreeOutlineView.Coordinator {
                     actions.recreate(id)
                 })
             }
-            if let error = info?.linkError {
-                items.append(item(CloudErrorCopy.title) { CloudErrorCopy.copy(error) })
+            if machine.freeAccess == .expired {
+                items.append(item(String(localized: "machines.menu.upgradeToReconnect", defaultValue: "Upgrade to Reconnect…")) { actions.promptUpgrade() })
             }
         } else if machine.freeAccess == .expired {
             items.append(item(String(localized: "machines.menu.upgradeToReconnect", defaultValue: "Upgrade to Reconnect…")) { actions.promptUpgrade() })

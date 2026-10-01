@@ -310,6 +310,8 @@ extension CmuxTuiSurfaceProvider {
             Task { @MainActor [weak self] in
                 guard let self, self.isCurrentLifecycleGeneration(generation) else { return }
                 await self.links.resetRetry(machineID: self.machineID)
+                guard self.info.linkFailure != .sessionRejected,
+                      Workspace.liveWorkspace(id: reservation.workspaceID)?.cloudPendingCreations[panelID] === reservation else { return }
                 self.attachmentRetry.reset()
                 self.restoredAttachTasks[panelID]?.cancel()
                 self.attachReservedTerminalPane(reservation, resource: resource, remoteTabID: remoteTabID)
