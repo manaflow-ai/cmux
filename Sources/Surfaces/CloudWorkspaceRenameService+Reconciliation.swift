@@ -124,8 +124,10 @@ extension CloudWorkspaceRenameService {
             guard let tabID = remoteTabID(for: projection, resource: resource),
                   let tab = state.lookupIndex.tab(id: tabID) else { continue }
             let key = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)
-            if let pending = catalog.pendingCloudRenameName(for: key), pending != (tab.name ?? "") { continue }
-            if resource.agent == nil,
+            let pending = catalog.pendingCloudRenameName(for: key)
+            if let pending, pending != (tab.name ?? "") { continue }
+            if pending == nil,
+               resource.agent == nil,
                tab.nameAuthority?.source == .auto,
                let name = tab.name,
                !name.isEmpty,
@@ -175,9 +177,12 @@ extension CloudWorkspaceRenameService {
             guard let workspace,
                   workspace.panelCustomTitles[panelID] == nil,
                   workspace.panelCustomTitleSources[panelID] == nil else { return }
+            guard let acceptedName = catalog.cloudStates[resource.machine]?
+                .lookupIndex.tab(id: tabID)?.name,
+                  !acceptedName.isEmpty else { return }
             _ = workspace.setPanelCustomTitle(
                 panelId: panelID,
-                title: name,
+                title: acceptedName,
                 source: .remote,
                 propagateToRemoteTmux: false,
                 propagateToCloud: false

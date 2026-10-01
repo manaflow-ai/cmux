@@ -114,6 +114,29 @@ struct CloudSidebarRenameReconciliationTests {
         #expect(fixture.provider.tabRenames == ["Finished task"])
     }
 
+    @Test("A rejected stale-title clear restores a newer accepted remote name")
+    func rejectedVanishedAgentClearUsesCurrentAcceptedName() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.close() }
+        #expect(fixture.agentName("Finished task"))
+        try await fixture.drain()
+        fixture.install(try fixture.state(revision: 2, name: "Finished task", nameSource: "auto", includeAgent: true))
+        fixture.reconcile()
+        fixture.provider.beforeMutation = {
+            fixture.install(try fixture.state(revision: 4, name: "Remote label", nameSource: "user", includeAgent: false))
+            fixture.reconcile()
+            throw Rejected()
+        }
+
+        fixture.install(try fixture.state(revision: 3, name: "Finished task", nameSource: "auto", includeAgent: false))
+        fixture.reconcile()
+        try await fixture.drain()
+
+        #expect(fixture.workspace.panelTitle(panelId: fixture.panelID) == "Remote label")
+        #expect(fixture.workspace.panelCustomTitleSources[fixture.panelID] == .remote)
+        #expect(fixture.provider.tabRenames == ["Finished task"])
+    }
+
     @Test("A rename rejected after a remote edit converges immediately to that accepted name")
     func failedRenameUsesNewerRemoteName() async throws {
         let fixture = try makeFixture()
