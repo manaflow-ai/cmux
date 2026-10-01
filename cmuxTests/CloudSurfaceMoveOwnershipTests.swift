@@ -121,7 +121,7 @@ struct CloudSurfaceMoveOwnershipTests {
         }
     }
 
-    @Test("Foreign Cloud terminal, browser and display moves leave both workspaces intact", arguments: SurfaceResourceKind.allCases, ["a", "b"])
+    @Test("Foreign Cloud terminal and display moves leave both workspaces intact", arguments: [SurfaceResourceKind.terminal, .display], ["a", "b"])
     func foreignCloudMove(kind: SurfaceResourceKind, owner: String) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try VaultPaneAppFixture()

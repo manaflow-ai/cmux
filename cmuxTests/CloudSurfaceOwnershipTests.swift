@@ -96,7 +96,7 @@ struct CloudSurfaceOwnershipTests {
         #expect(workspace.canPerformPortalPaneDrop(transfer, source: .surfaceResources(sameMachine)))
     }
 
-    @Test("Rejected resource drops do not dispatch or alter layout", arguments: SurfaceResourceKind.allCases)
+    @Test("Rejected resource drops do not dispatch or alter layout", arguments: [SurfaceResourceKind.terminal, .display])
     func rejectsForeignResourceDrop(kind: SurfaceResourceKind) throws {
         let workspace = cloudWorkspace()
         defer { workspace.teardownAllPanels() }
@@ -117,7 +117,7 @@ struct CloudSurfaceOwnershipTests {
         }
     }
 
-    @Test("Catalog rejects ownership before materializing or focusing", arguments: SurfaceResourceKind.allCases)
+    @Test("Catalog rejects ownership before materializing or focusing", arguments: [SurfaceResourceKind.terminal, .display])
     func catalogRejectsForeignResources(kind: SurfaceResourceKind) async throws {
         let workspace = cloudWorkspace()
         defer { workspace.teardownAllPanels() }
@@ -173,7 +173,7 @@ struct CloudSurfaceOwnershipTests {
             let workspace = isCloud ? cloudWorkspace() : Workspace()
             defer { workspace.teardownAllPanels() }
             let catalog = catalog(for: workspace)
-            let source: SurfaceMachineID = isCloud ? machine : .local
+            let source: SurfaceMachineID = isCloud && kind != .browser ? machine : .local
             let provider = CloudPlacementTestProvider(machine: source)
             catalog.register(provider)
             let item = resource(source, kind: kind)

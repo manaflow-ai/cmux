@@ -79,7 +79,7 @@ struct CloudSurfaceDragFeedbackTests {
         defer { workspace.teardownAllPanels() }
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "cloud", isBase: false)
         let transfer = PaneDragTransfer(tabId: UUID(), sourcePaneId: UUID(), sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier))
-        let browserGroup = SurfaceResourceGroup(single: SurfaceResourceID(machine: .local, kind: .browser, key: "browser"))
+        let browserGroup = SurfaceResourceGroup(title: "Browser", resources: [SurfaceResourceID(machine: .local, kind: .browser, key: "browser")])
         #expect(workspace.surfaceDropRejection(transfer, source: .surfaceResources(browserGroup)) == nil)
         let mixedGroup = SurfaceResourceGroup(title: "mixed", resources: [
             SurfaceResourceID(machine: .local, kind: .browser, key: "browser"),
@@ -130,7 +130,7 @@ struct CloudSurfaceDragFeedbackTests {
         view.workspace = fixture.workspace
         view.isActive = true
         let sender = CloudSidebarDraggingInfo(source: NSOutlineView(), pasteboard: fixture.pasteboard, location: .zero)
-        let expected = "Cloud workspaces can only hold terminals, browsers, and displays from their own Cloud machine. Open a local workspace and move the splits there."
+        let expected = "Cloud workspaces can only hold terminals and displays from their own Cloud machine. Browser tabs can move freely. Open a local workspace to move other splits there."
         #expect(SurfaceTransferRejection.cloudMachineMismatch.message == expected)
         #expect(view.draggingEntered(sender).isEmpty)
         #expect(view.feedback.rejection == .cloudMachineMismatch)

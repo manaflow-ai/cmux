@@ -23,7 +23,7 @@ extension DockSplitStore {
             : nil
         let resource = keepsCloudRoute ? (record?.resource ?? browser.cloudResourceForDuplication) : nil
         let isCloud = resource?.machine.isLocal == false
-        guard surfaceOwnershipPolicy.rejection(for: machineOwningSurface(panelId)) == nil else { return nil }
+        guard surfaceOwnershipPolicy.rejection(for: machineOwningSurface(panelId), kind: SurfaceOwnershipKind.of(browser)) == nil else { return nil }
         guard let anchorIndex = tabs.firstIndex(where: {
             $0.id == anchorTabId
         }),

@@ -41,8 +41,7 @@ extension AppDelegate {
     /// `destinationDock`.
     func canMoveSurfaceIntoDock(sourceTabId: UUID, destinationDock: DockSplitStore) -> Bool {
         guard let source = locateContainerSurface(tabId: sourceTabId) else { return false }
-        return (browserPanel(for: sourceTabId) != nil
-            || destinationDock.surfaceOwnershipPolicy.rejection(for: machineOwningBonsplitTab(sourceTabId)) == nil)
+        return ownershipRejection(forBonsplitTab: sourceTabId, policy: destinationDock.surfaceOwnershipPolicy) == nil
             && canMoveSurfaceIntoDock(source)
     }
 
@@ -172,8 +171,8 @@ extension AppDelegate {
               let destinationWorkspace = destinationManager.tabs.first(where: { $0.id == targetWorkspaceId }) else {
             return false
         }
-        guard sourceDock.browserPanel(for: panelId) != nil
-            || destinationWorkspace.surfaceOwnershipPolicy.rejection(for: sourceDock.machineOwningSurface(panelId)) == nil else { return false }
+        guard destinationWorkspace.surfaceOwnershipPolicy.rejection(for: sourceDock.machineOwningSurface(panelId),
+                                                                    kind: SurfaceOwnershipKind.of(sourceDock.panels[panelId])) == nil else { return false }
         let resolvedPane = targetPane.flatMap { pane in
             destinationWorkspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
         } ?? destinationWorkspace.bonsplitController.focusedPaneId

@@ -31,20 +31,15 @@ extension Workspace {
         guard surfaceOwnershipPolicy.cloudMachine != nil else { return nil }
         switch source {
         case .surfaceResources(let group):
-            // Browsers are portable UI surfaces. A Cloud workspace may host a
-            // browser from another machine, while terminal ownership remains
-            // strict so shells never cross Cloud machines accidentally.
-            let ownedResources = group.resources.filter { $0.kind != .browser }
-            guard !ownedResources.isEmpty else { return nil }
-            return SurfaceCatalog.shared.ownershipRejection(for: ownedResources, policy: surfaceOwnershipPolicy)
+            return SurfaceCatalog.shared.ownershipRejection(for: group.resources, policy: surfaceOwnershipPolicy)
         case .surface:
             guard transfer.isFromCurrentProcess else { return surfaceOwnershipPolicy.rejection(for: nil) }
             // A surface already in this workspace crosses no machine boundary when
             // it is reordered or split within it. Rejecting it here put the Cloud
             // drop gate over the workspace's own tab strips and blocked tab drags.
             if panelIdFromSurfaceId(TabID(uuid: transfer.tabId)) != nil { return nil }
-            if AppDelegate.shared?.browserPanel(for: transfer.tabId) != nil { return nil }
-            return surfaceOwnershipPolicy.rejection(for: AppDelegate.shared?.machineOwningBonsplitTab(transfer.tabId))
+            guard let app = AppDelegate.shared else { return surfaceOwnershipPolicy.rejection(for: nil) }
+            return app.ownershipRejection(forBonsplitTab: transfer.tabId, policy: surfaceOwnershipPolicy)
         case .vaultSession, .filePreview, .rightSidebarTool:
             return surfaceOwnershipPolicy.rejection(for: .local)
         }
@@ -60,8 +55,8 @@ extension Workspace {
 
     func acceptsSurface(from source: Workspace, panelID: UUID) -> Bool {
         !isRetiredFromOwningTabManager
-            && (source.browserPanelIncludingDock(for: panelID) != nil
-                || surfaceOwnershipPolicy.rejection(for: source.machineOwningSurface(panelID)) == nil)
+            && surfaceOwnershipPolicy.rejection(for: source.machineOwningSurface(panelID),
+                                                kind: SurfaceOwnershipKind.of(source.panels[panelID])) == nil
     }
 
     func acceptsDetachedSurface(_ transfer: DetachedSurfaceTransfer) -> Bool {
@@ -73,6 +68,6 @@ extension Workspace {
             ?? transfer.remoteRelayNamespaceConfiguration?.managedCloudVMID.map(SurfaceMachineID.cloud)
             ?? transfer.remoteCleanupConfiguration?.managedCloudVMID.map(SurfaceMachineID.cloud)
             ?? .local
-        return surfaceOwnershipPolicy.rejection(for: machine) == nil
+        return surfaceOwnershipPolicy.rejection(for: machine, kind: SurfaceOwnershipKind.of(transfer.panel)) == nil
     }
 }
