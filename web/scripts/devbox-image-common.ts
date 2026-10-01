@@ -809,7 +809,7 @@ export function devboxParkDaemonCommand(): string {
     // A memory snapshot must carry the enabled unit, not just a parked
     // process. This keeps cold boots and future Freestyle stop/start cycles
     // self-healing even when the snapshot is resumed without a warm process.
-    "systemctl is-enabled cmux-tui-daemon >/dev/null",
+    "test \"$(systemctl is-enabled cmux-tui-daemon)\" = enabled",
     "systemctl is-active cmux-tui-daemon >/dev/null",
     devboxWipeDaemonStateKeepingTemplateCommand('"$CMUX_TUI_HOME/.local/state/cmux-tui"'),
     'rm -rf "$CMUX_TUI_HOME/.local/state/cmux/remote" /etc/cmux/daemon-instance-id /etc/cmux/first-terminal.json',

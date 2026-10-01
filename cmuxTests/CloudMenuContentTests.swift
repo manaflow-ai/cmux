@@ -275,6 +275,8 @@ struct CloudMenuContentTests {
                     promptRename: { id, _ in self.log.append("rename:\(id)") },
                     copyToPasteboard: { self.log.append("copy:\($0)") },
                     confirmDelete: { self.log.append("delete:\($0)") },
+                    shutdown: { self.log.append("shutdown:\($0)") },
+                    restart: { self.log.append("restart:\($0)") },
                     promptUpgrade: { self.log.append("upgradeMachine") }
                 )
             )
