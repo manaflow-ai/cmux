@@ -143,7 +143,9 @@ re-run, keeping the jobs that had already finished. That re-run (attempt 2)
 takes the lane's Blacksmith default, so the watch ends there. A
 stuck run that finished some other way (a newer push cancelled it) is not
 re-run. Its watch lasts SIDE_WATCH_LIMIT_SECONDS. A side-lane run that is not
-a pull request has no head to move, like a dispatch.
+a pull request has no head to move, like a dispatch. cmux-next.yml exists only
+on the feat-cmux-next branch; its side-lane run uploads the owned-pool-watch
+marker itself, so the sweeper adopts it like a picker's run.
 
 Nightly builds (NIGHTLY_WORKFLOW_PATH) are watched like a side lane: there is
 no picker, and attempt 1 of a push or schedule run on main puts
@@ -264,6 +266,8 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cloud-command-deadlines.yml",
     ".github/workflows/cloud-machine-tests.yml",
     ".github/workflows/cloud-task-local-tests.yml",
+    # feat-cmux-next only; uploads the owned-pool-watch marker on attempt 1.
+    ".github/workflows/cmux-next.yml",
     ".github/workflows/cmux-tui.yml",
     ".github/workflows/iroh-v2.yml",
     ".github/workflows/relay-tls.yml",

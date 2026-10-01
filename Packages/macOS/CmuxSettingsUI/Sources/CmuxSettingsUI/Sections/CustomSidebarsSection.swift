@@ -66,12 +66,12 @@ public struct CustomSidebarsSection: View {
             }
         }
         .onAppear {
-            if CustomSidebarTemplateGalleryRequest.consume() {
+            if CustomSidebarTemplateGalleryRequest.shared.consume() {
                 galleryPresented = true
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .customSidebarTemplateGalleryRequested)) { _ in
-            _ = CustomSidebarTemplateGalleryRequest.consume()
+            _ = CustomSidebarTemplateGalleryRequest.shared.consume()
             galleryPresented = true
         }
     }
