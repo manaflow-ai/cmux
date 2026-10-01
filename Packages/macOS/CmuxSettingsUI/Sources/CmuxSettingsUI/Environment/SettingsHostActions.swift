@@ -16,7 +16,7 @@ public enum CustomSidebarTemplateGalleryRequest {
 
     public static func request() {
         pending = true
-        NotificationCenter.default.post(name: .customSidebarTemplateGalleryRequested)
+        NotificationCenter.default.post(name: .customSidebarTemplateGalleryRequested, object: nil)
     }
 
     public static func consume() -> Bool {
