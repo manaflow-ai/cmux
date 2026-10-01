@@ -17,11 +17,7 @@ import {
   CODEX_SUBMIT_BUTTON,
 } from "../shared/codexClassNames";
 import { CODEX_FOLDER_ICON_PATH } from "../shared/codexIconPaths";
-import {
-  commandText,
-  ComposerCommandSubmissionGate,
-  composerCommandRoute,
-} from "../shared/commandRouting";
+import { commandText, ComposerCommandSubmissionGate, composerCommandRoute } from "../shared/commandRouting";
 import { shouldUseSingleLineComposer } from "../shared/composerLayout";
 import {
   computeFooterCollapse,
@@ -59,12 +55,7 @@ import {
   type SessionState,
   type TranscriptEntry,
 } from "../shared/sessionModel";
-import type {
-  AgentSessionAttachment,
-  AgentSessionCopy,
-  ComposerPermissionMode,
-  ProviderId,
-} from "../shared/types";
+import type { AgentSessionAttachment, AgentSessionCopy, ComposerPermissionMode, ProviderId } from "../shared/types";
 import {
   PromptEditor,
   type PromptAutocompleteState,
@@ -195,7 +186,8 @@ function useMeasuredFooterControlCollapse(specs: FooterControlSpec[]) {
     });
     const nextState = computeFooterCollapse({
       availableWidth: container.getBoundingClientRect().width,
-      gap: cssPixelValue(window.getComputedStyle(container).columnGap) ??
+      gap:
+        cssPixelValue(window.getComputedStyle(container).columnGap) ??
         cssPixelValue(window.getComputedStyle(container).gap) ??
         0,
       items,
@@ -206,21 +198,27 @@ function useMeasuredFooterControlCollapse(specs: FooterControlSpec[]) {
     }
   }, []);
 
-  const setContainerRef = useCallback((node: HTMLDivElement | null) => {
-    containerRef.current = node;
-    if (node) {
-      measure();
-    }
-  }, [measure]);
+  const setContainerRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      containerRef.current = node;
+      if (node) {
+        measure();
+      }
+    },
+    [measure],
+  );
 
-  const setItemRef = useCallback((id: string, node: HTMLElement | null) => {
-    if (node) {
-      itemRefs.current.set(id, node);
-      measure();
-    } else {
-      itemRefs.current.delete(id);
-    }
-  }, [measure]);
+  const setItemRef = useCallback(
+    (id: string, node: HTMLElement | null) => {
+      if (node) {
+        itemRefs.current.set(id, node);
+        measure();
+      } else {
+        itemRefs.current.delete(id);
+      }
+    },
+    [measure],
+  );
 
   useLayoutEffect(() => {
     measure();
@@ -299,12 +297,11 @@ function SessionSurface({
   const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
   const canConfigurePermissions = provider?.id === "codex";
   const modelLabel = codexModelLabel(provider);
-  const reasoningEffortLabel =
-    provider?.id === "codex" ? (state.context?.copy.reasoningEffortHigh ?? "High") : null;
+  const reasoningEffortLabel = provider?.id === "codex" ? (state.context?.copy.reasoningEffortHigh ?? "High") : null;
   const [permissionMode, setPermissionMode] = useState<ComposerPermissionMode>("default");
   const [autoContextSetting, setAutoContextSetting] = useState<boolean | null>(null);
   const workspaceContextItem = currentWorkspaceMenuItem(state);
-  const isAutoContextOn = autoContextSetting ?? (workspaceContextItem != null);
+  const isAutoContextOn = autoContextSetting ?? workspaceContextItem != null;
   const shouldShowIdeContextIndicator = workspaceContextItem != null && isAutoContextOn;
   const composerLayout = useMeasuredComposerLayout(state.input, attachments.length > 0);
   const isSingleLineComposer = composerLayout.isSingleLine;
@@ -430,7 +427,7 @@ function SessionSurface({
     editorRef.current?.focus();
   };
   const toggleAutoContext = () => {
-    setAutoContextSetting((value) => !(value ?? (workspaceContextItem != null)));
+    setAutoContextSetting((value) => !(value ?? workspaceContextItem != null));
     setAddContextMenuOpen(false);
     setPermissionsMenuOpen(false);
     setProviderMenuOpen(false);
@@ -536,117 +533,121 @@ function SessionSurface({
     selectProvider(providerId, state, dispatch);
     setProviderMenuOpen(false);
   };
-  const modelPicker = intelligenceCollapse.hideControl ? null : h(
-    "div",
-    {
-      className: "model-picker-root relative min-w-0",
-      ref: (node: HTMLDivElement | null) => footerCollapse.setItemRef("intelligence", node),
-      onBlur: (event: React.FocusEvent<HTMLDivElement>) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-          setProviderMenuOpen(false);
-        }
-      },
-    },
-    h(
-      "button",
-      {
-        className:
-          `model-picker ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} min-w-0 rounded-full`,
-        type: "button",
-        disabled: !canSelect,
-        "aria-haspopup": "menu",
-        "aria-expanded": providerMenuOpen,
-        "data-state": providerMenuOpen ? "open" : "closed",
-        "data-codex-intelligence-trigger": true,
-        "data-selected-reasoning-effort": "high",
-        onClick: () => {
-          if (!canSelect) {
-            return;
-          }
-          setAddContextMenuOpen(false);
-          setPermissionsMenuOpen(false);
-          setProviderMenuOpen((open) => !open);
-        },
-        onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => {
-          if (event.key === "ArrowDown") {
-            event.preventDefault();
-            setProviderMenuOpen(canSelect);
-          }
-        },
-      },
-      intelligenceCollapse.hideLabel
-        ? reasoningHighIcon("icon-2xs")
-        : h(
-            "span",
-            { className: "model-picker-content flex max-w-40 min-w-0 items-center gap-1.5" },
-            h(
-              "span",
-              { className: "model-display flex min-w-0 items-center gap-1 tabular-nums" },
-              h("span", { className: "model-label truncate whitespace-nowrap text-token-foreground" }, modelLabel),
-            ),
-            reasoningEffortLabel
-              ? h(
-                  "span",
-                  { className: "composer-footer__label--sm shrink-0 text-token-description-foreground" },
-                  reasoningEffortLabel,
-                )
-              : null,
-          ),
-      h(
-        "span",
+  const modelPicker = intelligenceCollapse.hideControl
+    ? null
+    : h(
+        "div",
         {
-          className: "model-chevron composer-footer__secondary-chevron icon-2xs text-token-input-placeholder-foreground",
-          "aria-hidden": true,
-        },
-        chevronIcon(),
-      ),
-    ),
-    providerMenuOpen
-      ? h(
-          "div",
-          {
-            className:
-              "provider-dropdown _content_1hiti_1 no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border z-50 m-px flex select-none flex-col overflow-y-auto rounded-xl ring-[0.5px] px-1 py-1 shadow-xl-spread backdrop-blur-sm w-52",
-            role: "menu",
-            "aria-label": state.context?.copy.provider ?? "",
-            "data-state": "open",
-            "data-side": "top",
-            style: {
-              "--radix-dropdown-menu-content-transform-origin": "left bottom",
-            } as React.CSSProperties,
+          className: "model-picker-root relative min-w-0",
+          ref: (node: HTMLDivElement | null) => footerCollapse.setItemRef("intelligence", node),
+          onBlur: (event: React.FocusEvent<HTMLDivElement>) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+              setProviderMenuOpen(false);
+            }
           },
-          h("div", { className: "provider-dropdown-title" }, state.context?.copy.provider ?? "Provider"),
-          state.providers.map((item) =>
-            h(
-              "button",
-              {
-                key: item.id,
-                className:
-                  "provider-dropdown-item no-drag group hover:bg-token-list-hover-background focus:bg-token-list-hover-background cursor-interaction text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
-                type: "button",
-                role: "menuitem",
-                "data-selected": item.id === state.selectedProviderId ? "true" : undefined,
-                onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
-                onClick: () => selectProviderMenuItem(item.id),
-              },
-              h(
+        },
+        h(
+          "button",
+          {
+            className: `model-picker ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} min-w-0 rounded-full`,
+            type: "button",
+            disabled: !canSelect,
+            "aria-haspopup": "menu",
+            "aria-expanded": providerMenuOpen,
+            "data-state": providerMenuOpen ? "open" : "closed",
+            "data-codex-intelligence-trigger": true,
+            "data-selected-reasoning-effort": "high",
+            onClick: () => {
+              if (!canSelect) {
+                return;
+              }
+              setAddContextMenuOpen(false);
+              setPermissionsMenuOpen(false);
+              setProviderMenuOpen((open) => !open);
+            },
+            onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => {
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                setProviderMenuOpen(canSelect);
+              }
+            },
+          },
+          intelligenceCollapse.hideLabel
+            ? reasoningHighIcon("icon-2xs")
+            : h(
                 "span",
-                { className: "provider-dropdown-item-content flex w-full items-center gap-1.5" },
-                h("span", { className: "min-w-0 flex-1 truncate" }, item.displayName),
-                item.id === state.selectedProviderId
-                  ? h("span", { className: "provider-dropdown-check icon-xs shrink-0", "aria-hidden": true }, checkIcon())
+                { className: "model-picker-content flex max-w-40 min-w-0 items-center gap-1.5" },
+                h(
+                  "span",
+                  { className: "model-display flex min-w-0 items-center gap-1 tabular-nums" },
+                  h("span", { className: "model-label truncate whitespace-nowrap text-token-foreground" }, modelLabel),
+                ),
+                reasoningEffortLabel
+                  ? h(
+                      "span",
+                      { className: "composer-footer__label--sm shrink-0 text-token-description-foreground" },
+                      reasoningEffortLabel,
+                    )
                   : null,
               ),
-            ),
+          h(
+            "span",
+            {
+              className:
+                "model-chevron composer-footer__secondary-chevron icon-2xs text-token-input-placeholder-foreground",
+              "aria-hidden": true,
+            },
+            chevronIcon(),
           ),
-        )
-      : null,
-  );
+        ),
+        providerMenuOpen
+          ? h(
+              "div",
+              {
+                className:
+                  "provider-dropdown _content_1hiti_1 no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border z-50 m-px flex select-none flex-col overflow-y-auto rounded-xl ring-[0.5px] px-1 py-1 shadow-xl-spread backdrop-blur-sm w-52",
+                role: "menu",
+                "aria-label": state.context?.copy.provider ?? "",
+                "data-state": "open",
+                "data-side": "top",
+                style: {
+                  "--radix-dropdown-menu-content-transform-origin": "left bottom",
+                } as React.CSSProperties,
+              },
+              h("div", { className: "provider-dropdown-title" }, state.context?.copy.provider ?? "Provider"),
+              state.providers.map((item) =>
+                h(
+                  "button",
+                  {
+                    key: item.id,
+                    className:
+                      "provider-dropdown-item no-drag group hover:bg-token-list-hover-background focus:bg-token-list-hover-background cursor-interaction text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
+                    type: "button",
+                    role: "menuitem",
+                    "data-selected": item.id === state.selectedProviderId ? "true" : undefined,
+                    onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
+                    onClick: () => selectProviderMenuItem(item.id),
+                  },
+                  h(
+                    "span",
+                    { className: "provider-dropdown-item-content flex w-full items-center gap-1.5" },
+                    h("span", { className: "min-w-0 flex-1 truncate" }, item.displayName),
+                    item.id === state.selectedProviderId
+                      ? h(
+                          "span",
+                          { className: "provider-dropdown-check icon-xs shrink-0", "aria-hidden": true },
+                          checkIcon(),
+                        )
+                      : null,
+                  ),
+                ),
+              ),
+            )
+          : null,
+      );
   const composerInput = h(PromptEditor, {
     ref: editorRef,
-    className: isSingleLineComposer
-      ? "text-base"
-      : "text-base [&_.ProseMirror]:leading-5",
+    className: isSingleLineComposer ? "text-base" : "text-base [&_.ProseMirror]:leading-5",
     minHeight: isSingleLineComposer ? "1.25rem" : "2.75rem",
     singleLine: isSingleLineComposer,
     value: state.input,
@@ -755,8 +756,7 @@ function SessionSurface({
       ? h(
           "button",
           {
-            className:
-              `codex-action codex-stop ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
+            className: `codex-action codex-stop ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
             type: "button",
             "aria-label": state.context?.copy.stop ?? "Stop",
             onClick: () => void stopProvider(state, dispatch),
@@ -767,8 +767,7 @@ function SessionSurface({
     h(
       "button",
       {
-        className:
-          `codex-action codex-mic ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
+        className: `codex-action codex-mic ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
         type: "button",
         disabled: true,
         "aria-label": state.context?.copy.voiceInput ?? "",
@@ -778,8 +777,7 @@ function SessionSurface({
     h(
       "button",
       {
-        className:
-          `codex-action send-button ${CODEX_SUBMIT_BUTTON}${canSend ? "" : " cursor-default opacity-50"}`,
+        className: `codex-action send-button ${CODEX_SUBMIT_BUTTON}${canSend ? "" : " cursor-default opacity-50"}`,
         type: "button",
         disabled: !canSend,
         "aria-label": state.context?.copy.send ?? "Send",
@@ -807,9 +805,7 @@ function SessionSurface({
     {
       key: "composer-input",
       ref: composerLayout.inputMeasureRef,
-      className: isSingleLineComposer
-        ? "min-w-0"
-        : "mb-1 flex-grow overflow-y-auto px-3",
+      className: isSingleLineComposer ? "min-w-0" : "mb-1 flex-grow overflow-y-auto px-3",
     },
     composerInput,
   );
@@ -855,13 +851,8 @@ function SessionSurface({
           ),
         ),
       );
-  const composerControls = h(
-    "div",
-    { className: CODEX_COMPOSER_INNER },
-    composerControlsContent,
-  );
-  const showPlanSuggestion =
-    !isPlanMode && !isPlanSuggestionDismissed && /\bplan\b/i.test(state.input);
+  const composerControls = h("div", { className: CODEX_COMPOSER_INNER }, composerControlsContent);
+  const showPlanSuggestion = !isPlanMode && !isPlanSuggestionDismissed && /\bplan\b/i.test(state.input);
 
   return h(
     "section",
@@ -885,11 +876,16 @@ function SessionSurface({
           h(
             "div",
             { className: CODEX_COMPOSER_FRAME },
-            h("span", {
-              ref: composerLayout.textMeasureRef,
-              className: "composer-single-line-measure text-size-chat pointer-events-none invisible absolute h-0 w-max max-w-none overflow-hidden whitespace-pre",
-              "aria-hidden": true,
-            }, state.input),
+            h(
+              "span",
+              {
+                ref: composerLayout.textMeasureRef,
+                className:
+                  "composer-single-line-measure text-size-chat pointer-events-none invisible absolute h-0 w-max max-w-none overflow-hidden whitespace-pre",
+                "aria-hidden": true,
+              },
+              state.input,
+            ),
             showPlanSuggestion
               ? h(AboveComposerPlanSuggestion, {
                   copy: state.context?.copy,
@@ -911,7 +907,8 @@ function SessionSurface({
               "div",
               {
                 className:
-                  CODEX_COMPOSER_SURFACE + " " +
+                  CODEX_COMPOSER_SURFACE +
+                  " " +
                   (isSingleLineComposer ? "overflow-visible rounded-full" : "overflow-y-auto rounded-3xl"),
               },
               composerControls,
@@ -949,71 +946,71 @@ function AboveComposerPlanSuggestion({
             "relative inline-flex max-w-full min-w-0 items-center justify-between gap-4 overflow-hidden rounded-3xl border border-token-border/80 bg-token-dropdown-background/90 py-1.5 pr-2 pl-3 text-token-foreground shadow-md backdrop-blur-sm",
           "data-codex-above-composer-suggestion": "keyword-plan-mode",
         },
-      h(
-        "div",
-        { className: "flex min-w-0 flex-1 items-center gap-2" },
-        h(
-          "span",
-          { className: "flex items-center justify-center text-token-foreground", "aria-hidden": true },
-          sparkleIcon("icon-xs shrink-0"),
-        ),
         h(
           "div",
-          { className: "min-w-0 flex-1 flex items-center gap-2" },
+          { className: "flex min-w-0 flex-1 items-center gap-2" },
           h(
             "span",
-            { className: "truncate text-sm font-medium leading-[18px] text-token-foreground" },
-            copy?.planSuggestionTitle ?? "Create a plan",
+            { className: "flex items-center justify-center text-token-foreground", "aria-hidden": true },
+            sparkleIcon("icon-xs shrink-0"),
           ),
           h(
-            "span",
-            {
-              className: "hidden leading-none text-sm text-token-description-foreground @[500px]:inline",
-              "aria-hidden": true,
-            },
+            "div",
+            { className: "min-w-0 flex-1 flex items-center gap-2" },
+            h(
+              "span",
+              { className: "truncate text-sm font-medium leading-[18px] text-token-foreground" },
+              copy?.planSuggestionTitle ?? "Create a plan",
+            ),
             h(
               "span",
               {
-                className:
-                  "pointer-events-none !h-auto rounded-md border border-token-border/80 px-1 py-0.5 text-xs !leading-none text-token-description-foreground",
+                className: "hidden leading-none text-sm text-token-description-foreground @[500px]:inline",
+                "aria-hidden": true,
               },
-              copy?.planSuggestionShortcut ?? "Shift + Tab",
+              h(
+                "span",
+                {
+                  className:
+                    "pointer-events-none !h-auto rounded-md border border-token-border/80 px-1 py-0.5 text-xs !leading-none text-token-description-foreground",
+                },
+                copy?.planSuggestionShortcut ?? "Shift + Tab",
+              ),
             ),
           ),
         ),
-      ),
-      h(
-        "div",
-        { className: "flex shrink-0 items-center gap-1" },
         h(
-          "button",
-          {
-            className:
-              "user-select-none no-drag cursor-interaction flex h-8 items-center justify-center rounded-full border border-transparent bg-token-button-secondary-background px-2.5 text-sm text-token-button-secondary-foreground hover:bg-token-button-secondary-hover-background focus:outline-none",
-            type: "button",
-            onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
-              event.stopPropagation();
-              onAction();
+          "div",
+          { className: "flex shrink-0 items-center gap-1" },
+          h(
+            "button",
+            {
+              className:
+                "user-select-none no-drag cursor-interaction flex h-8 items-center justify-center rounded-full border border-transparent bg-token-button-secondary-background px-2.5 text-sm text-token-button-secondary-foreground hover:bg-token-button-secondary-hover-background focus:outline-none",
+              type: "button",
+              onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
+                event.stopPropagation();
+                onAction();
+              },
             },
-          },
-          copy?.planSuggestionAction ?? "Use plan mode",
-        ),
-        h(
-          "button",
-          {
-            className:
-              "user-select-none no-drag flex size-[22px] shrink-0 cursor-interaction items-center justify-center rounded-full border border-transparent text-token-description-foreground hover:bg-token-list-hover-background focus:outline-none",
-            type: "button",
-            "aria-label": copy?.planSuggestionDismiss ?? "Dismiss suggestion",
-            onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
-              event.stopPropagation();
-              onDismiss();
+            copy?.planSuggestionAction ?? "Use plan mode",
+          ),
+          h(
+            "button",
+            {
+              className:
+                "user-select-none no-drag flex size-[22px] shrink-0 cursor-interaction items-center justify-center rounded-full border border-transparent text-token-description-foreground hover:bg-token-list-hover-background focus:outline-none",
+              type: "button",
+              "aria-label": copy?.planSuggestionDismiss ?? "Dismiss suggestion",
+              onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
+                event.stopPropagation();
+                onDismiss();
+              },
             },
-          },
-          xIcon("icon-xs"),
+            xIcon("icon-xs"),
+          ),
         ),
       ),
-    ),
     ),
   );
 }
@@ -1085,14 +1082,11 @@ const TranscriptTurn = React.memo(function TranscriptTurn({
       return h(
         "div",
         { className: "codex-assistant-turn group flex min-w-0 flex-col" },
-        h(
-          "div",
-          {
-            className:
-              "codex-assistant-message text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)] [&>*:last-child]:mb-0 [&>ol:first-child]:mt-0 [&>ul:first-child]:mt-0",
-            dangerouslySetInnerHTML: { __html: renderMarkdownHTML(entry.text) },
-          },
-        ),
+        h("div", {
+          className:
+            "codex-assistant-message text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)] [&>*:last-child]:mb-0 [&>ol:first-child]:mt-0 [&>ul:first-child]:mt-0",
+          dangerouslySetInnerHTML: { __html: renderMarkdownHTML(entry.text) },
+        }),
         entry.text.trim().length > 0
           ? h(AssistantMessageActions, { copy, sentAtMs: entry.sentAtMs, text: entry.text })
           : null,
@@ -1140,9 +1134,7 @@ function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Tra
             bottom: node.scrollTop + node.clientHeight < node.scrollHeight - 1,
             top: node.scrollTop > 1,
           };
-    setOutputFadeEdges((current) =>
-      current.bottom === next.bottom && current.top === next.top ? current : next,
-    );
+    setOutputFadeEdges((current) => (current.bottom === next.bottom && current.top === next.top ? current : next));
   }, []);
   const disconnectOutputObservers = useCallback(() => {
     outputObserverRef.current?.mutation?.disconnect();
@@ -1210,10 +1202,11 @@ function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Tra
         h(
           "span",
           {
-            className:
-              `codex-tool-activity-chevron inline-chevron flex-shrink-0 text-token-input-placeholder-foreground opacity-0 group-hover/summary:opacity-100${isOutputExpanded ? " opacity-100" : ""}`,
+            className: `codex-tool-activity-chevron inline-chevron flex-shrink-0 text-token-input-placeholder-foreground opacity-0 group-hover/summary:opacity-100${isOutputExpanded ? " opacity-100" : ""}`,
           },
-          chevronRightIcon(`icon-2xs text-current transition-transform duration-300${isOutputExpanded ? " rotate-90" : ""}`),
+          chevronRightIcon(
+            `icon-2xs text-current transition-transform duration-300${isOutputExpanded ? " rotate-90" : ""}`,
+          ),
         ),
       )
     : h(
@@ -1265,8 +1258,7 @@ function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Tra
                     "button",
                     {
                       type: "button",
-                      className:
-                        `codex-shell-collapse ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_ICON} rounded-full electron:rounded-md hover:bg-transparent hover:text-token-button-foreground`,
+                      className: `codex-shell-collapse ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_ICON} rounded-full electron:rounded-md hover:bg-transparent hover:text-token-button-foreground`,
                       "aria-label": collapseShellLabel,
                       title: collapseShellLabel,
                       onClick: collapseOutput,
@@ -1331,20 +1323,29 @@ function ShellFooter({
   if (status === "stopped") {
     return h(
       "div",
-      { className: "codex-shell-footer text-size-chat flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-token-input-placeholder-foreground" },
+      {
+        className:
+          "codex-shell-footer text-size-chat flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-token-input-placeholder-foreground",
+      },
       h("span", { className: "ml-auto" }, stoppedLabel),
     );
   }
   if (status === "failed") {
     return h(
       "div",
-      { className: "codex-shell-footer text-size-chat flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-token-input-placeholder-foreground" },
+      {
+        className:
+          "codex-shell-footer text-size-chat flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-token-input-placeholder-foreground",
+      },
       h("span", { className: "ml-auto" }, failedLabel),
     );
   }
   return h(
     "div",
-    { className: "codex-shell-footer text-size-chat flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-token-input-placeholder-foreground" },
+    {
+      className:
+        "codex-shell-footer text-size-chat flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-token-input-placeholder-foreground",
+    },
     h("span", { className: "ml-auto flex items-center gap-1" }, checkIcon("icon-xxs"), successLabel),
   );
 }
@@ -1398,8 +1399,7 @@ function ShellHeaderCopyButton({
     {
       ref: buttonRef,
       type: "button",
-      className:
-        `codex-shell-copy ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_ICON} rounded-full electron:rounded-md hover:bg-transparent hover:text-token-button-foreground`,
+      className: `codex-shell-copy ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_ICON} rounded-full electron:rounded-md hover:bg-transparent hover:text-token-button-foreground`,
       "aria-label": activeLabel,
       title: activeLabel,
       onClick: copyContents,
@@ -1442,8 +1442,7 @@ function CopyOutputButton({ label, output }: { label: string; output: string }) 
     {
       ref: buttonRef,
       type: "button",
-      className:
-        `codex-tool-output-copy ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} rounded-full electron:rounded-md electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 absolute top-0 right-2.5 opacity-0 transition-opacity duration-200 group-hover/output:opacity-100${isCopied ? " text-token-foreground opacity-100" : ""}`,
+      className: `codex-tool-output-copy ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} rounded-full electron:rounded-md electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 absolute top-0 right-2.5 opacity-0 transition-opacity duration-200 group-hover/output:opacity-100${isCopied ? " text-token-foreground opacity-100" : ""}`,
       "aria-label": label,
       title: label,
       onClick: copyOutput,
@@ -1452,15 +1451,7 @@ function CopyOutputButton({ label, output }: { label: string; output: string }) 
   );
 }
 
-function UserMessageActions({
-  copy,
-  sentAtMs,
-  text,
-}: {
-  copy?: AgentSessionCopy;
-  sentAtMs?: number;
-  text: string;
-}) {
+function UserMessageActions({ copy, sentAtMs, text }: { copy?: AgentSessionCopy; sentAtMs?: number; text: string }) {
   "use no memo";
 
   const [isCopied, setIsCopied] = useState(false);
@@ -1498,15 +1489,16 @@ function UserMessageActions({
     { className: "codex-user-message-actions flex flex-row-reverse items-center gap-1" },
     h(
       "div",
-      { className: "mr-1 ms-1 flex items-center gap-2 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100" },
+      {
+        className: "mr-1 ms-1 flex items-center gap-2 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
+      },
       sentAtLabel == null ? null : h("span", { className: "text-xs text-token-text-tertiary" }, sentAtLabel),
       h(
         "button",
         {
           ref: buttonRef,
           type: "button",
-          className:
-            `codex-user-message-action-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_ICON} rounded-full electron:rounded-md`,
+          className: `codex-user-message-action-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_ICON} rounded-full electron:rounded-md`,
           "aria-label": activeLabel,
           title: activeLabel,
           onClick: copyMessage,
@@ -1569,8 +1561,7 @@ function AssistantMessageActions({
       {
         ref: buttonRef,
         type: "button",
-        className:
-          `codex-assistant-message-action-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_ICON} rounded-full electron:rounded-md`,
+        className: `codex-assistant-message-action-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_ICON} rounded-full electron:rounded-md`,
         "aria-label": activeLabel,
         title: activeLabel,
         onClick: copyMessage,
@@ -1581,7 +1572,10 @@ function AssistantMessageActions({
       ? null
       : h(
           "span",
-          { className: "ml-1.5 flex h-full items-center text-size-chat leading-5 text-token-input-placeholder-foreground" },
+          {
+            className:
+              "ml-1.5 flex h-full items-center text-size-chat leading-5 text-token-input-placeholder-foreground",
+          },
           sentAtLabel,
         ),
   );
@@ -1691,7 +1685,11 @@ function UserMessageAttachmentCard({ attachment }: { attachment: ComposerAttachm
         "user-message-file-attachment bg-token-dropdown-background border-token-border inline-flex max-w-[320px] items-center gap-1 rounded-full border px-2 py-1.5 text-sm",
       title: attachment.path,
     },
-    h("span", { className: "text-token-input-placeholder-foreground flex-shrink-0", "aria-hidden": true }, paperclipIcon("icon-2xs")),
+    h(
+      "span",
+      { className: "text-token-input-placeholder-foreground flex-shrink-0", "aria-hidden": true },
+      paperclipIcon("icon-2xs"),
+    ),
     h(
       "span",
       { className: "flex max-w-full min-w-0 items-center gap-1" },
@@ -1778,13 +1776,7 @@ function ComposerAttachmentCard({
   );
 }
 
-function RateLimitFooter({
-  state,
-  providerDisplayName,
-}: {
-  state: SessionState;
-  providerDisplayName: string;
-}) {
+function RateLimitFooter({ state, providerDisplayName }: { state: SessionState; providerDisplayName: string }) {
   const rows = state.context?.rateLimitRows ?? [];
   const normalizedRows = rows.map(normalizeRateLimitRow);
   const copy = state.context?.copy;
@@ -1816,7 +1808,11 @@ function RateLimitFooter({
       h("span", { className: "rate-line-heading" }, rateLimitsLabel),
       normalizedRows.flatMap((row, index) => [
         index > 0
-          ? h("span", { key: `${row.role}-separator`, className: "rate-limit-inline-separator", "aria-hidden": true }, "•")
+          ? h(
+              "span",
+              { key: `${row.role}-separator`, className: "rate-limit-inline-separator", "aria-hidden": true },
+              "•",
+            )
           : null,
         h(RateLimitInlineSegment, { key: row.role, row, state }),
       ]),
@@ -1838,9 +1834,8 @@ function RateLimitFooter({
 function RateLimitInlineSegment({ row, state }: { row: NormalizedRateLimitRow; state: SessionState }) {
   const normalized = row;
   const copy = state.context?.copy;
-  const fallbackLabel = normalized.role === "primary"
-    ? copy?.rateLimitPrimary ?? "Primary"
-    : copy?.rateLimitSecondary ?? "Secondary";
+  const fallbackLabel =
+    normalized.role === "primary" ? (copy?.rateLimitPrimary ?? "Primary") : (copy?.rateLimitSecondary ?? "Secondary");
   const label = formatRateLimitWindow(normalized.windowDurationMins, fallbackLabel, {
     weekly: copy?.rateLimitWeekly ?? "Weekly",
     monthly: copy?.rateLimitMonthly ?? "Monthly",
@@ -1855,11 +1850,7 @@ function RateLimitInlineSegment({ row, state }: { row: NormalizedRateLimitRow; s
     h("span", { className: "rate-limit-window" }, label),
     h("span", { className: "rate-limit-percent" }, formatRateLimitPercent(normalized.remainingPercent)),
     resetText
-      ? h(
-          "span",
-          { className: "rate-limit-reset" },
-          `${copy?.rateLimitResets ?? "resets"} ${resetText}`,
-        )
+      ? h("span", { className: "rate-limit-reset" }, `${copy?.rateLimitResets ?? "resets"} ${resetText}`)
       : null,
   );
 }
@@ -1867,9 +1858,8 @@ function RateLimitInlineSegment({ row, state }: { row: NormalizedRateLimitRow; s
 function RateLimitRow({ row, state }: { row: NormalizedRateLimitRow; state: SessionState }) {
   const normalized = row;
   const copy = state.context?.copy;
-  const fallbackLabel = normalized.role === "primary"
-    ? copy?.rateLimitPrimary ?? "Primary"
-    : copy?.rateLimitSecondary ?? "Secondary";
+  const fallbackLabel =
+    normalized.role === "primary" ? (copy?.rateLimitPrimary ?? "Primary") : (copy?.rateLimitSecondary ?? "Secondary");
   const label = formatRateLimitWindow(normalized.windowDurationMins, fallbackLabel, {
     weekly: copy?.rateLimitWeekly ?? "Weekly",
     monthly: copy?.rateLimitMonthly ?? "Monthly",
@@ -1887,13 +1877,9 @@ function RateLimitRow({ row, state }: { row: NormalizedRateLimitRow; state: Sess
       { className: "rate-limit-row-value" },
       h("span", { className: "rate-limit-percent" }, formatRateLimitPercent(normalized.remainingPercent)),
       resetText
-        ? h(
-            "span",
-            { className: "rate-limit-reset" },
-            `${copy?.rateLimitResets ?? "resets"} ${resetText}`,
-          )
+        ? h("span", { className: "rate-limit-reset" }, `${copy?.rateLimitResets ?? "resets"} ${resetText}`)
         : null,
-      ),
+    ),
   );
 }
 
@@ -1923,63 +1909,67 @@ function ComposerTopTray({
         { className: "codex-top-tray-list", "cmdk-list": "", "data-cmdk-list": true },
         items.length === 0
           ? h(
-            "div",
-            {
-              className: "codex-top-tray-empty",
-              "cmdk-empty": "",
-              "data-cmdk-empty": true,
-              "data-command-menu-empty-state": "true",
-            },
-            emptyLabel,
-          )
-          : items.map((item, index) => {
-            const titleClass = item.detail
-              ? "codex-top-tray-label max-w-[60%] flex-none truncate"
-              : "codex-top-tray-label min-w-0 flex-1 truncate";
-            const titleParts = composerMenuTitleParts(item.label, query);
-            const hasDimmedTitleParts = titleParts.some((part) => !part.isMatch);
-            return h(
-              "button",
+              "div",
               {
-                key: item.id,
-                className: "codex-top-tray-item",
-                type: "button",
-                "aria-selected": index === highlightedIndex ? "true" : undefined,
-                "cmdk-item": "",
-                "data-selected": index === highlightedIndex ? "true" : undefined,
-                "data-list-navigation-item": true,
-                onMouseEnter: () => onHighlight(index),
-                onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
-                onClick: () => onChoose(item),
+                className: "codex-top-tray-empty",
+                "cmdk-empty": "",
+                "data-cmdk-empty": true,
+                "data-command-menu-empty-state": "true",
               },
-              h(
-                "div",
-                { className: "codex-top-tray-copy flex w-full items-center gap-2" },
-                h("span", { className: "codex-top-tray-icon icon-xs shrink-0", "aria-hidden": true }, item.icon),
+              emptyLabel,
+            )
+          : items.map((item, index) => {
+              const titleClass = item.detail
+                ? "codex-top-tray-label max-w-[60%] flex-none truncate"
+                : "codex-top-tray-label min-w-0 flex-1 truncate";
+              const titleParts = composerMenuTitleParts(item.label, query);
+              const hasDimmedTitleParts = titleParts.some((part) => !part.isMatch);
+              return h(
+                "button",
+                {
+                  key: item.id,
+                  className: "codex-top-tray-item",
+                  type: "button",
+                  "aria-selected": index === highlightedIndex ? "true" : undefined,
+                  "cmdk-item": "",
+                  "data-selected": index === highlightedIndex ? "true" : undefined,
+                  "data-list-navigation-item": true,
+                  onMouseEnter: () => onHighlight(index),
+                  onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
+                  onClick: () => onChoose(item),
+                },
                 h(
                   "div",
-                  { className: titleClass },
-                  titleParts.map((part, partIndex) =>
-                    h(
-                      "span",
-                      {
-                        key: `${part.text}-${partIndex}`,
-                        className: !part.isMatch && hasDimmedTitleParts ? "text-token-description-foreground" : undefined,
-                      },
-                      part.text,
-                    )
+                  { className: "codex-top-tray-copy flex w-full items-center gap-2" },
+                  h("span", { className: "codex-top-tray-icon icon-xs shrink-0", "aria-hidden": true }, item.icon),
+                  h(
+                    "div",
+                    { className: titleClass },
+                    titleParts.map((part, partIndex) =>
+                      h(
+                        "span",
+                        {
+                          key: `${part.text}-${partIndex}`,
+                          className:
+                            !part.isMatch && hasDimmedTitleParts ? "text-token-description-foreground" : undefined,
+                        },
+                        part.text,
+                      ),
+                    ),
                   ),
+                  item.detail
+                    ? h(
+                        "span",
+                        {
+                          className:
+                            "codex-top-tray-detail min-w-0 flex-1 truncate text-sm text-token-description-foreground",
+                        },
+                        item.detail,
+                      )
+                    : null,
                 ),
-                item.detail
-                  ? h(
-                    "span",
-                    { className: "codex-top-tray-detail min-w-0 flex-1 truncate text-sm text-token-description-foreground" },
-                    item.detail,
-                  )
-                  : null,
-              ),
-            );
-          }),
+              );
+            }),
       ),
     ),
   );
@@ -2001,14 +1991,21 @@ function ComposerModeIndicator({
     h(
       "button",
       {
-        className:
-          `composer-mode-button group ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} rounded-full`,
+        className: `composer-mode-button group ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} rounded-full`,
         type: "button",
         "aria-label": label,
         onClick: onClear,
       },
-      h("span", { className: "composer-mode-icon composer-mode-icon-default icon-xs shrink-0", "aria-hidden": true }, icon),
-      h("span", { className: "composer-mode-icon composer-mode-icon-hover icon-xs shrink-0", "aria-hidden": true }, xIcon("icon-xs")),
+      h(
+        "span",
+        { className: "composer-mode-icon composer-mode-icon-default icon-xs shrink-0", "aria-hidden": true },
+        icon,
+      ),
+      h(
+        "span",
+        { className: "composer-mode-icon composer-mode-icon-hover icon-xs shrink-0", "aria-hidden": true },
+        xIcon("icon-xs"),
+      ),
       h("span", { className: "composer-footer__label--sm composer-mode-label max-w-16 truncate" }, label),
     ),
   );
@@ -2026,8 +2023,7 @@ function ComposerIdeContextIndicator({
   return h(
     "button",
     {
-      className:
-        `composer-context-button group ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} min-w-0 rounded-full`,
+      className: `composer-context-button group ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} min-w-0 rounded-full`,
       type: "button",
       "aria-label": label,
       title: label,
@@ -2045,11 +2041,7 @@ function ComposerIdeContextIndicator({
     ),
     hideLabel
       ? null
-      : h(
-          "span",
-          { className: "composer-footer__label--sm composer-context-label max-w-20 truncate" },
-          label,
-        ),
+      : h("span", { className: "composer-footer__label--sm composer-context-label max-w-20 truncate" }, label),
   );
 }
 
@@ -2092,8 +2084,7 @@ function PermissionsDropdown({
     h(
       "button",
       {
-        className:
-          `permissions-trigger ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${triggerSizeClass} ${hideLabel ? CODEX_BUTTON_UNIFORM : "min-w-0"} rounded-full`,
+        className: `permissions-trigger ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${triggerSizeClass} ${hideLabel ? CODEX_BUTTON_UNIFORM : "min-w-0"} rounded-full`,
         type: "button",
         "aria-label": triggerLabel,
         "aria-haspopup": isEnabled ? "menu" : undefined,
@@ -2126,10 +2117,15 @@ function PermissionsDropdown({
         ? null
         : h(
             "span",
-            { className: "permissions-trigger-label composer-footer__label--xs max-w-40 truncate whitespace-nowrap text-left" },
+            {
+              className:
+                "permissions-trigger-label composer-footer__label--xs max-w-40 truncate whitespace-nowrap text-left",
+            },
             selectedLabel,
           ),
-      isEnabled ? h("span", { className: "permissions-trigger-chevron icon-2xs shrink-0", "aria-hidden": true }, chevronIcon()) : null,
+      isEnabled
+        ? h("span", { className: "permissions-trigger-chevron icon-2xs shrink-0", "aria-hidden": true }, chevronIcon())
+        : null,
     ),
     effectiveIsOpen
       ? h(
@@ -2173,7 +2169,8 @@ function PermissionsMenuItem({
   return h(
     "button",
     {
-      className: "permissions-item no-drag group hover:bg-token-list-hover-background focus:bg-token-list-hover-background cursor-interaction text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
+      className:
+        "permissions-item no-drag group hover:bg-token-list-hover-background focus:bg-token-list-hover-background cursor-interaction text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
       type: "button",
       role: "menuitemradio",
       "aria-checked": isSelected,
@@ -2182,9 +2179,15 @@ function PermissionsMenuItem({
       onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
       onClick: onSelect,
     },
-    h("span", { className: "permissions-item-icon icon-xs shrink-0", "aria-hidden": true }, permissionModeIcon(mode, "icon-xs shrink-0")),
+    h(
+      "span",
+      { className: "permissions-item-icon icon-xs shrink-0", "aria-hidden": true },
+      permissionModeIcon(mode, "icon-xs shrink-0"),
+    ),
     h("span", { className: "permissions-item-label min-w-0 flex-1 truncate" }, label),
-    isSelected ? h("span", { className: "permissions-item-check icon-xs shrink-0", "aria-hidden": true }, checkIcon()) : null,
+    isSelected
+      ? h("span", { className: "permissions-item-check icon-xs shrink-0", "aria-hidden": true }, checkIcon())
+      : null,
   );
 }
 
@@ -2229,8 +2232,7 @@ function AddContextDropdown({
     h(
       "button",
       {
-        className:
-          `codex-tool codex-tool-plus ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
+        className: `codex-tool codex-tool-plus ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
         type: "button",
         "aria-label": addFilesAndMoreLabel,
         "aria-haspopup": "menu",
@@ -2322,7 +2324,11 @@ function AddContextMenuItem({
       { className: "add-context-item-copy flex min-w-0 flex-1 items-center gap-2" },
       h("span", { className: "add-context-item-label min-w-0 truncate" }, label),
       detail
-        ? h("span", { className: "add-context-item-detail min-w-0 flex-1 truncate text-token-description-foreground" }, detail)
+        ? h(
+            "span",
+            { className: "add-context-item-detail min-w-0 flex-1 truncate text-token-description-foreground" },
+            detail,
+          )
         : null,
     ),
   );
@@ -2396,81 +2402,88 @@ function currentWorkspaceMenuItem(state: SessionState): ComposerMenuItem | null 
   return composerMenuItems("mention", state, "").find((item) => item.id === "workspace") ?? null;
 }
 
-function composerMenuItems(kind: Exclude<ComposerMenuKind, null>, state: SessionState, query: string): ComposerMenuItem[] {
+function composerMenuItems(
+  kind: Exclude<ComposerMenuKind, null>,
+  state: SessionState,
+  query: string,
+): ComposerMenuItem[] {
   const copy = state.context?.copy;
-  const items: ComposerMenuItem[] = kind === "mention"
-    ? [
-        ...(state.context?.workingDirectory
-          ? [{
-            id: "workspace",
-            icon: folderIcon("icon-xs"),
-            label: copy?.mentionCurrentWorkspace ?? "Current workspace",
-            detail: basename(state.context.workingDirectory),
-            mention: {
-              kind: "at" as const,
-              label: basename(state.context.workingDirectory),
-              name: basename(state.context.workingDirectory),
-              path: state.context.workingDirectory,
-              fsPath: state.context.workingDirectory,
-            },
-          }]
-          : []),
-        ...state.providers.map((provider) => ({
-          id: provider.id,
-          icon: providerBadgeLabel(provider),
-          label: provider.displayName,
-          detail: provider.executableName,
-          mention: {
-            kind: "agent" as const,
+  const items: ComposerMenuItem[] =
+    kind === "mention"
+      ? [
+          ...(state.context?.workingDirectory
+            ? [
+                {
+                  id: "workspace",
+                  icon: folderIcon("icon-xs"),
+                  label: copy?.mentionCurrentWorkspace ?? "Current workspace",
+                  detail: basename(state.context.workingDirectory),
+                  mention: {
+                    kind: "at" as const,
+                    label: basename(state.context.workingDirectory),
+                    name: basename(state.context.workingDirectory),
+                    path: state.context.workingDirectory,
+                    fsPath: state.context.workingDirectory,
+                  },
+                },
+              ]
+            : []),
+          ...state.providers.map((provider) => ({
+            id: provider.id,
+            icon: providerBadgeLabel(provider),
             label: provider.displayName,
-            name: provider.id,
-            displayName: provider.displayName,
-            path: `provider://${provider.id}`,
-            description: provider.executableName,
+            detail: provider.executableName,
+            mention: {
+              kind: "agent" as const,
+              label: provider.displayName,
+              name: provider.id,
+              displayName: provider.displayName,
+              path: `provider://${provider.id}`,
+              description: provider.executableName,
+            },
+          })),
+        ]
+      : [
+          {
+            id: "plan",
+            icon: "$",
+            label: copy?.skillPlan ?? "Plan",
+            detail: "$plan",
+            mention: {
+              kind: "skill" as const,
+              label: "Plan",
+              name: "plan",
+              displayName: "Plan",
+              path: "skill://plan",
+            },
           },
-        })),
-      ]
-    : [
-        {
-          id: "plan",
-          icon: "$",
-          label: copy?.skillPlan ?? "Plan",
-          detail: "$plan",
-          mention: {
-            kind: "skill" as const,
-            label: "Plan",
-            name: "plan",
-            displayName: "Plan",
-            path: "skill://plan",
+          {
+            id: "review",
+            icon: "$",
+            label: copy?.skillCodeReview ?? "Code review",
+            detail: "$codex-review",
+            mention: {
+              kind: "skill" as const,
+              label: "Code review",
+              name: "codex-review",
+              displayName: "Code review",
+              path: "skill://codex-review",
+            },
           },
-        },
-        {
-          id: "review",
-          icon: "$",
-          label: copy?.skillCodeReview ?? "Code review",
-          detail: "$codex-review",
-          mention: {
-            kind: "skill" as const,
-            label: "Code review",
-            name: "codex-review",
-            displayName: "Code review",
-            path: "skill://codex-review",
+          {
+            id: "research",
+            icon: "$",
+            label: copy?.skillResearch ?? "Research",
+            detail: "$research",
+            mention: {
+              kind: "skill" as const,
+              label: "Research",
+              name: "research",
+              displayName: "Research",
+              path: "skill://research",
+            },
           },
-        },
-        {
-          id: "research",
-          icon: "$",
-          label: copy?.skillResearch ?? "Research",
-          detail: "$research",
-          mention: {
-            kind: "skill" as const,
-            label: "Research",
-            name: "research",
-            displayName: "Research",
-            path: "skill://research",
-          },
-        },
-      ];
+        ];
   return filterComposerMenuItems(items, query);
 }
 
@@ -2574,7 +2587,8 @@ function composerMenuRecursiveFuzzyScore(
       }
     }
     if (
-      (score < COMPOSER_FUZZY_SCORE_TRANSPOSITION && normalizedInput.charAt(matchIndex - 1) === normalizedQuery.charAt(queryIndex + 1)) ||
+      (score < COMPOSER_FUZZY_SCORE_TRANSPOSITION &&
+        normalizedInput.charAt(matchIndex - 1) === normalizedQuery.charAt(queryIndex + 1)) ||
       (normalizedQuery.charAt(queryIndex + 1) === normalizedQuery.charAt(queryIndex) &&
         normalizedInput.charAt(matchIndex - 1) !== normalizedQuery.charAt(queryIndex))
     ) {

@@ -6,7 +6,10 @@ describe("mock transport", () => {
   test("publishes a welcome snapshot and answers a prompt without a daemon", async () => {
     const snapshots: AcpmuxSnapshot[] = [];
     const pending: (() => void)[] = [];
-    const actions = startMockHost((snapshot) => snapshots.push(snapshot), (run) => pending.push(run));
+    const actions = startMockHost(
+      (snapshot) => snapshots.push(snapshot),
+      (run) => pending.push(run),
+    );
     expect(snapshots[0]?.connection).toBe("mock");
     expect(snapshots[0]?.rows.length).toBe(1);
 
@@ -21,7 +24,10 @@ describe("mock transport", () => {
 
   test("new session clears the transcript", async () => {
     const snapshots: AcpmuxSnapshot[] = [];
-    const actions = startMockHost((snapshot) => snapshots.push(snapshot), () => undefined);
+    const actions = startMockHost(
+      (snapshot) => snapshots.push(snapshot),
+      () => undefined,
+    );
     await actions["chat.new"]!({});
     expect(snapshots.at(-1)?.rows).toEqual([]);
   });

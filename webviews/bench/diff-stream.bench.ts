@@ -18,9 +18,8 @@ if (!Number.isSafeInteger(iterations) || iterations <= 0) {
 }
 const patch = makeMixedPatch(fileCount);
 const includeAppRender = process.env.CMUX_DIFF_BENCH_RENDER_APP === "1";
-const patchOutputPath = process.env.CMUX_DIFF_BENCH_PATCH_OUTPUT == null
-  ? undefined
-  : resolve(process.env.CMUX_DIFF_BENCH_PATCH_OUTPUT);
+const patchOutputPath =
+  process.env.CMUX_DIFF_BENCH_PATCH_OUTPUT == null ? undefined : resolve(process.env.CMUX_DIFF_BENCH_PATCH_OUTPUT);
 if (patchOutputPath != null) {
   writeFileSync(patchOutputPath, patch);
 }
@@ -31,10 +30,11 @@ const originalWindow = globalThis.window;
 Object.assign(globalThis, {
   document: { visibilityState: "hidden", hasFocus: () => false },
   window: globalThis,
-  fetch: async () => new Response(patch, {
-    status: 200,
-    headers: { "Content-Type": "text/x-diff" },
-  }),
+  fetch: async () =>
+    new Response(patch, {
+      status: 200,
+      headers: { "Content-Type": "text/x-diff" },
+    }),
 });
 
 const samples: number[] = [];
@@ -88,17 +88,16 @@ const report = {
   p95Ms: Number(p95Ms.toFixed(2)),
   filesPerSecond: Math.round(fileCount / (medianMs / 1000)),
   firstBatchFileCount: lastMetrics?.firstBatchFileCount ?? 0,
-  firstBatchMs: lastMetrics?.firstBatchAt == null
-    ? null
-    : Number((lastMetrics.firstBatchAt - lastMetrics.startedAt).toFixed(2)),
+  firstBatchMs:
+    lastMetrics?.firstBatchAt == null ? null : Number((lastMetrics.firstBatchAt - lastMetrics.startedAt).toFixed(2)),
   flushCount: lastMetrics?.flushCount ?? 0,
   longYieldCount: lastMetrics?.longYieldCount ?? 0,
   maxBatchSize: lastMetrics?.maxBatchSize ?? 0,
   maxYieldMs: Number((lastMetrics?.maxYieldMs ?? 0).toFixed(2)),
-  appRenderCount: includeAppRender ? lastAppMetrics?.renderCount ?? 0 : undefined,
+  appRenderCount: includeAppRender ? (lastAppMetrics?.renderCount ?? 0) : undefined,
   appRenderMs: includeAppRender ? Number((lastAppMetrics?.renderMs ?? 0).toFixed(2)) : undefined,
-  appRenderedItemCount: includeAppRender ? lastAppMetrics?.itemCount ?? 0 : undefined,
-  maxJumpOptionCount: includeAppRender ? lastAppMetrics?.maxJumpOptionCount ?? 0 : undefined,
+  appRenderedItemCount: includeAppRender ? (lastAppMetrics?.itemCount ?? 0) : undefined,
+  maxJumpOptionCount: includeAppRender ? (lastAppMetrics?.maxJumpOptionCount ?? 0) : undefined,
   patchOutputPath,
   yieldCount: lastMetrics?.yieldCount ?? 0,
 };
@@ -139,14 +138,16 @@ function createAppRenderMetrics() {
     render(batch: DiffItem[]) {
       items = [...items, ...batch];
       const startedAt = performance.now();
-      const markup = renderToStaticMarkup(createElement(JumpSelect, {
-        items,
-        label,
-        onJump: () => {},
-        onOpenSearch: () => {},
-        searchOpen: false,
-        selectedItemId: items[0]?.id ?? "",
-      }));
+      const markup = renderToStaticMarkup(
+        createElement(JumpSelect, {
+          items,
+          label,
+          onJump: () => {},
+          onOpenSearch: () => {},
+          searchOpen: false,
+          selectedItemId: items[0]?.id ?? "",
+        }),
+      );
       renderMs += performance.now() - startedAt;
       renderCount += 1;
       maxJumpOptionCount = Math.max(maxJumpOptionCount, markup.match(/<option(?:\s|>)/g)?.length ?? 0);

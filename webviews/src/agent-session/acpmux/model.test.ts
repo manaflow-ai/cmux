@@ -1,12 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import type { Tokens } from "marked";
-import { diffRows, layoutConversation, markdownBlocks, measuredText, visibleLayoutRange, visibleRowRange, type AcpmuxRow, type ConversationLayout } from "./model";
+import {
+  diffRows,
+  layoutConversation,
+  markdownBlocks,
+  measuredText,
+  visibleLayoutRange,
+  visibleRowRange,
+  type AcpmuxRow,
+  type ConversationLayout,
+} from "./model";
 
 const row = (id: string, version: number): AcpmuxRow => ({ id, version, at: 0, kind: "assistant", text: id });
 
 describe("acpmux row snapshots", () => {
   test("only changed content versions update", () => {
-    const before = new Map([["a", row("a", 1)], ["b", row("b", 1)]]);
+    const before = new Map([
+      ["a", row("a", 1)],
+      ["b", row("b", 1)],
+    ]);
     expect(diffRows(before, [row("a", 1), row("b", 2), row("c", 1)])).toEqual({
       added: [row("c", 1)],
       updated: [row("b", 2)],
@@ -19,7 +31,11 @@ describe("acpmux row snapshots", () => {
   });
 
   test("binary-searches exact typed-array tops", () => {
-    const layout: ConversationLayout = { tops: new Float64Array([0, 30, 90, 150]), heights: new Float64Array([30, 60, 60, 40]), totalHeight: 190 };
+    const layout: ConversationLayout = {
+      tops: new Float64Array([0, 30, 90, 150]),
+      heights: new Float64Array([30, 60, 60, 40]),
+      totalHeight: 190,
+    };
     expect(visibleLayoutRange(layout, 91, 40, 0)).toEqual({ first: 2, last: 3 });
     expect(visibleLayoutRange(layout, 0, 20, 1)).toEqual({ first: 0, last: 2 });
   });
@@ -28,7 +44,13 @@ describe("acpmux row snapshots", () => {
 /// A user bubble (9px padding top and bottom, styles.css) rendered taller than its row, so the next
 /// row's text ran under it.
 test("a one-line user row leaves room for its bubble and the gap below it", () => {
-  const user = { id: "u", version: 1, at: 0, kind: "user", text: "Question 1: how should the transcript handle item 1?" };
+  const user = {
+    id: "u",
+    version: 1,
+    at: 0,
+    kind: "user",
+    text: "Question 1: how should the transcript handle item 1?",
+  };
   const { heights } = layoutConversation([user], 760);
   const bubblePadding = 18;
   const line = 20;
@@ -37,7 +59,8 @@ test("a one-line user row leaves room for its bubble and the gap below it", () =
 });
 
 /// Every row below measures one row through the estimator and compares it with what the CSS draws.
-const height = (kind: string, text: string, width: number) => layoutConversation([{ id: `${kind}-${width}-${text}`, version: 1, at: 0, kind, text }], width).heights[0]!;
+const height = (kind: string, text: string, width: number) =>
+  layoutConversation([{ id: `${kind}-${width}-${text}`, version: 1, at: 0, kind, text }], width).heights[0]!;
 const paragraph = "word ".repeat(120).trim();
 
 /// The bubble is at most 78% of the row and its 12px side padding sits inside that, so its text
@@ -73,7 +96,10 @@ test("a block is measured as the text it renders", () => {
 /// A monospace space is a full cell, wider than the prose font's space; and a link the page won't
 /// open draws its label's source, not the parsed label.
 test("code spaces and unopenable links are measured as drawn", () => {
-  const measured = (source: string) => { const [block] = markdownBlocks(source) as Tokens.Paragraph[]; return measuredText(block!.tokens, block!.text); };
+  const measured = (source: string) => {
+    const [block] = markdownBlocks(source) as Tokens.Paragraph[];
+    return measuredText(block!.tokens, block!.text);
+  };
   expect(measured("Run `a b` now")).toBe("Run 00 0 now");
   expect(measured("[**b**](mailto:x@y)")).toBe("**b**");
   expect(measured("[**b**](https://example.com)")).toBe("b");

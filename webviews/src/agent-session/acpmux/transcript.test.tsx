@@ -3,24 +3,48 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import { layoutConversation, type AcpmuxRow } from "./model";
 
 // A silent console: jsdom has no canvas, so text measurement logs and falls back to row estimates.
-const dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
+const dom = new JSDOM("<!doctype html><div id=root></div>", {
+  pretendToBeVisual: true,
+  virtualConsole: new VirtualConsole(),
+});
 const globals = globalThis as Record<string, unknown>;
 /// Every ResizeObserver callback, so a test can report a viewport resize.
 const resizeCallbacks: (() => void)[] = [];
-const saved = Object.fromEntries(["window", "document", "navigator", "HTMLElement", "ResizeObserver", "requestAnimationFrame", "cancelAnimationFrame", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]));
+const saved = Object.fromEntries(
+  [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "ResizeObserver",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ].map((key) => [key, globals[key]]),
+);
 Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
-  ResizeObserver: class { constructor(callback: () => void) { resizeCallbacks.push(callback); } observe() {} unobserve() {} disconnect() {} },
+  ResizeObserver: class {
+    constructor(callback: () => void) {
+      resizeCallbacks.push(callback);
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
   requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
   cancelAnimationFrame: (handle: number) => clearTimeout(handle),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 afterAll(() => Object.assign(globals, saved));
 
-const { act, createElement } = await import("react").then((react) => ({ act: react.act, createElement: react.createElement }));
+const { act, createElement } = await import("react").then((react) => ({
+  act: react.act,
+  createElement: react.createElement,
+}));
 const { createRoot } = await import("react-dom/client");
 const { AcpmuxApp, VirtualTranscript } = await import("./App");
 const { acpmuxPerf } = await import("./perf");
@@ -30,37 +54,89 @@ function fakeViewport(size: { width: number; height: number }) {
   const prototype = dom.window.HTMLElement.prototype;
   const offsets = new WeakMap<object, number>();
   const isScroller = (node: HTMLElement) => node.classList.contains("acpmux-scroll");
-  Object.defineProperty(prototype, "clientHeight", { configurable: true, get(this: HTMLElement) { return isScroller(this) ? size.height : 0; } });
-  Object.defineProperty(prototype, "clientWidth", { configurable: true, get(this: HTMLElement) { return isScroller(this) ? size.width : 0; } });
+  Object.defineProperty(prototype, "clientHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return isScroller(this) ? size.height : 0;
+    },
+  });
+  Object.defineProperty(prototype, "clientWidth", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return isScroller(this) ? size.width : 0;
+    },
+  });
   // Like a browser, the offset clamps to the content once it lays out again.
-  const contentHeight = (node: HTMLElement) => parseFloat(node.querySelector<HTMLElement>(".acpmux-spacer")?.style.height || "0");
+  const contentHeight = (node: HTMLElement) =>
+    parseFloat(node.querySelector<HTMLElement>(".acpmux-spacer")?.style.height || "0");
   const maximum = (node: HTMLElement) => Math.max(0, contentHeight(node) - size.height);
-  Object.defineProperty(prototype, "scrollHeight", { configurable: true, get(this: HTMLElement) { return isScroller(this) ? Math.max(contentHeight(this), size.height) : 0; } });
-  Object.defineProperty(prototype, "scrollTop", { configurable: true, get(this: HTMLElement) { const offset = Math.min(offsets.get(this) ?? 0, maximum(this)); offsets.set(this, offset); return offset; }, set(this: HTMLElement, value: number) { offsets.set(this, Math.max(0, Math.min(value, maximum(this)))); } });
-  return () => { for (const key of ["clientHeight", "clientWidth", "scrollHeight", "scrollTop"]) delete (prototype as unknown as Record<string, unknown>)[key]; };
+  Object.defineProperty(prototype, "scrollHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return isScroller(this) ? Math.max(contentHeight(this), size.height) : 0;
+    },
+  });
+  Object.defineProperty(prototype, "scrollTop", {
+    configurable: true,
+    get(this: HTMLElement) {
+      const offset = Math.min(offsets.get(this) ?? 0, maximum(this));
+      offsets.set(this, offset);
+      return offset;
+    },
+    set(this: HTMLElement, value: number) {
+      offsets.set(this, Math.max(0, Math.min(value, maximum(this))));
+    },
+  });
+  return () => {
+    for (const key of ["clientHeight", "clientWidth", "scrollHeight", "scrollTop"])
+      delete (prototype as unknown as Record<string, unknown>)[key];
+  };
 }
 
-const rows: AcpmuxRow[] = Array.from({ length: 200 }, (_, index) => ({ id: `row-${index}`, version: 1, at: index, kind: index % 2 ? "assistant" : "user", text: `message ${index}` }));
+const rows: AcpmuxRow[] = Array.from({ length: 200 }, (_, index) => ({
+  id: `row-${index}`,
+  version: 1,
+  at: index,
+  kind: index % 2 ? "assistant" : "user",
+  text: `message ${index}`,
+}));
 
 describe("acpmux virtual transcript", () => {
   test("re-renders that keep rows and width reuse the conversation layout", async () => {
     let layouts = 0;
     const addLayout = acpmuxPerf.addLayout.bind(acpmuxPerf);
     acpmuxPerf.enabled = true;
-    acpmuxPerf.addLayout = (ms: number) => { layouts += 1; addLayout(ms); };
+    acpmuxPerf.addLayout = (ms: number) => {
+      layouts += 1;
+      addLayout(ms);
+    };
     const root = createRoot(dom.window.document.getElementById("root")!);
     const onToggleActivity = () => {};
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows, onToggleActivity, expanded: new Set<string>() })));
+      await act(async () =>
+        root.render(createElement(VirtualTranscript, { rows, onToggleActivity, expanded: new Set<string>() })),
+      );
       const afterMount = layouts;
       expect(afterMount).toBeGreaterThan(0);
       // A scroll or an expansion toggle re-renders with the same rows and width.
       for (let pass = 0; pass < 5; pass += 1) {
-        await act(async () => root.render(createElement(VirtualTranscript, { rows, onToggleActivity, expanded: new Set<string>([`row-${pass}`]) })));
+        await act(async () =>
+          root.render(
+            createElement(VirtualTranscript, { rows, onToggleActivity, expanded: new Set<string>([`row-${pass}`]) }),
+          ),
+        );
       }
       expect(layouts).toBe(afterMount);
       // New rows still lay out again.
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: [...rows, { id: "row-new", version: 1, at: 999, kind: "assistant", text: "new" }], onToggleActivity, expanded: new Set<string>() })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: [...rows, { id: "row-new", version: 1, at: 999, kind: "assistant", text: "new" }],
+            onToggleActivity,
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
       expect(layouts).toBeGreaterThan(afterMount);
     } finally {
       await act(async () => root.unmount());
@@ -74,17 +150,27 @@ describe("acpmux virtual transcript", () => {
     const restore = fakeViewport(size);
     const root = createRoot(dom.window.document.getElementById("root")!);
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() }),
+        ),
+      );
       const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
       const totalHeight = parseFloat((dom.window.document.querySelector(".acpmux-spacer") as HTMLElement).style.height);
       expect(scroller.scrollTop).toBe(totalHeight - 600);
-      const mountedTops = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")].map((row) => parseFloat(/translateY\((-?[\d.]+)px\)/.exec(row.style.transform)?.[1] ?? "NaN"));
+      const mountedTops = () =>
+        [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")].map((row) =>
+          parseFloat(/translateY\((-?[\d.]+)px\)/.exec(row.style.transform)?.[1] ?? "NaN"),
+        );
       // A fling upward: each scroll event moves a viewport and a half. The scroll
       // event commits before the frame paints (no extra animation-frame hop), and
       // rows two steps ahead are already mounted when the next step lands.
       const step = 900;
       for (const top of [totalHeight - 600 - step, totalHeight - 600 - 2 * step]) {
-        act(() => { scroller.scrollTop = top; scroller.dispatchEvent(new dom.window.Event("scroll")); });
+        act(() => {
+          scroller.scrollTop = top;
+          scroller.dispatchEvent(new dom.window.Event("scroll"));
+        });
         expect(Math.min(...mountedTops())).toBeLessThanOrEqual(Math.max(0, top - 2 * step));
         expect(Math.max(...mountedTops())).toBeGreaterThanOrEqual(top);
       }
@@ -100,8 +186,15 @@ describe("acpmux virtual transcript", () => {
     resizeCallbacks.length = 0;
     const root = createRoot(dom.window.document.getElementById("root")!);
     const fewRows = rows.slice(0, 6);
-    const render = () => root.render(createElement(VirtualTranscript, { rows: fewRows, onToggleActivity: () => {}, expanded: new Set<string>() }));
-    const resize = (height: number) => act(async () => { size.height = height; for (const callback of resizeCallbacks) callback(); });
+    const render = () =>
+      root.render(
+        createElement(VirtualTranscript, { rows: fewRows, onToggleActivity: () => {}, expanded: new Set<string>() }),
+      );
+    const resize = (height: number) =>
+      act(async () => {
+        size.height = height;
+        for (const callback of resizeCallbacks) callback();
+      });
     try {
       await act(async () => render());
       const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
@@ -127,9 +220,20 @@ describe("acpmux transcript accessibility", () => {
   test("the transcript is a feed of articles placed in the whole conversation", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     const root = createRoot(dom.window.document.getElementById("root")!);
-    const conversation: AcpmuxRow[] = [...rows, { id: "summary", version: 1, at: 999, kind: "turnSummary", durationMs: 3000, toolCount: 2 }];
+    const conversation: AcpmuxRow[] = [
+      ...rows,
+      { id: "summary", version: 1, at: 999, kind: "turnSummary", durationMs: 3000, toolCount: 2 },
+    ];
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: conversation, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: conversation,
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
       const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
       expect(scroller.getAttribute("role")).toBe("feed");
       expect(scroller.getAttribute("aria-label")).toBe("Transcript");
@@ -138,7 +242,10 @@ describe("acpmux transcript accessibility", () => {
       for (const article of articles) expect(article.getAttribute("aria-setsize")).toBe(String(conversation.length));
       const last = articles.at(-1)!;
       expect(last.getAttribute("aria-posinset")).toBe(String(conversation.length));
-      const mounted = articles.map((article) => ({ article, row: conversation[Number(article.getAttribute("aria-posinset")) - 1]! }));
+      const mounted = articles.map((article) => ({
+        article,
+        row: conversation[Number(article.getAttribute("aria-posinset")) - 1]!,
+      }));
       expect(mounted.find(({ row }) => row.kind === "user")?.article.getAttribute("aria-label")).toBe("You");
       expect(mounted.find(({ row }) => row.kind === "assistant")?.article.getAttribute("aria-label")).toBe("Agent");
       expect(last.hasAttribute("aria-label")).toBe(false);
@@ -146,8 +253,18 @@ describe("acpmux transcript accessibility", () => {
       expect(summary.childNodes.length).toBe(1);
       expect(summary.textContent).toBe("Worked for 3s · 2 tool calls");
       // Older history still in acpmux: the conversation's size is unknown.
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: conversation, onToggleActivity: () => {}, expanded: new Set<string>(), canLoadOlder: true })));
-      for (const article of dom.window.document.querySelectorAll(".acpmux-row")) expect(article.getAttribute("aria-setsize")).toBe("-1");
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: conversation,
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+            canLoadOlder: true,
+          }),
+        ),
+      );
+      for (const article of dom.window.document.querySelectorAll(".acpmux-row"))
+        expect(article.getAttribute("aria-setsize")).toBe("-1");
     } finally {
       await act(async () => root.unmount());
       restore();
@@ -160,8 +277,18 @@ describe("acpmux transcript accessibility", () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     const root = createRoot(dom.window.document.getElementById("root")!);
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: [{ id: "u", version: 1, at: 0, kind: "user", text: "first\n\nsecond" }], onToggleActivity: () => {}, expanded: new Set<string>() })));
-      const paragraphs = [...dom.window.document.querySelectorAll(".acpmux-markdown > p")].map((node) => node.textContent);
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: [{ id: "u", version: 1, at: 0, kind: "user", text: "first\n\nsecond" }],
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+      const paragraphs = [...dom.window.document.querySelectorAll(".acpmux-markdown > p")].map(
+        (node) => node.textContent,
+      );
       expect(paragraphs).toEqual(["first", "second"]);
     } finally {
       await act(async () => root.unmount());
@@ -176,7 +303,15 @@ describe("acpmux transcript accessibility", () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const long: AcpmuxRow = { id: "long", version: 1, at: 0, kind: "assistant", text: "word ".repeat(120).trim() };
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: [long, { id: "next", version: 1, at: 1, kind: "assistant", text: "next" }], onToggleActivity: () => {}, expanded: new Set<string>() })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: [long, { id: "next", version: 1, at: 1, kind: "assistant", text: "next" }],
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
       const next = dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")[1]!;
       expect(next.style.transform).toBe(`translateY(${layoutConversation([long], 760).heights[0]}px)`);
     } finally {
@@ -189,19 +324,48 @@ describe("acpmux transcript accessibility", () => {
 /// A seeded generator, so a failing shape reproduces.
 function seeded(seed: number) {
   let state = seed >>> 0;
-  return () => { state = (state * 1664525 + 1013904223) >>> 0; return state / 2 ** 32; };
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 2 ** 32;
+  };
 }
 
 /// Rows of every kind the transcript draws, in random markdown shapes.
 function randomConversation(count: number, random: () => number): AcpmuxRow[] {
-  const pieces = ["A sentence with `code` in it.", "## Heading\nText under it.", "- one\n- [ ] two\n- three", "```\nlet x = 1\n```", "> quoted", "Line one\nline two", "**bold** and [a link](https://example.com)"];
+  const pieces = [
+    "A sentence with `code` in it.",
+    "## Heading\nText under it.",
+    "- one\n- [ ] two\n- three",
+    "```\nlet x = 1\n```",
+    "> quoted",
+    "Line one\nline two",
+    "**bold** and [a link](https://example.com)",
+  ];
   return Array.from({ length: count }, (_, index) => {
     const pick = random();
-    const text = Array.from({ length: 1 + Math.floor(random() * 4) }, () => pieces[Math.floor(random() * pieces.length)]!).join("\n\n");
+    const text = Array.from(
+      { length: 1 + Math.floor(random() * 4) },
+      () => pieces[Math.floor(random() * pieces.length)]!,
+    ).join("\n\n");
     if (pick < 0.35) return { id: `r${index}`, version: 1, at: index, kind: "user", text };
     if (pick < 0.75) return { id: `r${index}`, version: 1, at: index, kind: "assistant", text };
-    if (pick < 0.85) return { id: `r${index}`, version: 1, at: index, kind: "activity", toolCount: 2, items: [{ kind: "tool", text: "Read a file" }] } as AcpmuxRow;
-    if (pick < 0.92) return { id: `r${index}`, version: 1, at: index, kind: "permission", permission: { permissionId: `p${index}`, title: "Allow this?", options: [{ id: "allow", name: "Allow" }] } } as AcpmuxRow;
+    if (pick < 0.85)
+      return {
+        id: `r${index}`,
+        version: 1,
+        at: index,
+        kind: "activity",
+        toolCount: 2,
+        items: [{ kind: "tool", text: "Read a file" }],
+      } as AcpmuxRow;
+    if (pick < 0.92)
+      return {
+        id: `r${index}`,
+        version: 1,
+        at: index,
+        kind: "permission",
+        permission: { permissionId: `p${index}`, title: "Allow this?", options: [{ id: "allow", name: "Allow" }] },
+      } as AcpmuxRow;
     return { id: `r${index}`, version: 1, at: index, kind: "turnSummary", durationMs: 2000, toolCount: 1 };
   });
 }
@@ -220,13 +384,28 @@ describe("acpmux measured rows", () => {
     const original = prototype.getBoundingClientRect;
     prototype.getBoundingClientRect = function (this: HTMLElement) {
       const index = Number(this.getAttribute("aria-posinset")) - 1;
-      const height = this.classList.contains("acpmux-row") ? drawn.get(conversation[index]?.id ?? "") ?? 0 : 0;
-      return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: height, width: 0, height, toJSON() { return {}; } } as DOMRect;
+      const height = this.classList.contains("acpmux-row") ? (drawn.get(conversation[index]?.id ?? "") ?? 0) : 0;
+      return {
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: height,
+        width: 0,
+        height,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
     };
     const root = createRoot(dom.window.document.getElementById("root")!);
     const overlaps = () => {
       const placed = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")]
-        .map((article) => ({ index: Number(article.getAttribute("aria-posinset")) - 1, top: Number(/translateY\(([-\d.]+)px\)/.exec(article.style.transform)?.[1]) }))
+        .map((article) => ({
+          index: Number(article.getAttribute("aria-posinset")) - 1,
+          top: Number(/translateY\(([-\d.]+)px\)/.exec(article.style.transform)?.[1]),
+        }))
         .sort((a, b) => a.index - b.index);
       const found: string[] = [];
       for (let position = 1; position < placed.length; position += 1) {
@@ -234,29 +413,56 @@ describe("acpmux measured rows", () => {
         const below = placed[position]!;
         if (below.index !== above.index + 1) continue;
         const bottom = above.top + drawn.get(conversation[above.index]!.id)!;
-        if (bottom > below.top + 0.5) found.push(`${conversation[above.index]!.id} ends at ${bottom}, ${conversation[below.index]!.id} starts at ${below.top}`);
+        if (bottom > below.top + 0.5)
+          found.push(
+            `${conversation[above.index]!.id} ends at ${bottom}, ${conversation[below.index]!.id} starts at ${below.top}`,
+          );
       }
       return found;
     };
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: conversation, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: conversation,
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
       expect(overlaps()).toEqual([]);
       const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
       // Opened at the latest row, it stays there as the rows settle to their drawn heights.
       const spacer = dom.window.document.querySelector(".acpmux-spacer") as HTMLElement;
       expect(scroller.scrollTop).toBe(parseFloat(spacer.style.height) - 600);
       for (const top of [0, 4000, 9000]) {
-        await act(async () => { scroller.scrollTop = top; scroller.dispatchEvent(new dom.window.Event("scroll")); });
+        await act(async () => {
+          scroller.scrollTop = top;
+          scroller.dispatchEvent(new dom.window.Event("scroll"));
+        });
         expect(overlaps()).toEqual([]);
       }
       // A row above the viewport that grows leaves the row at the viewport's top where it is.
-      const placed = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")].map((article) => ({ article, index: Number(article.getAttribute("aria-posinset")) - 1, top: Number(/translateY\(([-\d.]+)px\)/.exec(article.style.transform)?.[1]) }));
-      const atTop = () => placed().filter((row) => row.top <= scroller.scrollTop).sort((a, b) => b.top - a.top)[0]!;
+      const placed = () =>
+        [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")].map((article) => ({
+          article,
+          index: Number(article.getAttribute("aria-posinset")) - 1,
+          top: Number(/translateY\(([-\d.]+)px\)/.exec(article.style.transform)?.[1]),
+        }));
+      const atTop = () =>
+        placed()
+          .filter((row) => row.top <= scroller.scrollTop)
+          .sort((a, b) => b.top - a.top)[0]!;
       const anchor = atTop();
       const offset = scroller.scrollTop - anchor.top;
-      const above = placed().filter((row) => row.index < anchor.index).sort((a, b) => a.index - b.index)[0]!;
+      const above = placed()
+        .filter((row) => row.index < anchor.index)
+        .sort((a, b) => a.index - b.index)[0]!;
       drawn.set(conversation[above.index]!.id, drawn.get(conversation[above.index]!.id)! + 100);
-      await act(async () => { for (const callback of resizeCallbacks) (callback as (entries: { target: Element }[]) => void)([{ target: above.article }]); });
+      await act(async () => {
+        for (const callback of resizeCallbacks)
+          (callback as (entries: { target: Element }[]) => void)([{ target: above.article }]);
+      });
       expect(atTop().index).toBe(anchor.index);
       expect(scroller.scrollTop - atTop().top).toBe(offset);
       expect(overlaps()).toEqual([]);
@@ -271,24 +477,49 @@ describe("acpmux measured rows", () => {
   test("a row's drawn height re-places the rows without measuring them again", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     let measures = 0;
-    const Plain = Object.assign(() => null, { measure: () => { measures += 1; return 50; } });
+    const Plain = Object.assign(() => null, {
+      measure: () => {
+        measures += 1;
+        return 50;
+      },
+    });
     const registry = { user: Plain, assistant: Plain } as never;
     const prototype = dom.window.HTMLElement.prototype;
     const original = prototype.getBoundingClientRect;
     let drawnHeight = 0;
     prototype.getBoundingClientRect = function (this: HTMLElement) {
-      const height = this.classList.contains("acpmux-row") && this.getAttribute("aria-posinset") === "200" ? drawnHeight : 0;
-      return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: height, width: 0, height, toJSON() { return {}; } } as DOMRect;
+      const height =
+        this.classList.contains("acpmux-row") && this.getAttribute("aria-posinset") === "200" ? drawnHeight : 0;
+      return {
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: height,
+        width: 0,
+        height,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
     };
     const root = createRoot(dom.window.document.getElementById("root")!);
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>(), registry })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>(), registry }),
+        ),
+      );
       const spacer = dom.window.document.querySelector(".acpmux-spacer") as HTMLElement;
       const estimated = parseFloat(spacer.style.height);
       const afterOpen = measures;
       drawnHeight = 90;
       const latest = dom.window.document.querySelector<HTMLElement>('.acpmux-row[aria-posinset="200"]')!;
-      await act(async () => { for (const callback of resizeCallbacks) (callback as (entries: { target: Element }[]) => void)([{ target: latest }]); });
+      await act(async () => {
+        for (const callback of resizeCallbacks)
+          (callback as (entries: { target: Element }[]) => void)([{ target: latest }]);
+      });
       expect(parseFloat(spacer.style.height)).toBe(estimated + 40);
       expect(measures).toBe(afterOpen);
     } finally {
@@ -305,12 +536,18 @@ describe("acpmux measured rows", () => {
     const restore = fakeViewport(size);
     const root = createRoot(dom.window.document.getElementById("root")!);
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() }),
+        ),
+      );
       const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
       const spacer = dom.window.document.querySelector(".acpmux-spacer") as HTMLElement;
       expect(scroller.scrollTop).toBe(parseFloat(spacer.style.height) - 600);
       size.height = 400;
-      await act(async () => { for (const callback of resizeCallbacks) callback(); });
+      await act(async () => {
+        for (const callback of resizeCallbacks) callback();
+      });
       expect(scroller.scrollTop).toBe(parseFloat(spacer.style.height) - 400);
     } finally {
       await act(async () => root.unmount());
@@ -326,16 +563,36 @@ describe("acpmux measured rows", () => {
     const original = prototype.getBoundingClientRect;
     let lastHeight = 120;
     prototype.getBoundingClientRect = function (this: HTMLElement) {
-      const height = this.classList.contains("acpmux-row") && this.getAttribute("aria-posinset") === "200" ? lastHeight : 0;
-      return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: height, width: 0, height, toJSON() { return {}; } } as DOMRect;
+      const height =
+        this.classList.contains("acpmux-row") && this.getAttribute("aria-posinset") === "200" ? lastHeight : 0;
+      return {
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: height,
+        width: 0,
+        height,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
     };
     const root = createRoot(dom.window.document.getElementById("root")!);
     const reportLatest = async () => {
       const latest = dom.window.document.querySelector<HTMLElement>('.acpmux-row[aria-posinset="200"]')!;
-      await act(async () => { for (const callback of resizeCallbacks) (callback as (entries: { target: Element }[]) => void)([{ target: latest }]); });
+      await act(async () => {
+        for (const callback of resizeCallbacks)
+          (callback as (entries: { target: Element }[]) => void)([{ target: latest }]);
+      });
     };
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() }),
+        ),
+      );
       await reportLatest();
       const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
       const spacer = dom.window.document.querySelector(".acpmux-spacer") as HTMLElement;
@@ -358,19 +615,48 @@ describe("acpmux measured rows", () => {
   /// and the browser clamps the offset before the layout effect sees it.
   test("opened at the latest row, it stays there as rows draw shorter than estimated", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
-    const conversation: AcpmuxRow[] = Array.from({ length: 300 }, (_, index) => ({ id: `long-${index}`, version: 1, at: index, kind: "assistant", text: `${"word ".repeat(200)}${index}` }));
+    const conversation: AcpmuxRow[] = Array.from({ length: 300 }, (_, index) => ({
+      id: `long-${index}`,
+      version: 1,
+      at: index,
+      kind: "assistant",
+      text: `${"word ".repeat(200)}${index}`,
+    }));
     const prototype = dom.window.HTMLElement.prototype;
     const original = prototype.getBoundingClientRect;
     prototype.getBoundingClientRect = function (this: HTMLElement) {
       const height = this.classList.contains("acpmux-row") ? 40 : 0;
-      return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: height, width: 0, height, toJSON() { return {}; } } as DOMRect;
+      return {
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: height,
+        width: 0,
+        height,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
     };
     const root = createRoot(dom.window.document.getElementById("root")!);
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: conversation, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: conversation,
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
       const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
       const spacer = dom.window.document.querySelector(".acpmux-spacer") as HTMLElement;
-      for (let frame = 0; frame < 3; frame += 1) await act(async () => { scroller.dispatchEvent(new dom.window.Event("scroll")); });
+      for (let frame = 0; frame < 3; frame += 1)
+        await act(async () => {
+          scroller.dispatchEvent(new dom.window.Event("scroll"));
+        });
       expect(scroller.scrollTop).toBe(parseFloat(spacer.style.height) - 600);
     } finally {
       await act(async () => root.unmount());
@@ -386,8 +672,14 @@ describe("acpmux renderer registry", () => {
     const host = dom.window as unknown as Window;
     let firstRenders = 0;
     let secondRenders = 0;
-    const FirstChips = () => { firstRenders += 1; return null; };
-    const SecondChips = () => { secondRenders += 1; return null; };
+    const FirstChips = () => {
+      firstRenders += 1;
+      return null;
+    };
+    const SecondChips = () => {
+      secondRenders += 1;
+      return null;
+    };
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
       await act(async () => host.cmuxAcpmuxRegistry!.register("composerChips", FirstChips as never));
@@ -416,15 +708,23 @@ describe("acpmux host handshake", () => {
     onmessage?: (message: { data: string }) => void;
     constructor(readonly url: URL) {
       FakeSocket.made.push(this);
-      queueMicrotask(() => { this.readyState = 1; this.onopen?.(); });
+      queueMicrotask(() => {
+        this.readyState = 1;
+        this.onopen?.();
+      });
     }
     send(raw: string) {
       const { id, method } = JSON.parse(raw) as { id: number; method: string };
       const result = method === "_acpmux/watch" ? { sessions: [] } : {};
       queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id, result }) }));
     }
-    close() { this.readyState = 3; }
-    drop() { this.readyState = 3; this.onclose?.(); }
+    close() {
+      this.readyState = 3;
+    }
+    drop() {
+      this.readyState = 3;
+      this.onclose?.();
+    }
   }
 
   /// After losing the daemon the page asks Swift again; that retry restarted a daemon the user had stopped.
@@ -434,17 +734,33 @@ describe("acpmux host handshake", () => {
     const realSocket = globals.WebSocket;
     const asked: Record<string, unknown>[] = [];
     globals.WebSocket = FakeSocket;
-    host.webkit = { messageHandlers: { agentSession: { postMessage(message: { method: string; params: Record<string, unknown> }) {
-      if (message.method !== "ready") return Promise.resolve({ ok: true, value: null });
-      asked.push(message.params);
-      return Promise.resolve({ ok: true, value: { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:4100/acp", token: "t" } });
-    } } } };
+    host.webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage(message: { method: string; params: Record<string, unknown> }) {
+            if (message.method !== "ready") return Promise.resolve({ ok: true, value: null });
+            asked.push(message.params);
+            return Promise.resolve({
+              ok: true,
+              value: {
+                protocolVersion: 1,
+                transport: "acpmux-websocket",
+                endpoint: "ws://127.0.0.1:4100/acp",
+                token: "t",
+              },
+            });
+          },
+        },
+      },
+    };
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
-      for (let tries = 0; tries < 100 && FakeSocket.made.length === 0; tries += 1) await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      for (let tries = 0; tries < 100 && FakeSocket.made.length === 0; tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
       expect(asked).toEqual([{}]);
       await act(async () => FakeSocket.made[0]!.drop());
-      for (let tries = 0; tries < 100 && asked.length < 2; tries += 1) await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+      for (let tries = 0; tries < 100 && asked.length < 2; tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
       expect(asked[1]).toEqual({ reconnect: true });
     } finally {
       await act(async () => root.unmount());
