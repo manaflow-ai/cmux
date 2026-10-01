@@ -371,13 +371,25 @@ class App:
         home = Path(os.path.expanduser(f"~{self.session.user}"))
         return home / "Library/Application Support/cmux/tags" / self.bundle_tag / "tui"
 
+    def stop_daemon(self) -> None:
+        """End the tagged build's daemon and its terminals through its own socket.
+
+        The daemon outlives the app and writes its workspaces back to the state
+        directory, so deleting that directory under a live daemon changes nothing.
+        An untagged build's session is the user's own, so it is never stopped.
+        """
+        if self.bundle_tag:
+            self.cli(["server", "stop", "--end-terminals"], daemon=True, timeout=20)
+
     def clear_state(self) -> None:
         """Start from no workspaces, not the ones an earlier tour on this tag left."""
         directory = self.state_directory()
         if self.fresh_state and directory:
             self.session.run(["rm", "-rf", str(directory)])
+            print(f"fresh state: cleared {directory}", flush=True)
 
     def launch(self) -> None:
+        self.stop_daemon()
         self.clear_leftovers()
         self.clear_state()
         knobs = [f"CMUX_NEXT_SOCKET_PATH={self.socket_path}", "CMUX_NEXT_SOCKET_MODE=allowAll"]
@@ -406,7 +418,7 @@ class App:
 
     def daemon_session(self) -> str:
         """DaemonLauncher.sessionName: cmux-app, or cmux-app-<cleaned tag>."""
-        cleaned = clean_tag(self.identity.get("tag"))
+        cleaned = clean_tag(self.identity.get("tag")) or getattr(self, "bundle_tag", "")
         return f"cmux-app-{cleaned}" if cleaned else "cmux-app"
 
     def cli(self, args: list[str], *, daemon: bool = False, timeout: float = STEP_TIMEOUT) -> subprocess.CompletedProcess[str]:
@@ -470,6 +482,7 @@ class App:
         if isinstance(pid, int):
             self.session.run(["kill", "-9", str(pid)])
         # The app leaves its daemon running by design; this tour started it.
+        self.stop_daemon()
         self.clear_leftovers()
         self.clear_state()
 

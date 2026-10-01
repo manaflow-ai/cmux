@@ -183,10 +183,27 @@ jobs:
           name: cmux-next-media
           path: ${{ runner.temp }}/media
 
+      - name: Check for a publisher in the base revision
+        id: publisher
+        run: |
+          if [ -f scripts/cmux-next/media/publish.py ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::The base revision has no cmux-next media publisher yet; the media stays in the run artifact."
+          fi
+
+      # Without ffmpeg the comment still carries the screenshots, only no
+      # video, so a slow or stuck apt never holds the comment back.
       - name: Install ffmpeg
-        run: command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null)
+        if: ${{ steps.publisher.outputs.present == 'true' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null)
 
       - name: Upload the media and update the comment
+        if: ${{ steps.publisher.outputs.present == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
@@ -206,9 +223,5 @@ jobs:
                 note="The tour job failed before the tour ran (build or setup); the run log has the output."
               fi ;;
           esac
-          if [ ! -f scripts/cmux-next/media/publish.py ]; then
-            echo "::notice::The base revision has no cmux-next media publisher yet; the media stays in the run artifact."
-            exit 0
-          fi
           python3 scripts/cmux-next/media/publish.py --repo "$GITHUB_REPOSITORY" \
             --media "$RUNNER_TEMP/media" --pr "$PR" --sha "$HEAD_SHA" --run-url "$RUN_URL" --note "$note"

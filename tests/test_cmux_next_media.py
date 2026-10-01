@@ -161,6 +161,20 @@ class FreshState(unittest.TestCase):
         app.session.run = lambda argv: self.fail(f"ran {argv}")
         app.clear_state()
 
+    def test_an_untagged_build_never_stops_the_users_daemon(self) -> None:
+        app = self.app("", fresh=True)
+        app.cli = lambda *a, **k: self.fail(f"ran {a}")
+        app.stop_daemon()
+
+    def test_the_tagged_daemon_stops_through_its_session(self) -> None:
+        app = self.app("ci-media", fresh=False)
+        app.identity = {}
+        calls = []
+        app.cli = lambda args, **options: calls.append((args, options.get("daemon")))
+        app.stop_daemon()
+        self.assertEqual(app.daemon_session(), "cmux-app-ci-media")
+        self.assertEqual(calls, [(["server", "stop", "--end-terminals"], True)])
+
     def test_state_is_kept_unless_asked(self) -> None:
         app = self.app("ci-media", fresh=False)
         app.session.run = lambda argv: self.fail(f"ran {argv}")
