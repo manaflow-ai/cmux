@@ -46,6 +46,8 @@ final class NotificationsPanel: ActiveAppKeyPanel {
 final class NotificationsPanelView: NSView {
     static let width: CGFloat = 360
     static let maxListHeight: CGFloat = 440
+    /// The rows' width: the card less its inset on each side.
+    static var listWidth: CGFloat { width - 2 * Metrics.panelInset }
 
     var onMarkAllRead: (() -> Void)?
     var onClearAll: (() -> Void)?
@@ -64,7 +66,14 @@ final class NotificationsPanelView: NSView {
         super.init(frame: frame)
         glass.contentView = body
         glass.translatesAutoresizingMaskIntoConstraints = false
+        body.translatesAutoresizingMaskIntoConstraints = false
         addSubview(glass)
+        NSLayoutConstraint.activate([
+            body.leadingAnchor.constraint(equalTo: glass.leadingAnchor),
+            body.trailingAnchor.constraint(equalTo: glass.trailingAnchor),
+            body.topAnchor.constraint(equalTo: glass.topAnchor),
+            body.bottomAnchor.constraint(equalTo: glass.bottomAnchor),
+        ])
         build()
     }
 
@@ -133,6 +142,10 @@ final class NotificationsPanelView: NSView {
             empty.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
             empty.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
             document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+            document.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+            document.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            // Rows wrap at their real width, so the list measures true.
+            list.widthAnchor.constraint(equalToConstant: Self.listWidth),
             list.leadingAnchor.constraint(equalTo: document.leadingAnchor),
             list.trailingAnchor.constraint(equalTo: document.trailingAnchor),
             list.topAnchor.constraint(equalTo: document.topAnchor),
@@ -140,16 +153,18 @@ final class NotificationsPanelView: NSView {
         ])
     }
 
-    /// Replaces the rows; returns the card height it needs.
-    func show(_ rows: [NotificationRowView]) -> CGFloat {
+    /// Replaces the rows; returns the card height it needs. Until the
+    /// first ledger reply (`loaded` false) an empty list shows nothing
+    /// rather than the empty state.
+    func show(_ rows: [NotificationRowView], loaded: Bool) -> CGFloat {
         rowViews = rows
         list.setViews(rows, in: .top)
         for row in rows { row.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true }
-        empty.isHidden = !rows.isEmpty
+        empty.isHidden = !rows.isEmpty || !loaded
         markAllRead.isEnabled = rows.contains { $0.row.unread }
         clearAll.isEnabled = !rows.isEmpty
         list.layoutSubtreeIfNeeded()
-        let content = rows.isEmpty ? empty.fittingSize.height : list.fittingSize.height
+        let content = rows.isEmpty ? (loaded ? empty.fittingSize.height : 0) : list.fittingSize.height
         listHeight?.constant = min(ceil(content), Self.maxListHeight)
         layoutSubtreeIfNeeded()
         return fittingSize.height

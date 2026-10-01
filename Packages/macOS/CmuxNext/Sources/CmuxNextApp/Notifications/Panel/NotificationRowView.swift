@@ -55,7 +55,7 @@ final class NotificationRowView: NSView {
 
     private func build(now: Date) {
         dot.wantsLayer = true
-        dot.layer?.cornerRadius = Metrics.space1 * 0.75
+        dot.layer?.cornerRadius = Metrics.space2 / 2
         dot.isHidden = !row.unread
         dot.translatesAutoresizingMaskIntoConstraints = false
 
@@ -76,6 +76,8 @@ final class NotificationRowView: NSView {
         if !row.body.isEmpty {
             let body = Self.label(row.body, font: Typography.caption, color: Palette.textSecondary)
             body.maximumNumberOfLines = 2
+            // The list width less the dot, the close button and the gaps.
+            body.preferredMaxLayoutWidth = NotificationsPanelView.listWidth - 4 * Metrics.space2 - Metrics.space2 - Metrics.space6
             body.lineBreakMode = .byTruncatingTail
             body.cell?.wraps = true
             lines.append(body)
@@ -99,7 +101,7 @@ final class NotificationRowView: NSView {
         for view in [dot, text, close] { addSubview(view) }
         let inset = Metrics.space2
         NSLayoutConstraint.activate([
-            dot.widthAnchor.constraint(equalToConstant: Metrics.space1 * 1.5),
+            dot.widthAnchor.constraint(equalToConstant: Metrics.space2),
             dot.heightAnchor.constraint(equalTo: dot.widthAnchor),
             dot.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
             dot.centerYAnchor.constraint(equalTo: title.centerYAnchor),

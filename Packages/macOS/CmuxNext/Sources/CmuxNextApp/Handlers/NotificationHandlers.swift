@@ -42,7 +42,7 @@ enum NotificationHandlers {
             try acknowledge([tab.surface], context)
         })
         registry.bind("notificationOpen", run: { invocation in
-            guard let row = panel.row(invocation) else { return try open(latestUnread(context), context) }
+            guard let row = try panel.row(invocation) else { return try open(latestUnread(context), context) }
             guard let surface = row.surface, let located = context.services.notifications.locate(surface: surface, in: context.daemon.store) else {
                 throw ActionFailure(message: NotificationsPanelStrings.sourceClosed)
             }
@@ -50,7 +50,7 @@ enum NotificationHandlers {
             panel.close()
         })
         registry.bind("notificationToggleRead", requires: ack, daemon: daemon, run: { invocation in
-            if let row = panel.row(invocation) {
+            if let row = try panel.row(invocation) {
                 guard row.unread, let surface = row.surface else { throw ActionFailure(message: MiscHandlerStrings.markUnread) }
                 return try acknowledge([surface], context)
             }
@@ -58,12 +58,12 @@ enum NotificationHandlers {
             try acknowledge([latest.tab.surface], context)
         })
         registry.bind("notificationDismiss", requires: ack, daemon: daemon, run: { invocation in
-            guard let row = panel.row(invocation) else { return try acknowledge([latestUnread(context).tab.surface], context) }
+            guard let row = try panel.row(invocation) else { return try acknowledge([latestUnread(context).tab.surface], context) }
             try dismiss(row, panel: panel, context)
         })
         registry.bind("notificationCopy", requires: ack, daemon: daemon, run: { invocation in
             _ = try context.requireConnection()
-            if let row = panel.row(invocation) { return context.copy(row.copyText) }
+            if let row = try panel.row(invocation) { return context.copy(row.copyText) }
             context.daemon.send("copy-notification") { connection in
                 guard let entry = try await connection.notificationLedger(limit: 1).first else { return }
                 let text = entry.body.isEmpty ? entry.title : "\(entry.title)\n\(entry.body)"
@@ -79,7 +79,7 @@ enum NotificationHandlers {
     static func dismiss(_ row: NotificationsPanelRow, panel: NotificationsPanelController, _ context: AppActionContext) throws {
         _ = try context.requireConnection()
         guard let terminal = row.terminal else {
-            guard let surface = row.surface else { return }
+            guard let surface = row.surface else { throw ActionFailure(message: NotificationsPanelStrings.sourceClosed) }
             return try acknowledge([surface], context)
         }
         context.daemon.send("notification.clear") { connection in

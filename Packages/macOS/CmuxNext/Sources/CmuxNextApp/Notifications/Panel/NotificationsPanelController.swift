@@ -7,8 +7,8 @@ import Observation
 /// The notifications panel (`showNotifications`, ⌘I): the daemon's
 /// notification ledger, newest first, at the top right of the active
 /// window. A row opens its tab; its menu and the keyboard run the
-/// `notification*` actions with the row's id, so the panel, the palette, and
-/// the CLI share one path. It reloads on open and whenever a notification
+/// `notification*` actions with the row's id, the same handlers the palette
+/// and the CLI run on the latest unread notification. It reloads on open and whenever a notification
 /// arrives or is read while it is shown.
 final class NotificationsPanelController {
     /// The argument naming a ledger row (`list-notifications` id).
@@ -18,6 +18,8 @@ final class NotificationsPanelController {
     private var panel: NotificationsPanel?
     private let card = NotificationsPanelView()
     private(set) var rows: [NotificationsPanelRow] = []
+    /// Whether the open panel has its first ledger reply.
+    private var loaded = false
     private var selection = NotificationsPanelSelection()
     private var watch: Task<Void, Never>?
     /// Bumped per reload, so a slow reply never replaces a newer one.
@@ -35,10 +37,12 @@ final class NotificationsPanelController {
         if isShown { close() } else { show() }
     }
 
-    /// The row an invocation names, while the panel lists it.
-    func row(_ invocation: ActionInvocation) -> NotificationsPanelRow? {
+    /// The row an invocation names; nil when it names none. A row the
+    /// panel no longer lists is refused rather than read as "latest unread".
+    func row(_ invocation: ActionInvocation) throws -> NotificationsPanelRow? {
         guard let id = invocation[Self.argument]?.stringValue else { return nil }
-        return rows.first { $0.id == id }
+        guard let row = rows.first(where: { $0.id == id }) else { throw ActionFailure(message: NotificationsPanelStrings.notificationGone) }
+        return row
     }
 
     // MARK: Showing
@@ -48,14 +52,15 @@ final class NotificationsPanelController {
         let panel = panel ?? makePanel()
         self.panel = panel
         selection = NotificationsPanelSelection()
+        loaded = false
         render()
         place(panel, in: window)
         if panel.parent !== window {
             panel.parent?.removeChildWindow(panel)
             window.addChildWindow(panel, ordered: .above)
         }
-        panel.onResignKey = { [weak self] in self?.close() }
-        panel.onKeyElsewhere = { [weak self] in self?.close() }
+        panel.onResignKey = { [weak self] in self?.close(restoringKey: false) }
+        panel.onKeyElsewhere = { [weak self] in self?.close(restoringKey: false) }
         panel.orderFront(nil)
         panel.makeKey()
         panel.makeFirstResponder(card)
@@ -63,11 +68,15 @@ final class NotificationsPanelController {
         startWatching()
     }
 
-    func close() {
+    /// Closes the panel. Esc and the row verbs give the keys back to the
+    /// window; losing them to another window does not.
+    func close(restoringKey: Bool = true) {
         watch?.cancel()
         watch = nil
+        rows = []
         guard let panel, panel.isVisible else { return }
         panel.onResignKey = nil
+        if restoringKey, panel.isKeyWindow, let parent = panel.parent, parent.isVisible { parent.makeKey() }
         panel.parent?.removeChildWindow(panel)
         panel.orderOut(nil)
     }
@@ -108,7 +117,12 @@ final class NotificationsPanelController {
     }
 
     func reload() {
-        guard isShown, context.daemon.connection != nil else { return }
+        guard isShown else { return }
+        guard context.daemon.connection != nil else {
+            rows = []
+            loaded = true
+            return render()
+        }
         generation += 1
         let generation = generation
         context.daemon.send("list-notifications") { [weak self] connection in
@@ -124,6 +138,7 @@ final class NotificationsPanelController {
         let fresh = NotificationsPanelRow.make(entries) { notifications.locate(surface: $0, in: store)?.workspace.displayName }
         selection.reconcile(old: rows, new: fresh)
         rows = fresh
+        loaded = true
         render()
     }
 
@@ -136,7 +151,7 @@ final class NotificationsPanelController {
                 menu: { [weak self] in self?.menu(for: row) ?? NSMenu() }
             ))
         }
-        let height = card.show(views)
+        let height = card.show(views, loaded: loaded)
         card.select(selection.index(in: rows))
         guard let panel, panel.isVisible else { return }
         let top = panel.frame.maxY
@@ -168,6 +183,7 @@ final class NotificationsPanelController {
 
     /// Escape closes; Up and Down select; Return opens; Delete dismisses.
     private func handleKey(_ event: NSEvent) -> Bool {
+        guard event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty else { return false }
         let selected = selection.index(in: rows).map { rows[$0] }
         switch event.keyCode {
         case 53:

@@ -9,5 +9,6 @@ enum NotificationsPanelStrings {
     static var emptyTitle: String { String(localized: "notificationsPanel.empty.title", defaultValue: "No notifications yet", table: "NotificationsPanel", bundle: .module) }
     static var emptySubtitle: String { String(localized: "notificationsPanel.empty.subtitle", defaultValue: "Desktop notifications will appear here.", table: "NotificationsPanel", bundle: .module) }
     static var sourceClosed: String { String(localized: "notificationsPanel.sourceClosed", defaultValue: "The tab that posted this notification has closed.", table: "NotificationsPanel", bundle: .module) }
+    static var notificationGone: String { String(localized: "notificationsPanel.notificationGone", defaultValue: "That notification is no longer in the list.", table: "NotificationsPanel", bundle: .module) }
     static var dismiss: String { String(localized: "notificationsPanel.dismiss", defaultValue: "Dismiss", table: "NotificationsPanel", bundle: .module) }
 }
