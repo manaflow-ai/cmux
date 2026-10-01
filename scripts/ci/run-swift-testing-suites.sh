@@ -13,6 +13,13 @@ if ! [[ "$suite_timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
   echo "CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS must be a positive integer" >&2
   exit 2
 fi
+# Same stall rule as the package loop in ci-macos.yml: after the build, no test
+# starting or finishing for this long is a hang.
+stall_seconds="${CMUX_SWIFT_TEST_STALL_SECONDS:-180}"
+if ! [[ "$stall_seconds" =~ ^[1-9][0-9]*$ ]]; then
+  echo "CMUX_SWIFT_TEST_STALL_SECONDS must be a positive integer" >&2
+  exit 2
+fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 evidence_dir="$(mktemp -d)"
 trap 'rm -rf "$evidence_dir"' EXIT
@@ -30,14 +37,16 @@ while IFS= read -r suite; do
   # On a stall the watchdog names the tests still running, samples them, and
   # also kills swiftpm-testing-helper, which runs in its own process group.
   python3 "$script_dir/hung_test_watchdog.py" \
-    --timeout-seconds "$suite_timeout_seconds" --label "$suite" \
+    --timeout-seconds "$suite_timeout_seconds" --stall-seconds "$stall_seconds" \
+    --label "$suite" \
     -- swift test --package-path "$package_path" --skip-build --filter "$suite" \
     < /dev/null 2>&1 | tee "$evidence_dir/execution.log" || suite_status=$?
   if [ "$suite_status" -eq 124 ]; then
     echo "Swift test suite timed out; retrying $suite once." >&2
     suite_status=0
     python3 "$script_dir/hung_test_watchdog.py" \
-      --timeout-seconds "$suite_timeout_seconds" --label "$suite" \
+      --timeout-seconds "$suite_timeout_seconds" --stall-seconds "$stall_seconds" \
+      --label "$suite" \
       -- swift test --package-path "$package_path" --skip-build --filter "$suite" \
       < /dev/null 2>&1 | tee "$evidence_dir/execution.log" || suite_status=$?
   fi

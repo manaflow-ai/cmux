@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { runChild } from "./helpers/run-child";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -46,7 +46,8 @@ const freestyleBake = readFileSync(path.join(import.meta.dirname, "../scripts/bu
 const verify = readFileSync(path.join(import.meta.dirname, "../scripts/verify-devbox-image.ts"), "utf8");
 const driver = readFileSync(path.join(import.meta.dirname, "../services/vms/drivers/freestyle.ts"), "utf8");
 
-function launchedWebsockifyArguments(): string[] {
+/** Runs start-vnc.sh with stub binaries and returns the arguments websockify received. */
+async function launchedWebsockifyArguments(): Promise<string[]> {
   const root = mkdtempSync(path.join(tmpdir(), "cmux-desktop-launch-"));
   const bin = path.join(root, "bin");
   mkdirSync(bin);
@@ -64,7 +65,7 @@ function launchedWebsockifyArguments(): string[] {
     for (const [name, command] of Object.entries(commands)) {
       writeFileSync(path.join(bin, name), `#!/bin/sh\n${command}\n`, { mode: 0o755 });
     }
-    const result = spawnSync("bash", [
+    const result = await runChild("bash", [
       "-c", 'exec 3>&1; trap wait EXIT; . "$1"', "--",
       path.join(devboxDesktopDir, "start-vnc.sh"),
     ], {
@@ -77,7 +78,6 @@ function launchedWebsockifyArguments(): string[] {
         DBUS_SESSION_BUS_ADDRESS: "test-session",
         NOTIFY_SOCKET: "",
       },
-      encoding: "utf8",
       timeout: 5_000,
     });
     expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: "" });
@@ -118,10 +118,10 @@ describe("devbox desktop layer", () => {
     expect(readdirSync(devboxDesktopDir).sort()).toEqual([...DEVBOX_DESKTOP_FILES].sort());
   });
 
-  test("every shell file parses", () => {
-    expect(spawnSync("bash", ["-n", path.join(devboxDesktopDir, "start-vnc.sh")]).status).toBe(0);
-    expect(spawnSync("sh", ["-n", path.join(devboxDesktopDir, "cmux-desktop-boot")]).status).toBe(0);
-    expect(spawnSync("sh", ["-n", path.join(devboxDesktopDir, "desktop-env.sh")]).status).toBe(0);
+  test("every shell file parses", async () => {
+    expect((await runChild("bash", ["-n", path.join(devboxDesktopDir, "start-vnc.sh")])).status).toBe(0);
+    expect((await runChild("sh", ["-n", path.join(devboxDesktopDir, "cmux-desktop-boot")])).status).toBe(0);
+    expect((await runChild("sh", ["-n", path.join(devboxDesktopDir, "desktop-env.sh")])).status).toBe(0);
   });
 
   test("one install map: every desktop file lands where the Dockerfile COPYs it, in both bakes and the verifier", () => {
@@ -179,12 +179,12 @@ describe("devbox desktop layer", () => {
     expect(freestyleBake).toContain("echo '${devboxGhosttyDebSha256()}  /tmp/ghostty.deb' | sha256sum -c - && apt-get update -q && apt-get install -y --no-install-recommends /tmp/ghostty.deb");
   });
 
-  test("keeps the desktop port contract: RFB 5901 loopback-only, noVNC on 6901", () => {
+  test("keeps the desktop port contract: RFB 5901 loopback-only, noVNC on 6901", async () => {
     expect(startVnc).toContain(`-rfbport ${DEVBOX_DESKTOP_RFB_PORT}`);
     expect(startVnc).toContain("-SecurityTypes None");
     expect(startVnc).toContain("-localhost");
     // The app's desktop port: the noVNC web client must answer on 6901.
-    expect(launchedWebsockifyArguments()).toEqual([
+    expect(await launchedWebsockifyArguments()).toEqual([
       "--web", "/usr/share/novnc", "--heartbeat", "30",
       `[::]:${DEVBOX_DESKTOP_NOVNC_PORT}`, `127.0.0.1:${DEVBOX_DESKTOP_RFB_PORT}`,
     ]);

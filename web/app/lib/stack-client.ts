@@ -14,7 +14,7 @@ export const stackClientApp = projectId && publishableClientKey
       urls: {
         afterSignIn: "/handler/after-sign-in",
         afterSignUp: "/handler/after-sign-in",
-        accountSettings: "/dashboard/team",
+        accountSettings: "/dashboard/settings",
       },
     })
   : null;

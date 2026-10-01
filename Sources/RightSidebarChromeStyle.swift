@@ -149,11 +149,11 @@ struct RightSidebarChromePillModifier: ViewModifier {
                 isVisible: true
             )
             .background(
-                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
                     .fill(backgroundColor)
             )
             .contentShape(
-                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
             )
     }
 
@@ -295,6 +295,12 @@ extension View {
         modifier(RightSidebarChromeBottomBorderModifier(backgroundColor: backgroundColor))
     }
 
+    /// Gives system bordered buttons below this view the shared
+    /// right-sidebar button radius instead of the platform default shape.
+    func rightSidebarButtonBorderShape() -> some View {
+        buttonBorderShape(.roundedRectangle(radius: RightSidebarChromeMetrics.buttonCornerRadius))
+    }
+
     func rightSidebarHeaderControlAlignment() -> some View {
         alignmentGuide(VerticalAlignment.center) { dimensions in
             dimensions[VerticalAlignment.center] + RightSidebarChromeMetrics.headerControlCenterAlignmentAdjustment
@@ -407,6 +413,7 @@ struct ModeBarButton: View {
         .onHover { isHovered = $0 }
         .help(helpText)
         .accessibilityIdentifier("RightSidebarModeButton.\(item.id)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
     }
 

@@ -21,7 +21,8 @@ let package = Package(
         .package(path: "../CmuxMobileHost"),
         .package(path: "../CmuxPhonePush"),
         .package(path: "../CmuxSettings"),
-        .package(path: "../CmuxSurfaceCatalogModel")
+        .package(path: "../CmuxSurfaceCatalogModel"),
+        .package(path: "../CmuxTerminal")
     ],
     targets: [
         .target(
@@ -45,6 +46,22 @@ let package = Package(
                 "CmuxSurfaceCatalogModel"
             ],
             // The files moved out of the app target unchanged; keep its language mode.
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "CmuxCloudTests",
+            dependencies: [
+                "CmuxCloud",
+                "CmuxAuthRuntime",
+                "CmuxCloudTui",
+                "CmuxCloudTunnelCore",
+                "CMUXMobileCore",
+                "CmuxPhonePush",
+                "CmuxSurfaceCatalogModel",
+                // CmuxTerminal binds libghostty, which SwiftPM cannot link here.
+                .product(name: "CmuxTerminalGhosttyRuntimeTestStubs", package: "CmuxTerminal")
+            ],
+            // Most of these tests moved from the app's test target, which builds in Swift 5 mode.
             swiftSettings: [.swiftLanguageMode(.v5)]
         )
     ]

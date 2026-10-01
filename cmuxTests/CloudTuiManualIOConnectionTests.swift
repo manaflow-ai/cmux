@@ -122,6 +122,19 @@ import Testing
         }
     }
 
+    @Test func oneWayInputRepliesNeverReachTheConsumer() async throws {
+        try await Self.withConnection { connection, peer in
+            // Request id zero marks untracked input. A daemon that still
+            // answers it must not cost the session a turn before the echo.
+            try Self.write(peer, Data("{\"id\":0,\"ok\":true}\n{\"id\":0,\"ok\":false,\"error\":\"gone\"}\n".utf8)
+                + Self.outputLine(Data("echo".utf8)))
+            shutdown(peer, SHUT_WR)
+            var iterator = connection.events.makeAsyncIterator()
+            #expect(await iterator.next() == .output(surfaceID: 1, bytes: Data("echo".utf8)))
+            #expect(await iterator.next() == nil)
+        }
+    }
+
     @Test func persistentRequestsShareOneSocketAndMatchOutOfOrderResponses() async throws {
         try await Self.withResourceConnection { channel, peer in
             async let one = channel.request(CloudTuiRequest("session.ping"))

@@ -79,6 +79,7 @@ public actor CloudMachineLink {
     public enum LinkError: Error, LocalizedError {
         case clientMissing
         case spawnFailed(String)
+        case failureMessage(String)
         case exited(status: Int32, output: String)
         case timedOut
         case inputTooLarge
@@ -91,6 +92,8 @@ public actor CloudMachineLink {
                 return "No cmux-tui client is bundled with this build (Contents/Resources/bin/cmux-tui) and CMUX_TUI_CLIENT is unset."
             case .spawnFailed(let detail):
                 return "cmux-tui could not be started: \(detail)"
+            case .failureMessage(let detail):
+                return detail
             case .exited(let status, let output):
                 let tail = output.split(separator: "\n").suffix(3).joined(separator: " · ")
                 return "cmux-tui link exited with status \(status)" + (tail.isEmpty ? "" : ": \(tail)")
@@ -181,6 +184,7 @@ public actor CloudMachineLink {
         session: String,
         carrier: Bool = false,
         timeout: Duration = .seconds(60),
+        sshArguments: [String] = [],
         wireguardHubSocket: String? = nil,
         ssh: SSHTuiConnection? = nil,
         releaseHubLease: (@Sendable () async -> Void)? = nil
@@ -203,7 +207,9 @@ public actor CloudMachineLink {
             deviceName: CloudTuiClientPaths.deviceName(),
             stateDir: paths.stateDir.path,
             carrier: carrier,
-            wireguardHubSocket: wireguardHubSocket
+            wireguardHubSocket: wireguardHubSocket,
+            session: route.hasPrefix("ssh://") ? session : nil,
+            sshArguments: sshArguments
         )
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_REMOTE_STATE_DIR"] = paths.stateDir.path
@@ -232,7 +238,7 @@ public actor CloudMachineLink {
         }
         self.process = process
         self.processExit = processExit
-        drainStderr(stderr.fileHandleForReading)
+        let stderrDrain = drainStderr(stderr.fileHandleForReading)
 
         // The first connection-snapshot line names the socket; later lines only update
         // transport topology and are ignored — but stdout keeps draining for the
@@ -268,15 +274,14 @@ public actor CloudMachineLink {
                     // client rejecting a flag, a refused dial). Report that exit and its
                     // stderr, not the deadline it never reached.
                     await Self.terminateAndWait(process, exit: processExit)
-                    throw LinkError.exited(
-                        status: process.terminationStatus,
-                        output: stderrTail.joined(separator: "\n")
-                    )
+                    await Self.awaitStderrDrain(stderrDrain)
+                    throw LinkError.exited(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
                 case .timedOut?, nil:
                     throw LinkError.timedOut
                 }
             }
             guard process.isRunning else {
+                await Self.awaitStderrDrain(stderrDrain)
                 throw LinkError.exited(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
             }
         } catch {
@@ -622,9 +627,9 @@ public actor CloudMachineLink {
         eventsRecoveryPhase = .healthy
     }
 
-    private func drainStderr(_ handle: FileHandle) {
+    private func drainStderr(_ handle: FileHandle) -> Task<Void, Never> {
         let lines = CloudLinkPipe.lines(from: handle)
-        Task.detached { [weak self] in
+        return Task.detached { [weak self] in
             for await line in lines {
                 await self?.recordStderr(line)
             }

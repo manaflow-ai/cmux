@@ -20,6 +20,7 @@ final class ComputerUseToolOnboardingFixture {
     let sessionID = "synthetic-computer-use-session"
     let runtime: ComputerUseRuntimeService
     let liveIndex: SharedLiveAgentIndex
+    let usesProductionPresenter: Bool
     var featureEnabled = true
     var presentations: [ComputerUseOnboardingWindowController.StartingPoint] = []
 
@@ -39,8 +40,9 @@ final class ComputerUseToolOnboardingFixture {
             userDefaults: persistence.defaults,
             workspaceTitle: { _ in "Synthetic workspace" },
             featureEnabled: { [weak self] in self?.featureEnabled == true },
-            onboardingCoordinator: ComputerUseOnboardingCoordinator(
-                presenter: { [weak self] in self?.presentations.append($0) }
+            onboardingCoordinator: usesProductionPresenter ? nil : ComputerUseOnboardingCoordinator(
+                runtimeService: runtime,
+                presenter: { [weak self] point, _ in self?.presentations.append(point) }
             ),
             ownsSurface: { [weak self] surfaceID, workspaceID in
                 surfaceID == self?.surfaceID && workspaceID == self?.workspaceID
@@ -48,7 +50,8 @@ final class ComputerUseToolOnboardingFixture {
         )
     }()
 
-    init(hasLiveSession: Bool = true) throws {
+    init(hasLiveSession: Bool = true, usesProductionPresenter: Bool = false) throws {
+        self.usesProductionPresenter = usesProductionPresenter
         persistence = try ComputerUseOnboardingFixture()
         // A fixture bundle with no helper prevents this test from ever launching
         // the test host's real helper or touching the user's TCC grants.
@@ -65,7 +68,10 @@ final class ComputerUseToolOnboardingFixture {
             bundle: try #require(Bundle(url: bundleURL)),
             paths: persistence.paths,
             userDefaults: persistence.defaults,
-            isDisabledByPolicy: { false }
+            isDisabledByPolicy: { false },
+            // No helper runs here, so every status refresh would otherwise wait
+            // out the full production deadline (5 s per first tool call).
+            permissionStatusDeadline: .zero
         )
         let pid = ProcessInfo.processInfo.processIdentifier
         let identity = try #require(AgentPIDProcessIdentity(pid: pid))

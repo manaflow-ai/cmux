@@ -190,6 +190,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         self.workspace = workspace
         self.defaultPanelIds = Array(workspace.panels.keys)
         workspace.remoteTmuxSessionMirror = self
+        workspace.syncRemoteRelayIDAliasesToController()
         self.paneInputForwarder = RemoteTmuxPaneInputForwarder(
             isActive: connection.connectionState == .connected,
             onInput: { [weak self] input, paneID in
@@ -298,6 +299,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         workspace?.remoteTmuxWindowOrderSync = nil
         if workspace?.remoteTmuxSessionMirror === self {
             workspace?.remoteTmuxSessionMirror = nil
+            workspace?.syncRemoteRelayIDAliasesToController()
         }
         // Detach owns the whole mirror set, so prune the sizing ledger once.
         // Each mirror's teardown then sees no claim and avoids rescanning the

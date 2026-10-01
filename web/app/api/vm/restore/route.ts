@@ -1,4 +1,4 @@
-import { unauthorized, verifyRequest, type AuthedUser } from "../../../../services/vms/auth";
+import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../services/vms/teamDirectory";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
 import { defaultProviderId, vmCapabilitiesFor } from "../../../../services/vms/drivers";
 import { isVmCreateDisabledError } from "../../../../services/vms/errors";
@@ -11,12 +11,12 @@ import {
   vmErrorResponse,
   withAuthedVmApiRoute,
   resolveVmProvisioningAccountScope,
+  reverifyVmRequestForTeam,
 } from "../../../../services/vms/routeHelpers";
 import { runVmRoute } from "../../../../services/vms/routeWorkflow";
 import { setSpanAttributes } from "../../../../services/telemetry";
 import { restoreVm } from "../../../../services/vms/workflows";
 import { VmTimingRecorder } from "../../../../services/vms/timings";
-import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
 import {
   idempotencyKeyFromRequest,
   parseRequiredObjectBody,
@@ -67,18 +67,15 @@ export async function POST(request: Request): Promise<Response> {
       }
       const providerResult = providerField(body);
       if (!providerResult.ok) return providerResult.response;
-      let user: AuthedUser = initialUser;
       const requestedBillingTeamId = stringField(body, "billingTeamId") ?? stringField(body, "teamId") ?? requestedVmTeamIdFromRequest(request);
-      if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
-        let refreshedUser: AuthedUser | null;
-        try {
-          refreshedUser = await verifyRequest(request, { requestedTeamId: requestedBillingTeamId });
-        } catch (error) {
-          return authProviderErrorResponse(error, "/api/vm.restore.team-auth");
-        }
-        if (!refreshedUser) return unauthorized();
-        user = refreshedUser;
-      }
+      const reverified = await reverifyVmRequestForTeam({
+        request,
+        user: initialUser,
+        requestedBillingTeamId,
+        authErrorLabel: "/api/vm.restore.team-auth",
+      });
+      if (!reverified.ok) return reverified.response;
+      const user = reverified.user;
       const account = await resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId });
       if (!account.ok) return account.response;
       const entitlements = account.entitlements;
@@ -119,6 +116,7 @@ export async function POST(request: Request): Promise<Response> {
         snapshotId,
         idempotencyKey,
         // The restored machine is a new row: it gets its own token and edge rule.
+        teamDirectory: vmClientRoutesTeamNetworks(request) ? vmTeamDirectory() : undefined,
         modelPlane: vmModelPlaneGatewayFor({
           teamId: entitlements.billingTeamId,
           stackUserId: user.id,

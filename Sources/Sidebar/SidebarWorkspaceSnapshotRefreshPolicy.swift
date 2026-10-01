@@ -19,6 +19,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let checklistTotalCount: Int
         let checklistFirstUncheckedText: String?
         let activeCodingAgentCount: Int
+        let compactStatusGlyph: SidebarCompactStatusGlyph?
         let taskStatusInput: SidebarWorkspaceTaskStatusSnapshot
     }
 
@@ -41,6 +42,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             checklistTotalCount: checklistTotalCount,
             checklistFirstUncheckedText: checklistFirstUncheckedText,
             activeCodingAgentCount: activeCodingAgentCount,
+            compactStatusGlyph: compactStatusGlyph,
             taskStatusInput: taskStatusInput
         )
     }
@@ -90,7 +92,10 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             checklistTotalCount: snapshot.checklistTotalCount,
             checklistFirstUncheckedText: snapshot.checklistFirstUncheckedText,
             taskStatusInput: snapshot.taskStatusInput,
-            deviceWorkspaceLabel: snapshot.deviceWorkspaceLabel
+            deviceWorkspaceLabel: snapshot.deviceWorkspaceLabel,
+            // The status glyph is resolved against the spinner state, so it
+            // updates with the spinner while the menu is open.
+            compactStatusGlyph: snapshot.compactStatusGlyph
         )
     }
 }

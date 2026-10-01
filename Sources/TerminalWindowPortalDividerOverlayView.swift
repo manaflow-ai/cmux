@@ -125,6 +125,34 @@ final class SplitDividerOverlayView: NSView {
         return false
     }
 
+    /// Everything `draw` reads to decide which divider pixels it paints.
+    ///
+    /// Deliberately sourced from the same helper the draw path uses, so the
+    /// repaint gate cannot drift from the drawing. Gating on the portal's
+    /// hosted-frame signature instead was wrong for exactly that reason: that
+    /// signature records frames, while this filters on visibility as well, so
+    /// hiding a surface without moving it compared equal and left stale
+    /// divider pixels. A hidden entry keeps its frame by design, which makes
+    /// that the ordinary case rather than a corner one.
+    struct RenderInputs: Equatable {
+        let bounds: NSRect
+        let occludingHostedFrames: [NSRect]
+    }
+
+    func renderInputs() -> RenderInputs {
+        RenderInputs(
+            bounds: bounds,
+            occludingHostedFrames: hostedFramesLikelyToOccludeDividers()
+        )
+    }
+
+    /// `overlayDividerColor` resolves each split view's `dividerColor` against
+    /// the current appearance, which no geometry comparison can see.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
     private func overlayDividerColor(for splitView: NSSplitView) -> NSColor {
         let divider = splitView.dividerColor.usingColorSpace(.deviceRGB) ?? splitView.dividerColor
         let alpha = divider.alphaComponent
