@@ -131,6 +131,45 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `browserAuth.request(page?, { origin, fields, submit })` | native sheet, `sites/auth-fill.js` run by the app | fills user-typed values |
 | `sites.list()`, `sites.help(name)`, `sites.drafts.list()/get(id)/discard(id)` | | |
 
+## Editing Google files
+
+Specialized tools for Google Sheets, Docs and Slides, covering browser-use's
+Google Sheets actions (`read_sheet_contents`, `read_cell_contents`,
+`update_cell_contents`, `clear_cell_contents`, `select_cell_or_range`,
+`fallback_input_into_single_selected_cell`; commented out in its current
+tree) and more. browser-use reads by copying the selection to the system
+clipboard and writes by dispatching a synthetic paste event; cmux reads
+through the editors' own exports (no selection, no clipboard, whole files
+and every tab) and writes with real input into a background tab, then reads
+the file back to verify.
+
+| Method | Mechanism | Kind |
+| --- | --- | --- |
+| `googleSheets.info(url)` | `/htmlview` tab list | read |
+| `googleSheets.read(url, { gid, sheet, range })` | CSV export: values | read |
+| `googleSheets.cells(url, { sheet, gid, range })` | xlsx export unzipped in a docs.google.com page (`DecompressionStream`): `{ cell, value, formula }` | read |
+| `googleSheets.find(url, text)` | the same, every tab | read |
+| `googleSheets.write(url, range, rows)` | name box selects the top-left cell, TSV pasted from cmux's per-tab clipboard (Meta+V, real input; `=` makes a formula), verified through the xlsx export | write |
+| `googleSheets.append(url, rows)` | the same after the last non-empty row | write |
+| `googleSheets.clear(url, range)` | name box selects the range, Delete, verified | write |
+| `googleDocs.structure(url)` | HTML export parsed in a blank tab: headings with levels, paragraphs, lists, tables | read |
+| `googleDocs.replace(url, find, replacement)` | Find and replace (Meta+Shift+H), Replace all, verified through the text export | write |
+| `googleDocs.insertAfter(url, anchor, text)` | the same with `anchor` -> `anchor + text`; the anchor must occur exactly once | write |
+| `googleDocs.append(url, text)` | end of document (Meta+ArrowDown), Enter, typed text, verified | write |
+| `googleSlides.slides(url)` | pptx export: `{ index, title, text, notes }` per slide | read |
+| `googleSlides.replace(url, find, replacement)` | Find and replace, verified through the pptx export | write |
+| `googleDrive.create(kind, title)` | `docs.google.com/<kind>/create`, then the title field | creates a private file |
+| `googleDrive.trash(url)` | the editor's File > Move to trash | delete |
+
+Rule for writes (ChatGPT's confirmation taxonomy, [9] edits others can see):
+a write first opens the file's editor and reads its Share button. If it
+says "Private to only me", nobody else sees the edit and it runs at once.
+Otherwise, including when the sharing cannot be read, the write returns a
+draft with the file, its title, the sharing text and the change, and runs
+only on `method(draftId, { confirm: true })`. `googleDrive.trash` deletes
+data ([1]): it is a draft, except for a file `googleDrive.create` made in
+the same REPL session.
+
 ## Confirmation taxonomy
 
 ChatGPT for Chrome's `docs/confirmations.md` sorts browser actions into
