@@ -136,10 +136,7 @@ public final class TabStripView: NSView {
     /// End-of-tracking observer of the menu the strip returned last.
     var menuEndObserver: (any NSObjectProtocol)?
 
-    struct Press {
-        var id: TabID
-        var start: CGPoint
-    }
+    struct Press { var id: TabID; var start: CGPoint }
 
     struct Drag {
         var id: TabID
@@ -150,9 +147,7 @@ public final class TabStripView: NSView {
         var lastPoint: CGPoint
         var originalGroup: TabGroupID?
         var targetGroup: TabGroupID?
-        /// Press y in the clip (flipped). With `grabOffset` it is the point
-        /// the user grabbed, which the hand-off keeps under the pointer.
-        var grabY: CGFloat = 0
+        var grabY: CGFloat = 0 // press y in the clip; with grabOffset, the grabbed point the hand-off keeps
     }
 
     var press: Press?

@@ -99,12 +99,17 @@ final class TabDragGhostPanel {
         FrameClient(owner: owner, view: root, onFrame: onFrame)
     }
 
+    /// The ghost's screen geometry for `motion`.
+    func layout(_ motion: TabDragGhostMotion) -> TabDragGhostLayout {
+        TabDragGhostLayout(motion: motion, cardSize: cardSize, inset: Self.inset, grabOffset: grabOffset, tabSize: tabSize)
+    }
+
     /// Lays the panel and its layers out for one motion frame
     /// (`TabDragGhostLayout`): the card unfolds around the tab image, which
     /// never moves under the pointer, and a shrink pivots on the grabbed
     /// point.
     func render(_ motion: TabDragGhostMotion) {
-        let layout = TabDragGhostLayout(motion: motion, cardSize: cardSize, inset: Self.inset, grabOffset: grabOffset, tabSize: tabSize)
+        let layout = layout(motion)
         let tab = layout.tab
         let c = layout.cardness
         let origin = CGPoint(x: (tab.minX - Self.pad).rounded(), y: (tab.maxY + Self.pad - panelSize.height).rounded())
