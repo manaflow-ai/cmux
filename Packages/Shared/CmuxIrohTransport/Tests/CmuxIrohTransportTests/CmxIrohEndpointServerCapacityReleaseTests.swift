@@ -50,10 +50,15 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
         _ recorder: EndpointServerRecorder,
         _ expected: Int
     ) async -> Bool {
-        let deadline = ContinuousClock().now.advanced(by: .seconds(1))
-        while ContinuousClock().now < deadline {
-            if await recorder.recordedCount() >= expected { return true }
-            try? await Task.sleep(for: .milliseconds(1))
+        // Admission recording runs in a separate handler task from the close
+        // watcher. Retry finite clock-bounded windows so a loaded runner can
+        // absorb a scheduling stall without turning a real leak into a hang.
+        for _ in 0 ..< 4 {
+            let deadline = ContinuousClock().now.advanced(by: .seconds(1))
+            while ContinuousClock().now < deadline {
+                if await recorder.recordedCount() >= expected { return true }
+                try? await Task.sleep(for: .milliseconds(1))
+            }
         }
         return await recorder.recordedCount() >= expected
     }
