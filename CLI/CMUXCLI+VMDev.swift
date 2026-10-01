@@ -134,7 +134,14 @@ extension CMUXCLI {
         // killed owner cannot leave a stale directory that blocks future runs;
         // the marker is checked again after lock acquisition so a waiter never
         // replays a recipe that another owner completed while it was waiting.
-        return "mkdir -p \"\(root)\" && ( flock 9 && if [ -f \"\(marker)\" ]; then :; else \(run) && : > \"\(marker)\"; fi ) 9>\"\(lock)\""
+        // `flock 9` alone would release the lock as soon as the helper exits.
+        // Run the complete check/install/marker transaction as the lock child so
+        // concurrent dev invocations serialize and killed owners are reclaimed
+        // by the kernel. The body is single-quoted for `/bin/sh -c`; escape any
+        // recipe quotes without changing their meaning inside the nested shell.
+        let body = "if [ -f \"\(marker)\" ]; then :; else \(run) && : > \"\(marker)\"; fi"
+        let quotedBody = "'" + body.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        return "mkdir -p \"\(root)\" && flock 9 /bin/sh -c \(quotedBody) 9>\"\(lock)\""
     }
 
     /// Framework → default dev port, decided from the script's words (what the author
