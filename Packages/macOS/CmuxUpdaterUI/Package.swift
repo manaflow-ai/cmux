@@ -23,6 +23,7 @@ let package = Package(
         .target(
             name: "CmuxUpdaterUI",
             dependencies: [
+                .product(name: "CmuxAppKitSupportUI", package: "CmuxAppKitSupportUI"),
                 "CmuxFoundation",
                 "CmuxUpdater",
                 .product(name: "Sparkle", package: "Sparkle"),
