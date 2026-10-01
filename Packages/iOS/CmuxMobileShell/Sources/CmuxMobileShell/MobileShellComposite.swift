@@ -404,6 +404,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// (``MobileWorkspaceAggregation``), never assigned directly, so a stale or
     /// half-merged aggregate is unrepresentable. Transport-agnostic: fed by N
     /// direct phone->Mac connections today, one phone->Durable Object stream later.
+    /// Non-Mac hosts contributing workspaces and serving terminals through the
+    /// same store paths (``MobileExternalHostSource``), keyed by instance so a
+    /// source can be registered and torn down without a name.
+    var externalHostSources: [ObjectIdentifier: any MobileExternalHostSource] = [:]
+    /// Hosts with a workspace create in flight, so a double-tap cannot make
+    /// two workspaces (each with a billable starter terminal).
+    var externalHostWorkspaceCreatesInFlight: Set<String> = []
+    /// Backing store for ``hiddenExternalHostIDs``; the computed property
+    /// re-derives the workspace list when it changes.
+    var hiddenExternalHostIDsStorage: Set<String> = []
     var workspacesByMac: [MacPairingKey: MacWorkspaceState] = [:] {
         didSet {
             recomputeDerivedWorkspaceState()
@@ -2527,8 +2537,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // on the next foreground / Computers `.task` / pull-to-refresh.
         teardownSecondaryMacSubscriptions()
         let foregroundKey = foregroundMacKey
-        // SSH computers are device-local, not team-scoped (PRD D5).
-        workspacesByMac = workspacesByMac.filter { $0.key == foregroundKey || sshOwnsPairingKey($0.key) }; pruneStableMacColorSlots(keepingForegroundKey: foregroundKey.pairingID)
+        // External hosts and SSH computers are device-local and own their
+        // workspace rows independently of the paired Mac team.
+        workspacesByMac = workspacesByMac.filter {
+            $0.key == foregroundKey
+                || externalHostOwnsHost($0.key.pairingID)
+                || sshOwnsPairingKey($0.key)
+        }; pruneStableMacColorSlots(keepingForegroundKey: foregroundKey.pairingID)
         retainForegroundNotificationFeedSnapshot()
         // Restore memo: invalidate so the next read re-restores for the new
         // (account, team) scope, and a suspended old-team restore can't resume.
@@ -4815,6 +4830,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             _ = demonstrationSessionForInteraction()
             return true
         }
+        // An external host (a Cloud machine) is reached over its own link, so
+        // choosing it switches nothing, and the Mac the user holds stays the
+        // foreground connection.
+        if externalHostOwnsHost(macDeviceID) {
+            recordAppEvent(.computerSelected, correlationID: macDeviceID)
+            return true
+        }
         let startedAt = appDiagnosticNow()
         recordAppEvent(.computerSelected, correlationID: macDeviceID)
         recordAppEvent(.computerSwitchStarted, correlationID: macDeviceID)
@@ -6526,8 +6548,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             for retainedOwnerKey in retainedOwnerKeys {
                 guard retainedOwnerKey != .anonymousForeground,
                       retainedOwnerKey != liveForegroundKey,
-                      // SSH computers are served on the phone and are never
-                      // stored paired Macs; their runtime owns their rows.
+                      // External hosts and SSH computers are served on the
+                      // phone and are never stored paired Macs; their runtime
+                      // owns their rows.
+                      !externalHostOwnsHost(retainedOwnerKey.pairingID),
                       !sshOwnsPairingKey(retainedOwnerKey),
                       // The foreground's device-keyed feed snapshot has no tag
                       // dimension; only the exact live foreground device keeps
@@ -8049,9 +8073,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// unavailable, not leave them connected/actionable until a stream callback
     /// happens to run.
     func markSecondaryMacUnavailable(_ ownerKey: MacPairingKey) {
-        // The demonstration entry is served locally; no transport or refresh
-        // failure can make it unavailable.
-        guard ownerKey != Self.demonstrationPairingKey, !sshOwnsPairingKey(ownerKey) else { return }
+        // Demonstration, external-host, and SSH rows own their own liveness;
+        // no paired-Mac transport failure can make them unavailable.
+        guard ownerKey != Self.demonstrationPairingKey,
+              !externalHostOwnsHost(ownerKey.pairingID),
+              !sshOwnsPairingKey(ownerKey) else { return }
         guard var state = workspacesByMac[ownerKey] else { return }
         state.status = .unavailable
         state.workspaceGroupsAreAuthoritative = false
@@ -8615,8 +8641,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // The pure aggregation library speaks pairing-id strings; distinct
         // typed keys map to distinct pairing ids, so this conversion is
         // injective and the sentinel spelling is preserved.
+        // A hidden external host is filtered here rather than by deleting its
+        // entry: the host republishes on its own schedule, so an imperative
+        // delete would lose the race and the rows would come back.
         let statesByAggregateKey = Dictionary(
-            uniqueKeysWithValues: workspacesByMac.map { ($0.key.pairingID, $0.value) }
+            uniqueKeysWithValues: workspacesByMac
+                .filter { !hiddenExternalHostIDs.contains($0.key.pairingID) }
+                .map { ($0.key.pairingID, $0.value) }
         )
         // "Last Opened" recency for the automatic order, keyed by exact
         // pairing id. Stable and Nightly on one physical Mac keep independent
@@ -9129,6 +9160,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
         clearTerminalCreationError()
+        if let targetWorkspaceID, externalHostID(ofWorkspace: targetWorkspaceID) != nil {
+            createExternalHostTerminal(in: targetWorkspaceID)
+            return
+        }
         if let targetWorkspaceID, sshOwnsWorkspaceRow(targetWorkspaceID) {
             createSSHTerminal(in: targetWorkspaceID)
             return
@@ -9194,6 +9229,46 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             .terminalCreateSucceeded,
             correlationID: terminal.id.rawValue
         )
+    }
+
+    /// Creates a terminal on the external host serving `workspaceID` and
+    /// selects it once the host publishes it. No Mac knows the workspace, so
+    /// the Mac create path must never see it.
+    private func createExternalHostTerminal(in workspaceID: MobileWorkspacePreview.ID) {
+        guard createTerminalTask == nil else {
+            recordAppEvent(.terminalCreateFailed, correlationID: workspaceID.rawValue, failure: .routeGated)
+            return
+        }
+        guard let row = workspaces.first(where: { $0.id == workspaceID }),
+              let hostID = externalHostID(ofWorkspace: workspaceID),
+              let source = externalHostSource(owningHost: hostID) else {
+            recordAppEvent(.terminalCreateFailed, correlationID: workspaceID.rawValue, failure: .endpointUnavailable)
+            return
+        }
+        recordAppEvent(.terminalCreateStarted, correlationID: workspaceID.rawValue)
+        selectedWorkspaceID = workspaceID
+        let publishedWorkspaceID = row.rpcWorkspaceID
+        let taskID = UUID()
+        createTerminalTaskID = taskID
+        createTerminalTask = Task { @MainActor [weak self] in
+            defer { self?.clearCreateTerminalTask(id: taskID) }
+            let surfaceID = await source.externalHostCreateTerminal(inWorkspace: publishedWorkspaceID)
+            guard let self else { return }
+            guard let surfaceID, let owner = self.workspaceID(forTerminalID: surfaceID) else {
+                self.terminalCreationError = L10n.string(
+                    "mobile.terminal.creationFailed",
+                    defaultValue: "Couldn't create a terminal."
+                )
+                // The detail screen matches the error on the id its host
+                // published, as it does for a Mac.
+                self.terminalCreationErrorWorkspaceID = publishedWorkspaceID
+                self.recordAppEvent(.terminalCreateFailed, correlationID: workspaceID.rawValue, failure: .connectionClosed)
+                return
+            }
+            self.selectedWorkspaceID = owner
+            self.selectedTerminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
+            self.recordAppEvent(.terminalCreateSucceeded, correlationID: surfaceID)
+        }
     }
 
     private func armCreatedTerminalSelectionExpiry(
@@ -9354,9 +9429,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 ownerInstanceTag,
                 activeMacInstanceTag
             ))
+        // An external host (a Cloud machine) is reached over its own link, not
+        // a Mac connection, so there is no foreground pairing to switch to.
+        // Without this fence the switch below would fail for a host no Mac
+        // transport knows and roll the selection back, making the row
+        // unopenable.
         if multiMacAggregationEnabled,
            let macDeviceID = ownerMacDeviceID,
            !macDeviceID.isEmpty,
+           !externalHostOwnsHost(macDeviceID),
            !rowIsForegroundPairing {
             // Only proceed if that Mac actually became the foreground connection.
             // The tap already selected this workspace and pushed its detail
@@ -9459,12 +9540,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             count: text.utf8.count
         )
         terminalInputText = ""
-        let selectedTerminalIsDemonstration = terminalID.map(locallyServedOwnsSurface) ?? false
+        // A locally served terminal (demonstration content, SSH, or an
+        // external host reached over its own link) has no Mac RPC client.
+        let selectedTerminalIsLocallyServed = terminalID.map {
+            locallyServedOwnsSurface($0) || externalHostOwnsSurface($0)
+        } ?? false
         let queuesExactlyOnce = submittedWorkspaceID.flatMap { workspaceID in
             submittedTerminalID.flatMap { exactlyOnceInputKey(workspaceID: workspaceID, terminalID: $0) }
         } != nil
         guard let submittedWorkspaceID, let submittedTerminalID,
-              remoteClient != nil || selectedTerminalIsDemonstration || queuesExactlyOnce else {
+              remoteClient != nil || selectedTerminalIsLocallyServed || queuesExactlyOnce else {
             recordAppEvent(
                 .terminalInputDropped,
                 correlationID: terminalID,
@@ -10036,7 +10121,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // client; without this the composer fails its connection gate before
         // reaching the demo paste fence and shows the send-failure banner.
         guard remoteClient != nil
-            || locallyServedOwnsSurface(terminalID.rawValue) else { return false }
+            || locallyServedOwnsSurface(terminalID.rawValue)
+            || externalHostOwnsSurface(terminalID.rawValue) else { return false }
         // Reject a re-entrant send (e.g. a double tap on Send) so the same text
         // is not pasted twice. The flag is set/cleared on the main actor around
         // the await, so no second call can slip past it.
@@ -10308,6 +10394,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            handleLocallyServedTerminalInput(text, surfaceID: terminalID.rawValue) {
             return
         }
+        // An external host's terminal answers over its own link, for the same
+        // reason: the send-status pipeline models a Mac RPC round trip.
+        if let terminalID = selectedTerminalID,
+           handleExternalHostTerminalInput(text, surfaceID: terminalID.rawValue) {
+            return
+        }
         // The explicit selection id, not `selectedWorkspace`: its first-row
         // fallback would pair a foreign workspace id with the held terminal
         // id when the selected row is transiently absent mid-reconnect.
@@ -10347,6 +10439,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // delegate), not through the awaiting funnel: demonstration and SSH
         // surfaces answer locally, outside the send-status pipeline.
         if handleLocallyServedTerminalInput(text, surfaceID: surfaceID) {
+            return
+        }
+        if handleExternalHostTerminalInput(text, surfaceID: surfaceID) {
             return
         }
         guard let workspaceID = workspaceID(forTerminalID: surfaceID) else { return }
@@ -10438,6 +10533,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // foreground pairing, which the demo Mac never is, so without this
         // branch demo keystrokes would silently drop.
         if handleLocallyServedTerminalInput(text, surfaceID: surfaceID) {
+            return
+        }
+        // An external host is never the foreground pairing either, so its
+        // keystrokes would drop in the same way.
+        if handleExternalHostTerminalInput(text, surfaceID: surfaceID) {
             return
         }
         guard let workspaceID = workspaceID(forTerminalID: surfaceID) else { return }
@@ -11792,8 +11892,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // served locally and its liveness is unrelated to the torn-down
             // real connection.
             guard key != Self.demonstrationPairingKey else { return false }
-            // SSH computers publish their own status from their own connections.
-            guard !sshOwnsPairingKey(key) else { return false }
+            // External hosts and SSH computers publish their own status from
+            // their own connections.
+            guard !externalHostOwnsHost(key.pairingID),
+                  !sshOwnsPairingKey(key) else { return false }
             return key == offlineForegroundKey || !preservingOtherMacWorkspaceState
         }
         var updatedWorkspacesByMac = workspacesByMac
@@ -13982,6 +14084,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 surfaceID: terminalID.rawValue
             )
         }
+        // An external host's terminal takes the same composed block over its
+        // own link; its daemon owns the pseudo-terminal, so a paste is just
+        // input bytes followed by the submit key.
+        if externalHostOwnsSurface(terminalID.rawValue) {
+            var pasted = text
+            if submitKey == "return" {
+                pasted += "\r"
+            }
+            return handleExternalHostTerminalInput(
+                pasted,
+                surfaceID: terminalID.rawValue
+            )
+        }
         if terminalAllowsTraffic(surfaceID: terminalID.rawValue),
            let settlement = await deliverExactlyOnce(
             .paste(text, submitKey: submitKey),
@@ -15803,8 +15918,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let replayBarrierToken, terminalReplayBarrierTokensBySurfaceID[surfaceID] != replayBarrierToken { return }; let replayBarrierTokenForRequest = replayBarrierToken
             ?? terminalReplayBarrierTokensBySurfaceID[surfaceID]
         // Every replay entry point (cold attach, view reset, resync sweeps)
-        // funnels here: demonstration surfaces answer from the local engine
-        // and release any barrier so canned output is never gated on a Mac.
+        // funnels here. External hosts own their own screen source, while
+        // demonstration and SSH surfaces answer from the local engine.
+        if externalHostOwnsSurface(surfaceID) {
+            clearTerminalReplayBarrierIfCurrent(
+                surfaceID: surfaceID,
+                token: replayBarrierTokenForRequest,
+                reason: "external_host"
+            )
+            handleExternalHostReplayRequest(surfaceID: surfaceID)
+            return
+        }
         if locallyServedOwnsSurface(surfaceID) {
             clearTerminalReplayBarrierIfCurrent(
                 surfaceID: surfaceID,

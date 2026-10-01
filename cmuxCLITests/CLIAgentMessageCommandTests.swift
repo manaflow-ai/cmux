@@ -99,6 +99,11 @@ struct CLIAgentMessageCommandTests {
                         "state": "queued",
                         "sender_name": "coordinator",
                         "body": "first line\nsecond line",
+                    ], [
+                        "id": "fedcba9876543210",
+                        "state": "queued",
+                        "sender_name": "reviewer",
+                        "body": "another message",
                     ]],
                 ],
             ]
@@ -111,6 +116,7 @@ struct CLIAgentMessageCommandTests {
         let readParams = try #require(run.request("agent.message.mark_read")?["params"] as? [String: Any])
         #expect(readParams["ids"] as? [String] == ["abcdef0123456789"])
         #expect(run.result.stdout.contains("abcdef01  coordinator: first line"), Comment(rawValue: run.result.stdout))
+        #expect(run.result.stdout.contains("fedcba98  reviewer: another message"), Comment(rawValue: run.result.stdout))
         #expect(!run.result.stdout.contains("second line"))
     }
 
