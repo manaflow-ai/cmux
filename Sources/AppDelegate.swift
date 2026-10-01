@@ -15751,46 +15751,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Workspace navigation: Cmd+Ctrl+] / Cmd+Ctrl+[
         if matchConfiguredShortcut(event: event, action: .nextSidebarTab) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
 #if DEBUG
-            let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+            let selected = routedManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             cmuxDebugLog(
                 "ws.shortcut dir=next repeat=\(event.isARepeat ? 1 : 0) keyCode=\(event.keyCode) selected=\(selected)"
             )
 #endif
-            tabManager?.selectNextTab()
+            routedManager?.selectNextTab()
             return true
         }
 
         if matchConfiguredShortcut(event: event, action: .prevSidebarTab) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
 #if DEBUG
-            let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+            let selected = routedManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             cmuxDebugLog(
                 "ws.shortcut dir=prev repeat=\(event.isARepeat ? 1 : 0) keyCode=\(event.keyCode) selected=\(selected)"
             )
 #endif
-            tabManager?.selectPreviousTab()
+            routedManager?.selectPreviousTab()
             return true
         }
 
         if matchConfiguredShortcut(event: event, action: .nextSidebarTabInGroup) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
 #if DEBUG
-            let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+            let selected = routedManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             cmuxDebugLog(
                 "ws.shortcut dir=next scope=group repeat=\(event.isARepeat ? 1 : 0) keyCode=\(event.keyCode) selected=\(selected)"
             )
 #endif
-            tabManager?.selectNextTab(scope: .focusedGroupMembers)
+            routedManager?.selectNextTab(scope: .focusedGroupMembers)
             return true
         }
 
         if matchConfiguredShortcut(event: event, action: .prevSidebarTabInGroup) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
 #if DEBUG
-            let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+            let selected = routedManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             cmuxDebugLog(
                 "ws.shortcut dir=prev scope=group repeat=\(event.isARepeat ? 1 : 0) keyCode=\(event.keyCode) selected=\(selected)"
             )
 #endif
-            tabManager?.selectPreviousTab(scope: .focusedGroupMembers)
+            routedManager?.selectPreviousTab(scope: .focusedGroupMembers)
             return true
         }
 
