@@ -17974,7 +17974,6 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/cmux";
 			};
 			name = Debug;
 		};
@@ -17991,7 +17990,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.clitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/cmux";
 			};
 			name = Release;
 		};
