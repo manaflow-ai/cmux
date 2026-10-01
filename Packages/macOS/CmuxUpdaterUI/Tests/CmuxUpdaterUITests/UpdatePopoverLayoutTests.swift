@@ -114,7 +114,6 @@ enum LayoutCase: String, CaseIterable, Sendable {
                     agents: [Self.riskyAgent, Self.careAgent],
                     runningCommandCount: 2
                 ),
-                holdMode: .askingUser,
                 updateWhenClear: {}
             )))
         case .heldWaitingForAgents:
@@ -123,7 +122,7 @@ enum LayoutCase: String, CaseIterable, Sendable {
                 retryTerminatingApplication: {},
                 dismiss: {},
                 relaunchBlockers: UpdateRelaunchBlockers(agents: [Self.riskyAgent, Self.careAgent], runningCommandCount: 0),
-                holdMode: .waitingForAgents
+                updateWhenClear: {}
             )))
         case .heldSafeAndLongName:
             model.setState(.installing(.init(
@@ -132,7 +131,7 @@ enum LayoutCase: String, CaseIterable, Sendable {
                     UpdateRelaunchAgent(id: "safe", name: "A very long agent workspace name that must wrap safely", location: "workspace", safety: .safe, activity: "Idle"),
                     Self.riskyAgent,
                 ], runningCommandCount: 0),
-                holdMode: .askingUser
+                updateWhenClear: {}
             )))
         case .notFound:
             model.setState(.notFound(.init(acknowledgement: {})))
