@@ -141,6 +141,44 @@ struct CloudSidebarRenameReconciliationTests {
         #expect(fixture.provider.tabRenames == ["Finished task"])
     }
 
+    @Test("A user-owned remote title survives an agent-free snapshot")
+    func userOwnedRemoteTitleSurvivesAgentExit() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.close() }
+        #expect(fixture.userName("Human label"))
+        try await fixture.drain()
+        fixture.install(try fixture.state(revision: 2, name: "Human label", nameSource: "user", includeAgent: false))
+        fixture.reconcile()
+
+        #expect(fixture.workspace.panelTitle(panelId: fixture.panelID) == "Human label")
+        #expect(fixture.provider.tabRenames == ["Human label"])
+    }
+
+    @Test("A user panel title blocks clearing an automatic remote title")
+    func userPanelTitleBlocksAutomaticClear() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.close() }
+        #expect(fixture.agentName("Agent task"))
+        try await fixture.drain()
+        fixture.install(try fixture.state(revision: 2, name: "Agent task", nameSource: "auto", includeAgent: true))
+        fixture.reconcile()
+        #expect(fixture.workspace.setPanelCustomTitle(
+            panelId: fixture.panelID,
+            title: "Human label",
+            source: .user,
+            propagateToRemoteTmux: false,
+            propagateToCloud: false
+        ))
+
+        fixture.install(try fixture.state(revision: 3, name: "Agent task", nameSource: "auto", includeAgent: false))
+        fixture.reconcile()
+        try await fixture.drain()
+
+        #expect(fixture.workspace.panelTitle(panelId: fixture.panelID) == "Human label")
+        #expect(fixture.workspace.panelCustomTitleSources[fixture.panelID] == .user)
+        #expect(fixture.provider.tabRenames == ["Agent task"])
+    }
+
     @Test("A legacy title without provenance is preserved when its agent exits")
     func legacyTitleWithoutProvenanceIsUserOwned() async throws {
         let fixture = try makeFixture()

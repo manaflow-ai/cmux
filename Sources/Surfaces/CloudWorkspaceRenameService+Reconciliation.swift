@@ -75,6 +75,10 @@ extension CloudWorkspaceRenameService {
         workspaceNamesChanged: Bool = true
     ) {
         guard machine.tuiMachineID != nil, catalog.cloudStates[machine] == state else { return }
+        let acceptedTabIDs = Set(state.tabs.map(\.id))
+        rejectedAutomaticTabClears = rejectedAutomaticTabClears.filter { key, _ in
+            key.machine != machine || key.scope != .tab || acceptedTabIDs.contains(key.remoteID)
+        }
         if workspaceNamesChanged {
             let snapshot = catalog.snapshot
             let resources = snapshot.resources(on: machine)
@@ -203,8 +207,11 @@ extension CloudWorkspaceRenameService {
             guard let acceptedName = catalog.cloudStates[resource.machine]?
                 .lookupIndex.tab(id: tabID)?.name,
                   !acceptedName.isEmpty else { return }
-            guard acceptedName == name else { return }
-            self.rejectedAutomaticTabClears[key] = acceptedName
+            if acceptedName == name {
+                self.rejectedAutomaticTabClears[key] = acceptedName
+            } else {
+                self.rejectedAutomaticTabClears.removeValue(forKey: key)
+            }
             for peer in matchingProjections {
                 guard let peerWorkspace = environment.workspace(peer.workspaceID),
                       peerWorkspace.panelCustomTitles[peer.panelID] == nil,

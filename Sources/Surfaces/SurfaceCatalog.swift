@@ -166,6 +166,7 @@ final class SurfaceCatalog {
     }
 
     func unregister(machine: SurfaceMachineID) {
+        cloudWorkspaceRenameService.clearRejectedAutomaticTabClears(on: machine)
         cloudWorkspaceCreationCoordinator.cancel(machine: machine)
         let inFlightKeys = inFlightProjects.keys.filter { $0.machine == machine }
         for key in inFlightKeys {

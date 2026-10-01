@@ -46,6 +46,10 @@ final class CloudWorkspaceRenameService {
     init(environment: CloudWorkspaceRenameEnvironment = CloudWorkspaceRenameEnvironment()) {
         self.environment = environment
     }
+
+    func clearRejectedAutomaticTabClears(on machine: SurfaceMachineID) {
+        rejectedAutomaticTabClears = rejectedAutomaticTabClears.filter { $0.key.machine != machine }
+    }
     /// A local workspace can be automatically associated with a remote workspace only
     /// when all identity-bearing panes prove the same cloud identity and no local pane
     /// is present. A mixed local/cloud workspace is intentionally left unbound: there
