@@ -1928,7 +1928,6 @@ func titlebarControlsShouldApplyLayout(
         || abs(previous.xOffset - next.xOffset) > tolerance
         || abs(previous.yOffset - next.yOffset) > tolerance
 }
-
 enum TitlebarWindowGeometryNotifications {
     static let names: [Notification.Name] = [
         NSWindow.didResizeNotification,
@@ -1953,7 +1952,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var cachedContentSize: NSSize?
     private var lastObservedViewSize: NSSize = .zero
     private var lastAppliedLayoutSnapshot: TitlebarControlsLayoutSnapshot?
-    private weak var observedWindow: NSWindow?
+    private var observedWindowIdentifier: ObjectIdentifier?
     private var windowGeometryObservers: [NSObjectProtocol] = []
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
@@ -2112,9 +2111,10 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     @discardableResult
     private func updateObservedWindowIfNeeded() -> Bool {
         let currentWindow = view.window
-        guard currentWindow !== observedWindow else { return false }
+        let currentWindowIdentifier = currentWindow.map { ObjectIdentifier($0) }
+        guard currentWindowIdentifier != observedWindowIdentifier else { return false }
         removeWindowGeometryObservers()
-        observedWindow = currentWindow
+        observedWindowIdentifier = currentWindowIdentifier
         guard let currentWindow else { return true }
         let center = NotificationCenter.default
         windowGeometryObservers = TitlebarWindowGeometryNotifications.names.map { name in
