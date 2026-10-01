@@ -220,9 +220,25 @@ actor AcpmuxAgentService {
             throw ServiceError.commandFailed(message)
         }
         let text = String(data: data, encoding: .utf8) ?? ""
-        let lines = text.split(whereSeparator: { $0 == "\n" || $0 == "\r" })
-        guard let last = lines.last,
-              let json = try? JSONDecoder().decode(JSONValue.self, from: Data(last.utf8)) else {
+        let decoder = JSONDecoder()
+        if let json = try? decoder.decode(JSONValue.self, from: Data(text.trimmingCharacters(in: .whitespacesAndNewlines).utf8)) {
+            return json
+        }
+        // ACPmux's JSON mode pretty-prints responses. Keep the fallback
+        // tolerant of diagnostics before the response while still selecting
+        // the final complete JSON value.
+        var parsed: JSONValue?
+        var offset = text.startIndex
+        while offset < text.endIndex {
+            if text[offset] == "{" || text[offset] == "[" {
+                let candidate = String(text[offset...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if let value = try? decoder.decode(JSONValue.self, from: Data(candidate.utf8)) {
+                    parsed = value
+                }
+            }
+            offset = text.index(after: offset)
+        }
+        guard let json = parsed else {
             throw ServiceError.invalidResponse
         }
         return json
