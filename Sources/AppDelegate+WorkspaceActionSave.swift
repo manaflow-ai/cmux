@@ -138,6 +138,8 @@ struct ActionsAndLaunchersDiscoveryModel: Equatable {
             return "setting"
         case .actionReference:
             return "action"
+        case .plugin:
+            return "plugin"
         }
     }
 }
@@ -172,7 +174,7 @@ extension AppDelegate {
         if let activeStore = context?.cmuxConfigStore {
             cmuxConfigStore = activeStore
         } else {
-            let globalStore = CmuxConfigStore()
+            let globalStore = CmuxConfigStore(pluginActions: { CmuxPluginRuntime.shared.configActions() })
             globalStore.loadAll()
             cmuxConfigStore = globalStore
         }

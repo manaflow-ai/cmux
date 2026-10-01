@@ -274,7 +274,8 @@ struct cmuxApp: App {
                 return workspace.sidebarStatusEntriesInDisplayOrder().flatMap { entry in
                     [entry.key, entry.value]
                 }
-            }
+            },
+            pluginRulesProvider: { CmuxPluginRuntime.shared.automationRules() }
         )
         self.automationEngine = automationEngine
         _historyMenuCoordinator = State(initialValue: historyMenuCoordinator)

@@ -42,6 +42,8 @@ extension TerminalController {
             "automation.disable",
             "automation.logs",
             "automation.reload",
+            "plugin.reload",
+            "plugin.action.invoke",
             "vault.sessions",
             "vault.search",
             "vault.checkpoints",
