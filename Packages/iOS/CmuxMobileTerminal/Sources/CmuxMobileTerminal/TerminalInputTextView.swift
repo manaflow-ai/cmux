@@ -390,11 +390,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         let scrollView = AccessoryEdgeFadeScrollView()
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
-        // This row contains bounded controls rather than a document. Letting
-        // it elastically overscroll the trailing edge makes the last buttons
-        // disappear briefly and then snap back when the gesture ends.
-        scrollView.bounces = false
-        scrollView.alwaysBounceHorizontal = false
+        // Keep UIKit's native horizontal drag, deceleration, and edge-bounce
+        // physics. Offset preservation below must never replace that gesture
+        // state with an immediate clamp.
+        scrollView.bounces = true
+        scrollView.alwaysBounceHorizontal = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         // The scroll view's FRAME starts flush at the composer button's
         // trailing edge; the 4pt visual gap the frame constant used to carry
@@ -586,9 +586,22 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         let rightInset = max(0, insets.right)
         let scrollView = accessoryStackView?.superview as? UIScrollView
         let previousOffset = scrollView?.contentOffset.x ?? 0
+        let previousBoundsSize = scrollView?.bounds.size
+        let previousContentSize = scrollView?.contentSize
+        let previousAdjustedContentInset = scrollView?.adjustedContentInset
         let wasAtLeadingEdge = scrollView.map { scroll in
             previousOffset <= -scroll.adjustedContentInset.left + 1
         } ?? true
+        let wasAtTrailingEdge = scrollView.map { scroll in
+            let minimumOffset = -scroll.adjustedContentInset.left
+            let maximumOffset = max(
+                minimumOffset,
+                scroll.contentSize.width
+                    - scroll.bounds.width
+                    + scroll.adjustedContentInset.right
+            )
+            return previousOffset >= maximumOffset - 1
+        } ?? false
 
         accessoryBackgroundLeadingConstraint?.constant = leftInset
         accessoryBackgroundTrailingConstraint?.constant = -rightInset
@@ -607,6 +620,17 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             // pinned to the new minimum, and a mid-scroll position is
             // preserved, clamped to the new valid range.
             guard let scrollView else { return }
+            let geometryChanged = previousBoundsSize != scrollView.bounds.size
+                || previousContentSize != scrollView.contentSize
+                || previousAdjustedContentInset != scrollView.adjustedContentInset
+            // This method is called from the surface's layout pass. During a
+            // finger drag, deceleration, or the native edge-bounce animation,
+            // UIKit owns contentOffset and must be allowed to finish its
+            // physics without a competing setContentOffset call.
+            guard geometryChanged,
+                  !scrollView.isTracking,
+                  !scrollView.isDragging,
+                  !scrollView.isDecelerating else { return }
             let minimumOffset = -scrollView.adjustedContentInset.left
             let maximumOffset = max(
                 minimumOffset,
@@ -614,9 +638,14 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
                     - scrollView.bounds.width
                     + scrollView.adjustedContentInset.right
             )
-            let targetOffset = wasAtLeadingEdge
-                ? minimumOffset
-                : min(max(previousOffset, minimumOffset), maximumOffset)
+            let targetOffset: CGFloat
+            if wasAtLeadingEdge {
+                targetOffset = minimumOffset
+            } else if wasAtTrailingEdge {
+                targetOffset = maximumOffset
+            } else {
+                targetOffset = min(max(previousOffset, minimumOffset), maximumOffset)
+            }
             guard abs(scrollView.contentOffset.x - targetOffset) > 0.5 else { return }
             scrollView.setContentOffset(
                 CGPoint(x: targetOffset, y: scrollView.contentOffset.y),

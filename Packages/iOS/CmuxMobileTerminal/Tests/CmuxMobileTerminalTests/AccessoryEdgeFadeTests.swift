@@ -49,13 +49,13 @@ struct AccessoryEdgeFadeTests {
     }
 
     @MainActor
-    @Test("shortcut row does not elastically overscroll its trailing edge")
-    func shortcutRowDoesNotRubberBand() throws {
+    @Test("shortcut row keeps native horizontal scroll physics")
+    func shortcutRowKeepsNativeScrollPhysics() throws {
         let input = TerminalInputTextView()
         let scrollView = try #require(Self.findAccessoryScrollView(in: input.toolbarView))
 
-        #expect(!scrollView.bounces)
-        #expect(!scrollView.alwaysBounceHorizontal)
+        #expect(scrollView.bounces)
+        #expect(scrollView.alwaysBounceHorizontal)
     }
 
     @MainActor
