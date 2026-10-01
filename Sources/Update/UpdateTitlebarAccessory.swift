@@ -2245,6 +2245,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
               let contentView = window.contentView else {
             return
         }
+        let windowIdentifier = ObjectIdentifier(window)
         // Recreate content view each time to avoid stale observers when popover is hidden
         let hostingController = NSHostingController(
             rootView: NotificationsPopoverView(
@@ -2252,9 +2253,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                 onDismiss: { [weak notificationsPopover] in
                     notificationsPopover?.performClose(nil)
                 },
-                onOpenPhoneForwarding: { [weak notificationsPopover, weak window] in
+                onOpenPhoneForwarding: { [weak notificationsPopover] in
                     notificationsPopover?.performClose(nil)
-                    openPhoneForwardingSettings(in: window)
+                    openPhoneForwardingSettings(in: NSApp.windows.first { ObjectIdentifier($0) == windowIdentifier })
                 }
             )
             .cmuxAccentColorEnvironment()
@@ -3111,6 +3112,7 @@ final class UpdateTitlebarAccessoryController {
               let contentView = window.contentView else {
             return
         }
+        let windowIdentifier = ObjectIdentifier(window)
 
         let popover = NSPopover()
         let delegate = DetachedNotificationsPopoverDelegate { [weak self, weak popover] in
@@ -3133,9 +3135,9 @@ final class UpdateTitlebarAccessoryController {
                 onDismiss: { [weak popover] in
                     popover?.performClose(nil)
                 },
-                onOpenPhoneForwarding: { [weak popover, weak window] in
+                onOpenPhoneForwarding: { [weak popover] in
                     popover?.performClose(nil)
-                    openPhoneForwardingSettings(in: window)
+                    openPhoneForwardingSettings(in: NSApp.windows.first { ObjectIdentifier($0) == windowIdentifier })
                 }
             )
             .cmuxAccentColorEnvironment()
