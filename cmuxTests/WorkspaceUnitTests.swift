@@ -45,8 +45,12 @@ func makeTemporaryBrowserProfile(named prefix: String) throws -> BrowserProfileD
 }
 
 final class SidebarSelectedWorkspaceColorTests: XCTestCase {
-    func testLightModeUsesConfiguredSelectedWorkspaceBackgroundColor() {
-        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(for: .light).usingColorSpace(.sRGB) else {
+    func testLightModeSolidFillUsesSaturatedSelectedWorkspaceBackgroundColor() {
+        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(
+            for: .light,
+            sidebarSelectionColorHex: nil,
+            activeTabIndicatorStyle: .solidFill
+        ).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
@@ -57,8 +61,12 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(color.alphaComponent, 1.0, accuracy: 0.001)
     }
 
-    func testDarkModeUsesConfiguredSelectedWorkspaceBackgroundColor() {
-        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(for: .dark).usingColorSpace(.sRGB) else {
+    func testDarkModeSolidFillUsesSaturatedSelectedWorkspaceBackgroundColor() {
+        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(
+            for: .dark,
+            sidebarSelectionColorHex: nil,
+            activeTabIndicatorStyle: .solidFill
+        ).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
@@ -99,9 +107,106 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
     }
 
-    func testDefaultSelectedWorkspaceForegroundUsesNativeSelectionTextOnAccentBackground() {
+    func testSubtleRailSelectionIsAHairlineTintWithLabelColoredText() {
+        for (scheme, expectedWhite) in [(ColorScheme.light, CGFloat(0)), (.dark, 1)] {
+            let fill = CmuxSelectionFill.resolve(
+                colorScheme: scheme,
+                isEmphasized: true,
+                increaseContrast: false
+            )
+            XCTAssertLessThanOrEqual(fill.color.alphaComponent, 0.3)
+            XCTAssertNotNil(fill.edgeColor)
+            XCTAssertGreaterThan(fill.edgeColor?.alphaComponent ?? 0, fill.color.alphaComponent)
+
+            let style = sidebarWorkspaceRowBackgroundStyle(
+                activeTabIndicatorStyle: .leftRail,
+                isActive: true,
+                isMultiSelected: false,
+                customColorHex: nil,
+                colorScheme: scheme,
+                sidebarSelectionColorHex: nil,
+                subtleSelection: true,
+                isEmphasized: true,
+                increaseContrast: false
+            )
+            XCTAssertEqual(style.color, fill.color)
+            XCTAssertEqual(style.edgeColor, fill.edgeColor)
+
+            guard let foreground = sidebarSelectedWorkspaceForegroundNSColor(
+                on: sidebarSelectedWorkspaceBackgroundNSColor(
+                    for: scheme,
+                    sidebarSelectionColorHex: nil,
+                    subtleSelection: true
+                ),
+                opacity: 1
+            ).usingColorSpace(.sRGB) else {
+                XCTFail("Expected sRGB-convertible color")
+                return
+            }
+            XCTAssertEqual(foreground.redComponent, expectedWhite, accuracy: 0.001)
+        }
+    }
+
+    func testSelectionStaysSolidUnlessSubtleSelectionIsEnabled() {
+        XCTAssertFalse(SettingCatalog().workspaceColors.subtleSelection.defaultValue)
+        for scheme in [ColorScheme.light, .dark] {
+            let solid = sidebarWorkspaceRowBackgroundStyle(
+                activeTabIndicatorStyle: .leftRail,
+                isActive: true,
+                isMultiSelected: false,
+                customColorHex: nil,
+                colorScheme: scheme,
+                sidebarSelectionColorHex: nil
+            )
+            XCTAssertEqual(solid.color?.hexString(), CmuxAccentColor().nsColor(for: scheme).hexString())
+            XCTAssertEqual(solid.opacity, 1.0, accuracy: 0.001)
+            XCTAssertNil(solid.edgeColor)
+
+            let configured = sidebarWorkspaceRowBackgroundStyle(
+                activeTabIndicatorStyle: .leftRail,
+                isActive: true,
+                isMultiSelected: false,
+                customColorHex: nil,
+                colorScheme: scheme,
+                sidebarSelectionColorHex: "#123456",
+                subtleSelection: true
+            )
+            XCTAssertEqual(configured.color?.hexString(), "#123456")
+            XCTAssertNil(configured.edgeColor)
+        }
+    }
+
+    func testInactiveWindowSelectionIsNeutralAndIncreaseContrastIsStronger() {
+        for scheme in [ColorScheme.light, .dark] {
+            let key = CmuxSelectionFill.resolve(colorScheme: scheme, isEmphasized: true, increaseContrast: false)
+            let inactive = CmuxSelectionFill.resolve(colorScheme: scheme, isEmphasized: false, increaseContrast: false)
+            let keyContrast = CmuxSelectionFill.resolve(colorScheme: scheme, isEmphasized: true, increaseContrast: true)
+            let multi = CmuxSelectionFill.resolve(
+                colorScheme: scheme,
+                isEmphasized: true,
+                increaseContrast: false,
+                isSecondary: true
+            )
+
+            XCTAssertLessThan(inactive.color.alphaComponent, key.color.alphaComponent)
+            XCTAssertGreaterThan(keyContrast.color.alphaComponent, key.color.alphaComponent)
+            XCTAssertGreaterThan(keyContrast.edgeColor?.alphaComponent ?? 0, key.edgeColor?.alphaComponent ?? 1)
+            XCTAssertLessThan(multi.color.alphaComponent, key.color.alphaComponent)
+            guard let neutral = inactive.color.usingColorSpace(.sRGB) else {
+                XCTFail("Expected sRGB-convertible color")
+                return
+            }
+            XCTAssertEqual(neutral.redComponent, neutral.blueComponent, accuracy: 0.02)
+        }
+    }
+
+    func testSolidFillSelectedWorkspaceForegroundUsesNativeSelectionTextOnAccentBackground() {
         guard let color = sidebarSelectedWorkspaceForegroundNSColor(
-            on: sidebarSelectedWorkspaceBackgroundNSColor(for: .light),
+            on: sidebarSelectedWorkspaceBackgroundNSColor(
+                for: .light,
+                sidebarSelectionColorHex: nil,
+                activeTabIndicatorStyle: .solidFill
+            ),
             opacity: 0.65
         ).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
@@ -144,14 +249,18 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
 
         XCTAssertEqual(
             background.color?.hexString(),
-            sidebarSelectedWorkspaceBackgroundNSColor(for: .light).hexString()
+            sidebarSelectedWorkspaceBackgroundNSColor(
+                for: .light,
+                sidebarSelectionColorHex: nil,
+                activeTabIndicatorStyle: .solidFill
+            ).hexString()
         )
         XCTAssertEqual(background.opacity, 1.0, accuracy: 0.001)
         withExtendedLifetime(cancellable) {}
     }
 
     @MainActor
-    func testLeftRailKeepsSelectedBackgroundForActiveCustomColoredWorkspaceRow() {
+    func testSubtleLeftRailSelectionIgnoresActiveCustomWorkspaceColor() {
         let manager = TabManager()
         guard let workspace = manager.tabs.first else {
             XCTFail("Expected TabManager to initialise with a workspace")
@@ -175,12 +284,15 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
             isMultiSelected: false,
             customColorHex: workspace.customColor,
             colorScheme: .light,
-            sidebarSelectionColorHex: nil
+            sidebarSelectionColorHex: nil,
+            subtleSelection: true,
+            isEmphasized: true,
+            increaseContrast: false
         )
 
         XCTAssertEqual(
-            background.color?.hexString(),
-            sidebarSelectedWorkspaceBackgroundNSColor(for: .light).hexString()
+            background.color,
+            CmuxSelectionFill.resolve(colorScheme: .light, isEmphasized: true, increaseContrast: false).color
         )
         XCTAssertEqual(background.opacity, 1.0, accuracy: 0.001)
         withExtendedLifetime(cancellable) {}
@@ -508,14 +620,14 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
 
     func testRightSidebarModeSwitchesHavePrivateControlDigitDefaults() throws {
         // The digit defaults are positional over the visible tabs. Resolve them
-        // against an isolated defaults suite with Feed and Dock on, so the test
+        // against an isolated defaults suite with Feed on and Dock always
+        // available, so the test
         // neither depends on nor changes the shared settings other tests read
         // (tab order, hidden tabs, and feature opt-ins all shift the digits).
         let suiteName = "cmux.rightSidebarDigitDefaults.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
-        defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
 
         let modeSwitchActions: [(KeyboardShortcutSettings.Action, RightSidebarMode, String)] = [
             (.switchRightSidebarToFiles, .files, "1"),
@@ -543,9 +655,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         // suite, so this keeps the action-to-tab mapping covered end to end.
         let defaults = UserDefaults.standard
         let feedKey = RightSidebarBetaFeatureSettings.feedEnabledKey
-        let dockKey = RightSidebarBetaFeatureSettings.dockEnabledKey
         let previousFeed = defaults.object(forKey: feedKey)
-        let previousDock = defaults.object(forKey: dockKey)
         // Hidden tabs or a custom tab order left in the host's defaults would
         // change which digit each mode gets, so pin both to the defaults.
         let tabPreferenceKeys = [RightSidebarTabPreferences.hiddenKey, RightSidebarTabPreferences.orderKey]
@@ -553,15 +663,12 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         defer {
             if let previousFeed { defaults.set(previousFeed, forKey: feedKey) }
             else { defaults.removeObject(forKey: feedKey) }
-            if let previousDock { defaults.set(previousDock, forKey: dockKey) }
-            else { defaults.removeObject(forKey: dockKey) }
             for (key, previous) in zip(tabPreferenceKeys, previousTabPreferences) {
                 if let previous { defaults.set(previous, forKey: key) }
                 else { defaults.removeObject(forKey: key) }
             }
         }
         defaults.set(true, forKey: feedKey)
-        defaults.set(true, forKey: dockKey)
         tabPreferenceKeys.forEach { defaults.removeObject(forKey: $0) }
         let modeSwitchActions: [(KeyboardShortcutSettings.Action, RightSidebarMode)] = [
             (.switchRightSidebarToFiles, .files),
@@ -1235,26 +1342,10 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
     }
 
     func testSettingsFileStoreParsesWorkspaceWorkingDirectoryInheritanceSetting() throws {
-        let defaults = UserDefaults.standard
-        let managedKey = SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey
-        let previousValue = defaults.object(forKey: managedKey)
-        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
-        defer {
-            if let previousValue {
-                defaults.set(previousValue, forKey: managedKey)
-            } else {
-                defaults.removeObject(forKey: managedKey)
-            }
-
-            if let previousBackups {
-                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
-            } else {
-                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
-            }
-        }
-
-        defaults.removeObject(forKey: managedKey)
-        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+        // Isolated suite: app-host processes on one machine share
+        // UserDefaults.standard, so a false written there leaks into other runs.
+        let (defaults, suiteName) = try makeIsolatedSettingsFileDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -1274,40 +1365,19 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         _ = KeyboardShortcutSettingsFileStore(
             primaryPath: settingsFileURL.path,
             fallbackPath: nil,
+            additionalFallbackPaths: [],
+            notificationCenter: NotificationCenter(),
+            userDefaults: defaults,
+            languageSettingsStore: LanguageSettingsStore(defaults: defaults, domainName: suiteName),
             startWatching: false
         )
 
-        XCTAssertFalse(UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.workspaceInheritWorkingDirectory))
+        XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.workspaceInheritWorkingDirectory))
     }
 
     func testInvalidForkConversationDefaultDoesNotAbortRemainingAppSettings() throws {
-        let defaults = UserDefaults.standard
-        let forkKey = AgentConversationForkDefaultSettings.key
-        let inheritanceKey = SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey
-        let previousForkValue = defaults.object(forKey: forkKey)
-        let previousInheritanceValue = defaults.object(forKey: inheritanceKey)
-        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
-        defer {
-            if let previousForkValue {
-                defaults.set(previousForkValue, forKey: forkKey)
-            } else {
-                defaults.removeObject(forKey: forkKey)
-            }
-            if let previousInheritanceValue {
-                defaults.set(previousInheritanceValue, forKey: inheritanceKey)
-            } else {
-                defaults.removeObject(forKey: inheritanceKey)
-            }
-            if let previousBackups {
-                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
-            } else {
-                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
-            }
-        }
-
-        defaults.removeObject(forKey: forkKey)
-        defaults.removeObject(forKey: inheritanceKey)
-        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+        let (defaults, suiteName) = try makeIsolatedSettingsFileDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -1328,11 +1398,22 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         _ = KeyboardShortcutSettingsFileStore(
             primaryPath: settingsFileURL.path,
             fallbackPath: nil,
+            additionalFallbackPaths: [],
+            notificationCenter: NotificationCenter(),
+            userDefaults: defaults,
+            languageSettingsStore: LanguageSettingsStore(defaults: defaults, domainName: suiteName),
             startWatching: false
         )
 
-        XCTAssertEqual(AgentConversationForkDefaultSettings.current(), .right)
-        XCTAssertFalse(UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.workspaceInheritWorkingDirectory))
+        XCTAssertEqual(AgentConversationForkDefaultSettings.current(defaults: defaults), .right)
+        XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.workspaceInheritWorkingDirectory))
+    }
+
+    private func makeIsolatedSettingsFileDefaults() throws -> (UserDefaults, String) {
+        let suiteName = "KeyboardShortcutSettingsFileStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        return (defaults, suiteName)
     }
 
     func testSettingsFileStoreParsesSidebarWorkspaceTitleWrapSetting() throws {
@@ -2291,6 +2372,69 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(palette.map(\.hex), ["#2244FF", "#00F5D4"])
     }
 
+    @MainActor
+    func testSettingsFileStoreResolvesWorkspaceColorsSubtleSelection() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = SettingCatalog().workspaceColors.subtleSelection.userDefaultsKey
+        let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
+        let isolatedKeys = [managedKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]
+        let previousValues = isolatedKeys.reduce(into: [String: Any]()) { values, key in
+            values[key] = defaults.object(forKey: key)
+        }
+        defer {
+            for key in isolatedKeys {
+                if let value = previousValues[key] {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+
+        isolatedKeys.forEach { defaults.removeObject(forKey: $0) }
+        XCTAssertFalse(SidebarTabItemSettingsSnapshot(defaults: defaults).subtleSelection)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "workspaceColors": {
+                "subtleSelection": true
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        XCTAssertTrue(SidebarTabItemSettingsSnapshot(defaults: defaults).subtleSelection)
+
+        // A non-boolean value is rejected, so the setting reverts to its default.
+        let invalidSettingsURL = directoryURL.appendingPathComponent("invalid.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "workspaceColors": {
+                "subtleSelection": "yes"
+              }
+            }
+            """,
+            to: invalidSettingsURL
+        )
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: invalidSettingsURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        XCTAssertFalse(SidebarTabItemSettingsSnapshot(defaults: defaults).subtleSelection)
+    }
+
     func testManagedWorkspaceColorsRestoreLegacyPaletteWhenFileSettingIsRemoved() throws {
         let defaults = UserDefaults.standard
         let previousPalette = defaults.dictionary(forKey: WorkspaceTabColorSettings.paletteKey) as? [String: String]
@@ -3184,11 +3328,12 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testNewWorkspaceInheritsSourceWorkingDirectoryByDefault() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) { settings in
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
-                autoWelcomeIfNeeded: false
+                autoWelcomeIfNeeded: false,
+                settings: settings
             )
 
             let inserted = manager.addWorkspace(autoWelcomeIfNeeded: false)
@@ -3199,12 +3344,13 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testDisabledInheritanceUsesGhosttyDefaultForNewWorkspaceCwd() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(false) { settings in
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
             let fallbackCwd = "/tmp/cmux-ghostty-default-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
                 autoWelcomeIfNeeded: false,
+                settings: settings,
                 defaultWorkspaceWorkingDirectoryProvider: { fallbackCwd }
             )
 
@@ -3216,12 +3362,13 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testExplicitNoInheritanceUsesGhosttyDefaultWhenGlobalInheritanceEnabled() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) { settings in
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
             let fallbackCwd = "/tmp/cmux-ghostty-default-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
                 autoWelcomeIfNeeded: false,
+                settings: settings,
                 defaultWorkspaceWorkingDirectoryProvider: { fallbackCwd }
             )
 
@@ -3236,12 +3383,13 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testExplicitWorkspaceWorkingDirectoryWinsWhenInheritanceIsDisabled() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(false) { settings in
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
             let explicitCwd = "/tmp/cmux-explicit-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
-                autoWelcomeIfNeeded: false
+                autoWelcomeIfNeeded: false,
+                settings: settings
             )
 
             let inserted = manager.addWorkspace(
@@ -3255,11 +3403,12 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testDetachedWorkspaceInheritsSourceWorkingDirectoryByDefaultWhenTransferHasNoDirectory() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) { settings in
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
-                autoWelcomeIfNeeded: false
+                autoWelcomeIfNeeded: false,
+                settings: settings
             )
             let source = try XCTUnwrap(manager.selectedWorkspace)
             let detached = makeDetachedWorkspaceTestTransfer(sourceWorkspaceId: source.id)
@@ -3275,12 +3424,13 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testDisabledInheritanceLeavesDetachedWorkspaceFallbackCwdUnsetWhenTransferHasNoDirectory() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(false) { settings in
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
             let fallbackCwd = FileManager.default.homeDirectoryForCurrentUser.path
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
-                autoWelcomeIfNeeded: false
+                autoWelcomeIfNeeded: false,
+                settings: settings
             )
             let source = try XCTUnwrap(manager.selectedWorkspace)
             let detached = makeDetachedWorkspaceTestTransfer(sourceWorkspaceId: source.id)
@@ -3296,12 +3446,13 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     }
 
     func testDetachedWorkspaceTransferDirectoryWinsWhenInheritanceIsDisabled() throws {
-        try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(false) { settings in
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
             let transferCwd = "/tmp/cmux-detached-\(UUID().uuidString)"
             let manager = TabManager(
                 initialWorkingDirectory: sourceCwd,
-                autoWelcomeIfNeeded: false
+                autoWelcomeIfNeeded: false,
+                settings: settings
             )
             let source = try XCTUnwrap(manager.selectedWorkspace)
             let detached = makeDetachedWorkspaceTestTransfer(
@@ -3347,28 +3498,22 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
         XCTAssertNil(inserted.surfaceResumeBinding(panelId: detached.panelId))
     }
 
+    /// Runs `body` against an isolated settings suite. App-host test processes
+    /// share one `UserDefaults.standard` per machine (preferences ignore
+    /// `CFFIXED_USER_HOME`), so writing this key there leaks into other tests.
     private func withWorkspaceWorkingDirectoryInheritanceSetting(
         _ value: Bool?,
-        _ body: () throws -> Void
-    ) rethrows {
-        let defaults = UserDefaults.standard
-        let key = SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey
-        let previousValue = defaults.object(forKey: key)
-        defer {
-            if let previousValue {
-                defaults.set(previousValue, forKey: key)
-            } else {
-                defaults.removeObject(forKey: key)
-            }
-        }
-
+        _ body: (UserDefaultsSettingsClient) throws -> Void
+    ) throws {
+        let suiteName = "WorkspaceCreationWorkingDirectoryInheritanceTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
         if let value {
-            defaults.set(value, forKey: key)
-        } else {
-            defaults.removeObject(forKey: key)
+            settings.set(value, for: SettingCatalog().app.workspaceInheritWorkingDirectory)
         }
 
-        try body()
+        try body(settings)
     }
     private func makeDetachedWorkspaceTestTransfer(
         sourceWorkspaceId: UUID,
@@ -3431,8 +3576,10 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             configTemplate: CmuxSurfaceConfigTemplate?,
             initialSurface: NewWorkspaceInitialSurface,
             initialTerminalCommand: String?,
+            initialTerminalIsRemote: Bool,
             initialTerminalInput: String?,
             initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot?,
+            initialTerminalStartsOnFirstVisit: Bool,
             initialTerminalEnvironment: [String: String],
             initialBrowserURL: URL?,
             initialBrowserOmnibarVisible: Bool,
@@ -3449,8 +3596,10 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 configTemplate: configTemplate,
                 initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
+                initialTerminalIsRemote: initialTerminalIsRemote,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
+                initialTerminalStartsOnFirstVisit: initialTerminalStartsOnFirstVisit,
                 initialTerminalEnvironment: initialTerminalEnvironment,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
@@ -3747,8 +3896,10 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             configTemplate: CmuxSurfaceConfigTemplate?,
             initialSurface: NewWorkspaceInitialSurface,
             initialTerminalCommand: String?,
+            initialTerminalIsRemote: Bool,
             initialTerminalInput: String?,
             initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot?,
+            initialTerminalStartsOnFirstVisit: Bool,
             initialTerminalEnvironment: [String: String],
             initialBrowserURL: URL?,
             initialBrowserOmnibarVisible: Bool,
@@ -3765,8 +3916,10 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 configTemplate: configTemplate,
                 initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
+                initialTerminalIsRemote: initialTerminalIsRemote,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
+                initialTerminalStartsOnFirstVisit: initialTerminalStartsOnFirstVisit,
                 initialTerminalEnvironment: initialTerminalEnvironment,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
@@ -4101,7 +4254,7 @@ final class WorkspaceAutoReorderSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification))
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification), .notifications)
     }
 
     func testDisabledWhenSetToFalse() {
@@ -4113,7 +4266,7 @@ final class WorkspaceAutoReorderSettingsTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(false, forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
-        XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification))
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification), .off)
     }
 
     func testEnabledWhenSetToTrue() {
@@ -4125,7 +4278,7 @@ final class WorkspaceAutoReorderSettingsTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(true, forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
-        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification))
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification), .notifications)
     }
 }
 

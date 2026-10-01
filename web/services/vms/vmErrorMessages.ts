@@ -102,6 +102,20 @@ export async function vmArtifactUnavailableCopy(locale: Locale): Promise<VmRequi
   };
 }
 
+/** Localized guidance for a machine that must be recreated before it can be attached. */
+export async function vmRecreateRequiredCopy(locale: Locale): Promise<VmRequiresProCopy> {
+  const translator = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.recreateRequired",
+  }) as unknown as (key: string) => string;
+  return {
+    title: translator("title"),
+    message: translator("message"),
+    action: translator("action"),
+  };
+}
+
 /** Localized, user-safe guidance when guest Cloud VM setup does not complete. */
 export type VmGuestInstallCopy = VmRequiresProCopy & { readonly reason: string };
 export async function vmGuestInstallCopy(locale: Locale): Promise<VmGuestInstallCopy> {

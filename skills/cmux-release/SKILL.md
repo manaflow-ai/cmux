@@ -11,9 +11,10 @@ Prefer the `/release` command. It determines the new version (minor by default),
 
 Feature PRs don't edit `CHANGELOG.md`. Each PR description has a `## Changelog` section with one user-facing line (`Added`, `Changed`, `Fixed`, or `Removed`, present tense) or `none`. At release time, [`/release` step 2](../../.claude/commands/release.md#shared-prep-all-three-release-commands) fetches every PR merged since the last `v*` tag in one GraphQL query and classifies it with [references/changelog-lines.jq](references/changelog-lines.jq):
 
-- a Changelog line becomes an entry, with the PR link and `-- thanks @user!` for outside authors or reporters;
-- `none`, PRs reverted later in the range, and the revert PRs themselves are skipped;
-- a PR with no section falls back to its title and is listed for the human to check.
+- a Changelog line becomes an entry, with the PR link and `-- thanks @user!` for authors and reporters outside the core team (`lawrencecchen`, `austinywang`, `teamleaderleo`) and bots;
+- `none` is skipped, and so is a PR undone by a revert later in the range (a reapply leaves it live);
+- a revert of a PR that shipped in an earlier release gets its own line and is flagged for the human; reverts within the range are skipped;
+- a PR with no section, or a line without an `Added`/`Changed`/`Fixed`/`Removed` prefix, is listed for the human to check.
 
 The release then folds any leftover `## Unreleased` entries into the new version section and removes that heading.
 
@@ -44,7 +45,7 @@ If the pretag guard fails, run `./scripts/bump-version.sh`, commit the build-num
 ## Release artifacts and secrets
 
 - The release asset is `cmux-macos.dmg`, attached to the tag. The README download button points to `releases/latest/download/cmux-macos.dmg`.
-- Signing and notarization require the GitHub secrets `APPLE_CERTIFICATE_BASE64`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`.
+- Signing requires the GitHub secrets `APPLE_CERTIFICATE_BASE64`, `APPLE_CERTIFICATE_PASSWORD` and `APPLE_SIGNING_IDENTITY`. CI notarization authenticates with the team App Store Connect API key (`ASC_API_KEY_ID`, `ASC_API_ISSUER_ID`, `ASC_API_KEY_P8_BASE64`) through `scripts/ci/lib/notary-auth.sh`, which decodes the key to a mode-600 temp file that the caller deletes. The local `scripts/build-sign-upload.sh` still uses an Apple ID and app-specific password.
 
 ## Detailed reference
 

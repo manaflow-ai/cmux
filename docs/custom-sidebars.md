@@ -141,6 +141,12 @@ Rules of the runtime:
   `.hoverBackground` (host-side hover wash, no JS round trip)
   `.cornerRadius` (continuous/squircle curvature) `.borderColor`
   `.borderWidth` `.opacity` `.frame({width,height,minWidth,maxWidth,...})`
+  (or `.frame(() => ({...}))` to bind every key live; the keys come from
+  the first evaluation, so return every key you need from the start)
+  `.layoutPriority(n)` (who keeps width in an `HStack`; truncating text
+  defaults to 1, so give a button or badge beside it 2) `.fixedSize()` (keep
+  a view at its natural size; `.fixedSize("horizontal")` or `"vertical"` for
+  one axis)
   `.fill` `.stroke` `.strokeWidth` `.size` `.rotation(degrees)` (spins the
   content in place inside its layout box, spring-animated - e.g. a group
   chevron that turns instead of swapping glyphs) `.fade(width)` (constant
@@ -247,6 +253,9 @@ The repo includes ready-to-copy sidebars in `Examples/CustomSidebars/`:
   review, progress, research, and done.
 - `finder.swift` shows a macOS Finder-style workspace browser with a source
   list, selected workspace details, and tabs.
+- `btop-agents.js` is a btop-style agent activity list: a braille sparkline
+  of recent agent activity per workspace, state glyphs, a small progress meter,
+  and a header graph of busy workspaces.
 
 Install one from a cmux checkout:
 
@@ -316,8 +325,8 @@ with:
   `cmux hooks omp|pi subagent-start|subagent-stop` with JSON
   `{"session_id": "<parent session>", "agent_id": "<stable child id>",
   "description": "<child label>"}`: start opens the child on the parent
-  record, stop closes it by `agent_id` (or the oldest running child when the
-  id is absent).
+  record, stop closes the oldest running child (FIFO). The `agent_id` field is
+  not read; only `_opencode_request_id` can correlate a stop event to a child.
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
   `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
   `dirty`, `ports` (array of Int).
@@ -417,7 +426,7 @@ A button or `.onTapGesture` body calls `cmux("<method>", param: value)`. On tap
 it runs that cmux command through the same dispatcher as the `cmux` CLI:
 
     Button(action: { cmux("workspace.select", workspace_id: w.id) }) { ... }
-    ...onTapGesture { cmux("surface.focus", surface_id: t.id) }
+    ...onTapGesture { cmux("surface.focus", surface_id: t.surfaceId) }
 
 Use real method and parameter names. Common ones: `workspace.select`
 (`workspace_id`), `surface.focus` (`surface_id`), `workspace.reorder`

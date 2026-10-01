@@ -8,6 +8,7 @@ import { HealthSchema } from "./health";
 import { CONTROL_PLANE_RULES, sourceRevision } from "./rules";
 import { API_TICKET_SECONDS, canonicalJSON, decodeBase64URL, encodeBase64URL, verifyTicket } from "./crypto";
 import { failureDiagnostics, OperationError } from "./errors";
+import { deviceObservability } from "./observability";
 
 export const SETUP_HEADER = "x-cmux-v2-setup";
 const INTERNAL_HEADER = "x-cmux-v2-verified-authority";
@@ -42,8 +43,10 @@ const aliases: Readonly<Record<string, string>> = {
 export async function routeControl(request: Request, dependencies: RoutingDependencies): Promise<Response> {
   let requestId = "unidentified";
   // Where a failure happened, for telemetry only: route kind, the stage
-  // reached and the requested operation, never request contents.
+  // reached, the requested operation and bounded device attribution, never
+  // request contents.
   let route = "unknown", stage = "parse", operationName = "none";
+  let device: Record<string, string> = {};
   try {
     const url = new URL(request.url);
     const socket = url.pathname === "/v2/control/socket";
@@ -72,6 +75,7 @@ export async function routeControl(request: Request, dependencies: RoutingDepend
     if (operation) operationName = inputOperation(input);
     stage = "authenticate";
     const authorization = await authenticate(request.headers.get("authorization"), setup, dependencies);
+    if (!authorization.issueTicket) device = deviceObservability(setup.device);
     stage = "charge";
     if (!operation) await dependencies.chargeOpen(authorization.authority.userId);
     // A fresh Request deliberately copies no caller headers, cookies or credentials.
@@ -91,7 +95,7 @@ export async function routeControl(request: Request, dependencies: RoutingDepend
   } catch (error) {
     const failure = errorResponse(error, requestId).failure;
     dependencies.observe?.({ event: "iroh.control.failure", requestId, code: failure.code, status: failure.status, retryable: failure.retryable,
-      route, stage, operation: operationName, ...failureDiagnostics(error) });
+      route, stage, operation: operationName, ...device, ...failureDiagnostics(error) });
     return httpFailure(error, requestId);
   }
 }

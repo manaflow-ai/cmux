@@ -1,5 +1,6 @@
 import AppKit
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -23,7 +24,7 @@ final class CloudWorkspaceCreationSidebarFixture {
     private let defaults: UserDefaults
     private let defaultsName = "cloud-workspace-creation-\(UUID().uuidString)"
 
-    init(useSharedCatalog: Bool = false) throws {
+    init(useSharedCatalog: Bool = false, machine: SurfaceMachineID? = nil) throws {
         defaults = try #require(UserDefaults(suiteName: defaultsName))
         manager = TabManager(autoWelcomeIfNeeded: false, settings: UserDefaultsSettingsClient(defaults: defaults))
         originalWorkspaceID = try #require(manager.selectedTabId)
@@ -31,7 +32,11 @@ final class CloudWorkspaceCreationSidebarFixture {
         catalog = useSharedCatalog ? SurfaceCatalog.shared : SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(environment: .init(
             workspace: { owner.workspacesById[$0] }, tabManager: { _ in owner }, workspaces: { owner.tabs }
         )))
-        provider = CloudWorkspaceCreationSidebarProvider(catalog: catalog)
+        if let machine {
+            provider = CloudWorkspaceCreationSidebarProvider(catalog: catalog, machine: machine)
+        } else {
+            provider = CloudWorkspaceCreationSidebarProvider(catalog: catalog)
+        }
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
                           styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

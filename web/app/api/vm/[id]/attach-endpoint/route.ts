@@ -8,6 +8,7 @@ import {
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { openAttachEndpoint, openVmCmuxRemote } from "../../../../../services/vms/workflows";
+import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
 import {
   capabilityList,
   optionalClientIdentifier,
@@ -72,6 +73,7 @@ export async function POST(
           deviceFingerprint,
           clientCapabilities,
           callerPlanId: account.entitlements.planId,
+          modelPlane: vmModelPlaneRevoker(),
         }), { request });
         if (!run.ok) return run.response;
         return jsonResponse(run.value);
@@ -93,6 +95,7 @@ export async function POST(
         providerVmId: id,
         sessionTitle,
         options: { requireDaemon, sessionId, attachmentId },
+        modelPlane: vmModelPlaneRevoker(),
       }), { request });
       if (!run.ok) return run.response;
       const endpoint = run.value;
