@@ -17,6 +17,15 @@ import Testing
     private static let terminalID = "term_41fb0b7fe0f204d428acf9db124023f4"
     private static let socketPath = "/tmp/cmux-12362-fixture.sock"
 
+    @Test
+    func staleReplayDaemonRequiresExplicitRecovery() {
+        #expect(CloudTuiManualMirrorSession.isStaleReplayDaemon(capabilities: ["view-attachment-lease-v1"]))
+        #expect(!CloudTuiManualMirrorSession.isStaleReplayDaemon(capabilities: []))
+        #expect(!CloudTuiManualMirrorSession.isStaleReplayDaemon(capabilities: [
+            "view-attachment-lease-v1", "terminal-pending-sequence-v1",
+        ]))
+    }
+
     /// Resolver and session logs can be joined without exposing terminal data.
     /// The correlation value is caller supplied so a materialization can carry
     /// one id from identity resolution through native presentation.
@@ -138,6 +147,42 @@ import Testing
 
         #expect(await Self.waitUntil { session.phase == .disconnected })
         #expect(reconnects.count >= 1)
+    }
+
+    /// A daemon that advertises modern attachment features but omits pending
+    /// VT-sequence framing can replay a partial escape into the next screen.
+    /// Keep the pane recoverable, but stop retrying the same stale VM forever.
+    @Test @MainActor
+    func staleReplayDaemonStopsAutomaticReconnectWithActionablePresentation() async throws {
+        let fixture = try CloudManualMirrorSocketFixture()
+        defer { fixture.close() }
+        let reconnects = ReconnectCounter()
+        let session = CloudTuiManualMirrorSession(
+            machineID: "machine",
+            terminalID: Self.terminalID,
+            remoteSurfaceID: 17,
+            presentationPolicy: .immediate,
+            onNeedsReconnect: { reconnects.increment() }
+        )
+        defer { session.stop() }
+
+        session.reconnect(socketPath: fixture.socketPath)
+        let identify = try #require(await fixture.nextCommand(timeout: .seconds(5)))
+        fixture.send([
+            "id": identify.id,
+            "ok": true,
+            "data": ["protocol": 12, "capabilities": ["view-attachment-lease-v1"]],
+        ])
+
+        #expect(await Self.waitUntil { session.phase == .disconnected })
+        #expect(!session.allowsAutomaticReconnect)
+        #expect(reconnects.count == 0)
+        #expect(session.connectionPresentation != nil)
+        guard case let .reconnecting(_, reason) = session.attachmentStatus.state else {
+            Issue.record("expected a reconnecting state")
+            return
+        }
+        #expect(reason == .staleDaemon)
     }
 
     /// An attached stream that stops carrying frames is indistinguishable from

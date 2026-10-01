@@ -24,6 +24,11 @@ public struct CloudTuiManualIOCommand: Sendable {
     /// client to retire one attachment without dropping the whole socket.
     public let viewAttachmentDetachCapability = "view-attachment-detach-v1"
 
+    /// The daemon capability that keeps an incomplete VT escape sequence
+    /// separate from a replay, so a reconnect cannot feed a partial sequence
+    /// into the next terminal state.
+    public let terminalPendingSequenceCapability = "terminal-pending-sequence-v1"
+
     /// Begins the protocol handshake so optional attach fields are sent only
     /// when the daemon advertises the matching capability.
     public func identify(requestID: UInt64 = 1) -> [String: Any] {
@@ -73,7 +78,7 @@ public struct CloudTuiManualIOCommand: Sendable {
                 sizingViewDetachCapability,
                 // The pane writes its color sidecar after a replay, so the
                 // daemon's incomplete sequence must arrive separately.
-                "terminal-pending-sequence-v1",
+                terminalPendingSequenceCapability,
             ],
         ]
         if let identity {

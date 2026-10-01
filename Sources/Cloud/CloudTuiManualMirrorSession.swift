@@ -745,6 +745,7 @@ final class CloudTuiManualMirrorSession {
         case .rejected: diagnosticError = .protocol
         case .unresolved: diagnosticError = .notFound
         case .transportClosed: diagnosticError = .network
+        case .staleDaemon: diagnosticError = .unsupported
         }
         finishDiagnostics(error: diagnosticError)
         transition(to: .disconnected, reason: reason)
@@ -843,6 +844,17 @@ final class CloudTuiManualMirrorSession {
                 return
             }
             serverCapabilities = Set(capabilities)
+            if Self.isStaleReplayDaemon(capabilities: capabilities) {
+                // This daemon can attach, but it cannot preserve incomplete VT
+                // sequences across replay boundaries. Retrying the same VM
+                // forever only recreates the garbled pane, so leave the pane
+                // intact and wait for an explicit retry after an upgrade.
+                automaticReconnectSuppressed = true
+                fenceAttachment(error: CloudDiagnosticFailure.unsupported, reason: .staleDaemon)
+                startPresentationEpisode(elapsed: presentationPolicy.failureGrace)
+                synchronizePresentation()
+                return
+            }
             sizingRelay.connectionStarted(capabilities: serverCapabilities)
             // A new connection attaches a fresh view.
             sharingOwnViewDetached = false
