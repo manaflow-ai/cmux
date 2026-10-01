@@ -17,7 +17,7 @@ extension CEFTab {
         let clip: [String: Any] = ["x": 0, "y": 0, "width": width, "height": height, "scale": 1]
         let json = try await runtime.devTools(browserID, method: "Page.captureScreenshot",
                                               params: ["format": "png", "captureBeyondViewport": true, "clip": clip],
-                                              timeout: .seconds(25))
+                                              timeout: .seconds(18))
         return try CEFDevToolsResult.screenshot(json)
     }
 }

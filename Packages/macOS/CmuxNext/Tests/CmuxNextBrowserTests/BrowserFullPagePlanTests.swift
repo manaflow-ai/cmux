@@ -31,8 +31,10 @@ import Testing
     }
 
     @Test func refusesMoreTilesThanTheDeadlineAllows() {
-        // 1280x60000 in an 800x600 viewport is 2 x 100 tiles.
-        #expect(BrowserFullPagePlan(contentSize: CGSize(width: 1_280, height: 60_000), viewportSize: CGSize(width: 800, height: 600)) == nil)
+        // 800x24000 (19.2M px, under the pixel cap) in an 800x200 viewport is 120 tiles.
+        #expect(BrowserFullPagePlan.isCapturable(contentSize: CGSize(width: 800, height: 24_000)))
+        #expect(BrowserFullPagePlan(contentSize: CGSize(width: 800, height: 24_000), viewportSize: CGSize(width: 800, height: 200)) == nil)
+        #expect(BrowserFullPagePlan(contentSize: CGSize(width: 800, height: 9_600), viewportSize: CGSize(width: 800, height: 200)) != nil)
         #expect(BrowserFullPagePlan(contentSize: CGSize(width: 800, height: 600), viewportSize: CGSize(width: 0.5, height: 0.5)) == nil)
     }
 

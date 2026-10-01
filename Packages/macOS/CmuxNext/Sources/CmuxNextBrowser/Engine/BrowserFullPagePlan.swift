@@ -9,7 +9,7 @@ public nonisolated struct BrowserFullPagePlan: Equatable, Sendable {
     public static let maximumPixels: Double = 25_000_000
     /// Each tile scrolls, waits for a frame and snapshots; more would miss
     /// the screenshot deadline.
-    public static let maximumTiles = 80
+    public static let maximumTiles = 48
 
     public let contentSize: CGSize
     public let viewportSize: CGSize

@@ -127,7 +127,7 @@ On `feat-cmux-next-browser-wait` (browser group 1):
   [--out PATH|-] [--selector S|--full-page]`: viewport by default, an element cropped from
   the viewport after scrolling it into view, or the whole document
   (`BrowserTab.fullPageSnapshot`: Chromium `captureBeyondViewport`, WebKit stitched tiles
-  like the old app's fallback; at most 25M CSS px and 80 tiles). The app saves the PNG in
+  like the old app's fallback; at most 25M CSS px and 48 tiles). The app saves the PNG in
   its temporary directory and returns `path`, as the old app did, with `png_base64` only
   under 4 MiB (the control socket drops answers over 8 MiB); the CLI copies it for `--out`.
 

@@ -23,13 +23,15 @@ extension WebKitTab {
         guard !isClosed else { throw BrowserTabError.closed }
         let metrics = try await callFunction(Self.metricsScript, world: .page)
         func number(_ key: String) -> CGFloat { CGFloat(Self.member(metrics, key) ?? 0) }
+        // Tiles step by the client area, which leaves out classic scrollbars;
+        // each snapshot covers the whole window, scrollbars included.
         guard let plan = BrowserFullPagePlan(contentSize: CGSize(width: number("width"), height: number("height")),
-                                             viewportSize: CGSize(width: number("viewport_width"), height: number("viewport_height"))) else {
+                                             viewportSize: CGSize(width: number("client_width"), height: number("client_height"))) else {
             throw BrowserTabError.unsupported("The page is empty or too large for a full-page screenshot")
         }
         let start = CGPoint(x: number("x"), y: number("y"))
         do {
-            let image = try await stitch(plan)
+            let image = try await stitch(plan, windowWidth: max(number("viewport_width"), plan.viewportSize.width))
             _ = try? await scroll(to: start)
             return image
         } catch {
@@ -38,7 +40,7 @@ extension WebKitTab {
         }
     }
 
-    private func stitch(_ plan: BrowserFullPagePlan) async throws -> CGImage {
+    private func stitch(_ plan: BrowserFullPagePlan, windowWidth: CGFloat) async throws -> CGImage {
         var context: CGContext?
         var scale: CGFloat = 1
         for origin in plan.origins {
@@ -51,7 +53,7 @@ extension WebKitTab {
             }
             let tile = try await snapshot()
             if context == nil {
-                scale = CGFloat(tile.width) / plan.viewportSize.width
+                scale = CGFloat(tile.width) / windowWidth
                 context = CGContext(data: nil, width: Int((plan.contentSize.width * scale).rounded(.up)),
                                     height: Int((plan.contentSize.height * scale).rounded(.up)), bitsPerComponent: 8, bytesPerRow: 0,
                                     space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
@@ -86,6 +88,8 @@ extension WebKitTab {
           width: Math.max(doc ? doc.scrollWidth : 0, body ? body.scrollWidth : 0, window.innerWidth || 0),
           height: Math.max(doc ? doc.scrollHeight : 0, body ? body.scrollHeight : 0, window.innerHeight || 0),
           viewport_width: window.innerWidth || 0, viewport_height: window.innerHeight || 0,
+          client_width: (doc && doc.clientWidth) || window.innerWidth || 0,
+          client_height: (doc && doc.clientHeight) || window.innerHeight || 0,
           x: window.scrollX || 0, y: window.scrollY || 0
         };
         """

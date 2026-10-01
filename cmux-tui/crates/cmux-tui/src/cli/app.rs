@@ -488,6 +488,10 @@ fn call(global: &GlobalArgs, mut stream: UnixStream, command: AppCommand) -> Ran
 /// browser screenshot` did too); `png_base64` comes inline only when small.
 /// Without `--out` the app's file is the result; `--out -` writes only the
 /// PNG to stdout.
+fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
+    matches!((std::fs::canonicalize(a), std::fs::canonicalize(b)), (Ok(a), Ok(b)) if a == b)
+}
+
 fn save_screenshot(mut result: Value, out: Option<&str>, output: OutputMode) -> i32 {
     let messages = &crate::localization::catalog().app_control;
     let Some(object) = result.as_object_mut() else {
@@ -546,6 +550,8 @@ fn save_screenshot(mut result: Value, out: Option<&str>, output: OutputMode) -> 
                 .map_or(Ok(()), std::fs::create_dir_all);
             let written = created.and_then(|()| match (inline, &saved) {
                 (Some(png), _) => std::fs::write(&path, png),
+                // Copying a file onto itself truncates it first.
+                (None, Some(saved)) if same_file(saved, &path) => Ok(()),
                 (None, Some(saved)) => std::fs::copy(saved, &path).map(|_| ()),
                 (None, None) => unreachable!("checked above"),
             });
@@ -1079,7 +1085,7 @@ mod tests {
         std::fs::write(&saved, png).unwrap();
         let response = json!({ "id": 1, "ok": true, "result": {
             "tab": "tab_01ab", "path": saved.to_str().unwrap(), "width": 1, "height": 1 } });
-        let (socket, app) = fake_app(vec![response]);
+        let (socket, app) = fake_app(vec![response.clone()]);
         let copy = dir.join("copy.png");
         let command = AppCommand::Screenshot {
             params: json!({}),
@@ -1087,6 +1093,16 @@ mod tests {
         };
         assert_eq!(run(&global_for(&socket), command), 0);
         assert_eq!(std::fs::read(&copy).unwrap(), png);
+        app.join().unwrap();
+
+        // --out naming the app's own file leaves it whole.
+        let (socket, app) = fake_app(vec![response]);
+        let command = AppCommand::Screenshot {
+            params: json!({}),
+            out: Some(saved.to_str().unwrap().to_owned()),
+        };
+        assert_eq!(run(&global_for(&socket), command), 0);
+        assert_eq!(std::fs::read(&saved).unwrap(), png);
         app.join().unwrap();
         let _ = std::fs::remove_dir_all(&dir);
 

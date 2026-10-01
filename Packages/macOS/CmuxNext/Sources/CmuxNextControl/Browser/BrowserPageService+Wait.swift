@@ -86,6 +86,8 @@ extension BrowserPageService {
         var backoff = Backoff(initial: .milliseconds(50), maximum: .milliseconds(500))
         var lastError: String?
         while ContinuousClock.now < deadline {
+            // A disconnected client cancels the handler; the chunk deadline does not see it.
+            try Task.checkCancellation()
             let remaining = Int(((deadline - .now).inSeconds * 1000).rounded(.up))
             let chunk = min(remaining, pageWaitChunkMilliseconds)
             let started = ContinuousClock.now
@@ -98,7 +100,7 @@ extension BrowserPageService {
                 lastError = value?["error"]?.stringValue ?? lastError
                 // A page wait that ended before its timer did not wait (no answer, a
                 // page that is not running yet): space the next one.
-                if ContinuousClock.now < started + .milliseconds(chunk) - .milliseconds(50) {
+                if ContinuousClock.now - started < .milliseconds(chunk) {
                     // concurrency-allow: Backoff's async sleep spaces retries after a failure; it blocks no thread
                     try await backoff.wait(owner: method)
                 }
