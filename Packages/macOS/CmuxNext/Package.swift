@@ -302,6 +302,9 @@ let package = Package(
         .target(
             name: "CmuxNextTabs",
             dependencies: ["CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources"],
+            resources: [
+                .process("Resources"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
