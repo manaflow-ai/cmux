@@ -13,6 +13,10 @@ extension AppBrowserPage {
     /// Base64 grows a PNG by a third; the control socket drops an answer
     /// over 8 MiB.
     static let inlinePNGLimit = 4 << 20
+    /// Saved screenshots are pruned on each save: at most this many, none
+    /// older than an hour, so agents that never pass `--out` do not fill the disk.
+    nonisolated static let keptScreenshots = 32
+    nonisolated static let screenshotLifetime: TimeInterval = 3600
 
     static func screenshot(_ page: any BrowserTab, tabID: String, _ capture: BrowserPageCapture) async throws -> JSONValue {
         let image: CGImage
@@ -77,7 +81,23 @@ extension AppBrowserPage {
         let stamp = Int(Date().timeIntervalSince1970 * 1000)
         let file = directory.appendingPathComponent("\(tabID)-\(stamp)-\(UUID().uuidString.prefix(8)).png")
         try png.write(to: file, options: .atomic)
+        prune(directory, keeping: keptScreenshots, newerThan: Date().addingTimeInterval(-screenshotLifetime))
         return file.path
+    }
+
+    /// Deletes the PNGs in `directory` past the newest `keeping`, and any
+    /// modified before `cutoff`. Best effort: a file another save is
+    /// writing or a reader holds open is left for the next prune.
+    nonisolated static func prune(_ directory: URL, keeping: Int, newerThan cutoff: Date) {
+        let manager = FileManager.default
+        guard let files = try? manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey],
+                                                           options: [.skipsHiddenFiles]) else { return }
+        let dated = files.filter { $0.pathExtension == "png" }.map { file in
+            (file, (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast)
+        }.sorted { $0.1 > $1.1 }
+        for (index, (file, modified)) in dated.enumerated() where index >= keeping || modified < cutoff {
+            try? manager.removeItem(at: file)
+        }
     }
 }
 

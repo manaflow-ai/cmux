@@ -67,7 +67,7 @@ condition does not hold in time, and keeps waiting across a navigation.
 element (scrolled into view, clipped to the viewport); `--full-page` captures
 the whole document (at most 25 million CSS pixels and 48 viewport tiles;
 fixed headers repeat in WebKit tabs). Without `--out` the PNG is a new file in
-the temporary directory; `--out PATH` copies it there. It prints the path
+the temporary directory (kept for an hour, newest 32); `--out PATH` copies it there. It prints the path
 (`--json`: the tab, path, width and height). `--out -` writes only the PNG to
 stdout.
 

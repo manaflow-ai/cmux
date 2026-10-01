@@ -44,4 +44,27 @@ import Testing
         #expect(CGImageSourceGetType(source) as String? == "public.png")
         #expect(CGImageSourceCreateImageAtIndex(source, 0, nil)?.width == 4)
     }
+
+    /// Screenshots saved without `--out` used to accumulate in the temporary
+    /// directory forever; each save now prunes old and surplus files.
+    @Test func savingPrunesOldAndSurplusScreenshots() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("prune-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let now = Date()
+        for index in 0..<5 {
+            let file = directory.appendingPathComponent("shot-\(index).png")
+            try Data([1]).write(to: file)
+            try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(Double(-index * 60))], ofItemAtPath: file.path)
+        }
+        let old = directory.appendingPathComponent("old.png")
+        try Data([1]).write(to: old)
+        try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-7200)], ofItemAtPath: old.path)
+        let other = directory.appendingPathComponent("notes.txt")
+        try Data([1]).write(to: other)
+
+        AppBrowserPage.prune(directory, keeping: 3, newerThan: now.addingTimeInterval(-3600))
+        let left = try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted()
+        #expect(left == ["notes.txt", "shot-0.png", "shot-1.png", "shot-2.png"])
+    }
 }
