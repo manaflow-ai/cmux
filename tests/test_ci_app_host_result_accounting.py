@@ -220,6 +220,32 @@ def test_zero_matching_selector_never_passes() -> None:
     assert messages == ["selector matched zero built tests: MissingSuite"]
 
 
+def test_empty_selector_list_never_passes() -> None:
+    passed, messages = accounting.check_run(
+        inventory={"FooTests/testOne()"},
+        selectors=[],
+        results={"FooTests/testOne()": "Passed"},
+        known={},
+        log_text="** TEST SUCCEEDED **\n",
+        xcode_status=0,
+    )
+    assert passed is False
+    assert messages == ["no selectors: nothing was selected to run"]
+
+
+def test_empty_inventory_never_passes() -> None:
+    passed, messages = accounting.check_run(
+        inventory=set(),
+        selectors=["FooTests"],
+        results={"FooTests/testOne()": "Passed"},
+        known={},
+        log_text="** TEST SUCCEEDED **\n",
+        xcode_status=0,
+    )
+    assert passed is False
+    assert messages == ["inventory lists no built tests"]
+
+
 def test_missing_selected_test_result_never_passes() -> None:
     passed, messages = accounting.check_run(
         inventory={"FooTests/testOne()", "BarTests/testTwo()"},

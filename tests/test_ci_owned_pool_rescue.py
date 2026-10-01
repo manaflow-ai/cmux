@@ -1123,6 +1123,16 @@ class SideLanes(unittest.TestCase):
                              "not a side lane": side_event(path=".github/workflows/plain-paste-worker.yml")}.items():
             self.assertIsInstance(rescue.target_from_event(payload, "manaflow-ai/cmux"), str, why)
 
+    def test_a_marked_cmux_next_run_is_adopted_as_a_side_lane(self):
+        # cmux-next.yml lives on feat-cmux-next only and uploads the watch marker itself.
+        run = dict(side_event(path=".github/workflows/cmux-next.yml", head_branch="feat-cmux-next-x",
+                              status="queued")["workflow_run"])
+        target = rescue.sweep_target(run, "manaflow-ai/cmux", late=False)
+        self.assertTrue(target.side)
+        self.assertEqual((target.pr_number, target.watch_limit), (42, rescue.SIDE_WATCH_LIMIT_SECONDS))
+        fork = dict(run, head_repository={"full_name": "someone/cmux"})
+        self.assertIsInstance(rescue.sweep_target(fork, "manaflow-ai/cmux", late=False), str)
+
     def test_trusted_non_pull_request_side_runs_are_watched_without_a_head(self):
         # A push, schedule or dispatch runs this repository's own branch: owned-eligible, and no
         # pull request head can move under it.
