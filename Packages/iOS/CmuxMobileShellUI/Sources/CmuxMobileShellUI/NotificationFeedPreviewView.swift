@@ -170,7 +170,7 @@ public struct NotificationFeedPreviewView: View {
             projection.update(items: items, referenceDate: referenceDate)
         }
         .task {
-            guard UITestConfig.notificationFeedPreviewTabSwitchEnabled else { return }
+            guard notificationFeedPreviewTabSwitchEnabled else { return }
             let clock = ContinuousClock()
             // Let the UI test establish the initial Notifications toolbar
             // before the deterministic transition sequence begins.
@@ -185,6 +185,14 @@ public struct NotificationFeedPreviewView: View {
                 transitionPrimaryTab(to: .notifications)
             }
         }
+    }
+
+    private var notificationFeedPreviewTabSwitchEnabled: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW_TAB_SWITCH"] == "1"
+        #else
+        false
+        #endif
     }
 
     private var previewRootToolbarVisible: Bool {

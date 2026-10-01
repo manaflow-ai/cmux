@@ -104,64 +104,6 @@ extension View {
     }
 }
 
-/// Toolbar controls shared by the visible notification feed and the compact
-/// primary-tab parent. Keeping this preference in one toolbar hierarchy avoids
-/// inactive, opacity-hidden feed stacks contributing duplicate items.
-struct NotificationFeedToolbarContent: ToolbarContent {
-    @Bindable var projection: NotificationFeedProjection
-    let requestMarkAllRead: () -> Void
-
-    var body: some ToolbarContent {
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            if projection.sourceUnreadCount > 0 {
-                Button(action: requestMarkAllRead) {
-                    Label(
-                        L10n.string("mobile.notificationFeed.markAllRead", defaultValue: "Mark All Read"),
-                        systemImage: "envelope.open"
-                    )
-                    .labelStyle(.iconOnly)
-                }
-                .accessibilityLabel(
-                    L10n.string("mobile.notificationFeed.markAllRead", defaultValue: "Mark All Read")
-                )
-                .accessibilityIdentifier("MobileNotificationFeedMarkAllRead")
-            }
-
-            NotificationFeedFilterMenu(selection: $projection.filter)
-        }
-    }
-}
-
-/// The feed twin of `WorkspaceListFilterMenu`: read state lives in a toolbar
-/// menu instead of a segmented bar above the list, and the icon fills while a
-/// narrowing filter is active, mirroring Mail.
-struct NotificationFeedFilterMenu: View {
-    @Binding var selection: MobileNotificationFeedFilter
-
-    var body: some View {
-        Menu {
-            Picker(
-                L10n.string("mobile.notificationFeed.filter.label", defaultValue: "Notification filter"),
-                selection: $selection
-            ) {
-                Text(L10n.string(
-                    "mobile.notificationFeed.filter.allNotifications",
-                    defaultValue: "All Notifications"
-                ))
-                .tag(MobileNotificationFeedFilter.all)
-                Text(L10n.string("mobile.notificationFeed.filter.unread", defaultValue: "Unread"))
-                    .tag(MobileNotificationFeedFilter.unread)
-            }
-        } label: {
-            Image(systemName: selection == .unread
-                ? "line.3.horizontal.decrease.circle.fill"
-                : "line.3.horizontal.decrease.circle")
-        }
-        .accessibilityLabel(L10n.string("mobile.notificationFeed.filter", defaultValue: "Filter"))
-        .accessibilityIdentifier("MobileNotificationFeedFilterMenu")
-    }
-}
-
 private struct NotificationFeedList: View {
     let sections: [NotificationFeedDaySection]
     let sourceItemCount: Int

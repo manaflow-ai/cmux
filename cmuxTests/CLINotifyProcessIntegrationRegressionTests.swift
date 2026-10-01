@@ -2747,7 +2747,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
         let launchEnvironment = codexLaunchEnvironment(
             context: context,
-            sessionId: sessionId
+            sessionId: sessionId,
+            observedHookPID: "2"
         )
         startAgentHookMockServerAccepting(context: context)
 
