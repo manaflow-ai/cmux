@@ -30,7 +30,7 @@ final class CloudTerminalProjectionTask<Value: Sendable> {
     /// caller behind an unstructured `Task.value` await.
     func wait() async throws -> Value {
         let waiterID = UUID()
-        return try await withTaskCancellationHandler(operation: {
+        let value = try await withTaskCancellationHandler(operation: {
             try Task.checkCancellation()
             if let completed {
                 return try completed.get()
@@ -49,6 +49,10 @@ final class CloudTerminalProjectionTask<Value: Sendable> {
                 self?.cancelWaiter(waiterID)
             }
         })
+        // Completion can win the actor hop from onCancel. Do not let a
+        // cancelled attachment adopt the value after its waiter was resumed.
+        try Task.checkCancellation()
+        return value
     }
 
     /// Used only by registry cleanup. Unlike `wait`, this deliberately remains
@@ -85,6 +89,7 @@ final class CloudTerminalProjectionRegistry<Value: Sendable> {
     private struct Entry {
         let token: UUID
         let task: CloudTerminalProjectionTask<Value>
+        let cleanupTask: Task<Void, Never>
     }
 
     private var entries: [String: Entry] = [:]
@@ -101,23 +106,32 @@ final class CloudTerminalProjectionRegistry<Value: Sendable> {
             entry = current
         } else {
             let task = CloudTerminalProjectionTask(operation: operation)
-            let created = Entry(token: task.token, task: task)
-            entries[key] = created
-            entry = created
-            let token = created.token
-            Task { @MainActor [weak self] in
-                _ = try? await created.task.operationValue()
+            let token = task.token
+            let cleanupTask = Task { @MainActor [weak self] in
+                _ = try? await task.operationValue()
                 self?.remove(key: key, token: token)
             }
+            let created = Entry(token: token, task: task, cleanupTask: cleanupTask)
+            entries[key] = created
+            entry = created
         }
         return try await entry.task.wait()
     }
 
-    func cancelAll() {
+    /// Cancels waiters immediately and returns the drain of the retired operations.
+    /// A caller can join this before releasing transport resources, even if an
+    /// operation needs time to unwind after cancellation.
+    @discardableResult
+    func cancelAll() -> Task<Void, Never> {
         let current = Array(entries.values)
         entries.removeAll()
         for entry in current {
             entry.task.cancel()
+        }
+        return Task { @MainActor in
+            for entry in current {
+                await entry.cleanupTask.value
+            }
         }
     }
 

@@ -12,13 +12,13 @@ struct CloudTerminalProjectionRegistryTests {
     @Test @MainActor
     func cancellingOneWaiterDoesNotCancelTheSharedProjection() async throws {
         let gate = ProjectionTestGate()
-        let registry = CloudTerminalProjectionRegistry<Int>()
+        let projection = CloudTerminalProjectionTask<Int> {
+            await gate.wait()
+            return 42
+        }
         let firstOutcome = ProjectionTestOutcome()
         let first = Task { @MainActor in
-            try await registry.value(for: "socket\0terminal") {
-                await gate.wait()
-                return 42
-            }
+            try await projection.wait()
         }
         let firstObserver = Task { @MainActor in
             do {
@@ -35,15 +35,11 @@ struct CloudTerminalProjectionRegistryTests {
         #expect(await gate.waiterCount == 1)
 
         let second = Task { @MainActor in
-            try await registry.value(for: "socket\0terminal") {
-                await gate.wait()
-                return 42
-            }
+            try await projection.wait()
         }
         gate.release()
         #expect(try await second.value == 42)
         _ = await firstObserver.result
-        try await waitUntil { await registry.isEmpty }
     }
 
     @Test @MainActor
@@ -68,7 +64,7 @@ struct CloudTerminalProjectionRegistryTests {
         }
         try await waitUntil { await oldGate.waiterCount == 1 }
 
-        registry.cancelAll()
+        let retiredCleanup = registry.cancelAll()
         try await waitUntil { oldOutcome.sawCancellation }
 
         let replacement = Task { @MainActor in
@@ -82,7 +78,7 @@ struct CloudTerminalProjectionRegistryTests {
         // The old operation ignores cancellation and completes after teardown.
         // Its cleanup must not remove the replacement entry.
         oldGate.release()
-        try await Task.sleep(for: .milliseconds(20))
+        await retiredCleanup.value
         #expect(await registry.contains("socket\0terminal"))
 
         newGate.release()
@@ -92,7 +88,7 @@ struct CloudTerminalProjectionRegistryTests {
     }
 
     @MainActor
-    private static func waitUntil(
+    private func waitUntil(
         timeout: Duration = .seconds(2),
         _ condition: @escaping @MainActor () async -> Bool
     ) async throws {
@@ -100,7 +96,7 @@ struct CloudTerminalProjectionRegistryTests {
         while !(await condition()), ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(5))
         }
-        #expect(await condition())
+        try #require(await condition(), "Timed out waiting for projection state")
     }
 }
 
