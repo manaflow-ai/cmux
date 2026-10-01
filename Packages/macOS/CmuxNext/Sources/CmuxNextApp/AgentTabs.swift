@@ -22,9 +22,9 @@ final class AgentTabStore {
     /// the dev server `CMUX_NEXT_AGENT_PANE_DEV_URL` names (nil only when the
     /// bundled page is missing).
     private let source: AgentPaneSource?
-    /// `CMUX_NEXT_AGENT_PANE_FULL_RATE=1` (Debug builds): panes render at the
-    /// display's full rate, for measuring it (`AgentPaneView.init`).
-    private let rendersAtFullRate: Bool
+    /// Adaptive, or in Debug builds fixed by `CMUX_NEXT_AGENT_PANE_FULL_RATE`
+    /// (`1` full, `0` capped) for measuring either rate.
+    private let renderRate: AgentPaneRenderRate
     /// `~/.config/cmux/agent-pane/` hot reload, watched while any agent tab
     /// has a view.
     private let customization: AgentPaneCustomizationWatcher
@@ -54,9 +54,13 @@ final class AgentTabStore {
         let allowsDevServer = false
         #endif
         #if DEBUG
-        rendersAtFullRate = environment["CMUX_NEXT_AGENT_PANE_FULL_RATE"] == "1"
+        switch environment["CMUX_NEXT_AGENT_PANE_FULL_RATE"] {
+        case "1": renderRate = .full
+        case "0": renderRate = .capped
+        default: renderRate = .adaptive
+        }
         #else
-        rendersAtFullRate = false
+        renderRate = .adaptive
         #endif
         source = AgentPaneSource.resolve(
             environment: environment, bundledPage: AgentPaneView.bundledPage, allowsDevServer: allowsDevServer
@@ -110,7 +114,7 @@ final class AgentTabStore {
         guard tabsByPane.values.contains(where: { $0.contains(key) }) else { return nil }
         let model = AgentPaneModel(host: host, sessionId: sessions[key])
         model.onSessionChange = { [weak self] session in self?.sessions[key] = session }
-        guard let source, let view = AgentPaneView(model: model, source: source, rendersAtFullRate: rendersAtFullRate) else { return nil }
+        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
         view.customization = customization.current
         views[key] = view
         customization.start()

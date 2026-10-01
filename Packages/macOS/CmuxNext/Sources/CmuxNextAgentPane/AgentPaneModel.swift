@@ -15,6 +15,8 @@ public final class AgentPaneModel {
     /// Called when the page switches to or creates a session, so the App can
     /// keep it with the tab.
     @ObservationIgnored public var onSessionChange: ((String) -> Void)?
+    /// Gets each settled transcript scroll's frame intervals (milliseconds).
+    @ObservationIgnored public var onFramePacing: (([Double]) -> Void)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
 
@@ -41,6 +43,9 @@ public final class AgentPaneModel {
                 sessionId = id
                 onSessionChange?(id)
             }
+            return AgentPaneReply.success()
+        case .framePacing(let intervals):
+            onFramePacing?(intervals)
             return AgentPaneReply.success()
         case .unsupported(let method):
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")

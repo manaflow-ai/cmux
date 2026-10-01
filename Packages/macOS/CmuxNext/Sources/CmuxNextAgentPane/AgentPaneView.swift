@@ -38,17 +38,17 @@ public final class AgentPaneView: NSView {
     /// - Parameters:
     ///   - model: Answers the page's host requests.
     ///   - source: The page to load; nil loads ``bundledPage``.
-    ///   - rendersAtFullRate: Renders at the display's rate instead of
-    ///     WebKit's default, the display-rate divisor nearest 60 fps (80 Hz
-    ///     on a 160 Hz display). Off until a frame's paint fits the shorter
-    ///     interval: with it on, a fling ran unevenly at 82-99 Hz (#16471).
-    public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, rendersAtFullRate: Bool = false) {
+    ///   - renderRate: How fast the page renders. Adaptive starts at the
+    ///     display's full rate and caps it while scrolls miss frames, as they
+    ///     do on a loaded machine (#16471).
+    public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.model = model
         self.source = source
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
-        if rendersAtFullRate {
+        self.renderRate = renderRate
+        if renderRate != .capped {
             configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: false)
         }
         webView = WKWebView(frame: .zero, configuration: configuration)
@@ -63,6 +63,9 @@ public final class AgentPaneView: NSView {
         // Web Inspector and profiling for the pane (debug.agent_pane).
         webView.isInspectable = true
         #endif
+        if renderRate == .adaptive {
+            model.onFramePacing = { [weak self] intervals in self?.recordFramePacing(intervals) }
+        }
         navigation.view = self
         webView.navigationDelegate = navigation
         addSubview(webView)
@@ -81,6 +84,19 @@ public final class AgentPaneView: NSView {
     /// WebKit's feature that renders a page at the display-rate divisor
     /// nearest 60 fps.
     static let near60FPSFeature = "PreferPageRenderingUpdatesNear60FPSEnabled"
+
+    public let renderRate: AgentPaneRenderRate
+    private var framePacing = AgentPaneFramePacing()
+    /// The display's refresh rate; the window's screen by default.
+    var displayFramesPerSecond: () -> Int = { NSScreen.main?.maximumFramesPerSecond ?? 60 }
+
+    /// An adaptive pane's settled scroll: picks the rate for the next one.
+    func recordFramePacing(_ intervals: [Double], at now: Date = Date()) {
+        let fps = window?.screen?.maximumFramesPerSecond ?? displayFramesPerSecond()
+        guard renderRate == .adaptive, fps > 0 else { return }
+        let full = framePacing.record(intervals: intervals, displayInterval: 1000 / Double(fps), at: now)
+        if full != rendersAtFullRate { rendersAtFullRate = full }
+    }
 
     /// Whether the page renders at the display's full rate. Setting it
     /// changes the live page's preferences.
