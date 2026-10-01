@@ -153,7 +153,17 @@ public actor TeamsClient {
 
     static let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let value = try decoder.singleValueContainer().decode(String.self)
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = formatter.date(from: value) { return date }
+            formatter.formatOptions = [.withInternetDateTime]
+            guard let date = formatter.date(from: value) else {
+                throw DecodingError.dataCorruptedError(in: try decoder.singleValueContainer(), debugDescription: "Expected ISO8601 date string")
+            }
+            return date
+        }
         return decoder
     }()
 
