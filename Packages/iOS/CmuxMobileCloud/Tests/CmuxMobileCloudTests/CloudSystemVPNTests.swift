@@ -1152,7 +1152,7 @@ import Testing
         #expect(!policy.permitsOnlyPrivateRoutes(inQuickConfig: config))
     }
 
-    @Test func persistedRevocationsRetainEveryPendingPeer() async {
+    @Test func persistedRevocationsUseBoundedRetention() async {
         let suiteName = "cmux.cloud-system-vpn.pending-revocation-retention"
         let key = "pending-revocations-test"
         UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
@@ -1188,8 +1188,8 @@ import Testing
         }
 
         let persisted = UserDefaults(suiteName: suiteName)?.array(forKey: key) as? [[String: String]]
-        #expect(persisted?.count == 5160)
-        #expect(await store.load(scope: "scope-large").count == 5000)
+        #expect(persisted?.count == 4096)
+        #expect(await store.load(scope: "scope-large").count == 3936)
         #expect(await store.load(scope: "scope-large").first?.teamID == "team-large")
         for index in 0..<80 {
             #expect(
@@ -1201,7 +1201,7 @@ import Testing
         }
     }
 
-    @Test func legacyPersistedRevocationsMigrateWithoutDroppingPeers() async {
+    @Test func legacyPersistedRevocationsMigrateWithBoundedRetention() async {
         let suiteName = "cmux.cloud-system-vpn.pending-revocation-legacy"
         let key = "pending-revocations-legacy-test"
         let defaults = UserDefaults(suiteName: suiteName)
@@ -1220,6 +1220,6 @@ import Testing
 
         let migrated = await store.load(scope: "scope-large")
 
-        #expect(migrated.count == 10_000)
+        #expect(migrated.count == 4096)
     }
 }

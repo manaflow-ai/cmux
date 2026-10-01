@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxMobileShellModel
 @testable import cmuxFeature
 
 #if targetEnvironment(simulator)

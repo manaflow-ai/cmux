@@ -28,8 +28,9 @@ public final class CloudSystemVPNController {
     private let operationTimeout: Duration
     private let operationGate = CloudSystemVPNOperationGate()
     private let cleanupRetryCount: Int
-    // Keep pending peer identifiers until revocation succeeds. Evicting one
-    // would strand its server routes; network work is bounded per retry.
+    // The durable outbox remains authoritative, while this working set is
+    // bounded so a long-lived controller cannot retain every old scope.
+    private let maxInMemoryPendingRevocations = 64
     private let maxPendingRevocationsPerTransition = 1
     private let maxPendingRevocationsPerRetry = 8
     private let credentials: @Sendable () async -> CloudAPITokenSource.TokenPair?
@@ -248,6 +249,7 @@ public final class CloudSystemVPNController {
         enqueue { [self] generation in
             let requestedTeamID = scopeTeamID
             do {
+                await loadPersistedBrowserTunnelRevocations(scopes: [scope])
                 if !pendingBrowserTunnelRevocations.isEmpty {
                     let hasDeferredCleanup = try await revokePendingBrowserTunnel(
                         limit: maxPendingRevocationsPerRetry
@@ -728,6 +730,7 @@ public final class CloudSystemVPNController {
             teamID: tunnelTeamID,
             credentials: tunnel.credentials
         ))
+        trimPendingBrowserTunnelRevocations()
     }
 
     private func clearPendingBrowserTunnelRevocationCredentials(
@@ -837,6 +840,17 @@ public final class CloudSystemVPNController {
         for (scope, revocations) in revocationsByScope {
             await pendingRevocationStore.save(revocations, scope: scope)
         }
+        trimPendingBrowserTunnelRevocations()
+    }
+
+    private func trimPendingBrowserTunnelRevocations() {
+        guard pendingBrowserTunnelRevocations.count > maxInMemoryPendingRevocations else { return }
+        let credentialed = pendingBrowserTunnelRevocations.filter { $0.credentials != nil }
+        let persisted = pendingBrowserTunnelRevocations.filter { $0.credentials == nil }
+        let credentialLimit = min(credentialed.count, maxInMemoryPendingRevocations)
+        let persistedLimit = maxInMemoryPendingRevocations - credentialLimit
+        pendingBrowserTunnelRevocations = Array(credentialed.suffix(credentialLimit))
+            + Array(persisted.suffix(persistedLimit))
     }
 
     private func rememberAndPersistPendingBrowserTunnelRevocation(
@@ -1097,6 +1111,7 @@ public final class CloudSystemVPNController {
         let requestedTeamID = scopeTeamID
         enqueue { [self] generation in
             do {
+                await loadPersistedBrowserTunnelRevocations(scopes: [scope])
                 if !pendingBrowserTunnelRevocations.isEmpty {
                     let hasDeferredCleanup = try await revokePendingBrowserTunnel(
                         limit: maxPendingRevocationsPerRetry

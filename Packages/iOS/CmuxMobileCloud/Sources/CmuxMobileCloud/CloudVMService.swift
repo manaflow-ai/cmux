@@ -198,6 +198,8 @@ public actor CloudVMService: CloudVMServing {
         let context: CloudAPITokenSource.TokenContext?
         do {
             context = try await tokens.coherentTokenContext()
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw CloudAPIError.sessionUnavailable
         }
