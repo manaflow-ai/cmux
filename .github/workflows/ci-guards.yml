@@ -1208,6 +1208,12 @@ jobs:
           python3 tests/test_ci_cli_contract_verb_guard.py
           python3 scripts/check-cli-contract-verbs.py
 
+      - name: Validate socket capability parity
+        if: ${{ matrix.group == 'quality-determinism' }}
+        run: |
+          python3 tests/test_ci_socket_capability_guard.py
+          python3 scripts/check-socket-capabilities.py
+
       - name: Validate test determinism gate
         if: ${{ matrix.group == 'quality-determinism' }}
         run: |

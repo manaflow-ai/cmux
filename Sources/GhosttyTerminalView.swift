@@ -6634,6 +6634,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return GhosttyApp.terminalPasteboard.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
         case #selector(pasteAsPlainText(_:)):
             return GhosttyApp.terminalPasteboard.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
+        case #selector(pasteAsOneLine(_:)):
+            return multiLineClipboardPlainText != nil
         case #selector(splitHorizontally(_:)), #selector(splitVertically(_:)):
             return canSplitCurrentSurface()
         case #selector(beginPaneSwapSelection(_:)):
@@ -9405,6 +9407,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyEquivalent: ""
         )
         pasteItem.target = self
+        if multiLineClipboardPlainText != nil {
+            let pasteAsOneLineItem = menu.addItem(
+                withTitle: String(localized: "terminalContextMenu.pasteAsOneLine", defaultValue: "Paste as One Line"),
+                action: #selector(pasteAsOneLine(_:)),
+                keyEquivalent: ""
+            )
+            pasteAsOneLineItem.target = self
+        }
         addRevealInFinderMenuItem(
             to: menu,
             surface: surface,
