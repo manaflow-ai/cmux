@@ -20305,6 +20305,268 @@
           }
         }
       }
+    },
+    "control.error.cookiesClearScope": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.cookies.clear takes exactly one of params.all or a cookie scope (name, url, domain, path)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يقبل browser.page.cookies.clear واحدًا فقط من params.all أو نطاق ملفات تعريف الارتباط (name وurl وdomain وpath)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear prima tačno jedno: params.all ili opseg kolačića (name, url, domain, path)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear tager præcis én af params.all eller et cookieomfang (name, url, domain, path)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear akzeptiert genau eines: params.all oder einen Cookie-Bereich (name, url, domain, path)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear acepta exactamente uno: params.all o un ámbito de cookies (name, url, domain, path)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear accepte exactement un élément : params.all ou une portée de cookies (name, url, domain, path)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear accetta esattamente uno tra params.all e un ambito di cookie (name, url, domain, path)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear には params.all か Cookie の範囲 (name, url, domain, path) のどちらか一方だけを指定してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear ទទួលយកតែមួយគត់ គឺ params.all ឬវិសាលភាពខូគី (name, url, domain, path)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear는 params.all 또는 쿠키 범위(name, url, domain, path) 중 정확히 하나만 받습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear tar nøyaktig én av params.all eller et informasjonskapselomfang (name, url, domain, path)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear przyjmuje dokładnie jedno: params.all albo zakres plików cookie (name, url, domain, path)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear aceita exatamente um: params.all ou um escopo de cookies (name, url, domain, path)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear принимает ровно одно: params.all или область cookie (name, url, domain, path)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear รับเพียงอย่างเดียว คือ params.all หรือขอบเขตคุกกี้ (name, url, domain, path)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear tam olarak birini alır: params.all veya bir çerez kapsamı (name, url, domain, path)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear приймає рівно одне: params.all або область cookie (name, url, domain, path)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear chỉ nhận đúng một: params.all hoặc phạm vi cookie (name, url, domain, path)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear 只接受 params.all 或一个 Cookie 范围(name、url、domain、path)其中之一"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "browser.page.cookies.clear 只接受 params.all 或一個 Cookie 範圍(name、url、domain、path)其中之一"
+          }
+        }
+      }
+    },
+    "control.error.cookiePayload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each cookie needs a name and a value, and a url, a domain or a tab with a page"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يحتاج كل ملف تعريف ارتباط إلى اسم وقيمة، وإلى عنوان URL أو نطاق أو علامة تبويب بها صفحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svaki kolačić treba ime i vrijednost, te URL, domenu ili karticu sa stranicom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hver cookie skal have et navn og en værdi samt en URL, et domæne eller en fane med en side"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jedes Cookie braucht einen Namen und einen Wert sowie eine URL, eine Domain oder einen Tab mit einer Seite"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cada cookie necesita un nombre y un valor, y una URL, un dominio o una pestaña con una página"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chaque cookie nécessite un nom et une valeur, ainsi qu’une URL, un domaine ou un onglet avec une page"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ogni cookie richiede un nome e un valore, e un URL, un dominio o una scheda con una pagina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "各 Cookie には名前と値、さらに URL、ドメイン、またはページのあるタブが必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ខូគីនីមួយៗត្រូវការឈ្មោះ និងតម្លៃ ព្រមទាំង URL ដែន ឬផ្ទាំងដែលមានទំព័រ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "각 쿠키에는 이름과 값, 그리고 URL, 도메인 또는 페이지가 있는 탭이 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hver informasjonskapsel trenger et navn og en verdi, og en URL, et domene eller en fane med en side"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Każdy plik cookie wymaga nazwy i wartości oraz adresu URL, domeny lub karty ze stroną"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cada cookie precisa de um nome e um valor, e de uma URL, um domínio ou uma aba com uma página"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Каждому cookie нужны имя и значение, а также URL, домен или вкладка со страницей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คุกกี้แต่ละรายการต้องมีชื่อและค่า และมี URL โดเมน หรือแท็บที่มีหน้าเว็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her çerezin bir adı ve değeri, ayrıca bir URL'si, alan adı veya sayfası olan bir sekmesi olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кожному cookie потрібні ім’я та значення, а також URL, домен або вкладка зі сторінкою"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mỗi cookie cần có tên và giá trị, cùng với URL, tên miền hoặc một tab có trang"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每个 Cookie 都需要名称和值,以及 URL、域名或带有页面的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每個 Cookie 都需要名稱和值,以及 URL、網域或含有頁面的分頁"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

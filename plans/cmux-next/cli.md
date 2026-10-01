@@ -113,14 +113,29 @@ On `feat-cmux-next-cli-state` (state-ownership.md step D, CLI part):
   timing flakes (`session_shutdown_exits_an_interactive_detached_owner_client`,
   `closing_one_hundred_terminals…`).
 
+On `feat-cmux-next-browser-storage` (browser group 3):
+
+- `browser.page.cookies.get|set|clear` and `cmux browser <tab_…|page> cookies
+  [get|set NAME VALUE|clear]`: the old CLI's fields (`host_only`, `http_only`,
+  `session_only`, `expires` in Unix seconds) and filters. `get` matches `name` exactly,
+  `domain` as a substring, `path` exactly. `set` takes one cookie or `cookies: […]`, its
+  domain from `url`, else `domain`, else the tab's page. `clear` takes exactly one of
+  `all` or a scope: `url` clears what a request there carries (RFC 6265 domain, path,
+  secure and expiry), `domain` that domain and its subdomains. Cookies come from the tab's
+  profile store (`BrowserTab.cookies|setCookie|deleteCookie`: `WKHTTPCookieStore`, or
+  Chromium's `Network` domain).
+- `browser.page.storage.get|set|clear` and `cmux browser … storage [local|session] [get
+  [KEY]|set KEY VALUE|clear]`, run in the page; storage the page cannot reach is
+  `invalid_state`.
+
 ## Remaining
 
 1. App windows get typed ids (`win_<32 hex>`); today they are bare lowercase UUIDs.
 2. Nightly and release apps both use daemon session `cmux-app` when untagged
    (`DaemonLauncher.sessionName`); give each channel its own session.
 3. acpmux CLI output is English only; the rest of `cmux` is English and Japanese.
-4. Browser waits, screenshots, cookies and downloads have no new-CLI equivalent yet
-   (the compat layer had partial ones). Workspace status/log/progress are done.
+4. Browser waits, screenshots and downloads have no new-CLI equivalent yet (the compat
+   layer had partial ones); cookies and storage are done (below). Workspace status/log/progress are done.
 5. `Resources/Localizable.xcstrings` (987 `cli.*` keys plus legacy app keys) is probably
    unused by the cmux-next app; prove it and remove it from the Resources phase.
 6. The daemon forwards page commands for frontend browser tabs to their app, so a CLI on

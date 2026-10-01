@@ -31,6 +31,8 @@ enum AppBrowserPage {
             } catch {
                 throw ControlError(code: "js_error", message: String(describing: error))
             }
+        case .cookies(let request):
+            return try await cookies(page, request)
         }
         return [:]
     }

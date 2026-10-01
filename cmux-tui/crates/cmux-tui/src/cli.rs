@@ -941,6 +941,8 @@ USAGE
   cmux browser <selector> key|text [OPTIONS]
   cmux browser <selector> mouse|wheel --pointer-frame-seq <decimal> [OPTIONS]
   cmux browser <selector> attach|close [OPTIONS]
+  cmux browser <tab_…|page> cookies [get|set NAME VALUE|clear] [OPTIONS]
+  cmux browser <tab_…|page> storage [local|session] [get [KEY]|set KEY VALUE|clear]
 ";
 
 const NOTIFICATION_HELP: &str = "\

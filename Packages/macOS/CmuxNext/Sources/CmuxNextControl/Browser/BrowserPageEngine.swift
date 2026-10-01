@@ -10,6 +10,9 @@ public enum BrowserPageOperation: Sendable, Hashable {
     case state
     /// Result: `{"value": <JSON>}`.
     case evaluate(String)
+    /// The cookies of the tab's profile. Result: `{"cookies": [cookie JSON]}`
+    /// for `.list`, `{}` otherwise.
+    case cookies(BrowserPageCookieRequest)
 }
 
 /// Runs page operations for the app. The App hops to the main actor itself;
