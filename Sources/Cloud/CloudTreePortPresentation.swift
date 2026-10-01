@@ -4,7 +4,6 @@ import Foundation
 /// Describes the port identity without adding an inline open action.
 struct CloudTreePortPresentation {
     let resource: SurfaceResource
-    let url: String?
 
     var title: String {
         guard let port = resource.id.forwardedPort ?? resource.port else { return resource.title }
