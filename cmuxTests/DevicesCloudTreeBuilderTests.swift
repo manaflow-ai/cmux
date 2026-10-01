@@ -66,7 +66,7 @@ struct DevicesCloudTreeBuilderTests {
         return CloudTreeOutlineView.Coordinator(
             machineActions: MachineRowActions(
                 openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
-                confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
+                confirmDelete: { _ in }, promptRename: { _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
             ),
             nodeActions: CloudTreeNodeActions(
                 project: { _, _, _ in }, projectRemoteView: { _, _, _, _ in },

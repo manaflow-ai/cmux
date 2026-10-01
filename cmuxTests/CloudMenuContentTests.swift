@@ -272,7 +272,7 @@ struct CloudMenuContentTests {
                     newWorkspace: { self.log.append("newWorkspace:\($0)") },
                     openDesktop: { self.log.append("desktop:\($0)") },
                     runCommand: { self.log.append("run:\($0):\($1.joined(separator: " "))") },
-                    promptRename: { id, _ in self.log.append("rename:\(id)") },
+                    promptRename: { machine in self.log.append("rename:\(machine.id)") },
                     copyToPasteboard: { self.log.append("copy:\($0)") },
                     confirmDelete: { self.log.append("delete:\($0)") },
                     promptUpgrade: { self.log.append("upgradeMachine") }
