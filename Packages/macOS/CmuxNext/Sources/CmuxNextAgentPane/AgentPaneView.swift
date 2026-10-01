@@ -108,7 +108,8 @@ public final class AgentPaneView: NSView {
         get { webView.configuration.preferences.isWebKitFeatureEnabled(Self.near60FPSFeature) == false }
         set {
             guard newValue != rendersAtFullRate else { return }
-            webView.configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: !newValue)
+            // A WebKit without the feature has no rate to re-apply.
+            guard webView.configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: !newValue) else { return }
             reapplyRenderRate()
         }
     }
@@ -139,9 +140,16 @@ public final class AgentPaneView: NSView {
             cover.imageScaling = .scaleAxesIndependently
             cover.autoresizingMask = [.width, .height]
             self.addSubview(cover, positioned: .above, relativeTo: self.webView)
+            let focused = (self.window?.firstResponder as? NSView)?.isDescendant(of: self.webView) == true
             self.webView.isHidden = true
+            // Hiding hands keyboard focus to the next key view; take it back
+            // unless the user moved it meanwhile.
+            let handedTo = self.window?.firstResponder
             await self.pause(.milliseconds(33))
             self.webView.isHidden = false
+            if focused, let window = self.window, window.firstResponder === handedTo {
+                window.makeFirstResponder(self.webView)
+            }
             // The shown page paints its first frame under the cover.
             await self.pause(.milliseconds(50))
             cover.removeFromSuperview()
