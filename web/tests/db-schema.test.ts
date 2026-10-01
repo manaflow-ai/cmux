@@ -131,13 +131,16 @@ describe("Cloud VM database schema", () => {
     ];
 
     for (const [index, cleanup] of malformed.entries()) {
+      // sql.json(null) binds SQL NULL, which the NOT NULL column rejects
+      // before the check constraint; the malformed row here is a JSON null.
+      const document = cleanup === null ? sql`'null'::jsonb` : sql.json(cleanup as never);
       let insertError: unknown;
       try {
         await sql`
           insert into cloud_vm_observed_destroy_cleanups (vm_id, provider, cleanup)
           values (
             ${`00000000-0000-4000-8000-${String(180 + index).padStart(12, "0")}`},
-            'freestyle', ${sql.json(cleanup as never)}
+            'freestyle', ${document}
           )
         `;
       } catch (error) {
