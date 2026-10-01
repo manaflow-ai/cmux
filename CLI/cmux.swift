@@ -7699,7 +7699,8 @@ struct CMUXCLI {
                         for: Self.terminalInputWriteKind(forTypedText: text),
                         command: "send",
                         target: params,
-                        client: client
+                        client: client,
+                        targetReference: sfArg ?? wsArg ?? surfaceArg
                     )
                 }
                 let payload = try client.sendV2(method: "surface.send_text", params: params)
@@ -7745,7 +7746,13 @@ struct CMUXCLI {
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId)
             if let sfId { params["surface_id"] = sfId }
             if !force {
-                try ensureAgentPromptIsFree(for: .key, command: "send-key", target: params, client: client)
+                try ensureAgentPromptIsFree(
+                    for: .key,
+                    command: "send-key",
+                    target: params,
+                    client: client,
+                    targetReference: sfArg ?? wsArg ?? surfaceArg
+                )
             }
             let payload = try client.sendV2(method: "surface.send_key", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
@@ -7775,7 +7782,8 @@ struct CMUXCLI {
                     for: Self.terminalInputWriteKind(forTypedText: text),
                     command: "send-panel",
                     target: params,
-                    client: client
+                    client: client,
+                    targetReference: panelArg ?? wsArg
                 )
             }
             let payload = try client.sendV2(method: "surface.send_text", params: params)
@@ -7813,7 +7821,13 @@ struct CMUXCLI {
             let sfId = try normalizeSurfaceHandle(panelArg, client: client, workspaceHandle: wsId, windowHandle: winId)
             if let sfId { params["surface_id"] = sfId }
             if !force {
-                try ensureAgentPromptIsFree(for: .key, command: "send-key-panel", target: params, client: client)
+                try ensureAgentPromptIsFree(
+                    for: .key,
+                    command: "send-key-panel",
+                    target: params,
+                    client: client,
+                    targetReference: panelArg ?? wsArg
+                )
             }
             let payload = try client.sendV2(method: "surface.send_key", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))

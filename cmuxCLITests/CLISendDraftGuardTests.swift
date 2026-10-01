@@ -2,6 +2,8 @@ import Darwin
 import Foundation
 import Testing
 
+@testable import cmux_cli
+
 /// `cmux send`, `send-panel`, `paste` and `send-key` must not type into an
 /// agent prompt that holds a human's half-typed draft, or into an open
 /// question or permission dialog. The CLI asks `surface.input_state` first
@@ -45,9 +47,18 @@ struct CLISendDraftGuardTests {
         #expect(run.result.status != 0)
         #expect(writes(run).isEmpty, Comment(rawValue: "\(writes(run))"))
         #expect(run.result.stderr.contains("--force"), Comment(rawValue: run.result.stderr))
+        #expect(
+            run.result.stderr.contains("cmux agent message \(Self.targetSurfaceRef) \"...\""),
+            Comment(rawValue: run.result.stderr)
+        )
         let probe = try #require(run.requests.first { $0["method"] as? String == "surface.input_state" })
         let params = try #require(probe["params"] as? [String: Any])
         #expect(params["surface_id"] as? String == Self.targetSurfaceRef)
+    }
+
+    @Test func agentMessageSuggestionQuotesShellSensitiveTargets() {
+        #expect(CMUXCLI.agentMessageTargetArgument("surface:11") == "surface:11")
+        #expect(CMUXCLI.agentMessageTargetArgument("surface:needs quoting") == "\'surface:needs quoting\'")
     }
 
     @Test func textCommandsRefuseDraftsAndDialogs() throws {
@@ -62,6 +73,10 @@ struct CLISendDraftGuardTests {
                 let label = "\(arguments.joined(separator: " ")) / \(state["state"] ?? "")"
                 #expect(run.result.status != 0, Comment(rawValue: label))
                 #expect(writes(run).isEmpty, Comment(rawValue: label))
+                #expect(
+                    run.result.stderr.contains("cmux agent message \(Self.targetSurfaceRef) \"...\""),
+                    Comment(rawValue: label + ": " + run.result.stderr)
+                )
             }
         }
     }
