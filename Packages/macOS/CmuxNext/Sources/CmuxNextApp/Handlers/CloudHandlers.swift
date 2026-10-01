@@ -18,7 +18,6 @@ enum CloudHandlers {
         bindCreation(into: registry, context: context, reason: signedInReason)
         bindAccount(into: registry, context: context, reason: reason)
         registry.bindUnavailable(["palette.cloud.promoteTemplate"], ActionFailure(message: CloudStrings.promoteTemplate))
-        registry.bindUnavailable(["palette.cloud.tools"], ActionFailure(message: CloudStrings.tools))
         registry.bindUnavailable(["palette.cloud.handoff"], ActionFailure(message: CloudStrings.handoff))
         registry.bindUnavailable(["palette.mobileConnect"], ActionFailure(message: CloudStrings.mobilePairing))
         // Any catalog row added later without a handler stays covered.
