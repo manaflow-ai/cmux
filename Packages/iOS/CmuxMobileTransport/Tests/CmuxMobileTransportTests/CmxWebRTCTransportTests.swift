@@ -17,6 +17,15 @@ private actor WebRTCExchangeProbe {
     }
 }
 
+private actor WebRTCIceProviderProbe {
+    private(set) var calls = 0
+
+    func servers() -> [CmxWebRTCICEServer] {
+        calls += 1
+        return [CmxWebRTCConfiguration.cloudflareSTUN]
+    }
+}
+
 @Test func webRTCConfigurationParsesCloudflareCredentialShape() throws {
     let defaults = UserDefaults(suiteName: "cmux.webrtc.tests.\(UUID().uuidString)")!
     let json = #"{"iceServers":[{"urls":["turn:turn.example:443"],"username":"user","credential":"credential"}]}"#
@@ -125,6 +134,45 @@ func webRTCByteTransportExchangesDataOverLoopback() async throws {
     #expect(await probe.received == Data("client-payload".utf8))
     #expect(await probe.errorDescription == nil)
     #expect(endpoint.port > 0)
+
+    await client.close()
+    await server.stop()
+}
+
+@Test(.timeLimit(.minutes(1)))
+func webRTCByteTransportFetchesIceServersThroughProvider() async throws {
+    let probe = WebRTCIceProviderProbe()
+    let provider: CmxWebRTCIceServersProvider = {
+        await probe.servers()
+    }
+    let server = CmxWebRTCSignalingServer(
+        preferredPort: 0,
+        configuration: CmxWebRTCConfiguration(),
+        iceServersProvider: provider
+    ) { transport in
+        await transport.close()
+    }
+    try await server.start()
+    guard let routeURL = await server.routeURL(host: "127.0.0.1") else {
+        Issue.record("WebRTC signaling server did not publish a route")
+        return
+    }
+    let route = try CmxAttachRoute(
+        id: "webrtc",
+        kind: .webrtc,
+        endpoint: .url(routeURL),
+        priority: -20_000
+    )
+    let client = try CmxWebRTCByteTransportFactory(
+        iceServersProvider: provider
+    ).makeTransport(for: CmxByteTransportRequest(
+        route: route,
+        expectedPeerDeviceID: "device",
+        authorizationMode: .stackBearer
+    ))
+    try await client.connect()
+
+    #expect(await probe.calls == 2)
 
     await client.close()
     await server.stop()
