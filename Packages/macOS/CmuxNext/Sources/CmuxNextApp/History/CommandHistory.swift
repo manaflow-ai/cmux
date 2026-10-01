@@ -90,7 +90,7 @@ final class CommandHistory {
             let fold = folds[machine] ?? TerminalCommandFold(machine: machine)
             let cursor = generations[machine].map { (generation: $0, sequence: fold.cursor) }
             do {
-                let result = try await SessionJournalRead.read(socketPath: endpoint.socketPath, kinds: [TerminalCommandFold.journalKind],
+                let result = try await SessionJournalRead.shared.read(socketPath: endpoint.socketPath, kinds: [TerminalCommandFold.journalKind],
                                                                cursor: fold.cursor > 0 ? cursor : nil)
                 var next = fold
                 if let generation = result.generation, let known = generations[machine], known != generation {
