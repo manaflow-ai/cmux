@@ -233,7 +233,8 @@ struct MachineRowActions {
                 guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
                 return value
             }
-            .first { !$0.isEmpty } ?? machine.id
+            .first { !$0.isEmpty }
+            ?? String(localized: "machines.delete.unnamed", defaultValue: "Unnamed machine")
         let format = String(
             localized: "machines.delete.title",
             defaultValue: "Delete machine “%@”?"

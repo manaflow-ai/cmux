@@ -204,7 +204,7 @@ struct CloudMenuContentTests {
             label: " ",
             slug: "\t"
         )
-        #expect(MachineRowActions.deleteConfirmationTitle(for: blank) == String(format: format, "vm-opaque-16336"))
+        #expect(MachineRowActions.deleteConfirmationTitle(for: blank) == String(format: format, "Unnamed machine"))
     }
 
     @Test("Status item renders machines with a status dot and dimmed state")
