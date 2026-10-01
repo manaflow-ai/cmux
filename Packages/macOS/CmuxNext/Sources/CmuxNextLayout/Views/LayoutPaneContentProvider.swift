@@ -27,7 +27,8 @@ extension LayoutPaneContentProvider {
 /// Pasteboard type for tab drags the layout accepts through AppKit drag and
 /// drop. The pasteboard string is the `TabID` raw value. Put only this type
 /// on the pasteboard, or hosted views that accept strings take the drop.
-public enum LayoutTabDrag {
+public struct LayoutTabDrag {
+    public init() {}
     public static let pasteboardType = NSPasteboard.PasteboardType("com.cmuxterm.next.layout.tab")
 }
 

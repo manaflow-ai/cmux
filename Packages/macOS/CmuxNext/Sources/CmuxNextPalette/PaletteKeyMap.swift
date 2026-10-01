@@ -4,7 +4,8 @@ import Foundation
 
 /// Key bindings inside the palette. Next and previous also honor the
 /// registry's (user-editable) Palette Next/Previous shortcuts.
-public enum PaletteKeyMap {
+public struct PaletteKeyMap {
+    public init() {}
     public static func command(for event: NSEvent, actionsMenuOpen: Bool, queryIsEmpty: Bool, registry: ActionRegistry) -> PaletteKeyCommand? {
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""

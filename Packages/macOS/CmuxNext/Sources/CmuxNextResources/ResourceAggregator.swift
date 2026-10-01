@@ -74,7 +74,8 @@ public struct ResourceReport: Sendable, Equatable {
 ///   previous and the current sample of that process. A process with no
 ///   previous sample (new, or the first sample) adds no CPU; the whole CPU
 ///   value is nil when there is no previous sample set.
-public enum ResourceAggregator {
+public struct ResourceAggregator {
+    public init() {}
     public static func report(current: ResourceSampleSet, previous: ResourceSampleSet?) -> ResourceReport {
         let sharedKeys = Set(current.shared.map(\.key))
         let previousSamples = previous?.samples
