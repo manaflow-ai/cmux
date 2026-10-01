@@ -46,9 +46,6 @@ final class MachinesPanelViewModel: ObservableObject {
         let selected = tabManager.selectedTabId
         return tabManager.tabs.map { CloudTreeLocalWorkspace(id: $0.id, title: $0.title, isSelected: $0.id == selected) }
     }
-    /// Open actions deliberately have no transient panel presentation.
-    func beginOperation(_ label: String) {}
-
     func endOperation() {
         if wantsPolling { refresh() }
     }

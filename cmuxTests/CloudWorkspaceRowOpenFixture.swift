@@ -33,7 +33,7 @@ final class CloudWorkspaceRowOpenFixture {
             catalog: { [unowned self] in base.catalog },
             selectedWorkspaceID: { [unowned self] in base.manager.selectedTabId },
             selectLocalWorkspace: { [unowned self] in base.manager.selectedTabId = $0 },
-            onWillMutate: { [unowned self] in panelModel.beginOperation($0) },
+            onWillMutate: { _ in },
             onDidMutate: { [unowned self] in panelModel.endOperation() },
             onFailure: { [unowned self] in failures.append($0) }, refresh: {}, operationController: operations,
             workspaceCreationHost: { [unowned self] in CloudWorkspaceCreationHost(manager: base.manager) }

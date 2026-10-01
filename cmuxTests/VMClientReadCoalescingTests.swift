@@ -64,7 +64,6 @@ struct VMClientReadCoalescingTests {
         let model = MachinesPanelViewModel(client: fixture.client, isCloudEnabled: { true })
         model.startPolling()
         await CloudRefreshURLProtocol.waitUntilStarted()
-        model.beginOperation("fixture operation")
         let stopBaseline = await CloudRefreshURLProtocol.currentStopCount()
         model.stopPolling()
         model.endOperation()
