@@ -344,6 +344,7 @@ tab <selector> terminal|browser ...
 
 terminal list
 terminal <selector> show|write|keys|mouse|copy|move|project|attach|close
+terminal <term_id> keep on|off
 terminal <selector> focus <in|out>
 terminal <selector> screen read|wait
 terminal <selector> state read
@@ -455,6 +456,23 @@ to no agent detector.
 `provider authority install` is a local Linux host-administration action. It
 installs the credential for an already running provider-managed session and is
 not a transported resource operation or cross-machine discovery API.
+
+## Group actions
+
+```text
+cmux tab group list|create|remove ...
+cmux tab group <group> update|add|move|split|column|new-workspace|ungroup|close|save|unsave ...
+cmux tab group saved list | saved <saved> delete|reopen --pane <id>
+cmux workspace group list|create|remove ...
+cmux workspace group <group> update|delete|move|add ...
+```
+
+Tab groups, saved tab groups, and sidebar workspace groups are private
+protocol-v12 commands (`create-tab-group`, `move-workspace-to-group`, and so
+on; see `spec/commands.md`). These actions build exactly one such request
+and send it like `raw command`, so they work against a headless daemon with
+no app running. Tab and pane arguments take the private protocol's ids or
+public `tab_...` and `pane_...` ids.
 
 ## Raw access
 

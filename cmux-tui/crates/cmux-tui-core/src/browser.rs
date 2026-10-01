@@ -58,7 +58,8 @@ fn browser_frame_from_capture(session_id: &str, captured: CapturedFrame) -> Brow
 
 pub struct BrowserFrameStream {
     pub slot: Arc<Mutex<BrowserAttachUpdate>>,
-    pub notify: Receiver<()>,
+    /// Coalescing wake; a stream interrupt can also wake it.
+    pub notify: crate::stream_interrupt::SignalReceiver,
 }
 
 pub(crate) type BrowserResizeOutcome = Result<(), Arc<str>>;
@@ -72,7 +73,7 @@ pub(crate) struct PendingBrowserResize {
 
 struct BrowserFrameTap {
     slot: Arc<Mutex<BrowserAttachUpdate>>,
-    notify: SyncSender<()>,
+    notify: crate::stream_interrupt::SignalSender,
 }
 
 #[derive(Debug, Default)]
@@ -2461,7 +2462,7 @@ impl BrowserSurface {
     }
 
     pub fn attach_frames(&self) -> (BrowserAttachState, BrowserFrameStream) {
-        let (tx, rx) = sync_channel(1);
+        let (tx, rx) = crate::stream_interrupt::signal();
         let slot = Arc::new(Mutex::new(BrowserAttachUpdate::default()));
         let mut state = self.state.lock().unwrap();
         let pointer_frame_floor_seq = self.exported_pointer_frame_floor_seq_locked(&state);
@@ -2752,6 +2753,20 @@ impl BrowserSurface {
         if self.clear_error_locked(&mut state) {
             self.mark_state_dirty_locked(&mut state);
         }
+    }
+
+    /// Apply the location a frontend-rendered browser reports. Such a
+    /// browser has no CDP target, so this is its only source of URL and
+    /// title. Returns whether either changed.
+    pub(crate) fn set_frontend_location(&self, url: Option<String>, title: Option<String>) -> bool {
+        let mut changed = false;
+        if let Some(url) = url {
+            changed |= self.set_url(url);
+        }
+        if let Some(title) = title {
+            changed |= self.set_title(title);
+        }
+        changed
     }
 
     fn set_title(&self, title: String) -> bool {

@@ -23,6 +23,8 @@ struct MuxEventSubscriber {
 enum MuxEventFilter {
     All,
     ConfigReload,
+    /// Events that can change which terminals have zero placements.
+    TerminalTopology,
     AttachedSurface(SurfaceId),
     SurfaceSession(SurfaceSessionScope),
 }
@@ -71,6 +73,10 @@ impl MuxEventBroadcaster {
 
     pub fn subscribe_config_reload(&self) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::ConfigReload)
+    }
+
+    pub(crate) fn subscribe_terminal_topology(&self) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::TerminalTopology)
     }
 
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
@@ -137,6 +143,14 @@ impl MuxEventFilter {
         match self {
             Self::All => true,
             Self::ConfigReload => matches!(event, MuxEvent::ConfigReloadRequested),
+            Self::TerminalTopology => matches!(
+                event,
+                MuxEvent::TreeChanged
+                    | MuxEvent::TreeDelta(_)
+                    | MuxEvent::TerminalRegistryChanged { .. }
+                    | MuxEvent::SurfaceExited(_)
+                    | MuxEvent::Empty
+            ),
             Self::AttachedSurface(surface) => match event {
                 MuxEvent::Notification(notification) => notification.surface == Some(*surface),
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => {
@@ -181,6 +195,7 @@ impl SurfaceSessionScope {
             | MuxEvent::WindowTitleRequested(_)
             | MuxEvent::FrontendProjectionChanged { .. }
             | MuxEvent::TerminalRegistryChanged { .. }
+            | MuxEvent::TerminalReaped { .. }
             | MuxEvent::PairingRequested(_)
             | MuxEvent::PairingResolved { .. }
             | MuxEvent::MachineUsageChanged(_)
@@ -190,15 +205,17 @@ impl SurfaceSessionScope {
 
     fn accepts_tree_delta(&mut self, delta: &TreeDelta) -> bool {
         let relevant = match delta.kind {
-            TreeDeltaKind::TabAdded | TreeDeltaKind::TabClosed | TreeDeltaKind::TabRenamed => {
-                delta.surface == Some(self.surface)
-            }
+            TreeDeltaKind::TabAdded
+            | TreeDeltaKind::TabClosed
+            | TreeDeltaKind::TabRenamed
+            | TreeDeltaKind::TabChanged => delta.surface == Some(self.surface),
             TreeDeltaKind::PaneClosed => delta.pane == Some(self.pane),
             TreeDeltaKind::ScreenClosed => delta.screen == Some(self.screen),
             TreeDeltaKind::WorkspaceClosed => delta.workspace == self.workspace,
             TreeDeltaKind::WorkspaceAdded
             | TreeDeltaKind::WorkspaceRenamed
             | TreeDeltaKind::WorkspaceMoved
+            | TreeDeltaKind::WorkspaceChanged
             | TreeDeltaKind::ScreenAdded
             | TreeDeltaKind::ScreenRenamed
             | TreeDeltaKind::PaneAdded => false,
@@ -363,6 +380,12 @@ impl MuxEventReceiver {
         self.mailbox.close();
     }
 
+    /// Wake this receiver alone with a `TreeChanged` token. Owner-internal
+    /// consumers use it for state changes that no broadcast event carries.
+    pub(crate) fn wake(&self) {
+        self.mailbox.push(MuxEvent::TreeChanged);
+    }
+
     pub fn overflowed(&self) -> bool {
         self.mailbox.state.lock().unwrap().overflowed
     }
@@ -375,6 +398,38 @@ impl MuxEventReceiver {
             }
             if state.closed {
                 return Err(RecvError);
+            }
+            state = self.mailbox.changed.wait(state).unwrap();
+        }
+    }
+
+    /// Wakes a blocked `recv_until_interrupted` when `interrupt` fires.
+    pub(crate) fn wake_on(&self, interrupt: &crate::stream_interrupt::StreamInterrupt) {
+        let mailbox = Arc::downgrade(&self.mailbox);
+        interrupt.on_fire(move || {
+            if let Some(mailbox) = mailbox.upgrade() {
+                let _state = mailbox.state.lock().unwrap_or_else(|error| error.into_inner());
+                mailbox.changed.notify_all();
+            }
+        });
+    }
+
+    /// Blocks for an event. Returns `Timeout` once `interrupt` has fired
+    /// and nothing is queued.
+    pub(crate) fn recv_until_interrupted(
+        &self,
+        interrupt: &crate::stream_interrupt::StreamInterrupt,
+    ) -> Result<MuxEvent, RecvTimeoutError> {
+        let mut state = self.mailbox.state.lock().unwrap();
+        loop {
+            if let Some(event) = state.pop() {
+                return Ok(event);
+            }
+            if state.closed {
+                return Err(RecvTimeoutError::Disconnected);
+            }
+            if interrupt.is_fired() {
+                return Err(RecvTimeoutError::Timeout);
             }
             state = self.mailbox.changed.wait(state).unwrap();
         }
@@ -729,6 +784,7 @@ mod tests {
             index: Some(0),
             entity: serde_json::json!({}),
             workspace_revision: None,
+            transaction: None,
         }));
 
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
@@ -747,6 +803,7 @@ mod tests {
             index: Some(0),
             entity: serde_json::json!({}),
             workspace_revision: None,
+            transaction: None,
         };
 
         broadcaster.emit(MuxEvent::TreeDelta(moved));

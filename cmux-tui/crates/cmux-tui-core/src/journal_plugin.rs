@@ -35,6 +35,8 @@ use windows_sys::Win32::System::Threading::{
     THREAD_SUSPEND_RESUME,
 };
 
+/// Child-exit re-check period where no exit waiter exists (Windows, or a
+/// unix child whose waiter thread could not start).
 const SUPERVISOR_WAIT: Duration = Duration::from_millis(500);
 const MAX_RESTART_DELAY: Duration = Duration::from_secs(30);
 const MAX_PLUGIN_COMMAND_ARGS: usize = 256;
@@ -285,6 +287,9 @@ struct SupervisorState {
     generation: u64,
     child_generation: Option<u64>,
     exit_handler: Option<JournalPluginExitHandler>,
+    /// The running child has no exit-waiter thread (it could not start), so
+    /// the supervisor falls back to a timed `try_wait` for that child.
+    exit_waiter_missing: bool,
 }
 
 /// Owns one plugin process and restarts failed children until shutdown. The
@@ -437,6 +442,43 @@ impl Drop for JournalPluginRuntime {
     }
 }
 
+/// Blocks until the plugin process exits, without reaping it (WNOWAIT, so
+/// the supervisor's `try_wait` still gets the status), then wakes the
+/// supervisor. Replaces the supervisor's 500 ms `try_wait` poll.
+/// Returns false when the thread could not start.
+#[cfg(unix)]
+fn spawn_exit_waiter(shared: Arc<(Mutex<SupervisorState>, Condvar)>, pid: u32) -> bool {
+    let spawned = thread::Builder::new().name("cmux-journal-plugin-wait".into()).spawn(move || {
+        loop {
+            // SAFETY: `info` is a zeroed siginfo_t that waitid fills in.
+            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            let result = unsafe {
+                libc::waitid(
+                    libc::P_PID,
+                    pid as libc::id_t,
+                    &mut info,
+                    libc::WEXITED | libc::WNOWAIT,
+                )
+            };
+            if result == 0
+                || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+            {
+                break;
+            }
+        }
+        let (lock, changed) = &*shared;
+        let _state = lock.lock().unwrap_or_else(|error| error.into_inner());
+        changed.notify_all();
+    });
+    match spawned {
+        Ok(_) => true,
+        Err(error) => {
+            eprintln!("cmux-tui: journal plugin exit waiter did not start: {error}");
+            false
+        }
+    }
+}
+
 fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
     loop {
         let (lock, changed) = &*shared;
@@ -464,6 +506,15 @@ fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
                     continue;
                 }
                 Ok(None) => {
+                    // A waiter thread notifies `changed` when the child
+                    // exits (unix), so this wait needs no period.
+                    #[cfg(unix)]
+                    if state.exit_waiter_missing {
+                        let _ = changed.wait_timeout(state, SUPERVISOR_WAIT);
+                    } else {
+                        drop(changed.wait(state));
+                    }
+                    #[cfg(not(unix))]
                     let _ = changed.wait_timeout(state, SUPERVISOR_WAIT);
                     continue;
                 }
@@ -484,20 +535,21 @@ fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
             }
         }
 
+        // Configuration and socket changes notify `changed`; with no plugin
+        // configured the supervisor used to wake every 500 ms for nothing.
         let Some(options) = state.options.clone() else {
-            let _ = changed.wait_timeout(state, SUPERVISOR_WAIT);
+            drop(changed.wait(state));
             continue;
         };
         let Some(socket) = state.socket.clone() else {
-            let _ = changed.wait_timeout(state, SUPERVISOR_WAIT);
+            drop(changed.wait(state));
             continue;
         };
-        if state.restart_at.is_some_and(|at| at > Instant::now()) {
-            let wait = state
-                .restart_at
-                .and_then(|at| at.checked_duration_since(Instant::now()))
-                .unwrap_or(SUPERVISOR_WAIT)
-                .min(SUPERVISOR_WAIT);
+        if let Some(wait) =
+            state.restart_at.and_then(|at| at.checked_duration_since(Instant::now()))
+            && !wait.is_zero()
+        {
+            // One-shot restart deadline (crash backoff), not a period.
             let _ = changed.wait_timeout(state, wait);
             continue;
         }
@@ -505,6 +557,11 @@ fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
         let generation = state.generation;
         match spawn_plugin(&options, &socket, &session, generation) {
             Ok(child) => {
+                #[cfg(unix)]
+                {
+                    state.exit_waiter_missing =
+                        !spawn_exit_waiter(Arc::clone(&shared), child.child.id());
+                }
                 state.child = Some(child);
                 state.child_generation = Some(generation);
                 state.child_started_at = Some(Instant::now());

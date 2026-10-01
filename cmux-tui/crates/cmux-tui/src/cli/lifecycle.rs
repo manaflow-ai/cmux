@@ -18,8 +18,15 @@ pub(super) struct ServerPlan {
 pub(super) enum ServerAction {
     Status,
     Stats,
-    Ensure,
-    Stop { force: bool },
+    /// `terminal_reap_grace` reaches only an owner this call spawns; a
+    /// running owner keeps the grace it was started with.
+    Ensure {
+        terminal_reap_grace: Option<Duration>,
+    },
+    Stop {
+        force: bool,
+        end_terminals: bool,
+    },
     ReloadConfig,
 }
 
@@ -72,9 +79,10 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         }
     };
     let socket_output = socket.to_string_lossy().into_owned();
-    if matches!(plan.action, ServerAction::Ensure) {
+    if let ServerAction::Ensure { terminal_reap_grace } = plan.action {
         return run_ensure(
             expected_session,
+            terminal_reap_grace,
             socket,
             socket_output,
             socket_is_derived,
@@ -178,7 +186,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
 
     match plan.action {
-        ServerAction::Ensure => unreachable!("ensure returns before the lifecycle exchange"),
+        ServerAction::Ensure { .. } => unreachable!("ensure returns before the lifecycle exchange"),
         ServerAction::Status => print_success(
             json!({
                 "status":"running",
@@ -259,7 +267,22 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 global.output,
             )
         }
-        ServerAction::Stop { force } => {
+        ServerAction::Stop { force, end_terminals } => {
+            if end_terminals
+                && !identity["capabilities"]
+                    .as_array()
+                    .is_some_and(|values| values.iter().any(|value| value == "terminal-reap-v1"))
+            {
+                return local_error(
+                    "server.end_terminals_unsupported",
+                    crate::localization::catalog().local_server.end_terminals_unsupported,
+                    global.output,
+                    1,
+                );
+            }
+            // Ending hosts waits for each one to exit, so allow more time.
+            let deadline =
+                if end_terminals { Instant::now() + Duration::from_secs(120) } else { deadline };
             if force
                 && !identity["capabilities"].as_array().is_some_and(|values| {
                     values.iter().any(|value| value == "daemon-handoff-force-v1")
@@ -280,6 +303,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     "pid":pid,
                     "generation":generation,
                     "force":force,
+                    "end_terminals":end_terminals,
                 }),
                 deadline,
             ) {
@@ -319,7 +343,12 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     "session":actual_session,
                     "pid":pid,
                     "generation":generation,
-                    "message":crate::localization::catalog().local_server.stopped,
+                    "ended_terminals":result["ended_terminals"].as_u64(),
+                    "message":if end_terminals {
+                        crate::localization::catalog().local_server.stopped_terminals_ended
+                    } else {
+                        crate::localization::catalog().local_server.stopped
+                    },
                 }),
                 global.output,
             )
@@ -332,6 +361,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
 /// existed and `started` for one this call spawned.
 fn run_ensure(
     expected_session: Option<String>,
+    terminal_reap_grace: Option<Duration>,
     socket: std::path::PathBuf,
     socket_output: String,
     socket_is_derived: bool,
@@ -345,6 +375,7 @@ fn run_ensure(
         state: None,
         term: None,
         initial_host_colors: None,
+        terminal_reap_grace,
     };
     let deadline = Instant::now() + crate::local_owner::ENSURE_DEADLINE;
     match crate::local_owner::ensure_owner(&spec, expected_session.as_deref(), deadline) {

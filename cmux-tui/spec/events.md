@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `terminal-registry-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -35,6 +35,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `workspace-closed` | subscribe (`deltas`) | `workspace` | protocol 7 |
 | `workspace-renamed` | subscribe (`deltas`) | `workspace` | protocol 7 |
 | `workspace-moved` | subscribe (`deltas`) | `workspace` | protocol 7 |
+| `workspace-changed` | subscribe (`deltas`) | `workspace` | protocol 12 additive extension; capability `workspace-metadata-v1` |
 | `frontend-projection-changed` | subscribe | projection subject | protocol 7 |
 | `screen-added` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
 | `screen-closed` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
@@ -44,6 +45,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `tab-added` | subscribe (`deltas`) | `surface` | protocol 7; parents `workspace`, `screen`, `pane` |
 | `tab-closed` | subscribe (`deltas`) | `surface` | protocol 7; parents `workspace`, `screen`, `pane` |
 | `tab-renamed` | subscribe (`deltas`) | `surface` | protocol 7; parents `workspace`, `screen`, `pane` |
+| `tab-changed` | subscribe (`deltas`) | `surface` | protocol 12 additive extension; capability `tab-metadata-v1`; parents `workspace`, `screen`, `pane` |
 | `tree-changed` | subscribe (`coarse`; `deltas` fallback) | session | protocol 5; `coarse` is the default and exact v6 behavior |
 | `layout-changed` | subscribe | `screen` | protocol 6 |
 | `surface-output` | subscribe | `surface` | protocol 5 |
@@ -62,6 +64,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `client-list-invalidated` | subscribe | session | protocol 9 reserved serializer; core currently emits no instance |
 | `size-state` | subscribe, byte/render attach | `surface` | protocol 12 additive; client capability `shared-sizing-v1` |
 | `terminal-registry-changed` | subscribe | terminal registry | protocol 9 |
+| `terminal-reaped` | subscribe | `terminal_id` | protocol 12 additive extension; capability `terminal-reap-v1` |
 | `pairing-requested` | trusted Unix subscribe | `request` | protocol 7 |
 | `pairing-resolved` | trusted Unix subscribe | `request` | protocol 7 |
 | `status` | subscribe | session | protocol 5 internal status line |
@@ -81,6 +84,8 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 ## Ordering Guarantees
 
 The server writes each response or event as one complete transport message. JSON lines and WebSocket text frames are not interleaved at the byte level.
+
+Requests on one connection are executed in the order they arrive, with two exceptions that may answer after later requests. `clear-history` waits for its surface's output stream. Commands that create a terminal (`new-tab`, `new-pane`, `new-pane-right`, `split`, `new-screen`, `new-workspace`, `create-terminal`) run on the owner's bounded terminal worker pool, which launches the hosts of several `new-tab` requests in parallel. Creates of one connection still commit and reply in request order, so the tabs of a pane land in the order they were requested, but a later non-creating request can be answered first. Match every response by its `id`. A client that needs a created terminal's topology waits for that create's response.
 
 For a single subscription, ordinary events are delivered in the order the mux broadcasts them. The server does not create a total order across unrelated producer threads beyond the order in which events enter the mux broadcaster.
 
@@ -315,7 +320,23 @@ object{event:"workspace-renamed",workspace:Id,entity:Workspace,workspace_revisio
 object{event:"workspace-moved",workspace:Id,index:usize,entity:Workspace,workspace_revision:uint64,registry_id:string,generation:string,origin?:string,mutation_id?:string}
 ```
 
-For all four workspace delta events, `origin` and `mutation_id` are either both
+### workspace-changed
+
+| Field | Value |
+| --- | --- |
+| event | `workspace-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `workspace-metadata-v1` |
+
+Emitted after `set-workspace-metadata` commits. It carries a workspace
+registry revision like the other workspace deltas; clients that do not know
+the event name must still advance their revision cursor or refetch on the gap.
+
+```text
+object{event:"workspace-changed",workspace:Id,index:usize,entity:Workspace,workspace_revision:uint64,registry_id:string,generation:string,origin?:string,mutation_id?:string}
+```
+
+For all workspace delta events, `origin` and `mutation_id` are either both
 present or both absent.
 
 ### frontend-projection-changed
@@ -353,6 +374,33 @@ object{
 ```
 
 This event is a durable commit barrier. Fetch `terminal-events` from the last applied revision or replace state from `list-terminals`.
+
+
+### terminal-reaped
+
+| Field | Value |
+| --- | --- |
+| event | `terminal-reaped` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `terminal-reap-v1` |
+
+Payload:
+
+```text
+object{event:"terminal-reaped",terminal_id:string,terminal:string|null,grace_ms:uint64}
+```
+
+Meaning: The owner ended a terminal that had no tab placement for the reap
+grace period and was not marked kept (see `set-terminal-keep`). `terminal_id`
+is the stable host id and `terminal` the public `term_` id when it had one.
+The end already committed through the `close-terminal` path, so the terminal
+registry and resource events report it too.
+
+Example:
+
+```json
+{"event":"terminal-reaped","terminal_id":"0f1e...","terminal":"term_0f1e...","grace_ms":30000}
+```
 
 ### screen-added
 
@@ -469,6 +517,29 @@ object{event:"tab-renamed",workspace:Id,screen:Id,pane:Id,surface:Id,entity:Tab}
 ```
 
 `tab-renamed` reports a user-visible tab-name mutation such as `rename-surface`. Application title changes remain `title-changed`.
+
+### tab-changed
+
+| Field | Value |
+| --- | --- |
+| event | `tab-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `tab-metadata-v1` |
+
+Emitted when a tab's metadata changes without a structural change: its
+pinned flag, its presented directory (and so its git HEAD), or its unread
+notification marker. `entity` is the full refreshed `Tab`. It carries no
+workspace revision.
+
+```text
+object{event:"tab-changed",workspace:Id,screen:Id,pane:Id,surface:Id,index:usize,entity:Tab,transaction?:string}
+```
+
+After a tab drag command (`move-tab`, `move-tab-to-workspace`,
+`move-tab-to-split`, `move-tab-to-column`, `move-tab-to-new-workspace`), the
+moved tab's `tab-changed` carries the request's `transaction` so the frontend
+that dropped the tab can reconcile its optimistic layout. It follows the
+drag's `tree-changed`.
 
 ### tree-changed
 

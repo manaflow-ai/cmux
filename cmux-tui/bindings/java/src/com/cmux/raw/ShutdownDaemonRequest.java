@@ -12,11 +12,13 @@ import java.util.Objects;
 
 /** Immutable shutdown-daemon request. Protocol v9; authority: local-admin. */
 public final class ShutdownDaemonRequest implements WireValue {
+    private final Field<Boolean> endTerminals;
     private final Field<Boolean> force;
     private final String generation;
     private final long pid;
 
     private ShutdownDaemonRequest(Builder builder) {
+        this.endTerminals = builder.endTerminals;
         this.force = builder.force;
         if (!builder.generationSet) throw new IllegalArgumentException("generation is required");
         this.generation = Wire.nonNull(builder.generation, "generation");
@@ -26,6 +28,7 @@ public final class ShutdownDaemonRequest implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<Boolean> endTerminals() { return endTerminals; }
     public Field<Boolean> force() { return force; }
     public String generation() { return generation; }
     public long pid() { return pid; }
@@ -33,6 +36,10 @@ public final class ShutdownDaemonRequest implements WireValue {
     public static ShutdownDaemonRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "ShutdownDaemonRequest");
         Builder builder = builder();
+        Object rawEndTerminals = Wire.optional(object, "end_terminals");
+        if (!Wire.isMissing(rawEndTerminals)) {
+            builder.endTerminals(Wire.bool(rawEndTerminals, "ShutdownDaemonRequest.end_terminals"));
+        }
         Object rawForce = Wire.optional(object, "force");
         if (!Wire.isMissing(rawForce)) {
             builder.force(Wire.bool(rawForce, "ShutdownDaemonRequest.force"));
@@ -47,6 +54,7 @@ public final class ShutdownDaemonRequest implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "end_terminals", endTerminals);
         Wire.put(object, "force", force);
         Wire.put(object, "generation", generation);
         Wire.put(object, "pid", pid);
@@ -56,22 +64,27 @@ public final class ShutdownDaemonRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ShutdownDaemonRequest that)) return false;
-        return Objects.equals(force, that.force) && Objects.equals(generation, that.generation) && Objects.equals(pid, that.pid);
+        return Objects.equals(endTerminals, that.endTerminals) && Objects.equals(force, that.force) && Objects.equals(generation, that.generation) && Objects.equals(pid, that.pid);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(force, generation, pid); }
+    public int hashCode() { return Objects.hash(endTerminals, force, generation, pid); }
 
     @Override
     public String toString() { return "ShutdownDaemonRequest" + toWire(); }
 
     public static final class Builder {
+        private Field<Boolean> endTerminals = Field.omitted();
         private Field<Boolean> force = Field.omitted();
         private String generation;
         private boolean generationSet;
         private Long pid;
         private boolean pidSet;
 
+        public Builder endTerminals(Boolean value) {
+            this.endTerminals = Field.of(value);
+            return this;
+        }
         public Builder force(Boolean value) {
             this.force = Field.of(value);
             return this;

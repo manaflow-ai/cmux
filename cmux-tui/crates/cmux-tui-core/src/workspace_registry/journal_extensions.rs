@@ -1872,6 +1872,21 @@ impl WorkspaceRegistry {
         Ok(applied)
     }
 
+    /// The earliest `next_attempt_at_ms` of a scheduled delivery of an
+    /// enabled hook: the dispatcher's next retry deadline.
+    pub(crate) fn next_journal_hook_attempt_at_ms(&self) -> anyhow::Result<Option<u64>> {
+        let next: Option<i64> = self.connection.query_row(
+            "SELECT MIN(d.next_attempt_at_ms)
+             FROM journal_hook_deliveries d
+             JOIN journal_hooks h
+               ON h.hook_id = d.hook_id AND h.manifest_version = d.manifest_version
+             WHERE h.enabled = 1 AND d.state = 'scheduled'",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(next.map(|value| u64::try_from(value).unwrap_or(0)))
+    }
+
     pub(crate) fn pending_journal_hook_deliveries(
         &self,
         now_ms: u64,

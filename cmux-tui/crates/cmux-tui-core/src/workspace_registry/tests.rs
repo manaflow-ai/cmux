@@ -3971,6 +3971,13 @@ fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
     assert_eq!(events.batches.len(), 1);
     assert_eq!(events.batches[0].revision, 2);
     assert_eq!(events.batches[0].changes[0]["resource"], "terminal");
+    // The tab that still showed the closed terminal is retired with it, so the
+    // registry satisfies the live-content invariant and opens.
+    assert_eq!(events.batches[0].changes[1]["kind"], "delete");
+    assert_eq!(events.batches[0].changes[1]["resource"], "tab");
+    assert_eq!(events.batches[0].changes[1]["id"], tab_id(1).as_str());
+    assert!(topology.tabs.is_empty(), "tab of the closed terminal remained live: {topology:?}");
+    assert!(topology.panes.iter().all(|pane| pane.active_tab.is_none()));
     let live_terminals: i64 = reopened
         .connection
         .query_row(
@@ -3994,6 +4001,90 @@ fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
         .unwrap();
     assert!(resource_deleted.is_some());
     assert_eq!(identity_deleted, resource_deleted);
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn startup_repair_retires_a_dangling_terminal_tab_and_selects_its_sibling() {
+    let root = temp_root("terminal-close-dangling-sibling");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        let pane = pane_id(1);
+        let second_terminal = terminal_resource(TERMINAL_TWO);
+        let mut patch = terminal_topology_patch();
+        patch.changes.retain(|change| !matches!(change, ResourceChange::SetTabOrder { .. }));
+        patch.changes.push(ResourceChange::UpsertTerminal {
+            public_id: second_terminal.clone(),
+            terminal: terminal(TERMINAL_TWO, "one"),
+        });
+        patch.changes.push(ResourceChange::UpsertTab(RegistryTab {
+            name_source: Default::default(),
+            name_revision: 0,
+            public_id: tab_id(2),
+            pane_id: pane.clone(),
+            position: 1,
+            content_id: ContentPublicId::Terminal(second_terminal),
+            name: Some("zsh".into()),
+            browser_url: None,
+            terminal_id: Some(TERMINAL_TWO.into()),
+        }));
+        patch.changes.push(ResourceChange::SetTabOrder {
+            pane_id: pane,
+            tab_ids: vec![tab_id(1), tab_id(2)],
+        });
+        registry
+            .commit_resource_patch(
+                &WorkspaceMutation::new("seed-two-tabs", "test").unwrap(),
+                "workspace.create",
+                &json!({"operation":"workspace.create","name":"One"}),
+                None,
+                Some(0),
+                &patch,
+                &json!({"workspace_id":workspace(1, "one", "One").public_id}),
+                &json!([{"kind":"workspace.created"}]),
+            )
+            .unwrap();
+        let mutation = WorkspaceMutation::new("legacy-host-only-close", "legacy-client").unwrap();
+        registry.close_terminal(&mutation, None, Some(0), TERMINAL_ONE, None).unwrap();
+    }
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let topology = reopened.resource_topology_snapshot().unwrap();
+    assert_eq!(topology.tabs.len(), 1, "{topology:?}");
+    assert_eq!(topology.tabs[0].public_id, tab_id(2));
+    assert_eq!(topology.tabs[0].position, 0);
+    assert_eq!(topology.panes[0].active_tab, Some(tab_id(2)));
+    let changes = &reopened.resource_events_after(1).unwrap().batches[0].changes;
+    assert_eq!(changes[0]["resource"], "terminal");
+    assert_eq!(changes[1]["resource"], "tab");
+    assert_eq!(changes[1]["id"], tab_id(1).as_str());
+    // Event-feed clients hold the pre-restart graph. The repair batch must
+    // restate the surviving sibling (its index and focus moved) and the
+    // screen whose layout lists the pane's tabs, or they stay stale until the
+    // next full projection.
+    let changes = changes.as_array().unwrap();
+    let upsert = |resource: &str, id: &str| {
+        changes
+            .iter()
+            .find(|change| {
+                change["kind"] == "upsert" && change["resource"] == resource && change["id"] == id
+            })
+            .unwrap_or_else(|| panic!("repair batch restates {resource} {id}: {changes:?}"))
+    };
+    let sibling = upsert("tab", tab_id(2).as_str());
+    assert_eq!(sibling["value"]["index"], 0);
+    assert_eq!(sibling["value"]["focused"], true);
+    assert_eq!(sibling["value"]["pane_id"], pane_id(1).as_str());
+    let screen_id = topology.panes[0].screen_id.as_str();
+    let screen = upsert("screen", screen_id);
+    let leaf = &screen["value"]["layout"]["root"];
+    assert_eq!(leaf["kind"], "leaf");
+    assert_eq!(leaf["tab_ids"], json!([tab_id(2).as_str()]));
+    assert_eq!(leaf["active_tab_id"], tab_id(2).as_str());
+    for (sequence, change) in changes.iter().enumerate() {
+        assert_eq!(change["sequence"], sequence);
+    }
     drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
@@ -6067,4 +6158,74 @@ fn long_database_descendant_is_normalized_even_when_root_is_short() {
     ] {
         assert!(path.to_string_lossy().starts_with(r"\\?\C:\"), "{}", path.display());
     }
+}
+
+const TERMINAL_THREE: &str = "00000000000040008000000000000003";
+
+fn forget_terminal_keep_classification(registry: &WorkspaceRegistry) {
+    registry
+        .connection
+        .execute_batch(
+            "DELETE FROM meta WHERE key = 'terminal_keep_classified';
+             DELETE FROM terminal_keep;",
+        )
+        .unwrap();
+}
+
+#[test]
+fn terminal_keep_legacy_classification_keeps_only_unplaced_terminals() {
+    let root = temp_root("terminal-keep-classify");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "terminal-keep").unwrap();
+        // TERMINAL_ONE has a live tab; TERMINAL_TWO is registered without one.
+        commit_terminal_topology(&mut registry, "create-placed-terminal");
+        let revision = registry.terminal_revision().unwrap();
+        reserve_terminal(&mut registry, TERMINAL_TWO, revision);
+        // Simulate a registry written before terminal-reap-v1.
+        forget_terminal_keep_classification(&registry);
+    }
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "terminal-keep").unwrap();
+        assert!(!registry.terminal_keep(TERMINAL_ONE).unwrap(), "a placed terminal stays reapable");
+        assert!(registry.terminal_keep(TERMINAL_TWO).unwrap(), "detached work survives upgrade");
+        // Terminals created after classification default to reapable, and a
+        // later open never classifies again.
+        let revision = registry.terminal_revision().unwrap();
+        reserve_terminal(&mut registry, TERMINAL_THREE, revision);
+    }
+    let registry = WorkspaceRegistry::open(&root, "terminal-keep").unwrap();
+    assert!(!registry.terminal_keep(TERMINAL_THREE).unwrap());
+    assert!(registry.terminal_keep(TERMINAL_TWO).unwrap());
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn terminal_keep_persists_and_rejects_unknown_and_closed_terminals() {
+    let root = temp_root("terminal-keep-set");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "terminal-keep-set").unwrap();
+        seed_workspace(&mut registry, "one");
+        reserve_terminal(&mut registry, TERMINAL_ONE, 0);
+        assert!(!registry.terminal_keep(TERMINAL_ONE).unwrap());
+        registry.set_terminal_keep(TERMINAL_ONE, true).unwrap();
+        registry.set_terminal_keep(TERMINAL_ONE, true).unwrap();
+        let unknown = registry.set_terminal_keep(TERMINAL_TWO, true).unwrap_err();
+        assert!(unknown.to_string().contains("terminal_not_found"));
+    }
+    let mut registry = WorkspaceRegistry::open(&root, "terminal-keep-set").unwrap();
+    assert!(registry.terminal_keep(TERMINAL_ONE).unwrap());
+    assert_eq!(registry.kept_terminals().unwrap().len(), 1);
+    registry.set_terminal_keep(TERMINAL_ONE, false).unwrap();
+    assert!(!registry.terminal_keep(TERMINAL_ONE).unwrap());
+
+    registry.set_terminal_keep(TERMINAL_ONE, true).unwrap();
+    let close = WorkspaceMutation::new("close-kept", "test").unwrap();
+    registry.close_terminal(&close, None, Some(1), TERMINAL_ONE, None).unwrap();
+    assert_eq!(registry.prune_terminal_keep().unwrap(), 1);
+    assert!(registry.kept_terminals().unwrap().is_empty());
+    let closed = registry.set_terminal_keep(TERMINAL_ONE, true).unwrap_err();
+    assert!(closed.to_string().contains("terminal_not_found"));
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
 }
