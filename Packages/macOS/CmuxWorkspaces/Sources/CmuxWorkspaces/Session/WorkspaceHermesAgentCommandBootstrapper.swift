@@ -53,7 +53,7 @@ struct WorkspaceHermesAgentCommandBootstrapper {
         }
         guard let command = rawCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
               !command.isEmpty,
-              terminalCommandLooksLikeManagedHud(command) else {
+              terminalCommandLooksLikeOMXHud(command) else {
             return nil
         }
         return command
@@ -318,19 +318,12 @@ struct WorkspaceHermesAgentCommandBootstrapper {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    private func terminalCommandLooksLikeManagedHud(_ command: String) -> Bool {
+    private func terminalCommandLooksLikeOMXHud(_ command: String) -> Bool {
         let lowered = command.lowercased()
-        guard terminalCommandTextContainsWord(lowered, word: "hud"),
-              // The providers run the HUD as a watch loop. Requiring the flag keeps an
-              // unrelated `echo "omp hud"` startup command out of the restorable set,
-              // where replaying it would repeat its side effects on every restore.
-              lowered.contains("--watch") else {
+        guard terminalCommandTextContainsWord(lowered, word: "hud") else {
             return false
         }
-        return terminalCommandTextContainsWord(lowered, word: "omx")
-            || terminalCommandTextContainsWord(lowered, word: "oh-my-codex")
-            || terminalCommandTextContainsWord(lowered, word: "omp")
-            || terminalCommandTextContainsWord(lowered, word: "oh-my-pi")
+        return lowered.contains("omx") || lowered.contains("oh-my-codex")
     }
 
     private func terminalCommandTextContainsWord(_ command: String, word: String) -> Bool {

@@ -84,6 +84,7 @@ Environment:
 | `codex-teams` | Launch Codex with cmux-managed subagent panes. |
 | `omo` | Launch OpenCode with oh-my-openagent integration. |
 | `omx` | Launch Oh My Codex with cmux pane integration. |
+| `omp` | Launch Oh My Pi with cmux integration. |
 | `omc` | Launch Oh My Claude Code with cmux pane integration. |
 | `hooks` | Install, uninstall, and run agent hook integrations under one namespace. |
 | `codex` | Compatibility alias for installing or uninstalling Codex hooks. |
