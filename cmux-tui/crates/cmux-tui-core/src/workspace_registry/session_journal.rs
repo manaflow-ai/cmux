@@ -803,6 +803,7 @@ pub(super) fn migrate_resource_events_to_session_journal(
             &result,
             &changes,
             0,
+            false,
         )?;
     }
     if has_resource_events {
@@ -834,6 +835,7 @@ pub(super) fn append_resource_journal_record(
         result,
         changes,
         unix_epoch_ms()?,
+        true,
     )
 }
 
@@ -936,13 +938,18 @@ fn append_resource_journal_record_at(
     result: &Value,
     changes: &Value,
     occurred_at_ms: u64,
+    with_current_state: bool,
 ) -> anyhow::Result<()> {
     validate_identifier("journal operation", operation)?;
     // Every upsert carries the state fields a fresh snapshot shows, whatever
     // path produced it (state-ownership.md: clients rebuild from events).
+    // Migrated legacy revisions keep their stored changes: today's state
+    // tables do not describe the session at those revisions.
     let mut decorated = changes.clone();
-    state_values::decorate_changes(transaction, &mut decorated)?;
-    closed_history_store::drain_pending_changes(transaction, &mut decorated)?;
+    if with_current_state {
+        state_values::decorate_changes(transaction, &mut decorated)?;
+        closed_history_store::drain_pending_changes(transaction, &mut decorated)?;
+    }
     let changes = &decorated;
     let kind = semantic_journal_kind(operation);
     let session_id = transaction.query_row(
