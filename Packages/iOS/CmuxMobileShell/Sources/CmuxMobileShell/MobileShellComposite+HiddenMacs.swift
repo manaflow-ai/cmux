@@ -460,7 +460,7 @@ extension MobileShellComposite {
                     : deletion.deletedScopes
                 for deletedScope in deletedScopes
                 where deletedScope.stackUserID == snapshotAccountID {
-                    workspaceSnapshotStore.remove(
+                    await workspaceSnapshotStore.remove(
                         userID: snapshotAccountID,
                         teamID: deletedScope.teamID,
                         pairing: MacPairingKey(
