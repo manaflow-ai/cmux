@@ -28,9 +28,10 @@ public final class CloudSystemVPNController {
     private let operationTimeout: Duration
     private let operationGate = CloudSystemVPNOperationGate()
     private let cleanupRetryCount: Int
-    // The durable outbox remains authoritative, while this working set is
-    // bounded so a long-lived controller cannot retain every old scope.
-    private let maxInMemoryPendingRevocations = 64
+    // Pending peer identifiers are never evicted before the server confirms
+    // revocation. New enrollment is blocked once the cleanup outbox reaches
+    // this bound, so cleanup cannot grow without losing a route.
+    private let maxPendingRevocationsBeforeEnrollment: Int
     private let maxPendingRevocationsPerTransition = 1
     private let maxPendingRevocationsPerRetry = 8
     private let credentials: @Sendable () async -> CloudAPITokenSource.TokenPair?
@@ -78,6 +79,8 @@ public final class CloudSystemVPNController {
     ///     Extension operation.
     ///   - cleanupRetryCount: Number of attempts made to remove an old VPN
     ///     profile before leaving cleanup pending for a later retry.
+    ///   - pendingRevocationCapacity: Maximum number of unresolved browser
+    ///     peers retained before new enrollment is blocked.
     ///   - credentials: Captures the active account's token pair so a peer
     ///     enrolled before an account switch can be revoked with its owner.
     ///   - pendingRevocationStore: Durable fingerprints for server revocations
@@ -92,6 +95,7 @@ public final class CloudSystemVPNController {
         deviceName: String,
         operationTimeout: Duration = .seconds(30),
         cleanupRetryCount: Int = 3,
+        pendingRevocationCapacity: Int = 4096,
         credentials: @escaping @Sendable () async -> CloudAPITokenSource.TokenPair? = { nil },
         pendingRevocationStore: any CloudSystemVPNPendingRevocationStoring
     ) {
@@ -109,6 +113,7 @@ public final class CloudSystemVPNController {
         )
         self.operationTimeout = boundedTimeout
         self.cleanupRetryCount = max(1, cleanupRetryCount)
+        self.maxPendingRevocationsBeforeEnrollment = max(1, pendingRevocationCapacity)
         manager.onPhaseChange = { @MainActor [weak self] phase in
             guard let self,
                   self.scope != nil,
@@ -219,6 +224,10 @@ public final class CloudSystemVPNController {
     /// Re-reads the live status, for example when the app returns to the
     /// foreground after the user changed the VPN in Settings.
     public func refresh() async {
+        if let cleanupRetryTask {
+            await cleanupRetryTask.value
+            await waitForPendingOperation()
+        }
         guard manager.isAvailable, operation == nil else { return }
         guard let scope else {
             guard cleanupPending || hasEligiblePendingBrowserTunnelRevocation else { return }
@@ -298,6 +307,10 @@ public final class CloudSystemVPNController {
                 retryPendingCleanup()
                 return
             }
+            publish(.failed(.configuration))
+            return
+        }
+        guard pendingBrowserTunnelRevocations.count < maxPendingRevocationsBeforeEnrollment else {
             publish(.failed(.configuration))
             return
         }
@@ -730,7 +743,6 @@ public final class CloudSystemVPNController {
             teamID: tunnelTeamID,
             credentials: tunnel.credentials
         ))
-        trimPendingBrowserTunnelRevocations()
     }
 
     private func clearPendingBrowserTunnelRevocationCredentials(
@@ -840,17 +852,6 @@ public final class CloudSystemVPNController {
         for (scope, revocations) in revocationsByScope {
             await pendingRevocationStore.save(revocations, scope: scope)
         }
-        trimPendingBrowserTunnelRevocations()
-    }
-
-    private func trimPendingBrowserTunnelRevocations() {
-        guard pendingBrowserTunnelRevocations.count > maxInMemoryPendingRevocations else { return }
-        let credentialed = pendingBrowserTunnelRevocations.filter { $0.credentials != nil }
-        let persisted = pendingBrowserTunnelRevocations.filter { $0.credentials == nil }
-        let credentialLimit = min(credentialed.count, maxInMemoryPendingRevocations)
-        let persistedLimit = maxInMemoryPendingRevocations - credentialLimit
-        pendingBrowserTunnelRevocations = Array(credentialed.suffix(credentialLimit))
-            + Array(persisted.suffix(persistedLimit))
     }
 
     private func rememberAndPersistPendingBrowserTunnelRevocation(

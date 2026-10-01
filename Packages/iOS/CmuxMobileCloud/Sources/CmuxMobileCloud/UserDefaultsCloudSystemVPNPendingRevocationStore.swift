@@ -10,7 +10,6 @@ public import Foundation
 {
     private let defaults: UserDefaults
     private let key: String
-    private static let maxPersistedEntries = 4096
 
     /// Creates a store in the supplied defaults domain.
     public init(
@@ -47,9 +46,7 @@ public import Foundation
         scope: String
     ) async {
         // Updating a scope removes its old entries and appends the current
-        // set. Keep a bounded FIFO outbox so repeated failed cleanup cannot
-        // grow UserDefaults without limit; the controller keeps cleanup in a
-        // visible failure state while the retained entries are retried.
+        // set. Every entry stays until the server confirms its revocation.
         var entries = loadEntries().filter { $0.scope != scope }
         entries.append(contentsOf: revocations.sorted {
             if $0.deviceFingerprint != $1.deviceFingerprint {
@@ -59,9 +56,6 @@ public import Foundation
         }.map {
             (scope: scope, fingerprint: $0.deviceFingerprint, teamID: $0.teamID)
         })
-        if entries.count > Self.maxPersistedEntries {
-            entries.removeFirst(entries.count - Self.maxPersistedEntries)
-        }
         if entries.isEmpty {
             defaults.removeObject(forKey: key)
         } else {
@@ -87,7 +81,7 @@ public import Foundation
         teamID: String?
     )] {
         if let stored = defaults.array(forKey: key) as? [[String: String]] {
-            return Array(stored.compactMap { entry in
+            return stored.compactMap { entry in
                 guard let scope = entry["scope"],
                       let fingerprint = entry["fingerprint"]
                 else { return nil }
@@ -96,7 +90,7 @@ public import Foundation
                     fingerprint: fingerprint,
                     teamID: entry["teamID"]
                 )
-            }.suffix(Self.maxPersistedEntries))
+            }
         }
 
         // Migrate the dictionary written by earlier builds into the current
@@ -107,7 +101,7 @@ public import Foundation
             fingerprint: String,
             teamID: String?
         )] = []
-        entries.reserveCapacity(min(Self.maxPersistedEntries, legacy.count))
+        entries.reserveCapacity(legacy.count)
         for scope in legacy.keys.sorted() {
             for fingerprint in legacy[scope, default: []] {
                 entries.append(
@@ -115,6 +109,6 @@ public import Foundation
                 )
             }
         }
-        return Array(entries.suffix(Self.maxPersistedEntries))
+        return entries
     }
 }

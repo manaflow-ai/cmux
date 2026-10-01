@@ -1010,7 +1010,12 @@ import Testing
         let rig = Rig(pendingRevocationStore: pendingStore)
 
         await signedIn(rig)
-        for _ in 0..<100 where rig.service.calls.revoke.count < 80 {
+        for _ in 0..<100 {
+            if rig.service.calls.revoke.count == 80,
+               await pendingFingerprints(pendingStore, scope: "user-1/team-1").isEmpty
+            {
+                break
+            }
             try? await ContinuousClock().sleep(for: .milliseconds(5))
         }
 
@@ -1152,7 +1157,30 @@ import Testing
         #expect(!policy.permitsOnlyPrivateRoutes(inQuickConfig: config))
     }
 
-    @Test func persistedRevocationsUseBoundedRetention() async {
+    @Test func enrollmentWaitsForCapacityWithoutDiscardingRevocations() async {
+        let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
+        let pending = Set((0..<2).map {
+            CloudSystemVPNPendingRevocation(deviceFingerprint: "pending-\($0)", teamID: nil)
+        })
+        await pendingStore.save(pending, scope: "user-1/team-1")
+        let rig = Rig(
+            cleanupRetryCount: 1,
+            pendingRevocationCapacity: 2,
+            pendingRevocationStore: pendingStore
+        )
+        rig.service.revocationFailure = StubError(message: "offline")
+        await signedIn(rig)
+
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.service.calls.enroll.isEmpty)
+        #expect(rig.manager.installed.isEmpty)
+        #expect(rig.controller.phase == .failed(.configuration))
+        #expect(await pendingStore.load(scope: "user-1/team-1") == pending)
+    }
+
+    @Test func persistedRevocationsRetainEveryPendingPeer() async {
         let suiteName = "cmux.cloud-system-vpn.pending-revocation-retention"
         let key = "pending-revocations-test"
         UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
@@ -1188,8 +1216,8 @@ import Testing
         }
 
         let persisted = UserDefaults(suiteName: suiteName)?.array(forKey: key) as? [[String: String]]
-        #expect(persisted?.count == 4096)
-        #expect(await store.load(scope: "scope-large").count == 3936)
+        #expect(persisted?.count == 5160)
+        #expect(await store.load(scope: "scope-large").count == 5000)
         #expect(await store.load(scope: "scope-large").first?.teamID == "team-large")
         for index in 0..<80 {
             #expect(
@@ -1201,7 +1229,7 @@ import Testing
         }
     }
 
-    @Test func legacyPersistedRevocationsMigrateWithBoundedRetention() async {
+    @Test func legacyPersistedRevocationsMigrateWithoutDroppingPeers() async {
         let suiteName = "cmux.cloud-system-vpn.pending-revocation-legacy"
         let key = "pending-revocations-legacy-test"
         let defaults = UserDefaults(suiteName: suiteName)
@@ -1220,6 +1248,6 @@ import Testing
 
         let migrated = await store.load(scope: "scope-large")
 
-        #expect(migrated.count == 4096)
+        #expect(migrated.count == 10_000)
     }
 }

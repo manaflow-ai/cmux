@@ -5,6 +5,7 @@ import CmuxMobileShellModel
 
 #if targetEnvironment(simulator)
 @Suite
+@MainActor
 struct MobileCloudInstallationIdentityTests {
     @Test
     func cloudAndTransportShareThePersistedInstallationID() async throws {

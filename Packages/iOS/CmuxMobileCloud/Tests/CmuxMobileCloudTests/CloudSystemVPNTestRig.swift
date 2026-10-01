@@ -14,6 +14,7 @@ extension CloudSystemVPNTests {
         init(
             operationTimeout: Duration = .seconds(30),
             cleanupRetryCount: Int = 3,
+            pendingRevocationCapacity: Int = 4096,
             credentials: @escaping @Sendable () async -> CloudAPITokenSource.TokenPair? = {
                 (accessToken: "captured-access", refreshToken: "captured-refresh")
             },
@@ -28,6 +29,7 @@ extension CloudSystemVPNTests {
                 deviceName: "Aziz's iPhone",
                 operationTimeout: operationTimeout,
                 cleanupRetryCount: cleanupRetryCount,
+                pendingRevocationCapacity: pendingRevocationCapacity,
                 credentials: credentials,
                 pendingRevocationStore: pendingRevocationStore
             )
