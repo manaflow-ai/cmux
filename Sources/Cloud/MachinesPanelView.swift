@@ -103,6 +103,12 @@ struct MachinesPanelView: View {
 
     private var treeSource: CloudTreeMachineSource { .cloudWithDevicesSection }
 
+    private var selectedCloudIdentity: String? {
+        guard let workspace = tabManager?.selectedWorkspace,
+              let machineID = workspace.cloudVMID else { return nil }
+        return [machineID, workspace.cloudVMBinding?.remoteWorkspaceID ?? ""].joined(separator: "\u{1f}")
+    }
+
     private var treeSnapshot: SurfaceCatalogSnapshot {
         viewModel.visibleCatalog.applyingDeviceVisibility(
             includesCloud: includesCloud,
@@ -129,7 +135,7 @@ struct MachinesPanelView: View {
         }
         .onAppear { syncPolling(for: authState) }
         .onAppear { refreshSelectionReveal() }
-        .onChange(of: tabManager?.selectedTabId) { _, _ in refreshSelectionReveal() }
+        .onChange(of: selectedCloudIdentity) { _, _ in refreshSelectionReveal() }
         .onChange(of: devicesModel.preferences?.discoveryEnabled) { _, _ in syncPolling(for: authState) }
         .onChange(of: cloudBetaEnabled) { _, _ in syncPolling(for: authState) }
         .onReceive(NotificationCenter.default.publisher(for: DeviceSurfaceProviderRegistry.revealDeviceNotification)) { _ in
@@ -482,7 +488,7 @@ struct MachinesPanelView: View {
             showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             canCreateCloudMachine: includesCloud,
             cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
-            reveal: selectionReveal ?? devicesModel.revealRequest,
+            reveal: devicesModel.revealRequest ?? selectionReveal,
             creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
         )
         .accessibilityIdentifier("CloudMachinesTree")
