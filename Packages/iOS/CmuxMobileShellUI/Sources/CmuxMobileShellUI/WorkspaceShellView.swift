@@ -559,6 +559,9 @@ struct WorkspaceShellView: View {
                     .onChange(of: pendingPrimarySearchNotificationNavigationID) { _, _ in
                         consumePendingPrimarySearchNavigation(for: .notifications)
                     }
+                } cloud: {
+                    // Supplied by the composition root; the shell owns no Cloud code.
+                    cloudTabContent?.makeView()
                 } search: {
                     primarySearchTabContent(presentation: presentation)
                 }
