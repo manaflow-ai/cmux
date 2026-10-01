@@ -9,8 +9,7 @@ import os
 /// "open settings" opens that file and toggles write it; the watcher applies
 /// the change. Update actions go to `UpdaterService` (UpdateHandlers), CLI
 /// install to `CLIInstallHandlers`, Base Keymap to `KeymapHandlers`. Account
-/// actions report that cmux-next has
-/// no implementation yet.
+/// actions report that cmux-next has no implementation yet.
 enum SettingsHandlers {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
