@@ -22,7 +22,7 @@ struct RemotePortScanGatingTests {
         let runner = SpyProcessRunner()
         let host = RecordingRemoteSessionHost()
         let coordinator = Self.makeCoordinator(runner: runner, host: host, terminalStartupCommand: "true")
-        let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 49152)
+        let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 49152, credential: .random())
 
         coordinator.queue.sync {
             coordinator.proxyEndpoint = endpoint

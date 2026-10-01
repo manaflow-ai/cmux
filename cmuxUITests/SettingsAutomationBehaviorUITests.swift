@@ -24,9 +24,8 @@ import XCTest
 ///     non-password mode hides it again;
 ///   * choosing **Full open access** raises a destructive confirmation dialog,
 ///     and cancelling it does not show the open-access warning;
-///   * each integration toggle drives a live subtitle that flips between its
-///     "on" and "off" sentence — an effect bound to the same model the runtime
-///     reads, so the subtitle change proves the stored value actually changed.
+///   * each integration toggle turns on with one click and keeps its fixed
+///     subtitle; the toggle value comes from the same model the runtime reads.
 ///
 /// Each test resets the backing `UserDefaults` keys so it starts from the
 /// documented default value.
@@ -40,6 +39,7 @@ final class SettingsAutomationBehaviorUITests: SettingsUITestCase {
         "claudeCodeCustomClaudePath",
         "ripgrepCustomBinaryPath",
         "suppressSubagentNotifications",
+        "agentAutoResumeEnabled",
         "cursorHooksEnabled",
         "geminiHooksEnabled",
         "cmuxPortBase",
@@ -63,21 +63,13 @@ final class SettingsAutomationBehaviorUITests: SettingsUITestCase {
         static let openAccessDialogCancel = "Cancel"
         static let openAccessWarningPrefix = "Warning: Full open access makes the control socket"
 
-        // Claude Code Integration subtitles.
-        static let claudeOn = "Sidebar shows Claude session status and notifications."
-        static let claudeOff = "Claude Code runs without cmux integration."
+        static let rulesTitle = "Automation Rules"
+        static let rulesReloadRequested = "Reload requested."
 
-        // Cursor Integration subtitles.
-        static let cursorOn = "Sidebar shows Cursor agent status and notifications."
-        static let cursorOff = "Cursor runs without cmux integration."
-
-        // Gemini CLI Integration subtitles.
-        static let geminiOn = "Sidebar shows Gemini session status and notifications."
-        static let geminiOff = "Gemini runs without cmux integration."
-
-        // Suppress Subagent Notifications subtitles.
-        static let suppressOn = "Child agent completions stay in Feed without notifications."
-        static let suppressOff = "Child agent completions notify like top-level agents."
+        static let claudeSubtitle = "Shows Claude Code status and notifications in the sidebar."
+        static let cursorSubtitle = "Shows Cursor status and notifications in the sidebar."
+        static let geminiSubtitle = "Shows Gemini CLI status and notifications in the sidebar."
+        static let suppressSubtitle = "Lists subagent completions in Feed without sending notifications."
     }
 
     override func setUp() {
@@ -135,6 +127,48 @@ final class SettingsAutomationBehaviorUITests: SettingsUITestCase {
             return true
         }
         return false
+    }
+
+    // MARK: - TIER 1: Existing automation rules are discoverable and reloadable
+
+    /// Verifies the native card is discoverable and routes reload to the existing engine.
+    func testAutomationRulesCardExposesNativeActionsAndReloadsEngine() {
+        let app = makeLaunchedApp()
+        let window = openAutomation(app)
+        defer { closeSettings(app, window) }
+
+        XCTAssertTrue(
+            poll(timeout: 4.0) { window.staticTexts[L.rulesTitle].exists },
+            "Automation Rules card should be visible in Settings > Automation"
+        )
+
+        let editButton = requireElement(
+            candidates: [
+                window.buttons["SettingsAutomationRulesEditButton"],
+                window.descendants(matching: .any)["SettingsAutomationRulesEditButton"],
+            ],
+            timeout: 4.0,
+            description: "automation rules edit button"
+        )
+        XCTAssertTrue(editButton.exists, "Automation Rules should expose the existing config file")
+
+        let reloadButton = requireElement(
+            candidates: [
+                window.buttons["SettingsAutomationRulesReloadButton"],
+                window.descendants(matching: .any)["SettingsAutomationRulesReloadButton"],
+            ],
+            timeout: 4.0,
+            description: "automation rules reload button"
+        )
+        if !reloadButton.isHittable, window.scrollViews.firstMatch.exists {
+            window.scrollViews.firstMatch.swipeUp()
+        }
+        reloadButton.click()
+
+        XCTAssertTrue(
+            poll(timeout: 4.0) { window.staticTexts[L.rulesReloadRequested].exists },
+            "Reload should route to the running automation engine"
+        )
     }
 
     // MARK: - TIER 1: Socket Control Mode reveals/hides the password subrow
@@ -308,70 +342,60 @@ final class SettingsAutomationBehaviorUITests: SettingsUITestCase {
 
     // MARK: - TIER 1: Integration toggle subtitles reflect the stored value
 
-    /// Each integration toggle drives a live subtitle bound to the same model
-    /// the runtime reads. Flipping the toggle must swap the subtitle between
-    /// its on/off sentence; the subtitle change is the observable proof the
-    /// stored value flipped (the runtime hook-injection effect itself is
-    /// TIER 2 — see notes below).
-    func testClaudeCodeToggleFlipsSubtitle() {
-        assertToggleFlipsSubtitle(
+    /// Each integration toggle stores its value in the model the runtime
+    /// reads. Its row shows one fixed subtitle for the on state. The runtime
+    /// hook-injection effect itself is TIER 2; see the notes below.
+    func testClaudeCodeToggleTurnsOnWithFixedSubtitle() {
+        assertToggleTurnsOnWithFixedSubtitle(
             id: "SettingsClaudeCodeHooksToggle",
-            offSubtitle: L.claudeOff,
-            onSubtitle: L.claudeOn
+            subtitle: L.claudeSubtitle
         )
     }
 
-    func testCursorToggleFlipsSubtitle() {
-        assertToggleFlipsSubtitle(
+    func testCursorToggleTurnsOnWithFixedSubtitle() {
+        assertToggleTurnsOnWithFixedSubtitle(
             id: "SettingsCursorHooksToggle",
-            offSubtitle: L.cursorOff,
-            onSubtitle: L.cursorOn
+            subtitle: L.cursorSubtitle
         )
     }
 
-    func testGeminiToggleFlipsSubtitle() {
-        assertToggleFlipsSubtitle(
+    func testGeminiToggleTurnsOnWithFixedSubtitle() {
+        assertToggleTurnsOnWithFixedSubtitle(
             id: "SettingsGeminiHooksToggle",
-            offSubtitle: L.geminiOff,
-            onSubtitle: L.geminiOn
+            subtitle: L.geminiSubtitle
         )
     }
 
-    func testSuppressSubagentToggleFlipsSubtitle() {
-        assertToggleFlipsSubtitle(
+    func testSuppressSubagentToggleTurnsOnWithFixedSubtitle() {
+        assertToggleTurnsOnWithFixedSubtitle(
             id: "SettingsSuppressSubagentNotificationsToggle",
-            offSubtitle: L.suppressOff,
-            onSubtitle: L.suppressOn
+            subtitle: L.suppressSubtitle
         )
     }
 
-    /// Shared driver: defaults are all `false`, so the "off" subtitle must be
-    /// present initially; clicking the toggle must replace it with the "on"
-    /// subtitle.
-    private func assertToggleFlipsSubtitle(id: String, offSubtitle: String, onSubtitle: String) {
+    /// Shared driver: every default is `false`. The toggle starts off, turns
+    /// on after one click, and the row shows the same subtitle in both states.
+    private func assertToggleTurnsOnWithFixedSubtitle(id: String, subtitle: String) {
         let app = makeLaunchedApp()
         let window = openAutomation(app)
         defer { closeSettings(app, window) }
 
         XCTAssertTrue(
-            poll(timeout: 4.0) { window.staticTexts[offSubtitle].exists },
-            "\(id): off-state subtitle should be shown at the default (disabled) value"
+            poll(timeout: 4.0) { window.staticTexts[subtitle].exists },
+            "\(id): subtitle should be shown while the toggle is off"
         )
-        XCTAssertFalse(
-            window.staticTexts[onSubtitle].exists,
-            "\(id): on-state subtitle should not be shown before toggling"
-        )
-
         let control = toggle(window, id: id)
+        XCTAssertFalse(isOn(control), "\(id): toggle should start off")
+
         control.click()
 
         XCTAssertTrue(
-            poll(timeout: 4.0) { window.staticTexts[onSubtitle].exists },
-            "\(id): on-state subtitle should appear after enabling the toggle"
+            poll(timeout: 4.0) { self.isOn(control) },
+            "\(id): toggle should be on after one click"
         )
         XCTAssertTrue(
-            poll(timeout: 2.0) { !window.staticTexts[offSubtitle].exists },
-            "\(id): off-state subtitle should be gone after enabling the toggle"
+            window.staticTexts[subtitle].exists,
+            "\(id): the same subtitle should be shown while the toggle is on"
         )
     }
 

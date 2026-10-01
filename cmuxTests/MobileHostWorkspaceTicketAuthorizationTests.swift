@@ -71,6 +71,70 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         return try CmxAttachTicketCompactCoder().decode(data)
     }
 
+    // `MobileHostPublicStatusCache` is process-wide, and the app host installs a
+    // `UserDefaults.didChangeNotification` observer (`AppDelegate`.`installMobileHostSettingsObserver`)
+    // that re-syncs the mobile host on a main-actor task after *any* defaults
+    // write anywhere in the process. With pairing off, that sync runs
+    // `MobileHostIrxRuntime.prepareForStop()`, which calls
+    // `MobileHostPublicStatusCache.removeAll()`. So a fixture publication parked
+    // in that cache does not survive an `await`: every suspension in this test
+    // is a window for another suite's defaults write to empty it. This test
+    // therefore reads the cache and resolves the ticket subject within a single
+    // main-actor turn instead of driving the async mint entry point.
+    @Test func pairingTicketUsesThePublishedV2InstallationIdentity() throws {
+        let deviceID = "123e4567-e89b-42d3-a456-426614174088"
+        let route = try irohRoute()
+        let previousDeviceID = MobileHostPublicStatusCache.currentV2DeviceID()
+        let previousRoutes = MobileHostPublicStatusCache.snapshot()
+        defer {
+            MobileHostPublicStatusCache.updateV2DeviceID(previousDeviceID)
+            MobileHostPublicStatusCache.update(routes: previousRoutes.filter { $0.kind != .iroh })
+        }
+
+        // An Iroh ticket must not be minted against the legacy per-install
+        // identity before the v2 installation identity has been published.
+        MobileHostPublicStatusCache.update(routes: [route])
+        MobileHostPublicStatusCache.updateV2DeviceID(nil)
+        #expect(throws: MobileAttachTicketStoreError.routeUnavailable) {
+            try MobileHostService.attachTicketSubject(
+                publishedStatus: MobileHostPublicStatusCache.publishedStatus(),
+                routeID: nil,
+                routeKind: nil,
+                target: .physicalDevice
+            )
+        }
+
+        // Once it is published, the mint takes BOTH halves — the dialable
+        // routes and the Mac identity — from that same publication.
+        MobileHostPublicStatusCache.updateV2DeviceID(deviceID)
+        let published = MobileHostPublicStatusCache.publishedStatus()
+        #expect(published.routes.contains(route))
+        #expect(published.v2DeviceID == deviceID)
+        let subject = try MobileHostService.attachTicketSubject(
+            publishedStatus: published,
+            routeID: nil,
+            routeKind: nil,
+            target: .physicalDevice
+        )
+        #expect(subject.deviceID == deviceID)
+        #expect(subject.routes.allSatisfy { $0.kind == .iroh })
+
+        // ...and that identity reaches the phone through the v2 pairing URL.
+        let store = MobileAttachTicketStore()
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: subject.routes,
+            ttl: 60,
+            macDeviceID: subject.deviceID
+        )
+        #expect(ticket.macDeviceID == deviceID)
+        let payload = try store.payload(for: ticket, target: .physicalDevice)
+        let url = try #require(payload["attach_url"] as? String)
+        let decoded = try CmxPairingQRCode().decode(try #require(URLComponents(string: url)))
+        #expect(decoded.macDeviceID == deviceID)
+    }
+
     @Test func attachTargetsPreferSanitizedIrohThenUseDestinationFallbacks() throws {
         let loopback = try loopbackRoute()
         let tailscale = try tailscaleRoute()
@@ -298,30 +362,43 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
 
     #if DEBUG
     @Test func omittedTargetRPCPreservesLegacyAttachURL() async throws {
-        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = TabManager()
-        TerminalController.shared.setActiveTabManager(manager)
-        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let manager = TabManager()
+            TerminalController.shared.setActiveTabManager(manager)
+            defer { TerminalController.shared.setActiveTabManager(previousManager) }
 
-        let service = MobileHostService.shared
-        MobileHostPublicStatusCache.update(routes: [try loopbackRoute()])
-        defer { MobileHostPublicStatusCache.removeAll() }
-        let workspace = try #require(manager.selectedWorkspace)
+            let service = MobileHostService.shared
+            let previousRoutes = MobileHostPublicStatusCache.snapshot()
+            let previousDeviceID = MobileHostPublicStatusCache.currentV2DeviceID()
+            defer {
+                MobileHostPublicStatusCache.removeAll()
+                MobileHostPublicStatusCache.updateV2DeviceID(previousDeviceID)
+                MobileHostPublicStatusCache.update(routes: previousRoutes.filter { $0.kind != .iroh })
+                if let route = previousRoutes.first(where: { $0.kind == .iroh }),
+                   case let .peer(identity, pathHints) = route.endpoint {
+                    MobileHostPublicStatusCache.update(irohIdentity: identity, pathHints: pathHints)
+                }
+            }
+            MobileHostPublicStatusCache.removeAll()
+            MobileHostPublicStatusCache.update(routes: [try loopbackRoute()])
+            let workspace = try #require(manager.selectedWorkspace)
 
-        let response = await TerminalController.shared.mobileHostHandleRPC(
-            MobileHostRPCRequest(
-                id: "legacy-attach-ticket",
-                method: "mobile.attach_ticket.create",
-                params: ["workspace_id": workspace.id.uuidString],
-                auth: nil
+            let response = await TerminalController.shared.mobileHostHandleRPC(
+                MobileHostRPCRequest(
+                    id: "legacy-attach-ticket",
+                    method: "mobile.attach_ticket.create",
+                    params: ["workspace_id": workspace.id.uuidString],
+                    auth: nil
+                )
             )
-        )
 
-        guard case let .ok(rawPayload) = response,
-              let payload = rawPayload as? [String: Any] else {
-            return #expect(Bool(false), "Expected attach ticket payload")
+            guard case let .ok(rawPayload) = response,
+                  let payload = rawPayload as? [String: Any] else {
+                return #expect(Bool(false), "Expected attach ticket payload")
+            }
+            #expect(payload["attach_url"] as? String != nil)
         }
-        #expect(payload["attach_url"] as? String != nil)
     }
     #endif
 
@@ -340,8 +417,19 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
     }
 
     #if DEBUG
-    @Test func attachTicketWithoutListenerPreservesNoRoutesError() async {
+    @Test func attachTicketWithoutPublishedRoutesPreservesNoRoutesError() async {
         let service = MobileHostService.shared
+        let previousRoutes = MobileHostPublicStatusCache.snapshot()
+        let previousDeviceID = MobileHostPublicStatusCache.currentV2DeviceID()
+        defer {
+            MobileHostPublicStatusCache.removeAll()
+            MobileHostPublicStatusCache.updateV2DeviceID(previousDeviceID)
+            MobileHostPublicStatusCache.update(routes: previousRoutes.filter { $0.kind != .iroh })
+            if let route = previousRoutes.first(where: { $0.kind == .iroh }),
+               case let .peer(identity, pathHints) = route.endpoint {
+                MobileHostPublicStatusCache.update(irohIdentity: identity, pathHints: pathHints)
+            }
+        }
         MobileHostPublicStatusCache.removeAll()
 
         await #expect(throws: MobileAttachTicketStoreError.noRoutes) {
@@ -438,6 +526,51 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
 
         for request in requests {
             #expect(MobileHostService.ticketAuthorizationError(ticket: scopedTicket, request: request) == nil)
+            #expect(
+                MobileHostService.ticketAuthorizationError(
+                    ticket: macWideTicket,
+                    request: request
+                ) == nil
+            )
+        }
+    }
+
+    @Test func agentFeedListReadsAccountWideWhileRepliesFailClosedOnScopedTickets() throws {
+        let scopedTicket = try scopedAttachTicket(workspaceID: "workspace")
+        let macWideTicket = try scopedAttachTicket(workspaceID: "")
+
+        let listRequest = MobileHostRPCRequest(
+            id: "agent-feed-list",
+            method: "feed.list",
+            params: [:],
+            auth: nil
+        )
+        // The workstream feed is the same account-authoritative read model as
+        // the notification feed: tickets neither widen nor narrow it.
+        #expect(MobileHostService.ticketAuthorizationError(ticket: scopedTicket, request: listRequest) == nil)
+        #expect(MobileHostService.ticketAuthorizationError(ticket: macWideTicket, request: listRequest) == nil)
+
+        // Replies resolve agent prompts that may target any workspace but
+        // carry only a request_id, so a workspace-scoped ticket cannot prove
+        // coverage and must fail closed; Mac-wide pairings pass.
+        let replyMethods: [(method: String, params: [String: Any])] = [
+            ("feed.permission.reply", ["request_id": "r1", "mode": "once"]),
+            ("feed.question.reply", ["request_id": "r1", "selections": ["a"]]),
+            ("feed.exit_plan.reply", ["request_id": "r1", "mode": "manual"]),
+        ]
+        for entry in replyMethods {
+            let request = MobileHostRPCRequest(
+                id: entry.method,
+                method: entry.method,
+                params: entry.params,
+                auth: nil
+            )
+            #expect(
+                MobileHostService.ticketAuthorizationError(
+                    ticket: scopedTicket,
+                    request: request
+                )?.code == "forbidden"
+            )
             #expect(
                 MobileHostService.ticketAuthorizationError(
                     ticket: macWideTicket,

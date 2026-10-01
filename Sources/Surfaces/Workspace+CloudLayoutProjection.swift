@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import Foundation
 
 @MainActor
@@ -21,27 +22,33 @@ extension Workspace {
         }
         guard layout.placements.allSatisfy({ tabs[$0] != nil }) else { return }
         if cloudLayoutMatches(layout, live: bonsplitController.treeSnapshot(), tabs: tabs) {
-            applyCloudDividerRatios(layout, live: bonsplitController.treeSnapshot())
+            // External ratios suppress Bonsplit's geometry callback. Reconcile
+            // AppKit and Ghostty even when the terminal membership is unchanged.
+            if applyCloudDividerRatios(layout, live: bonsplitController.treeSnapshot()) {
+                scheduleTerminalGeometryReconcile()
+            }
             return
         }
         let focused = focusedPanelId.flatMap { surfaceIdFromPanelId($0) }
         // The existing remote-projection transaction preserves window/workspace
         // focus and suppresses activation while tabs move. It is shared with SSH.
         performRemoteTmuxMirrorMutation {
-            let wasProgrammatic = isProgrammaticSplit
-            isProgrammaticSplit = true
-            defer { isProgrammaticSplit = wasProgrammatic }
-            guard let root = bonsplitController.allPaneIds.first else { return }
-            let originalRootTabs = Set(bonsplitController.tabs(inPane: root).map(\.id))
-            for placement in layout.placements {
-                guard let tab = tabs[placement] else { continue }
-                if !originalRootTabs.contains(tab) {
-                    _ = bonsplitController.moveTab(tab, toPane: root)
+            withSplitSpaceAdmissionBypass {
+                let wasProgrammatic = isProgrammaticSplit
+                isProgrammaticSplit = true
+                defer { isProgrammaticSplit = wasProgrammatic }
+                guard let root = bonsplitController.allPaneIds.first else { return }
+                let originalRootTabs = Set(bonsplitController.tabs(inPane: root).map(\.id))
+                for placement in layout.placements {
+                    guard let tab = tabs[placement] else { continue }
+                    if !originalRootTabs.contains(tab) {
+                        _ = bonsplitController.moveTab(tab, toPane: root)
+                    }
                 }
+                buildCloudLayout(layout, in: root, tabs: tabs)
+                applyCloudDividerRatios(layout, live: bonsplitController.treeSnapshot())
+                if let focused, bonsplitController.tab(focused) != nil { bonsplitController.selectTab(focused) }
             }
-            buildCloudLayout(layout, in: root, tabs: tabs)
-            applyCloudDividerRatios(layout, live: bonsplitController.treeSnapshot())
-            if let focused, bonsplitController.tab(focused) != nil { bonsplitController.selectTab(focused) }
         }
         scheduleTerminalGeometryReconcile()
     }
@@ -78,12 +85,15 @@ extension Workspace {
         }
     }
 
-    private func applyCloudDividerRatios(_ layout: SurfaceProjectionLayout, live: ExternalTreeNode) {
-        guard case .split(_, let ratio, let first, let second) = layout, case .split(let split) = live else { return }
+    @discardableResult
+    private func applyCloudDividerRatios(_ layout: SurfaceProjectionLayout, live: ExternalTreeNode) -> Bool {
+        guard case .split(_, let ratio, let first, let second) = layout, case .split(let split) = live else { return false }
+        var changed = false
         if let id = UUID(uuidString: split.id), abs(split.dividerPosition - ratio) > 0.0001 {
-            _ = bonsplitController.setDividerPosition(CGFloat(ratio), forSplit: id, fromExternal: true)
+            changed = bonsplitController.setDividerPosition(CGFloat(ratio), forSplit: id, fromExternal: true)
         }
-        applyCloudDividerRatios(first, live: split.first)
-        applyCloudDividerRatios(second, live: split.second)
+        let firstChanged = applyCloudDividerRatios(first, live: split.first)
+        let secondChanged = applyCloudDividerRatios(second, live: split.second)
+        return changed || firstChanged || secondChanged
     }
 }

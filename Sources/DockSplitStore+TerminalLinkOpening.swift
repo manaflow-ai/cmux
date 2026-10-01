@@ -15,10 +15,12 @@ extension DockSplitStore: TerminalLinkOpenContainer {
     }
 
     func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool {
+        // An unplaced source may be any terminal, so it never resolves locally.
         guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId) else {
-            return false
+            return true
         }
-        return detachedSurfaceTransfersByPanelId[panelId]?.isRemoteTerminal == true
+        if detachedSurfaceTransfersByPanelId[panelId]?.isRemoteTerminal == true { return true }
+        return machineOwningSurface(panelId)?.isLocal != true
     }
 
     func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget? {
@@ -38,27 +40,27 @@ extension DockSplitStore: TerminalLinkOpenContainer {
         false
     }
 
-    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
+    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool = true) -> Bool {
         guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId),
               let sourcePane = paneId(forPanelId: panelId) else { return false }
         if let targetPane = BrowserRightSidePaneResolver().preferredPane(
             from: sourcePane,
             in: bonsplitController
         ) {
-            noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+            if focus { noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow) }
             guard let panelId = newSurface(
                 kind: .browser,
                 inPane: targetPane,
                 url: url,
                 focus: false
             ) else { return false }
-            focusPanelFromDockInteraction(
+            if focus { focusPanelFromDockInteraction(
                 panelId,
                 window: NSApp.keyWindow ?? NSApp.mainWindow
-            )
+            ) }
             return true
         }
-        noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+        if focus { noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow) }
         guard let panelId = newSplit(
             kind: .browser,
             orientation: .horizontal,
@@ -67,10 +69,10 @@ extension DockSplitStore: TerminalLinkOpenContainer {
             url: url,
             focus: false
         ) else { return false }
-        focusPanelFromDockInteraction(
+        if focus { focusPanelFromDockInteraction(
             panelId,
             window: NSApp.keyWindow ?? NSApp.mainWindow
-        )
+        ) }
         return true
     }
 }

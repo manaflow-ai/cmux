@@ -1,0 +1,134 @@
+name: CI UI tests
+run-name: ${{ format('UI tests for CI run {0} attempt {1}', inputs.run_id, inputs.run_attempt) }}
+
+# Runs the UI test classes a pull request changes, for ci.yml's `ui-tests` job.
+# Dispatching test-e2e.yml takes actions: write, and a pull_request run takes
+# ci.yml from the pull request, so PR CI holds no write token: its `ui-tests`
+# job validates the selectors and uploads them as `ui-tests-request-<attempt>`,
+# then waits for this workflow's verdict and reports it, which keeps the result
+# on the pull request and under ci-status. This workflow, and the dispatcher it
+# runs, always come from the default branch. The build controller dispatches it
+# once per CI run attempt when that attempt's `ui-tests` job starts
+# (cmuxterm-hq build-fleet/cmd/controller/ui_tests.go, keyed on the job name
+# `ui-tests` of workflow `CI`), so no runner waits here for a request that
+# never comes. It returns at once for anything but a same-repository pull
+# request that changes cmuxUITests/ or a path the UI fuzzer's regression replays cover
+# (FUZZ_REGRESSION_PATHS), and cancels the dispatched run when the CI attempt
+# finishes first. The bots that re-run CI (owned_pool_rescue.py,
+# classify_failures.py) still dispatch it for the new attempt; a duplicate
+# joins the same concurrency group. scripts/ci/ui_tests_dispatch.py has the
+# rules. The run-name is how `ui-tests` finds its run; keep it in step with
+# dispatch_title() there.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: The CI run whose ui-tests job waits for a dispatch
+        required: true
+        type: string
+      run_attempt:
+        description: That run's attempt
+        required: true
+        default: "1"
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: ci-ui-tests-${{ inputs.run_id }}-${{ inputs.run_attempt }}
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    name: Run requested UI tests
+    # The route/controller lane is disabled while its infra cancellation bug is
+    # repaired. Re-enable with CI_UI_TESTS_ENABLED=1; await-request also keeps
+    # non-UI diffs out of the downstream test runner.
+    if: ${{ github.repository_owner == 'manaflow-ai' && vars.CI_UI_TESTS_ENABLED == '1' }}
+    runs-on: ubuntu-24.04 # github-hosted-required: holds actions write and mostly waits; keeps CI's Linux pool free
+    # A request can follow a long compile admission; the dispatch then waits up
+    # to 50 minutes for the compile it adopts, then runs the tests.
+    timeout-minutes: 360
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    steps:
+      # Reads come from the org's route App on its own rate limit when it is
+      # configured; the dispatch and cancel stay on GITHUB_TOKEN.
+      - name: Mint the read token
+        id: read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+          permission-pull-requests: read
+
+      - name: Checkout the request reader from the default branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: scripts/ci/ui_tests_dispatch.py
+          sparse-checkout-cone-mode: false
+
+      - name: Wait for the UI test request
+        id: request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          READ_TOKEN: ${{ steps.read-token.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_RUN_ID: ${{ inputs.run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ inputs.run_attempt }}
+        run: python3 scripts/ci/ui_tests_dispatch.py await-request
+
+      - name: Checkout the dispatcher from the default branch
+        if: steps.request.outputs.requested == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          path: dispatcher
+
+      # The dispatcher compares the product inputs of the head and the merge
+      # (git ls-tree / git show), so it needs their objects. Fetched, never
+      # checked out; without them it only finds fewer products to adopt.
+      - name: Fetch the revisions under test
+        if: steps.request.outputs.requested == 'true'
+        working-directory: dispatcher
+        env:
+          HEAD_SHA: ${{ steps.request.outputs.head_sha }}
+          MERGE_SHA: ${{ steps.request.outputs.merge_sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$HEAD_SHA" ${MERGE_SHA:+"$MERGE_SHA"} \
+            || echo "::warning::could not fetch $HEAD_SHA $MERGE_SHA; the dispatch may compile instead of adopting a product"
+
+      - name: Run the requested UI test classes
+        if: steps.request.outputs.requested == 'true'
+        working-directory: dispatcher
+        env:
+          GH_TOKEN: ${{ github.token }}
+          READ_TOKEN: ${{ steps.read-token.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_RUN_ID: ${{ inputs.run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ inputs.run_attempt }}
+          HEAD_SHA: ${{ steps.request.outputs.head_sha }}
+          SELECTORS: ${{ steps.request.outputs.selectors }}
+          # A job token cannot list repository variables (HTTP 403), so the
+          # dispatcher reads its routing inputs from these instead.
+          CMUX_MACOS_RUNNER_TESTS: ${{ vars.MACOS_RUNNER_TESTS }}
+          CMUX_CI_E2E_LARGE_POOL_OVERFLOW: ${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}
+          CMUX_CI_PR_POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          CMUX_CI_PR_POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          CMUX_CI_PR_POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
+          CMUX_CI_PR_POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          CMUX_CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          CMUX_CMUX_CI_XCODE_APP_PR: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          CMUX_CI_E2E_OWNED_UI: ${{ vars.CI_E2E_OWNED_UI }}
+        # exec: the runner signals the step's shell on cancel, and bash would
+        # not pass it on, so the dispatched run would outlive this one.
+        run: exec python3 scripts/ci/ui_tests_dispatch.py dispatch

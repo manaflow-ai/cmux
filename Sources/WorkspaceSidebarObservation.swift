@@ -26,6 +26,7 @@ extension View {
         ids: [UUID],
         workspaces: [Workspace],
         debouncedInterval: DispatchQueue.SchedulerTimeType.Stride,
+        deliverInitialValue: Bool = true,
         onChange: @MainActor @escaping (UUID) -> Void
     ) -> some View {
         task(id: ids) { @MainActor in
@@ -44,20 +45,29 @@ extension View {
                         .debounce(for: debouncedInterval, scheduler: DispatchQueue.main)
                         .values
                     group.addTask { @MainActor in
+                        var first = true
                         for await _ in cloudChanges {
                             if Task.isCancelled { break }
+                            if first && !deliverInitialValue { first = false; continue }
+                            first = false
                             onChange(id)
                         }
                     }
                     group.addTask { @MainActor in
+                        var first = true
                         for await _ in immediateChanges {
                             if Task.isCancelled { break }
+                            if first && !deliverInitialValue { first = false; continue }
+                            first = false
                             onChange(id)
                         }
                     }
                     group.addTask { @MainActor in
+                        var first = true
                         for await _ in debouncedChanges {
                             if Task.isCancelled { break }
+                            if first && !deliverInitialValue { first = false; continue }
+                            first = false
                             onChange(id)
                         }
                     }
@@ -210,12 +220,14 @@ private struct SidebarObservationState: Equatable {
     let panelDirectoryDisplayLabels: [UUID: String]
     let directoryChangeRevision: UInt64
     let statusEntries: [String: SidebarStatusEntry]
+    let agentUsage: [String: SidebarAgentUsage]
     let metadataBlocks: [String: SidebarMetadataBlock]
     let logEntries: [SidebarLogEntry]
     let progress: SidebarProgressState?
     let gitBranch: SidebarGitBranchState?
     let panelGitBranches: [UUID: SidebarGitBranchState]
     let pullRequest: SidebarPullRequestState?
+    let manualPullRequest: SidebarPullRequestState?
     let panelPullRequests: [UUID: SidebarPullRequestState]
     let remoteConfiguration: WorkspaceRemoteConfiguration?
     let remoteConnectionState: WorkspaceRemoteConnectionState
@@ -336,11 +348,15 @@ extension Workspace {
             gitFields,
             remoteFields
         )
-            .combineLatest($listeningPorts, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
+            .combineLatest(
+                $listeningPorts,
+                sidebarMetadata.panelDirectoryDisplayLabelsPublisher,
+                sidebarMetadata.agentUsagePublisher
+            )
             .combineLatest(directoryChangeRevision)
             .compactMap { [weak self] values, directoryChangeRevision -> SidebarObservationState? in
                 guard let self else { return nil }
-                let (groupedFields, listeningPorts, panelDirectoryDisplayLabels) = values
+                let (groupedFields, listeningPorts, panelDirectoryDisplayLabels, agentUsage) = values
                 let workspaceFields = groupedFields.0
                 let metadataFields = groupedFields.1
                 let gitFields = groupedFields.2
@@ -353,12 +369,14 @@ extension Workspace {
                     panelDirectoryDisplayLabels: panelDirectoryDisplayLabels,
                     directoryChangeRevision: directoryChangeRevision,
                     statusEntries: metadataFields.0,
+                    agentUsage: agentUsage,
                     metadataBlocks: metadataFields.1,
                     logEntries: metadataFields.2,
                     progress: metadataFields.3,
                     gitBranch: gitFields.0,
                     panelGitBranches: gitFields.1,
                     pullRequest: gitFields.2,
+                    manualPullRequest: sidebarMetadata.manualPullRequest,
                     panelPullRequests: gitFields.3,
                     remoteConfiguration: remoteFields.0,
                     remoteConnectionState: remoteFields.1,

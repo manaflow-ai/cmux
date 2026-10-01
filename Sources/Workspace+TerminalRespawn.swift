@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxCore
+import CmuxRemoteSession
 import CmuxTerminal
 import CmuxTerminalCore
 import CmuxWorkspaces
@@ -19,8 +20,15 @@ extension Workspace {
         waitAfterCommand: Bool? = nil,
         replayScrollback: String? = nil,
         replayFileURL: URL? = nil,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        nativeReservation: CloudTerminalPaneReservation? = nil
     ) -> TerminalPanel? {
+        // Native ownership routes through its provider before any local process configuration.
+        if machineOwningSurface(panelId)?.isSSH == true, nativeReservation == nil {
+            return respawnSSHTuiSurface(panelID: panelId, command: command,
+                workingDirectory: workingDirectory, tmuxStartCommand: tmuxStartCommand,
+                focus: focus, allowTextBoxFocusDefault: allowTextBoxFocusDefault)
+        }
         guard !isRetiredFromOwningTabManager,
               let oldPanel = terminalPanel(for: panelId),
               let tabId = surfaceIdFromPanelId(panelId),
@@ -58,8 +66,9 @@ extension Workspace {
         // re-records the seeded env for the replacement panel against the current
         // workspace.
         let oldSeededWorkspaceEnvironment = oldPanel.seededWorkspaceEnvironment
+        // The welcome banner key is one-shot: a respawned shell must not reprint it.
         let initialEnvironmentOverrides = oldPanel.surface.respawnInitialEnvironmentOverrides
-            .filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
+            .filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value && $0.key != WelcomeBannerDelivery.environmentKey }
         var additionalEnvironment = startupEnvironmentMergingWorkspaceEnvironment(
             oldPanel.surface.respawnAdditionalEnvironment.filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
         )
@@ -90,19 +99,32 @@ extension Workspace {
         oldPanel.removeOwnedSessionScrollbackReplayArtifact()
         oldPanel.surface.teardownSurface()
 
-        let replacementPanel = TerminalPanel(
-            id: panelId,
-            workspaceId: id,
-            context: launchContext,
-            configTemplate: inheritedConfig,
-            workingDirectory: requestedWorkingDirectory,
-            portOrdinal: portOrdinal,
-            initialCommand: trimmedCommand,
-            tmuxStartCommand: replacementTmuxStartCommand,
-            initialEnvironmentOverrides: initialEnvironmentOverrides,
-            additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement
-        )
+        let replacementPanel: TerminalPanel
+        if let nativeReservation {
+            let inputRelay = nativeReservation.inputRelay
+            let surface = TerminalSurface(
+                id: panelId, tabId: id, context: launchContext, configTemplate: inheritedConfig,
+                tmuxStartCommand: replacementTmuxStartCommand, focusPlacement: focusPlacement,
+                ioMode: .manualMirror, manualInputHandler: { inputRelay.send($0) },
+                manualInputKeyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value }
+            )
+            replacementPanel = TerminalPanel(workspaceId: id, surface: surface)
+        } else {
+            replacementPanel = TerminalPanel(
+                id: panelId,
+                workspaceId: id,
+                context: launchContext,
+                configTemplate: inheritedConfig,
+                workingDirectory: requestedWorkingDirectory,
+                portOrdinal: portOrdinal,
+                initialCommand: trimmedCommand,
+                tmuxStartCommand: replacementTmuxStartCommand,
+                initialEnvironmentOverrides: initialEnvironmentOverrides,
+                additionalEnvironment: additionalEnvironment,
+                focusPlacement: focusPlacement,
+                isRemoteTerminal: oldPanel.surface.isRemoteTerminal
+            )
+        }
         replacementPanel.adoptOwnedSessionScrollbackReplayArtifact(effectiveReplayFileURL)
         // Respawn replaces the panel object but keeps the logical tab identity.
         replacementPanel.adoptStableSurfaceId(oldPanel.stableSurfaceId)
@@ -110,6 +132,7 @@ extension Workspace {
             replacementPanel,
             allowTextBoxFocusDefault: shouldFocus && allowTextBoxFocusDefault
         )
+        if let nativeReservation { cloudPendingCreations[panelId] = nativeReservation }
         panels[panelId] = replacementPanel
         panelTitles[panelId] = replacementPanel.displayTitle
         if let customTitle {

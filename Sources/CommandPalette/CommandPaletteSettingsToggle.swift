@@ -1,7 +1,8 @@
 import CmuxCommandPalette
+import CmuxFoundation
 import Foundation
 import CmuxSettings
-
+import CmuxSettingsUI
 extension MenuBarOnlySettings {
     static let legacyCommandPaletteUsageKey = "commandPalette.commandUsage.v1"
     static let legacyCommandPaletteMenuBarOnlyCommandId = "palette.toggleSetting.menuBarOnly"
@@ -62,6 +63,34 @@ struct CommandPaletteSettingToggleDescriptor: Sendable {
         self.isAvailable = isAvailable
     }
 
+    /// Projects one ordinary boolean catalog descriptor into a palette toggle.
+    init(
+        userFacing key: DefaultsKey<Bool>,
+        isAvailable: @escaping @Sendable (UserDefaults) -> Bool = { _ in true },
+        didSet: @escaping @Sendable (Bool, UserDefaults, NotificationCenter) -> Void = { _, _, _ in }
+    ) {
+        guard let descriptor = key.userFacing else {
+            preconditionFailure("Missing user-facing descriptor for \(key.id)")
+        }
+        guard case .toggle(let toggle) = descriptor.control,
+              let paletteToggle = toggle.commandPalette else {
+            preconditionFailure("Setting \(key.id) is not an ordinary Command Palette toggle")
+        }
+        let section = SettingsSectionID(userFacingSection: descriptor.section)
+
+        self.init(
+            commandId: CommandPaletteSettingsToggleCommands.commandIdPrefix + paletteToggle.id,
+            settingsKey: key.id,
+            title: { descriptor.title },
+            sectionTitle: { section.title },
+            keywords: [key.id] + paletteToggle.keywords,
+            defaultValue: key.defaultValue,
+            defaultsKey: key.userDefaultsKey,
+            isAvailable: isAvailable,
+            didSet: didSet
+        )
+    }
+
     init(
         commandId: String,
         settingsKey: String,
@@ -108,11 +137,11 @@ struct CommandPaletteSettingToggleDescriptor: Sendable {
 
 enum CommandPaletteSettingsToggleCommands {
     static let commandIdPrefix = "palette.toggleSetting."
-
+    /// Finds the setting-backed command registered under the supplied palette identifier.
     static func descriptor(commandId: String) -> CommandPaletteSettingToggleDescriptor? {
         descriptors.first { $0.commandId == commandId }
     }
-
+    /// Shared setting-backed palette commands, including the editor’s wrap preference.
     static let descriptors: [CommandPaletteSettingToggleDescriptor] = {
         let fileEditorSettings = FilePreviewEditorSettings(defaults: .standard)
         let app: @Sendable () -> String = { String(localized: "settings.section.app", defaultValue: "App") }
@@ -164,6 +193,22 @@ enum CommandPaletteSettingsToggleCommands {
                 keywords: ["app.workspaceInheritWorkingDirectory", "workspace", "working", "directory", "cwd", "inherit"],
                 defaultValue: SettingCatalog().app.workspaceInheritWorkingDirectory.defaultValue,
                 defaultsKey: SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "systemAccentColor",
+                settingsKey: "app.accentColor",
+                title: {
+                    String(localized: "settings.app.accentColor.systemToggle", defaultValue: "System Accent Color")
+                },
+                sectionTitle: app,
+                keywords: ["app.accentColor", "accent", "color", "system", "macOS", "highlight", "tint", "blue"],
+                isOn: { defaults in
+                    UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.accentColor) == .system
+                },
+                setOn: { newValue, defaults, _ in
+                    UserDefaultsSettingsClient(defaults: defaults)
+                        .set(newValue ? .system : .cmux, for: SettingCatalog().app.accentColor)
+                }
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "keepWorkspaceOpenWhenClosingLastSurface",
@@ -261,8 +306,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: app,
                 keywords: ["fileEditor.wordWrap", "file", "editor", "word", "wrap", "soft", "reflow", "lines", "preview"],
-                defaultValue: FilePreviewWordWrapSettings.defaultEnabled,
-                defaultsKey: FilePreviewWordWrapSettings.key
+                isOn: { FilePreviewWordWrapSettings(defaults: $0).isEnabled() },
+                setOn: { value, defaults, _ in FilePreviewWordWrapSettings(defaults: defaults).setEnabled(value) }
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "fileEditorSyntaxHighlighting",
@@ -326,9 +371,18 @@ enum CommandPaletteSettingsToggleCommands {
                     String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification")
                 },
                 sectionTitle: app,
-                keywords: ["app.reorderOnNotification", "notification", "reorder", "workspace", "unread", "sort"],
-                defaultValue: SettingCatalog().app.reorderOnNotification.defaultValue,
-                defaultsKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey
+                keywords: ["app.reorderOnNotification", "notification", "reorder", "workspace", "unread", "sort", "agent", "activity"],
+                // A mode, not a Bool: on means any mode but off. Turning it on
+                // restores the notification mode; turning it off from either
+                // mode stores off.
+                isOn: { defaults in
+                    UserDefaultsSettingsClient(defaults: defaults)
+                        .value(for: SettingCatalog().app.reorderOnNotification).isEnabled
+                },
+                setOn: { isOn, defaults, _ in
+                    UserDefaultsSettingsClient(defaults: defaults)
+                        .set(isOn ? .notifications : .off, for: SettingCatalog().app.reorderOnNotification)
+                }
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "dockBadge",
@@ -376,6 +430,28 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: NotificationPaneFlashSettings.enabledKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "paneFlashDoubleBlink",
+                settingsKey: "notifications.paneFlashDoubleBlink",
+                title: {
+                    String(localized: "settings.notifications.paneFlashDoubleBlink.title", defaultValue: "Double Blink")
+                },
+                sectionTitle: app,
+                keywords: ["notifications.paneFlashDoubleBlink", "pane", "flash", "double", "blink", "pulse"],
+                defaultValue: NotificationPaneFlashSettings.defaultDoubleBlink,
+                defaultsKey: NotificationPaneFlashSettings.doubleBlinkKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "paneFlashOnTyping",
+                settingsKey: "notifications.paneFlashOnTyping",
+                title: {
+                    String(localized: "settings.notifications.paneFlashOnTyping.title", defaultValue: "Flash While Typing")
+                },
+                sectionTitle: app,
+                keywords: ["notifications.paneFlashOnTyping", "pane", "flash", "typing", "notification"],
+                defaultValue: NotificationPaneFlashSettings.defaultOnTyping,
+                defaultsKey: NotificationPaneFlashSettings.onTypingKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "sendAnonymousTelemetry",
                 settingsKey: "app.sendAnonymousTelemetry",
                 title: {
@@ -400,15 +476,7 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
-                commandId: commandIdPrefix + "warnBeforeClosingTab",
-                settingsKey: "app.warnBeforeClosingTab",
-                title: {
-                    String(localized: "settings.app.warnBeforeClosingTab", defaultValue: "Warn Before Closing Tab")
-                },
-                sectionTitle: app,
-                keywords: ["app.warnBeforeClosingTab", "warn", "close", "tab", "confirmation", "cmd-w"],
-                defaultValue: AppCatalogSection().warnBeforeClosingTab.defaultValue,
-                defaultsKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey
+                userFacing: SettingCatalog().app.warnBeforeClosingTab
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "warnBeforeClosingTabXButton",
@@ -433,26 +501,16 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
-                commandId: commandIdPrefix + "hideTabCloseButton",
-                settingsKey: "app.hideTabCloseButton",
-                title: {
-                    String(localized: "settings.app.hideTabCloseButton", defaultValue: "Hide Tab Close Button")
-                },
-                sectionTitle: app,
-                keywords: ["app.hideTabCloseButton", "hide", "close", "tab", "x", "button"],
-                defaultValue: AppCatalogSection().hideTabCloseButton.defaultValue,
-                defaultsKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey
+                userFacing: SettingCatalog().app.warnBeforeClosingWorkspace
             ),
             CommandPaletteSettingToggleDescriptor(
-                commandId: commandIdPrefix + "renameSelectsExistingName",
-                settingsKey: "app.renameSelectsExistingName",
-                title: {
-                    String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name")
-                },
-                sectionTitle: app,
-                keywords: ["app.renameSelectsExistingName", "rename", "select", "name", "title", "command", "palette"],
-                defaultValue: AppCatalogSection().renameSelectsExistingName.defaultValue,
-                defaultsKey: AppCatalogSection().renameSelectsExistingName.userDefaultsKey
+                userFacing: SettingCatalog().app.warnBeforeClosingWindow
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                userFacing: SettingCatalog().app.hideTabCloseButton
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                userFacing: SettingCatalog().app.renameSelectsExistingName
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "commandPaletteSearchesAllSurfaces",
@@ -786,20 +844,6 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
-                commandId: commandIdPrefix + "rightSidebarDock",
-                settingsKey: "betaFeatures.dock",
-                title: {
-                    String(localized: "settings.betaFeatures.dock", defaultValue: "Dock")
-                },
-                sectionTitle: beta,
-                keywords: ["betaFeatures.dock", "dock", "right", "sidebar", "beta", "terminal", "controls"],
-                defaultValue: RightSidebarBetaFeatureSettings.defaultDockEnabled,
-                defaultsKey: RightSidebarBetaFeatureSettings.dockEnabledKey,
-                didSet: { _, _, notificationCenter in
-                    notificationCenter.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
-                }
-            ),
-            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "claudeCodeIntegration",
                 settingsKey: "automation.claudeCodeIntegration",
                 title: {
@@ -810,6 +854,7 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultValue: IntegrationsCatalogSection().claudeCodeHooksEnabled.defaultValue,
                 defaultsKey: IntegrationsCatalogSection().claudeCodeHooksEnabled.userDefaultsKey
             ),
+            CommandPaletteSettingToggleDescriptor(commandId: commandIdPrefix + "piIntegration", settingsKey: "automation.piIntegration", title: { String(localized: "settings.automation.pi", defaultValue: "Pi Integration") }, sectionTitle: automation, keywords: ["automation.piIntegration", "pi", "hooks", "agent", "integration"], defaultValue: IntegrationsCatalogSection().piHooksEnabled.defaultValue, defaultsKey: IntegrationsCatalogSection().piHooksEnabled.userDefaultsKey),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "suppressSubagentNotifications",
                 settingsKey: "automation.suppressSubagentNotifications",
@@ -832,6 +877,17 @@ enum CommandPaletteSettingsToggleCommands {
                 ],
                 defaultValue: IntegrationsCatalogSection().suppressSubagentNotifications.defaultValue,
                 defaultsKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "agentAutoResume",
+                settingsKey: "automation.agentAutoResume",
+                title: {
+                    String(localized: "settings.automation.agentAutoResume", defaultValue: "Auto-Resume Agents After Errors")
+                },
+                sectionTitle: automation,
+                keywords: ["automation.agentAutoResume", "auto", "resume", "continue", "retry", "capacity", "overloaded", "agent", "error"],
+                defaultValue: AutomationCatalogSection().agentAutoResume.defaultValue,
+                defaultsKey: AutomationCatalogSection().agentAutoResume.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "cursorIntegration",
@@ -968,7 +1024,7 @@ enum CommandPaletteSettingsToggleCommands {
                     SystemWideHotkeySettings.setEnabled(newValue, defaults: defaults)
                 }
             ),
-        ]
+        ] + [sidebarAgentUsageDescriptor(sectionTitle: sidebar, isAvailable: sidebarDetailsAvailable)]
     }()
 }
 

@@ -129,7 +129,7 @@ public struct RemoteHostReachabilityProbe: RemoteHostReachabilityProbing {
             guard !trimmed.isEmpty else { continue }
             arguments += ["-o", trimmed]
         }
-        arguments.append(trimmedDestination)
+        arguments += ["--", trimmedDestination]
 
         guard let output = await runSSHConfigResolution(
             arguments: arguments,
@@ -147,7 +147,7 @@ public struct RemoteHostReachabilityProbe: RemoteHostReachabilityProbing {
             if let sshConfigFile, !sshConfigFile.isEmpty {
                 jumpArguments += ["-F", sshConfigFile]
             }
-            jumpArguments.append(jump.destination)
+            jumpArguments += ["--", jump.destination]
             guard let jumpOutput = await runSSHConfigResolution(
                 arguments: jumpArguments,
                 commandRunner: commandRunner

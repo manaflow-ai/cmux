@@ -1,7 +1,23 @@
 import AppKit
+import Carbon.HIToolbox
 import GhosttyKit
 import Testing
 @testable import CmuxTerminal
+
+@_silgen_name("cmux_test_ghostty_surface_key_reset")
+private func cmuxTestGhosttySurfaceKeyReset()
+
+@_silgen_name("cmux_test_ghostty_surface_key_was_called")
+private func cmuxTestGhosttySurfaceKeyWasCalled() -> Bool
+
+@_silgen_name("cmux_test_ghostty_surface_key_mods")
+private func cmuxTestGhosttySurfaceKeyMods() -> Int32
+
+@_silgen_name("cmux_test_ghostty_surface_key_unshifted_codepoint")
+private func cmuxTestGhosttySurfaceKeyUnshiftedCodepoint() -> UInt32
+
+@_silgen_name("cmux_test_ghostty_surface_key_text")
+private func cmuxTestGhosttySurfaceKeyText() -> UnsafePointer<CChar>
 
 @MainActor
 @Suite(.serialized)
@@ -89,13 +105,76 @@ struct TerminalSurfaceExplicitInputTests {
         )
     }
 
+    @Test func genericCtrlLetterParserRecognizesPlusAndDashForms() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+
+        for spelling in ["ctrl+p", "ctrl-p", "control+p"] {
+            let event = fixture.surface.pendingKeyEvent(for: spelling)
+            #expect(event?.keycode == UInt32(kVK_ANSI_P))
+            #expect(event?.mods.rawValue == GHOSTTY_MODS_CTRL.rawValue)
+        }
+        #expect(fixture.surface.pendingKeyEvent(for: "ctrl+1") == nil)
+    }
+
+    @Test func syntheticCtrlLetterProvidesGhosttyEncoderTextAndCodepoint() {
+        let runtimeSurface = allocatedRuntimeSurface()
+        let fixture = makeFixture(runtimeSurface: runtimeSurface)
+        defer {
+            fixture.surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+        cmuxTestGhosttySurfaceKeyReset()
+
+        #expect(fixture.surface.sendNamedKey("ctrl+p") == .sent)
+        #expect(cmuxTestGhosttySurfaceKeyWasCalled())
+        #expect(cmuxTestGhosttySurfaceKeyMods() == Int32(GHOSTTY_MODS_CTRL.rawValue))
+        #expect(cmuxTestGhosttySurfaceKeyUnshiftedCodepoint() == UInt32("p".unicodeScalars.first!.value))
+        #expect(String(cString: cmuxTestGhosttySurfaceKeyText()) == "p")
+    }
+
     @Test func pasteTextNotifiesPaneHostBeforeQueueingOnAColdSurface() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
 
-        #expect(fixture.surface.sendText("hello"))
+        #expect(fixture.surface.sendTextResult("hello") == .queued)
 
         #expect(fixture.paneHost.explicitInputCount == 1)
+    }
+
+    @Test func pasteReportsClipboardDeferralAndRetainsOneReplay() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.nativeView.shouldDeferRuntimeInput = true
+
+        #expect(fixture.surface.sendTextResult("literal\n世界") == .queued)
+        #expect(fixture.nativeView.deferredRuntimeInputs.count == 1)
+        #expect(fixture.surface.pendingSocketInputBytes == 0)
+
+        fixture.nativeView.shouldDeferRuntimeInput = false
+        fixture.nativeView.deferredRuntimeInputs.removeFirst()()
+        #expect(fixture.surface.pendingSocketInputBytes == "literal\n世界".utf8.count)
+    }
+
+    @Test func pasteReportsQueueFullWithoutAcceptingText() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.pendingSocketInputBytes = fixture.surface.maxPendingSocketInputBytes
+        var accepted = 0
+        fixture.surface.onExplicitInput = { accepted += 1 }
+
+        #expect(fixture.surface.sendTextResult("literal\n世界") == .inputQueueFull)
+        #expect(fixture.surface.pendingSocketInputBytes == fixture.surface.maxPendingSocketInputBytes)
+        #expect(accepted == 0)
+    }
+
+    @Test func pasteReportsClosedSurfaceWithoutQueueing() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.beginPortalCloseLifecycle(reason: "test.closed")
+
+        #expect(fixture.surface.sendTextResult("literal\n世界") == .surfaceUnavailable)
+        #expect(fixture.surface.pendingSocketInputBytes == 0)
     }
 
     @Test func parsedInputNotifiesPaneHostBeforeQueueingOnAColdSurface() {
@@ -297,7 +376,7 @@ struct TerminalSurfaceExplicitInputTests {
                 runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator(),
                 restoreSpawnScheduler: TerminalSurfaceRestoreSpawnScheduler(interSpawnDelay: .zero),
                 runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
-                    agentCommandShimTemporaryDirectory: URL(
+                    agentCommandShimRootDirectory: URL(
                         fileURLWithPath: "/tmp/cmux-terminal-tests",
                         isDirectory: true
                     ),

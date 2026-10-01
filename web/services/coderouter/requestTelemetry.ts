@@ -1,8 +1,9 @@
 // One coderouter request as telemetry sees it.
 //
 // Every coderouter route runs inside `withCoderouterRoute`, which owns one
-// request context (AsyncLocalStorage), one OpenTelemetry route span (Axiom),
-// and one ClickHouse route row. The proxies and
+// request context (AsyncLocalStorage) and one OpenTelemetry route span
+// (Axiom). The proxies write the ClickHouse route row for a routed request;
+// the wrapper writes it for an unhandled throw (`route_crash`). The proxies and
 // the auth helper enrich the context as the request proceeds: the identity
 // once the route token is verified, one span per upstream attempt, and the
 // terminal outcome when the route result is known. After the response the
@@ -27,13 +28,27 @@ import { trace, type Span } from "@opentelemetry/api";
 // missing named export must degrade to "no PostHog leg", not a link error.
 import * as analytics from "./analytics";
 import type { CoderouterRawEvent } from "./analytics";
+import {
+  errorCauseDetail,
+  errorCauseKey,
+  safeErrorCause,
+  type SafeErrorCause,
+} from "./errorCause";
 import { errorSummary, exceptionEvent, scrubTelemetryText } from "./exceptionEvent";
+import {
+  classifyCoderouterFault,
+  type CoderouterFault,
+  type CoderouterOutcome,
+} from "./faultClassification";
 import {
   addCoderouterBreadcrumb,
   reportCoderouterFailure,
   runWithCoderouterFailureScope,
 } from "./observability";
 import type { RouteTokenIdentity } from "./routeTokenAuth";
+// Namespace import for the same reason as `./analytics`; it also keeps the
+// ledger <-> telemetry import cycle limited to call-time references.
+import * as usageLedger from "./usageLedger";
 import {
   TRACE_ID_RESPONSE_HEADER,
   forceFlushTraces,
@@ -44,8 +59,16 @@ import {
 
 /** Ledger request id, echoed on every coderouter response. */
 export const CODEROUTER_REQUEST_ID_HEADER = "x-coderouter-request-id";
+/**
+ * Vercel may strip or rewrite `Server-Timing` at the edge, so every coderouter
+ * response carries the same standards-formatted value under this header too.
+ */
+export const CODEROUTER_SERVER_TIMING_HEADER = "x-coderouter-server-timing";
 /** Marker for proxy helpers invoked outside a route context, such as tests. */
 export const UNSCOPED_CODEROUTER_REQUEST_ID = "unscoped";
+export { classifyCoderouterFault };
+export type { CoderouterFault, CoderouterOutcome };
+
 /** Nginx's conventional status for a request closed by the client. */
 const CLIENT_CLOSED_REQUEST_STATUS = 499;
 
@@ -61,20 +84,40 @@ export type CoderouterSurface =
   | "claude_upstream"
   | "vm_usage"
   | "vm_reflection"
+  | "vm_reflection_name"
   | "analytics"
   | "health";
 
-export type CoderouterOutcome = {
-  readonly outcome: string;
-  readonly failureStage: string;
-  readonly status: number;
-  readonly provider?: string;
-  readonly agent?: string;
-  readonly attempts?: number;
-  readonly refreshRetries?: number;
-  readonly upstreamKind?: string;
-  readonly upstreamAccountId?: string;
-  readonly responseStreamed?: boolean;
+/**
+ * The provider a surface routes to, for crash attribution before any proxy
+ * recorded one. Control-plane surfaces are `control_plane`.
+ */
+export function coderouterSurfaceProvider(surface: CoderouterSurface): string {
+  switch (surface) {
+    case "responses":
+    case "models":
+      return "codex";
+    case "messages":
+    case "count_tokens":
+    case "claude_upstream":
+      return "claude";
+    case "opencode_config":
+    case "opencode_proxy":
+      return "opencode";
+    default:
+      return "control_plane";
+  }
+}
+
+/**
+ * Identity from a VM authorization whose signature, audience and lifetime
+ * verified, before the database confirmed the machine is live and owned by
+ * the team. Used only to attribute a crash inside that database check.
+ */
+export type CoderouterSignedVmClaims = {
+  readonly teamId: string;
+  readonly vmId: string;
+  readonly stackUserId: string;
 };
 
 export type CoderouterSpanInput = {
@@ -104,10 +147,17 @@ export type CoderouterRequestContext = {
   readonly startedAt: number;
   readonly startedAtEpochMs: number;
   readonly vercelRequestId?: string;
+  /** The provider this route serves, for attributing a crash. */
+  readonly provider: string;
   identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId" | "poolId">;
   authMode?: "api_key" | "route_token" | "control_plane";
   /** Stack user id for control-plane routes (no route token). */
   userId?: string;
+  /** Set when credential authentication started, so a crash names its stage. */
+  authStarted?: boolean;
+  signedVmClaims?: CoderouterSignedVmClaims;
+  /** A ledger `route_events` row was already written for this request. */
+  routeEventRecorded?: boolean;
   outcome?: CoderouterOutcome;
   readonly spans: RecordedSpan[];
   traceId?: string;
@@ -137,6 +187,7 @@ export function newCoderouterRequestContext(input: {
   readonly surface: CoderouterSurface;
   readonly route: string;
   readonly requestId?: string;
+  readonly provider?: string;
 }): CoderouterRequestContext {
   return {
     // Same grammar as `newLedgerRequestId` (a UUID); minted here so this
@@ -148,6 +199,7 @@ export function newCoderouterRequestContext(input: {
     startedAt: performance.now(),
     startedAtEpochMs: Date.now(),
     vercelRequestId: input.request.headers.get("x-vercel-id")?.slice(0, 120) ?? undefined,
+    provider: input.provider ?? coderouterSurfaceProvider(input.surface),
     spans: [],
   };
 }
@@ -182,6 +234,24 @@ export function recordCoderouterIdentity(
   }
 }
 
+/** Marks the start of credential authentication on the active request. */
+export function recordCoderouterAuthStarted(): void {
+  const context = storage.getStore();
+  if (context) context.authStarted = true;
+}
+
+/** Records signature-verified VM claims before the ownership lookup runs. */
+export function recordCoderouterSignedVmClaims(claims: CoderouterSignedVmClaims): void {
+  const context = storage.getStore();
+  if (context) context.signedVmClaims = { ...claims };
+}
+
+/** Called by the ledger writer so a later crash cannot write a second row. */
+export function markCoderouterRouteEventRecorded(): void {
+  const context = storage.getStore();
+  if (context) context.routeEventRecorded = true;
+}
+
 export function recordCoderouterUser(userId: string): void {
   const context = storage.getStore();
   if (context) context.userId = userId;
@@ -204,6 +274,8 @@ export function recordCoderouterOutcome(outcome: CoderouterOutcome): void {
       "cmux.coderouter.agent": outcome.agent,
       "cmux.coderouter.attempts": outcome.attempts,
       "cmux.coderouter.refresh_retries": outcome.refreshRetries,
+      "cmux.coderouter.held_ms": outcome.heldMs,
+      "cmux.coderouter.hold_count": outcome.holdCount,
       "cmux.coderouter.upstream_kind": outcome.upstreamKind,
       "cmux.coderouter.response_streamed": outcome.responseStreamed,
     });
@@ -254,44 +326,6 @@ export async function spanned<T>(
   }
 }
 
-// Fault classification.
-
-export type CoderouterFault = "none" | "caller" | "tenant" | "upstream" | "operator";
-
-/**
- * Whose fault a terminal outcome is. Only `operator` pages anyone: RDS, KMS,
- * config and crashes are ours. `upstream` is a provider outage, rate limit or
- * bad provider catalog we failed over on and still lost. `tenant` is a team
- * with no usable account (none added, all cooling down). `caller` is a bad
- * token or a client error the guest must fix.
- */
-export function classifyCoderouterFault(outcome: CoderouterOutcome): CoderouterFault {
-  const { status } = outcome;
-  if (status < 400) return "none";
-  if (outcome.outcome === "client_cancelled") return "caller";
-  if (outcome.outcome === "unauthorized" || (status < 500 && status !== 429)) return "caller";
-  switch (outcome.outcome) {
-    case "route_crash":
-      return "operator";
-    case "provider_unavailable":
-      return outcome.failureStage === "upstream_transport" ||
-          outcome.failureStage === "upstream_response"
-        ? "upstream"
-        : "operator";
-    case "no_usable_account":
-      return outcome.failureStage === "credential_refresh" || outcome.failureStage === "upstream_transport"
-        ? "upstream"
-        : "tenant";
-    case "upstream_error":
-      return "upstream";
-    case "invalid_provider":
-    case "unknown_provider":
-      return "upstream";
-    default:
-      return status >= 500 ? "operator" : "caller";
-  }
-}
-
 // PostHog event builders.
 
 /**
@@ -309,9 +343,10 @@ export function traceEvents(
     : context.outcome;
   const fault = classifyCoderouterFault(outcome);
   const shouldEmitException = fault !== "none" && fault !== "caller";
-  const teamId = context.identity?.teamId;
-  const userId = context.identity?.stackUserId ?? context.userId;
-  const common = coderouterCommonProperties(context, input.status, outcome, fault);
+  const attribution = coderouterAttribution(context);
+  const teamId = attribution.teamId;
+  const userId = attribution.stackUserId;
+  const common = coderouterCommonProperties(context, input.status, outcome, fault, attribution);
   const traceIsError = input.status >= 400 || outcome.outcome !== "success";
   const events: CoderouterRawEvent[] = [
     {
@@ -332,6 +367,7 @@ function coderouterCommonProperties(
   status: number,
   outcome: CoderouterOutcome,
   fault: CoderouterFault,
+  attribution: CoderouterAttribution,
 ): Record<string, string | number | boolean> {
   return {
     coderouter_request_id: context.requestId,
@@ -344,9 +380,39 @@ function coderouterCommonProperties(
     coderouter_status: status,
     ...(context.traceId ? { trace_id: context.traceId } : {}),
     ...(context.vercelRequestId ? { vercel_request_id: context.vercelRequestId } : {}),
-    ...(context.identity?.vmId ? { coderouter_vm_id: context.identity.vmId } : {}),
+    ...(attribution.vmId ? { coderouter_vm_id: attribution.vmId } : {}),
+    coderouter_identity_source: attribution.source,
     coderouter_auth_mode: context.authMode ?? coderouterAuthMode(context.identity),
   };
+}
+
+export type CoderouterAttribution = {
+  readonly teamId?: string;
+  readonly stackUserId?: string;
+  readonly vmId?: string;
+  readonly apiKeyId?: string | null;
+  /**
+   * `authenticated`: the credential was fully verified. `signed_vm_claims`:
+   * only the VM authorization signature verified (the request crashed in the
+   * ownership check). `control_plane`: a signed-in dashboard user.
+   */
+  readonly source: "authenticated" | "signed_vm_claims" | "control_plane" | "none";
+};
+
+/** Who a request belongs to, as far as authentication got before it ended. */
+export function coderouterAttribution(context: CoderouterRequestContext): CoderouterAttribution {
+  if (context.identity) {
+    return {
+      teamId: context.identity.teamId,
+      stackUserId: context.identity.stackUserId,
+      vmId: context.identity.vmId ?? undefined,
+      apiKeyId: context.identity.apiKeyId ?? null,
+      source: "authenticated",
+    };
+  }
+  if (context.signedVmClaims) return { ...context.signedVmClaims, source: "signed_vm_claims" };
+  if (context.userId) return { stackUserId: context.userId, source: "control_plane" };
+  return { source: "none" };
 }
 
 function coderouterTraceProperties(
@@ -367,6 +433,8 @@ function coderouterTraceProperties(
     ...(shouldEmitException ? { $ai_error: `${outcome.outcome}/${outcome.failureStage}` } : {}),
     coderouter_attempts: outcome.attempts ?? 0,
     coderouter_refresh_retries: outcome.refreshRetries ?? 0,
+    coderouter_held_ms: outcome.heldMs ?? 0,
+    coderouter_hold_count: outcome.holdCount ?? 0,
     coderouter_response_streamed: outcome.responseStreamed === true,
     ...(outcome.upstreamKind ? { upstream_kind: outcome.upstreamKind } : {}),
     ...(outcome.upstreamAccountId ? { upstream_account_id: outcome.upstreamAccountId } : {}),
@@ -413,17 +481,50 @@ function appendCoderouterExceptionEvent(
   const summary = input.error !== undefined
     ? errorSummary(input.error)
     : `coderouter ${outcome.outcome} (${outcome.failureStage}) HTTP ${input.status}`;
+  const cause = input.error !== undefined ? safeErrorCause(input.error) : undefined;
   events.push(exceptionEvent({
-    type: input.error instanceof Error ? input.error.name : `coderouter_${outcome.outcome}`,
+    type: cause ? cause.errorClass : `coderouter_${outcome.outcome}`,
+    typeIsSafeClass: cause !== undefined,
+    detail: cause ? errorCauseDetail(cause) : undefined,
     value: summary,
-    fingerprint: `coderouter:${outcome.outcome}:${outcome.failureStage}:${outcome.provider ?? "unknown"}`,
+    fingerprint: coderouterExceptionFingerprint(context, outcome, cause),
     level: fault === "operator" ? "error" : "warning",
     error: input.error,
     handled: input.error === undefined,
     userId,
     teamId,
-    properties: { ...common, $ai_trace_id: context.requestId },
+    properties: {
+      ...common,
+      ...(cause ? safeCauseProperties(cause) : {}),
+      coderouter_route: context.route,
+      $ai_trace_id: context.requestId,
+    },
   }));
+}
+
+/**
+ * One PostHog issue per condition. A crash names the route, the provider and
+ * the cause (SQLSTATE, transport code or class), so a `uuid = text` query
+ * error in VM auth is its own issue, not `handler:unknown`.
+ */
+function coderouterExceptionFingerprint(
+  context: CoderouterRequestContext,
+  outcome: CoderouterOutcome,
+  cause: SafeErrorCause | undefined,
+): string {
+  const provider = outcome.provider ?? context.provider;
+  if (cause) return `coderouter:${outcome.outcome}:${context.route}:${provider}:${errorCauseKey(cause)}`;
+  return `coderouter:${outcome.outcome}:${outcome.failureStage}:${provider}`;
+}
+
+function safeCauseProperties(cause: SafeErrorCause): Record<string, string> {
+  return {
+    coderouter_error_class: cause.errorClass,
+    ...(cause.causeClass ? { coderouter_error_cause_class: cause.causeClass } : {}),
+    ...(cause.dbSqlstate ? { coderouter_db_sqlstate: cause.dbSqlstate } : {}),
+    ...(cause.dbOperation ? { coderouter_db_operation: cause.dbOperation } : {}),
+    ...(cause.errorCode ? { coderouter_error_code: cause.errorCode } : {}),
+  };
 }
 
 function coderouterAuthMode(
@@ -434,12 +535,26 @@ function coderouterAuthMode(
   return "none";
 }
 
+/**
+ * `auth` when the throw came after credential authentication started but
+ * before it produced an identity (the 2026-09-24 incident), else `handler`.
+ */
+function crashStage(context: CoderouterRequestContext): "auth" | "handler" {
+  if (context.identity || context.userId) return "handler";
+  return context.authStarted ? "auth" : "handler";
+}
+
 function derivedOutcome(
   context: CoderouterRequestContext,
   input: { readonly status: number; readonly error?: unknown },
 ): CoderouterOutcome {
   if (input.error !== undefined) {
-    return { outcome: "route_crash", failureStage: "handler", status: input.status };
+    return {
+      outcome: "route_crash",
+      failureStage: crashStage(context),
+      status: input.status,
+      provider: context.provider,
+    };
   }
   const { status } = input;
   const outcome = status < 400
@@ -477,6 +592,11 @@ export type CoderouterRouteOptions = {
    */
   readonly unavailable: (request: Request) => Response;
   readonly telemetry?: CoderouterRouteTelemetryOptions;
+  /**
+   * The provider a crash is attributed to when the surface serves more than
+   * one (`/v1/models`). Defaults to `coderouterSurfaceProvider(surface)`.
+   */
+  readonly provider?: (request: Request) => string;
 };
 
 const routeTelemetrySampledAt = new Map<string, number>();
@@ -512,7 +632,12 @@ export function withCoderouterRoute<Context = unknown>(
   handler: CoderouterRouteHandler<Context>,
 ): (request: Request, context?: Context) => Promise<Response> {
   return async (request, routeContext) => {
-    const context = newCoderouterRequestContext({ request, surface: options.surface, route: options.route });
+    const context = newCoderouterRequestContext({
+      request,
+      surface: options.surface,
+      route: options.route,
+      provider: routeProvider(options, request),
+    });
     return runWithCoderouterRequest(context, () =>
       runWithCoderouterFailureScope(() =>
         withApiRouteSpan(
@@ -542,15 +667,21 @@ export function withCoderouterRoute<Context = unknown>(
                 });
               } else {
                 thrown = error;
+                const cause = safeErrorCause(error);
                 reportCoderouterFailure("route_crash", error, {
                   surface: options.surface,
                   route: options.route,
+                  provider: context.provider,
                   request_id: context.requestId,
+                  error_class: cause.errorClass,
+                  cause_key: errorCauseKey(cause),
+                  ...(cause.dbSqlstate ? { db_sqlstate: cause.dbSqlstate } : {}),
+                  ...(cause.dbOperation ? { db_operation: cause.dbOperation } : {}),
                 }, { emitPostHogException: false });
                 response = options.unavailable(request);
               }
             }
-            response = withRequestIdHeader(response, context.requestId, context.traceId);
+            response = withRequestHeaders(response, context);
             finalize(context, span, response, thrown, options.telemetry);
             return response;
           },
@@ -561,23 +692,52 @@ export function withCoderouterRoute<Context = unknown>(
   };
 }
 
+function routeProvider(options: CoderouterRouteOptions, request: Request): string {
+  if (!options.provider) return coderouterSurfaceProvider(options.surface);
+  try {
+    return options.provider(request) || coderouterSurfaceProvider(options.surface);
+  } catch {
+    return coderouterSurfaceProvider(options.surface);
+  }
+}
+
 function isCallerCancellation(request: Request): boolean {
   // Only the request signal identifies a client disconnect. An AbortError from
   // an internal timeout or provider must remain visible as a server failure.
   return request.signal.aborted;
 }
 
-function withRequestIdHeader(response: Response, requestId: string, traceId?: string): Response {
+function withRequestHeaders(response: Response, context: CoderouterRequestContext): Response {
+  const headers: [string, string][] = [[CODEROUTER_REQUEST_ID_HEADER, context.requestId]];
+  if (context.traceId) headers.push([TRACE_ID_RESPONSE_HEADER, context.traceId]);
+  // A route that reports its own phases keeps them.
+  if (!response.headers.has(CODEROUTER_SERVER_TIMING_HEADER)) {
+    const timing = serverTiming(context);
+    headers.push(["server-timing", timing], [CODEROUTER_SERVER_TIMING_HEADER, timing]);
+  }
   try {
-    response.headers.set(CODEROUTER_REQUEST_ID_HEADER, requestId);
-    if (traceId) response.headers.set(TRACE_ID_RESPONSE_HEADER, traceId);
+    for (const [name, value] of headers) response.headers.set(name, value);
     return response;
   } catch {
-    const headers = new Headers(response.headers);
-    headers.set(CODEROUTER_REQUEST_ID_HEADER, requestId);
-    if (traceId) headers.set(TRACE_ID_RESPONSE_HEADER, traceId);
-    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+    const copy = new Headers(response.headers);
+    for (const [name, value] of headers) copy.set(name, value);
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers: copy });
   }
+}
+
+/**
+ * `Server-Timing` for the phases recorded as spans, summed by name, plus
+ * `total`: the time until the response headers, which for a stream is the
+ * time to first byte rather than the full body.
+ */
+export function serverTiming(context: CoderouterRequestContext, now = performance.now()): string {
+  const phases = new Map<string, number>();
+  for (const span of context.spans) {
+    const name = span.name.replace(/[^A-Za-z0-9_-]/g, "_");
+    phases.set(name, (phases.get(name) ?? 0) + span.durationMs);
+  }
+  phases.set("total", Math.max(0, now - context.startedAt));
+  return [...phases].map(([name, ms]) => `${name};dur=${ms.toFixed(1)}`).join(", ");
 }
 
 function finalize(
@@ -593,6 +753,7 @@ function finalize(
     ? derivedOutcome(context, { status, error: thrown })
     : context.outcome;
   const fault = classifyCoderouterFault(outcome);
+  const attribution = coderouterAttribution(context);
   setSpanAttributes(span, {
     "cmux.coderouter.surface": context.surface,
     "cmux.coderouter.request_success": status < 400,
@@ -600,10 +761,13 @@ function finalize(
     "cmux.coderouter.fault": fault,
     "cmux.coderouter.outcome": outcome.outcome,
     "cmux.coderouter.failure_stage": outcome.failureStage,
-    "cmux.coderouter.team_id": context.identity?.teamId,
-    "cmux.user_id": context.identity?.stackUserId ?? context.userId,
+    "cmux.coderouter.team_id": attribution.teamId,
+    "cmux.coderouter.vm_id": attribution.vmId,
+    "cmux.coderouter.identity_source": attribution.source,
+    "cmux.user_id": attribution.stackUserId,
     "cmux.vercel.request_id": context.vercelRequestId,
   });
+  if (thrown !== undefined) recordRouteCrash(context, span, outcome, attribution, durationMs, thrown);
   addCoderouterBreadcrumb("request", "Route finished", {
     surface: context.surface,
     status,
@@ -618,6 +782,58 @@ function finalize(
     // An error-heavy instance can lose its deferred span export; flush now
     // so the Axiom trace behind the request id exists when someone looks.
     scheduleTraceFlush();
+  }
+}
+
+/**
+ * The crash leg of the ledger. A proxy normally writes the route row; a throw
+ * skips that, and before 2026-09-25 left the alert cron blind to a total
+ * outage. Best effort: a ledger or span failure never changes the response.
+ */
+function recordRouteCrash(
+  context: CoderouterRequestContext,
+  span: Span,
+  outcome: CoderouterOutcome,
+  attribution: CoderouterAttribution,
+  durationMs: number,
+  thrown: unknown,
+): void {
+  try {
+    const cause = safeErrorCause(thrown);
+    setSpanAttributes(span, {
+      "cmux.coderouter.provider": outcome.provider,
+      "cmux.coderouter.error_class": cause.errorClass,
+      "cmux.coderouter.error_cause_class": cause.causeClass,
+      "cmux.coderouter.db_sqlstate": cause.dbSqlstate,
+      "cmux.coderouter.db_operation": cause.dbOperation,
+      "cmux.coderouter.error_code": cause.errorCode,
+    });
+  } catch {
+    // Span annotation is diagnostic only.
+  }
+  if (context.routeEventRecorded) return;
+  try {
+    usageLedger.recordRouteEvent({
+      requestId: context.requestId,
+      teamId: attribution.teamId,
+      stackUserId: attribution.stackUserId,
+      apiKeyId: attribution.apiKeyId ?? null,
+      vmId: attribution.vmId ?? null,
+      provider: outcome.provider ?? context.provider,
+      agent: "unknown",
+      outcome: outcome.outcome,
+      failureStage: outcome.failureStage,
+      status: outcome.status,
+      attemptCount: outcome.attempts ?? 0,
+      refreshRetryCount: outcome.refreshRetries ?? 0,
+      durationMs,
+      heldMs: outcome.heldMs,
+      holdCount: outcome.holdCount,
+      responseStreamed: false,
+    });
+  } catch {
+    // The ledger write is deferred and self-reporting; a synchronous failure
+    // here must not turn the surface's 503 into an unhandled rejection.
   }
 }
 

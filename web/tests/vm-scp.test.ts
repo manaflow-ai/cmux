@@ -32,7 +32,7 @@ describe("private SCP authentication", () => {
         return { statusCode: 0, stdout: key + " guest\n", stderr: "" };
       },
     }) } } as unknown as Freestyle;
-    const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("unused"); } });
+    const provider = new FreestyleProvider({ client: () => client });
     const endpoint = await provider.prepareSCP(vmId, key);
     expect(endpoint.host).toBe("10.4.0.7");
     expect(endpoint.username).toBe("cmux");
@@ -51,7 +51,7 @@ describe("private SCP authentication", () => {
       data: async () => ({ publicIpv6: "2602::1", vpcs: [] }),
       exec: async () => { execs++; return { statusCode: 0, stdout: key, stderr: "" }; },
     }) } } as unknown as Freestyle;
-    const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("unused"); } });
+    const provider = new FreestyleProvider({ client: () => client });
     await expect(provider.prepareSCP(vmId, key)).rejects.toThrow("private network");
     expect(execs).toBe(0);
   });

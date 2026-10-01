@@ -55,6 +55,10 @@ import {
 } from "./requestContext";
 import {
   vmArtifactUnavailableCopy,
+  vmDisplayNameCopy,
+  vmCreateCleanupPendingCopy,
+  vmGuestInstallCopy,
+  vmRecreateRequiredCopy,
   vmRequestLocale,
   vmRequiresProCopy,
   vmMemoryErrorCopy,
@@ -62,7 +66,10 @@ import {
   vmUnsupportedCopy,
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
-import { ProviderArtifactUnavailableError } from "./drivers/types";
+import { DISPLAY_NAME_MAX_LENGTH } from "./displayName";
+import { ProviderArtifactUnavailableError, ProviderMachineRecreateRequiredError, ProviderNetworkFullError } from "./drivers/types";
+import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
+import { PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE } from "./repository";
 import type { Locale } from "../../i18n/routing";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
@@ -406,6 +413,55 @@ export async function resolveVmProvisioningAccountScope(
   return scope;
 }
 
+export type VmTeamReverification =
+  | { readonly ok: true; readonly user: AuthedUser }
+  | { readonly ok: false; readonly response: Response };
+
+/**
+ * Re-authenticate the session against a team the caller named for billing.
+ *
+ * `withAuthedVmApiRoute` verifies with the header/query team only, and Stack
+ * returns just the selected team unless a team was requested at verify time.
+ * So a team that arrives in the JSON body is absent from `user.teams`, and
+ * entitlements would refuse a genuine member with `vm_billing_team_not_found`.
+ *
+ * Every route that accepts a body-supplied billing team must call this before
+ * resolving entitlements, and must pass the same team on to the scope resolver:
+ * this helper only widens the team list, it decides nothing. Membership is
+ * decided downstream in `resolveBillingContext`, which searches the refreshed
+ * user's teams and refuses a non-member with `vm_billing_team_not_found`.
+ *
+ * The guard is a cost guard, not a security guard. A team already in the cached
+ * membership needs no second verify; only a team outside it pays for one. That
+ * second verify takes the same `completeTeamList` path as the first (one
+ * `listTeams` call for these callers), so no route here inherits the team
+ * picker's full pagination over every Stack team.
+ *
+ * `measure` exists for callers that record this second verify in their own
+ * timing breakdown.
+ */
+export async function reverifyVmRequestForTeam(input: {
+  readonly request: Request;
+  readonly user: AuthedUser;
+  readonly requestedBillingTeamId: string | null | undefined;
+  readonly authErrorLabel: string;
+  readonly measure?: (run: () => Promise<AuthedUser | null>) => Promise<AuthedUser | null>;
+}): Promise<VmTeamReverification> {
+  const { requestedBillingTeamId } = input;
+  if (!requestedBillingTeamId || input.user.teamIds.includes(requestedBillingTeamId)) {
+    return { ok: true, user: input.user };
+  }
+  const run = () => verifyRequest(input.request, { requestedTeamId: requestedBillingTeamId });
+  let refreshedUser: AuthedUser | null;
+  try {
+    refreshedUser = input.measure ? await input.measure(run) : await run();
+  } catch (error) {
+    return { ok: false, response: authProviderErrorResponse(error, input.authErrorLabel) };
+  }
+  if (!refreshedUser) return { ok: false, response: unauthorized() };
+  return { ok: true, user: refreshedUser };
+}
+
 export function resolveVmRouteAccountScope(
   user: AuthedUser,
   request: Request,
@@ -470,6 +526,23 @@ export async function vmRequiresProResponse(locale: Locale = "en"): Promise<Resp
     action: copy.action,
     displayTitle: copy.title,
     extra: { upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
+  });
+}
+
+/**
+ * The 400 for a create or rename whose `displayName` fails `normalizedDisplayName`.
+ * A person typed that name, so the copy comes from the `vmErrors.displayName`
+ * catalog in the request locale; `details.field`/`maxLength` stay machine-readable.
+ */
+export async function invalidVmDisplayNameResponse(request: Request): Promise<Response> {
+  const copy = await vmDisplayNameCopy(vmRequestLocale(request), { maxLength: DISPLAY_NAME_MAX_LENGTH });
+  return vmErrorResponse({
+    error: "vm_invalid_request",
+    status: 400,
+    message: copy.message,
+    action: copy.action,
+    displayTitle: copy.title,
+    details: { field: "displayName", maxLength: DISPLAY_NAME_MAX_LENGTH },
   });
 }
 
@@ -734,6 +807,19 @@ export const vmWorkflowErrorResponders = {
     if (providerArtifactUnavailable(error.cause)) {
       return vmArtifactUnavailableResponse(error, context.locale);
     }
+    if (providerMachineRecreateRequired(error.cause)) {
+      return vmRecreateRequiredResponse(error, context.locale);
+    }
+    if (providerCauseIs(error.cause, ProviderNetworkFullError)) {
+      return vmNetworkFullResponse(error);
+    }
+    if (isProviderCreateCleanupError(error.cause)) {
+      return vmCreateCleanupPendingResponse(context.locale);
+    }
+    const guestInstall = guestCliInstallFailure(error.cause);
+    if (guestInstall) {
+      return vmGuestInstallFailureResponse(error, context.locale, guestInstall);
+    }
     return vmProviderOperationErrorResponse(error);
   },
   VmAccountDeletionInProgressError: (error) =>
@@ -936,6 +1022,9 @@ export async function respondVmWorkflowError(
   context: VmWorkflowErrorResponderContext,
   overrides?: VmWorkflowErrorOverrides,
 ): Promise<Response | null> {
+  if (error._tag === "VmCreateFailedError" && error.code === PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE) {
+    return vmCreateCleanupPendingResponse(context.locale);
+  }
   const responders: VmWorkflowErrorResponders = overrides
     ? { ...vmWorkflowErrorResponders, ...overrides }
     : vmWorkflowErrorResponders;
@@ -958,14 +1047,89 @@ export async function vmWorkflowErrorResponse(
   return respondVmWorkflowError(error, { locale: options.locale ?? "en" }, options.overrides);
 }
 
-/** Match typed artifact failures even when the provider wraps the original cause. */
-function providerArtifactUnavailable(cause: unknown): boolean {
+/** Match a typed provider failure even when the provider wraps the original cause. */
+function providerCauseIs(cause: unknown, type: abstract new (...args: never[]) => Error): boolean {
   let current = cause;
   for (let depth = 0; depth < 8 && current; depth += 1) {
-    if (current instanceof ProviderArtifactUnavailableError) return true;
+    if (current instanceof type) return true;
     current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
   }
   return false;
+}
+
+/** Match typed artifact failures even when the provider wraps the original cause. */
+function providerArtifactUnavailable(cause: unknown): boolean {
+  return providerCauseIs(cause, ProviderArtifactUnavailableError);
+}
+
+/** Match a machine the server can never attach, even when the provider wraps it. */
+function providerMachineRecreateRequired(cause: unknown): boolean {
+  return providerCauseIs(cause, ProviderMachineRecreateRequiredError);
+}
+
+type GuestCliInstallFailure = {
+  readonly stage?: string;
+  readonly outcome?: string;
+  readonly cleanupFailed: boolean;
+};
+const guestInstallStages = new Set(["upload", "install", "validate", "verify", "browser", "prompt", "publish"]);
+const guestInstallOutcomes = new Set(["missing_status", "invalid_status", "provider_timeout", "guest_exit", "cancelled", "transport_timeout", "transport", "deadline"]);
+
+/** Match the typed guest installer failure without exposing its English diagnostics. */
+function guestCliInstallFailure(cause: unknown): GuestCliInstallFailure | null {
+  let current = cause;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (typeof current === "object") {
+      const record = current as {
+        _tag?: unknown;
+        stage?: unknown;
+        outcome?: unknown;
+        cleanupCause?: unknown;
+        cause?: unknown;
+      };
+      if (record._tag === "GuestCliInstallError") {
+        return {
+          ...(typeof record.stage === "string" && guestInstallStages.has(record.stage) ? { stage: record.stage } : {}),
+          ...(typeof record.outcome === "string" && guestInstallOutcomes.has(record.outcome) ? { outcome: record.outcome } : {}),
+          cleanupFailed: record.cleanupCause !== undefined,
+        };
+      }
+      current = record.cause;
+    } else {
+      current = undefined;
+    }
+  }
+  return null;
+}
+
+/** Keep stage/outcome/cleanup state in operator telemetry while returning only safe copy. */
+async function vmGuestInstallFailureResponse(
+  error: VmProviderOperationError,
+  locale: Locale,
+  failure: GuestCliInstallFailure,
+): Promise<Response> {
+  const copy = await vmGuestInstallCopy(locale);
+  const phase = vmPhaseForOperation(error.operation);
+  const retryAfterSeconds = retryAfterForOperation(error.operation);
+  return vmErrorResponse({
+    error: "vm_guest_install_failed",
+    status: 502,
+    message: copy.message,
+    reason: copy.reason,
+    action: copy.action,
+    phase,
+    retryable: true,
+    retryAfterSeconds,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: true },
+    diagnostics: {
+      provider: error.provider,
+      ...(failure.stage ? { guestInstallStage: failure.stage } : {}),
+      ...(failure.outcome ? { guestInstallOutcome: failure.outcome } : {}),
+      guestInstallCleanupFailed: failure.cleanupFailed,
+    },
+  });
 }
 
 /** Keep manifest diagnostics in server error traces and return only localized setup guidance. */
@@ -981,6 +1145,63 @@ async function vmArtifactUnavailableResponse(error: VmProviderOperationError, lo
     displayTitle: copy.title,
     displayMessage: copy.message,
     details: { operation: error.operation, retryable: false },
+  });
+}
+
+/**
+ * A permanent refusal: retrying cannot help, so the answer is non-retryable
+ * with a recreate action and clients stop polling. Provider diagnostics stay
+ * in server traces.
+ */
+async function vmRecreateRequiredResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
+  const copy = await vmRecreateRequiredCopy(locale);
+  return vmErrorResponse({
+    error: "vm_recreate_required",
+    status: 409,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: false,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: false },
+  });
+}
+
+/**
+ * The owner's private network has no free address. It stays full until the
+ * owner deletes machines or revokes Macs, so this is a permanent refusal: no
+ * retryAfter, and an action that frees addresses instead of "retry".
+ */
+function vmNetworkFullResponse(error: VmProviderOperationError): Response {
+  const message = "This account's private network has no free addresses.";
+  return vmErrorResponse({
+    error: "vm_network_full",
+    status: 409,
+    message,
+    reason: "Every address in this account's private network is assigned to a machine or an enrolled Mac.",
+    action:
+      "Delete machines you no longer use with `cmux vm rm <id>`, or revoke Macs you no longer use on the " +
+      "Cloud Mac access page at https://cmux.com/dashboard/cloud, then try again.",
+    phase: vmPhaseForOperation(error.operation),
+    retryable: false,
+    displayTitle: "Private network full",
+    displayMessage: message,
+    details: { operation: error.operation, retryable: false, providerCode: "provider_network_full" },
+  });
+}
+
+async function vmCreateCleanupPendingResponse(locale: Locale): Promise<Response> {
+  const copy = await vmCreateCleanupPendingCopy(locale);
+  return vmErrorResponse({
+    error: "vm_cloud_create_cleanup_pending",
+    status: 503,
+    message: copy.message,
+    action: copy.action,
+    phase: "create",
+    retryable: false,
+    displayTitle: copy.title,
+    details: { operation: "create", cleanupPending: true, retryable: false },
   });
 }
 
@@ -1155,7 +1376,7 @@ function normalizedRetryAfterSeconds(value: number | undefined): number | undefi
 }
 
 function vmPhaseForOperation(operation: string): VmLifecyclePhase {
-  if (operation.includes("openAttach")) return "attach";
+  if (operation.includes("openAttach") || operation.includes("openCmuxRemote")) return "attach";
   if (operation.includes("openSSH")) return "ssh";
   // Before the "create" check: createTunnel/createNetwork are network setup,
   // not machine creation, and a client that read them as "create" would show

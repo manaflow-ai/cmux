@@ -75,8 +75,21 @@ extension RemoteDaemonRPCClient {
         }
     }
 
+    /// Forwards a private local Unix socket to the baked VM daemon socket.
+    /// Daemon RPC on this path carries no credential, so the local end lives
+    /// in a directory only this user can open (see
+    /// ``RemoteDaemonForwardSocketDirectory``), is removed with the
+    /// transport, and is accepted only when ssh running as this user
+    /// listens on it.
     func startViaBakedVMSocketForward() throws {
-        let localPort = try Self.allocateLoopbackPort()
+        let socketDirectory: RemoteDaemonForwardSocketDirectory
+        do {
+            socketDirectory = try RemoteDaemonForwardSocketDirectory.create()
+        } catch {
+            throw NSError(domain: "cmux.remote.daemon.rpc", code: 21, userInfo: [
+                NSLocalizedDescriptionKey: "failed to create private local daemon socket forward directory: \(error.localizedDescription)",
+            ])
+        }
         let process = Process()
         let stderrPipe = Pipe()
 
@@ -84,9 +97,9 @@ extension RemoteDaemonRPCClient {
             self.stderrPipe = stderrPipe
         }
 
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.executableURL = URL(fileURLWithPath: transportExecutableOverride ?? "/usr/bin/ssh")
         process.arguments = configuration.daemonSocketForwardArguments(
-            localPort: localPort,
+            localSocketPath: socketDirectory.socketPath,
             remoteSocketPath: Self.bakedVMDaemonSocketPath
         )
         process.environment = configuration.sshProcessEnvironment
@@ -115,6 +128,7 @@ extension RemoteDaemonRPCClient {
         do {
             try process.run()
         } catch {
+            socketDirectory.remove()
             throw NSError(domain: "cmux.remote.daemon.rpc", code: 18, userInfo: [
                 NSLocalizedDescriptionKey: "Failed to launch SSH daemon socket forward: \(error.localizedDescription)",
             ])
@@ -129,6 +143,7 @@ extension RemoteDaemonRPCClient {
             if process.isRunning {
                 process.terminate()
             }
+            socketDirectory.remove()
             throw NSError(domain: "cmux.remote.daemon.rpc", code: 19, userInfo: [
                 NSLocalizedDescriptionKey: "Failed to start SSH daemon socket forward: \(startupFailure)",
             ])
@@ -136,12 +151,16 @@ extension RemoteDaemonRPCClient {
 
         let socketHandle: FileHandle
         do {
-            socketHandle = try Self.connectLoopbackSocket(port: localPort)
+            socketHandle = try Self.connectForwardSocket(
+                path: socketDirectory.socketPath,
+                timeout: Self.socketForwardConnectTimeout
+            ) { process.isRunning }
         } catch {
             stderrPipe.fileHandleForReading.readabilityHandler = nil
             if process.isRunning {
                 process.terminate()
             }
+            socketDirectory.remove()
             throw NSError(domain: "cmux.remote.daemon.rpc", code: 20, userInfo: [
                 NSLocalizedDescriptionKey: "Failed to connect VM daemon socket forward: \(error.localizedDescription)",
             ])
@@ -165,6 +184,7 @@ extension RemoteDaemonRPCClient {
 
         stateQueue.sync {
             self.process = process
+            self.forwardSocketDirectory = socketDirectory
             self.stdinHandle = socketHandle
             self.stdoutHandle = socketHandle
             self.stderrHandle = stderrPipe.fileHandleForReading
@@ -236,56 +256,39 @@ extension RemoteDaemonRPCClient {
         configuration.transport == .ssh && configuration.skipDaemonBootstrap && configuration.daemonWebSocketEndpoint == nil
     }
 
-    static func allocateLoopbackPort() throws -> Int {
-        for _ in 0..<8 {
-            let fd = socket(AF_INET, SOCK_STREAM, 0)
-            guard fd >= 0 else { break }
-            defer { close(fd) }
-
-            var yes: Int32 = 1
-            setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
-
-            var addr = sockaddr_in()
-            addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-            addr.sin_family = sa_family_t(AF_INET)
-            addr.sin_port = in_port_t(0)
-            addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-
-            let bindResult = withUnsafePointer(to: &addr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
-                }
-            }
-            guard bindResult == 0 else { continue }
-
-            var bound = sockaddr_in()
-            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
-            let nameResult = withUnsafeMutablePointer(to: &bound) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    getsockname(fd, sockaddrPtr, &len)
-                }
-            }
-            guard nameResult == 0 else { continue }
-
-            let port = Int(UInt16(bigEndian: bound.sin_port))
-            if port > 0 {
-                return port
+    /// Connects to the forward's local Unix socket. ssh creates the socket
+    /// only once it has authenticated, which can outlast the startup grace
+    /// period, so a missing or not-yet-listening socket is retried while
+    /// `isForwarding` holds, until `timeout`.
+    static func connectForwardSocket(
+        path: String,
+        timeout: TimeInterval,
+        isForwarding: () -> Bool
+    ) throws -> FileHandle {
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            do {
+                return try connectForwardSocketOnce(path: path)
+            } catch let error as NSError where error.domain == NSPOSIXErrorDomain
+                && (error.code == Int(ENOENT) || error.code == Int(ECONNREFUSED))
+                && Date() < deadline && isForwarding() {
+                Thread.sleep(forTimeInterval: 0.05)
             }
         }
-
-        throw NSError(domain: "cmux.remote.daemon.rpc", code: 21, userInfo: [
-            NSLocalizedDescriptionKey: "failed to allocate local daemon socket forward port",
-        ])
     }
 
-    static func connectLoopbackSocket(port: Int) throws -> FileHandle {
-        guard port > 0 && port <= 65535 else {
+    /// Connects once and accepts the socket only when the listening peer
+    /// runs as this user.
+    static func connectForwardSocketOnce(path: String) throws -> FileHandle {
+        var addr = sockaddr_un()
+        let pathBytes = Array(path.utf8)
+        guard !pathBytes.isEmpty, pathBytes.count < MemoryLayout.size(ofValue: addr.sun_path) else {
             throw NSError(domain: "cmux.remote.daemon.rpc", code: 22, userInfo: [
-                NSLocalizedDescriptionKey: "invalid local daemon socket forward port \(port)",
+                NSLocalizedDescriptionKey: "invalid local daemon socket forward path",
             ])
         }
 
-        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [
                 NSLocalizedDescriptionKey: String(cString: strerror(errno)),
@@ -295,15 +298,15 @@ extension RemoteDaemonRPCClient {
         var noSigPipe: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
 
-        var addr = sockaddr_in()
-        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = UInt16(port).bigEndian
-        addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        addr.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+        addr.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &addr.sun_path) { sunPath in
+            sunPath.copyBytes(from: pathBytes)
+        }
 
         let connectResult = withUnsafePointer(to: &addr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+                connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
         guard connectResult == 0 else {
@@ -311,6 +314,15 @@ extension RemoteDaemonRPCClient {
             close(fd)
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(errorCode), userInfo: [
                 NSLocalizedDescriptionKey: String(cString: strerror(errorCode)),
+            ])
+        }
+
+        var peerUID = uid_t()
+        var peerGID = gid_t()
+        guard getpeereid(fd, &peerUID, &peerGID) == 0, peerUID == geteuid() else {
+            close(fd)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(EPERM), userInfo: [
+                NSLocalizedDescriptionKey: "local daemon socket forward is not owned by the current user",
             ])
         }
 

@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -33,9 +35,9 @@ struct CloudSidebarSurfaceRegressionTests {
         let snapshot = SidebarWorkspaceSnapshotFactory(
             workspace: workspace, settings: SidebarTabItemSettingsSnapshot(defaults: defaults), showsAgentActivity: false
         ).makeSnapshot()
-        #expect(snapshot.compactDirectoryCandidates.isEmpty)
+        #expect((snapshot.compactDirectoryCandidates + snapshot.branchDirectoryLines.flatMap(\.directoryCandidates)).contains { $0.contains("Directory unavailable") })
         #expect(snapshot.compactGitBranchSummaryText == nil)
-        #expect(snapshot.branchDirectoryLines.isEmpty)
+        #expect(snapshot.branchDirectoryLines.allSatisfy { $0.branch == nil })
         #expect(snapshot.pullRequestRows.isEmpty)
         #expect(snapshot.finderDirectoryPath == nil)
         let accessibilityLabel = snapshot.accessibilityLabel(index: 0, workspaceCount: 1)
@@ -109,7 +111,10 @@ struct CloudSidebarSurfaceRegressionTests {
             title: "terminal", detail: "/home/cloud/project", lifecycle: .running,
             agent: nil, remoteWorkspace: nil, port: nil, url: nil
         )
-        let catalog = SurfaceCatalog()
+        let service = CloudWorkspaceRenameService(environment: CloudWorkspaceRenameEnvironment(
+            workspace: { $0 == workspace.id ? workspace : nil }, workspaces: { [workspace] }
+        ))
+        let catalog = SurfaceCatalog(cloudWorkspaceRenameService: service)
         catalog.upsert(resource)
         catalog.record(SurfaceProjection(resource: resource.id, workspaceID: workspace.id, panelID: panelID))
         let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: [
@@ -133,9 +138,6 @@ struct CloudSidebarSurfaceRegressionTests {
             diskUsedMb: nil
         )
         catalog.replaceCloudState(state, resources: [resource], info: info)
-        let service = CloudWorkspaceRenameService(
-            environment: CloudWorkspaceRenameEnvironment(workspaces: { [workspace] })
-        )
         service.reconcileRemoteState(machine: machine, state: state, catalog: catalog, observation: .current)
         #expect(workspace.reportedPanelDirectory(panelId: panelID) == "/home/cloud/project")
         #expect(workspace.presentedCurrentDirectory == "/home/cloud/project")
@@ -188,8 +190,58 @@ struct CloudSidebarSurfaceRegressionTests {
             Issue.record("Ports must explain why there are no rows")
             return
         }
-        if link == .connecting { #expect(value.style == .connecting) }
+        if link == .connecting { #expect(value.style == .dimmed) }
         if link == .error { #expect(value.style == .error) }
+    }
+
+    @Test("Ports project distinct discovery and route reasons with actionable copy")
+    func portStatusMatrix() {
+        let cases: [(CloudPortDiscoveryState, CloudPortsStatusAction, String)] = [
+            (.notRequested, .refresh, "not checked"),
+            (.loading, .none, "Discovering ports"),
+            (.empty(.noListeningService), .refresh, "web server"),
+            (.empty(.otherInterfaceOnly), .refresh, "interface"),
+            (.loopbackOnly, .none, "loopback"),
+            (.unavailable(.privateAddress), .refresh, "private address"),
+            (.unavailable(.transport), .refresh, "discovery unavailable"),
+            (.stale, .refresh, "out of date"),
+            (.unsupported, .openShell, "not supported"),
+        ]
+        for (state, action, phrase) in cases {
+            let info = SurfaceMachineInfo(
+                id: machine, name: machine.rawValue, status: "running", image: nil,
+                hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: .connected,
+                linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil,
+                portDiscoveryState: state
+            )
+            let presentation = CloudPortsStatusPresentation.make(info: info)
+            #expect(presentation.action == action)
+            #expect(presentation.title.lowercased().contains(phrase.lowercased()) || presentation.message.lowercased().contains(phrase.lowercased()))
+            if state != .loading && state != .unsupported && state != .empty(.noListeningService) {
+                #expect(presentation.message.contains("Cloud VPN"), "cmux forwarding truth must remain visible")
+            }
+        }
+    }
+
+    @Test("A route failure remains visible beside real port rows")
+    func routeFailureDoesNotReplacePorts() throws {
+        let port = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 3000, directURL: nil)
+        let info = SurfaceMachineInfo(
+            id: machine, name: machine.rawValue, status: "running", image: nil,
+            hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: .connected,
+            linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil,
+            privateAddress: nil, portDiscoveryState: .unavailable(.privateAddress)
+        )
+        let snapshot = SurfaceCatalogSnapshot(machines: [info], resources: [port], projections: [])
+        let nodes = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(
+            machines: [MachineSnapshot(id: machine.rawValue, provider: "freestyle", image: "base", isDesktop: false, activity: .ready, createdAt: nil, label: nil)],
+            snapshot: snapshot, localWorkspaces: [], includeLocalMachine: false
+        ))
+        let group = try #require(nodes.first { if case .portsGroup = $0.kind { true } else { false } })
+        #expect(group.children.count == 2)
+        guard case .port = group.children[0].kind else { Issue.record("real ports must stay visible"); return }
+        guard case .placeholder(_, let placeholder) = group.children[1].kind else { Issue.record("route status must be appended"); return }
+        #expect(placeholder.portStatus?.action == .refresh)
     }
 
     @Test("Shell-only machines do not invent a desktop")

@@ -946,7 +946,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             if http.statusCode == 429 {
                 let retryAfterSeconds = Self.retryAfterSeconds(
                     http.value(forHTTPHeaderField: "Retry-After")
-                ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
                 throw CmxIrohTrustBrokerClientError.rateLimited(
                     code: code,
                     retryAfterSeconds: retryAfterSeconds
@@ -991,7 +991,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     }
 
     private static func retryAfterSeconds(_ value: String?) -> Int? {
-        CmxRetryAfterPolicy.seconds(from: value)
+        CmxRetryAfterPolicy().seconds(from: value)
     }
 
     private static func relayTokenResponse(

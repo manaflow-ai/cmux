@@ -1,11 +1,12 @@
 import { vmCapabilitiesFor } from "../../../../../services/vms/drivers";
-import { unauthorized, verifyRequest, type AuthedUser } from "../../../../../services/vms/auth";
+import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../../services/vms/teamDirectory";
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
   vmCreateLikeErrorResponders,
   withAuthedVmApiRoute,
   resolveVmProvisioningAccountScope,
+  reverifyVmRequestForTeam,
 } from "../../../../../services/vms/routeHelpers";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { setSpanAttributes } from "../../../../../services/telemetry";
@@ -13,7 +14,6 @@ import { captureVmProvisionOutcome } from "../../../../../services/vms/observabi
 import { forkVm } from "../../../../../services/vms/workflows";
 import { vmModelPlaneGatewayFor } from "../../../../../services/vms/modelPlaneGateway";
 import { VmTimingRecorder } from "../../../../../services/vms/timings";
-import { authProviderErrorResponse } from "../../../../../services/vms/authErrors";
 import {
   idempotencyKeyFromRequest,
   parseOptionalObjectBody,
@@ -47,18 +47,15 @@ export async function POST(
       if (!parsedBody.ok) return parsedBody.response;
       const body = parsedBody.body;
       const { id } = await params;
-      let user: AuthedUser = initialUser;
       const requestedBillingTeamId = stringField(body, "billingTeamId") ?? stringField(body, "teamId") ?? requestedVmTeamIdFromRequest(request);
-      if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
-        let refreshedUser: AuthedUser | null;
-        try {
-          refreshedUser = await verifyRequest(request, { requestedTeamId: requestedBillingTeamId });
-        } catch (error) {
-          return authProviderErrorResponse(error, "/api/vm.fork.team-auth");
-        }
-        if (!refreshedUser) return unauthorized();
-        user = refreshedUser;
-      }
+      const reverified = await reverifyVmRequestForTeam({
+        request,
+        user: initialUser,
+        requestedBillingTeamId,
+        authErrorLabel: "/api/vm.fork.team-auth",
+      });
+      if (!reverified.ok) return reverified.response;
+      const user = reverified.user;
       const account = await resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId });
       if (!account.ok) return account.response;
       const entitlements = account.entitlements;
@@ -79,6 +76,7 @@ export async function POST(
         providerVmId: id,
         name,
         idempotencyKey,
+        teamDirectory: vmClientRoutesTeamNetworks(request) ? vmTeamDirectory() : undefined,
         modelPlane: vmModelPlaneGatewayFor({
           teamId: entitlements.billingTeamId,
           stackUserId: user.id,

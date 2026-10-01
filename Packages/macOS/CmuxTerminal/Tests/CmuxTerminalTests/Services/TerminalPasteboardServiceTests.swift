@@ -92,6 +92,12 @@ struct TerminalShellEscapingTests {
     }
 }
 
+// Pasteboard suites run on the main actor, like the app's pasteboard callers.
+// Every NSPasteboard call is a synchronous request to the pasteboard server.
+// On Swift Testing's cooperative pool (one thread per CPU), parallel suites
+// could block every pool thread in such a request at once; the replies then
+// never arrive and the whole test process deadlocks.
+@MainActor
 @Suite("Pasteboard text contents")
 struct PasteboardTextContentsTests {
     @Test func prefersUTF8PlainTextOverLossyTraditionalMacText() {
@@ -119,6 +125,29 @@ struct PasteboardTextContentsTests {
 
         let contents = try #require(service.stringContents(from: scratch.pasteboard))
         #expect(contents == "/tmp/with\\ space.png")
+    }
+
+    // A clipboard read the terminal program starts gets this flavor only, so
+    // it must never turn copied files into paths or images into saved files.
+    @Test func plainTextFlavorNeverReadsFilesOrImages() throws {
+        let scratchDir = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratchDir) }
+        let service = TerminalPasteboardService(temporaryDirectory: scratchDir)
+
+        let files = ScratchPasteboard()
+        #expect(files.pasteboard.writeObjects([URL(fileURLWithPath: "/tmp/copied.png") as NSURL]))
+        #expect(service.fallbackPlainTextContents(from: files.pasteboard) == nil)
+
+        let image = ScratchPasteboard()
+        image.pasteboard.declareTypes([.png], owner: nil)
+        image.pasteboard.setData(try tinyPNGData(), forType: .png)
+        #expect(service.fallbackPlainTextContents(from: image.pasteboard) == nil)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: scratchDir.path).isEmpty)
+
+        let text = ScratchPasteboard()
+        text.pasteboard.declareTypes([.string], owner: nil)
+        text.pasteboard.setString("copied text", forType: .string)
+        #expect(service.fallbackPlainTextContents(from: text.pasteboard) == "copied text")
     }
 
     @Test func imageOnlyHTMLWithNoVisibleTextReturnsNil() throws {
@@ -186,6 +215,8 @@ struct PasteboardTextContentsTests {
     }
 }
 
+// On the main actor, not the cooperative pool: see PasteboardTextContentsTests.
+@MainActor
 @Suite("Clipboard write capture", .serialized)
 struct ClipboardWriteCaptureTests {
     @Test func capturesStandardWriteWithoutTouchingPasteboard() {
@@ -283,6 +314,8 @@ struct ClipboardWriteCaptureTests {
     }
 }
 
+// On the main actor, not the cooperative pool: see PasteboardTextContentsTests.
+@MainActor
 @Suite("Image materialization and temp-file ownership")
 struct ImageMaterializationTests {
     @Test func materializesPNGIntoOwnedTemporaryFile() throws {
@@ -315,12 +348,24 @@ struct ImageMaterializationTests {
         scratch.pasteboard.declareTypes([.png], owner: nil)
         scratch.pasteboard.setData(Data(count: 10 * 1024 * 1024 + 1), forType: .png)
 
+        // Oversized is reported separately from a failed write so a paste
+        // can say why nothing arrived.
         #expect(
             service.materializeImageFileURLIfNeeded(from: scratch.pasteboard)
-                == .rejectedImagePayload
+                == .rejectedOversizedImagePayload
+        )
+        #expect(
+            service.materializeImageFileURLsIfNeeded(from: scratch.pasteboard)
+                == .rejectedOversizedImagePayload
         )
         let leftovers = try FileManager.default.contentsOfDirectory(atPath: scratchDir.path)
         #expect(leftovers.isEmpty)
+    }
+
+    /// The app's paste notice says "Image is larger than 10 MB". Changing the
+    /// cap must change that string too.
+    @Test func clipboardImageCapMatchesThePasteNoticeText() {
+        #expect(TerminalPasteboardService.maxClipboardImageSize == 10 * 1024 * 1024)
     }
 
     @Test func emptyPasteboardHasNoDecodableImagePayload() {
