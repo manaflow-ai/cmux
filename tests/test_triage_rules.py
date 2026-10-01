@@ -7,6 +7,7 @@ import tempfile
 import time
 import unittest
 
+import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / ".github/labels.json"
@@ -323,7 +324,7 @@ class ManifestTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "labels.json"
             path.write_text(json.dumps(manifest))
-            with self.assertRaises(SystemExit):
+            with pytest.raises(SystemExit):
                 sync.main(["--manifest", str(path), "--dry-run"])
 
 
@@ -485,9 +486,8 @@ class LimitTests(unittest.TestCase):
         # `--limit 0` used to mean "walk everything", so "00" typed into the
         # dispatch form started an unbounded pass over the whole backlog.
         for value in ("0", "00", "-1", " 0", "nope"):
-            with self.subTest(value=value):
-                with self.assertRaises(Exception):
-                    AUTO.positive(value)
+            with self.subTest(value=value), self.assertRaises(Exception):
+                AUTO.positive(value)
 
     def test_a_real_limit_parses(self):
         self.assertEqual(AUTO.positive("200"), 200)
