@@ -11,6 +11,14 @@ public struct TerminalSummary: Sendable, Equatable, Codable {
     /// The shell's reported working directory.
     public var cwd: String?
 
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case workspaceID = "workspace_id"
+        case title
+        case cwd
+    }
+
     public init(
         id: String,
         name: String? = nil,

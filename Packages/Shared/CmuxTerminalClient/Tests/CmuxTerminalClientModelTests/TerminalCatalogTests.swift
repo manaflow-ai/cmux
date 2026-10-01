@@ -16,6 +16,14 @@ import Testing
         #expect(rows == [TerminalSummary(id: "term_6b7c", title: "aziz@vm: ~/api", cwd: "/home/aziz/api")])
     }
 
+    @Test func listDecodesTheDaemonsWorkspaceIdentifier() throws {
+        let json = #"[{"id":"term_1","workspace_id":"workspace_1"}]"#
+
+        let rows = try TerminalCatalogDecoding.terminals(fromListResult: Data(json.utf8))
+
+        #expect(rows == [TerminalSummary(id: "term_1", workspaceID: "workspace_1")])
+    }
+
     @Test func createReturnsTheTerminalPath() throws {
         // A live daemon's MutationResult<CreatedPath> for initial_content: terminal.
         let json = Data("""
