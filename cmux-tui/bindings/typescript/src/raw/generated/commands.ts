@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR adbfa89de5ea3e4ee601c468ebe23c608b9eb8532e62701776fa0d86a6831300. */
+/* cmux-tui mux protocol 12, IR 758be5365d46716909cd2a87ccbfe243395ad62b17132612f8cc5f9fac759c6e. */
 
 
 import type * as T from "./types.js";
@@ -398,6 +398,7 @@ export interface CreateTerminalRequest extends CmuxRequestBase {
   "cols"?: (number) | null;
   "command"?: (string) | null;
   "cwd"?: (string) | null;
+  "detached"?: boolean;
   "env"?: (Record<string, string>) | null;
   "expected_generation"?: (string) | null;
   "expected_revision"?: (bigint) | null;
@@ -911,6 +912,19 @@ export interface NewPaneRightRequest extends CmuxRequestBase {
 }
 export type NewPaneRightResult = T.SurfaceResult;
 
+/** Protocol v12; authority: control. */
+export interface NewRemoteTerminalTabRequest extends CmuxRequestBase {
+  cmd: "new-remote-terminal-tab";
+  "cols"?: (number) | null;
+  "pane"?: (T.Id) | null;
+  "rows"?: (number) | null;
+  "session_id": string;
+  "session_name": string;
+  "terminal_id": string;
+  "title"?: (string) | null;
+}
+export type NewRemoteTerminalTabResult = T.JsonValue;
+
 /** Protocol v5; authority: control. */
 export interface NewScreenRequest extends CmuxRequestBase {
   cmd: "new-screen";
@@ -1098,6 +1112,13 @@ export type ReloadConfigResult = {
   "path": (string) | null;
   "reloaded": true;
 };
+
+/** Protocol v12; authority: control. */
+export interface RemoteTerminalSnapshotRequest extends CmuxRequestBase {
+  cmd: "remote-terminal-snapshot";
+  "surface": T.Id;
+}
+export type RemoteTerminalSnapshotResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
 export interface RemoveScreensFromScreenGroupRequest extends CmuxRequestBase {
@@ -1647,6 +1668,16 @@ export interface UpdateProfileRequest extends CmuxRequestBase {
 export type UpdateProfileResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
+export interface UpdateRemoteTerminalTabRequest extends CmuxRequestBase {
+  cmd: "update-remote-terminal-tab";
+  "session_name"?: (string) | null;
+  "snapshot"?: (string) | null;
+  "surface": T.Id;
+  "title"?: (string) | null;
+}
+export type UpdateRemoteTerminalTabResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
 export interface UpdateScreenGroupRequest extends CmuxRequestBase {
   cmd: "update-screen-group";
   "collapsed"?: (boolean) | null;
@@ -1827,6 +1858,7 @@ export type CmuxRequest =
   | NewFrontendBrowserTabRequest
   | NewPaneRequest
   | NewPaneRightRequest
+  | NewRemoteTerminalTabRequest
   | NewScreenRequest
   | NewTabRequest
   | NewWorkspaceRequest
@@ -1846,6 +1878,7 @@ export type CmuxRequest =
   | ReleaseAttachedViewSizeRequest
   | ReleaseSurfaceSizeRequest
   | ReloadConfigRequest
+  | RemoteTerminalSnapshotRequest
   | RemoveScreensFromScreenGroupRequest
   | RemoveTabsFromTabGroupRequest
   | RenamePaneRequest
@@ -1907,6 +1940,7 @@ export type CmuxRequest =
   | UpdateFrontendBrowserTabRequest
   | UpdatePersonalGroupRequest
   | UpdateProfileRequest
+  | UpdateRemoteTerminalTabRequest
   | UpdateScreenGroupRequest
   | UpdateTabGroupRequest
   | UpdateWorkspaceGroupRequest
@@ -2696,6 +2730,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "viewport-splits-v1";
     stream: null;
   };
+  "new-remote-terminal-tab": {
+    request: NewRemoteTerminalTabRequest;
+    result: NewRemoteTerminalTabResult;
+    authority: "control";
+    since: 12;
+    capability: "remote-terminal-tabs-v1";
+    stream: null;
+  };
   "new-screen": {
     request: NewScreenRequest;
     result: NewScreenResult;
@@ -2846,6 +2888,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "remote-terminal-snapshot": {
+    request: RemoteTerminalSnapshotRequest;
+    result: RemoteTerminalSnapshotResult;
+    authority: "control";
+    since: 12;
+    capability: "remote-terminal-tabs-v1";
     stream: null;
   };
   "remove-screens-from-screen-group": {
@@ -3334,6 +3384,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "profiles-v1";
+    stream: null;
+  };
+  "update-remote-terminal-tab": {
+    request: UpdateRemoteTerminalTabRequest;
+    result: UpdateRemoteTerminalTabResult;
+    authority: "control";
+    since: 12;
+    capability: "remote-terminal-tabs-v1";
     stream: null;
   };
   "update-screen-group": {
