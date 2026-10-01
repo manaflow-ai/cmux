@@ -51,7 +51,7 @@ struct CloudMachineLinkTransportRecoveryTests {
         #expect(failed)
         #expect(!(await link.isConnected))
         #expect(await link.state == .error)
-        #expect(await link.lastError == "The Cloud VM service connection was lost. Refresh to reconnect.")
+        #expect(await link.lastError == CloudMachineLink.errorText(CloudMachineLink.LinkError.transportLost))
         #expect(await link.lastError?.contains("missing-daemon.sock") == false)
         var sawTransportStreamEnd = false
         for await change in link.changes {
