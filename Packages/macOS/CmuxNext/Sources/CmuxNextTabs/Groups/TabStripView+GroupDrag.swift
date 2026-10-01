@@ -40,7 +40,7 @@ extension TabStripView {
 
     func updateGroupDrag(at point: CGPoint, event: NSEvent?) {
         guard var drag = groups.drag else { return }
-        if let event, point.y < -metrics.tearOffDistance || point.y > bounds.height + metrics.tearOffDistance {
+        if let event, isPastTearOff(point) {
             handOffGroupDrag(event: event)
             return
         }

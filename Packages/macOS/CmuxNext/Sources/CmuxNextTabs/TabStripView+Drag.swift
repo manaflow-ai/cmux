@@ -30,7 +30,7 @@ extension TabStripView {
 
     func updateDrag(at point: CGPoint, event: NSEvent?) {
         guard var drag else { return }
-        if let event, point.y < -metrics.tearOffDistance || point.y > bounds.height + metrics.tearOffDistance {
+        if let event, isPastTearOff(point) {
             handOffDrag(event: event)
             return
         }
@@ -67,6 +67,14 @@ extension TabStripView {
             applyFrames()
             startAnimating()
         }
+    }
+
+    /// Whether `point` (strip coordinates) is the tear-off distance past
+    /// the strip on any side: above or below it, or sideways past its ends,
+    /// where the neighbor pane's strip in the same row begins.
+    func isPastTearOff(_ point: CGPoint) -> Bool {
+        let d = metrics.tearOffDistance
+        return point.y < -d || point.y > bounds.height + d || point.x < -d || point.x > bounds.width + d
     }
 
     /// Fraction of the dragged tab's width it must travel past a group's
