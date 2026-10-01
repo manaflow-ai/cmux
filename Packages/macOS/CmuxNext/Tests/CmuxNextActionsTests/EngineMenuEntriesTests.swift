@@ -6,11 +6,11 @@ import Testing
 /// (Page Info, DevTools, Extensions).
 @Suite struct EngineMenuEntriesTests {
     @Test func noNavigationDuplicatesAfterTheEngineMenu() {
-        let ids = ContextMenuCatalog.referencedIDs(ContextMenuCatalog.browserPageAfterEngineMenu)
+        let ids = ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.browserPageAfterEngineMenu)
         for id: ActionID in ["browserBack", "browserForward", "browserReload"] { #expect(!ids.contains(id)) }
         for id: ActionID in ["toggleBrowserDeveloperTools", "browser.extensions.menu", "browser.extensions.manage"] {
             #expect(ids.contains(id))
         }
-        if case .separator? = ContextMenuCatalog.browserPageAfterEngineMenu.first { Issue.record("leading separator") }
+        if case .separator? = ContextMenuCatalog.shared.browserPageAfterEngineMenu.first { Issue.record("leading separator") }
     }
 }

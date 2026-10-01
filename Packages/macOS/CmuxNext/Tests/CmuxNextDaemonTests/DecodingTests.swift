@@ -10,7 +10,7 @@ import Testing
         #expect(identity.app == "cmux-tui")
         #expect(identity.protocolVersion == 12)
         #expect(identity.generation.rawValue.count == 36)
-        for capability in DaemonCapabilities.required {
+        for capability in DaemonCapabilities.shared.required {
             #expect(identity.supports(capability), "missing \(capability)")
         }
     }

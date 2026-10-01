@@ -11,7 +11,7 @@ extension ThemeCoordinator {
 
     /// The home daemon stores terminal themes, and `key`'s session is known.
     private func personalTarget(_ key: TerminalThemeKey) -> (session: String, terminal: String)? {
-        guard home.supports(DaemonCapabilities.personalTerminals),
+        guard home.supports(DaemonCapabilities.shared.personalTerminals),
               let session = services.machines.daemon(machine: key.machine)?.store.registryID else { return nil }
         return (session, key.terminal)
     }
@@ -38,7 +38,7 @@ extension ThemeCoordinator {
     /// home daemon stores them. An entry waits while its machine is not
     /// connected; one whose terminal is gone is dropped.
     func migrateTerminalThemes() {
-        guard home.supports(DaemonCapabilities.personalTerminals), !terminalThemes.themes.isEmpty else { return }
+        guard home.supports(DaemonCapabilities.shared.personalTerminals), !terminalThemes.themes.isEmpty else { return }
         for (legacy, theme) in terminalThemes.themes {
             guard let split = legacy.lastIndex(of: ":") else { continue }
             let machine = String(legacy[..<split]), tabID = String(legacy[legacy.index(after: split)...])
@@ -60,7 +60,7 @@ extension ThemeCoordinator {
     func pruneTerminalThemes() {
         let tabs = home.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
         terminalThemes.prune(machine: home.machineID, liveTabs: Set(tabs.map(\.id)))
-        guard home.supports(DaemonCapabilities.personalTerminals), let session = home.store.registryID else { return }
+        guard home.supports(DaemonCapabilities.shared.personalTerminals), let session = home.store.registryID else { return }
         let live = Set(tabs.map { TerminalThemeKey(machine: home.machineID, tab: $0).terminal })
         for terminal in (home.store.personal.terminalThemes[session] ?? [:]).keys where !live.contains(terminal) {
             home.send("set-personal-terminal") {

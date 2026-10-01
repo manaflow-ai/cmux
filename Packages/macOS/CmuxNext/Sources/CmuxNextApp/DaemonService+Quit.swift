@@ -11,8 +11,8 @@ extension DaemonService {
     /// opens one new workspace.
     func endSessionsAndStop(deletingWorkspaces: Bool) async {
         guard isLocal, let connection else { return }
-        guard supports(DaemonCapabilities.terminalReap) else {
-            logger.error("end sessions: the daemon lacks \(DaemonCapabilities.terminalReap, privacy: .public)")
+        guard supports(DaemonCapabilities.shared.terminalReap) else {
+            logger.error("end sessions: the daemon lacks \(DaemonCapabilities.shared.terminalReap, privacy: .public)")
             return
         }
         shutdownConnection()

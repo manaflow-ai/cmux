@@ -8,7 +8,7 @@ import CmuxNextSettingsWindow
 extension SettingsWindowService {
     var themeLevels: [SettingsThemeLevel] {
         guard services.windows.active != nil else { return [] }
-        let personal = services.machines.local.supports(DaemonCapabilities.profiles)
+        let personal = services.machines.local.supports(DaemonCapabilities.shared.profiles)
         return (personal ? [.room, .workspace] : []) + [.terminal]
     }
 

@@ -51,7 +51,7 @@ final class AgentHistory {
             let fold = folds[machine] ?? AgentSessionFold(machine: machine)
             let cursor = generations[machine].map { (generation: $0, sequence: fold.cursor) }
             do {
-                let result = try await SessionJournalRead.read(socketPath: endpoint.socketPath, kinds: AgentSessionFold.journalKinds,
+                let result = try await SessionJournalRead.shared.read(socketPath: endpoint.socketPath, kinds: AgentSessionFold.journalKinds,
                                                                cursor: fold.cursor > 0 ? cursor : nil)
                 apply(result, machine: machine)
             } catch {

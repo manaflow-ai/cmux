@@ -52,7 +52,7 @@ enum DebugTimings {
     }
 
     static func install() {
-        DaemonLaunchTimings.install { markLaunch($0) }
+        DaemonLaunchTimings.shared.install { markLaunch($0) }
         TerminalTimings.onSurfaceCreated = { duration in
             let ms = milliseconds(duration)
             if surfaces.count < capacity { surfaces.append(ms) }

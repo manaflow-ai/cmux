@@ -16,7 +16,7 @@ extension ActionRegistry {
         let effective = self.context.union(Self.impliedContext(for: context)).union(implied)
         let menu = NSMenu()
         menu.autoenablesItems = true
-        for item in menuItems(entries ?? ContextMenuCatalog.entries(for: context), target: target, context: effective) {
+        for item in menuItems(entries ?? ContextMenuCatalog.shared.entries(for: context), target: target, context: effective) {
             menu.addItem(item)
         }
         return menu

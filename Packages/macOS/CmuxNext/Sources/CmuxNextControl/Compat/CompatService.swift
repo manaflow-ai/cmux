@@ -44,7 +44,7 @@ public final class CompatService: Sendable {
     }
 
     public init(frontend: any CompatFrontend,
-                terminalEnvironment: @escaping @Sendable () async -> [String: String] = TerminalEnvironment.shared(),
+                terminalEnvironment: @escaping @Sendable () async -> [String: String] = TerminalEnvironment.instance.shared(),
                 sessionConnection: @escaping SessionConnectionProvider = { _ in nil },
                 connection: @escaping ConnectionProvider) {
         self.frontend = frontend

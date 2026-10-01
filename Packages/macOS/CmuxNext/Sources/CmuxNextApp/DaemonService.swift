@@ -63,7 +63,7 @@ final class DaemonService {
     /// errors). Becomes `.unavailable` after `startupDeadline` or on an
     /// incompatible daemon; retrying continues in the background.
     private(set) var startup: DaemonStartupState = .connecting
-    @ObservationIgnored var startupDeadline: Duration = DaemonStartup.defaultDeadline
+    @ObservationIgnored var startupDeadline: Duration = DaemonStartup.shared.defaultDeadline
     @ObservationIgnored var startupClock: any Clock<Duration> = ContinuousClock()
     @ObservationIgnored private var startupDeadlineTimer: DemandTimer?
     @ObservationIgnored private var lastStartupError: DaemonError?
@@ -110,7 +110,7 @@ final class DaemonService {
         runTask = Task { [weak self, scheduler, logger] in
             let clock = self?.startupClock ?? ContinuousClock()
             weak let weakSelf = self
-            let connected = await DaemonStartup.connect(wake: wake, clock: clock, makeConnection: makeConnection) { error in
+            let connected = await DaemonStartup.shared.connect(wake: wake, clock: clock, makeConnection: makeConnection) { error in
                 await weakSelf?.noteStartupFailure(error)
             }
             guard let (connection, identity) = connected else { return }
@@ -154,7 +154,7 @@ final class DaemonService {
             var ends = RetryPacer(.firstConnect)
             // wakeup-allow: each iteration runs a connection to its end, then waits in RetryPacer
             while !Task.isCancelled {
-                let connected = await DaemonStartup.connect(wake: wake, clock: clock) {
+                let connected = await DaemonStartup.shared.connect(wake: wake, clock: clock) {
                     DaemonConnection(configuration: DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil)) {
                         DaemonEndpoint(socketPath: try await endpoint())
                     }
@@ -162,7 +162,7 @@ final class DaemonService {
                     logger.error("\(machineID, privacy: .public): daemon unavailable: \(error.description, privacy: .public)")
                     // Before the failure is published: an event from then on
                     // (the machine updated, app activation) wakes the wait below.
-                    if DaemonStartup.isPermanent(error) { wake.rebaseline() }
+                    if DaemonStartup.shared.isPermanent(error) { wake.rebaseline() }
                     await weakSelf?.noteStartupFailure(error)
                 }
                 if Task.isCancelled { return }
@@ -200,7 +200,7 @@ final class DaemonService {
         logger.error("cmux-tui daemon unavailable: \(error.description, privacy: .public)")
         lastStartupError = error
         store.markFailed(error.description)
-        if startup.isUnavailable || DaemonStartup.isPermanent(error) {
+        if startup.isUnavailable || DaemonStartup.shared.isPermanent(error) {
             startup = .unavailable(error)
             resumeConnectionWaiters()
         }

@@ -61,7 +61,7 @@ enum ScreenAppearanceHandlers {
 
     /// The targeted screen on a daemon with `screen-metadata-v1`.
     private static func metadataTarget(_ invocation: ActionInvocation, _ ctx: AppActionContext) -> ScreenRef? {
-        guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.screenMetadata, on: ref.daemon) else { return nil }
+        guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.shared.screenMetadata, on: ref.daemon) else { return nil }
         return ref
     }
 }

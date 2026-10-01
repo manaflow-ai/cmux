@@ -40,7 +40,7 @@ struct BranchTeardownTests {
         let base = ProcessInfo.processInfo.environment
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: "cnd-bt-\(id)", stateDirectory: root.appendingPathComponent("state")),
-            environment: { LoginEnvironment.daemonEnvironment(login: nil, base: base, overrides: [:]) })
+            environment: { LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:]) })
         let ensured = try await launcher.ensure()
         // A fixed endpoint: after the daemon exits, reconnecting fails
         // instead of `server ensure` starting a new daemon.

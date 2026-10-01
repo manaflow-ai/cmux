@@ -63,7 +63,7 @@ struct QuitSessionsTests {
         let base = ProcessInfo.processInfo.environment
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: h.session, stateDirectory: h.root.appendingPathComponent("state")),
-            environment: { LoginEnvironment.daemonEnvironment(login: nil, base: base, overrides: [:]) })
+            environment: { LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:]) })
         _ = try await launcher.ensure()
         let next = DaemonConnection(endpointProvider: launcher.endpointProvider)
         _ = try await next.start()

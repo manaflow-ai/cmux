@@ -95,7 +95,7 @@ import Testing
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
         router.updateCatalog(RegistryControlBridge.catalog(from: registry))
         for context in ActionMenuContext.allCases {
-            for id in ContextMenuCatalog.referencedIDs(ContextMenuCatalog.entries(for: context)) {
+            for id in ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: context)) {
                 let result = await router.handle(ControlRequest(method: "action.describe", params: ["action": .string(id.rawValue)]))
                 #expect((try? result.get())?["action"]?["id"] == .string(id.rawValue), "\(context): \(id)")
             }
