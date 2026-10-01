@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextBrowserImport
+import CmuxNextDesign
 import CmuxNextOnboarding
 import os
 
@@ -32,6 +33,25 @@ final class OnboardingService {
     }
 
     var isShowing: Bool { controller != nil }
+    private(set) var gallery: OnboardingGalleryController?
+
+    /// The onboarding gallery (DEBUG builds): every screen's variants, live.
+    func showGallery() {
+        if let gallery { return gallery.present() }
+        let picks = AppOnboardingServices(owner: self)
+        // task-owner: one-shot theme file load for the thumbnails
+        Task { [weak self] in
+            let themes = await picks.loadThemeChoices()
+            guard let self, gallery == nil else { return }
+            let gallery = OnboardingGalleryController(picks: picks, makeServices: { [weak self] in
+                MockOnboardingServices.gallerySample(themes: [ThemeChoice(name: nil, input: ThemeStore.shared.input)] + themes,
+                                                     accountsView: self.map { AppOnboardingServices(owner: $0).makeAccountsStepView() } ?? nil)
+            }, previewFlow: { [weak self] in self?.show() })
+            gallery.onClose = { [weak self] in self?.gallery = nil }
+            self.gallery = gallery
+            gallery.present()
+        }
+    }
 
     /// Opens onboarding at `step` (or brings the open one to that step).
     func show(step: OnboardingModel.Step? = nil) {

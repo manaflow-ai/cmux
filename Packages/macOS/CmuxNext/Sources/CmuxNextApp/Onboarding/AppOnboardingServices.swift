@@ -77,6 +77,22 @@ final class AppOnboardingServices: OnboardingServices {
         NSHostingView(rootView: AccountsStepView(model: services.accounts.model, palette: .app))
     }
 
+    /// cmux.json `debug.onboardingVariants.<step>` (set from the gallery).
+    static func variantPath(_ step: OnboardingModel.Step) -> [String] { ["debug", "onboardingVariants", step.rawValue] }
+
+    func variantID(for step: OnboardingModel.Step) -> String? {
+        services.settings?.snapshot.root.value(at: Self.variantPath(step))?.stringValue
+    }
+
+    func setVariantID(_ id: String?, for step: OnboardingModel.Step) {
+        guard let settings = services.settings else { return }
+        let path = Self.variantPath(step)
+        // task-owner: one cmux.json write
+        Task {
+            if let id { try? await settings.set(.string(id), at: path) } else { try? await settings.file.remove(path) }
+        }
+    }
+
     func onboardingDidEnd(completed: Bool) {
         owner.markDone(completed: completed)
     }
