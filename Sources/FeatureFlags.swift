@@ -53,6 +53,7 @@ final class CmuxFeatureFlags {
     private static let mobileTerminalFilesChipDefault = true
     private nonisolated static let mobileTaskComposerDefault = true
     private static let goPlanDefault = false
+    private static let agentInboxQuickViewDefault = false
     #if DEBUG
     nonisolated static let cloudMachinesDefault = true
     #else
@@ -180,6 +181,17 @@ final class CmuxFeatureFlags {
         defaultWhenUnavailable: CmuxFeatureFlags.goPlanDefault
     )
 
+    // FLAG(key: agent-inbox-quick-view-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-10-15, defaultWhenUnavailable: false)
+    // Keeps the agent inbox quick view behind an explicit rollout while the
+    // placement and cross-agent attention model are evaluated.
+    static let agentInboxQuickViewFlag = CmuxFeatureFlagDefinition(
+        key: "agent-inbox-quick-view-enabled-release",
+        title: String(localized: "featureFlags.agentInbox.title", defaultValue: "Agent Inbox quick view"),
+        flagDescription: String(localized: "featureFlags.agentInbox.description", defaultValue: "Shows a keyboard-summoned inbox for agent messages, pending Feed decisions, and finished turns."),
+        defaultWhenUnavailable: CmuxFeatureFlags.agentInboxQuickViewDefault
+    )
+
     // FLAG(key: cloud-machines-enabled-release, owner: austinwang,
     //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
     // FLAG(key: conversation-sidebar-release, owner: teamleaderleo,
@@ -200,6 +212,7 @@ final class CmuxFeatureFlags {
         ),
         defaultWhenUnavailable: CmuxFeatureFlags.conversationSidebarDefault
     )
+
     // Order is load-bearing for the positional typed accessors below. Flags
     // that need a stable public definition are declared independently and
     // included here without repeating their key literal.
@@ -324,6 +337,7 @@ final class CmuxFeatureFlags {
             CmuxFeatureFlags.mobileTaskComposerFlag,
             CmuxFeatureFlags.goPlanFlag,
             CmuxFeatureFlags.cloudMachinesFlag,
+            CmuxFeatureFlags.agentInboxQuickViewFlag,
             CmuxFeatureFlags.conversationSidebarFlag
         ]
     }()
@@ -375,6 +389,10 @@ final class CmuxFeatureFlags {
 
     var isGoPlanEnabled: Bool {
         effectiveValue(for: Self.goPlanFlag)
+    }
+
+    var isAgentInboxQuickViewEnabled: Bool {
+        effectiveValue(for: Self.agentInboxQuickViewFlag)
     }
 
     var isConversationSidebarAvailable: Bool {
