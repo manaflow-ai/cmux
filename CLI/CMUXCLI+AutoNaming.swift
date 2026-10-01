@@ -232,14 +232,20 @@ struct CodexAutoNamingArguments: Sendable {
             arguments.insert("--ignore-user-config", at: arguments.firstIndex(of: "--ignore-rules")!)
         }
         guard let configToml else { return arguments }
-        let overrides = providerOverrides(from: configToml, usesTemporaryConfig: usesTemporaryConfig)
+        let overrides = providerOverrides(
+            from: configToml,
+            usesTemporaryConfig: usesTemporaryConfig
+        )
         for override in overrides.reversed() {
             arguments.insert(contentsOf: ["-c", override], at: 1)
         }
         return arguments
     }
 
-    private static func providerOverrides(from toml: String, usesTemporaryConfig: Bool) -> [String] {
+    private static func providerOverrides(
+        from toml: String,
+        usesTemporaryConfig: Bool
+    ) -> [String] {
         var model: String?
         var modelProvider: String?
         var providerEntries: [(section: String, key: String, value: String)] = []
@@ -298,6 +304,160 @@ struct CodexAutoNamingArguments: Sendable {
     private static func providerNameFromValue(_ value: String) -> String? {
         guard value.count >= 2, value.first == "\"", value.last == "\"" else { return nil }
         return String(value.dropFirst().dropLast())
+    }
+}
+
+/// Strict argument parsing for the small set of native tmux-compat commands
+/// that perform state-changing actions. The old handlers used `optionValue`
+/// and filtered unknown flags, which made a typo execute against the default
+/// target. Keep this parser pure so the accepted forms and rejection behavior
+/// stay testable without a socket or app process.
+struct TmuxCompatParsedArguments: Equatable, Sendable {
+    let workspace: String?
+    let surface: String?
+    let window: String?
+    let name: String?
+    let bracketed: Bool
+    let printOnly: Bool
+    let commandText: String?
+    let message: String?
+}
+
+enum TmuxCompatArgumentParser {
+    private struct ScanResult {
+        var values: [String: String] = [:]
+        var flags: Set<String> = []
+        var positional: [String] = []
+    }
+
+    static func parseClearHistory(_ args: [String]) throws -> TmuxCompatParsedArguments {
+        let result = try scan(
+            args,
+            command: "clear-history",
+            valueOptions: ["--workspace", "--surface", "--window"],
+            flagOptions: []
+        )
+        guard result.positional.isEmpty else {
+            throw CLIError(message: "clear-history: unexpected arguments: \(result.positional.joined(separator: " "))")
+        }
+        return make(result)
+    }
+
+    static func parsePasteBuffer(_ args: [String]) throws -> TmuxCompatParsedArguments {
+        let result = try scan(
+            args,
+            command: "paste-buffer",
+            valueOptions: ["--workspace", "--surface", "--window", "--name"],
+            flagOptions: ["--bracketed"]
+        )
+        guard result.positional.isEmpty else {
+            throw CLIError(message: "paste-buffer: unexpected arguments: \(result.positional.joined(separator: " "))")
+        }
+        return make(result)
+    }
+
+    static func parseRespawnPane(_ args: [String]) throws -> TmuxCompatParsedArguments {
+        let result = try scan(
+            args,
+            command: "respawn-pane",
+            valueOptions: ["--workspace", "--surface", "--window", "--command"],
+            flagOptions: [],
+            allowsPositional: true
+        )
+        if result.values["--command"] != nil, !result.positional.isEmpty {
+            throw CLIError(message: "respawn-pane: unexpected arguments: \(result.positional.joined(separator: " "))")
+        }
+        let command = result.values["--command"] ?? result.positional.joined(separator: " ")
+        return make(result, commandText: command.isEmpty ? nil : command)
+    }
+
+    static func parseDisplayMessage(_ args: [String]) throws -> TmuxCompatParsedArguments {
+        let result = try scan(
+            args,
+            command: "display-message",
+            valueOptions: [],
+            flagOptions: ["-p", "--print"],
+            allowsPositional: true
+        )
+        let message = result.positional.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        return make(result, message: message.isEmpty ? nil : message)
+    }
+
+    private static func make(
+        _ result: ScanResult,
+        commandText: String? = nil,
+        message: String? = nil
+    ) -> TmuxCompatParsedArguments {
+        TmuxCompatParsedArguments(
+            workspace: result.values["--workspace"],
+            surface: result.values["--surface"],
+            window: result.values["--window"],
+            name: result.values["--name"],
+            bracketed: result.flags.contains("--bracketed"),
+            printOnly: result.flags.contains("-p") || result.flags.contains("--print"),
+            commandText: commandText,
+            message: message
+        )
+    }
+
+    private static func scan(
+        _ args: [String],
+        command: String,
+        valueOptions: Set<String>,
+        flagOptions: Set<String>,
+        allowsPositional: Bool = false
+    ) throws -> ScanResult {
+        var result = ScanResult()
+        var index = 0
+        var terminated = false
+        while index < args.count {
+            let arg = args[index]
+            if terminated {
+                guard allowsPositional else {
+                    throw CLIError(message: "\(command): unexpected argument: \(arg)")
+                }
+                result.positional.append(arg)
+                index += 1
+                continue
+            }
+            if arg == "--" {
+                terminated = true
+                index += 1
+                continue
+            }
+            if let option = valueOptions.first(where: { arg == $0 || arg.hasPrefix("\($0)=") }) {
+                let value: String
+                if arg.hasPrefix("\(option)=") {
+                    value = String(arg.dropFirst(option.count + 1))
+                } else {
+                    guard index + 1 < args.count, args[index + 1] != "--", !args[index + 1].hasPrefix("-") else {
+                        throw CLIError(message: "\(command): \(option) requires a value")
+                    }
+                    value = args[index + 1]
+                    index += 1
+                }
+                guard !value.isEmpty else {
+                    throw CLIError(message: "\(command): \(option) requires a value")
+                }
+                result.values[option] = value
+                index += 1
+                continue
+            }
+            if flagOptions.contains(arg) {
+                result.flags.insert(arg)
+                index += 1
+                continue
+            }
+            if arg.hasPrefix("-") {
+                throw CLIError(message: "\(command): unknown option '\(arg)'")
+            }
+            guard allowsPositional else {
+                throw CLIError(message: "\(command): unexpected argument: \(arg)")
+            }
+            result.positional.append(arg)
+            index += 1
+        }
+        return result
     }
 }
 
