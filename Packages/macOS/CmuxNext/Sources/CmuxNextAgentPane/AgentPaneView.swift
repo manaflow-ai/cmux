@@ -25,6 +25,9 @@ public final class AgentPaneView: NSView {
         }
     }
     private let navigation = AgentPaneNavigation()
+    private var crashReloads = AgentPaneCrashReloads()
+    /// Shown instead of reloading once the page keeps crashing.
+    private var crashNotice: NSView?
 
     /// The bundled page, nil when it is missing (a broken build).
     public static var bundledPage: URL? {
@@ -38,12 +41,19 @@ public final class AgentPaneView: NSView {
     /// - Parameters:
     ///   - model: Answers the page's host requests.
     ///   - source: The page to load; nil loads ``bundledPage``.
-    public init?(model: AgentPaneModel, source: AgentPaneSource? = nil) {
+    ///   - rendersAtFullRate: Renders at the display's rate instead of
+    ///     WebKit's default, the display-rate divisor nearest 60 fps (80 Hz
+    ///     on a 160 Hz display). Off until a frame's paint fits the shorter
+    ///     interval: with it on, a fling ran unevenly at 82-99 Hz (#16471).
+    public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, rendersAtFullRate: Bool = false) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.model = model
         self.source = source
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
+        if rendersAtFullRate {
+            configuration.preferences.setWebKitFeature("PreferPageRenderingUpdatesNear60FPSEnabled", enabled: false)
+        }
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init(frame: .zero)
         configuration.userContentController.addScriptMessageHandler(
@@ -89,6 +99,56 @@ public final class AgentPaneView: NSView {
         applyTheme()
     }
 
+    /// Reloads the page after its web content process crashed, unless it
+    /// keeps crashing; then the pane says so and waits for the user.
+    func webContentProcessDidTerminate() {
+        if crashReloads.shouldReload(at: .now) {
+            source.load(into: webView)
+        } else {
+            showCrashNotice()
+        }
+    }
+
+    private func showCrashNotice() {
+        guard crashNotice == nil else { return }
+        let message = NSTextField(wrappingLabelWithString: Self.crashedMessage)
+        message.alignment = .center
+        let reload = NSButton(title: Self.reloadTitle, target: self, action: #selector(reloadAfterCrashes))
+        let notice = NSStackView(views: [message, reload])
+        notice.orientation = .vertical
+        notice.spacing = 12
+        notice.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(notice)
+        let inset = notice.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -48)
+        // A pane narrower than the inset clips the notice instead of
+        // breaking the layout.
+        inset.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            notice.centerXAnchor.constraint(equalTo: centerXAnchor),
+            notice.centerYAnchor.constraint(equalTo: centerYAnchor),
+            inset,
+        ])
+        crashNotice = notice
+        themeCrashNotice(themeTokens)
+    }
+
+    /// The notice sits on the pane's background, so it takes the pane's
+    /// theme rather than the system appearance.
+    private func themeCrashNotice(_ tokens: ThemeTokens) {
+        guard let notice = crashNotice else { return }
+        notice.appearance = NSAppearance(named: tokens.isDark ? .darkAqua : .aqua)
+        for case let label as NSTextField in notice.subviews {
+            label.textColor = tokens.textSecondary.nsColor
+        }
+    }
+
+    @objc private func reloadAfterCrashes() {
+        crashNotice?.removeFromSuperview()
+        crashNotice = nil
+        crashReloads = AgentPaneCrashReloads()
+        source.load(into: webView)
+    }
+
     /// Pushes ``customization`` to the page, even an empty one (it clears
     /// what removed files left behind).
     func applyCustomization() {
@@ -110,6 +170,7 @@ public final class AgentPaneView: NSView {
     func applyTheme() {
         let tokens = themeTokens
         webView.underPageBackgroundColor = tokens.contentBackground.nsColor
+        themeCrashNotice(tokens)
         guard let script = AgentPaneTheme.script(tokens) else { return }
         webView.evaluateJavaScript(script, completionHandler: nil)
     }

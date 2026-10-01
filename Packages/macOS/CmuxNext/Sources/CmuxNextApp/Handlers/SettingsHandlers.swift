@@ -7,8 +7,10 @@ import os
 /// Settings and help actions (category `settings`, except appearance, see
 /// `AppearanceHandlers`). Settings live in cmux.json (architecture.md 1), so
 /// "open settings" opens that file and toggles write it; the watcher applies
-/// the change. Update actions go to `UpdaterService` (UpdateHandlers). CLI
-/// install and account actions report that cmux-next has no implementation yet.
+/// the change. Update actions go to `UpdaterService` (UpdateHandlers), CLI
+/// install to `CLIInstallHandlers`, Base Keymap to `KeymapHandlers`. Account
+/// actions report that cmux-next has
+/// no implementation yet.
 enum SettingsHandlers {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
@@ -28,11 +30,10 @@ enum SettingsHandlers {
         registry.bind("help.documentation", run: { invocation in try context.open(documentationURL(topic: invocation["topic"]?.stringValue)) })
         UpdateHandlers.bind(into: registry, updater: context.services.updater)
         OnboardingHandlers.bind(into: registry, context: context)
+        CLIInstallHandlers.bind(into: registry, context: context)
         KeymapHandlers.bind(into: registry, context: context)
 
         let unbuilt: [(ActionID, String)] = [
-            ("palette.installCLI", "cli-install"),
-            ("palette.uninstallCLI", "cli-install"),
             ("palette.restartSocketListener", "control-socket-restart"),
             ("palette.pro.upgrade", "account-billing"),
             ("help.featureFlags", "feature-flags"),

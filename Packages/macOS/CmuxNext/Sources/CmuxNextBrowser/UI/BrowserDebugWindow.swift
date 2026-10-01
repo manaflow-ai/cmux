@@ -51,6 +51,8 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
         }
     }
 
+    private let contextMenus = BrowserContextMenuBuilder.shared
+
     private init(tab: any BrowserTab, report: URL?, activate: Bool) {
         tabs = [tab]
         reportURL = report
@@ -103,7 +105,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
             chrome.tab = tab
             observe()
         case .contextMenu(let request):
-            BrowserContextMenuBuilder.present(request, in: tab.contentView)
+            contextMenus.present(request, in: tab.contentView)
         case .notice(let text):
             chrome.showNotice(text)
         case .rerouteStore:

@@ -167,7 +167,9 @@ final class AppControl {
             .async("debug.agent_pane") { [weak services] call in
                 await DebugAgentPane.handle(call.params, services)
             }.withDeadline(.fixed(DebugAgentPane.deadline)),
-            .mainActor("debug.menu") { call in .value(DebugExtensions.menu(call.params)) },
+            .mainActor("debug.menu") { [weak services] call in
+                .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
+            },
             .mainActor("debug.onboarding") { [weak services] call in
                 .value(services.map { DebugOnboarding.run(call.params, services: $0) } ?? .null)
             },
