@@ -36,8 +36,6 @@ private func configureLiquidGlassButton(
         )
         button.tintColor = foregroundColor ?? (prominent ? .white : .label)
         button.setTitleColor(foregroundColor ?? (prominent ? .white : .label), for: .normal)
-        button.backgroundColor = prominent ? .systemBlue : .tertiarySystemFill
-        button.layer.cornerRadius = 22
     }
 }
 
