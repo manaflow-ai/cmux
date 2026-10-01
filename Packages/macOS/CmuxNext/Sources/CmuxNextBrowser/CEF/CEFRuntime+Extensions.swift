@@ -129,7 +129,7 @@ extension CEFRuntime {
             self?.shim?.contextMenuDone(token, Int32(id ?? -1), 0)
         }
         if tab.delegate == nil {
-            BrowserContextMenuBuilder.present(request, in: tab.contentView)
+            tab.host.contextMenus.present(request, in: tab.contentView)
         } else {
             tab.emit(.contextMenu(request))
         }

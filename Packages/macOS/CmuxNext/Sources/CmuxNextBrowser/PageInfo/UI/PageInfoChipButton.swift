@@ -8,7 +8,7 @@ import CmuxNextDesign
 final class PageInfoChipButton: NSView {
     var onPress: (() -> Void)?
 
-    var indicator = PageInfoIndicator(symbol: PageInfoIndicator.Symbol.search, isTriggerable: false) {
+    var indicator = PageInfoIndicator(symbol: PageInfoIndicator.searchSymbol, isTriggerable: false) {
         didSet { if oldValue != indicator { apply() } }
     }
 

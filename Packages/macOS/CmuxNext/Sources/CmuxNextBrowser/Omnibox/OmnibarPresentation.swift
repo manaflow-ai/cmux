@@ -51,7 +51,7 @@ public nonisolated struct OmnibarPresentation: Equatable, Sendable {
     }
 
     private static func chip(for state: OmnibarState) -> Chip {
-        let search = PageInfoIndicator.Symbol.search
+        let search = PageInfoIndicator.searchSymbol
         if let keyword = state.keyword, state.hasFocus { return .keyword(name: keyword.name) }
         switch state.phase {
         case .editing:

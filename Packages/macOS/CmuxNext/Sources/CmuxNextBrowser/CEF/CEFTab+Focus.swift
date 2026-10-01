@@ -46,7 +46,7 @@ extension CEFTab {
     /// the user clicks the page) or from wherever the user is typing.
     func chromiumRequestsFocus(_ source: CEFFocusSource) -> Bool {
         if isGrantingFocus { return true }
-        BrowserLifecycleTrace.record(id, "focus-refused source=\(source.name)")
+        host.lifecycleTrace.record(id, "focus-refused source=\(source.name)")
         return false
     }
 

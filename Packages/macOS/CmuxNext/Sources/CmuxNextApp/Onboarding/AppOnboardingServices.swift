@@ -57,7 +57,7 @@ final class AppOnboardingServices: OnboardingServices {
         }
         let cef = cache.cef
         let cookies = CookieImporter(destination: AppCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) },
-                                     keys: SafeStorageKeys.live())
+                                     keys: SafeStorageKeys().live())
         let importer = BrowserImporter(provisioning: AppBrowserProfileProvisioning(profiles: services.browserProfiles), store: owner.importStore,
                                        cookies: cookies)
         return try await importer.run(plan, into: destination) { step in

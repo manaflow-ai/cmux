@@ -4,7 +4,7 @@ import CmuxNextCloud
 import CmuxNextDaemon
 
 // Per-machine actions: open, terminal, rename, kill, copy, resize, status,
-// ports, handoff, snapshot, restore, fork.
+// ports, tools, handoff, snapshot, restore, fork.
 extension CloudHandlers {
     static func bindMachineActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
         let cloud = context.services.cloud!
@@ -68,6 +68,13 @@ extension CloudHandlers {
                 CloudPresenter.show(CloudStrings.portsTitle, body, copyable: !ports.isEmpty, in: window(context))
             }
         }
+        bind("palette.cloud.tools", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            run("machine tools", context) {
+                let result = try await cloud.api.exec(session.machineID, command: toolsProbe)
+                CloudPresenter.show(CloudStrings.toolsTitle, result.stdout, copyable: true, in: window(context))
+            }
+        }
         // `cmux vm handoff`: the live status plus the commands that attach to
         // and inspect the machine, for pasting to another person or agent.
         bind("palette.cloud.handoff", registry, reason: reason) { invocation in
@@ -99,6 +106,15 @@ extension CloudHandlers {
             }
         }
     }
+
+    /// What `cmux vm tools` ran: the login shell, where each common tool is
+    /// (or "missing"), and the zsh and gh versions.
+    static let toolsProbe = [
+        "printf 'shell: '; printf '%s\\n' \"$SHELL\"",
+        "for tool in zsh git gh htop btop node bun python3; do if command -v \"$tool\" >/dev/null 2>&1; then printf '%-8s %s\\n' \"$tool\" \"$(command -v \"$tool\")\"; else printf '%-8s missing\\n' \"$tool\"; fi; done",
+        "zsh --version 2>/dev/null || true",
+        "gh --version 2>/dev/null | head -n 1 || true"
+    ].joined(separator: "; ")
 
     /// The handoff text, with the old app's fields and the cmux-next CLI verbs
     /// for Open Machine and Machine Tools.

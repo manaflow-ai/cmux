@@ -22,7 +22,7 @@ public struct BrowserSourceDetector: Sendable {
         case .chromium:
             let entries = browser.profileIsDataDirectory
                 ? [ChromiumProfileList.Entry(directoryName: "", displayName: browser.displayName)]
-                : ChromiumProfileList.entries(in: directory)
+                : ChromiumProfileList().entries(in: directory)
             let profiles = entries.map { entry in
                 let path = entry.directoryName.isEmpty ? directory : directory.appending(path: entry.directoryName, directoryHint: .isDirectory)
                 return BrowserSourceProfile(browser: browser, directoryName: entry.directoryName, displayName: entry.displayName,
@@ -30,7 +30,7 @@ public struct BrowserSourceDetector: Sendable {
             }
             return profiles.isEmpty ? nil : BrowserSource(browser: browser, appURL: appURL, profiles: profiles)
         case .firefox:
-            let profiles = FirefoxProfileList.entries(in: directory).map { entry in
+            let profiles = FirefoxProfileList().entries(in: directory).map { entry in
                 BrowserSourceProfile(browser: browser, directoryName: entry.directoryName, displayName: entry.displayName,
                                      path: entry.path, availability: Self.firefoxAvailability(entry.path, browser: browser))
             }
@@ -66,7 +66,7 @@ public struct BrowserSourceDetector: Sendable {
     static func chromiumAvailability(_ profile: URL) -> [ImportDataKind: DataAvailability] {
         func present(_ name: String) -> Bool { FileManager.default.fileExists(atPath: profile.appending(path: name).path) }
         let sessions = profile.appending(path: "Sessions")
-        let hasSession = ChromiumSessionReader.latestSessionFile(in: sessions) != nil || present("Current Session")
+        let hasSession = ChromiumSessionReader().latestSessionFile(in: sessions) != nil || present("Current Session")
         return [
             .bookmarks: present("Bookmarks") ? .available : .absent,
             .history: present("History") ? .available : .absent,
@@ -87,7 +87,7 @@ public struct BrowserSourceDetector: Sendable {
         return [
             .bookmarks: places,
             .history: session(places),
-            .openTabs: session(FirefoxSessionReader.sessionFile(in: profile) != nil ? .available : .absent),
+            .openTabs: session(FirefoxSessionReader().sessionFile(in: profile) != nil ? .available : .absent),
             .extensions: present("extensions.json") ? .unsupported(.notChromeExtensions) : .absent,
             .passwords: present("logins.json") ? .unsupported(.exportFromSource) : .absent,
             .cookies: session(present("cookies.sqlite") ? .available : .absent),

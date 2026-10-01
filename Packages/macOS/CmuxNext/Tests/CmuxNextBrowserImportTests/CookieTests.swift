@@ -25,7 +25,7 @@ import Testing
             ("embed.example", "chips", "x", "https://top.example"),
         ])
         let crypto = ChromiumCookieCrypto(safeStoragePassword: Data(CookieFixtures.password.utf8))
-        let result = try ChromiumCookieReader.read(file, crypto: crypto)
+        let result = try ChromiumCookieReader().read(file, crypto: crypto)
         #expect(result.cookies.map(\.value) == ["s3cret", "dark"])
         #expect(result.partitioned == 1)
         let session = try #require(result.cookies.first)
@@ -41,7 +41,7 @@ import Testing
         let file = home.url.appending(path: "Cookies")
         try CookieFixtures.chromium(file, rows: [("a.example", "n", "v", "")])
         let crypto = ChromiumCookieCrypto(safeStoragePassword: Data("not-the-key".utf8))
-        #expect(throws: CookieImportError.undecryptable) { try ChromiumCookieReader.read(file, crypto: crypto) }
+        #expect(throws: CookieImportError.undecryptable) { try ChromiumCookieReader().read(file, crypto: crypto) }
     }
 
     @Test func unknownPrefixesAreRefused() throws {
@@ -57,11 +57,11 @@ import Testing
         let home = try FixtureHome()
         let file = home.url.appending(path: "cookies.sqlite")
         try CookieFixtures.firefox(file, rows: [(".mozilla.org", "sid", "abc", ""), ("work.example", "sid", "c", "^userContextId=2")])
-        let result = try FirefoxCookieReader.read(file)
+        let result = try FirefoxCookieReader().read(file)
         #expect(result.cookies.map(\.value) == ["abc"])
         #expect(result.cookies[0].httpOnly && result.cookies[0].sameSite == .lax)
         #expect(result.partitioned == 1)
-        #expect(FirefoxCookieReader.expiry(1_900_000_000_000) == Date(timeIntervalSince1970: 1_900_000_000))
+        #expect(FirefoxCookieReader().expiry(1_900_000_000_000) == Date(timeIntervalSince1970: 1_900_000_000))
     }
 
     @Test func safariBinaryCookies() throws {
@@ -71,13 +71,13 @@ import Testing
             ("secure.example", "token", "/app", "t0k", 5, later),
             ("old.example", "gone", "/", "x", 0, Date(timeIntervalSince1970: 1_200_000_000)),
         ])
-        let result = try SafariBinaryCookies.parse(data)
+        let result = try SafariBinaryCookies().parse(data)
         #expect(result.cookies.map(\.name) == ["dslang", "token"])
         #expect(result.expired == 1)
         let token = result.cookies[1]
         #expect(token.secure && token.httpOnly && token.path == "/app" && token.value == "t0k")
         #expect(abs((token.expires ?? .distantPast).timeIntervalSince(later)) < 1)
-        #expect(throws: CookieImportError.self) { try SafariBinaryCookies.parse(Data("nope".utf8)) }
+        #expect(throws: CookieImportError.self) { try SafariBinaryCookies().parse(Data("nope".utf8)) }
     }
 
     @Test func cookieValuesNeverAppearInDescriptions() {
@@ -138,10 +138,10 @@ import Testing
         let home = try FixtureHome()
         let file = try home.write(#"{"Chrome Safe Storage": "pw"}"#, to: home.url.appending(path: "keys.json"))
         #expect(FixtureSafeStorage(environment: [FixtureSafeStorage.environmentKey: file.path]) == nil)
-        let live = SafeStorageKeys.live(environment: [ImportEnvironment.fixtureHomeKey: home.url.path, FixtureSafeStorage.environmentKey: file.path])
+        let live = SafeStorageKeys(environment: [ImportEnvironment.fixtureHomeKey: home.url.path, FixtureSafeStorage.environmentKey: file.path]).live()
         #expect(try live.password(service: "Chrome Safe Storage") == Data("pw".utf8))
         // A fixture home without a key file never falls back to the real Keychain.
-        let empty = SafeStorageKeys.live(environment: [ImportEnvironment.fixtureHomeKey: home.url.path])
+        let empty = SafeStorageKeys(environment: [ImportEnvironment.fixtureHomeKey: home.url.path]).live()
         #expect(throws: CookieImportError.keyNotFound(service: "Chrome Safe Storage")) { try empty.password(service: "Chrome Safe Storage") }
     }
 }

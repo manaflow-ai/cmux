@@ -1,8 +1,8 @@
 import React, { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { lexer, type Token } from "marked";
+import type { Token } from "marked";
 import { applyAgentTheme } from "../shared/theme";
-import { diffRows, layoutConversation, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
+import { diffRows, layoutConversation, markdownBlocks, safeHref, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { startMockHost } from "./mock";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
@@ -38,13 +38,13 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
   });
 }
 
+/// `measuredText` in model.ts mirrors this walk; keep them drawing and measuring the same text.
 function renderInline(tokens: Token[] | undefined, fallback: string): React.ReactNode {
   if (!tokens?.length) return fallback;
   return tokens.map((token, index) => {
     if (token.type === "codespan") return <code key={index}>{token.text}</code>;
     if (token.type === "link") {
-      let href: string | undefined;
-      try { href = /^https?:$/i.test(new URL(token.href, "https://cmux.invalid").protocol) ? token.href : undefined; } catch { href = undefined; }
+      const href = safeHref(token.href);
       return href ? <a key={index} href={href} rel="noreferrer">{renderInline(token.tokens, token.text)}</a> : token.text;
     }
     if ("tokens" in token) return <React.Fragment key={index}>{renderInline(token.tokens, "text" in token ? token.text : token.raw ?? "")}</React.Fragment>;
@@ -53,9 +53,7 @@ function renderInline(tokens: Token[] | undefined, fallback: string): React.Reac
 }
 
 function MarkdownBlocks({ source }: { source: string }) {
-  let blocks: Token[];
-  try { blocks = lexer(source, { gfm: true, breaks: true }); } catch { blocks = [{ type: "text", raw: source, text: source } as Token]; }
-  return <>{blocks.map((token, index) => {
+  return <>{markdownBlocks(source).map((token, index) => {
     if (token.type === "code") return <pre key={index}><code>{token.text}</code></pre>;
     if (token.type === "heading") return <div className={`acpmux-heading acpmux-heading-${token.depth}`} key={index}>{renderInline(token.tokens, token.text)}</div>;
     if (token.type === "paragraph" || token.type === "text") return <p key={index}>{renderInline(token.tokens, token.text)}</p>;
@@ -122,7 +120,7 @@ export function VirtualTranscript({ rows, onToggleActivity, expanded, registry =
   // heights or the registry can move a row.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
-    const layout = layoutConversation(rows, Math.max(120, width - 36), measurementCache.current, (row, rowWidth) => registry[rowKind(row)]?.measure?.(row, rowWidth) ?? measuredHeights.get(row.id));
+    const layout = layoutConversation(rows, transcriptRowWidth(width), measurementCache.current, (row, rowWidth) => registry[rowKind(row)]?.measure?.(row, rowWidth) ?? measuredHeights.get(row.id));
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [rows, width, measuredHeights, registry]);
   const layout = measured.layout;
@@ -189,9 +187,13 @@ export function AcpmuxApp() {
     let cancelled = false;
     let retryTimer: number | undefined;
     let retryDelay = 250;
+    // Once a daemon was lost, handshakes only look for one: the user may have stopped it.
+    // Looking is cheap, so a daemon started again elsewhere is found within seconds.
+    const RECONNECT_MAX_DELAY_MS = 2_000;
+    let reconnect = false;
     const connectHost = async () => {
       try {
-        const host = await callNative<{ protocolVersion: number; transport?: string; endpoint?: string; token?: string; sessionId?: string; newSession?: boolean }>("ready");
+        const host = await callNative<{ protocolVersion: number; transport?: string; endpoint?: string; token?: string; sessionId?: string; newSession?: boolean }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         if (host.transport === "mock") {
           window.cmuxAcpmuxActions = startMockHost((next) => { rowsRef.current = new Map(next.rows.map((row) => [row.id, row])); setSnapshot(next); });
@@ -204,10 +206,11 @@ export function AcpmuxApp() {
         }, () => {
           // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
           if (cancelled) return;
+          reconnect = true;
           directClient.current = undefined;
           delete window.cmuxAcpmuxActions;
           retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
-          retryDelay = Math.min(retryDelay * 2, 30_000);
+          retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
         });
         if (cancelled) { client.close(); return; }
         directClient.current = client;
@@ -230,7 +233,7 @@ export function AcpmuxApp() {
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
           // Back off so a host without a daemon is not asked four times a second.
           retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
-          retryDelay = Math.min(retryDelay * 2, 30_000);
+          retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
         }
       }
     };

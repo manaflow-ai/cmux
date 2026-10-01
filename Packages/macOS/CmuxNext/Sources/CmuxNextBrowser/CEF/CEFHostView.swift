@@ -75,7 +75,7 @@ final class CEFHostView: NSView {
         if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
         windowObserver = nil
         guard let window else { return }
-        windowObserver = NotificationCenter.default.addObserver(forName: BrowserChildWindowPages.needsUpdate, object: window, queue: .main) { [weak self] _ in
+        windowObserver = NotificationCenter.default.addObserver(forName: Notification.Name.browserChildWindowPagesNeedUpdate, object: window, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.postGeometryChange() }
         }
     }
