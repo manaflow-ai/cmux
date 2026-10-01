@@ -878,7 +878,7 @@ final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
     }
 }
 
-@Suite("Cloud command palette")
+@Suite("Cloud command palette", .serialized)
 struct CommandPaletteCloudAvailabilityTests {
     /// Cloud availability guidance is visible only for Cloud workspaces.
     @Test("availability guidance is visible only for Cloud workspaces")
