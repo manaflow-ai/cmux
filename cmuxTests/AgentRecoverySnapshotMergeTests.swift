@@ -34,6 +34,16 @@ struct AgentRecoverySnapshotMergeTests {
         #expect(terminal.resumeBinding == nil)
     }
 
+    @Test func boundSessionAutosaveMissedAsRunningIsMarkedRunning() throws {
+        var bound = SessionTerminalPanelSnapshot(workingDirectory: "/tmp", wasAgentRunning: false)
+        bound.agent = SessionRestorableAgentSnapshot(kind: .claude, sessionId: "s-same", workingDirectory: "/tmp", launchCommand: nil)
+        let merged = AgentRecoverySnapshotMerge.merging([candidate("s-same", at: 95)], into: snapshot(terminal: bound))
+        let terminal = try #require(panel(in: merged)?.terminal)
+        #expect(terminal.agent?.sessionId == "s-same")
+        #expect(terminal.agent?.workingDirectory == "/tmp")
+        #expect(terminal.wasAgentRunning == true)
+    }
+
     @Test func tmuxAndRemoteTerminalsAreUntouched() {
         let tmux = snapshot(terminal: SessionTerminalPanelSnapshot(workingDirectory: "/tmp", tmuxStartCommand: "tmux attach -t x"))
         #expect(panel(in: AgentRecoverySnapshotMerge.merging([candidate("s-new", at: 105)], into: tmux))?.terminal?.agent == nil)

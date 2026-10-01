@@ -55,6 +55,14 @@ struct AgentRecoveryPanePlacementTests {
         #expect(placement.assignments.isEmpty)
     }
 
+    @Test("a bound session the journal saw running is marked running even if the autosave said otherwise")
+    func sameSessionIsMarkedRunning() {
+        let placement = AgentRecoveryPanePlacement(
+            candidates: [candidate("same", at: 990)], panes: [pane(sessionId: "same")], snapshotCreatedAt: snapshotAt
+        )
+        #expect(placement.assignments[key]?.sessionId == "same")
+    }
+
     @Test("tmux, remote and cloud panels are left alone")
     func nonLocalPanelsSkipped() {
         let placement = AgentRecoveryPanePlacement(
