@@ -34,8 +34,7 @@ async function dropInvalidConcurrentIndex(pool, migration) {
   );
 }
 
-async function applyInTransaction(pool, migration) {
-  const client = await pool.connect();
+async function applyInTransaction(client, migration) {
   try {
     await client.query("begin");
     await recordMigration(client, migration);
@@ -43,8 +42,6 @@ async function applyInTransaction(pool, migration) {
   } catch (error) {
     await client.query("rollback");
     throw error;
-  } finally {
-    client.release();
   }
 }
 
@@ -90,7 +87,10 @@ export async function applyPendingMigrations(pool, webDir) {
     }
     return pending.length;
   } finally {
-    if (locked) await client.query("select pg_advisory_unlock(hashtextextended($1, 0))", ["cmux:migrations"]);
-    client.release();
+    try {
+      if (locked) await client.query("select pg_advisory_unlock(hashtextextended($1, 0))", ["cmux:migrations"]);
+    } finally {
+      client.release();
+    }
   }
 }
