@@ -165,10 +165,23 @@ Choices in the port, compared with the TypeScript broker:
   `acted`, `replied` and `dead-lettered` are not used yet.
 - The daemon mints `msg_<32 hex>` ids. Idempotency comes from the protocol's
   idempotency key, not a caller-chosen message id.
-- Messages are not published on `session.events`, so bodies reach only the
-  sender and the recipients.
+- Messages are not published on `session.events`. Like every operation on
+  the session socket, the caller is trusted: the sender address is asserted,
+  and any caller can list or mark any message.
 - Retention: messages beyond the newest 2000 are pruned once none of their
-  receipts is queued.
+  receipts is queued. A `failed` delivery is not retried automatically.
+
+Room left for the proposals that build on this (not implemented):
+
+- Message kinds (#16439 `--kind question`): `kind` is already a column and a
+  snapshot field (`message`, `reply`); a new kind is an added enum value.
+- Group recipients (#16438): a group expands to its members at send time, one
+  receipt each, so "who has seen rules version N" is a receipt query. The
+  64-recipient limit applies to the expanded list.
+- A mux (#16279) is another participant; a local mux is an acpmux session.
+- `cmux agent list` rows (#16437, #16417 comment) can carry the launch spec
+  (model, effort, account, machine) and a count of queued messages from
+  `agent.message.list`.
 
 ## Validation status
 
