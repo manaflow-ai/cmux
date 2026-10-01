@@ -38,6 +38,7 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
   });
 }
 
+/// `measuredText` in model.ts mirrors this walk; keep them drawing and measuring the same text.
 function renderInline(tokens: Token[] | undefined, fallback: string): React.ReactNode {
   if (!tokens?.length) return fallback;
   return tokens.map((token, index) => {

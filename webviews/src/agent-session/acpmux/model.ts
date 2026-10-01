@@ -115,6 +115,18 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   return 24 + chromeHeight(row) + textLines * MESSAGE_LINE_HEIGHT;
 }
 
+/// The text `renderInline` in App.tsx draws for `tokens`, as the estimator measures it. Inline
+/// code draws in 11.5px monospace (styles.css), no wider per character than the prose font's digits,
+/// so each of its characters measures as a "0".
+export function measuredText(tokens: Token[] | undefined, fallback: string): string {
+  if (!tokens?.length) return fallback;
+  return tokens.map((token) => {
+    if (token.type === "codespan") return (token as Tokens.Codespan).text.replace(/\S/g, "0");
+    if ("tokens" in token) return measuredText(token.tokens, "text" in token ? token.text : token.raw ?? "");
+    return token.raw ?? ("text" in token ? token.text : "");
+  }).join("");
+}
+
 function textHeight(text: string, width: number, prepared: Map<string, PreparedText | null>): number {
   let measured = prepared.get(text);
   if (measured === undefined) {
@@ -128,15 +140,19 @@ function textHeight(text: string, width: number, prepared: Map<string, PreparedT
 
 function blockHeight(block: Token, width: number, prepared: Map<string, PreparedText | null>): number {
   switch (block.type) {
-    case "list": return (block as Tokens.List).items.reduce((sum, item) => sum + textHeight(item.text, width - LIST_INDENT, prepared), 0);
-    case "blockquote": return textHeight((block as Tokens.Blockquote).text, width - QUOTE_INDENT, prepared);
+    case "list": return (block as Tokens.List).items.reduce((sum, item) => sum + textHeight(measuredText(item.tokens, item.text), width - LIST_INDENT, prepared), 0);
+    case "blockquote": return textHeight(measuredText((block as Tokens.Blockquote).tokens, (block as Tokens.Blockquote).text), width - QUOTE_INDENT, prepared);
     case "hr": return 2;
     case "code": {
       const lines = (block as Tokens.Code).text.split("\n");
       const scrolls = lines.some((line) => line.length * CODE_CHAR_WIDTH > width - CODE_PADDING);
       return CODE_PADDING + lines.length * CODE_LINE_HEIGHT + (scrolls ? SCROLLBAR_HEIGHT : 0);
     }
-    default: return textHeight("text" in block && typeof block.text === "string" ? block.text : block.raw, width, prepared);
+    case "paragraph":
+    case "text":
+    case "heading": return textHeight(measuredText("tokens" in block ? block.tokens : undefined, (block as Tokens.Text).text), width, prepared);
+    // MarkdownBlocks draws any other block as its source.
+    default: return textHeight(block.raw, width, prepared);
   }
 }
 

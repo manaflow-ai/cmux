@@ -61,7 +61,7 @@ test("a list item wraps at the list's indented width", () => {
   expect(height("assistant", `- ${paragraph}`, 724)).toBeGreaterThanOrEqual(height("assistant", paragraph, 724 - 40));
 });
 
-/// The estimator measures what the page draws. Inline code draws in 12px monospace, as wide as the
+/// The estimator measures what the page draws. Inline code draws in 11.5px monospace, no wider than the
 /// prose font's digits, and a task item draws its checkbox's source text.
 test("a block is measured as the text it renders", () => {
   const [code] = markdownBlocks("Call `fill()` now") as Tokens.Paragraph[];
