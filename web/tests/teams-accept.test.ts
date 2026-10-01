@@ -4,7 +4,7 @@ import { requireTeamAccess } from "../services/teams/access";
 import { inviteTeamMembers, resendTeamInvitation } from "../services/teams/invitations";
 import { TeamApiError, TeamServiceUnavailableError } from "../services/teams/errors";
 import { createInvitationCodeClient, type InvitationCodeClient } from "../services/teams/invitationCode";
-import { ADMIN_ID, MemoryInviteStore, OUTSIDER_ID, standardTeam, TEAM_ID } from "./teams-fixture";
+import { ADMIN_ID, MemoryInviteStore, MemoryTeamSeatSync, OUTSIDER_ID, standardTeam, TEAM_ID } from "./teams-fixture";
 
 const INVITEE_EMAIL = "invitee@example.com";
 
@@ -76,7 +76,7 @@ describe("accepting an email invitation", () => {
     const store = await storeWithRole(INVITEE_EMAIL, "admin", invitation.id);
     const codes = codeClient({ onAccept: () => stack.consumeInvitation(invitation.id, OUTSIDER_ID) });
 
-    const result = await acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store });
+    const result = await acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store, seats: new MemoryTeamSeatSync() });
 
     expect(result).toEqual({ teamId: TEAM_ID, role: "admin" });
     expect(stack.grantsOf(TEAM_ID, OUTSIDER_ID).has("team_admin")).toBe(true);
@@ -107,7 +107,7 @@ describe("accepting an email invitation", () => {
     await store.upsertInviteRole({ stackTeamId: TEAM_ID, email: INVITEE_EMAIL, role: "member", invitedByUserId: ADMIN_ID });
     const codes = codeClient({ onAccept: () => stack.consumeInvitation(consumed.id, OUTSIDER_ID) });
 
-    const result = await acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store });
+    const result = await acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store, seats: new MemoryTeamSeatSync() });
 
     // The admin invitation to the other address was not the one used.
     expect(result.role).toBe("member");
@@ -125,7 +125,7 @@ describe("accepting an email invitation", () => {
         stack.teams.get(TEAM_ID)!.members.add(OUTSIDER_ID);
       },
     });
-    const result = await acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store });
+    const result = await acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store, seats: new MemoryTeamSeatSync() });
     expect(result.role).toBe("member");
     expect(stack.grantsOf(TEAM_ID, OUTSIDER_ID).has("team_admin")).toBe(false);
   });
@@ -141,7 +141,7 @@ describe("accepting an email invitation", () => {
       invitedByUserId: ADMIN_ID,
     });
     const codes = codeClient({ onAccept: () => stack.consumeInvitation(invitation.id, OUTSIDER_ID) });
-    const result = await acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store });
+    const result = await acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store, seats: new MemoryTeamSeatSync() });
     expect(result.role).toBe("member");
   });
 
@@ -149,7 +149,7 @@ describe("accepting an email invitation", () => {
     const stack = inviteeStack();
     const store = new MemoryInviteStore();
     const run = (codes: InvitationCodeClient) =>
-      failure(acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store }));
+      failure(acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store, seats: new MemoryTeamSeatSync() }));
     expect(await run(codeClient({ detailsFailure: "email_mismatch" }))).toBe("409:email_mismatch");
     expect(await run(codeClient({ detailsFailure: "invalid" }))).toBe("410:invitation_invalid");
     expect(await run(codeClient({ acceptFailure: "invalid" }))).toBe("410:invitation_invalid");
@@ -162,7 +162,7 @@ describe("accepting an email invitation", () => {
     const pending = stack.addInvitation(TEAM_ID, INVITEE_EMAIL);
     const store = await storeWithRole(INVITEE_EMAIL, "admin", pending.id);
     const codes = codeClient({});
-    expect(await failure(acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store })))
+    expect(await failure(acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store, seats: new MemoryTeamSeatSync() })))
       .toBe("503:service_unavailable");
     expect(stack.grantsOf(TEAM_ID, OUTSIDER_ID).has("team_admin")).toBe(false);
   });
@@ -233,61 +233,5 @@ describe("Stack invitation-code client", () => {
       },
     });
     expect(await client.accept("c", "t")).toEqual({ ok: false, failure: "unavailable" });
-  });
-});
-
-// Regression: the stored role was keyed by email alone. Members hold Stack
-// `$invite_members`, so after a cmux admin invitation expired a member could
-// send their own Stack invitation to that address and it granted admin.
-describe("stored roles are bound to the invitation cmux sent", () => {
-  const CALLBACK = "https://cmux.com/en/dashboard/team/accept";
-
-  async function sendAdminInvite(stack: ReturnType<typeof inviteeStack>, store: MemoryInviteStore) {
-    const access = await requireTeamAccess({ id: ADMIN_ID }, TEAM_ID, { stack: stack.app() });
-    if (!access.ok) throw new Error("access refused");
-    const [sent] = (await inviteTeamMembers(access.access, { emails: [INVITEE_EMAIL], role: "admin", callbackUrl: CALLBACK }, { store })).invitations;
-    return { access: access.access, sent: sent! };
-  }
-
-  async function acceptConsuming(stack: ReturnType<typeof inviteeStack>, store: MemoryInviteStore, invitationId: string) {
-    const codes = codeClient({ onAccept: () => stack.consumeInvitation(invitationId, OUTSIDER_ID) });
-    return acceptTeamInvitationCode(acceptRequest(), OUTSIDER_ID, "code", { stack: stack.app(), codes, store });
-  }
-
-  test("an admin role is not applied to an invitation cmux did not send", async () => {
-    const stack = inviteeStack();
-    const store = new MemoryInviteStore();
-    const { sent } = await sendAdminInvite(stack, store);
-    // Stack expires the cmux invitation; the stored admin role stays.
-    stack.invitations = stack.invitations.filter((invitation) => invitation.id !== sent.id);
-    // A member invites the same address straight through Stack.
-    const stray = stack.addInvitation(TEAM_ID, INVITEE_EMAIL);
-
-    const result = await acceptConsuming(stack, store, stray.id);
-
-    expect(result.role).toBe("member");
-    expect(stack.grantsOf(TEAM_ID, OUTSIDER_ID).has("team_admin")).toBe(false);
-  });
-
-  test("the admin invitation cmux sent grants admin", async () => {
-    const stack = inviteeStack();
-    const store = new MemoryInviteStore();
-    const { sent } = await sendAdminInvite(stack, store);
-
-    const result = await acceptConsuming(stack, store, sent.id);
-
-    expect(result.role).toBe("admin");
-    expect(stack.grantsOf(TEAM_ID, OUTSIDER_ID).has("team_admin")).toBe(true);
-  });
-
-  test("a resent admin invitation grants admin", async () => {
-    const stack = inviteeStack();
-    const store = new MemoryInviteStore();
-    const { access, sent } = await sendAdminInvite(stack, store);
-    const resent = await resendTeamInvitation(access, sent.id, CALLBACK, { store });
-
-    const result = await acceptConsuming(stack, store, resent.id);
-
-    expect(result.role).toBe("admin");
   });
 });

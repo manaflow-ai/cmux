@@ -134,6 +134,8 @@ struct ActionsAndLaunchersDiscoveryModel: Equatable {
             return "workspaceCommand"
         case .workspace:
             return "workspace"
+        case .setting:
+            return "setting"
         case .actionReference:
             return "action"
         }

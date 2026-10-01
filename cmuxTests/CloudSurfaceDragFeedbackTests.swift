@@ -24,6 +24,29 @@ struct CloudSurfaceDragFeedbackTests {
         #expect(policy.rejection(for: [SurfaceResourceID]()) == .cloudMachineMismatch)
     }
 
+    @Test("A surface already in the Cloud workspace can be reordered or split within it")
+    func ownSurfaceMovesWithinWorkspace() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "b", isBase: false)
+        let panelID = try #require(workspace.focusedPanelId)
+        let tabID = try #require(workspace.surfaceIdFromPanelId(panelID))
+        let paneID = try #require(workspace.paneId(forPanelId: panelID))
+        let processID = Int32(ProcessInfo.processInfo.processIdentifier)
+        // The workspace's own terminal is local here, the case a Cloud workspace
+        // holding a pre-existing local split hits; its own Cloud terminals follow
+        // the same path.
+        #expect(workspace.machineOwningSurface(panelID) == .local)
+        let own = PaneDragTransfer(tabId: tabID.uuid, sourcePaneId: paneID.id, sourceProcessId: processID)
+        #expect(workspace.surfaceDropRejection(own, source: .surface) == nil)
+        #expect(workspace.canPerformPortalSurfaceDrop(own))
+
+        let foreign = PaneDragTransfer(tabId: UUID(), sourcePaneId: paneID.id, sourceProcessId: processID)
+        #expect(workspace.surfaceDropRejection(foreign, source: .surface) == .cloudMachineMismatch)
+        let otherProcess = PaneDragTransfer(tabId: tabID.uuid, sourcePaneId: paneID.id, sourceProcessId: processID &+ 1)
+        #expect(workspace.surfaceDropRejection(otherProcess, source: .surface) == .cloudMachineMismatch)
+    }
+
     @Test("SwiftUI gate and AppKit pane router agree for every resource kind", arguments: SurfaceResourceKind.allCases)
     func destinationParity(kind: SurfaceResourceKind) throws {
         let fixture = try CloudSurfaceDragFixture(kind: kind)

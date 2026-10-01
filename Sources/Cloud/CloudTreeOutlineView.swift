@@ -546,6 +546,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .resource:
                 break
             case .placeholder(let machineID, let placeholder):
+                if placeholder.style == .createMachine {
+                    nodeActions.newMachine()
+                    return
+                }
                 // "Asleep — open to wake": a fresh terminal on the machine is what wakes it.
                 if let status = placeholder.portStatus { performPortAction(status.action, machineID: machineID) }
                 else if placeholder.opensMachine, let machine = machine(id: machineID) { openMachine(machine) }
