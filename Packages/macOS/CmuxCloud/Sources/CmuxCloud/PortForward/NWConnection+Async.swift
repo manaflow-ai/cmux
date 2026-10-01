@@ -26,86 +26,119 @@ extension NWConnection {
         }
     }
 
+    private struct ReceivedChunk: Sendable {
+        let data: Data?
+        let isComplete: Bool
+
+        var tuple: (data: Data?, isComplete: Bool) {
+            (data: data, isComplete: isComplete)
+        }
+    }
+
     /// Starts the connection on `queue` and returns once it is ready.
     public func startAndWaitUntilReady(queue: DispatchQueue) async throws {
         let outcome = CloudLinkFirstValue<Result<Void, StreamError>>()
-        stateUpdateHandler = { state in
-            switch state {
-            case .ready:
-                outcome.resolve(.success(()))
-            case .failed(let error):
-                outcome.resolve(.failure(.failed(error)))
-            case .waiting(let error):
-                outcome.resolve(.failure(.unreachable(error)))
-            case .cancelled:
-                outcome.resolve(.failure(.cancelled))
-            case .setup, .preparing:
-                break
-            @unknown default:
-                break
+        return try await withTaskCancellationHandler {
+            stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    outcome.resolve(.success(()))
+                case .failed(let error):
+                    outcome.resolve(.failure(.failed(error)))
+                case .waiting(let error):
+                    outcome.resolve(.failure(.unreachable(error)))
+                case .cancelled:
+                    outcome.resolve(.failure(.cancelled))
+                case .setup, .preparing:
+                    break
+                @unknown default:
+                    break
+                }
             }
+            start(queue: queue)
+            let result = await outcome.result ?? .failure(.cancelled)
+            stateUpdateHandler = nil
+            try result.get()
+        } onCancel: {
+            cancel()
         }
-        start(queue: queue)
-        let result = await outcome.result ?? .failure(.cancelled)
-        stateUpdateHandler = nil
-        try result.get()
     }
 
     /// The next chunk of incoming bytes; `isComplete` marks the peer's end of
     /// stream (the chunk may then be empty).
     public func receiveChunk(maximumLength: Int = 65_536) async throws -> (data: Data?, isComplete: Bool) {
-        try await withCheckedThrowingContinuation { continuation in
+        let outcome = CloudLinkFirstValue<Result<ReceivedChunk, StreamError>>()
+        return try await withTaskCancellationHandler {
             receive(minimumIncompleteLength: 1, maximumLength: maximumLength) { data, _, isComplete, error in
                 if let error {
-                    continuation.resume(throwing: StreamError.failed(error))
-                    return
+                    outcome.resolve(.failure(.failed(error)))
+                } else {
+                    outcome.resolve(.success(ReceivedChunk(data: data, isComplete: isComplete)))
                 }
-                continuation.resume(returning: (data, isComplete))
             }
+            let result = await outcome.result ?? .failure(.cancelled)
+            return try result.get().tuple
+        } onCancel: {
+            cancel()
         }
     }
 
     /// Exactly `count` bytes, or ``StreamError/endedEarly`` when the peer
     /// closes first.
     public func receiveExactly(_ count: Int) async throws -> [UInt8] {
-        try await withCheckedThrowingContinuation { continuation in
+        let outcome = CloudLinkFirstValue<Result<[UInt8], StreamError>>()
+        return try await withTaskCancellationHandler {
             receive(minimumIncompleteLength: count, maximumLength: count) { data, _, _, error in
                 if let error {
-                    continuation.resume(throwing: StreamError.failed(error))
+                    outcome.resolve(.failure(.failed(error)))
                     return
                 }
                 guard let data, data.count == count else {
-                    continuation.resume(throwing: StreamError.endedEarly)
+                    outcome.resolve(.failure(.endedEarly))
                     return
                 }
-                continuation.resume(returning: [UInt8](data))
+                outcome.resolve(.success([UInt8](data)))
             }
+            let result = await outcome.result ?? .failure(.cancelled)
+            return try result.get()
+        } onCancel: {
+            cancel()
         }
     }
 
     /// Returns once the stack has accepted all of `data`.
     public func sendAll(_ data: Data) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        let outcome = CloudLinkFirstValue<Result<Void, StreamError>>()
+        try await withTaskCancellationHandler {
             send(content: data, completion: .contentProcessed { error in
                 if let error {
-                    continuation.resume(throwing: StreamError.failed(error))
+                    outcome.resolve(.failure(.failed(error)))
                 } else {
-                    continuation.resume()
+                    outcome.resolve(.success(()))
                 }
             })
+            let result = await outcome.result ?? .failure(.cancelled)
+            try result.get()
+        } onCancel: {
+            cancel()
         }
     }
 
     /// Half-close: nothing more will be sent; the peer may keep sending.
     public func finishSending() async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        let outcome = CloudLinkFirstValue<Result<Void, StreamError>>()
+        try await withTaskCancellationHandler {
             send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { error in
                 if let error {
-                    continuation.resume(throwing: StreamError.failed(error))
+                    outcome.resolve(.failure(.failed(error)))
                 } else {
-                    continuation.resume()
+                    outcome.resolve(.success(()))
                 }
             })
+            let result = await outcome.result ?? .failure(.cancelled)
+            try result.get()
+        } onCancel: {
+            cancel()
         }
     }
 }
