@@ -32,6 +32,8 @@ import PackageDescription
 //   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
 //     client, pasted-key Keychain store, account row state; no UI, no daemon; plans/cmux-next/coderouter.md)
 //   CmuxNextAccounts -> CodeRouter, Design (Settings > Accounts and the onboarding step; the App supplies AccountsServices)
+//   CmuxNextBookmarks -> Design (bookmark tree per browser profile, Netscape HTML, ranking, file store,
+//     cmux://bookmarks page, bookmarks bar, edit bubble; no daemon; the App supplies the store)
 //   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
 
@@ -107,6 +109,7 @@ let package = Package(
                 "CmuxNextHistory",
                 "CmuxNextCodeRouter",
                 "CmuxNextAccounts",
+                "CmuxNextBookmarks",
             ],
             resources: [
                 .process("Resources"),
@@ -187,6 +190,23 @@ let package = Package(
         .testTarget(
             name: "CmuxNextHistoryTests",
             dependencies: ["CmuxNextHistory"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Bookmarks (plans/cmux-next/bookmarks.md): the tree per browser
+        // profile, Netscape HTML import/export, omnibar ranking, the local
+        // file store, the cmux://bookmarks page, the bookmarks bar and the
+        // edit bubble.
+        .target(
+            name: "CmuxNextBookmarks",
+            dependencies: ["CmuxNextDesign"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextBookmarksTests",
+            dependencies: ["CmuxNextBookmarks"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
