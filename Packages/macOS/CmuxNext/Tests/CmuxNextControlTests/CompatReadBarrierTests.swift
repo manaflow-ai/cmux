@@ -2,6 +2,7 @@ import CmuxNextDaemon
 @testable import CmuxNextControl
 import CmuxNextSettings
 import Foundation
+import Synchronization
 import Testing
 
 /// Compat reads answer from the published `ControlSnapshot` (architecture.md
@@ -15,6 +16,19 @@ import Testing
         let service = CompatService(frontend: HeadlessCompatFrontend()) { nil }
         service.install(on: router)
         return (router, service)
+    }
+
+    private func readWithoutWaiting(_ request: ControlRequest, on router: ControlRouter) async throws -> CmuxNextSettings.JSONValue {
+        let finished = Atomic(false)
+        let read = Task {
+            defer { finished.store(true, ordering: .releasing) }
+            return try await router.handle(request).get()
+        }
+        while !finished.load(ordering: .acquiring) {
+            #expect(!router.snapshots.hasWaiters)
+            await Task.yield()
+        }
+        return try await read.value
     }
 
     @Test func identifyAnswersFromTheSnapshotWithoutTheDaemon() async throws {
@@ -56,10 +70,8 @@ import Testing
         sample.topology.daemonSequence = 12
         router.snapshots.publish { $0 = sample }
         service.writes.raise(to: 12)
-        let started = ContinuousClock.now
-        _ = try await router.handle(ControlRequest(method: "system.identify")).get()
-        _ = try await router.handle(ControlRequest(method: "workspace.list")).get()
-        #expect(ContinuousClock.now - started < .milliseconds(200))
+        _ = try await readWithoutWaiting(ControlRequest(method: "system.identify"), on: router)
+        _ = try await readWithoutWaiting(ControlRequest(method: "workspace.list"), on: router)
         #expect(!router.snapshots.hasWaiters)
     }
 

@@ -202,14 +202,32 @@ import Testing
 }
 
 extension CompatActionTests {
+    private func fireScheduledFrame(_ frames: ManualFrameSource) async throws {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while frames.scheduledCount == 0 {
+            guard ContinuousClock.now < deadline else {
+                throw ControlError(code: "timeout", message: "compat action frame was not scheduled")
+            }
+            await Task.yield()
+        }
+        await frames.fire()
+    }
+
     @Test func actionRunWaitsForTrackedWorkOnlyWhenAsked() async throws {
         let executor = TrackingExecutor(failure: "new-tab: PTY capacity exhausted")
-        let router = ControlRouter(identity: testIdentity(), executor: executor)
+        let frames = ManualFrameSource()
+        let router = ControlRouter(identity: testIdentity(), executor: executor, frameSource: frames)
         router.updateCatalog(sampleCatalog())
         let action = try #require(router.catalog.actions.first(where: { $0.arguments.allSatisfy { !$0.isRequired } && $0.requires.isEmpty }))
-        let quick = await router.handle(ControlRequest(method: "action.run", params: ["action": .string(action.id)]))
+        let quickRequest = ControlRequest(method: "action.run", params: ["action": .string(action.id)])
+        let quickTask = Task { await router.handle(quickRequest) }
+        try await fireScheduledFrame(frames)
+        let quick = await quickTask.value
         #expect(try quick.get()["waited"] == false)
-        guard case .failure(let error) = await router.handle(ControlRequest(method: "action.run", params: ["action": .string(action.id), "wait": true])) else {
+        let waitedRequest = ControlRequest(method: "action.run", params: ["action": .string(action.id), "wait": true])
+        let waitedTask = Task { await router.handle(waitedRequest) }
+        try await fireScheduledFrame(frames)
+        guard case .failure(let error) = await waitedTask.value else {
             Issue.record("expected the tracked failure")
             return
         }
