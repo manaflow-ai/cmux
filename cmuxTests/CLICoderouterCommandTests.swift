@@ -11,8 +11,6 @@ import Testing
 
 // The CLI executable's CMUXCLI type is not part of the app test target. The
 // provider-first alias is a pure routing helper shared with the app instead.
-// Keep this test-only alias distinct from the VM transfer tests, whose
-// CMUXCLI references the executable's real command type in the CLI target.
 typealias CoderouterCLI = CmuxTuiRemoteRouting
 
 @Suite struct AgentAliasArgumentTests {
