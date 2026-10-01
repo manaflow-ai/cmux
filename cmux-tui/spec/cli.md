@@ -460,8 +460,11 @@ using the message id as the acpmux prompt id, and marks the receipt
 `delivered` (or `failed`, with the error). It first sends that recipient's
 older queued messages, oldest first; the prompt id keeps any of them from
 running twice. A `failed` message is not retried. It never starts the acpmux
-daemon. A terminal agent's message stays `queued` until the agent's hooks take
-it. The command exits 1 when this message's own delivery failed; the message is
+daemon. For a Codex terminal agent whose thread the shared Codex app-server
+daemon has loaded, it hands the agent's queued messages to Codex as one input
+(`turn/start` when the thread is idle, `turn/steer` when a turn is running)
+and marks them `delivered`. Any other terminal agent's message, or one Codex
+cannot take now, stays `queued` until the agent's hooks take it. The command exits 1 when this message's own delivery failed; the message is
 stored either way, and problems with older messages are reported on stderr.
 
 `agent inbox` lists messages newest first for `<agent>`, or for the caller's

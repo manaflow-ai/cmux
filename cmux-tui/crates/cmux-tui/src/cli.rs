@@ -7,6 +7,7 @@
 mod agent_message;
 #[cfg(unix)]
 mod app;
+mod codex_app_server;
 mod command;
 mod lifecycle;
 mod raw;

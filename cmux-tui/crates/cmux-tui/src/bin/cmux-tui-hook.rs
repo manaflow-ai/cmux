@@ -144,9 +144,6 @@ mod inbox {
 
     /// Queued messages one hook asks the daemon for, oldest first.
     const PAGE: u64 = 50;
-    /// Rendered text one hook hands over; later messages wait for the next
-    /// hook. Codex keeps 2,500 tokens of hook output by default.
-    const MAX_TEXT_BYTES: usize = 8 * 1024;
     const DEADLINE: Duration = Duration::from_millis(1500);
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -219,7 +216,7 @@ mod inbox {
                 return;
             }
         };
-        let batch = batch(messages);
+        let batch = cmux_tui_core::agent_message_prompt::batch(messages);
         if batch.is_empty() {
             print_nothing(delivery);
             return;
@@ -234,22 +231,6 @@ mod inbox {
             true,
             deadline,
         );
-    }
-
-    /// The oldest queued messages that fit in one hook's output; always at
-    /// least one.
-    pub(super) fn batch(oldest_first: Vec<Value>) -> Vec<Value> {
-        let mut batch = Vec::new();
-        let mut bytes = 0;
-        for message in oldest_first {
-            let size = message["body"].as_str().map_or(0, str::len) + 512;
-            if !batch.is_empty() && bytes + size > MAX_TEXT_BYTES {
-                break;
-            }
-            bytes += size;
-            batch.push(message);
-        }
-        batch
     }
 
     fn queued(socket: &Path, terminal: &str, deadline: Instant) -> anyhow::Result<Vec<Value>> {
@@ -1208,22 +1189,6 @@ mod tests {
         let stop = Delivery::for_event("codex", "Stop").unwrap();
         assert_eq!(stop.output(Some("hi")), json!({"decision": "block", "reason": "hi"}));
         assert!(Delivery::for_event("claude", "UserPromptSubmit").is_some());
-    }
-
-    #[test]
-    fn a_hook_hands_over_the_oldest_messages_that_fit() {
-        let message = |id: &str, bytes: usize| json!({"id": id, "body": "x".repeat(bytes)});
-        // The daemon lists oldest first (oldest_first).
-        let ids = |batch: Vec<Value>| -> Vec<String> {
-            batch.iter().map(|message| message["id"].as_str().unwrap().to_owned()).collect()
-        };
-        assert_eq!(
-            ids(inbox::batch(vec![message("m1", 10), message("m2", 10), message("m3", 10)])),
-            ["m1", "m2", "m3"]
-        );
-        assert_eq!(ids(inbox::batch(vec![message("m1", 6000), message("m2", 6000)])), ["m1"]);
-        // One message always goes, however long.
-        assert_eq!(ids(inbox::batch(vec![message("m1", 30_000)])), ["m1"]);
     }
 
     fn cmux_environ(pid: u32) -> Option<std::collections::HashMap<String, String>> {
