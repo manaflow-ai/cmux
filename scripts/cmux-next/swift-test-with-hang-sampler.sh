@@ -7,15 +7,29 @@ set -uo pipefail
 limit="${CMUX_NEXT_TEST_HANG_SECONDS:-1200}"
 swift test "$@" &
 test_pid=$!
+# Only this run's processes: on a shared CI Mac other jobs run xctest and
+# swiftpm-testing-helper as the same user.
+descendants() {
+  local child
+  for child in $(pgrep -P "$1"); do
+    echo "$child"
+    descendants "$child"
+  done
+}
 (
   sleep "$limit"
   echo "::error title=cmux-next swift test hang::swift test still running after ${limit}s; sampling the test processes"
-  for p in $(pgrep -x xctest) $(pgrep -f swiftpm-testing-helper); do
-    echo "=== sample $p"
-    sample "$p" 5 -mayDie 2>&1 | head -n 800
+  tree="$(descendants "$test_pid")"
+  for p in $tree; do
+    case "$(ps -o comm= -p "$p" 2>/dev/null)" in
+      *xctest|*swiftpm-testing-helper)
+        echo "=== sample $p"
+        sample "$p" 5 -mayDie 2>&1 | head -n 800 ;;
+    esac
   done
-  pkill -x xctest
-  pkill -f swiftpm-testing-helper
+  for p in $tree; do
+    kill "$p" 2>/dev/null
+  done
   kill "$test_pid"
 ) &
 watcher=$!

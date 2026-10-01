@@ -64,7 +64,10 @@ env:
   CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
 
 concurrency:
-  group: cmux-next-${{ github.event.pull_request.number || github.ref }}
+  # Pushes and dispatches get a group of their own, as in the other side
+  # lanes: when the owned-pool rescue re-runs an older push run, it must not
+  # join a group where it would replace (cancel) the newest pending run.
+  group: cmux-next-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # The macOS jobs run as a side lane, like relay-tls.yml and reload-build.yml:
@@ -179,6 +182,7 @@ jobs:
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build
 
   release-compile:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' }}
     name: cmux-next Release compile (Xcode 26)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     # One-architecture Release (-O, whole-module) xcodebuild of CmuxNextApp
@@ -221,7 +225,8 @@ jobs:
       # in same-repository runs, as in ci-macos.yml's admission; later runs
       # read the cache. A runner's own ~/.secrets file is never a source.
       # Blacksmith runs skip both steps: they keep no cache, so each run would
-      # pay the download and the wrapper compile.
+      # pay the download and the wrapper compile. So the check is advisory: a
+      # re-run (Blacksmith) or a fork pull request does not repeat it.
       - name: Fetch the Chromium engine
         id: cef
         if: startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-')
