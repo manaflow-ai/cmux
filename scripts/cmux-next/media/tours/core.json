@@ -1,0 +1,21 @@
+{
+  "title": "Core UI",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Type in the terminal", "daemon": true,
+     "cmux": ["terminal", "current", "write", "--text", "echo hello from the cmux-next tour\r"]},
+    {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Tour"]},
+    {"title": "Split right", "cmux": ["action", "run", "splitRight"]},
+    {"title": "Split down", "cmux": ["action", "run", "splitDown"]},
+    {"title": "New terminal tab", "cmux": ["action", "run", "newSurface"]},
+    {"title": "Browser tab", "cmux": ["tab", "new-browser", "--url", "https://example.com"], "wait": 5},
+    {"title": "Hide the sidebar", "cmux": ["action", "run", "toggleSidebar"]},
+    {"title": "Show the sidebar", "cmux": ["action", "run", "toggleSidebar"], "shot": false},
+    {"title": "Notification", "daemon": true,
+     "cmux": ["notify", "--title", "Tour", "--body", "Hello from CI"], "wait": 2},
+    {"title": "Notifications panel", "cmux": ["action", "run", "showNotifications"],
+     "optional": "the notifications panel is not ported yet"},
+    {"title": "Agent chat", "cmux": ["agent", "new-chat"], "wait": 4,
+     "optional": "agent chat views are not ported yet"}
+  ]
+}
