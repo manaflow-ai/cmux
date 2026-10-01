@@ -1160,6 +1160,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-arity-home-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        environment["HOME"] = home.path
+        environment["CFFIXED_USER_HOME"] = home.path
 
         let malformedCommands: [[String]] = [
             ["vm", "ls", "unexpected"],
@@ -1174,6 +1180,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 environment: environment,
                 timeout: 30
             )
+            XCTAssertFalse(result.timedOut, "Timed out for \(arguments): \(result.stderr)")
             XCTAssertNotEqual(result.status, 0, "Malformed command unexpectedly succeeded: \(arguments)")
             XCTAssertTrue(result.stderr.contains("Usage: cmux vm"), "Missing usage for \(arguments): \(result.stderr)")
         }

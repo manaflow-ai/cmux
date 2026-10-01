@@ -115152,6 +115152,20 @@
         }
       }
     },
+    "cli.vm.list.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux vm ls" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使い方: cmux vm ls" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用法：cmux vm ls" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verwendung: cmux vm ls" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Utilisation : cmux vm ls" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "الاستخدام: cmux vm ls" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Uso: cmux vm ls" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "用法：cmux vm ls" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "사용법: cmux vm ls" } }
+      }
+    },
     "cli.vm.list.planMeter.unlimited": {
       "extractionState": "manual",
       "localizations": {

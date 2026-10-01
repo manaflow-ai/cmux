@@ -5677,7 +5677,7 @@ struct CMUXCLI {
 
             case "ls", "list":
                 guard rest.isEmpty else {
-                    throw CLIError(message: "Usage: cmux vm ls")
+                    throw CLIError(message: String(localized: "cli.vm.list.usage", defaultValue: "Usage: cmux vm ls"))
                 }
                 let response = try client.sendV2(method: "vm.list")
                 if jsonOutput {
