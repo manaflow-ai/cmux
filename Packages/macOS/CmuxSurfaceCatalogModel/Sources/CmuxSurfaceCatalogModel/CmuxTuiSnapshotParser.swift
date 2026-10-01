@@ -1080,18 +1080,16 @@ public struct CmuxTuiSnapshotParser: Sendable {
               let terminalID = nonEmptyString(value["terminal_id"])
         else { return false }
         let explicitID = nonEmptyString(change["id"]) ?? nonEmptyString(value["id"]) ?? resolvedID
-        let targetIndex = explicitID.flatMap { id in state.agents.firstIndex { $0.id == id } }
+        let targetIndex = state.agents.firstIndex { $0.id == explicitID }
             ?? state.agents.firstIndex { $0.terminalID == terminalID }
-        if targetIndex == nil, explicitID != nil,
+        if targetIndex == nil,
            state.agents.contains(where: { $0.id == nil }) {
             // An explicit id cannot safely claim an unrelated legacy id-less row.
             return false
         }
         if let targetIndex {
             let old = state.agents[targetIndex]
-            if explicitID == nil, decoded.id == nil, let existingID = state.agents[targetIndex].id {
-                decoded.id = existingID
-            }
+            if decoded.id == nil { decoded.id = explicitID }
             state.agents[targetIndex] = decoded
             state.lookupIndex.removeAgent(old)
         } else {
@@ -1105,8 +1103,7 @@ public struct CmuxTuiSnapshotParser: Sendable {
         let explicitID = nonEmptyString(change["id"]) ?? (change["value"] as? [String: Any]).flatMap { nonEmptyString($0["id"]) } ?? resolvedID
         let terminalID = nonEmptyString(change["terminal_id"])
             ?? (change["value"] as? [String: Any]).flatMap { nonEmptyString($0["terminal_id"]) }
-        if let explicitID,
-           let index = state.agents.firstIndex(where: { $0.id == explicitID }) {
+        if let index = state.agents.firstIndex(where: { $0.id == explicitID }) {
             if let terminalID, state.agents[index].terminalID != terminalID { return false }
             let old = state.agents[index]
             state.agents.remove(at: index)
