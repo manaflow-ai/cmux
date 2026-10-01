@@ -1320,14 +1320,15 @@ private final class TerminalTabOverviewHintView: UIView {
         messageLabel.numberOfLines = 3
         addSubview(messageLabel)
 
-        closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
-        configureLiquidGlassButton(
-            closeButton,
-            imageName: "xmark",
-            prominent: false,
-            symbolPointSize: 15,
-            foregroundColor: .secondaryLabel
+        // Safari renders the card teaching affordance as the filled SF Symbol
+        // itself. The symbol supplies the circular treatment, so there is no
+        // second painted button background beneath the system material.
+        closeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        closeButton.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 22, weight: .regular),
+            forImageIn: .normal
         )
+        closeButton.tintColor = .secondaryLabel
         closeButton.accessibilityLabel = L10n.string("mobile.common.close", defaultValue: "Close")
         closeButton.accessibilityIdentifier = "MobileTerminalOverviewHintClose"
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
@@ -1480,14 +1481,15 @@ private final class TerminalTabOverviewCardView: UIControl {
         groupIcon.contentMode = .scaleAspectFit
         addSubview(groupIcon)
 
-        closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
-        configureLiquidGlassButton(
-            closeButton,
-            imageName: "xmark",
-            prominent: false,
-            symbolPointSize: 15,
-            foregroundColor: .secondaryLabel
+        // Card close controls use Safari's filled SF Symbol. Keeping this as
+        // an image preserves the symbol's native gray circle and avoids a
+        // hand-painted background behind the card preview.
+        closeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        closeButton.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 22, weight: .regular),
+            forImageIn: .normal
         )
+        closeButton.tintColor = .secondaryLabel
         closeButton.accessibilityLabel = L10n.string("mobile.terminal.overview.close", defaultValue: "Close Terminal")
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         addSubview(closeButton)
