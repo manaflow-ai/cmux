@@ -263,7 +263,7 @@ class MergeTests(TempRepoCase):
         head = git(self.repo, "rev-parse", "HEAD")
         code, output = self.run_merge({green: "success"})
         self.assertEqual(code, 1)
-        self.assertIn("README: not a generated file", output)
+        self.assertIn("README: both sides changed it", output)
         self.assertIn(f"git merge {green}", output)
         self.assertEqual(git(self.repo, "rev-parse", "HEAD"), head)
         self.assertEqual(git(self.repo, "status", "--porcelain"), "")
@@ -272,12 +272,50 @@ class MergeTests(TempRepoCase):
         commit(self.repo, "branch readme", {"README": "branch\n"})
         green = self.main_commit("main readme", {"README": "main\n"})
         head = git(self.repo, "rev-parse", "HEAD")
-        with mock.patch.object(merge_main.catch_up_pr.Repo, "unmerged", side_effect=KeyboardInterrupt):
+        with mock.patch.object(merge_main.merge_main_resolver.Repo, "unmerged", side_effect=KeyboardInterrupt):
             with self.assertRaises(KeyboardInterrupt):
                 self.run_merge({green: "success"})
         self.assertEqual(git(self.repo, "rev-parse", "HEAD"), head)
         self.assertEqual(git(self.repo, "status", "--porcelain"), "")
         self.assertFalse((self.repo / ".git/MERGE_HEAD").exists())
+
+
+class LocalResolverTests(TempRepoCase):
+    def seed(self, path: str, text: str) -> None:
+        self.main_commit("shared base", {path: text})
+        git(self.repo, "fetch", "-q", "origin", "main")
+        git(self.repo, "merge", "--ff-only", "origin/main")
+
+    @staticmethod
+    def catalog(**strings: str) -> str:
+        return json.dumps({"sourceLanguage": "en", "strings": {
+            key: {"localizations": {"en": {"stringUnit": {
+                "state": "translated", "value": value}}}}
+            for key, value in strings.items()
+        }, "version": "1.0"}, indent=2) + "\n"
+
+    def test_catalog_additions_merge_by_key(self) -> None:
+        path = "Resources/Test.xcstrings"
+        self.seed(path, self.catalog(base="base"))
+        commit(self.repo, "branch key", {path: self.catalog(base="base", branch="branch")})
+        green = self.main_commit("main key", {path: self.catalog(base="base", main="main")})
+        code, output = self.run_merge({green: "success"})
+        self.assertEqual(code, 0, output)
+        self.assertEqual(set(json.loads((self.repo / path).read_text())["strings"]),
+                         {"base", "main", "branch"})
+        self.assertIn("xcstrings key-level union", output)
+
+    def test_catalog_same_key_conflict_aborts_cleanly(self) -> None:
+        path = "Resources/Test.xcstrings"
+        self.seed(path, self.catalog(base="base"))
+        before = commit(self.repo, "branch key", {path: self.catalog(base="branch")})
+        green = self.main_commit("main key", {path: self.catalog(base="main")})
+        code, output = self.run_merge({green: "success"})
+        self.assertEqual(code, 1, output)
+        self.assertIn("same key changed on both sides", output)
+        self.assertEqual(git(self.repo, "rev-parse", "HEAD"), before)
+        self.assertEqual(git(self.repo, "status", "--porcelain"), "")
+
 
 
 class ClassificationTests(TempRepoCase):

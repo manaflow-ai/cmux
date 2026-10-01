@@ -149,6 +149,41 @@ extension MobileIrxRuntimeComposition {
         return MobileIrohSimulatorStreamLane(stream: lane.bidirectional())
     }
 
+    /// Opens one "On iPhone" browser tunnel connection from the Mac to
+    /// `host:port` on the peer's admitted session. The Mac applies its
+    /// destination policy and limits; a refusal throws
+    /// `MobileTunnelOpenFailure`.
+    public func openTunnelConnection(
+        for request: CmxByteTransportRequest,
+        host: String,
+        port: Int
+    ) async throws -> any MobileTunnelLaneConnection {
+        let peerHex = try peerTarget(for: request)
+        let session = try await ensureSession(forPeer: peerHex, trigger: "tunnel-lane")
+        do {
+            let lane = try await IrxTunnelClient(connection: session.connection).connect(host: host, port: port)
+            return IrxTunnelLaneConnection(lane: lane)
+        } catch let error as IrxTunnelOpenError {
+            throw error.mobileFailure
+        } catch {
+            throw MobileTunnelOpenFailure.unavailable
+        }
+    }
+
+    /// The Mac's loopback listening ports and tunnel policy.
+    public func tunnelListeningPorts(
+        for request: CmxByteTransportRequest
+    ) async throws -> MobileTunnelListeningPorts {
+        let peerHex = try peerTarget(for: request)
+        let session = try await ensureSession(forPeer: peerHex, trigger: "tunnel-ports")
+        let reply = try await IrxTunnelClient(connection: session.connection).listeningPorts()
+        var ports: [Int: String] = [:]
+        for entry in reply.ports where (1...65_535).contains(entry.port) {
+            ports[entry.port] = entry.address
+        }
+        return MobileTunnelListeningPorts(ports: ports, allowsNonLoopbackHosts: reply.allowsNonLoopbackHosts)
+    }
+
     /// The deferred transport the RPC layer connects through. Each RPC client
     /// generation claims one admitted session's control lane and releases that
     /// claim when the transport closes.

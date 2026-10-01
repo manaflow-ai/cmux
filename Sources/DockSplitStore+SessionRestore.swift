@@ -38,15 +38,21 @@ extension DockSplitStore {
 
         let layoutCodec = SessionSplitContainerLayoutCodec(controller: bonsplitController)
         let scaffold = withProgrammaticDockSplit { layoutCodec.restoreScaffold(snapshot.layout) }
-        let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
+        let panelSnapshotsById = Dictionary(
+            snapshot.panels.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         let restorableAgentIndex = restoreAgentIndex(for: snapshot.panels)
         var oldToNewPanelIds: [UUID: UUID] = [:]
         var restoredPanelIds: Set<UUID> = []
 
         for leaf in scaffold.leaves {
             _ = bonsplitController.setFullWidthTabMode(false, inPane: leaf.paneId)
+            var restoredPanelIdsInLeaf: Set<UUID> = []
             let desiredPanelIds = leaf.snapshot.panelIds.filter {
-                panelSnapshotsById[$0] != nil && !restoredPanelIds.contains($0)
+                panelSnapshotsById[$0] != nil &&
+                    restoredPanelIdsInLeaf.insert($0).inserted &&
+                    !restoredPanelIds.contains($0)
             }
             var createdPanelIds: [UUID] = []
             for oldPanelId in desiredPanelIds {
@@ -480,6 +486,7 @@ extension DockSplitStore {
             initialInput: initialInput,
             additionalEnvironment: replayEnvironment,
             focusPlacement: .rightSidebarDock,
+            isRemoteTerminal: terminalSnapshot.isRemoteTerminal == true,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: .pacedSessionRestore,
                 willRunStartupInput: willRunAgentInput,

@@ -138,7 +138,7 @@ fn terminal_state_read(
         .map_err(resource_operation_error)?
         .map_err(|error| resource_operation_error(error.into()))?;
     Ok(json!({
-        "state_base64":base64::engine::general_purpose::STANDARD.encode(state.bytes),
+        "state_base64":base64::engine::general_purpose::STANDARD.encode(state.self_contained_bytes()),
         "cols":cols,
         "rows":rows,
     }))
@@ -194,7 +194,17 @@ fn terminal_output_read(
     let after = optional_decimal(&request.fields, "after")?;
     // The catalog injects the default and enforces the 1..=4 MiB bounds.
     let max_bytes = required_u64(&request.fields, "max_bytes")?;
-    mux.terminal_output_read(&terminal_id, after, max_bytes).map_err(resource_operation_error)
+    mux.terminal_output_read(&terminal_id, after, max_bytes).map_err(|error| {
+        // Journal failures can contain SQLite paths, trigger text, and other
+        // host diagnostics. Keep those details in daemon logs; this resource
+        // is user-facing and must return a stable, non-sensitive error.
+        eprintln!("cmux-tui: terminal output read failed for {terminal_id}: {error:#}");
+        ResourceError::operation_failed(
+            "terminal.output_read",
+            "could not read terminal output",
+            json!({}),
+        )
+    })
 }
 
 fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {

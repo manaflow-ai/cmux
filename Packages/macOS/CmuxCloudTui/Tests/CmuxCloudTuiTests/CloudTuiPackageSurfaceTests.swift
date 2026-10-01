@@ -11,6 +11,13 @@ import CmuxCloudTui
         #expect(CloudTuiCommandLine.shellQuote("it's") == "'it'\\''s'")
     }
 
+    /// A line terminator must never be left bare: the shell would end the
+    /// command there and run the rest as a second command.
+    @Test(arguments: ["abc\n", "abc\r", "abc\r\n", "a\nb"])
+    func shellQuoteQuotesLineTerminators(value: String) {
+        #expect(CloudTuiCommandLine.shellQuote(value) == "'\(value)'")
+    }
+
     @Test func gridRejectsDimensionsOutsideTheSupportedRange() {
         #expect(CloudTuiManualIOGrid(columns: 1, rows: 24) == nil)
         #expect(CloudTuiManualIOGrid(columns: 80, rows: 10_001) == nil)

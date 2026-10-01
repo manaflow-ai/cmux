@@ -100,6 +100,22 @@ private struct WorkspacePanelContentHostView: View {
                 workspace.requestDeferredBrowserMaterialization(panelId: panel.id, isVisibleInUI: isVisibleInUI)
             }
         )
+        .onAppear {
+            if isVisibleInUI {
+                workspace.owningTabManager?.dismissNotificationOnVisiblePanel(
+                    tabId: workspace.id,
+                    panelId: panel.id
+                )
+            }
+        }
+        .onChange(of: isVisibleInUI) { _, visible in
+            if visible {
+                workspace.owningTabManager?.dismissNotificationOnVisiblePanel(
+                    tabId: workspace.id,
+                    panelId: panel.id
+                )
+            }
+        }
     }
 }
 
@@ -180,6 +196,7 @@ struct WorkspaceContentView: View {
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.tmuxOverlayExperimentTarget) private var overlayTarget
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
@@ -195,9 +212,7 @@ struct WorkspaceContentView: View {
         }()
 #endif
         let appearance = PanelAppearance.fromConfig(config)
-        let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
-            workspace.panels.count > 1
-        let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
+        let isSplit = workspace.hasMultipleSplitSurfaces
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
 
@@ -288,7 +303,7 @@ struct WorkspaceContentView: View {
                         appearance: appearance,
                         windowAppearance: windowAppearance,
                         customSidebarTabManager: workspace.owningTabManager,
-                        hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
+                        hasUnreadNotification: showsNotificationRing && !overlayTarget.usesWorkspacePaneOverlay,
                         onFocus: {
                             // Keep bonsplit focus in sync with the AppKit first responder for the
                             // active workspace. This prevents divergence between the blue focused-tab
@@ -381,6 +396,10 @@ struct WorkspaceContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: PaneChromeSettings.didChangeNotification)) { _ in
             workspace.applyGhosttyChrome(from: config, reason: "paneChromeSettingsDidChange")
+        }
+        .onDisplayAccessibilityOptionsChange { _ in
+            // Increase Contrast changes the separator color the chrome resolves.
+            workspace.applyGhosttyChrome(from: config, reason: "displayAccessibilityOptionsDidChange")
         }
         .onChange(of: colorScheme) { oldValue, newValue in
             // Keep split overlay color/opacity in sync with light/dark theme transitions.
@@ -722,13 +741,9 @@ extension WorkspaceContentView {
             let ts = ISO8601DateFormatter().string(from: Date())
             let line = "[\(ts)] PANEL NOT FOUND for tabId=\(tab.id) ws=\(workspace.id) panelCount=\(workspace.panels.count)\n"
             let logPath = "/tmp/cmux-panel-debug.log"
-            if let handle = FileHandle(forWritingAtPath: logPath) {
-                defer { try? handle.close() }
-                guard (try? handle.seekToEnd()) != nil else { return }
-                try? handle.write(contentsOf: Data(line.utf8))
-            } else {
-                FileManager.default.createFile(atPath: logPath, contents: line.data(using: .utf8))
-            }
+            guard let handle = OwnedLogFile(path: logPath).openForAppending() else { return }
+            defer { try? handle.close() }
+            try? handle.write(contentsOf: Data(line.utf8))
         }
     }
     #else

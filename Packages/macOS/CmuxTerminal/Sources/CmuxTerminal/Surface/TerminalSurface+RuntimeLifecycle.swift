@@ -189,6 +189,7 @@ extension TerminalSurface {
             )
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
+            paneHost.terminalSurfaceRuntimeDidRelease()
             activePortalHostLease = nil
             portalHostAuthority = nil
             byteTee.dropSurface(surfaceID: id)
@@ -238,6 +239,17 @@ extension TerminalSurface {
     /// complete instead of retaining a hidden mount slot for them forever.
     public var canCreateRuntimeSurface: Bool {
         allowsRuntimeSurfaceCreation()
+    }
+
+    /// Why this surface has no live runtime right now.
+    ///
+    /// Only meaningful while the surface has no live runtime. Closing wins
+    /// over the other states because a closing surface never starts again.
+    public var runtimeUnavailableReason: TerminalSurfaceRuntimeUnavailableReason {
+        if portalLifecycleState != .live { return .closing }
+        if runtimeSurfaceSuspendedForAgentHibernation { return .hibernated }
+        if startupRestoreAdmissionPhase == .awaitingAdmission { return .awaitingRestore }
+        return .starting
     }
 
     private var hasDeferredStartupWork: Bool {
@@ -315,6 +327,9 @@ extension TerminalSurface {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
+        if surfaceToFree != nil {
+            paneHost.terminalSurfaceRuntimeDidRelease()
+        }
         guard let surfaceToFree else {
             callbackContext?.release()
             manualIOContext?.release()
@@ -410,6 +425,9 @@ extension TerminalSurface {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
+        if surfaceToFree != nil {
+            paneHost.terminalSurfaceRuntimeDidRelease()
+        }
         activePortalHostLease = nil
         portalHostAuthority = nil
         clearPortalHostVacancyRetries()
