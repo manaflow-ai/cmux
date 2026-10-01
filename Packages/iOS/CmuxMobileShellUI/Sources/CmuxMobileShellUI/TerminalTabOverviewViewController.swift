@@ -44,8 +44,12 @@ final class TerminalTabOverviewViewController: UIViewController {
     private let backgroundView = UIVisualEffectView(effect: nil)
     private let backgroundTint = UIView()
     private let backgroundGradient = CAGradientLayer()
-    private let canvasColor = UIColor(red: 0.906, green: 0.839, blue: 0.780, alpha: 1)
-    private let bottomCanvasColor = UIColor(red: 0.788, green: 0.776, blue: 0.792, alpha: 1)
+    // These are the two endpoints of Safari's warm-to-cool tab overview
+    // canvas. Keeping the color in the canvas, rather than painting a panel
+    // behind each control, lets the system glass material pick up the same
+    // background as the reference UI.
+    private let canvasColor = UIColor(red: 0.918, green: 0.855, blue: 0.808, alpha: 1)
+    private let bottomCanvasColor = UIColor(red: 0.824, green: 0.831, blue: 0.863, alpha: 1)
     private let topBar = TerminalTabOverviewPassthroughView()
     private let searchButton = UIButton(type: .system)
     private let layoutButton = UIButton(type: .system)
@@ -374,7 +378,10 @@ final class TerminalTabOverviewViewController: UIViewController {
         // so it leaves the first row readable. With one or two tabs it drops
         // into the open space above the centered cards.
         let hintTop = visibleItems.count > 2 ? view.safeAreaInsets.top : view.safeAreaInsets.top + 39
-        hintCard.frame = CGRect(x: 16, y: hintTop, width: max(0, bounds.width - 32), height: 151)
+        // Safari's teaching card is just over 120 points tall on the iPhone
+        // reference device. The old 151 point frame pushed the first row down
+        // and made the compact and one-tab states feel unrelated.
+        hintCard.frame = CGRect(x: 16, y: hintTop, width: max(0, bounds.width - 32), height: 121)
         hintCard.alpha = isPrivateMode ? 0 : (hintIsVisible ? 1 : 0)
 
         privateBrowsingView.frame = CGRect(
@@ -449,16 +456,26 @@ final class TerminalTabOverviewViewController: UIViewController {
         guard !visible.isEmpty else { return }
         let compact = visible.count > 1
         let width = compact ? floor((view.bounds.width - 48) / 2) : min(268, view.bounds.width - 32)
-        let height: CGFloat = compact ? 272 : 400
+        let height: CGFloat = compact ? 220 : 352
         let rows = Int(ceil(Double(visible.count) / 2.0))
         let safeTop = view.safeAreaInsets.top
         let bottom = view.bounds.height - view.safeAreaInsets.bottom - 48 - 4
         let top: CGFloat
-        if visible.count <= 2 {
-            top = safeTop + 210
-        } else {
-            let desired = safeTop + 153
+        if compact {
+            // With the teaching card visible, Safari places the first row
+            // directly below it. Once the card is dismissed the grid rises
+            // into the space below the top controls.
+            let desired = hintIsVisible
+                ? safeTop + (visible.count > 2 ? 129 : 180)
+                : safeTop + 67
             let maxTop = bottom - CGFloat(rows) * height - CGFloat(max(0, rows - 1)) * 16 - 10
+            top = min(desired, maxTop)
+        } else {
+            // A single tab is centered in the open area. Keep the same anchor
+            // when the teaching card fades so the card does not jump during
+            // the close transition.
+            let desired = hintIsVisible ? safeTop + 180 : safeTop + 154
+            let maxTop = bottom - height - 10
             top = min(desired, maxTop)
         }
 
@@ -488,6 +505,9 @@ final class TerminalTabOverviewViewController: UIViewController {
 
     private func setHintVisible(_ visible: Bool, animated: Bool) {
         hintIsVisible = visible
+        if hasLaidOut {
+            layoutCards(animated: animated)
+        }
         let animations = { [weak self] in
             guard let self else { return }
             self.hintCard.alpha = self.isPrivateMode ? 0 : (visible ? 1 : 0)
@@ -575,11 +595,11 @@ final class TerminalTabOverviewViewController: UIViewController {
     }
 
     @objc private func moreTapped() {
-        toggleMenu()
+        toggleMenu(kind: .more)
     }
 
     @objc private func layoutTapped() {
-        toggleMenu()
+        toggleMenu(kind: .layout)
     }
 
     @objc private func newTerminalTapped() {
@@ -613,7 +633,7 @@ final class TerminalTabOverviewViewController: UIViewController {
         setPrivateMode(groupControl.selectedSegmentIndex == 0, animated: true)
     }
 
-    private func toggleMenu() {
+    private func toggleMenu(kind: TerminalTabOverviewMenuKind) {
         guard searchOverlay == nil, !isPrivateMode else { return }
         if tabMenu != nil {
             dismissMenu(animated: true)
@@ -629,19 +649,29 @@ final class TerminalTabOverviewViewController: UIViewController {
         view.bringSubviewToFront(bottomBar)
         menuDismissControl = dismissControl
 
-        let menu = TerminalTabOverviewMenuView()
+        let menu = TerminalTabOverviewMenuView(kind: kind)
         menu.onAction = { [weak self] in
             self?.dismissMenu(animated: true)
         }
         menu.translatesAutoresizingMaskIntoConstraints = true
-        let anchor = layoutButton.isHidden ? moreButton : layoutButton
+        let anchor = kind == .layout ? layoutButton : moreButton
         let anchorFrame = view.convert(anchor.frame, from: anchor.superview)
-        let menuWidth = min(250, view.bounds.width - 32)
+        let menuWidth = min(kind == .layout ? 220 : 258, view.bounds.width - 32)
+        let menuHeight: CGFloat = kind == .layout ? 96 : 112
+        let menuX: CGFloat
+        if kind == .layout {
+            menuX = (view.bounds.width - menuWidth) / 2
+        } else {
+            menuX = min(
+                max(anchorFrame.minX - menuWidth + anchorFrame.width, 16),
+                view.bounds.width - menuWidth - 8
+            )
+        }
         menu.frame = CGRect(
-            x: min(max(136, anchorFrame.maxX - 2), view.bounds.width - menuWidth - 16),
-            y: anchorFrame.minY,
+            x: menuX,
+            y: kind == .layout ? anchorFrame.minY + 2 : anchorFrame.minY,
             width: menuWidth,
-            height: 168
+            height: menuHeight
         )
         menu.alpha = 0
         menu.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
@@ -953,23 +983,87 @@ private final class TerminalTabOverviewPrivateLockView: UIView {
 }
 
 @MainActor
+private enum TerminalTabOverviewMenuKind: Equatable {
+    case layout
+    case more
+}
+
+@MainActor
+private final class TerminalTabOverviewMenuRow: UIControl {
+    private let iconView: UIImageView
+    private let titleLabel = UILabel()
+    private let subtitleLabel = UILabel()
+    private let chevronView = UIImageView(image: UIImage(systemName: "chevron.right"))
+
+    init(title: String, subtitle: String? = nil, imageName: String, showsChevron: Bool) {
+        iconView = UIImageView(image: UIImage(systemName: imageName))
+        super.init(frame: .zero)
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+        accessibilityLabel = subtitle.map { "\(title), \($0)" } ?? title
+
+        iconView.tintColor = .label
+        iconView.contentMode = .scaleAspectFit
+        addSubview(iconView)
+
+        titleLabel.text = title
+        titleLabel.textColor = .label
+        titleLabel.font = .systemFont(ofSize: 18, weight: .regular)
+        addSubview(titleLabel)
+
+        subtitleLabel.text = subtitle
+        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.font = .systemFont(ofSize: 14, weight: .regular)
+        subtitleLabel.isHidden = subtitle == nil
+        addSubview(subtitleLabel)
+
+        chevronView.tintColor = .label
+        chevronView.contentMode = .scaleAspectFit
+        chevronView.isHidden = !showsChevron
+        addSubview(chevronView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        iconView.frame = CGRect(x: 4, y: (bounds.height - 24) / 2, width: 24, height: 24)
+        let textX: CGFloat = 46
+        if subtitleLabel.isHidden {
+            titleLabel.frame = CGRect(x: textX, y: 0, width: max(0, bounds.width - textX - 30), height: bounds.height)
+        } else {
+            titleLabel.frame = CGRect(x: textX, y: 7, width: max(0, bounds.width - textX - 30), height: 25)
+            subtitleLabel.frame = CGRect(x: textX, y: 38, width: max(0, bounds.width - textX - 30), height: 20)
+        }
+        chevronView.frame = CGRect(x: bounds.width - 23, y: (bounds.height - 18) / 2, width: 14, height: 18)
+    }
+}
+
+@MainActor
 private final class TerminalTabOverviewMenuView: UIView {
     var onAction: (() -> Void)?
 
+    private let kind: TerminalTabOverviewMenuKind
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
     private let stack = UIStackView()
-    private let arrangeButton = UIButton(type: .system)
-    private let arrangeChevron = UIImageView(image: UIImage(systemName: "chevron.right"))
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = UIColor.systemBackground.withAlphaComponent(0.96)
-        layer.cornerRadius = 27
+    init(kind: TerminalTabOverviewMenuKind) {
+        self.kind = kind
+        super.init(frame: .zero)
+        layer.cornerRadius = 30
         layer.shadowColor = UIColor.black.cgColor
-        layer.shadowOpacity = 0.18
-        layer.shadowRadius = 18
-        layer.shadowOffset = CGSize(width: 0, height: 8)
-        layer.borderColor = UIColor.separator.withAlphaComponent(0.22).cgColor
-        layer.borderWidth = 0.7
+        layer.shadowOpacity = 0.16
+        layer.shadowRadius = 20
+        layer.shadowOffset = CGSize(width: 0, height: 9)
+
+        blurView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        blurView.layer.cornerRadius = 30
+        blurView.clipsToBounds = true
+        blurView.contentView.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.24)
+        addSubview(blurView)
 
         stack.axis = .vertical
         stack.alignment = .fill
@@ -978,51 +1072,30 @@ private final class TerminalTabOverviewMenuView: UIView {
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
         ])
 
-        let manage = makeRow(title: "Manage Tab Groups", image: "list.bullet")
-        manage.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
-        stack.addArrangedSubview(manage)
-
-        let select = makeRow(title: "Select Tabs", image: "checkmark.circle")
-        select.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
-        stack.addArrangedSubview(select)
-
-        let divider = UIView()
-        divider.backgroundColor = UIColor.separator.withAlphaComponent(0.25)
-        divider.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(divider)
-        divider.heightAnchor.constraint(equalToConstant: 1).isActive = true
-
-        let spacer = UIView()
-        spacer.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(spacer)
-        spacer.heightAnchor.constraint(equalToConstant: 20).isActive = true
-
-        arrangeButton.setTitle("Arrange Tabs By", for: .normal)
-        arrangeButton.setImage(UIImage(systemName: "arrow.up.arrow.down"), for: .normal)
-        arrangeButton.setImage(UIImage(systemName: "chevron.right"), for: .focused)
-        arrangeButton.tintColor = .label
-        arrangeButton.setTitleColor(.label, for: .normal)
-        arrangeButton.titleLabel?.font = .systemFont(ofSize: 18, weight: .regular)
-        arrangeButton.contentHorizontalAlignment = .left
-        arrangeButton.semanticContentAttribute = .forceLeftToRight
-        arrangeButton.titleEdgeInsets = UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 0)
-        arrangeButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
-        arrangeButton.accessibilityLabel = "Arrange Tabs By"
-        arrangeButton.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
-        stack.addArrangedSubview(arrangeButton)
-        arrangeChevron.tintColor = .label
-        arrangeChevron.contentMode = .scaleAspectFit
-        arrangeChevron.isUserInteractionEnabled = false
-        addSubview(arrangeChevron)
-
-        for row in stack.arrangedSubviews where row !== divider && row !== spacer {
-            row.heightAnchor.constraint(equalToConstant: 42).isActive = true
+        switch kind {
+        case .layout:
+            let row = TerminalTabOverviewMenuRow(
+                title: "Organize Tabs",
+                subtitle: "Never",
+                imageName: "rectangle.stack",
+                showsChevron: true
+            )
+            row.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
+            stack.addArrangedSubview(row)
+            row.heightAnchor.constraint(equalToConstant: 80).isActive = true
+        case .more:
+            for (title, imageName) in [("Manage Tab Groups", "list.bullet"), ("Select Tabs", "checkmark.circle")] {
+                let row = TerminalTabOverviewMenuRow(title: title, imageName: imageName, showsChevron: false)
+                row.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
+                stack.addArrangedSubview(row)
+                row.heightAnchor.constraint(equalToConstant: 48).isActive = true
+            }
         }
     }
 
@@ -1033,21 +1106,7 @@ private final class TerminalTabOverviewMenuView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        arrangeChevron.frame = CGRect(x: bounds.width - 31, y: bounds.height - 42, width: 14, height: 20)
-    }
-
-    private func makeRow(title: String, image: String) -> UIButton {
-        let button = UIButton(type: .system)
-        button.setTitle(title, for: .normal)
-        button.setImage(UIImage(systemName: image), for: .normal)
-        button.tintColor = .label
-        button.setTitleColor(.label, for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 18, weight: .regular)
-        button.contentHorizontalAlignment = .left
-        button.semanticContentAttribute = .forceLeftToRight
-        button.titleEdgeInsets = UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 0)
-        button.accessibilityLabel = title
-        return button
+        blurView.frame = bounds
     }
 
     @objc private func actionTapped() {
@@ -1281,7 +1340,7 @@ private final class TerminalTabOverviewHintView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let compact = bounds.height > 0 && frame.minY <= 70
+        let compact = bounds.height > 0 && (frame.minY <= 70 || bounds.height <= 130)
         handView.frame = CGRect(x: 18, y: compact ? 28 : 45, width: 48, height: 48)
         closeButton.frame = CGRect(x: bounds.width - 46, y: compact ? 19 : 36, width: 30, height: 30)
         titleLabel.frame = CGRect(x: 74.67, y: compact ? 23.67 : 41, width: 239, height: compact ? 23 : 26)
@@ -1445,11 +1504,12 @@ private final class TerminalTabOverviewCardView: UIControl {
     override func layoutSubviews() {
         super.layoutSubviews()
         let inset: CGFloat = bounds.width > 220 ? 9 : 7
+        let surfaceHeight = bounds.height > 300 ? 178 : 146
         surface.frame = CGRect(
             x: inset,
             y: inset,
             width: max(0, bounds.width - inset * 2),
-            height: max(0, min(146, bounds.height - inset * 2))
+            height: max(0, min(surfaceHeight, bounds.height - inset * 2))
         )
         let closeSize: CGFloat = 30
         closeButton.frame = CGRect(x: surface.bounds.width - closeSize - 4, y: 4, width: closeSize, height: closeSize)
