@@ -218,7 +218,7 @@ export function AcpmuxApp() {
         const client = await AcpmuxDirectClient.connect(host as AcpmuxHostConfig, (next) => {
           rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
           setSnapshot(next);
-          setActionsReady(next.connection === "connected");
+          if (next.connection === "disconnected" || next.connection.startsWith("connecting")) setActionsReady(false);
           void persistSession(next.sessionId);
         });
         if (cancelled) { client.close(); return; }
