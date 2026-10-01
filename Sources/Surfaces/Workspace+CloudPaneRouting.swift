@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -37,6 +38,10 @@ struct CloudWorkspaceRenameEnvironment {
 /// owners, applies titles, and submits intents through that catalog.
 final class CloudWorkspaceRenameService {
     let environment: CloudWorkspaceRenameEnvironment
+    /// A rejected automatic clear is retried only after the accepted graph or
+    /// agent state changes. This prevents a persistent daemon precondition
+    /// failure from generating one RPC per refresh.
+    var rejectedAutomaticTabClears: [CloudRenameCoordinator.Key: String] = [:]
 
     init(environment: CloudWorkspaceRenameEnvironment = CloudWorkspaceRenameEnvironment()) {
         self.environment = environment

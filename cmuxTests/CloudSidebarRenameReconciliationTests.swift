@@ -112,6 +112,10 @@ struct CloudSidebarRenameReconciliationTests {
         #expect(fixture.workspace.panelTitle(panelId: fixture.panelID) == "Finished task")
         #expect(fixture.workspace.panelCustomTitleSources[fixture.panelID] == .remote)
         #expect(fixture.provider.tabRenames == ["Finished task"])
+
+        fixture.reconcile()
+        try await fixture.drain()
+        #expect(fixture.provider.tabRenames == ["Finished task"])
     }
 
     @Test("A rejected stale-title clear restores a newer accepted remote name")
@@ -135,6 +139,51 @@ struct CloudSidebarRenameReconciliationTests {
         #expect(fixture.workspace.panelTitle(panelId: fixture.panelID) == "Remote label")
         #expect(fixture.workspace.panelCustomTitleSources[fixture.panelID] == .remote)
         #expect(fixture.provider.tabRenames == ["Finished task"])
+    }
+
+    @Test("A legacy title without provenance is preserved when its agent exits")
+    func legacyTitleWithoutProvenanceIsUserOwned() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.close() }
+        #expect(fixture.agentName("Finished task"))
+        try await fixture.drain()
+        fixture.install(try fixture.state(revision: 2, name: "Finished task", nameSource: "auto", includeAgent: true))
+        fixture.reconcile()
+        fixture.workspace.panelCustomTitles[fixture.panelID] = "Finished task"
+        fixture.workspace.panelCustomTitleSources.removeValue(forKey: fixture.panelID)
+
+        fixture.install(try fixture.state(revision: 3, name: "Finished task", nameSource: "auto", includeAgent: false))
+        fixture.reconcile()
+        try await fixture.drain()
+
+        #expect(fixture.workspace.panelTitle(panelId: fixture.panelID) == "Finished task")
+        #expect(fixture.provider.tabRenames == ["Finished task"])
+    }
+
+    @Test("A vanished agent clears every non-user projection of a shared tab")
+    func vanishedAgentClearsSharedProjections() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.close() }
+        let peer = Workspace()
+        fixture.manager.tabs.append(peer)
+        defer { for panel in peer.panels.values { panel.close() } }
+        let peerPanelID = try #require(peer.focusedPanelId)
+        fixture.catalog.record(SurfaceProjection(resource: fixture.resourceID, workspaceID: peer.id,
+            panelID: peerPanelID, remoteWorkspaceID: "ws_main", remoteTabID: "tab_main"))
+
+        #expect(fixture.agentName("Finished task"))
+        try await fixture.drain()
+        fixture.install(try fixture.state(revision: 2, name: "Finished task", nameSource: "auto", includeAgent: true))
+        fixture.reconcile()
+        #expect(peer.panelTitle(panelId: peerPanelID) == "Finished task")
+
+        fixture.install(try fixture.state(revision: 3, name: "Finished task", nameSource: "auto", includeAgent: false))
+        fixture.reconcile()
+        try await fixture.drain()
+
+        #expect(fixture.workspace.panelCustomTitles[fixture.panelID] == nil)
+        #expect(peer.panelCustomTitles[peerPanelID] == nil)
+        #expect(fixture.provider.tabRenames == ["Finished task", ""])
     }
 
     @Test("A rename rejected after a remote edit converges immediately to that accepted name")
