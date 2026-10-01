@@ -193,6 +193,31 @@ struct RemoteTmuxSessionCommandBuilderTests {
         }
     }
 
+    @Test("existing session refreshes a stale cmux-managed default command")
+    func existingSessionRefreshesManagedDefaultCommand() throws {
+        try withFakeTmux(sessionExists: true) { directory, environment in
+            let shellCommand = #"exec "$CMUX_PERSISTENT_PTY_EXEC_HELPER" --internal-persistent-pty-exec "$SHELL" "$SHELL" --rcfile "$CMUX_SHELL_INTEGRATION_DIR/.bashrc" -i"#
+            let builder = RemoteTmuxSessionCommandBuilder(
+                sessionName: "existing-managed",
+                shellCommand: shellCommand
+            )
+            let result = try run(
+                builder.remoteShellCommand,
+                environment: environment.merging([
+                    "CMUX_TMUX_DEFAULT_COMMAND": "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --rcfile \"$HOME/.cmux/relay/old.shell/.bashrc\" -i",
+                ]) { _, current in current }
+            )
+
+            #expect(result.status == 0)
+            #expect(result.stderr.isEmpty)
+            let calls = try invocations(in: directory)
+            let setOption = try #require(calls.first { $0.first == "set-option" })
+            #expect(setOption == ["set-option", "-t", "=existing-managed:", "default-command", shellCommand])
+            let attachIndex = try #require(calls.firstIndex(of: ["attach-session", "-t", "=existing-managed"]))
+            #expect(calls.firstIndex(of: setOption)! < attachIndex)
+        }
+    }
+
     private func withFakeTmux(
         sessionExists: Bool,
         operation: (URL, [String: String]) throws -> Void
@@ -211,6 +236,9 @@ struct RemoteTmuxSessionCommandBuilderTests {
         case "${1:-}" in
           has-session)
             [ -f "$CMUX_TMUX_SESSION_STATE" ]
+            ;;
+          show-options)
+            printf '%s\\n' "${CMUX_TMUX_DEFAULT_COMMAND:-}"
             ;;
           new-session)
             : > "$CMUX_TMUX_SESSION_STATE"
