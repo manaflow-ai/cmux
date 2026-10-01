@@ -1423,6 +1423,7 @@ struct WorkspaceShellView: View {
             createWorkspace: resolvedCreateWorkspace,
             createWorkspaceInGroup: resolvedCreateWorkspaceInGroup,
             createWorkspaceGroup: resolvedCreateWorkspaceGroup,
+            createWorkspaceOnCloudMachine: { createWorkspaceOnExternalHost(onHost: $0) },
             newWorkspaceComputerTargets: newWorkspaceComputerTargets,
             createWorkspaceOnComputer: { target, kind in
                 createWorkspace(on: target, kind: kind, create: resolvedCreateWorkspace)
@@ -1787,7 +1788,7 @@ struct WorkspaceShellView: View {
     ) -> Bool {
         let previousTab = selectedPrimaryTab
         if (selectedPrimaryTab == .search || primarySearchCoordinator.isPresented),
-           tab.searchScope != nil {
+           tab != .search {
             primarySearchCoordinator.deactivateCurrentSearch()
         }
         beforeSelection()
@@ -2053,11 +2054,19 @@ struct WorkspaceShellView: View {
         toggleSidebar: (() -> Void)? = nil,
         showsSidebarToggle: Bool = false
     ) -> some View {
+        // A Cloud machine's workspace makes its new workspace on that machine,
+        // whether or not a Mac is connected.
+        let externalHostID = workspaceID.flatMap { store.externalHostID(ofWorkspace: $0) }
         WorkspaceDetailContainer(
             store: store,
             workspaceID: workspaceID,
-            createWorkspace: createWorkspace,
-            canCreateWorkspace: canCreateWorkspaceForSelection,
+            createWorkspace: externalHostID == nil || workspaceID == nil
+                ? createWorkspace
+                : { [workspaceID] in
+                    if let workspaceID { createWorkspaceOnExternalHost(beside: workspaceID) }
+                },
+            canCreateWorkspace: externalHostID.map { store.externalHostIsConnected($0) }
+                ?? canCreateWorkspaceForSelection,
             renameWorkspace: renameWorkspaceClosure,
             customizeWorkspace: customizeWorkspaceClosure,
             setWorkspaceUnread: setWorkspaceUnreadClosure,
