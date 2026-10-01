@@ -948,7 +948,7 @@ App browser tabs (the cmux app; `page` is the focused tab):
   cmux browser <tab_id|page> click|focus|text|value <selector>
   cmux browser <tab_id|page> fill|type <selector> <text>
   cmux browser <tab_id|page> tabs [--all]
-  cmux browser <tab_id|page> new-tab [<url>]|select|close
+  cmux browser <tab_id|page> new-tab [<url>]|select|close [--no-wait]
 
 tabs lists the browser tabs of the tab's workspace (`page`: the focused
 workspace). new-tab opens a browser tab in the same pane.

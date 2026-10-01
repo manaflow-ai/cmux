@@ -3,7 +3,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// `browser.page.tabs|open|select|close` (the old `cmux browser tab
+/// `browser.page.tabs|new_tab|select|close` (the old `cmux browser tab
 /// list|new|switch|close`): listing reads one workspace's app browser tabs,
 /// and the others run the registry action on a tab checked to be an app
 /// browser tab. Before, app browser tabs had no tab verbs of their own.
@@ -66,7 +66,7 @@ import Testing
         #expect(executor.last == ControlActionRequest(actionID: "tab.focus", target: ControlTargetRef(kind: "tab", id: "tab_0456beef")))
         _ = try await router.handle(ControlRequest(method: "browser.page.close", params: ["tab": "tab_0123abcd", "wait": false])).get()
         #expect(executor.last == ControlActionRequest(actionID: "closeTab", target: ControlTargetRef(kind: "tab", id: "tab_0123abcd")))
-        _ = try await router.handle(ControlRequest(method: "browser.page.open",
+        _ = try await router.handle(ControlRequest(method: "browser.page.new_tab",
                                                    params: ["tab": "tab_0123abcd", "url": "https://cmux.com", "wait": false])).get()
         #expect(executor.last == ControlActionRequest(actionID: "openBrowser", target: ControlTargetRef(kind: "tab", id: "tab_0123abcd"),
                                                       arguments: ["url": .string("https://cmux.com")]))
@@ -74,9 +74,23 @@ import Testing
 
     @Test func aTerminalIsNeverClosedAsAPage() async {
         let (router, executor) = install()
-        // `cmux browser page close` with a terminal focused.
+        // `cmux browser page close` with a terminal focused, and a terminal named outright.
         let refused = await router.handle(ControlRequest(method: "browser.page.close"))
         #expect(refused.failure?.code == "invalid_params")
+        let terminal = ControlSnapshot.sample().topology.workspaces[0].screens[0].panes[0].tabs[0].id
+        let named = await router.handle(ControlRequest(method: "browser.page.select", params: ["tab": .string(terminal)]))
+        #expect(named.failure?.code == "invalid_params")
         #expect(executor.requests.withLock { $0 }.isEmpty)
+    }
+
+    @Test func theIdempotencyKeyTravelsWithTheRun() async throws {
+        let (router, executor) = install()
+        _ = try await router.handle(ControlRequest(method: "browser.page.select",
+                                                   params: ["tab": "tab_0456", "wait": false, "idempotency_key": "k1"])).get()
+        // The same key for a different run is refused, so it reached action.run.
+        let reused = await router.handle(ControlRequest(method: "browser.page.close",
+                                                        params: ["tab": "tab_0123abcd", "wait": false, "idempotency_key": "k1"]))
+        #expect(reused.failure?.code == "idempotency_conflict")
+        #expect(executor.requests.withLock { $0.count } == 1)
     }
 }

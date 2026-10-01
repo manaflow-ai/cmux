@@ -56,8 +56,9 @@ the scope for machine-readable output (`cmux --json browser "$TAB" state`).
 workspace; `--all`: every workspace) with id, title, URL, pane and whether each
 is selected or focused. `new-tab [URL]` opens a browser tab in the same pane
 and prints its id under `created`; `select` (or `switch`) shows and focuses the
-tab; `close` closes it. They run the same actions as the tab strip and refuse a
-tab that is not an app browser tab.
+tab; `close` closes it. They run the same actions as the tab strip, wait for
+them unless `--no-wait`, and refuse a tab that is not an app browser tab. They
+act on the tab you name; the old `tab switch|close <index>` has no equivalent.
 
 ## Daemon browsers (`browser_…`)
 
@@ -94,7 +95,7 @@ cmux browser screenshot-page
 The old CLI's `wait`, `cookies`, `storage`, `state save|load`, `console`,
 `errors`, `highlight`, `screenshot` (to stdout or a file), `download`,
 `dialog`, `frame`, `network`, `trace`, `screencast`, `geolocation`,
-`offline`, `viewport`, `hover`, `dblclick`, `check`, `uncheck`, `select`,
+`offline`, `viewport`, `hover`, `dblclick`, `check`, `uncheck`, form `select <selector> <value>`,
 `scroll`, `scroll-into-view`, `press`, `keydown`, `keyup`, `get attr|count|box|styles|html`,
 `identify`, `profile`,
 `design-mode status` and `--snapshot-after` have no command in the new CLI.
