@@ -2050,6 +2050,7 @@
           "sessionContentMaxWidth": "終端機與內建代理程式聊天內容的選用最大寬度，單位為點。設為 false 可使用整個窗格寬度。",
           "sessionContentAlignment": "啟用 sessionContentMaxWidth 時，終端機與內建代理程式聊天內容的水平位置。",
           "copyOnSelect": "為 true 時，選取確認後會將所選終端機文字複製到系統剪貼簿。為 false 時，cmux 不會輸出 Ghostty copy-on-select 覆寫；選取剪貼簿行為由 Ghostty 設定與預設值控制。",
+          "agentImagePasteSendsCtrlV": "為 true 時，剪貼簿中只有影像時按 Cmd+V 會向本機終端機窗格中執行的 Claude Code 或 Codex 傳送 Ctrl+V，由代理自行從剪貼簿附加影像。為 false 時，或在其他窗格（未執行代理、cmux ssh、偵測到的 SSH 或 Cloud）中，影像會如以往儲存為暫存檔，並貼上或上傳其路徑。同時包含文字、RTF 文字、URL 或檔案的剪貼簿一律使用一般貼上。",
           "scrollSpeed": "調整每次滑鼠滾輪或觸控式軌跡板捲動事件讓終端機移動的距離。大於 1 的值會加快捲動，小於 1 的值會減慢捲動。",
           "showTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中顯示TextBox 輸入。",
           "focusTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中聚焦TextBox 輸入。聚焦也會顯示 TextBox。"
