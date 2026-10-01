@@ -79,6 +79,52 @@ struct NotificationHookProcessIsolationTests {
     }
 }
 
+/// The caller's `effects` override on its own: no hook processes, so these run in parallel.
+@Suite("Notification requested effects")
+struct NotificationRequestedEffectsTests {
+    /// A workspace-level request carrying `effects`.
+    private func request(_ effects: TerminalNotificationPolicyEffectsPatch?) -> TerminalNotificationPolicyRequest {
+        TerminalNotificationPolicyRequest(
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Title",
+            subtitle: "",
+            body: "",
+            cwd: nil,
+            isAppFocused: false,
+            isFocusedPanel: false,
+            effects: effects
+        )
+    }
+
+    /// Without hooks the delivered effects are the defaults with the request's override merged in.
+    @Test func noHooksKeepTheRequestedEffects() async throws {
+        let disabled = try await TerminalNotificationPolicyEngine.evaluate(request: request(.init(desktop: false)), hooks: []).get()
+        #expect(!disabled.effects.desktop)
+        let enabled = try await TerminalNotificationPolicyEngine.evaluate(request: request(.init(desktop: true)), hooks: []).get()
+        #expect(enabled.effects.desktop)
+        let unrequested = try await TerminalNotificationPolicyEngine.evaluate(request: request(nil), hooks: []).get()
+        #expect(unrequested.effects.desktop)
+        #expect(request(nil).baseEffects == TerminalNotificationPolicyEffects())
+        #expect(request(.init()).baseEffects == TerminalNotificationPolicyEffects())
+    }
+
+    /// The legacy `[String: Any]` create path validates `effects` strictly: only JSON booleans, only known keys, null is absent.
+    @Test func legacyEffectsParamRejectsNumbersAndStrings() {
+        #expect(TerminalController.notificationEffects(rawParam: ["desktop": 2]) == nil)
+        #expect(TerminalController.notificationEffects(rawParam: ["desktop": 1]) == nil)
+        #expect(TerminalController.notificationEffects(rawParam: ["desktop": "false"]) == nil)
+        #expect(TerminalController.notificationEffects(rawParam: ["banner": false]) == nil)
+        #expect(TerminalController.notificationEffects(rawParam: "false") == nil)
+        #expect(
+            TerminalController.notificationEffects(rawParam: ["desktop": false, "sound": true])
+                == .some(TerminalNotificationPolicyEffectsPatch(desktop: false, sound: true))
+        )
+        #expect(TerminalController.notificationEffects(rawParam: NSNull()) == .some(nil))
+        #expect(TerminalController.notificationEffects(rawParam: nil) == .some(nil))
+    }
+}
+
 final class TerminalNotificationPolicyEngineTests: XCTestCase {
     private func evaluate(
         request: TerminalNotificationPolicyRequest,
@@ -243,44 +289,6 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
         let partial = try await evaluate(request: request, hooks: [unrelated]).get()
         XCTAssertFalse(partial.effects.desktop, "a hook patching another effect leaves the requested desktop value alone")
         XCTAssertFalse(partial.effects.sound)
-    }
-
-    /// Without hooks the delivered effects are the defaults with the request's override merged in.
-    func testNoHooksKeepTheRequestedEffects() async throws {
-        /// A workspace-level request carrying `effects`.
-        func request(_ effects: TerminalNotificationPolicyEffectsPatch?) -> TerminalNotificationPolicyRequest {
-            TerminalNotificationPolicyRequest(
-                tabId: UUID(),
-                surfaceId: nil,
-                title: "Title",
-                subtitle: "",
-                body: "",
-                cwd: nil,
-                isAppFocused: false,
-                isFocusedPanel: false,
-                effects: effects
-            )
-        }
-        XCTAssertFalse(try await evaluate(request: request(.init(desktop: false)), hooks: []).get().effects.desktop)
-        XCTAssertTrue(try await evaluate(request: request(.init(desktop: true)), hooks: []).get().effects.desktop)
-        XCTAssertTrue(try await evaluate(request: request(nil), hooks: []).get().effects.desktop)
-        XCTAssertEqual(request(nil).baseEffects, TerminalNotificationPolicyEffects())
-        XCTAssertEqual(request(.init()).baseEffects, TerminalNotificationPolicyEffects())
-    }
-
-    /// The legacy `[String: Any]` create path validates `effects` strictly: only JSON booleans, only known keys, null is absent.
-    func testLegacyEffectsParamRejectsNumbersAndStrings() {
-        XCTAssertNil(TerminalController.notificationEffects(rawParam: ["desktop": 2]))
-        XCTAssertNil(TerminalController.notificationEffects(rawParam: ["desktop": 1]))
-        XCTAssertNil(TerminalController.notificationEffects(rawParam: ["desktop": "false"]))
-        XCTAssertNil(TerminalController.notificationEffects(rawParam: ["banner": false]))
-        XCTAssertNil(TerminalController.notificationEffects(rawParam: "false"))
-        XCTAssertEqual(
-            TerminalController.notificationEffects(rawParam: ["desktop": false, "sound": true]),
-            .some(TerminalNotificationPolicyEffectsPatch(desktop: false, sound: true))
-        )
-        XCTAssertEqual(TerminalController.notificationEffects(rawParam: NSNull()), .some(nil))
-        XCTAssertEqual(TerminalController.notificationEffects(rawParam: nil), .some(nil))
     }
 
     func testHookCanFilterExistingPolicyEnvelope() async throws {
