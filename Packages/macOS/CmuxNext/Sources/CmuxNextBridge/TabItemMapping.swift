@@ -31,7 +31,7 @@ public struct TabItemMapping {
 
     /// The daemon parsed running OSC 9;4 progress for the tab's terminal
     /// (every terminal, shown or not).
-    static func isReportingProgress(_ tab: TabModel) -> Bool {
+    func isReportingProgress(_ tab: TabModel) -> Bool {
         switch tab.progress?.state {
         case .normal?, .indeterminate?: true
         default: false
