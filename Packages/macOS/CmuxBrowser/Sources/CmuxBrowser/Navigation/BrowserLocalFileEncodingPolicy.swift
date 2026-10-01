@@ -28,7 +28,7 @@ public final class BrowserLocalFileEncodingPolicy {
               fallbackEncodingName != nil else { return true }
         preparationID &+= 1
         let currentPreparationID = preparationID
-        let encodingName = await Self.preferredEncodingName(for: url)
+        let encodingName = await Self.probedEncodingName(for: url)
         guard currentPreparationID == preparationID else { return false }
         setDefaultTextEncodingName(encodingName ?? fallbackEncodingName)
         return true
@@ -39,12 +39,33 @@ public final class BrowserLocalFileEncodingPolicy {
     /// - Parameter url: The candidate local-file destination.
     /// - Returns: `"UTF-8"` for an eligible file, otherwise `nil`.
     nonisolated public static func preferredEncodingName(for url: URL) async -> String? {
-        guard url.isFileURL, url.scheme?.caseInsensitiveCompare("file") == .orderedSame else {
-            return nil
+        guard isLocalFile(url) else { return nil }
+        return await withCheckedContinuation { probe(url, resuming: $0) }
+    }
+
+    /// The main-actor form of ``preferredEncodingName(for:)`` that ``prepare(for:)``
+    /// awaits. Its continuation starts and resumes on the main actor, so a
+    /// navigation's policy decision never waits for a Swift cooperative thread.
+    private static func probedEncodingName(for url: URL) async -> String? {
+        guard isLocalFile(url) else { return nil }
+        return await withCheckedContinuation { probe(url, resuming: $0) }
+    }
+
+    nonisolated private static func isLocalFile(_ url: URL) -> Bool {
+        url.isFileURL && url.scheme?.caseInsensitiveCompare("file") == .orderedSame
+    }
+
+    /// Reads the file on a Dispatch thread at the priority of the navigation it
+    /// gates. The read blocks, so it stays off the Swift cooperative pool, and a
+    /// utility-priority probe starved on a busy Mac held navigations in their
+    /// policy check for seconds (#15488).
+    nonisolated private static func probe(
+        _ url: URL,
+        resuming continuation: CheckedContinuation<String?, Never>
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            continuation.resume(returning: Self.inspectRegularFile(at: url) ? "UTF-8" : nil)
         }
-        return await Task.detached(priority: .utility) {
-            Self.inspectRegularFile(at: url) ? "UTF-8" : nil
-        }.value
     }
 
     private func setDefaultTextEncodingName(_ encodingName: String?) {
