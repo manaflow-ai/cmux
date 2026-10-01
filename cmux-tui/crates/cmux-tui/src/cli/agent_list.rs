@@ -34,7 +34,10 @@ pub(super) fn run(global: GlobalArgs, plan: AgentListPlan) -> i32 {
     let mut stdout = std::io::stdout().lock();
     match stdout.write_all(printed.as_bytes()).and_then(|()| stdout.flush()) {
         Ok(()) => 0,
-        Err(_) => 3,
+        Err(error) => {
+            eprintln!("stdout error: {error}");
+            3
+        }
     }
 }
 
@@ -42,7 +45,7 @@ fn list(global: &GlobalArgs, plan: &AgentListPlan) -> Result<Vec<Value>, Failure
     let mut connection = Connection::open(global)?;
     let terminal_agents = connection.read(ResourceOperation::AgentList, json!({}))?;
     // The counts are extra: a daemon without agent messages lists agents
-    // with none queued.
+    // with none queued. They cover the newest 1000 messages still queued.
     let queued = connection
         .read(ResourceOperation::AgentMessageList, json!({"state": "queued", "limit": 1000}))
         .unwrap_or(Value::Null);
