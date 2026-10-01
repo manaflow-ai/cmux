@@ -1391,10 +1391,6 @@ struct CLIClaudeHookTimeoutRegressionTests {
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ]
-            environment.merge(
-                BundledCLITestSupport.ciRuntimeSourceRootEnvironment(),
-                uniquingKeysWith: { _, newValue in newValue }
-            )
             environment.merge(producer.environment, uniquingKeysWith: { _, value in value })
             let result = runCodexHookProcess(
                 executablePath: cliPath,
@@ -1433,7 +1429,16 @@ struct CLIClaudeHookTimeoutRegressionTests {
     }
 
     private var repositoryRoot: URL {
-        BundledCLITestSupport.repositoryRoot(file: #filePath)
+        // CI consumers run products compiled under another root; the restore
+        // step aliases this checkout at $CMUX_CI_RUNTIME_SOURCE_ROOT/src.
+        if let runtimeRoot = ProcessInfo.processInfo.environment["CMUX_CI_RUNTIME_SOURCE_ROOT"],
+           !runtimeRoot.isEmpty {
+            return URL(fileURLWithPath: runtimeRoot, isDirectory: true)
+                .appendingPathComponent("src", isDirectory: true)
+        }
+        return URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
     }
 
     private func makeSettingsCapturingClaude(at url: URL) throws {
@@ -1454,7 +1459,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
         settings: URL,
         socketPath: String
     ) -> [String: String] {
-        var environment = [
+        [
             "HOME": root.path,
             "PATH": "\(binDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin",
             "TMPDIR": root.path,
@@ -1465,11 +1470,6 @@ struct CLIClaudeHookTimeoutRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "FAKE_CLAUDE_SETTINGS_OUTPUT": settings.path,
         ]
-        environment.merge(
-            BundledCLITestSupport.ciRuntimeSourceRootEnvironment(),
-            uniquingKeysWith: { _, newValue in newValue }
-        )
-        return environment
     }
 
     private func settingsObject(at url: URL) throws -> [String: Any] {

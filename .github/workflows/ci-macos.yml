@@ -2924,6 +2924,12 @@ jobs:
             echo "::error::no cmux CLI in the restored product" >&2
             exit 1
           fi
+          # The standalone CLI finds bundled resources beside its executable,
+          # as it does inside the app's Resources. Without this it falls back
+          # to its compile-time #filePath, which a consumer runner lacks.
+          if [ ! -e "$(dirname "$cli")/opencode-plugin.js" ]; then
+            cp Resources/opencode-plugin.js "$(dirname "$cli")/opencode-plugin.js"
+          fi
           echo "CMUX_CLI_PATH=$cli" >> "$GITHUB_ENV"
           echo "Testing $cli"
 

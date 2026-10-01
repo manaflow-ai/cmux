@@ -1,4 +1,7 @@
 import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
+import type { teamsCrud } from "@hexclave/shared/dist/interface/crud/teams";
+import type { usersCrud } from "@hexclave/shared/dist/interface/crud/users";
+import type { InferType } from "yup";
 import {
   bigint,
   boolean,
@@ -2409,4 +2412,115 @@ export const teamSeatReconciles = pgTable("team_seat_reconciles", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("team_seat_reconciles_dirty_idx").on(table.dirtyAt).where(sql`${table.dirtyAt} is not null`),
+]);
+
+/**
+ * Mirror of the Hexclave (formerly Stack Auth) project: users, teams, direct
+ * memberships and direct permissions. Hexclave stays the source of truth; the
+ * Svix webhook (`/api/webhooks/stack`) and `scripts/hexclave/backfill-mirror.ts`
+ * write these rows only from a fresh, schema-validated Hexclave read. `raw` is
+ * the validated server read object, so its type is the Hexclave schema's.
+ */
+export const hexclaveUsers = pgTable("hexclave_users", {
+  id: text("id").primaryKey(),
+  primaryEmail: text("primary_email"),
+  displayName: text("display_name"),
+  isAnonymous: boolean("is_anonymous").notNull(),
+  clientReadOnlyMetadata: jsonb("client_read_only_metadata").$type<unknown>(),
+  signedUpAt: timestamp("signed_up_at", { withTimezone: true }).notNull(),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+  raw: jsonb("raw").$type<InferType<typeof usersCrud.server.readSchema>>().notNull(),
+}, (table) => [
+  index("hexclave_users_primary_email_idx").on(sql`lower(${table.primaryEmail})`),
+]);
+
+export const hexclaveTeams = pgTable("hexclave_teams", {
+  id: text("id").primaryKey(),
+  displayName: text("display_name").notNull(),
+  clientReadOnlyMetadata: jsonb("client_read_only_metadata").$type<unknown>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+  raw: jsonb("raw").$type<InferType<typeof teamsCrud.server.readSchema>>().notNull(),
+});
+
+export const hexclaveTeamMemberships = pgTable("hexclave_team_memberships", {
+  teamId: text("team_id").notNull().references(() => hexclaveTeams.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => hexclaveUsers.id, { onDelete: "cascade" }),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ name: "hexclave_team_memberships_pkey", columns: [table.teamId, table.userId] }),
+  index("hexclave_team_memberships_user_idx").on(table.userId),
+]);
+
+/** Direct (non-recursive) team permissions; a permission needs its membership. */
+export const hexclaveTeamPermissions = pgTable("hexclave_team_permissions", {
+  teamId: text("team_id").notNull(),
+  userId: text("user_id").notNull(),
+  permissionId: text("permission_id").notNull(),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ name: "hexclave_team_permissions_pkey", columns: [table.teamId, table.userId, table.permissionId] }),
+  foreignKey({
+    name: "hexclave_team_permissions_membership_fk",
+    columns: [table.teamId, table.userId],
+    foreignColumns: [hexclaveTeamMemberships.teamId, hexclaveTeamMemberships.userId],
+  }).onDelete("cascade"),
+  index("hexclave_team_permissions_user_idx").on(table.userId),
+]);
+
+/** Direct (non-recursive) project permissions. */
+export const hexclaveProjectPermissions = pgTable("hexclave_project_permissions", {
+  userId: text("user_id").notNull().references(() => hexclaveUsers.id, { onDelete: "cascade" }),
+  permissionId: text("permission_id").notNull(),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ name: "hexclave_project_permissions_pkey", columns: [table.userId, table.permissionId] }),
+]);
+
+/**
+ * Users and teams Hexclave reported gone. Ids are never reused, so a tombstone
+ * is permanent and stops a reconcile that read before the deletion from
+ * writing the entity back.
+ */
+export const hexclaveTombstones = pgTable("hexclave_tombstones", {
+  entityType: text("entity_type").$type<"user" | "team">().notNull(),
+  entityId: text("entity_id").notNull(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ name: "hexclave_tombstones_pkey", columns: [table.entityType, table.entityId] }),
+  check("hexclave_tombstones_entity_type_check", sql`${table.entityType} in ('user', 'team')`),
+]);
+
+/**
+ * Membership revocations decided by a reconcile but not yet carried out.
+ * Written in the same transaction that removes the mirror membership, so a
+ * failed revoke survives the retry that no longer sees the membership; a row
+ * is deleted only after its revoke succeeds, or when the member is re-added.
+ */
+export const hexclavePendingRevocations = pgTable("hexclave_pending_revocations", {
+  teamId: text("team_id").notNull(),
+  userId: text("user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ name: "hexclave_pending_revocations_pkey", columns: [table.teamId, table.userId] }),
+  index("hexclave_pending_revocations_user_idx").on(table.userId),
+]);
+
+export type HexclaveWebhookOutcome = "processed" | "ignored" | "invalid" | "failed";
+
+/**
+ * One row per Svix message id. `processed_at` is set only when the mirror and
+ * revocations reflect Hexclave; a redelivery of such an id is acknowledged
+ * without work. Invalid and failed deliveries keep `processed_at` null.
+ */
+export const hexclaveWebhookEvents = pgTable("hexclave_webhook_events", {
+  svixId: text("svix_id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  outcome: text("outcome").$type<HexclaveWebhookOutcome>().notNull(),
+  attempts: integer("attempts").notNull().default(1),
+}, (table) => [
+  check("hexclave_webhook_events_outcome_check", sql`${table.outcome} in ('processed', 'ignored', 'invalid', 'failed')`),
+  index("hexclave_webhook_events_received_idx").on(table.receivedAt),
 ]);
