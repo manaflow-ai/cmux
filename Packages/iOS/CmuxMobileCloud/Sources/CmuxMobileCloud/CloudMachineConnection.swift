@@ -330,13 +330,14 @@ public final class CloudMachineConnection {
         isCreatingWorkspace = true
         defer { isCreatingWorkspace = false }
         do {
-            let session = try await connectedSession()
-            guard isCurrentOperation(generation) else { return nil }
+            let session = try await currentSession(for: generation)
             let id = try await session.createWorkspace(name: name)
-            guard isCurrentOperation(generation) else { return nil }
+            guard isCurrentOperation(generation), !Task.isCancelled else { return nil }
             lastError = nil
             refreshTerminals()
             return id
+        } catch is CancellationError {
+            return nil
         } catch {
             guard isCurrentOperation(generation) else { return nil }
             lastError = CloudSessionFailure.classify(error, stage: .link)
@@ -352,13 +353,14 @@ public final class CloudMachineConnection {
         isCreatingTerminal = true
         defer { isCreatingTerminal = false }
         do {
-            let session = try await connectedSession()
-            guard isCurrentOperation(generation) else { return nil }
+            let session = try await currentSession(for: generation)
             let id = try await session.createTerminal(name: name)
-            guard isCurrentOperation(generation) else { return nil }
+            guard isCurrentOperation(generation), !Task.isCancelled else { return nil }
             lastError = nil
             refreshTerminals()
             return id
+        } catch is CancellationError {
+            return nil
         } catch {
             guard isCurrentOperation(generation) else { return nil }
             lastError = CloudSessionFailure.classify(error, stage: .link)
@@ -375,13 +377,14 @@ public final class CloudMachineConnection {
         isCreatingTerminal = true
         defer { isCreatingTerminal = false }
         do {
-            let session = try await connectedSession()
-            guard isCurrentOperation(generation) else { return nil }
+            let session = try await currentSession(for: generation)
             let id = try await session.createTerminal(inWorkspace: workspaceID, name: name)
-            guard isCurrentOperation(generation) else { return nil }
+            guard isCurrentOperation(generation), !Task.isCancelled else { return nil }
             lastError = nil
             refreshTerminals()
             return id
+        } catch is CancellationError {
+            return nil
         } catch {
             guard isCurrentOperation(generation) else { return nil }
             lastError = CloudSessionFailure.classify(error, stage: .link)
@@ -453,6 +456,14 @@ public final class CloudMachineConnection {
 
     private func isCurrentOperation(_ generation: UInt64) -> Bool {
         !closed && operationGeneration == generation
+    }
+
+    private func currentSession(for generation: UInt64) async throws -> any CloudTerminalSession {
+        try Task.checkCancellation()
+        let session = try await connectedSession()
+        try Task.checkCancellation()
+        guard isCurrentOperation(generation) else { throw CancellationError() }
+        return session
     }
 
     private func performAttach(

@@ -221,6 +221,22 @@ import Testing
         #expect(controller.machines.elements.map(\.id) == ["vm1"])
     }
 
+    @Test func aConnectionCreatedAfterAListSnapshotIsClosedWhenTheListOmitsIt() async throws {
+        let service = FakeCloudVMService()
+        service.machines = .success([])
+        let controller = makeController(service: service)
+        controller.setShellLease(true)
+        await settle { if case .ready = controller.tunnel { return true }; return false }
+
+        let machine = CloudMachine(id: "vm-created", provider: "freestyle", status: "running")
+        let oldConnection = try #require(controller.connection(for: machine))
+        controller.refreshMachines()
+        await settle { service.calls.list == 2 && controller.machines == .loaded([]) }
+
+        let newConnection = try #require(controller.connection(for: machine))
+        #expect(newConnection !== oldConnection)
+    }
+
     @Test func signOutResetForgetsTheAccountButKeepsTheDeviceIdentity() async throws {
         let service = FakeCloudVMService()
         service.machines = .success([CloudMachine(id: "vm1", provider: "freestyle", status: "running")])
@@ -489,6 +505,30 @@ import Testing
         #expect(connection.lastError == nil)
         #expect(connection.terminals == .idle)
         #expect(connector.session.loadCatalogCalls == 0)
+    }
+
+    @Test func canceledTerminalCreateDoesNotMutateCachedSession() async throws {
+        let connector = FakeConnector()
+        let controller = makeController(connector: connector)
+        controller.sectionDidAppear()
+        await settle { if case .ready = controller.tunnel { return true } else { return false } }
+        let connection = try #require(controller.connection(for: CloudMachine(id: "vm1", provider: "freestyle", status: "running")))
+        _ = try await connection.loadCatalog()
+
+        let started = TestSignal()
+        let release = TestSignal()
+        let createTask = Task { @MainActor in
+            await started.signal()
+            await release.wait()
+            return await connection.createTerminal(name: "cancelled")
+        }
+        await started.wait()
+        createTask.cancel()
+        await release.signal()
+
+        #expect(await createTask.value == nil)
+        #expect(connector.session.state.created.isEmpty)
+        #expect(connection.lastError == nil)
     }
 
     @Test func closeInvalidatesAnInFlightTerminalAttach() async throws {

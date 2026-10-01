@@ -461,9 +461,7 @@ public final class CloudSessionController {
         previouslyKnownMachines: [String: CloudMachine]
     ) {
         let liveMachineIDs = Set(machines.map(\.id))
-        let staleConnectionIDs = connections.keys.filter {
-            previouslyKnownMachines[$0] != nil && !liveMachineIDs.contains($0)
-        }
+        let staleConnectionIDs = connections.keys.filter { !liveMachineIDs.contains($0) }
         let lifecycleChangedConnectionIDs: [String] = machines.compactMap { machine in
             guard let previous = previouslyKnownMachines[machine.id],
                   previous.lifecycle != machine.lifecycle,
