@@ -17,6 +17,14 @@ import SwiftUI
 import AppKit
 #endif
 
+#if canImport(UIKit)
+private struct AcpmuxChatPresentation: Identifiable {
+    let id = UUID()
+    let source: AcpmuxMobileEventSource
+    let workspaceID: String
+}
+#endif
+
 struct WorkspaceDetailView: View {
     #if os(iOS) && DEBUG
     @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
@@ -71,8 +79,7 @@ struct WorkspaceDetailView: View {
     @State var closeConfirmation: MobileWorkspaceCloseConfirmation = .macWorkspace
     #if canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
-    @State private var isAcpmuxChatPresented = false
-    @State private var acpmuxChatSource: AcpmuxMobileEventSource?
+    @State private var acpmuxChatPresentation: AcpmuxChatPresentation?
     @State private var feedbackText = ""
     @State private var feedbackEmail = ""
     @State private var isSubmittingFeedback = false
@@ -326,21 +333,13 @@ struct WorkspaceDetailView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
             }
-            .sheet(
-                isPresented: $isAcpmuxChatPresented,
-                onDismiss: { acpmuxChatSource = nil }
-            ) {
-                if let source = acpmuxChatSource {
-                    WorkspaceAcpmuxChatSheet(
-                        source: source,
-                        workspaceID: workspace.rpcWorkspaceID.rawValue
-                    )
-                    .presentationDetents([.large])
-                    .presentationDragIndicator(.visible)
-                } else {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+            .sheet(item: $acpmuxChatPresentation) { presentation in
+                WorkspaceAcpmuxChatSheet(
+                    source: presentation.source,
+                    workspaceID: presentation.workspaceID
+                )
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
             }
             .workspaceRenameDialog(
                 isPresented: $isRenamePresented,
@@ -550,8 +549,10 @@ struct WorkspaceDetailView: View {
 
     func openAcpmuxChat() {
         guard let source = store.makeAcpmuxChatEventSource() else { return }
-        acpmuxChatSource = source
-        isAcpmuxChatPresented = true
+        acpmuxChatPresentation = AcpmuxChatPresentation(
+            source: source,
+            workspaceID: workspace.rpcWorkspaceID.rawValue
+        )
     }
 
     // Which trailing toolbar items are structurally in the bar right now.
