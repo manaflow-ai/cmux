@@ -63,6 +63,34 @@ struct FeedWaiterRegistryTests {
         registry.cleanupStored(requestID: reply.requestID, groupID: reply.groupID)
     }
 
+    @Test func sessionInvalidationClearsEveryMatchingRequestOnly() throws {
+        let registry = FeedWaiterRegistry()
+        let firstEvent = event()
+        let secondEvent = WorkstreamEvent(sessionId: "other", hookEventName: .permissionRequest,
+            source: "claude", toolName: "Tool", toolInputJSON: "{}", requestId: "other-request")
+        let foreignEvent = WorkstreamEvent(sessionId: "session", hookEventName: .permissionRequest,
+            source: "codex", toolName: "Tool", toolInputJSON: "{}", requestId: "codex-request")
+        let first = try #require(registry.register(requestID: "request", event: firstEvent))
+        let second = try #require(registry.register(requestID: "other-request", event: secondEvent))
+        let foreign = try #require(registry.register(requestID: "codex-request", event: foreignEvent))
+        registry.accepted(first, event: firstEvent, item: item())
+        registry.accepted(second, event: secondEvent, item: item())
+        registry.accepted(foreign, event: foreignEvent, item: item())
+
+        let invalidated = registry.invalidate(source: "claude", sessionID: "session")
+        #expect(invalidated.map { $0.0.requestID } == ["request"])
+        #expect(first.semaphore.wait(timeout: .now()) == .success)
+        #expect(registry.isAwaiting("other-request"))
+        #expect(registry.isAwaiting("codex-request"))
+        guard case .unavailable = registry.finish(first).outcome.result else {
+            Issue.record("Session teardown must invalidate the matching request")
+            return
+        }
+        registry.cleanupStored(requestID: "request", groupID: invalidated[0].0.groupID)
+        _ = registry.finish(second)
+        _ = registry.finish(foreign)
+    }
+
     @Test func onlyALaterHookFromTheSameAgentSupersedesARequest() throws {
         func stamped(_ hook: WorkstreamEvent.HookEventName, sentAt: Int?, agentID: String? = nil,
                      source: String = "claude", session: String = "session") -> WorkstreamEvent {

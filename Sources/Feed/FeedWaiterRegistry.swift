@@ -173,6 +173,33 @@ final class FeedWaiterRegistry: Sendable {
         }
     }
 
+    /// Invalidates every undecided request belonging to one agent session.
+    /// Surface teardown can be the only terminal signal when the agent died
+    /// before its SessionEnd hook ran, so cleanup cannot depend on knowing the
+    /// individual request ids that were pending on that session.
+    func invalidate(source: String, sessionID: String) -> [(Reply, UUID?)] {
+        groups.withLock { groups in
+            var invalidated: [(Reply, UUID?)] = []
+            for (requestID, var group) in groups {
+                guard group.decision == nil, !group.cleanupClaimed,
+                      group.event.source == source else { continue }
+                let canonical = FeedWorkstreamIdentifier.canonicalizedRawValue(
+                    agentID: source, rawValue: group.event.sessionId
+                )
+                guard (FeedWorkstreamIdentifier(rawValue: canonical)?.sessionID
+                    ?? group.event.sessionId) == sessionID else { continue }
+                invalidated.append((Reply(requestID: requestID, groupID: group.id,
+                    event: group.event, target: group.target), group.itemID))
+                group.target = nil
+                group.cleanupClaimed = true
+                group.terminalResult = .unavailable
+                groups[requestID] = group
+                for semaphore in group.subscribers.values { semaphore.signal() }
+            }
+            return invalidated
+        }
+    }
+
     /// Retires every undecided request the agent provably moved past: one from
     /// the same agent context (source, session, and subagent) whose hook was
     /// sent before `event`. Requests or events without a send stamp never match.
