@@ -23,6 +23,7 @@ extension TerminalController {
         soundContext: NotificationSoundOverrideContext? = nil,
         correlationKey: String? = nil,
         retargetsToLiveSurfaceOwner: Bool = true,
+        origin: TerminalNotificationOrigin = .local,
         effects: TerminalNotificationPolicyEffectsPatch? = nil
     ) -> UUID? {
         let target: (tabId: UUID, surfaceId: UUID?)
@@ -69,6 +70,7 @@ extension TerminalController {
             correlationKey: correlationKey,
             agent: agent,
             soundContext: soundContext,
+            origin: origin,
             effects: effects
         )
     }

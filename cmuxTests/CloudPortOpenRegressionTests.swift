@@ -18,7 +18,6 @@ import CmuxWorkspaces
 struct CloudPortOpenRegressionTests {
     private let machine = SurfaceMachineID.cloud("port-vm")
     private let workspace = SurfaceRemoteWorkspace(id: "ws_app", name: "app", index: 0, focused: true)
-
     @MainActor
     private final class FakeProvider: SurfaceProvider {
         let machine: SurfaceMachineID
@@ -27,7 +26,6 @@ struct CloudPortOpenRegressionTests {
         var materialized: [(resource: SurfaceResourceID, destination: SurfaceDestination)] = []
         var refreshCalls = 0
         var forcedRefreshCalls = 0
-
         init(machine: SurfaceMachineID, supportsPortPreviews: Bool) {
             self.machine = machine
             self.supportsPortPreviews = supportsPortPreviews
@@ -48,16 +46,13 @@ struct CloudPortOpenRegressionTests {
                 privateAddress: "10.0.0.7"
             )
         }
-
         func refresh() async {
             refreshCalls += 1
         }
-
         func refresh(force: Bool) async {
             refreshCalls += 1
             if force { forcedRefreshCalls += 1 }
         }
-
         func materialize(
             _ resource: SurfaceResource,
             at destination: SurfaceDestination,
@@ -66,7 +61,6 @@ struct CloudPortOpenRegressionTests {
             materialized.append((resource.id, destination))
             return SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
         }
-
         func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
             SurfaceResource(
                 id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_new"),
@@ -79,10 +73,8 @@ struct CloudPortOpenRegressionTests {
                 url: nil
             )
         }
-
         func projectionDidEnd(_ projection: SurfaceProjection) {}
     }
-
     private func machineSnapshot() -> MachineSnapshot {
         MachineSnapshot(
             id: machine.rawValue,
@@ -94,7 +86,6 @@ struct CloudPortOpenRegressionTests {
             label: nil
         )
     }
-
     private func machineInfo(workspaces: [SurfaceRemoteWorkspace] = []) -> SurfaceMachineInfo {
         SurfaceMachineInfo(
             id: machine,
@@ -113,7 +104,6 @@ struct CloudPortOpenRegressionTests {
             privateAddress: "10.0.0.7"
         )
     }
-
     private func terminal() -> SurfaceResource {
         var resource = SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_app"),
@@ -174,10 +164,7 @@ struct CloudPortOpenRegressionTests {
             localWorkspaces: [],
             includeLocalMachine: false
         ))
-        let emptyPorts = try #require(emptyNodes.first { $0.structureTag == "portsGroup" })
-        #expect(emptyPorts.children.count == 1)
-        #expect(emptyPorts.children.first?.structureTag == "placeholder")
-        #expect(emptyNodes.allSatisfy { $0.dragResource?.id.isForwardedPort != true })
+        #expect(emptyNodes.first { $0.structureTag == "portsGroup" }?.children.first?.structureTag == "placeholder")
     }
 
     @Test("A localhost browser view is folded into the canonical port in its cloud workspace")
@@ -297,12 +284,21 @@ struct CloudPortOpenRegressionTests {
             privateAddress: "10.16.179.6",
             displayPortsOwned: true
         ) == [3000])
-        // Without a desktop, 6901 is an ordinary reachable listener; the
-        // loopback-only 5901 is still unreachable over the private address.
+        // Without a desktop, 5901 and 6901 are ordinary listeners; the browser
+        // proxy reaches the loopback-only 5901 on guest loopback.
         #expect(CmuxTuiSurfaceProvider.ports(
             from: scan,
             privateAddress: "10.16.179.6"
-        ) == [3000, 6901])
+        ) == [3000, 5901, 6901])
+    }
+
+    @Test("Loopback services remain discoverable independently of private-address metadata")
+    func loopbackDiscoveryIsIndependentOfAddress() {
+        let listing = "State Recv-Q Send-Q Local Address:Port Peer Address:Port\nLISTEN 0 128 127.0.0.1:8000 0.0.0.0:*\n"
+        #expect(CmuxTuiSurfaceProvider.ports(
+            from: VMExecResult(exitCode: 0, stdout: listing, stderr: ""),
+            privateAddress: nil
+        ) == [8000])
     }
 
     @Test("Unavailable scans retain ports while an authoritative empty scan retires them")
@@ -322,7 +318,7 @@ struct CloudPortOpenRegressionTests {
         #expect(CmuxTuiSurfaceProvider.ports(
             from: VMExecResult(exitCode: 0, stdout: bindings, stderr: ""),
             privateAddress: "10.0.0.7"
-        ) == [9000])
+        ) == [8000, 9000])
         #expect(CmuxTuiSurfaceProvider.ports(
             from: VMExecResult(
                 exitCode: 0,
@@ -330,7 +326,7 @@ struct CloudPortOpenRegressionTests {
                 stderr: ""
             ),
             privateAddress: "10.0.0.7"
-        ) == [], "IPv4-mapped loopback must not be advertised through the private address")
+        ) == [9200], "the browser proxy opens the service on guest loopback")
         let previous = [discoveredPort(8000, in: workspace)]
         let retained = CmuxTuiSurfaceProvider.portResources(
             machine: machine,

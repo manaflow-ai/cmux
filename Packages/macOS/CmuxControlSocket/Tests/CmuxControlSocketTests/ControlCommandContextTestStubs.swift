@@ -294,6 +294,7 @@ extension ControlWorkspaceContext {
     func controlWorkspaceStrings() -> ControlWorkspaceStrings {
         ControlWorkspaceStrings(
             closeProtected: "", closeFailed: "",
+            closeConfirmationRequired: "",
             reorderManyMissingOrder: "",
             reorderManyDuplicateWorkspace: "",
             workspaceNotFound: "",
@@ -326,7 +327,8 @@ extension ControlWorkspaceContext {
 
     func controlCloseWorkspace(
         routing: ControlRoutingSelectors,
-        workspaceID: UUID
+        workspaceID: UUID,
+        force: Bool
     ) -> ControlWorkspaceCloseResolution { .tabManagerUnavailable }
 
     func controlMoveWorkspaceToWindow(
@@ -491,7 +493,8 @@ extension ControlSurfaceContext {
     func controlSurfaceClose(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
-        hasSurfaceIDParam: Bool
+        hasSurfaceIDParam: Bool,
+        force: Bool
     ) -> ControlSurfaceCloseResolution { .tabManagerUnavailable }
 
     func controlSurfaceMove(params: [String: JSONValue]) -> ControlCallResult {

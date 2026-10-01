@@ -15,10 +15,12 @@ extension DockSplitStore: TerminalLinkOpenContainer {
     }
 
     func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool {
+        // An unplaced source may be any terminal, so it never resolves locally.
         guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId) else {
-            return false
+            return true
         }
-        return detachedSurfaceTransfersByPanelId[panelId]?.isRemoteTerminal == true
+        if detachedSurfaceTransfersByPanelId[panelId]?.isRemoteTerminal == true { return true }
+        return machineOwningSurface(panelId)?.isLocal != true
     }
 
     func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget? {

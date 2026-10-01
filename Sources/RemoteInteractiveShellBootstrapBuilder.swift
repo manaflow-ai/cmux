@@ -59,6 +59,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "cmux_shell_dir=\"\(shellStateDir)\"",
             "mkdir -p \"$cmux_shell_dir\"",
         ]
+        outerLines.append(contentsOf: claudeWrapperInstallLines)
         outerLines.append(contentsOf: initialCommandBootstrap.preparationLines)
         if let bundledZshIntegration {
             outerLines += [
@@ -148,7 +149,11 @@ enum RemoteInteractiveShellBootstrapBuilder {
                 indentation: "    ",
                 directShellCommand: chainedRemoteCommandLaunch
                     ?? "\(shellExec) --rcfile \"$cmux_shell_dir/.bashrc\" -i",
-                tmuxShellCommand: "\(bashExec) --rcfile \"\(shellStateDir)/.bashrc\" -i"
+                // tmux stores `default-command` at the session level. Resolve
+                // the relay directory from the session environment each time
+                // a pane is created so reconnects cannot leave new panes
+                // pointing at a deleted relay rcfile.
+                tmuxShellCommand: "\(bashExec) --rcfile \"${CMUX_SHELL_INTEGRATION_DIR:-\(shellStateDir)}/.bashrc\" -i"
             ),
             "    ;;",
             "  fish)",
@@ -267,6 +272,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
         lines.append(contentsOf: shellExportLines(shellFeatures: shellFeatures))
         lines.append("export PATH=\"$HOME/.cmux/bin:$PATH\"")
         lines.append("export CMUX_BUNDLED_CLI_PATH=\"$HOME/.cmux/bin/cmux\"")
+        lines.append("unset CMUX_CODEX_WRAPPER_SHIM; if [ -x \"$HOME/.cmux/bin/cmux-codex-wrapper\" ] && command -v bash >/dev/null 2>&1; then export CMUX_CODEX_WRAPPER_SHIM=\"$HOME/.cmux/bin/cmux-codex-wrapper\"; fi")
         lines.append(
             "export CMUX_PERSISTENT_PTY_EXEC_HELPER=\"${CMUX_PERSISTENT_PTY_EXEC_HELPER:-$CMUX_BUNDLED_CLI_PATH}\""
         )
@@ -408,6 +414,28 @@ enum RemoteInteractiveShellBootstrapBuilder {
         ]
     }
 
+    /// The shell integration's `claude` shim execs
+    /// `$CMUX_SHELL_INTEGRATION_DIR/bin/cmux-claude-wrapper` when present. On a
+    /// relay host that wrapper hands off to the remote CLI, which injects the
+    /// relay hooks through `--settings`, so launchers that resolve `claude`
+    /// from PATH (and set their own CLAUDE_CONFIG_DIR) still report status.
+    /// An older remote CLI without the verb fails the local `--cmux-probe`
+    /// (no relay round trip), so the wrapper falls back to plain `claude`.
+    static let claudeWrapperInstallLines: [String] = [
+        "mkdir -p \"$cmux_shell_dir/bin\"",
+        "cat > \"$cmux_shell_dir/bin/cmux-claude-wrapper\" <<'CMUXCLAUDEWRAPPER'",
+        "#!/bin/sh",
+        "cmux_cli=\"$HOME/.cmux/bin/cmux\"",
+        "if [ -x \"$cmux_cli\" ] && \"$cmux_cli\" claude-wrapper --cmux-probe >/dev/null 2>&1; then exec \"$cmux_cli\" claude-wrapper \"$@\"; fi",
+        "cmux_path=",
+        "cmux_ifs=$IFS; IFS=:",
+        "for cmux_entry in $PATH; do case \"$cmux_entry\" in *cmux-cli-shims*) ;; *) cmux_path=\"${cmux_path:+$cmux_path:}$cmux_entry\" ;; esac; done",
+        "IFS=$cmux_ifs; PATH=$cmux_path; export PATH",
+        "exec claude \"$@\"",
+        "CMUXCLAUDEWRAPPER",
+        "chmod 700 \"$cmux_shell_dir/bin/cmux-claude-wrapper\"",
+    ]
+
     private static func shellStateDirForRemoteRelayPort(_ remoteRelayPort: Int) -> String {
         "$HOME/.cmux/relay/\(max(remoteRelayPort, 0)).shell"
     }
@@ -419,10 +447,6 @@ enum RemoteInteractiveShellBootstrapBuilder {
     }
 
     private static func shellQuote(_ value: String) -> String {
-        let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
-        if value.range(of: safePattern, options: .regularExpression) != nil {
-            return value
-        }
-        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        value.posixShellWord
     }
 }

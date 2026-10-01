@@ -124,6 +124,10 @@ extension FileDropOverlayView {
         sender: any NSDraggingInfo,
         pasteboardTypes: [NSPasteboard.PasteboardType]?
     ) {
+        guard DragOverlayRoutingPolicy.hasFileDropBehaviorPayload(pasteboardTypes) else {
+            hintPresentation.hideBadge()
+            return
+        }
         let windowPoint = sender.draggingLocation
         if editableTextViewUnderPoint(windowPoint) == nil,
            webViewUnderPoint(windowPoint) != nil {

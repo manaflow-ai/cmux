@@ -5,13 +5,14 @@ import NodeWebSocket from "ws";
 import { encodeBase64URL, issueTicket, requestSigningInput } from "../src/crypto";
 import { issueDashboardTicket } from "../src/dashboard-auth";
 import { objectName } from "../src/routing";
-import { V2DashboardController } from "../../../web/app/[locale]/dashboard/mobile-devices/v2-dashboard-controller";
+import { V2DashboardController } from "../../../web/dashboard-app/screens/mobile-devices/v2-dashboard-controller";
 
 let mf: Miniflare;
 let descriptor: any;
 let signingKey: CryptoKey;
 let ticket = "";
 let dashboardTicketKey = "";
+let ticketSigningKey = "";
 let fixturePublicKey = "";
 let workerRoot = "";
 let persistencePath = "";
@@ -56,6 +57,7 @@ beforeAll(async () => {
   const ticketKeyBytes = crypto.getRandomValues(new Uint8Array(32));
   const ticketKey = encodeBase64URL(ticketKeyBytes);
   dashboardTicketKey = ticketKey;
+  ticketSigningKey = ticketKey;
   const relayKey = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
   const relayPkcs8 = new Uint8Array(await crypto.subtle.exportKey("pkcs8", relayKey.privateKey));
   const relayPem = `-----BEGIN PRIVATE KEY-----\n${btoa(String.fromCharCode(...relayPkcs8)).match(/.{1,64}/g)!.join("\n")}\n-----END PRIVATE KEY-----`;
@@ -210,7 +212,7 @@ test("the web controller loads the directory over a real dashboard socket", asyn
   let sessionRequests = 0;
   globalThis.fetch = (async (input, init) => {
     const request = new Request(input, init);
-    expect(request.url).toBe("https://cmux-iroh-v2.debussy.workers.dev/v2/dashboard/session");
+    expect(request.url).toBe("https://cmux-v2.debussy.workers.dev/v2/dashboard/session");
     expect(request.headers.get("authorization")).toBe("Bearer fixture-access");
     const setup = await request.json() as any;
     const ticket = await issueDashboardTicket({
@@ -222,7 +224,7 @@ test("the web controller loads the directory over a real dashboard socket", asyn
   }) as typeof fetch;
   globalThis.WebSocket = class extends NodeWebSocket {
     constructor(url: string, protocols: string[]) {
-      expect(url).toBe("wss://cmux-iroh-v2.debussy.workers.dev/v2/dashboard/socket");
+      expect(url).toBe("wss://cmux-v2.debussy.workers.dev/v2/dashboard/socket");
       super(fixtureURL.href, protocols, { headers: { origin: "https://cmux.com" } });
     }
   } as unknown as typeof WebSocket;
@@ -230,7 +232,7 @@ test("the web controller loads the directory over a real dashboard socket", asyn
   let rejectDirectory!: (reason: Error) => void;
   const result = new Promise<any>((resolve, reject) => { resolveDirectory = resolve; rejectDirectory = reject; });
   const controller = new V2DashboardController({
-    origin: "https://cmux-iroh-v2.debussy.workers.dev", environment, projectId, teamId, userId,
+    origin: "https://cmux-v2.debussy.workers.dev", environment, projectId, teamId, userId,
     getStackToken: async () => "fixture-access", onDirectory: resolveDirectory,
     onError: message => rejectDirectory(new Error(message)),
   });
@@ -404,6 +406,102 @@ test("a socket reclaims reservations leaked by a Durable Object reset", async ()
   }
 });
 
+const waitFor = async (satisfied: () => boolean, description: string, timeoutMs = 10_000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (!satisfied()) {
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${description}`);
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+};
+
+test("a team change during the budget call leaves the dashboard socket usable", async () => {
+  // The dashboard reply names the team revision it read. A mutation that lands
+  // while that reply is parked on its output budget call makes the revision
+  // guard reject it, and the client must learn that from an error frame it can
+  // act on rather than from a backpressure close it cannot.
+  const raceUser = "revision-race-user";
+  const { token } = await issueDashboardTicket({
+    authority: { environment, projectId, teamId, userId: raceUser, verifiedAt: Math.floor(Date.now() / 1000) },
+    origin: "https://cmux.com", clientInstanceId: "revision-race", canManageTeam: false,
+  }, "k1", dashboardTicketKey);
+  const response = await mf.dispatchFetch("https://iroh.test/v2/dashboard/socket", {
+    headers: { origin: "https://cmux.com", upgrade: "websocket", "sec-websocket-protocol": `cmux-v2-dashboard, ticket.${token}` },
+  });
+  expect(response.status).toBe(101);
+  const socket = response.webSocket!;
+  const frames: any[] = [];
+  const closeCodes: number[] = [];
+  socket.addEventListener("message", event => frames.push(JSON.parse(String(event.data))));
+  socket.addEventListener("close", event => closeCodes.push(event.code));
+  socket.accept();
+  try {
+    await waitFor(() => frames.some(frame => frame.schemaId === "dashboard.connected.v1"), "the dashboard connected frame");
+    const usage = await mf.getDurableObjectNamespace("USER_USAGE");
+    await (usage.getByName(objectName(environment, projectId, raceUser)) as any).armOutputStall(3_000);
+    socket.send(JSON.stringify({ schemaId: "directory.request.v1", requestId: "raced-directory" }));
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const metadata = { schemaId: "device.metadata.v1", requestId: "race-metadata",
+      metadata: { ...descriptor.metadata, displayName: `Raced fixture ${Date.now()}` } };
+    const mutated = await json("https://iroh.test/v2/requests", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `IrohTicket ${ticket}`,
+        "x-cmux-v2-setup": setupHeader(await setupFor(metadata.requestId, metadata)) },
+      body: JSON.stringify(metadata),
+    });
+    expect(mutated.response.status).toBe(200);
+    await waitFor(() => closeCodes.length > 0 || frames.some(frame => frame.requestId === "raced-directory"),
+      "the raced directory reply");
+    // 1013 tells the client to wait for the connection to drain. Nothing here is
+    // draining, so it would back off instead of refreshing what changed.
+    expect(closeCodes).toEqual([]);
+    expect(frames.find(frame => frame.requestId === "raced-directory")?.schemaId).toBe("dashboard.directory.v1");
+    // The reply names the revision it read, and the change notice that follows
+    // is how the client learns to ask again.
+    await waitFor(() => frames.some(frame => frame.schemaId === "directory.changed.v1"), "the directory change notice");
+  } finally { socket.close(); }
+}, 30_000);
+
+test("a native reply rejected after its budget call leaves no gap in the delivery sequence", async () => {
+  // Every prepared frame takes the next sequence number, and checkpoint receipts
+  // report that number. A frame that is accounted for but never written makes the
+  // client see a sequence it was never sent, and mints a checkpoint token that
+  // only existed inside the unsent text, so its bytes can never be acknowledged.
+  const setup = await setupFor("sequence-socket", undefined);
+  const socketURL = new URL("v2/control/socket", await mf.ready);
+  socketURL.protocol = "ws:";
+  const socket = new NodeWebSocket(socketURL.href, {
+    headers: { authorization: `IrohTicket ${ticket}`, "x-cmux-v2-setup": setupHeader(setup) },
+  });
+  const frames: any[] = [];
+  socket.on("message", (value: { toString(): string }) => frames.push(JSON.parse(value.toString())));
+  await new Promise<void>((resolve, reject) => { socket.once("open", resolve); socket.once("error", reject); });
+  try {
+    await waitFor(() => frames.some(frame => frame.schemaId === "session.ready.v1"), "the session ready frame");
+    const usage = await mf.getDurableObjectNamespace("USER_USAGE");
+    await (usage.getByName(objectName(environment, projectId, userId)) as any).armOutputStall(3_000);
+    socket.send(JSON.stringify({ schemaId: "directory.request.v1", requestId: "raced-native-directory" }));
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const metadata = { schemaId: "device.metadata.v1", requestId: "native-race-metadata",
+      metadata: { ...descriptor.metadata, displayName: `Sequence fixture ${Date.now()}` } };
+    const mutated = await json("https://iroh.test/v2/requests", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `IrohTicket ${ticket}`,
+        "x-cmux-v2-setup": setupHeader(await setupFor(metadata.requestId, metadata)) },
+      body: JSON.stringify(metadata),
+    });
+    expect(mutated.response.status).toBe(200);
+    await waitFor(() => frames.some(frame => frame.requestId === "raced-native-directory"), "the raced native reply");
+    for (let index = 0; index < 32 && !frames.some(frame => frame.deliveryReceipt); index += 1) {
+      const requestId = `sequence-fill-${index}`;
+      socket.send(JSON.stringify({ schemaId: "directory.request.v1", requestId }));
+      await waitFor(() => frames.some(frame => frame.requestId === requestId), requestId);
+    }
+    const carrier = frames.findIndex(frame => frame.deliveryReceipt);
+    expect(carrier).toBeGreaterThanOrEqual(0);
+    expect(frames[carrier].deliveryReceipt.sequence).toBe(carrier + 1);
+  } finally { socket.close(); }
+}, 30_000);
+
 test("forged scope is rejected before the TeamControl binding", async () => {
   const forged = { ...descriptor, identity: { ...descriptor.identity, teamId: "other-team" } };
   const requestId = "forged-scope";
@@ -427,4 +525,92 @@ test("Mac control accepts either discovery or hosting without enabling iOS pairi
     });
     expect(result.response.status).toBe(capabilities.length > 0 ? 200 : 403);
   }
+});
+
+test("a team at its socket cap sheds the next socket before it mutates team state", async () => {
+  // At the cap the connection is refused either way, so anything the open path
+  // does first is pure amplification: it verifies a caller-supplied signature,
+  // consumes the device proof, bumps the team revision and then pushes that
+  // revision to every socket already connected. Load shedding has to come first.
+  const namespace = await mf.getDurableObjectNamespace("TEAM_CONTROL");
+  const control = namespace.getByName(objectName(environment, projectId, teamId)) as any;
+  const socketURL = new URL("v2/control/socket", await mf.ready);
+  socketURL.protocol = "ws:";
+  const holder = new NodeWebSocket(socketURL.href, {
+    headers: { authorization: `IrohTicket ${ticket}`, "x-cmux-v2-setup": setupHeader(await setupFor("cap-holder", undefined)) },
+  });
+  const frames: any[] = [];
+  holder.on("message", value => frames.push(JSON.parse(value.toString())));
+  await new Promise<void>((resolve, reject) => { holder.once("open", resolve); holder.once("error", reject); });
+  try {
+    await control.setSocketLimit(1);
+    const before = await control.teamRevision();
+    // A ticket issued slightly ahead carries authority the team has not observed
+    // yet, so the open path would record it and broadcast the new revision.
+    const aheadTicket = (await issueTicket(descriptor, "k1", ticketSigningKey, Math.floor(Date.now() / 1000) + 5)).token;
+    const refused = await mf.dispatchFetch("https://iroh.test/v2/control/socket", {
+      headers: { upgrade: "websocket", authorization: `IrohTicket ${aheadTicket}`,
+        "x-cmux-v2-setup": setupHeader(await setupFor("over-cap", undefined)) },
+    });
+    expect(refused.status).toBe(429);
+    expect(refused.webSocket).toBeNull();
+    expect(await control.teamRevision()).toBe(before);
+    // The broadcast is scheduled with waitUntil, so give it room to arrive.
+    await Bun.sleep(500);
+    expect(frames.filter(frame => frame.schemaId === "directory.changed.v1")).toEqual([]);
+    expect(holder.readyState).toBe(NodeWebSocket.OPEN);
+  } finally {
+    await control.restoreSocketLimit();
+    holder.close();
+  }
+});
+
+test("a forgotten Mac receives its revocation and can reopen a real recovery socket", async () => {
+  const nextFrame = (socket: NodeWebSocket, schema: string) => new Promise<any>((resolve, reject) => {
+    const cleanup = () => { clearTimeout(timer); socket.off("message", listener); socket.off("error", failed); };
+    const failed = (error: Error) => { cleanup(); reject(error); };
+    const timer = setTimeout(() => failed(new Error(`No ${schema}`)), 2000);
+    const listener = (data: NodeWebSocket.RawData) => {
+      const frame = JSON.parse(data.toString());
+      if (frame.schemaId !== schema) return;
+      cleanup();
+      resolve(frame);
+    };
+    socket.on("message", listener);
+    socket.on("error", failed);
+  });
+  const open = async (requestId: string, fresh: boolean) => {
+    const url = new URL(fresh ? "/fixture/stack/socket" : "/v2/control/socket", await mf.ready);
+    url.protocol = "ws:";
+    const setup = await setupFor(requestId, undefined);
+    const socket = new NodeWebSocket(url.href, {
+      headers: { "x-cmux-v2-setup": setupHeader(setup), authorization: `IrohTicket ${ticket}` },
+    });
+    return { socket, ready: nextFrame(socket, "session.ready.v1") };
+  };
+  const { socket, ready: initialReady } = await open("before-forget", false);
+  try {
+    const device = (await initialReady).device;
+    const revoked = nextFrame(socket, "device.revoked.v1");
+    const request = { schemaId: "device.revoke.v1", requestId: "forget", deviceRecordId: device.deviceRecordId };
+    const response = await mf.dispatchFetch("https://iroh.test/v2/requests", {
+      method: "POST", headers: { "content-type": "application/json", authorization: `IrohTicket ${ticket}`,
+        "x-cmux-v2-setup": setupHeader(await setupFor(request.requestId, request)) },
+      body: JSON.stringify(request),
+    });
+    expect(response.status).toBe(200);
+    expect(await revoked).toMatchObject({ deviceRecordId: device.deviceRecordId, recoverable: true });
+    const oldTicket = await mf.dispatchFetch("https://iroh.test/v2/control/session", {
+      method: "POST", headers: { "content-type": "application/json", authorization: `IrohTicket ${ticket}` },
+      body: JSON.stringify(await setupFor("old-ticket", undefined)),
+    });
+    expect(oldTicket.status).toBe(403);
+    const recovery = await open("fresh-stack", true);
+    const recoveredSocket = recovery.socket;
+    try {
+      const frame = await recovery.ready;
+      expect(frame.challenge).toBeDefined();
+      expect(frame.device).toBeUndefined();
+    } finally { recoveredSocket.close(); }
+  } finally { socket.close(); }
 });

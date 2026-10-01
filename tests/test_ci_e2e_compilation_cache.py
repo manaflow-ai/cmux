@@ -20,6 +20,14 @@ TESTS = 'e2e-run-tests'
 JOBS[TESTS] = yaml.safe_load((ROOT / '.github/actions/e2e-run-tests/action.yml').read_text())['runs']['steps']
 
 
+def by_id(step_id, job='build'):
+    """One step by id, for names a job uses twice (the product upload)."""
+    found = [s for s in JOBS[job] if s.get('id') == step_id]
+    if len(found) != 1:
+        raise AssertionError(f"expected one {step_id!r} step in {job}, found {len(found)}")
+    return found[0]
+
+
 def step(name, job=None):
     """One named step. `build` and `test` share several step names."""
     found = [(owner, s) for owner, steps in JOBS.items() if job in (None, owner)
@@ -169,14 +177,22 @@ exit 97
                 self.assertNotIn('compile-app-host-test-product.sh', run, entry.get('name'))
                 self.assertNotIn('build-for-testing', run, entry.get('name'))
 
-        upload = step('Upload the compiled test product', 'build')
-        self.assertEqual(
-            upload['with']['name'],
-            'app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}',
-            'publish under the name ci.yml uses, so a later run can adopt it')
+        for upload_id in ('upload-product', 'upload-product-after-tests'):
+            upload = by_id(upload_id)
+            self.assertEqual(
+                upload['with']['name'],
+                'app-host-products-v1-${{ steps.reuse.outputs.product_key'
+                ' || steps.product-key.outputs.key }}-${{ github.run_attempt }}',
+                'publish under the name ci.yml uses, so a later run can adopt it,'
+                ' or the name of the root a reused product moved this job to')
 
         outputs = WORKFLOW['jobs']['build']['outputs']
-        self.assertEqual(outputs['artifact_id'], '${{ steps.upload-product.outputs.artifact-id }}')
+        self.assertEqual(outputs['artifact_id'],
+                         '${{ steps.upload-product.outputs.artifact-id'
+                         ' || steps.upload-product-after-tests.outputs.artifact-id }}')
+        self.assertEqual(outputs['artifact_digest'],
+                         '${{ steps.upload-product.outputs.artifact-digest'
+                         ' || steps.upload-product-after-tests.outputs.artifact-digest }}')
         self.assertEqual(outputs['sha256'], '${{ steps.package.outputs.sha256 }}')
         self.assertEqual(WORKFLOW['jobs']['test']['needs'], ['resolve-ref', 'filter', 'runner', 'build'])
 
@@ -213,10 +229,127 @@ exit 97
             checkout = step('Checkout the E2E test steps', job)
             self.assertEqual(checkout['with']['ref'], '${{ github.workflow_sha }}')
             self.assertEqual(checkout['with']['path'], '.e2e-workflow')
-            self.assertEqual(checkout['with']['sparse-checkout'], '.github/actions/e2e-run-tests')
+            self.assertEqual(
+                checkout['with']['sparse-checkout'].split(),
+                ['.github/actions/e2e-run-tests',
+                 'scripts/ci/e2e-frames.py',
+                 'scripts/ci/brew-ensure.sh'],
+            )
+            # Every entry has to exist, since sparse-checkout of a missing path
+            # is silent and the action would fall back to the tested revision's
+            # copy without saying so.
+            for entry in checkout['with']['sparse-checkout'].split():
+                self.assertTrue((ROOT / entry).exists(), entry)
         # The build job's budget covers compiling and testing.
         self.assertEqual(WORKFLOW['jobs']['build']['timeout-minutes'],
                          '${{ fromJSON(needs.filter.outputs.build_timeout) }}')
+
+    def test_an_owned_mac_takes_the_gui_token_before_testing_here(self):
+        # The tests share the owned Mac's one console session, so this job
+        # takes glaeda's gui token just before them, and leaves them to the
+        # `test` job when take-gui gives way (3) or times out (1).
+        here = step('Run the selected tests here', 'build')
+        self.assertEqual(here['env']['OWNED'], "${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') }}")
+        run = here['run']
+        self.assertIn('/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root', run)
+        self.assertIn('take-gui --wait 300', run)
+        self.assertIn('0|2) ;;', run, 'held, or a hook that gave the token at job start')
+        self.assertIn('echo "tested=false"', run)
+        self.assertNotIn('set -e', run, 'take-gui exit statuses decide, they must not fail the step')
+        # Left to the `test` job, the tests still find the product: the late
+        # upload runs whenever the early one stood aside.
+        self.assertEqual(by_id('late-upload-check')['if'],
+                         "${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' && (steps.reuse.outputs.hit != 'true' || steps.test-here.outputs.tested != 'true') }}")
+
+    def test_the_fallback_test_job_waits_for_the_gui_token_in_a_step(self):
+        # The `test` job runs only when build could not get the gui token, so
+        # glaeda gives it none at job start (a 240 s wait there ended in a
+        # refusal): it waits here, after the product download and before the
+        # tests, and fails only if the token stays taken past the wait.
+        names = [entry.get('name') for entry in JOBS['test']]
+        take = names.index("Take this Mac's gui token")
+        self.assertLess(take, names.index('Checkout the E2E test steps'))
+        self.assertLess(take, names.index('Run selected tests'))
+        run = step("Take this Mac's gui token", 'test')['run']
+        self.assertIn('[ -x "$helper" ] || exit 0', run, 'Blacksmith has no helper')
+        self.assertIn('take-gui --wait 900', run)
+        self.assertIn('0|2) ;;', run, 'held, or a hook that gave the token at job start')
+        self.assertNotIn('set -e', run, 'take-gui exit statuses decide')
+
+    def test_an_owned_mac_uploads_the_product_after_its_tests(self):
+        # An owned Mac uploads at 6-7 MB/s, about 130 s for the product, which
+        # the tests no longer wait for there: they restore the local archive.
+        # Everywhere else, and whenever the `test` job will read the upload,
+        # it still goes first.
+        names = [entry.get('name') for entry in JOBS['build']]
+        ids = [entry.get('id') for entry in JOBS['build']]
+        before, after = by_id('upload-product'), by_id('upload-product-after-tests')
+        self.assertEqual(
+            before['if'],
+            "${{ (vars.CI_E2E_TEST_IN_BUILD || '1') == '0' || !startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') }}")
+        self.assertEqual(step('Run the selected tests here', 'build')['if'],
+                         "${{ (vars.CI_E2E_TEST_IN_BUILD || '1') != '0' }}",
+                         'the deferral must defer exactly when this job tests')
+        # Runs whatever the tests did, even on a cancel, so a failing or
+        # superseded run still publishes an intact product, but only when the
+        # first upload stood aside for it and the archive still hashes to what
+        # the package step sealed.
+        check = by_id('late-upload-check')
+        self.assertEqual(
+            check['if'],
+            "${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' && (steps.reuse.outputs.hit != 'true' || steps.test-here.outputs.tested != 'true') }}")
+        self.assertIn('shasum -a 256 -c', check['run'])
+        self.assertEqual(check['env']['EXPECTED_SHA256'], '${{ steps.package.outputs.sha256 }}')
+        self.assertEqual(after['if'], "${{ always() && steps.late-upload-check.outcome == 'success' }}")
+        self.assertEqual(ids.index('late-upload-check') + 1, ids.index('upload-product-after-tests'))
+        self.assertEqual({k: v for k, v in before.items() if k not in ('id', 'if', 'name')},
+                         {k: v for k, v in after.items() if k not in ('id', 'if', 'name')})
+        # Both names count as published (reuse_app_host_products.py and
+        # e2e_sibling_build.py); product_input_identity.py needs them unique.
+        sys.path.insert(0, str(ROOT / 'scripts/ci'))
+        import e2e_sibling_build
+        import reuse_app_host_products
+        published = (before['name'], after['name'])
+        self.assertEqual(reuse_app_host_products.PUBLISH_STEPS['.github/workflows/test-e2e.yml'], published)
+        self.assertEqual((e2e_sibling_build.PUBLISH_STEP, e2e_sibling_build.PUBLISH_AFTER_TESTS_STEP), published)
+        self.assertEqual(len(names), len(set(names)))
+        self.assertLess(ids.index('package'), ids.index('upload-product'))
+        self.assertLess(ids.index('upload-product'), names.index('Run the selected tests here'))
+        for earlier in ('tests', None):
+            index = ids.index(earlier) if earlier else names.index('Resolve selectors against the built tests')
+            self.assertLess(index, ids.index('upload-product-after-tests'))
+        self.assertEqual(ids.index('upload-product-after-tests'), len(ids) - 1)
+        # The tests restore the archive this job packaged, never the upload,
+        # so an empty artifact id before the deferred upload is expected.
+        action = yaml.safe_load((ROOT / '.github/actions/e2e-run-tests/action.yml').read_text())
+        for name in ('artifact-id', 'artifact-digest'):
+            self.assertIs(action['inputs'][name]['required'], False, name)
+
+    def test_a_producer_restore_needs_no_artifact_id(self):
+        # restore-app-host-test-product.sh's measurement record read
+        # int(ARTIFACT_ID), which an owned build testing before its upload
+        # does not have yet.
+        script = (ROOT / 'scripts/ci/restore-app-host-test-product.sh').read_text()
+        start = script.index("python3 - <<'PY'\n") + len("python3 - <<'PY'\n")
+        body = script[start:script.index('\nPY\n', start)]
+        archive = self.root / 'app-host-products' / 'app-host-products.tar.gz'
+        archive.parent.mkdir()
+        archive.write_bytes(b'archive')
+        for artifact_id, expected in (('', None), ('42', 42)):
+            with self.subTest(artifact_id=artifact_id):
+                result = subprocess.run([sys.executable, '-c', body], env=dict(
+                    self.env, CMUX_RESTORE_STARTED_NS='0', CMUX_RESTORE_STATUS='0',
+                    CMUX_PRODUCT_FROM_PRODUCER='true', GITHUB_REPOSITORY='manaflow-ai/cmux',
+                    ARTIFACT_ID=artifact_id, ARTIFACT_PROVIDER_DIGEST='', EXPECTED_SHA256='abc',
+                    CMUX_PRODUCT_CONTRACT='key', CMUX_PRODUCT_SOURCE_REVISION='a' * 40,
+                    CMUX_PRODUCT_PRODUCER_RUN_ID='11', CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT='1',
+                    GITHUB_STEP_SUMMARY=''), text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                line = next(l for l in result.stdout.splitlines() if l.startswith('CMUX_TEST_PRODUCT_RESTORE '))
+                import json
+                record = json.loads(line.split(' ', 1)[1])
+                self.assertEqual(record['artifact_id'], expected)
+                self.assertEqual(record['lookup_source'], 'producer')
 
     def test_the_build_timeout_doubles_job_timeout(self):
         script = WORKFLOW['jobs']['filter']['steps'][0]['run']
@@ -392,6 +525,15 @@ exit 97
             raise OSError('unreachable')
         self.assertFalse(revision_on_main.contained_in_main('o/r', sha, 't', compare=explode))
 
+    def test_an_owned_mac_neither_restores_nor_saves_the_cache(self):
+        # 8 owned builds on 2026-09-25 hit 0 to 6 entries (one outlier, 409)
+        # while the transfers cost 1.5 to 3.5 min at the owned Macs' bandwidth.
+        owned = "!startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-')"
+        self.assertIn(owned, step('Restore E2E compilation cache')['if'])
+        self.assertIn(owned, step('Bound E2E compilation cache')['if'])
+        # The save only follows a bound that allowed it.
+        self.assertIn("steps.compilation-cache-bound.outputs.save == 'true'", step('Save E2E compilation cache')['if'])
+
     def test_empty_and_oversized_caches_are_not_published(self):
         values = self.prepare()
         # A revision main contains, so both runs reach the cache checks rather
@@ -453,7 +595,16 @@ exit 97
 
 
 class E2ECapturePreflight(unittest.TestCase):
-    def test_capture_failure_stops_before_dependency_setup(self):
+    def test_video_steps_follow_the_capture_check(self):
+        effective = ("${{ inputs.record-video == 'true' && steps.capture.outputs.available != 'false'"
+                     " && 'true' || 'false' }}")
+        self.assertEqual(step('Run selected tests', TESTS)['env']['RECORD_VIDEO'], effective)
+        self.assertEqual(step('Publish test summary', TESTS)['env']['RECORD_VIDEO'], effective)
+        self.assertIn("steps.capture.outputs.available != 'false'",
+                      step('Upload recording artifact', TESTS)['if'])
+        self.assertEqual(step('Verify screen capture before dependency setup', TESTS)['id'], 'capture')
+
+    def test_capture_failure_runs_the_tests_without_video(self):
         for mode in ('ok', 'failure', 'empty', 'timeout', 'no-user'):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
@@ -499,7 +650,10 @@ else:
                            RUNNER_TEMP=str(root), CAPTURE_FIXTURE_MODE=mode,
                            CAPTURE_FIXTURE_TRACE=str(trace),
                            CAPTURE_CHILD_PIPE=str(child_pipe),
-                           CAPTURE_CHILD_PID=str(root / 'child-pid'))
+                           CAPTURE_CHILD_PID=str(root / 'child-pid'),
+                           GITHUB_OUTPUT=str(root / 'output'),
+                           GITHUB_STEP_SUMMARY=str(root / 'summary'),
+                           RUNNER_NAME='blacksmith-12vcpu-macos-26-Runner-x')
                 # Execute the workflow's actual preflight, with a short test-only
                 # timeout, before substituting an expensive setup side effect.
                 reached = root / 'dependency-setup'
@@ -507,15 +661,26 @@ else:
                 for entry in JOBS[TESTS]:
                     if entry.get('name') == 'Verify screen capture before dependency setup':
                         timeout = '2' if mode == 'timeout' else '10'
-                        command += entry['run'].rstrip() + ' --timeout-seconds ' + timeout + '\n'
+                        script = 'scripts/ci/preflight-e2e-screen-capture.py'
+                        self.assertIn(script, entry['run'])
+                        command += entry['run'].replace(script, script + ' --timeout-seconds ' + timeout)
                     if entry.get('name') in ('Setup Bun', 'Download pre-built GhosttyKit.xcframework',
                                              'Install zig', 'Install Rust', 'Prepare isolated DerivedData'):
                         command += 'touch "$RUNNER_TEMP/dependency-setup"\n'
                         break
                 result = subprocess.run(['bash', '-eu', '-o', 'pipefail', '-c', command],
                                         cwd=ROOT, env=env, capture_output=True, text=True)
-                self.assertEqual(result.returncode == 0, mode == 'ok', result.stderr)
-                self.assertEqual(reached.exists(), mode == 'ok')
+                # An unavailable display no longer fails the run: the step
+                # reports it, and the tests run without video.
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(reached.exists())
+                available = 'true' if mode == 'ok' else 'false'
+                self.assertEqual((root / 'output').read_text(), f'available={available}\n')
+                summary = root / 'summary'
+                self.assertEqual(summary.exists(), mode != 'ok')
+                if mode != 'ok':
+                    self.assertIn('the tests ran without video', summary.read_text())
+                    self.assertIn('blacksmith-12vcpu-macos-26-Runner-x', summary.read_text())
                 self.assertEqual(list(root.glob('cmux-capture-preflight-*')), [])
                 if mode != 'no-user':
                     self.assertTrue(trace.exists(), result.stderr)

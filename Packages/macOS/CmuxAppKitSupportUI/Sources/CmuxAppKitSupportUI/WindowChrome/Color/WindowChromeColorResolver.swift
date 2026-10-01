@@ -7,7 +7,14 @@ public struct WindowChromeColorResolver: Sendable {
     public init() {}
 
     /// Returns a separator color readable against the given chrome background.
-    public func separatorColor(forChromeBackground chrome: NSColor) -> NSColor {
+    ///
+    /// - Parameter increaseContrast: The macOS Increase Contrast setting;
+    ///   when on, the separator steps further from the background and is
+    ///   less transparent so pane outlines and tab-bar edges stay visible.
+    public func separatorColor(
+        forChromeBackground chrome: NSColor,
+        increaseContrast: Bool = false
+    ) -> NSColor {
         let srgb = chrome.usingColorSpace(.sRGB) ?? chrome
         var red: CGFloat = 0
         var green: CGFloat = 0
@@ -19,8 +26,16 @@ public struct WindowChromeColorResolver: Sendable {
         // Asymmetric because sRGB gamma compresses a fixed RGB step far more
         // near white than near black. These deltas put both sides at CIE
         // dL* ~7 against their own background once composited.
-        let amount: CGFloat = isLight ? -0.30 : 0.16
-        let separatorAlpha: CGFloat = isLight ? 0.26 : 0.36
+        // Increase Contrast: a larger step at higher opacity on both sides.
+        let amount: CGFloat
+        let separatorAlpha: CGFloat
+        if increaseContrast {
+            amount = isLight ? -0.55 : 0.40
+            separatorAlpha = isLight ? 0.55 : 0.65
+        } else {
+            amount = isLight ? -0.30 : 0.16
+            separatorAlpha = isLight ? 0.26 : 0.36
+        }
         return NSColor(
             red: min(1.0, max(0.0, red + amount)),
             green: min(1.0, max(0.0, green + amount)),
@@ -52,6 +67,43 @@ public struct WindowChromeColorResolver: Sendable {
             blue: foregroundBlue * alpha + backgroundBlue * (1 - alpha),
             alpha: 1
         )
+    }
+
+    /// Returns `foreground` with just enough extra opacity to reach
+    /// `minimumContrast` (a WCAG contrast ratio) once composited over
+    /// `background`.
+    ///
+    /// Secondary chrome text is the label color at reduced opacity, which is
+    /// tuned for neutral backgrounds. Over a saturated mid-tone terminal
+    /// theme the same opacity can fall to about 2.6:1. A color that already
+    /// meets the floor comes back unchanged, so neutral themes keep the
+    /// system look; one that cannot reach it comes back fully opaque.
+    public func contrastFloored(
+        _ foreground: NSColor,
+        over background: NSColor,
+        minimumContrast: CGFloat
+    ) -> NSColor {
+        let color = foreground.usingColorSpace(.sRGB) ?? foreground
+        let backgroundLuminance = relativeLuminance(compositedColor(background, over: .black))
+        func contrast(atAlpha alpha: CGFloat) -> CGFloat {
+            let composited = compositedColor(color.withAlphaComponent(alpha), over: background)
+            return contrastRatio(relativeLuminance(composited), backgroundLuminance)
+        }
+        let startAlpha = color.alphaComponent
+        guard contrast(atAlpha: startAlpha) < minimumContrast else { return foreground }
+        guard contrast(atAlpha: 1) >= minimumContrast else { return color.withAlphaComponent(1) }
+        var low = startAlpha
+        var high: CGFloat = 1
+        for _ in 0..<12 {
+            let mid = (low + high) / 2
+            if contrast(atAlpha: mid) >= minimumContrast { high = mid } else { low = mid }
+        }
+        return color.withAlphaComponent(high)
+    }
+
+    /// Returns the WCAG contrast ratio between two opaque colors.
+    public func contrastRatio(_ lhs: NSColor, _ rhs: NSColor) -> CGFloat {
+        contrastRatio(relativeLuminance(lhs), relativeLuminance(rhs))
     }
 
     /// Returns the color scheme with stronger contrast against `backgroundColor`.

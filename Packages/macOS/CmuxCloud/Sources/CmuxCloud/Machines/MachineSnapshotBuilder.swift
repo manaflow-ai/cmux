@@ -45,6 +45,7 @@ public enum MachineSnapshotBuilder: Sendable {
             capabilities: summary.capabilities,
             activity: activity(fromStatus: summary.status),
             createdAt: createdAt,
+            createdBy: summary.createdBy,
             label: summary.displayName,
             slug: summary.slug,
             freeAccess: freeAccess,

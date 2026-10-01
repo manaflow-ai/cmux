@@ -163,8 +163,32 @@ def parse_xcresult_tests(data: Any) -> dict[str, str]:
 
 
 def load_json(path: Path) -> Any:
-    """Read one UTF-8 JSON document."""
-    return json.loads(path.read_text(encoding="utf-8"))
+    """Read one UTF-8 JSON document, naming the file whenever it cannot be read.
+
+    An aborted app-host batch leaves a partial typed result behind, and a bare
+    decoder message ("Expecting value: line 1 column 1 (char 0)") is the last
+    line the step prints before its exit code. Name the file for every way the
+    read can fail: empty, not JSON, and not UTF-8. A write cut inside a
+    multi-byte character fails as the third rather than the second.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{path}: not valid UTF-8 ({error})") from error
+    if not text.strip():
+        raise ValueError(f"{path}: empty file, expected a JSON document")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{path}: not valid JSON ({error})") from error
+
+
+def read_text_file(path: Path) -> str:
+    """Read one UTF-8 text file, naming it when the bytes are not UTF-8."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{path}: not valid UTF-8 ({error})") from error
 
 
 def load_inventory(path: Path) -> set[str]:
@@ -178,7 +202,7 @@ def load_inventory(path: Path) -> set[str]:
 def load_selectors(path: Path) -> list[str]:
     """Load normalized non-empty selectors from a line-oriented file."""
     selectors = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in read_text_file(path).splitlines():
         line = line.strip()
         if line:
             selectors.append(selector_value(line))
@@ -333,6 +357,14 @@ def check_run(
     """
     messages: list[str] = []
 
+    # Graded green must mean something was graded: an empty inventory or an
+    # empty selector list leaves the missing-execution gate nothing to check,
+    # so the run would pass on the aggregate count alone.
+    if not inventory:
+        return False, ["inventory lists no built tests"]
+    if not selectors:
+        return False, ["no selectors: nothing was selected to run"]
+
     expected_tests, missing_inventory = selected_inventory(inventory, selectors)
     if missing_inventory:
         for selector in missing_inventory:
@@ -428,8 +460,22 @@ def check_run(
 
 
 def write_inventory(input_path: Path, output_path: Path) -> None:
-    """Write a deterministic normalized test-inventory receipt."""
-    tests = sorted(parse_enumeration(load_json(input_path)))
+    """Write a deterministic normalized test-inventory receipt.
+
+    xcodebuild -enumerate-tests exits 0 even when the test runner never
+    connected; it then writes only the plan node plus an "errors" list. An
+    inventory built from that is empty, and every later step would run against
+    a host that cannot run tests, so refuse it here.
+    """
+    data = load_json(input_path)
+    errors = data.get("errors") if isinstance(data, dict) else None
+    if errors:
+        raise ValueError(
+            "test enumeration failed on this runner: " + "; ".join(str(error) for error in errors)
+        )
+    tests = sorted(parse_enumeration(data))
+    if not tests:
+        raise ValueError(f"test enumeration found no tests in {input_path}")
     suites = sorted({identifier.split("/", 1)[0] for identifier in tests if "/" in identifier})
     payload = {
         "version": 1,
