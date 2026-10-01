@@ -804,8 +804,12 @@ defaults write "$MAC_BUNDLE_ID" cmux.iroh.debug.transport-mode -string "$RAW_MOD
 # Pin the Worker scope in both UserDefaults stores as well as the build
 # metadata. This prevents a retained dev app from reusing a prior environment
 # override when a production or staging gate is launched with a new tag.
-defaults write "$MAC_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_ENVIRONMENT -string "${V2_ENVIRONMENT:-staging}"
-defaults write "$MAC_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_BASE_URL -string "${V2_BASE_URL:-https://cmux-v2-staging.debussy.workers.dev}"
+[[ -n "$V2_ENVIRONMENT" && -n "$V2_BASE_URL" ]] || {
+  echo "error: v2 environment and base URL must be resolved before app launch" >&2
+  exit 2
+}
+defaults write "$MAC_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_ENVIRONMENT -string "$V2_ENVIRONMENT"
+defaults write "$MAC_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_BASE_URL -string "$V2_BASE_URL"
 # The current Iroh implementation owns a separate endpoint configuration.
 # Constrain both generations so a same-host direct route cannot satisfy a
 # check advertised as exercising the relay fleet.
@@ -824,9 +828,9 @@ fi
 xcrun simctl spawn "$SIMULATOR_ID" defaults write \
   "$IOS_BUNDLE_ID" cmux.iroh.debug.transport-mode -string "$RAW_MODE"
 xcrun simctl spawn "$SIMULATOR_ID" defaults write \
-  "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_ENVIRONMENT -string "${V2_ENVIRONMENT:-staging}"
+  "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_ENVIRONMENT -string "$V2_ENVIRONMENT"
 xcrun simctl spawn "$SIMULATOR_ID" defaults write \
-  "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_BASE_URL -string "${V2_BASE_URL:-https://cmux-v2-staging.debussy.workers.dev}"
+  "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_BASE_URL -string "$V2_BASE_URL"
 xcrun simctl spawn "$SIMULATOR_ID" defaults write \
   "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_FORCE_RELAY -string "$FORCE_RELAY"
 # Enable the app-side monotonic latency trace before the measured process
