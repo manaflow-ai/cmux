@@ -149,7 +149,9 @@ jobs:
     needs: [gate, build]
     if: needs.gate.outputs.run == 'true' && github.run_attempt <= 2
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 30
+    # The gui token wait (15 min) and the bench step (15 min) both fit, so a
+    # busy console skips the bench instead of timing the job out.
+    timeout-minutes: 45
     steps:
       # The bench draws in the console session, which every GUI job on the mini
       # shares: hold glaeda's gui token for the rest of the job, as test-e2e.yml
@@ -221,7 +223,7 @@ jobs:
       - name: Remove the virtual display and the app
         if: always() && steps.gui.outputs.taken == 'true'
         continue-on-error: true
-        run: scripts/ci/run-in-console-session.sh /usr/bin/pkill -f "$RUNNER_TEMP/frame-pacing/" || true
+        run: scripts/ci/run-in-console-session.sh /usr/bin/pkill -f "$RUNNER_TEMP/frame-pacing" || true
 
       - name: Summary
         if: always() && steps.gui.outputs.taken == 'true'
