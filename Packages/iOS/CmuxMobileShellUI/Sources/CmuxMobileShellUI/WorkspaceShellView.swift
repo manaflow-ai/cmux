@@ -565,7 +565,10 @@ struct WorkspaceShellView: View {
                     }
                 } cloud: {
                     // Supplied by the composition root; the shell owns no Cloud code.
-                    cloudTabContent?.makeView()
+                    // The host above already owns the compact navigation stack.
+                    // Mount Cloud's embedded variant here so its section does
+                    // not create a second stack inside the shared toolbar host.
+                    cloudTabContent?.makeEmbeddedView()
                 } search: {
                     primarySearchTabContent(presentation: presentation)
                 }
@@ -1509,7 +1512,8 @@ struct WorkspaceShellView: View {
             hasStore: true,
             connectionRequiresReauth: store.connectionRequiresReauth,
             connectionRecoveryFailed: store.connectionRecoveryFailed,
-            isRecoveringConnection: store.isRecoveringConnection,
+            isRecoveringConnection: store.isRecoveringConnection
+                && store.workspaceListShowsForegroundRecovery,
             isRecoveringWorkspaceList: store.isRecoveringWorkspaceList,
             connectionStatus: listConnectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
@@ -1562,7 +1566,10 @@ struct WorkspaceShellView: View {
             names[mac.id] = mac.resolvedName
         }
         if let buildScope = MobileIOSBuildScope.current() {
-            names = names.mapValues(buildScope.computerDisplayName)
+            names = buildScope.computerDisplayNames(
+                names,
+                isExternalHost: store.externalHostOwnsHost
+            )
         }
         // After the build-scope mapping: the dev tag suffix names a cmux Mac
         // build, and an SSH host is not one.
