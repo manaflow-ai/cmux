@@ -2,7 +2,7 @@ import Foundation
 
 extension Array where Element == CuratedSettingEntry {
     /// Search entries for the native Ghostty option rows in Settings > Terminal
-    /// (`TerminalGhosttyOptionsCard`). Each row anchors itself with the matching
+    /// (`TerminalFontCard` and `TerminalGhosttyOptionsCard`). Each row anchors itself with the matching
     /// `setting:terminal:<id>` id, and the synonyms carry its Ghostty key.
     static var terminalGhosttyOptionEntries: [CuratedSettingEntry] {
         [
@@ -10,13 +10,25 @@ extension Array where Element == CuratedSettingEntry {
                 section: .terminal,
                 id: "font-family",
                 title: String(localized: "settings.terminal.ghostty.fontFamily", defaultValue: "Font"),
-                synonyms: "font-family font family typeface monospaced monospace terminal font ghostty nerd font"
+                synonyms: "font-family font family typeface monospaced monospace terminal font change font switch font preview ghostty nerd font"
             ),
             .init(
                 section: .terminal,
                 id: "font-size",
                 title: String(localized: "settings.terminal.ghostty.fontSize", defaultValue: "Font Size"),
                 synonyms: "font-size terminal font size text size points pt bigger smaller zoom ghostty"
+            ),
+            .init(
+                section: .terminal,
+                id: "adjust-cell-height",
+                title: String(localized: "settings.terminal.ghostty.lineHeight", defaultValue: "Line Height"),
+                synonyms: "adjust-cell-height line height line spacing leading cell height taller rows ghostty"
+            ),
+            .init(
+                section: .terminal,
+                id: "font-thicken",
+                title: String(localized: "settings.terminal.ghostty.fontThicken", defaultValue: "Thicker Strokes"),
+                synonyms: "font-thicken thicken bold heavier weight stroke crisp font smoothing ghostty"
             ),
             .init(
                 section: .terminal,

@@ -349,4 +349,80 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
 
         closeSettings(app, window)
     }
+
+    // MARK: - Font card
+
+    /// The Terminal section opens with the Font card. Walks the card the way a
+    /// person would, capturing a frame at each step for the PR: hover fonts in
+    /// the gallery (the preview follows), pick Menlo, raise the line height,
+    /// then put both back so the runner's Ghostty config ends at the defaults.
+    func testFontCardShowsPreviewAndFontGallery() {
+        let app = makeLaunchedApp()
+        let window = openTerminalSettings(app)
+
+        let preview = window.descendants(matching: .any)["SettingsTerminalFontPreview"]
+        XCTAssertTrue(poll(timeout: 6.0) { preview.exists }, "The Font card should show the font preview")
+        attachScreenshot(name: "01 Font card")
+
+        let fontButton = window.buttons["SettingsTerminalGhosttyFontFamilyPicker"]
+        XCTAssertTrue(poll(timeout: 6.0) { fontButton.exists && fontButton.isEnabled }, "The font button should be enabled once options load")
+        fontButton.click()
+
+        let search = app.textFields["SettingsTerminalFontSearchField"]
+        XCTAssertTrue(poll(timeout: 4.0) { search.exists }, "The font button should open the searchable font list")
+        attachScreenshot(name: "02 Font gallery")
+
+        for family in ["Courier New", "Menlo"] {
+            let row = fontRow(app, family)
+            guard poll(timeout: 2.0, { row.exists }) else { continue }
+            row.hover()
+            attachScreenshot(name: "03 Hover \(family)")
+        }
+
+        search.click()
+        search.typeText("men")
+        attachScreenshot(name: "04 Search men")
+
+        let menlo = fontRow(app, "Menlo")
+        XCTAssertTrue(poll(timeout: 4.0) { menlo.exists }, "Searching should find Menlo")
+        menlo.click()
+        XCTAssertTrue(poll(timeout: 4.0) { !search.exists }, "Picking a font should close the list")
+        XCTAssertTrue(poll(timeout: 4.0) { fontButton.label.contains("Menlo") }, "The font button should name the picked font")
+
+        let lineHeight = window.steppers["SettingsTerminalGhosttyLineHeightStepper"]
+        XCTAssertTrue(poll(timeout: 4.0) { lineHeight.exists }, "The Line Height stepper should exist")
+        for _ in 0..<5 { lineHeight.incrementArrows.firstMatch.click() }
+        XCTAssertTrue(poll(timeout: 4.0) { stepperText(lineHeight).contains("+10%") }, "Five steps should read +10%")
+        attachScreenshot(name: "05 Menlo with +10% line height")
+
+        for _ in 0..<5 { lineHeight.decrementArrows.firstMatch.click() }
+        XCTAssertTrue(poll(timeout: 4.0) { !stepperText(lineHeight).contains("+") }, "Stepping back should read 0%")
+        fontButton.click()
+        let defaultRow = fontRow(app, "default")
+        XCTAssertTrue(poll(timeout: 4.0) { defaultRow.exists }, "The font list should offer the built-in font")
+        defaultRow.click()
+        XCTAssertTrue(poll(timeout: 4.0) { fontButton.label.hasPrefix("Default") }, "Picking Default should restore the built-in font")
+        attachScreenshot(name: "06 Back to defaults")
+        closeSettings(app, window)
+    }
+
+    /// A row in the font list. The font button behind the popover is also
+    /// labeled with the current font, so match the list's row identifier.
+    private func fontRow(_ app: XCUIApplication, _ family: String) -> XCUIElement {
+        app.buttons["SettingsTerminalFontRow-\(family)"]
+    }
+
+    /// A SwiftUI stepper's label text, which XCUITest exposes on the stepper
+    /// itself (as its label or value) rather than as a child static text.
+    private func stepperText(_ stepper: XCUIElement) -> String {
+        [stepper.label, stepper.value as? String ?? ""].joined(separator: " ")
+    }
+
+    /// The whole screen, so the font list popover (its own window) is in frame.
+    private func attachScreenshot(name: String) {
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshot.name = name
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
 }

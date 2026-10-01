@@ -15,6 +15,8 @@ public struct TerminalSection: View {
 
     @State private var surfaceTabBarFont: SettingsFontSize
     @State private var fontSaveFailed = false
+    /// Ghostty option values shared by the Font card and the options card.
+    @State private var ghosttyOptions: TerminalGhosttyOptionsModel
     @State private var tasks = MainActorTaskStore<String>()
     @State private var scrollSpeed: DefaultsValueModel<Double>
     @State private var activeScrollSpeedDragValue: Double?
@@ -52,6 +54,7 @@ public struct TerminalSection: View {
         self.catalog = catalog
         self.hostActions = hostActions
         _surfaceTabBarFont = State(initialValue: hostActions.surfaceTabBarFontSize())
+        _ghosttyOptions = State(initialValue: TerminalGhosttyOptionsModel(hostActions: hostActions))
         _scrollSpeed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.scrollSpeed))
         _sessionContentMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.sessionContentMaxWidth))
         _rememberedSessionContentMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.rememberedSessionContentMaxWidth))
@@ -90,12 +93,14 @@ public struct TerminalSection: View {
     public var body: some View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"), section: .terminal)
+            TerminalFontCard(hostActions: hostActions, model: ghosttyOptions)
             mainCard
-            TerminalGhosttyOptionsCard(hostActions: hostActions)
+            TerminalGhosttyOptionsCard(model: ghosttyOptions)
             LocalTmuxSettingsCard(hostActions: hostActions)
             resumeCommandsCard
         }
         .task { startObservingSettings() }
+        .task { await ghosttyOptions.load() }
     }
 
     private func startObservingSettings() {

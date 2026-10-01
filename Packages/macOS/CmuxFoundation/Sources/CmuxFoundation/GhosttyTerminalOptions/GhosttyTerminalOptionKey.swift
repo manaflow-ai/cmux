@@ -5,6 +5,8 @@
 public enum GhosttyTerminalOptionKey: String, CaseIterable, Sendable {
     case fontFamily = "font-family"
     case fontSize = "font-size"
+    case adjustCellHeight = "adjust-cell-height"
+    case fontThicken = "font-thicken"
     case cursorStyle = "cursor-style"
     case cursorStyleBlink = "cursor-style-blink"
     case windowPaddingX = "window-padding-x"

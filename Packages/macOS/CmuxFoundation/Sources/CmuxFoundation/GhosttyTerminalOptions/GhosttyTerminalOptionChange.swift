@@ -8,6 +8,8 @@ public enum GhosttyTerminalOptionChange: Equatable, Sendable {
     /// font. Build it with ``GhosttyTerminalOptions/fontFamiliesChoosing(_:)``.
     case fontFamilies([String])
     case fontSize(Double)
+    case cellHeight(GhosttyCellHeightAdjustment)
+    case fontThicken(Bool)
     case cursorStyle(GhosttyCursorStyle)
     case cursorBlinks(Bool)
     case windowPaddingX(GhosttyWindowPadding)
@@ -22,6 +24,8 @@ public enum GhosttyTerminalOptionChange: Equatable, Sendable {
         switch self {
         case .fontFamilies: return .fontFamily
         case .fontSize: return .fontSize
+        case .cellHeight: return .adjustCellHeight
+        case .fontThicken: return .fontThicken
         case .cursorStyle: return .cursorStyle
         case .cursorBlinks: return .cursorStyleBlink
         case .windowPaddingX: return .windowPaddingX
@@ -45,6 +49,10 @@ public enum GhosttyTerminalOptionChange: Equatable, Sendable {
             return ["\"\""] + families.map { "\"\($0)\"" }
         case .fontSize(let points):
             return [numberFormatter.formattedFontSize(points)]
+        case .cellHeight(let adjustment):
+            return [adjustment.configValue]
+        case .fontThicken(let thicken):
+            return [thicken ? "true" : "false"]
         case .cursorStyle(let style):
             return [style.rawValue]
         case .cursorBlinks(let blinks):
