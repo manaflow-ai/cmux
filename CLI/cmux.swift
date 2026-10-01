@@ -41358,6 +41358,22 @@ export default {
         }
         let payload = try JSONSerialization.data(withJSONObject: request)
         let line = String(data: payload, encoding: .utf8) ?? "{}"
+        // Ordered Codex progress hooks still need to retire a matching native
+        // approval prompt before their feed frame is accepted. The old
+        // fast-lane branch below is intentionally skipped for this lane, so
+        // perform the bounded semantic clear on the acknowledged connection.
+        if isOrderedCodexProgress, classification.clearsNativeApprovalPrompt {
+            deliverNativeApprovalPromptAttention(
+                classification: classification,
+                source: source,
+                toolName: toolName,
+                eventDict: eventDict,
+                env: env,
+                client: activeClient,
+                socketPath: nil,
+                socketPassword: socketPassword
+            )
+        }
         let response: String
         do {
             response = try activeClient.send(
