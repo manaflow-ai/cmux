@@ -135,6 +135,9 @@ let package = Package(
         .target(
             name: "CmuxNextAccounts",
             dependencies: ["CmuxNextCodeRouter", "CmuxNextDesign"],
+            resources: [
+                .process("Localizable.xcstrings"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
