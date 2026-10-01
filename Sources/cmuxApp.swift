@@ -50,6 +50,9 @@ struct cmuxApp: App {
     }
 
     init() {
+        // Create the What's New center before any workspace can mark the
+        // welcome as shown: it records at creation whether this is a first run.
+        _ = WhatsNewCenter.shared
         // Gather settings package dependencies once. The runtime itself
         // is assigned after the saved language override below, because
         // it owns localized search-index text for the process lifetime.
@@ -183,7 +186,7 @@ struct cmuxApp: App {
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.loaded")
 
         // Reconcile saved language preference before any UI loads
-        LanguageSettingsStore(defaults: .standard).reconcileLanguageOverrideAtLaunch()
+        LanguageSettingsStore(defaults: .standard, domainName: ProcessDefaultsDomain.name).reconcileLanguageOverrideAtLaunch()
         StartupBreadcrumbLog.append("app.init.language.applied")
         let devices = MacDevicesComposition(defaults: .standard, catalog: settingsCatalog)
         let devicesRegistry = devices.registry
@@ -214,6 +217,7 @@ struct cmuxApp: App {
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])
         let defaults = UserDefaults.standard
+        CmuxExtensionSidebarSelection.clearStaleTemplatePreviewSelection(defaults: defaults)
         TerminalController.shared.prepareControlHandleRegistryForLaunch(defaults: defaults)
         let workspaceCustomizationStore = WorkspaceCustomizationStore(
             defaults: defaults
@@ -1709,6 +1713,7 @@ private struct MainWindowBootstrapView: View {
 }
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.settings",
+    "cmux.whatsNew",
     "cmux.about",
     "cmux.licenses",
     "cmux.browser-popup",

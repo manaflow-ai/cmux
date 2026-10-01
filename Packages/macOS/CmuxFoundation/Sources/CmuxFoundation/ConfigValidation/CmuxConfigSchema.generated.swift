@@ -714,6 +714,13 @@ enum CmuxEmbeddedConfigSchema {
           "descriptionKey": "schemaDescriptions.app.confirmQuit",
           "description": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback."
         },
+        "whatsNew": {
+          "type": "string",
+          "enum": ["off", "quiet", "sheet"],
+          "default": "quiet",
+          "descriptionKey": "schemaDescriptions.app.whatsNew",
+          "description": "How cmux shows what's new after an update. off shows nothing, quiet marks the sidebar help button with a dot until you open the recap, and sheet opens the recap once after the first launch of a new version. Help > What's New in cmux opens it any time."
+        },
         "warnBeforeQuit": {
           "type": "boolean",
           "default": true,
@@ -1163,12 +1170,30 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Flash the focused pane when requested."
         },
+        "paneFlashDoubleBlink": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": true,
+          "description": "Blink the pane flash twice instead of one short pulse."
+        },
+        "paneFlashOnTyping": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": true,
+          "description": "Flash the pane when terminal typing dismisses its notification."
+        },
+        "paneFlashThemeColor": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": false,
+          "description": "Use the terminal theme foreground for flashes when paneFlashColor is unset. Unread rings remain cmux blue."
+        },
         "paneFlashColor": {
           "x-cmux-scopes": ["global"],
           "$ref": "#/$defs/colorHexOrNull",
           "default": null,
           "descriptionKey": "schemaDescriptions.notifications.paneFlashColor",
-          "description": "Override the pane flash and unread ring color. Null keeps the built-in blue."
+          "description": "Override the pane flash and unread ring color. Null flashes in the terminal theme's foreground and keeps unread rings in the cmux accent."
         },
         "soundWhenFocused": {
           "x-cmux-scopes": ["global"],
@@ -1469,6 +1494,12 @@ enum CmuxEmbeddedConfigSchema {
           "type": "boolean",
           "default": true,
           "description": "Show progress indicators."
+        },
+        "showAgentUsage": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.sidebar.showAgentUsage",
+          "description": "Append coding-agent usage to the Claude Code or Codex status entry: model and context window used, plus for Claude Code an estimated API cost (main thread and subagents) at published Anthropic list prices. The cost is an estimate, not your subscription bill; batch/priority tiers, partner pricing, fast mode and server-tool fees are not modelled."
         },
         "showAgentActivity": {
           "type": "boolean",
@@ -1817,14 +1848,32 @@ enum CmuxEmbeddedConfigSchema {
         "discardHiddenWebViews": {
           "type": "boolean",
           "default": true,
-          "description": "Allow hidden browser tabs to release page memory and restore when shown again."
+          "description": "Allow hidden browser tabs to release page memory. Scroll position, supported form input, and history are restored when recoverable."
+        },
+        "hiddenWebViewDiscardMode": {
+          "type": "string",
+          "enum": ["budget", "timer"],
+          "default": "budget",
+          "description": "How cmux picks hidden browser tabs to free. budget frees the tabs hidden longest once hidden tabs use more than hiddenWebViewMemoryBudgetMB; timer frees every tab hidden longer than hiddenWebViewDiscardDelaySeconds."
+        },
+        "hiddenWebViewMemoryBudgetMB": {
+          "type": "integer",
+          "minimum": 256,
+          "maximum": 65536,
+          "default": 2048,
+          "description": "Megabytes of memory hidden browser tabs may use before cmux frees the tabs hidden longest. Applies when hiddenWebViewDiscardMode is budget."
         },
         "hiddenWebViewDiscardDelaySeconds": {
           "type": "number",
           "minimum": 0,
           "maximum": 3600,
           "default": 300,
-          "description": "Seconds a browser tab must stay hidden before cmux frees its page memory."
+          "description": "Seconds a browser tab must stay hidden before cmux may free its page memory. In timer mode, every tab hidden this long is freed."
+        },
+        "autoRestoreUnloadedPages": {
+          "type": "boolean",
+          "default": true,
+          "description": "Restore a browser page unloaded to save memory, or whose web process ended while hidden, as soon as its tab is shown. When false, the tab shows the page's last snapshot until you click Restore."
         },
         "askWhereToSaveDownloads": {
           "type": "boolean",
@@ -2107,6 +2156,7 @@ enum CmuxEmbeddedConfigSchema {
               "reopenPreviousSession",
               "goToWorkspace",
               "commandPalette",
+              "agentInbox",
               "commandPaletteNext",
               "commandPalettePrevious",
               "sendFeedback",

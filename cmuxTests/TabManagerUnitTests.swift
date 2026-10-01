@@ -20,7 +20,6 @@ import CmuxSettings
 #endif
 
 let lastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
-
 func drainMainQueue(timeout: TimeInterval = 1.0) {
     let expectation = XCTestExpectation(description: "drain main queue")
     DispatchQueue.main.async {
@@ -29,6 +28,7 @@ func drainMainQueue(timeout: TimeInterval = 1.0) {
     XCTWaiter().wait(for: [expectation], timeout: timeout)
 }
 
+func drainMainQueue() { drainMainQueue(timeout: 1.0) }
 @discardableResult
 private func waitForCondition(
     timeout: TimeInterval = 3.0,
@@ -2103,20 +2103,30 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
 @MainActor
 final class TabManagerCloseCurrentPanelTests: XCTestCase {
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
-    private var savedLastSurfaceCloseSetting: Any?
+    private var originalLastSurfaceCloseSetting: Any?
 
-    // Several tests here expect Close to take a workspace with its last
-    // surface, which is the preference's default. Start each test from that
-    // default so a value left in the shared defaults cannot keep it open.
+    /// Start every test from the shipped last-surface behavior (closing the
+    /// last surface closes the workspace). The app host shares
+    /// `UserDefaults.standard` across suites, so a value left by an earlier
+    /// suite must not decide these assertions.
     override func setUp() {
         super.setUp()
-        savedLastSurfaceCloseSetting = UserDefaults.standard.object(forKey: lastSurfaceCloseShortcutDefaultsKey)
-        UserDefaults.standard.removeObject(forKey: lastSurfaceCloseShortcutDefaultsKey)
+        let defaults = UserDefaults.standard
+        originalLastSurfaceCloseSetting = defaults.object(forKey: lastSurfaceCloseShortcutDefaultsKey)
+        defaults.set(
+            AppCatalogSection().keepWorkspaceOpenWhenClosingLastSurface.defaultValue,
+            forKey: lastSurfaceCloseShortcutDefaultsKey
+        )
     }
 
     override func tearDown() {
-        restore(savedLastSurfaceCloseSetting, forKey: lastSurfaceCloseShortcutDefaultsKey, defaults: .standard)
-        savedLastSurfaceCloseSetting = nil
+        let defaults = UserDefaults.standard
+        if let originalLastSurfaceCloseSetting {
+            defaults.set(originalLastSurfaceCloseSetting, forKey: lastSurfaceCloseShortcutDefaultsKey)
+        } else {
+            defaults.removeObject(forKey: lastSurfaceCloseShortcutDefaultsKey)
+        }
+        originalLastSurfaceCloseSetting = nil
         super.tearDown()
     }
 

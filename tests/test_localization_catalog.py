@@ -223,6 +223,23 @@ class LocalizationCatalogTests(unittest.TestCase):
             self.assertEqual(localizations["ja"]["stringUnit"]["value"], "開く")
             self.assertEqual(localizations["de"]["stringUnit"]["value"], "Öffnen")
 
+    def test_load_metadata_rejects_duplicate_keys(self):
+        document = (
+            '{"one": {"source": "A"}, "two": {"source": "B"}, "one": {"source": "C"}}'
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            scripts = Path(directory) / "scripts"
+            scripts.mkdir()
+            (scripts / "metadata.json").write_text(document, encoding="utf-8")
+            with patch.object(MODULE, "ROOT", Path(directory)):
+                with self.assertRaisesRegex(ValueError, "scripts/metadata.json.*duplicate.*one"):
+                    MODULE.load_metadata("metadata.json")
+
+    def test_checked_in_metadata_has_no_duplicate_keys(self):
+        for name in ("localization-allowed-omissions.json", "localization-plurals.json"):
+            with self.subTest(name=name):
+                self.assertIsInstance(MODULE.load_metadata(name), dict)
+
 
 if __name__ == "__main__":
     unittest.main()
