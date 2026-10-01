@@ -202,8 +202,8 @@ struct ComputerUseWatchTargetRuntimeTests {
 
         #expect(scannedLogicalSessionID == backgroundLogicalSessionID)
         #expect(activatedProcessIdentifiers.isEmpty)
-        // Agent activity never focuses the calling terminal (#15311); the
-        // only focus is the explicit continue-in-background request above.
+        // Only the explicit Continue in Background action focuses the terminal.
+        // A later driver report must leave the user's workspace selection alone.
         #expect(focusedTerminalSessions.count == 1)
 
         let identity = ComputerUseTargetIdentity(

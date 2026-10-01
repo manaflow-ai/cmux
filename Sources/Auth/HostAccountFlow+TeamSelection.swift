@@ -26,6 +26,7 @@ extension HostAccountFlow {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.teamObservationRevision &+= 1
+                self.syncReceivedInvitationsPolling()
                 self.observeCoordinator()
             }
         }

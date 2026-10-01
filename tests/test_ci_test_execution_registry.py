@@ -448,6 +448,7 @@ class RegistryBlastRadiusTests(unittest.TestCase):
             step,
         )
         self.assertIn('CMUX_TEST_REGISTRY_BASE_SHA="$(git rev-parse FETCH_HEAD)"', step)
+        self.assertIn('validate_test_execution_registry.py "${args[@]+"${args[@]}"}"', step)
         self.assertIn('args=(--base-sha "$CMUX_TEST_REGISTRY_BASE_SHA")', step)
 
     def test_newly_added_tests_show_why_the_workflow_needs_the_current_base_tip(self) -> None:
@@ -507,8 +508,8 @@ class RegistryBlastRadiusTests(unittest.TestCase):
             GUARD_WORKFLOW_PATH,
         )
         script = script.replace(
-            'python3 scripts/ci/validate_test_execution_registry.py "${args[@]}"',
-            'printf "%s\\n" "${args[@]}"',
+            'python3 scripts/ci/validate_test_execution_registry.py "${args[@]+"${args[@]}"}"',
+            'printf "%s\\n" "${args[@]+"${args[@]}"}"',
         )
         for base_ref, expected in (("main", ["--base-sha", main_tip]), ("", [""])):
             with self.subTest(base_ref=base_ref):

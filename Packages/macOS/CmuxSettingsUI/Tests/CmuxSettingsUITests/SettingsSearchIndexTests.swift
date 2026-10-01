@@ -159,6 +159,25 @@ struct SettingsSearchIndexTests {
         })
     }
 
+    /// Every Browser Memory Saver row is searchable. A main merge once took
+    /// main's curated entries and dropped the mode, budget and auto-restore
+    /// rows, so search pointed only at the old toggle and delay.
+    @Test(arguments: [
+        ("Browser Memory Saver", "setting:browser:hidden-webview-discard"),
+        ("Memory Saver Mode", "setting:browser:hidden-webview-discard-mode"),
+        ("Hidden Tab Memory Budget", "setting:browser:hidden-webview-memory-budget"),
+        ("Memory Saver Delay", "setting:browser:hidden-webview-discard-delay"),
+        ("Restore Unloaded Pages", "setting:browser:unloaded-page-auto-restore"),
+    ])
+    func browserMemorySaverRowsAreSearchable(query: String, expectedID: String) {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let result = index.match(query)
+        #expect(
+            result.contains { $0.id == expectedID },
+            "Expected settings search for '\(query)' to include \(expectedID), got \(result.map(\.id))"
+        )
+    }
+
     @Test(arguments: [
         ("naming", "setting:automation:workspace-auto-naming"),
         ("nmaing", "setting:automation:workspace-auto-naming"),
@@ -167,6 +186,9 @@ struct SettingsSearchIndexTests {
         ("naming agent", "setting:automation:workspace-auto-naming"),
         ("automation.autoNamingAgent", "setting:automation:workspace-auto-naming"),
         ("autoNamingAgent", "setting:automation:workspace-auto-naming"),
+        ("auto resume errors", "setting:automation:agent-error-auto-resume"),
+        ("overloaded", "setting:automation:agent-error-auto-resume"),
+        ("automation.agentAutoResume", "setting:automation:agent-error-auto-resume"),
         ("option as alt", "setting:app:terminal-config"),
         ("option", "setting:app:terminal-config"),
         ("environment variables", "setting:app:notification-command"),
