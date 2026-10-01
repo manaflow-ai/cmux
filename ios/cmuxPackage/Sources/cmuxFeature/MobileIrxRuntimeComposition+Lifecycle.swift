@@ -94,20 +94,31 @@ extension MobileIrxRuntimeComposition {
             if credentials.contains(where: { $0.isUsable(at: Date()) }) {
                 endpointWarmupEpoch = expectedEpoch
                 endpointWarmupTask = Task { [weak self] in
-                    guard let self,
-                          await self.epoch == expectedEpoch,
-                          await auth.cachedTeamIdentity == cachedIdentity else { return }
-                    do {
-                        try await Self.readyEndpointWithTimeout(
-                            supervisor: supervisor,
-                            credentials: credentials
-                        )
-                        guard await self.epoch == expectedEpoch,
+                    var delay: TimeInterval = 1
+                    while !Task.isCancelled {
+                        guard let self,
+                              await self.epoch == expectedEpoch,
                               await auth.cachedTeamIdentity == cachedIdentity else { return }
-                        await self.recordEndpointReady(cached: true)
-                    } catch {
-                        guard await self.epoch == expectedEpoch else { return }
-                        await self.endpointWarmupFailed(epoch: expectedEpoch)
+                        do {
+                            try await Self.readyEndpointWithTimeout(
+                                supervisor: supervisor,
+                                credentials: credentials
+                            )
+                            guard await self.epoch == expectedEpoch,
+                                  await auth.cachedTeamIdentity == cachedIdentity else { return }
+                            await self.endpointWarmupSucceeded(epoch: expectedEpoch)
+                            await self.recordEndpointReady(cached: true)
+                            return
+                        } catch is CancellationError {
+                            return
+                        } catch {
+                            guard await self.epoch == expectedEpoch else { return }
+                            await self.endpointWarmupFailed(epoch: expectedEpoch)
+                            try? await RPCTaskTimeout.continuousClockSleep(
+                                nanoseconds: UInt64(delay * 1_000_000_000)
+                            )
+                            delay = min(delay * 2, 30)
+                        }
                     }
                 }
             }
@@ -217,16 +228,29 @@ extension MobileIrxRuntimeComposition {
             if credentials.contains(where: { $0.isUsable(at: Date()) }) {
                 endpointWarmupEpoch = currentEpoch
                 endpointWarmupTask = Task { [weak self] in
-                    guard let self else { return }
-                    do {
-                        try await Self.readyEndpointWithTimeout(
-                            supervisor: supervisor,
-                            credentials: credentials
-                        )
-                        try await self.assertScope(scope, epoch: currentEpoch)
-                        await self.recordEndpointReady(cached: true)
-                    } catch {
-                        await self.endpointWarmupFailed(epoch: currentEpoch)
+                    var delay: TimeInterval = 1
+                    while !Task.isCancelled {
+                        guard let self,
+                              await self.epoch == currentEpoch else { return }
+                        do {
+                            try await Self.readyEndpointWithTimeout(
+                                supervisor: supervisor,
+                                credentials: credentials
+                            )
+                            try await self.assertScope(scope, epoch: currentEpoch)
+                            await self.endpointWarmupSucceeded(epoch: currentEpoch)
+                            await self.recordEndpointReady(cached: true)
+                            return
+                        } catch is CancellationError {
+                            return
+                        } catch {
+                            guard await self.epoch == currentEpoch else { return }
+                            await self.endpointWarmupFailed(epoch: currentEpoch)
+                            try? await RPCTaskTimeout.continuousClockSleep(
+                                nanoseconds: UInt64(delay * 1_000_000_000)
+                            )
+                            delay = min(delay * 2, 30)
+                        }
                     }
                 }
             }
@@ -376,11 +400,16 @@ extension MobileIrxRuntimeComposition {
 
     func endpointWarmupFailed(epoch expectedEpoch: UInt64) {
         guard endpointWarmupEpoch == expectedEpoch else { return }
+        lastFailure = "The connection service could not start. It will retry."
+        journal.record("v2-lifecycle", "endpoint-warmup-retry")
+        publish()
+    }
+
+    func endpointWarmupSucceeded(epoch expectedEpoch: UInt64) {
+        guard endpointWarmupEpoch == expectedEpoch else { return }
         endpointWarmupTask = nil
         endpointWarmupEpoch = nil
-        lastFailure = "The connection service could not start. It will retry."
-        journal.record("v2-lifecycle", "cached-warm-timeout")
-        publish()
+        lastFailure = nil
     }
 
     func recordEndpointReady(cached: Bool) {
