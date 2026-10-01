@@ -1,6 +1,7 @@
 /// v1/v2 read methods that a server may rate-limit per connection. A
 /// `rate_limited` reply to one of these is safe for the client to retry
 /// after the server's delay; for any other method it is final.
+/// lint:allow namespace-type — stateless, dependency-free wire-protocol data table (a constant method-name set) read by the CLI's retry policy; there is no state or dependency to inject.
 public enum SocketPollingMethods {
     public static let names: Set<String> = [
         "system.top",

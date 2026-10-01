@@ -6,6 +6,7 @@
 /// command it is taken only by commands that target app objects, because
 /// other commands (`vm`, agent hooks, `vault`) own a `--session` or
 /// `--machine` option with another meaning.
+/// lint:allow namespace-type — stateless, dependency-free argv and object-ref parsing rules (constant flag/command tables plus pure functions of their arguments) shared by the CLI's parser and its socket client; there is no state or dependency to inject.
 public enum CmuxCLISessionScope {
     /// The flag names.
     public static let optionNames: Set<String> = ["--session", "--machine"]

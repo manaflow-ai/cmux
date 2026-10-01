@@ -119,7 +119,7 @@ final class RemoteLocalhostService {
     /// The machine chip of a browser tab showing `url`: shown only for a
     /// loopback page of a tab whose machine is not this Mac.
     func badge(for tab: TabModel, url: URL?, engine: BrowserEngineKind) -> (text: String, help: String)? {
-        guard let url, LoopbackHost.isLoopback(url: url) else { return nil }
+        guard let url, LoopbackHost(url: url)?.isLoopback == true else { return nil }
         switch route(for: tab, engine: engine) {
         case .thisMac:
             return nil
