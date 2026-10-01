@@ -66,7 +66,7 @@ fn not_found(id: &str) -> anyhow::Error {
     anyhow::Error::new(crate::resource::ResourceError::new(
         "resource.not_found",
         format!("no agent message {id:?}"),
-        json!({"scope": "agent_message", "id": id}),
+        json!({"scope": "agent", "id": id}),
         false,
     ))
 }

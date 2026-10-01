@@ -333,7 +333,9 @@ fn send_and_deliver(
         .collect();
     let mut sent = Sent { message, ..Sent::default() };
     for recipient in recipients {
-        let queued = connection.read(
+        // The message is stored by now: a failure here is reported with it,
+        // so the caller sees its id instead of sending it again.
+        let queued = match connection.read(
             ResourceOperation::AgentMessageList,
             json!({
                 "recipient": recipient,
@@ -341,7 +343,17 @@ fn send_and_deliver(
                 "oldest_first": true,
                 "limit": DELIVERY_BATCH,
             }),
-        )?;
+        ) {
+            Ok(queued) => queued,
+            Err(failure) => {
+                sent.problems.push(format!(
+                    "could not read the messages queued for {recipient}: {}",
+                    failure_text(&failure)
+                ));
+                sent.failed = true;
+                continue;
+            }
+        };
         let session = recipient.trim_start_matches("acp:").to_owned();
         deliver_queued(
             queued.as_array().cloned().unwrap_or_default(),

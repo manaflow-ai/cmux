@@ -457,11 +457,12 @@ the reply goes to its sender and stays in its thread.
 
 For an acpmux recipient the command then prompts the session with the message,
 using the message id as the acpmux prompt id, and marks the receipt
-`delivered` (or `failed`, with the error). It first resends that recipient's
-older queued or failed messages, oldest first; the prompt id keeps any of them
-from running twice. It never starts the acpmux daemon. A terminal agent's
-message stays `queued` until the agent's hooks take it. The command exits 1
-when a delivery failed; the message is stored either way.
+`delivered` (or `failed`, with the error). It first sends that recipient's
+older queued messages, oldest first; the prompt id keeps any of them from
+running twice. A `failed` message is not retried. It never starts the acpmux
+daemon. A terminal agent's message stays `queued` until the agent's hooks take
+it. The command exits 1 when this message's own delivery failed; the message is
+stored either way, and problems with older messages are reported on stderr.
 
 `agent inbox` lists messages newest first for `<agent>`, or for the caller's
 own address when it has one, else every message. `--ack` marks the listed

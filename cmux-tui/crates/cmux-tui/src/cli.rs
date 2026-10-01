@@ -4,8 +4,8 @@
 //! is deliberately isolated in `cli/wire.rs`, so public commands cannot
 //! accidentally fall back to the private command protocol.
 
-#[cfg(unix)]
 mod agent_message;
+#[cfg(unix)]
 mod app;
 mod command;
 mod lifecycle;
