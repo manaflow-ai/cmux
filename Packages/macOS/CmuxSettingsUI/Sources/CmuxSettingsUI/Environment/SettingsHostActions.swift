@@ -10,6 +10,7 @@ public extension Notification.Name {
 
 /// Holds a gallery request until the progressively mounted Custom Sidebars
 /// section is ready to present it.
+// lint:allow namespace-type - one-shot main-actor handoff from a host menu to the lazily mounted Custom Sidebars section.
 @MainActor
 public enum CustomSidebarTemplateGalleryRequest {
     private static var pending = false
