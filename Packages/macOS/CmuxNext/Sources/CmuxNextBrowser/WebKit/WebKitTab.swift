@@ -36,7 +36,7 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored var downloads: [ObjectIdentifier: BrowserDownload] = [:]
     @ObservationIgnored private var faviconTask: Task<Void, Never>?
     @ObservationIgnored private var findState = FindState()
-    @ObservationIgnored private var isClosed = false
+    @ObservationIgnored private(set) var isClosed = false
 
     init(configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration, engine: WebKitEngine,
          openedByPage: Bool = false) {

@@ -216,12 +216,12 @@ extension CEFRuntime {
     static let devToolsTimeout: Duration = .seconds(5)
 
     /// Runs a DevTools method in process and returns its JSON result, or
-    /// throws `timedOut` when no result arrives within `devToolsTimeout`.
-    func devTools(_ browser: Int32, method: String, params: [String: Any] = [:]) async throws -> String {
+    /// throws `timedOut` when no result arrives within `timeout`.
+    func devTools(_ browser: Int32, method: String, params: [String: Any] = [:],
+                  timeout: Duration = CEFRuntime.devToolsTimeout) async throws -> String {
         guard let shim else { throw BrowserTabError.closed }
         let message = shim.devToolsCall(browser, method, CEFDevToolsResult.params(params))
         guard message != 0 else { throw BrowserTabError.closed }
-        let timeout = Self.devToolsTimeout
         return try await devToolsCalls.reply(for: CEFDevToolsKey(browser: browser, message: message), timeout: timeout) {
             BrowserTabError.timedOut("DevTools \(method) (\(timeout))")
         }

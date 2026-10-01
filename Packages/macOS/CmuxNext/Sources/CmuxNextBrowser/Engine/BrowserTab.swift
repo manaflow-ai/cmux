@@ -45,6 +45,14 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     /// Evaluates a script and returns its completion value.
     func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue
 
+    /// Runs `body` as an async function in the page world and returns what
+    /// it resolves to (automation waits).
+    func evaluateAsync(_ body: String) async throws -> BrowserJSValue
+
+    /// Pixels of the whole document, not only the viewport (automation
+    /// screenshots).
+    func fullPageSnapshot() async throws -> CGImage
+
     /// Highlights the next or previous match of `text`.
     func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult
     func clearFind()
@@ -67,5 +75,14 @@ extension BrowserTab {
 
     public func evaluate(_ script: String) async throws -> BrowserJSValue {
         try await evaluate(script, world: .page)
+    }
+
+    /// For engines whose `evaluate` awaits a returned promise.
+    public func evaluateAsync(_ body: String) async throws -> BrowserJSValue {
+        try await evaluate("(async () => {\n\(body)\n})()", world: .page)
+    }
+
+    public func fullPageSnapshot() async throws -> CGImage {
+        throw BrowserTabError.snapshotUnavailable
     }
 }

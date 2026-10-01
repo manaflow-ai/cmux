@@ -113,14 +113,34 @@ On `feat-cmux-next-cli-state` (state-ownership.md step D, CLI part):
   timing flakes (`session_shutdown_exits_an_interactive_detached_owner_client`,
   `closing_one_hundred_terminals…`).
 
+On `feat-cmux-next-browser-wait` (browser group 1):
+
+- `browser.page.wait` and `cmux browser <tab_…|page> wait [SELECTOR] [--text T]
+  [--url-contains U] [--load-state interactive|complete] [--function JS] [--timeout-ms N]`:
+  the old CLI's one-condition precedence and 5 s default (at most 120 s). The page
+  rechecks on DOM mutations and load/navigation events, and for `--function` and URLs on a
+  100 ms page timer (`BrowserTab.evaluateAsync`, an awaited async function). Page waits last
+  at most 4 s each (Chromium's DevTools calls end at 5 s) and restart for the rest of the
+  time, as does a navigation, spaced by `Backoff`. Timeout is `timeout` with `timeout_ms`
+  and the page's `last_error`.
+- `browser.page.screenshot` (`png_base64`, `width`, `height`) and `cmux browser … screenshot
+  [--out PATH|-] [--selector S|--full-page]`: viewport by default, an element cropped from
+  the viewport after scrolling it into view, or the whole document
+  (`BrowserTab.fullPageSnapshot`: Chromium `captureBeyondViewport`, WebKit stitched tiles
+  like the old app's fallback; at most 25M CSS px and 48 tiles). The app saves the PNG in
+  its temporary directory and returns `path`, as the old app did, with `png_base64` only
+  under 4 MiB (the control socket drops answers over 8 MiB); the CLI copies it for `--out`.
+
 ## Remaining
 
 1. App windows get typed ids (`win_<32 hex>`); today they are bare lowercase UUIDs.
 2. Nightly and release apps both use daemon session `cmux-app` when untagged
    (`DaemonLauncher.sessionName`); give each channel its own session.
 3. acpmux CLI output is English only; the rest of `cmux` is English and Japanese.
-4. Browser waits, screenshots, cookies and downloads have no new-CLI equivalent yet
-   (the compat layer had partial ones). Workspace status/log/progress are done.
+4. Browser cookies, storage, tab verbs, the remaining input verbs and downloads have no
+   new-CLI equivalent yet (the compat layer had partial ones). Waits and screenshots are
+   done (below). Workspace status/log/progress are done. A screenshot of an app tab no
+   window shows fails with `unavailable`; the old app rendered it offscreen.
 5. `Resources/Localizable.xcstrings` (987 `cli.*` keys plus legacy app keys) is probably
    unused by the cmux-next app; prove it and remove it from the Resources phase.
 6. The daemon forwards page commands for frontend browser tabs to their app, so a CLI on

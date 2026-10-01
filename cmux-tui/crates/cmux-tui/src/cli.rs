@@ -941,6 +941,18 @@ USAGE
   cmux browser <selector> key|text [OPTIONS]
   cmux browser <selector> mouse|wheel --pointer-frame-seq <decimal> [OPTIONS]
   cmux browser <selector> attach|close [OPTIONS]
+
+App browser tabs (the cmux app; `page` is the focused tab):
+  cmux browser <tab_id|page> navigate <url>|back|forward|reload|state
+  cmux browser <tab_id|page> eval <script>|snapshot [OPTIONS]
+  cmux browser <tab_id|page> click|focus|text|value <selector>
+  cmux browser <tab_id|page> fill|type <selector> <text>
+  cmux browser <tab_id|page> wait [<selector>] [--text <t>|--url-contains <t>|--load-state interactive|complete|--function <js>] [--timeout-ms <n>]
+  cmux browser <tab_id|page> screenshot [--out <path>|-] [--selector <s>|--full-page]
+
+wait exits 1 when the condition does not hold before the timeout (default
+5000 ms). screenshot saves a PNG in the temporary directory, or to --out,
+and prints the path; --out - writes only the PNG to stdout.
 ";
 
 const NOTIFICATION_HELP: &str = "\
