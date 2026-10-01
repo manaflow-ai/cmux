@@ -255,7 +255,7 @@ jobs:
       # (scripts/cmux-next/cef-manifest.json), the way the app's Embed CEF
       # phase builds it, so a shim or manifest change the engine does not
       # accept fails here and not in the nightly. ensure-cef.sh fills the
-      # mini's kept cache (~/Library/Caches/cmux/cef) from the private R2
+      # mini's kept host cache (scripts/cmux-next/cef-cache-root.sh) from the private R2
       # bucket with the read-only key, which only this step receives and only
       # in same-repository runs, as in ci-macos.yml's admission; later runs
       # read the cache. A runner's own ~/.secrets file is never a source.
@@ -283,7 +283,7 @@ jobs:
         if: steps.cef.outputs.dir != ''
         env:
           CEF_DIR: ${{ steps.cef.outputs.dir }}
-        run: scripts/cmux-next/build-cef-shim.sh "$CEF_DIR" "${CMUX_CEF_CACHE_DIR:-$HOME/Library/Caches/cmux/cef}/shim"
+        run: scripts/cmux-next/build-cef-shim.sh "$CEF_DIR" "$(scripts/cmux-next/cef-cache-root.sh)/shim"
 
   cmux-scheme-compile:
     if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' }}

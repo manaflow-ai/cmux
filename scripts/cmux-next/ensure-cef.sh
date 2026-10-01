@@ -22,7 +22,8 @@
 # Environment:
 #   CMUX_NEXT_SKIP_CEF=1   print nothing, exit 0 (builds without CEF)
 #   CMUX_CEF_PATH=<dir>    use a local dist (fork development); no checksum
-#   CMUX_CEF_CACHE_DIR     cache root (default ~/Library/Caches/cmux/cef)
+#   CMUX_CEF_CACHE_DIR     cache root (default: cef-cache-root.sh, the fleet host
+#                          cache on a fleet Mac, else ~/Library/Caches/cmux/cef)
 #   CMUX_CEF_R2_ACCOUNT_ID, CMUX_CEF_R2_ACCESS_KEY_ID,
 #   CMUX_CEF_R2_SECRET_ACCESS_KEY
 #                          read-only R2 credentials. When unset, they are read
@@ -87,7 +88,7 @@ asset="$(field "${prefix}asset")"; url="$(field "${prefix}url")"; sha="$(field "
 r2_key="$(field "${prefix}r2_key")"
 [[ -n "$version" && -n "$asset" && -n "$sha" ]] || fail "manifest $MANIFEST lacks version, asset or sha256 for $arch"
 
-root="${CMUX_CEF_CACHE_DIR:-$HOME/Library/Caches/cmux/cef}"
+root="$("$SCRIPT_DIR/cef-cache-root.sh")"
 dest="$root/$version$suffix"
 if [[ -f "$dest/.verified" && "$(cat "$dest/.verified")" == "$sha" && -d "$dest/$FRAMEWORK" ]]; then
   echo "$dest"

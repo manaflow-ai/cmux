@@ -74,7 +74,7 @@ if (( want_x86 )); then
   # a universal build then keeps the arm64 engine.
   x86_dir="$("$SCRIPT_DIR/ensure-cef.sh" --optional --arch x86_64)"
 fi
-cache_root="${CMUX_CEF_CACHE_DIR:-$HOME/Library/Caches/cmux/cef}"
+cache_root="$("$SCRIPT_DIR/cef-cache-root.sh")"
 shim_archs=()
 if [[ -n "$arm_dir" && -n "$x86_dir" ]]; then
   cef_dir="$("$SCRIPT_DIR/merge-cef-universal.sh" "$arm_dir" "$x86_dir" "$cache_root/universal" | tail -n 1)"
