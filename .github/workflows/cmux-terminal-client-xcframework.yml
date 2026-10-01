@@ -233,9 +233,15 @@ jobs:
           plutil -lint "$xcf/Info.plist"
           out="$RUNNER_TEMP/xcframework"
           (cd "$out" && ditto -c -k --keepParent CmuxTerminalClient.xcframework CmuxTerminalClient.xcframework.zip)
-          checksum="$(swift package compute-checksum "$out/CmuxTerminalClient.xcframework.zip")"
+          archive="$out/CmuxTerminalClient.xcframework.zip"
+          checksum="$(shasum -a 256 "$archive" | awk '{print $1}')"
+          swiftpm_checksum="$(swift package compute-checksum "$archive")"
+          if [[ "$swiftpm_checksum" != "$checksum" ]]; then
+            echo "::error::SwiftPM checksum $swiftpm_checksum does not match archive SHA-256 $checksum" >&2
+            exit 1
+          fi
           printf '%s\n' "$checksum" > "$out/CmuxTerminalClient.xcframework.zip.sha256"
-          printf '%s  %s\n' "$(shasum -a 256 "$out/CmuxTerminalClient.xcframework.zip" | cut -d' ' -f1)" CmuxTerminalClient.xcframework.zip > "$out/SHA256SUMS"
+          printf '%s  %s\n' "$checksum" CmuxTerminalClient.xcframework.zip > "$out/SHA256SUMS"
           echo "swiftpm checksum: $checksum"
 
       - name: Smoke-link each slice
