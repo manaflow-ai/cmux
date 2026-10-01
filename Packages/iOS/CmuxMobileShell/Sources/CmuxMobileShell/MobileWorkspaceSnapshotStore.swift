@@ -19,6 +19,7 @@ public final class MobileWorkspaceSnapshotStore {
         private let defaults: DefaultsBox
         private let maxAge: TimeInterval
         private let maxRecords: Int
+        private let maxRecordBytes: Int
         private var knownKeys: Set<String>?
         private var savedAtByKey: [String: Date] = [:]
         private var latestRevisionByKey: [String: UInt64] = [:]
@@ -26,10 +27,16 @@ public final class MobileWorkspaceSnapshotStore {
         // before the removal cannot recreate the deleted row when it finishes.
         private var generationByKey: [String: UInt64] = [:]
 
-        init(defaults: DefaultsBox, maxAge: TimeInterval, maxRecords: Int) {
+        init(
+            defaults: DefaultsBox,
+            maxAge: TimeInterval,
+            maxRecords: Int,
+            maxRecordBytes: Int
+        ) {
             self.defaults = defaults
             self.maxAge = maxAge
             self.maxRecords = maxRecords
+            self.maxRecordBytes = maxRecordBytes
         }
 
         func loadAll(
@@ -88,14 +95,15 @@ public final class MobileWorkspaceSnapshotStore {
         }
 
         func save(
-            data: Data,
+            request: SaveRequest,
             key: String,
-            savedAt: Date,
             revision: UInt64,
             generation: UInt64,
             namespace: String
         ) {
             guard generation == (generationByKey[key] ?? 0) else { return }
+            guard let data = MobileWorkspaceSnapshotStore.encode(request),
+                  data.count <= maxRecordBytes else { return }
             if let latest = latestRevisionByKey[key], revision < latest { return }
             latestRevisionByKey[key] = revision
             defaults.value.set(data, forKey: key)
@@ -104,7 +112,7 @@ public final class MobileWorkspaceSnapshotStore {
             )
             keys.insert(key)
             knownKeys = keys
-            savedAtByKey[key] = savedAt
+            savedAtByKey[key] = request.savedAt
             enforceLimit(keys: keys)
         }
 
@@ -333,8 +341,8 @@ public final class MobileWorkspaceSnapshotStore {
     private let maxAge: TimeInterval = 7 * 24 * 60 * 60
     private let maxRecords = 64
     private let maxRecordBytes = 512 * 1024
-    // This is MainActor-owned so a save captures its generation before its
-    // detached encode can suspend. A later forced removal advances the token
+    // This is MainActor-owned so a save captures its generation before it
+    // enters the persistence actor. A later forced removal advances the token
     // synchronously and invalidates that already-started save.
     private var generationByKey: [String: UInt64] = [:]
     private let persistence: Persistence
@@ -344,7 +352,8 @@ public final class MobileWorkspaceSnapshotStore {
         self.persistence = Persistence(
             defaults: DefaultsBox(defaults),
             maxAge: maxAge,
-            maxRecords: maxRecords
+            maxRecords: maxRecords,
+            maxRecordBytes: maxRecordBytes
         )
     }
 
@@ -361,7 +370,7 @@ public final class MobileWorkspaceSnapshotStore {
             groups: state.groups.map(Group.init),
             workspaceGroupsAreAuthoritative: state.workspaceGroupsAreAuthoritative
         )
-            return try? JSONEncoder().encode(record)
+        return try? JSONEncoder().encode(record)
     }
 
     public func load(
@@ -441,16 +450,10 @@ public final class MobileWorkspaceSnapshotStore {
             pairing: pairing,
             savedAt: savedAt
         )
-        let data = await Task.detached(priority: .utility) {
-            Self.encode(request)
-        }.value
-        guard let data else { return }
-        guard data.count <= maxRecordBytes else { return }
         guard !Task.isCancelled else { return }
         await persistence.save(
-            data: data,
+            request: request,
             key: storageKey,
-            savedAt: savedAt,
             revision: revision,
             generation: generation,
             namespace: namespace
