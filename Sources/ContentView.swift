@@ -7157,6 +7157,14 @@ struct ContentView: View {
                 cloudCapabilities?.snapshot ?? true
             )
             snapshot.setBool(
+                CommandPaletteContextKeys.cloudVMSupportsRestore,
+                cloudCapabilities?.restore ?? true
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.cloudVMSupportsPorts,
+                cloudCapabilities?.ports ?? true
+            )
+            snapshot.setBool(
                 CommandPaletteContextKeys.cloudVMSupportsExec,
                 cloudCapabilities?.exec ?? true
             )
@@ -8713,6 +8721,9 @@ struct ContentView: View {
 
     /// Registers runnable handlers for every built-in command-palette contribution.
     private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
+        registry.register(commandId: "palette.browseSidebarTemplates") {
+            CmuxExtensionSidebarSelection.browseTemplates()
+        }
         registry.register(commandId: "palette.findWork") {
             guard let service = AppDelegate.shared?.currentWorkQueryService() else {
                 NSSound.beep()
@@ -8759,26 +8770,10 @@ struct ContentView: View {
         registry.register(commandId: "palette.openFolder") {
             // Defer so the command palette dismisses before the modal sheet appears.
             DispatchQueue.main.async {
-                let panel = NSOpenPanel()
-                panel.canChooseFiles = false
-                panel.canChooseDirectories = true
-                panel.allowsMultipleSelection = false
-                // Surface the system "New Folder" button so the user can create a
-                // directory and immediately open it as a workspace.
-                panel.canCreateDirectories = true
-                panel.title = String(localized: "panel.openFolder.title", defaultValue: "Open Folder")
-                panel.prompt = String(localized: "panel.openFolder.prompt", defaultValue: "Open")
-                if let startDirectory = OpenFolderPanelStartDirectory().resolve(
-                    configuredPath: AppCatalogSection().defaultWorkspacePath.value(in: .standard),
-                    workspaceDirectory: tabManager.selectedWorkspace?.currentDirectory
-                ) {
-                    panel.directoryURL = startDirectory
-                }
-                if panel.runModal() == .OK, let url = panel.url {
-                    _ = tabManager.acquireOptionalWorkspaceIfActive {
-                        tabManager.addWorkspaceIfActive(workingDirectory: url.path)
-                    }
-                }
+                AppDelegate.shared?.showOpenFolderPanel(
+                    preferredWindow: observedWindow,
+                    tabManager: tabManager
+                )
             }
         }
         registry.register(commandId: "palette.openFolderInVSCodeInline") {
@@ -12731,6 +12726,9 @@ struct VerticalTabsSidebar: View, Equatable {
 
     @ViewBuilder
     private func extensionSidebarScrollAreaContent(renderContext: WorkspaceListRenderContext) -> some View {
+        let inMemoryTemplatePreview = CmuxExtensionSidebarSelection.inMemoryTemplatePreviewSource(
+            for: effectiveExtensionSidebarProviderId
+        )
         if effectiveExtensionSidebarProviderId == CmuxExtensionSidebarSelection.conversationSidebarProviderId {
             ConversationSidebarView(
                 store: sessionIndexStore,
@@ -12771,7 +12769,9 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             )
         } else if effectiveExtensionSidebarProviderId.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix),
-                  let customSidebarURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId) {
+                  let customSidebarURL = inMemoryTemplatePreview == nil
+                    ? CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId)
+                    : URL(fileURLWithPath: "/__cmux-in-memory-sidebar-preview.js") {
             // Periodic tick so the custom sidebar re-renders live (clock,
             // countdowns, and refreshed workspace/data context), mirroring the
             // default sidebar's TimelineView. No banned timers involved.
@@ -12788,6 +12788,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 TimelineView(.periodic(from: .now, by: 1)) { timeline in
                     CustomSidebarSurface(
                         fileURL: customSidebarURL,
+                        sourceOverride: inMemoryTemplatePreview,
                         dataContext: customSidebarDataContext(
                             now: timeline.date,
                             unreadSnapshot: unreadSnapshot
@@ -12797,7 +12798,7 @@ struct VerticalTabsSidebar: View, Equatable {
                             top: SidebarWorkspaceScrollInsets.workspaceList.top,
                             bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
                         ),
-                        rendersInProcess: customSidebarRenderer == .inProcess,
+                        rendersInProcess: inMemoryTemplatePreview != nil || customSidebarRenderer == .inProcess,
                         client: $sidebarRenderWorkerClient
                     )
                 }

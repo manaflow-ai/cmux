@@ -923,6 +923,8 @@ struct CommandPaletteCloudAvailabilityTests {
         context.setBool(CommandPaletteContextKeys.cloudVMCapabilitiesKnown, true)
         context.setBool(CommandPaletteContextKeys.cloudVMSupportsFork, false)
         context.setBool(CommandPaletteContextKeys.cloudVMSupportsSnapshot, false)
+        context.setBool(CommandPaletteContextKeys.cloudVMSupportsRestore, false)
+        context.setBool(CommandPaletteContextKeys.cloudVMSupportsPorts, false)
         context.setBool(CommandPaletteContextKeys.cloudVMSupportsExec, false)
 
         let hidden = Set(
@@ -930,7 +932,7 @@ struct CommandPaletteCloudAvailabilityTests {
         )
         #expect(hidden.contains(ContentView.commandPaletteCloudForkCommandId))
         #expect(hidden.contains(ContentView.commandPaletteCloudSnapshotCommandId))
-        #expect(!hidden.contains(ContentView.commandPaletteCloudRestoreCommandId))
+        #expect(hidden.contains(ContentView.commandPaletteCloudRestoreCommandId))
         #expect(hidden.contains(ContentView.commandPaletteCloudPromoteTemplateCommandId))
         #expect(hidden.contains(ContentView.commandPaletteCloudPortsCommandId))
         #expect(hidden.contains(ContentView.commandPaletteCloudToolsCommandId))
@@ -940,11 +942,41 @@ struct CommandPaletteCloudAvailabilityTests {
         )
 
         context.setBool(CommandPaletteContextKeys.cloudVMSupportsExec, true)
+        context.setBool(CommandPaletteContextKeys.cloudVMSupportsPorts, true)
         let executionSupportedHidden = Set(
             contributions.filter { !$0.when(context) }.map(\.commandId)
         )
         #expect(!executionSupportedHidden.contains(ContentView.commandPaletteCloudPortsCommandId))
         #expect(!executionSupportedHidden.contains(ContentView.commandPaletteCloudToolsCommandId))
+    }
+
+    /// The Cloud contribution catalog remains complete when capabilities are
+    /// unknown, and feature and authentication gates still remove it.
+    @MainActor
+    @Test("Cloud contribution catalog honors feature and account gates")
+    func cloudContributionCatalogHonorsFeatureAndAccountGates() {
+        let key = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
+        let defaults = UserDefaults.standard
+        let original = defaults.object(forKey: key)
+        let flag = CmuxFeatureFlags.cloudMachinesFlag
+        let originalOverride = CmuxFeatureFlags.shared.overrideValue(for: flag)
+        defaults.set(true, forKey: key)
+        CmuxFeatureFlags.shared.setOverride(true, for: flag)
+        defer {
+            if let original { defaults.set(original, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+            CmuxFeatureFlags.shared.setOverride(originalOverride, for: flag)
+        }
+
+        let commandIds = Set(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).map(\.commandId))
+        #expect(commandIds.contains(ContentView.commandPaletteCloudForkCommandId))
+        #expect(commandIds.contains(ContentView.commandPaletteCloudRestoreCommandId))
+        #expect(commandIds.contains(ContentView.commandPaletteCloudPortsCommandId))
+        #expect(commandIds.contains(ContentView.commandPaletteCloudToolsCommandId))
+        #expect(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: false).isEmpty)
+
+        CmuxFeatureFlags.shared.setOverride(false, for: flag)
+        #expect(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).isEmpty)
     }
 
     /// Cloud commands keep the tab manager that owns the invoking palette.
@@ -982,40 +1014,6 @@ struct CommandPaletteCloudAvailabilityTests {
 }
 
 final class CommandPaletteCloudCommandTests: XCTestCase {
-
-    /// Cloud contributions include each supported current-VM operation.
-    @MainActor
-    func testCloudCommandPaletteIncludesCloudWorkspaceActions() {
-        let key = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
-        let defaults = UserDefaults.standard
-        let original = defaults.object(forKey: key)
-        let flag = CmuxFeatureFlags.cloudMachinesFlag
-        let originalOverride = CmuxFeatureFlags.shared.overrideValue(for: flag)
-        defaults.set(true, forKey: key)
-        CmuxFeatureFlags.shared.setOverride(true, for: flag)
-        defer {
-            if let original { defaults.set(original, forKey: key) }
-            else { defaults.removeObject(forKey: key) }
-            CmuxFeatureFlags.shared.setOverride(originalOverride, for: flag)
-        }
-        let commandIds = Set(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).map(\.commandId))
-
-        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudForkCommandId))
-        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudSnapshotCommandId))
-        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudRestoreCommandId))
-        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudPromoteTemplateCommandId))
-        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudStatusCommandId))
-        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudPortsCommandId))
-        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudToolsCommandId))
-        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudHandoffCommandId))
-
-        XCTAssertTrue(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: false).isEmpty)
-        CmuxFeatureFlags.shared.setOverride(false, for: flag)
-        XCTAssertTrue(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).isEmpty)
-        CmuxFeatureFlags.shared.setOverride(true, for: flag)
-        defaults.set(false, forKey: key)
-        XCTAssertTrue(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).isEmpty)
-    }
 
     /// Managed Cloud identity is distinct from a generic SSH configuration.
     func testCloudVMIdentityIsExplicitMetadata() {

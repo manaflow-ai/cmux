@@ -37,7 +37,6 @@ public struct CommandPaletteCloudCapabilityPolicy: Sendable {
             return .cloudOnly
         case "palette.newBrowserWorkspace",
              "palette.newAgentChat",
-             "palette.newBrowserTab",
              "palette.newSimulatorPane",
              "palette.openFolder",
              "palette.openFolderInVSCodeInline",
@@ -48,10 +47,6 @@ public struct CommandPaletteCloudCapabilityPolicy: Sendable {
              "palette.vscodeServeWebStop",
              "palette.vscodeServeWebRestart",
              "palette.terminalAttachTextBoxFile",
-             "palette.browserSplitRight",
-             "palette.browserSplitDown",
-             "palette.terminalSplitBrowserRight",
-             "palette.terminalSplitBrowserDown",
              "palette.openTerminalChatView":
             return .localOnly
         default:
@@ -68,9 +63,36 @@ public struct CommandPaletteCloudCapabilityPolicy: Sendable {
     ) -> Bool {
         switch capability(for: commandId) {
         case .shared:
-            return true
+            // Restore creates a new VM from a supplied snapshot and remains
+            // available from a local workspace, but a selected Cloud VM can
+            // advertise that the provider does not support restore.
+            guard commandId == "palette.cloud.restore",
+                  context.bool(CommandPaletteContextKeys.workspaceIsCloud),
+                  context.bool(CommandPaletteContextKeys.cloudVMCapabilitiesKnown) else {
+                return true
+            }
+            return context.bool(CommandPaletteContextKeys.cloudVMSupportsRestore)
         case .cloudOnly:
-            return context.bool(CommandPaletteContextKeys.workspaceIsCloud)
+            guard context.bool(CommandPaletteContextKeys.workspaceIsCloud) else {
+                return false
+            }
+            guard context.bool(CommandPaletteContextKeys.cloudVMCapabilitiesKnown) else {
+                return true
+            }
+            switch commandId {
+            case "palette.cloud.fork":
+                return context.bool(CommandPaletteContextKeys.cloudVMSupportsFork)
+            case "palette.cloud.snapshot", "palette.cloud.promoteTemplate":
+                return context.bool(CommandPaletteContextKeys.cloudVMSupportsSnapshot)
+            case "palette.cloud.restore":
+                return context.bool(CommandPaletteContextKeys.cloudVMSupportsRestore)
+            case "palette.cloud.ports":
+                return context.bool(CommandPaletteContextKeys.cloudVMSupportsPorts)
+            case "palette.cloud.tools":
+                return context.bool(CommandPaletteContextKeys.cloudVMSupportsExec)
+            default:
+                return true
+            }
         case .localOnly:
             return !context.bool(CommandPaletteContextKeys.workspaceIsCloud)
         }

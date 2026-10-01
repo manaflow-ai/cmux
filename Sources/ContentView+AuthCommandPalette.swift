@@ -152,7 +152,8 @@ extension ContentView {
                 commandId: commandPaletteCloudRestoreCommandId,
                 title: constant(String(localized: "command.cloudVM.restore.title", defaultValue: "Restore Cloud VM From Checkpoint")),
                 subtitle: subtitle,
-                keywords: ["cloud", "vm", "restore", "snapshot", "checkpoint"]
+                keywords: ["cloud", "vm", "restore", "snapshot", "checkpoint"],
+                when: capabilityGate(.cloudVMSupportsRestore)
             ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudPromoteTemplateCommandId,
@@ -172,7 +173,7 @@ extension ContentView {
                 title: constant(String(localized: "command.cloudVM.ports.title", defaultValue: "Show Cloud VM Ports")),
                 subtitle: subtitle,
                 keywords: ["cloud", "vm", "ports", "preview", "localhost"],
-                when: capabilityGate(.cloudVMSupportsExec)
+                when: capabilityGate(.cloudVMSupportsPorts)
             ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudToolsCommandId,
@@ -227,19 +228,20 @@ extension ContentView {
     func registerCloudCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         let commandWindow = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         registry.register(commandId: Self.commandPaletteCloudAvailabilityInfoCommandId) {
-            // Let the command palette finish dismissing before presenting the modal alert.
-            DispatchQueue.main.async {
-                let alert = NSAlert()
-                alert.messageText = String(
-                    localized: "command.cloudVM.availabilityInfo.alertTitle",
-                    defaultValue: "Some commands are local-only"
-                )
-                alert.informativeText = String(
-                    localized: "command.cloudVM.availabilityInfo.alertMessage",
-                    defaultValue: "Folder, simulator, local browser creation, directory search, and diff commands are available after selecting a local workspace. Cloud VM commands may be unavailable here."
-                )
-                alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-                alert.runModal()
+            let alert = NSAlert()
+            alert.messageText = String(
+                localized: "command.cloudVM.availabilityInfo.alertTitle",
+                defaultValue: "Some commands are local-only"
+            )
+            alert.informativeText = String(
+                localized: "command.cloudVM.availabilityInfo.alertMessage",
+                defaultValue: "Folder, simulator, local browser creation, directory search, and diff commands are available after selecting a local workspace. Cloud VM commands may be unavailable here."
+            )
+            alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+            if let commandWindow {
+                alert.beginSheetModal(for: commandWindow, completionHandler: nil)
+            } else {
+                NSSound.beep()
             }
         }
         registry.register(commandId: Self.commandPaletteCloudNewMachineCommandId) {
