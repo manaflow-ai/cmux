@@ -145,9 +145,15 @@ public final class TerminalClient: @unchecked Sendable {
             return
         }
         rawDisconnected = true
+        let installedOutputBox = outputBox
         lock.unlock()
 
-        cmux_terminal_client_set_output_callback(raw, nil, nil)
+        withExtendedLifetime(installedOutputBox) {
+            cmux_terminal_client_set_output_callback(raw, nil, nil)
+        }
+        lock.lock()
+        outputBox = nil
+        lock.unlock()
         cmux_terminal_client_disconnect(raw)
     }
 
