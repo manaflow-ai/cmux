@@ -228,12 +228,7 @@ struct MachineRowActions {
     }
 
     @MainActor
-    private static func presentDeleteConfirmation(
-        id: String,
-        displayName: String?,
-        onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
-        onDidMutate: @escaping @MainActor () -> Void
-    ) {
+    static func deleteConfirmationAlert(id: String, displayName: String?) -> NSAlert {
         let alert = NSAlert()
         alert.alertStyle = .warning
         let format = String(
@@ -250,6 +245,17 @@ struct MachineRowActions {
         alert.addButton(withTitle: String(localized: "machines.delete.confirm", defaultValue: "Delete"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         alert.buttons.first?.hasDestructiveAction = true
+        return alert
+    }
+
+    @MainActor
+    private static func presentDeleteConfirmation(
+        id: String,
+        displayName: String?,
+        onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
+        onDidMutate: @escaping @MainActor () -> Void
+    ) {
+        let alert = deleteConfirmationAlert(id: id, displayName: displayName)
         let respond: (NSApplication.ModalResponse) -> Void = { response in
             // A second confirm while the first delete runs is a no-op, never a second `vm rm`.
             guard response == .alertFirstButtonReturn, MachineDeleteCoordinator.shared.canBegin(id) else { return }

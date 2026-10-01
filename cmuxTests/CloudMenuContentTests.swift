@@ -165,6 +165,22 @@ struct CloudMenuContentTests {
         #expect(recorder.log == ["delete:vm-internal-id:crisp-rose-piglet"])
     }
 
+    @Test("Delete confirmation renders its display name and falls back for blank names")
+    @MainActor
+    func deleteConfirmationTextUsesStableFallback() {
+        let named = MachineRowActions.deleteConfirmationAlert(
+            id: "vm-internal-id",
+            displayName: "crisp-rose-piglet"
+        )
+        #expect(named.messageText == "Delete machine \u{201C}crisp-rose-piglet\u{201D}?")
+
+        let blank = MachineRowActions.deleteConfirmationAlert(
+            id: "vm-internal-id",
+            displayName: "  \n"
+        )
+        #expect(blank.messageText == "Delete machine \u{201C}vm-internal-id\u{201D}?")
+    }
+
     @Test("Status item renders machines with a status dot and dimmed state")
     func appKitRendering() throws {
         let recorder = Recorder()
