@@ -4623,6 +4623,22 @@ mod tests {
     }
 
     #[test]
+    fn bare_agent_list_also_lists_acpmux_sessions() {
+        let plan =
+            parse(&strings(&["agent", "list", "--state", "idle"]), super::super::Surface::CmuxTui)
+                .unwrap();
+        assert!(matches!(
+            plan,
+            CommandPlan::AgentList(super::super::agent_list::AgentListPlan { state: Some(ref state) })
+                if state == "idle"
+        ));
+        assert!(
+            parse(&strings(&["agent", "list", "--state", "busy"]), super::super::Surface::CmuxTui)
+                .is_err()
+        );
+    }
+
+    #[test]
     fn agent_commands_use_canonical_public_states() {
         const TERMINAL: &str = "term_55555555555555555555555555555555";
         for state in ["working", "blocked", "idle", "done", "unknown"] {

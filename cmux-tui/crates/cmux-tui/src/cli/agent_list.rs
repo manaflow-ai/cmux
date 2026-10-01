@@ -5,6 +5,7 @@
 //! `queued_messages`.
 
 use std::collections::HashMap;
+use std::io::Write;
 
 use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Value, json};
@@ -20,24 +21,31 @@ pub(super) struct AgentListPlan {
 
 pub(super) fn run(global: GlobalArgs, plan: AgentListPlan) -> i32 {
     let output = global.output;
-    match list(&global, &plan) {
-        Ok(rows) => {
-            match output {
-                OutputMode::Human => print!("{}", text(&rows)),
-                OutputMode::Quiet => {}
-                _ => println!("{}", Value::Array(rows)),
-            }
-            0
-        }
-        Err(failure) => failure.report(output),
+    let rows = match list(&global, &plan) {
+        Ok(rows) => rows,
+        Err(failure) => return failure.report(output),
+    };
+    let printed = match output {
+        OutputMode::Human => text(&rows),
+        OutputMode::Quiet => String::new(),
+        OutputMode::Json => format!("{}\n", Value::Array(rows)),
+        OutputMode::JsonLines => rows.iter().map(|row| format!("{row}\n")).collect(),
+    };
+    let mut stdout = std::io::stdout().lock();
+    match stdout.write_all(printed.as_bytes()).and_then(|()| stdout.flush()) {
+        Ok(()) => 0,
+        Err(_) => 3,
     }
 }
 
 fn list(global: &GlobalArgs, plan: &AgentListPlan) -> Result<Vec<Value>, Failure> {
     let mut connection = Connection::open(global)?;
     let terminal_agents = connection.read(ResourceOperation::AgentList, json!({}))?;
+    // The counts are extra: a daemon without agent messages lists agents
+    // with none queued.
     let queued = connection
-        .read(ResourceOperation::AgentMessageList, json!({"state": "queued", "limit": 1000}))?;
+        .read(ResourceOperation::AgentMessageList, json!({"state": "queued", "limit": 1000}))
+        .unwrap_or(Value::Null);
     Ok(rows(
         terminal_agents.as_array().map(Vec::as_slice).unwrap_or_default(),
         &acp::sessions(),

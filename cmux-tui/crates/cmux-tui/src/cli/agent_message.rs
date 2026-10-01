@@ -681,14 +681,17 @@ pub(super) mod acp {
         })
     }
 
-    /// The running daemon's sessions; none when it does not run.
+    /// The running daemon's sessions; none when it does not run or does
+    /// not answer within three seconds.
     pub(in crate::cli) fn sessions() -> Vec<serde_json::Value> {
         let Ok(runtime) = runtime() else { return Vec::new() };
         runtime.block_on(async {
-            match acpmux::deliver::connect().await {
-                Ok(client) => acpmux::deliver::sessions(&client).await.unwrap_or_default(),
-                Err(_) => Vec::new(),
-            }
+            let listed = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                let client = acpmux::deliver::connect().await.ok()?;
+                acpmux::deliver::sessions(&client).await.ok()
+            })
+            .await;
+            listed.ok().flatten().unwrap_or_default()
         })
     }
 
