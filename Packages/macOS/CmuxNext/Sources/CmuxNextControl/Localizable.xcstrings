@@ -20305,6 +20305,268 @@
           }
         }
       }
+    },
+    "control.error.scrollOffset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.scroll needs params.dx or params.dy"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب browser.page.scroll المعامل params.dx أو params.dy"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.scroll zahtijeva params.dx ili params.dy"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.scroll kræver params.dx eller params.dy"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.scroll benötigt params.dx oder params.dy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.scroll necesita params.dx o params.dy"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.scroll nécessite params.dx ou params.dy"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.scroll richiede params.dx o params.dy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.scroll には params.dx または params.dy が必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.scroll ត្រូវការ params.dx ឬ params.dy"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.scroll에는 params.dx 또는 params.dy가 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.scroll krever params.dx eller params.dy"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.scroll wymaga params.dx lub params.dy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.scroll precisa de params.dx ou params.dy"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для browser.page.scroll нужен params.dx или params.dy"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.scroll ต้องมี params.dx หรือ params.dy"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.scroll için params.dx veya params.dy gerekir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для browser.page.scroll потрібен params.dx або params.dy"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.scroll cần params.dx hoặc params.dy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.scroll 需要 params.dx 或 params.dy"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.page.scroll 需要 params.dx 或 params.dy"
+          }
+        }
+      }
+    },
+    "control.error.scrollOffsetNumber": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ must be a finite number of pixels"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون params.%@ عددًا محدودًا من البكسلات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ mora biti konačan broj piksela"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ skal være et endeligt antal pixel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ muss eine endliche Anzahl von Pixeln sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ debe ser un número finito de píxeles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ doit être un nombre fini de pixels"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ deve essere un numero finito di pixel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ は有限のピクセル数である必要があります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ ត្រូវតែជាចំនួនភីកសែលកំណត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@는 유한한 픽셀 수여야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ må være et endelig antall piksler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ musi być skończoną liczbą pikseli"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ deve ser um número finito de pixels"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ должно быть конечным числом пикселей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ ต้องเป็นจำนวนพิกเซลที่จำกัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ sonlu bir piksel sayısı olmalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ має бути скінченним числом пікселів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ phải là một số pixel hữu hạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ 必须是有限的像素数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "params.%@ 必須是有限的像素數"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -40,12 +40,36 @@ cmux browser "$TAB" text body
 cmux browser "$TAB" value "#email"
 cmux browser "$TAB" fill "#email" "$APP_USERNAME"
 cmux browser "$TAB" type "#search" "query"
+cmux browser "$TAB" press Enter
+cmux browser "$TAB" press Tab --selector "#email"
+cmux browser "$TAB" hover "#menu"
+cmux browser "$TAB" select "#size" m
+cmux browser "$TAB" check "#terms"
+cmux browser "$TAB" uncheck "#newsletter"
+cmux browser "$TAB" scroll --dy 600
+cmux browser "$TAB" scroll "#results" --dy 300
+cmux browser "$TAB" scroll-into-view "#footer"
 ```
 
 `goto` and `open` are accepted for `navigate`; `url` and `title` are accepted
 for `state`. `fill` replaces the field's value; `type` types into it.
 Selectors are CSS selectors or snapshot refs (`e3`, `@e3`). Add `--json` before
 the scope for machine-readable output (`cmux --json browser "$TAB" state`).
+
+`press KEY` sends a key to the focused element (or `--selector`'s element,
+focused first). Keys are W3C key or code names (`Enter`, `Tab`, `Escape`,
+`ArrowDown`, `PageDown`, `F5`, `Space`, `Shift`, `KeyA`, `Slash`, `Numpad1`) or
+one character; any other name is sent as is, so `Control+a` is one opaque key,
+not a combination. The events are page-level (untrusted): Space activates
+buttons and checkboxes and Enter submits a single-line form field, but browser
+defaults such as Tab moving focus do not run. `hover` sends pointer and mouse
+over, enter and move events. `select SELECTOR VALUE` picks an option by its
+value. `check` and `uncheck` click only when the state differs and fail with
+`not_checkable`, `disabled` or `not_changed`. `scroll` scrolls the page, or
+one element, by `--dx`/`--dy` CSS pixels (`scroll 400` is `--dy 400`) and
+prints the new position. The old flag forms (`--selector`, `--value`, `--key`)
+and verb aliases (`key`, `scrollintoview`) still work.
+These act once and do not retry for an element that is still loading.
 
 ## Daemon browsers (`browser_…`)
 
@@ -82,8 +106,7 @@ cmux browser screenshot-page
 The old CLI's `wait`, `cookies`, `storage`, `state save|load`, `console`,
 `errors`, `highlight`, `screenshot` (to stdout or a file), `download`,
 `dialog`, `frame`, `network`, `trace`, `screencast`, `geolocation`,
-`offline`, `viewport`, `hover`, `dblclick`, `check`, `uncheck`, `select`,
-`scroll`, `scroll-into-view`, `press`, `keydown`, `keyup`, `get attr|count|box|styles|html`,
+`offline`, `viewport`, `dblclick`, `keydown`, `keyup`, `get attr|count|box|styles|html`,
 `tab list|new|switch|close` inside a browser, `identify`, `profile`,
 `design-mode status` and `--snapshot-after` have no command in the new CLI.
 Waits are not supported yet; do not poll with `eval`. For a one-shot read that

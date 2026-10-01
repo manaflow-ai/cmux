@@ -113,6 +113,18 @@ On `feat-cmux-next-cli-state` (state-ownership.md step D, CLI part):
   timing flakes (`session_shutdown_exits_an_interactive_detached_owner_client`,
   `closing_one_hundred_terminals…`).
 
+On `feat-cmux-next-browser-input` (browser group 4):
+
+- `browser.page.press|hover|scroll|scroll_into_view|select|check|uncheck` and the CLI verbs
+  `press KEY [--selector S]`, `hover`, `scroll [SELECTOR] [--dx N] [--dy N]`,
+  `scroll-into-view`, `select SELECTOR VALUE`, `check`, `uncheck`: page scripts like
+  `click`, with the old app's events and errors (`not_checkable`, `disabled`,
+  `not_changed`). `press` is the old app's page-world fallback for every key, with its key table
+  (`BrowserPageKey`: names, punctuation codes, legacy keyCode, location; unknown names pass
+  through); the old app replayed mapped keys as trusted native
+  events, which needs engine input support (not done). Selector actions do not retry for
+  an element that has not appeared yet (browser group 1 adds `wait` for that).
+
 ## Remaining
 
 1. App windows get typed ids (`win_<32 hex>`); today they are bare lowercase UUIDs.

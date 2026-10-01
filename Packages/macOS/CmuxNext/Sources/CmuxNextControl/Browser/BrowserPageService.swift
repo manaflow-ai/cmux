@@ -68,6 +68,7 @@ public struct BrowserPageService: Sendable {
             element("text", BrowserPageScripts.text, engine: engine),
             element("value", BrowserPageScripts.value, engine: engine),
         ])
+        router.register(inputMethods())
     }
 
     /// Selector or snapshot ref (`e3`, `@e3`) actions run as page scripts.
