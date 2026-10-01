@@ -43,7 +43,6 @@ public enum StringIDKind {
     public enum Profile: DaemonStringIDKind {}
     public enum BrowserProfile: DaemonStringIDKind {}
     public enum ScreenGroup: DaemonStringIDKind {}
-    public enum SavedScreenGroup: DaemonStringIDKind {}
 }
 
 /// Durable workspace identity: lowercase canonical UUID.
@@ -114,7 +113,5 @@ extension DaemonStringID where Kind == StringIDKind.BrowserProfile {
     public static func generate() -> Self { Self(rawValue: UUID().uuidString.lowercased()) }
 }
 
-/// Screen group id (`screen-groups-v1`), `sgrp_<32 hex>`.
+/// Screen group id (a `screen_group` state resource), `sgrp_<32 hex>`.
 public typealias ScreenGroupID = DaemonStringID<StringIDKind.ScreenGroup>
-/// Saved screen group id (`screen-groups-v1`), `ssaved_<32 hex>`.
-public typealias SavedScreenGroupID = DaemonStringID<StringIDKind.SavedScreenGroup>

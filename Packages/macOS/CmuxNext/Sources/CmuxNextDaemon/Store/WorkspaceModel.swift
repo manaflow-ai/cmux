@@ -11,7 +11,7 @@ public final class WorkspaceModel: Identifiable {
     public internal(set) var resourceID: ResourceID?
     public internal(set) var name: String
     public internal(set) var screens: [ScreenModel]
-    /// Screen group runs in screen order (`screen-groups-v1`).
+    /// Screen group runs in screen order (`ScreenStateSnapshot`).
     public internal(set) var screenGroups: [ScreenGroupSnapshot]
     public internal(set) var group: WorkspaceGroupID?
     public internal(set) var color: String?
@@ -74,15 +74,6 @@ public final class WorkspaceModel: Identifiable {
 
     func setName(_ value: String) { if name != value { name = value } }
     func setGroup(_ value: WorkspaceGroupID?) { if group != value { group = value } }
+    func setScreenGroups(_ value: [ScreenGroupSnapshot]) { if screenGroups != value { screenGroups = value } }
 
-    /// Moves `screen` to `index` (a `screen-changed` delta whose index differs).
-    func moveScreen(_ screen: ScreenModel, to index: Int) {
-        guard let from = screens.firstIndex(where: { $0 === screen }) else { return }
-        let target = min(max(index, 0), screens.count - 1)
-        guard from != target else { return }
-        var reordered = screens
-        reordered.remove(at: from)
-        reordered.insert(screen, at: target)
-        screens = reordered
-    }
 }

@@ -21,7 +21,6 @@ final class ScreenBarController {
     var onVisibilityChange: ((Bool) -> Void)?
     private(set) var isVisible = false
     /// A screen dragged out of the bar (to another workspace or window).
-    private var drag: ScreenDragSession?
     /// The remembered screen was restored (once, at the first apply).
     private var restoredScreen = false
 
@@ -118,8 +117,8 @@ final class ScreenBarController {
             guard let index = workspace.screens.firstIndex(where: { $0.id == id.rawValue }) else { return }
             ScreenCommands.close(Array(workspace.screens[(index + 1)...]), in: workspace, daemon: daemon, services: services)
         case .reorder(let id, _, let to):
-            // A daemon without move-screen keeps the daemon's order.
-            guard daemon.supports(DaemonCapabilities.screenMetadata), let screen = screen(id) else {
+            // A screen without a public id (no screen state) keeps the daemon's order.
+            guard let screen = screen(id), screen.resourceID != nil else {
                 return view.discardPendingReorder()
             }
             ScreenCommands.move(screen, to: to, daemon: daemon)
@@ -135,12 +134,9 @@ final class ScreenBarController {
         case .duplicate(let id):
             if let ref = ref(id) { ScreenCommands.duplicate(ref) }
         case .dragBegan(let start):
-            guard let screen = screen(start.tabID) else { return view.restoreDetachedTab(start.tabID) }
-            let session = ScreenDragSession(services: services, screen: screen, daemon: daemon, source: workspace,
-                                            strip: view, tabID: start.tabID)
-            session.onEnd = { [weak self] in self?.drag = nil }
-            drag = session
-            session.begin()
+            // A screen moves only within its workspace (no state operation
+            // moves it to another), so a tear-off returns to its slot.
+            view.restoreDetachedTab(start.tabID)
         case .groupDragBegan(let start):
             view.restoreDetachedGroup(start.groupID)
         case .toggleGroupCollapsed, .moveGroup, .addToGroup, .removeFromGroup, .group, .createGroup:
@@ -161,10 +157,11 @@ final class ScreenBarController {
         switch intent {
         case .toggleGroupCollapsed(let id):
             if let ref = groupRef(id) { ScreenGroupCommands.setCollapsed(ref, !ref.group.collapsed) }
-        case .moveGroup(let id, let to):
-            ScreenGroupCommands.move(ScreenGroupID(rawValue: id.rawValue), to: to, daemon: daemon)
-        case .addToGroup(let id, let group, let index):
-            if let screen = screen(id) { ScreenGroupCommands.add([screen], to: ScreenGroupID(rawValue: group.rawValue), index: index, daemon: daemon) }
+        case .moveGroup:
+            // No state operation moves a group; the strip keeps the daemon's order.
+            view.discardPendingReorder()
+        case .addToGroup(let id, let group, _):
+            if let screen = screen(id) { ScreenGroupCommands.add([screen], to: ScreenGroupID(rawValue: group.rawValue), daemon: daemon) }
         case .removeFromGroup(let id, _):
             if let screen = screen(id) { ScreenGroupCommands.remove([screen], daemon: daemon) }
         case .createGroup(let item, let ids):
@@ -186,9 +183,14 @@ final class ScreenBarController {
         case .newTab: ScreenGroupCommands.newScreen(in: ref)
         case .ungroup: ScreenGroupCommands.ungroup(ref.group.id, daemon: ref.daemon)
         case .close: ScreenGroupCommands.close(ref, services: services)
-        case .moveToNewWindow: ScreenGroupCommands.moveToNewWorkspace(ref.group.id, daemon: ref.daemon, services: services, newWindow: true)
-        case .save: ScreenGroupCommands.save(ref.group.id, daemon: ref.daemon)
-        case .unsave: ScreenGroupCommands.unsave(ref.group.id, daemon: ref.daemon)
+        case .moveToNewWindow, .save, .unsave:
+            // Unavailable actions: the registry reports why.
+            let id: ActionID = switch command {
+            case .moveToNewWindow: "screenGroup.moveToNewWindow"
+            case .unsave: "screenGroup.unsave"
+            default: "screenGroup.save"
+            }
+            _ = services.registry.perform(id, invocation: ActionInvocation(target: ActionTargetRef(kind: .screenGroup, id: ref.group.id.rawValue)))
         }
     }
 

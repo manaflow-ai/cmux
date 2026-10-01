@@ -418,11 +418,15 @@ the rules in 3.2.
   for required colors (tab and screen groups), permissive
   (`validate_presentation_color`) for optional ones. Icon: SF Symbol name or
   one emoji, one shared `validate_presentation_icon`.
-- Screens (`screen-metadata-v1`, `screen-groups-v1`): screen JSON gains
-  `color`, `icon`, `pinned`, `group`; workspace JSON gains `screen_groups`.
-  Screens and screen groups are layout (1.2b) and live on the workspace's home
-  session. Saved screen groups are personal (1.2c): they move to the home
-  session like saved tab groups, keyed by room.
+- Screens: pin, color, icon, order and screen groups are protocol/2 state
+  resources (`screen.update`, `screen.move`, `screen_group.*`,
+  state-ownership.md step B); the raw tree does not carry them, and the app
+  reads `screen.list` and `screen_group.list` with each snapshot
+  (`ScreenStateSnapshot`). Screens and screen groups are layout (1.2b) and
+  live on the workspace's home session. Not served yet, so unavailable in the
+  app: moving a screen or group to another workspace, moving a group, saved
+  screen groups (personal, 1.2c, keyed by room like saved tab groups), and a
+  directory for a new screen.
 
 ## 10. Open points for the user
 

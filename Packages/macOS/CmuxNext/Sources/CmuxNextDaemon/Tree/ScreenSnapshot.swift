@@ -35,13 +35,15 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
     /// Empty unless horizontal viewport columns are active.
     public var columns: [ColumnSnapshot]
     public var panes: [PaneSnapshot]
-    /// Optional palette token (`screen-metadata-v1`); frontends offer the nine group colors.
+    /// Palette token; frontends offer the nine group colors. This and the
+    /// next three are state resources, not raw fields: `ScreenStateSnapshot`
+    /// sets them.
     public var color: String?
     /// SF Symbol name or one emoji grapheme.
     public var icon: String?
     /// Pinned screens sort first.
     public var pinned: Bool
-    /// The screen group this screen belongs to (`screen-groups-v1`).
+    /// The screen group this screen belongs to.
     public var group: ScreenGroupID?
 
     public init(
@@ -81,7 +83,7 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, active, layout, columns, panes, color, icon, pinned, group
+        case id, name, active, layout, columns, panes
         case resourceID = "resource_id"
         case shortID = "short_id"
         case activePane = "active_pane"
@@ -104,9 +106,9 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
         viewportSplits = try c.decodeIfPresent([ViewportSplit].self, forKey: .viewportSplits) ?? []
         columns = try c.decodeIfPresent([ColumnSnapshot].self, forKey: .columns) ?? []
         panes = try c.decodeIfPresent([PaneSnapshot].self, forKey: .panes) ?? []
-        color = try c.decodeIfPresent(String.self, forKey: .color)
-        icon = try c.decodeIfPresent(String.self, forKey: .icon)
-        pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
-        group = try c.decodeIfPresent(ScreenGroupID.self, forKey: .group)
+        color = nil
+        icon = nil
+        pinned = false
+        group = nil
     }
 }

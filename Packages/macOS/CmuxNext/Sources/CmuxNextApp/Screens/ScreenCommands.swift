@@ -27,24 +27,17 @@ enum ScreenCommands {
 
     // MARK: Create and close
 
-    /// New screen in `workspace`, selected and focused when it lands. With a
-    /// non-empty `spec` (or `cwd`) on a daemon with `screen-metadata-v1`, the
-    /// metadata is applied in the same commit.
+    /// New screen in `workspace`, selected and focused when it lands. A
+    /// non-empty `spec` is applied right after it is created (name, then the
+    /// screen state; `DaemonConnection.newScreen(in:spec:)`).
     static func create(in workspace: WorkspaceModel, daemon: DaemonService, content: WorkspaceContentController?,
-                       spec: ScreenSpec = ScreenSpec(), cwd: String? = nil) {
+                       spec: ScreenSpec = ScreenSpec()) {
         guard let connection = daemon.connection else { return }
         let handle = workspace.handle
         let intent = content?.beginFocusIntent()
-        let extended = daemon.supports(DaemonCapabilities.screenMetadata)
-        let options = SpawnOptions(cwd: cwd, workspace: workspace.key)
         Task {
             do {
-                let surface: SurfaceID
-                if extended {
-                    surface = try await connection.newScreen(in: handle, spec: spec, options: options).surface
-                } else {
-                    surface = try await connection.newScreen(in: handle).surface
-                }
+                let surface = try await connection.newScreen(in: handle, spec: spec).surface
                 content?.expectFocus(on: surface, generation: intent)
             } catch {
                 daemon.logger.error("new-screen failed: \(String(describing: error), privacy: .public)")
@@ -53,13 +46,11 @@ enum ScreenCommands {
     }
 
     /// A copy of `ref`'s screen right after it: same name, color, icon, and
-    /// group, with a terminal in the directory of the screen's active tab.
+    /// group.
     static func duplicate(_ ref: ScreenRef) {
         let screen = ref.screen
-        let pane = screen.defaultPane.flatMap(screen.pane) ?? screen.panes.first
-        let cwd = pane.flatMap { $0.tabs.indices.contains($0.defaultTabIndex) ? $0.tabs[$0.defaultTabIndex] : $0.tabs.first }?.cwd
         let spec = ScreenSpec(name: screen.name, color: screen.color, icon: screen.icon, index: ref.index + 1, group: screen.group)
-        create(in: ref.workspace, daemon: ref.daemon, content: ref.content, spec: spec, cwd: cwd)
+        create(in: ref.workspace, daemon: ref.daemon, content: ref.content, spec: spec)
     }
 
     /// Closes screens. Their terminals detach and are reaped after the grace
@@ -80,18 +71,18 @@ enum ScreenCommands {
     }
 
     static func setColor(_ screen: ScreenModel, _ color: String?, daemon: DaemonService) {
-        let handle = screen.handle
-        daemon.send("set-screen-metadata") { _ = try await $0.setScreenMetadata(handle, color: color.map(FieldUpdate.set) ?? .clear) }
+        guard let id = screen.resourceID else { return }
+        daemon.send("screen.update") { try await $0.updateScreen(id, color: color.map(FieldUpdate.set) ?? .clear) }
     }
 
     static func setIcon(_ screen: ScreenModel, _ icon: String?, daemon: DaemonService) {
-        let handle = screen.handle
-        daemon.send("set-screen-metadata") { _ = try await $0.setScreenMetadata(handle, icon: icon.map(FieldUpdate.set) ?? .clear) }
+        guard let id = screen.resourceID else { return }
+        daemon.send("screen.update") { try await $0.updateScreen(id, icon: icon.map(FieldUpdate.set) ?? .clear) }
     }
 
     static func setPinned(_ screen: ScreenModel, _ pinned: Bool, daemon: DaemonService) {
-        let handle = screen.handle
-        daemon.send("set-screen-pinned") { _ = try await $0.setScreenPinned(handle, pinned) }
+        guard let id = screen.resourceID else { return }
+        daemon.send("screen.update") { try await $0.updateScreen(id, pinned: pinned) }
     }
 
     // MARK: Order and moves
@@ -99,34 +90,7 @@ enum ScreenCommands {
     /// Moves `screen` to `index` in its workspace (the daemon keeps pinned
     /// screens first and groups contiguous).
     static func move(_ screen: ScreenModel, to index: Int, daemon: DaemonService) {
-        let handle = screen.handle
-        daemon.send("move-screen") { _ = try await $0.moveScreen(handle, to: index) }
-    }
-
-    static func move(_ screen: ScreenModel, toWorkspace target: WorkspaceModel, daemon: DaemonService, services: AppServices) {
-        let source = daemon.store.workspaces.first { $0.screens.contains { $0 === screen } }?.id
-        guard !services.windows.crossesIncognito(from: source, to: target.id) else {
-            return services.registry.refuse(RefusalStrings.incognitoMismatch)
-        }
-        let handle = screen.handle, workspace = target.handle
-        daemon.send("move-screen") { _ = try await $0.moveScreen(handle, to: nil, workspace: workspace) }
-    }
-
-    /// Moves `screen` into a new workspace, shown in this window (a new
-    /// window when `newWindow`).
-    static func moveToNewWorkspace(_ screen: ScreenModel, daemon: DaemonService, services: AppServices, newWindow: Bool) {
-        guard let connection = daemon.connection else { return }
-        let handle = screen.handle
-        let state = services.windows.active?.state
-        let origin = services.windows.moveOrigin(of: daemon.store.workspaces.first { $0.screens.contains { $0 === screen } }?.id)
-        Task {
-            do {
-                let result = try await connection.moveScreen(handle, to: nil, newWorkspace: true)
-                guard let key = result.key?.rawValue else { return }
-                services.windows.placeMoved(key, from: origin, preferred: state, newWindow: newWindow)
-            } catch {
-                daemon.logger.error("move-screen new_workspace failed: \(String(describing: error), privacy: .public)")
-            }
-        }
+        guard let id = screen.resourceID else { return }
+        daemon.send("screen.move") { try await $0.moveScreen(id, to: index) }
     }
 }

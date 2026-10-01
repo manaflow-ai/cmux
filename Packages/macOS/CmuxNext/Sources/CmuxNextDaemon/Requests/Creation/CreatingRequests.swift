@@ -30,13 +30,6 @@ extension NewColumnRequest: DaemonCreatingRequest {
     public func createdObjects(in response: SurfaceCreated) -> [DaemonCreatedObject] { response.createdObjects }
 }
 
-extension NewScreenWithSpecRequest: DaemonCreatingRequest {
-    public func createdObjects(in response: Response) -> [DaemonCreatedObject] {
-        (response.screen.map { [DaemonCreatedObject(.screen, $0.description)] } ?? [])
-            + SurfaceCreated(surface: response.surface, terminalID: response.terminalID).createdObjects
-    }
-}
-
 extension CreateTerminalRequest: DaemonCreatingRequest {
     public func createdObjects(in response: CreateTerminalResult) -> [DaemonCreatedObject] {
         (response.surface.map { [DaemonCreatedObject(.tab, $0.description)] } ?? [])

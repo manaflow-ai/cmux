@@ -107,32 +107,29 @@ extension DaemonStore {
                 }
             }
 
-        case .screenAdded(let delta):
+        case .screenAdded(var delta):
             guard let workspace = workspacesByHandle[delta.workspace] else { return .resync }
+            screenState.decorate(&delta.entity)
             if let existing = workspace.screens.first(where: { $0.id == ScreenModel.identity(delta.entity) }) {
                 existing.update(delta.entity)
             } else {
                 let index = min(max(delta.index ?? workspace.screens.count, 0), workspace.screens.count)
                 workspace.screens.insert(ScreenModel(delta.entity), at: index)
             }
+            workspace.setScreenGroups(screenState.runs(workspace.screens.map { ($0.resourceID, $0.handle) }))
             structureChanged()
             return .none
         case .screenClosed(let delta):
             guard let workspace = workspacesByHandle[delta.workspace],
                   workspace.screens.contains(where: { $0.handle == delta.screen }) else { return .none }
             workspace.screens.removeAll { $0.handle == delta.screen }
+            workspace.setScreenGroups(screenState.runs(workspace.screens.map { ($0.resourceID, $0.handle) }))
             structureChanged()
             return .none
-        case .screenRenamed(let delta):
+        case .screenRenamed(var delta):
             guard let screen = screensByHandle[delta.screen] else { return .resync }
+            screenState.decorate(&delta.entity)
             screen.update(delta.entity)
-            structureChanged()
-            return .none
-        case .screenChanged(let delta):
-            guard let workspace = workspacesByHandle[delta.workspace], let screen = screensByHandle[delta.screen],
-                  workspace.screens.contains(where: { $0 === screen }) else { return .resync }
-            screen.update(delta.entity)
-            if let index = delta.index { workspace.moveScreen(screen, to: index) }
             structureChanged()
             return .none
 
@@ -213,6 +210,8 @@ extension DaemonStore {
         if let registry = delta.registryID, let current = registryID, registry != current { return .resync }
         if delta.workspaceRevision <= workspaceRevision { return .none }
         guard delta.workspaceRevision == workspaceRevision + 1 else { return .resync }
+        var delta = delta
+        screenState.decorate(&delta.entity)
         body(self, delta)
         workspaceRevision = delta.workspaceRevision
         structureChanged()
