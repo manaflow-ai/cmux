@@ -10,6 +10,7 @@ struct NewPaneCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("url")) var url: String?
     @Option(name: .customLong("profile")) var profile: String?
     @Option(name: .customLong("focus")) var focus: String?
+    @Option(name: .customLong("command")) var command: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "new-pane", helpNames: [])
 }
@@ -21,6 +22,7 @@ struct NewSplitCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("panel"), completion: .custom(CompletionCandidates.panels)) var panelID: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var windowID: String?
     @Option(name: .customLong("focus")) var focus: String?
+    @Option(name: .customLong("command")) var command: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "new-split", helpNames: [])
 }
@@ -36,6 +38,7 @@ struct NewSurfaceCommand: SharedLegacyFacadeCommand {
     @Option(name: [.customLong("renderer"), .customLong("renderer-kind")]) var renderer: String?
     @Option(name: [.customLong("working-directory"), .customLong("cwd")], completion: .directory) var workingDirectory: String?
     @Option(name: .customLong("focus")) var focus: String?
+    @Option(name: .customLong("command")) var command: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "new-surface", helpNames: [])
 }
@@ -45,6 +48,7 @@ struct CloseSurfaceCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("panel"), completion: .custom(CompletionCandidates.panels)) var panelID: String?
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var windowID: String?
+    @Flag(name: .customLong("force")) var force = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "close-surface", helpNames: [])
 }
@@ -156,6 +160,13 @@ struct SurfaceCommand: SharedLegacyFacadeCommand {
             SurfaceOpenCommand.self,
             SurfaceNewTerminalCommand.self,
             SurfaceResumeGroupCommand.self,
+            SurfaceSizeCommand.self,
+            SurfaceParticipantsCommand.self,
+            SurfaceSizeToMeCommand.self,
+            SurfaceDisconnectOthersCommand.self,
+            SurfaceSizePolicyCommand.self,
+            SurfaceSizeCountsCommand.self,
+            SurfaceDisconnectParticipantCommand.self,
         ],
         defaultSubcommand: SurfaceListCommand.self,
         helpNames: []
@@ -189,7 +200,15 @@ struct SurfaceOpenCommand: SharedLegacyFacadeCommand {
     @Flag(name: .customLong("down")) var down = false
     @Flag(name: .customLong("tab")) var tab = false
     @Flag(name: .customLong("new")) var new = false
-    @Option(name: .customLong("focus")) var focus: String?
+    /// Bare `--focus`, `--focus true|false` and `--no-focus` all parse
+    /// (`openFocusFlag`), so a bare `--focus` must not expect a value.
+    @Option(
+        name: .customLong("focus"),
+        defaultAsFlag: "true",
+        parsing: .next,
+        completion: .list(["true", "false"])
+    ) var focus: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(
         commandName: "open",
@@ -204,6 +223,15 @@ struct SurfaceNewTerminalCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("name")) var name: String?
     @Option(name: .customLong("remote-workspace")) var remoteWorkspace: String?
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
+    /// Bare `--focus`, `--focus true|false` and `--no-focus` all parse
+    /// (`openFocusFlag`), so a bare `--focus` must not expect a value.
+    @Option(
+        name: .customLong("focus"),
+        defaultAsFlag: "true",
+        parsing: .next,
+        completion: .list(["true", "false"])
+    ) var focus: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
     @Flag(name: .customLong("no-open")) var noOpen = false
     /// `-- <command...>` runs in the new terminal.
     @Argument(parsing: .captureForPassthrough) var command: [String] = []
@@ -212,6 +240,58 @@ struct SurfaceNewTerminalCommand: SharedLegacyFacadeCommand {
         helpNames: [],
         aliases: ["new"]
     )
+}
+
+/// The shared terminal sizing verbs (`runSurfaceSizingCommand`). They take the
+/// same workspace/surface/window selector as `surface resume`.
+struct SurfaceSizeCommand: SharedLegacyFacadeCommand {
+    @OptionGroup var target: SurfaceResumeTargetOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "size", helpNames: [])
+}
+
+struct SurfaceParticipantsCommand: SharedLegacyFacadeCommand {
+    @OptionGroup var target: SurfaceResumeTargetOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "participants", helpNames: [])
+}
+
+struct SurfaceSizeToMeCommand: SharedLegacyFacadeCommand {
+    @OptionGroup var target: SurfaceResumeTargetOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "size-to-me", helpNames: [])
+}
+
+struct SurfaceDisconnectOthersCommand: SharedLegacyFacadeCommand {
+    @OptionGroup var target: SurfaceResumeTargetOptions
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "disconnect-others", helpNames: [])
+}
+
+struct SurfaceSizePolicyCommand: SharedLegacyFacadeCommand {
+    @OptionGroup var target: SurfaceResumeTargetOptions
+    // Strings, not Int: the legacy runner owns the integer check.
+    @Option(name: .customLong("cols")) var cols: String?
+    @Option(name: .customLong("rows")) var rows: String?
+    @Argument(completion: .list(["latest", "smallest", "largest", "priority", "fixed"])) var mode: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "size-policy", helpNames: [])
+}
+
+struct SurfaceSizeCountsCommand: SharedLegacyFacadeCommand {
+    @OptionGroup var target: SurfaceResumeTargetOptions
+    @Option(name: .customLong("participant")) var participant: String?
+    @Argument(completion: .list(["true", "false", "auto"])) var value: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "size-counts", helpNames: [])
+}
+
+struct SurfaceDisconnectParticipantCommand: SharedLegacyFacadeCommand {
+    @OptionGroup var target: SurfaceResumeTargetOptions
+    /// An id from `cmux surface participants`.
+    @Argument var participant: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "disconnect-participant", helpNames: [])
 }
 
 /// `surface resume`. Named apart from `SurfaceResumeCommand`, which declares the
@@ -311,6 +391,7 @@ struct TabActionCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("title")) var title: String?
     @Option(name: .customLong("url")) var url: String?
     @Option(name: .customLong("focus")) var focus: String?
+    @Flag(name: .customLong("force")) var force = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "tab-action", helpNames: [])
 }

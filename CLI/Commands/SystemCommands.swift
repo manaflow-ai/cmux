@@ -136,6 +136,11 @@ struct ForkCommand: SharedLegacyFacadeCommand {
 }
 
 struct RestoreSessionCommand: SharedLegacyFacadeCommand {
+    // `--from` takes a channel (stable, nightly, rc, staging, debug:<tag>) or a
+    // path, so it stays free-form rather than offering one kind of candidate.
+    @Option(name: .customLong("from")) var from: String?
+    @Option(name: .customLong("export"), completion: .file()) var export: String?
+    @Flag(name: .customLong("force")) var force = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "restore-session", helpNames: [])
 }
@@ -143,6 +148,15 @@ struct RestoreSessionCommand: SharedLegacyFacadeCommand {
 /// Dispatched before the legacy parser's command switch. Only the documented
 /// `list` verb is offered; the runner also accepts `debug` and `help`.
 struct SessionsCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("agent")) var agent: String?
+    @Option(name: .customLong("session")) var session: String?
+    @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspace: String?
+    @Option(name: .customLong("surface"), completion: surfaceCompletion) var surface: String?
+    @Option(name: .customLong("cwd")) var cwd: String?
+    @Option(name: .customLong("state-dir"), completion: .directory) var stateDir: String?
+    @Option(name: .customLong("codex-home"), completion: .directory) var codexHome: String?
+    @Option(name: .customLong("limit")) var limit: String?
+    @Flag(name: .customLong("all")) var all = false
     @Argument(parsing: .allUnrecognized, completion: .list(["list"])) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "sessions", helpNames: [])
 }

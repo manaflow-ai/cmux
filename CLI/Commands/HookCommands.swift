@@ -87,12 +87,21 @@ struct VMAgentShortFormCommand: AgentLauncherCommand {
 }
 
 struct AgentHibernationCommand: LegacyHookCommand {
-    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspace: String?
+    @Option(name: .customLong("surface"), completion: surfaceCompletion) var surface: String?
+    // The verbs are a sink completion, not subcommands: `hibernate` and `wake`
+    // take a surface operand that the legacy parser also reads from `--surface`.
+    @Argument(parsing: .allUnrecognized, completion: .list(["on", "off", "hibernate", "wake"]))
+    var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "agent-hibernation", helpNames: [])
 }
 
 struct CoderouterCommand: AgentLauncherCommand {
-    @Argument(parsing: .captureForPassthrough) var arguments: [String] = []
+    // Only the verbs cmux handles itself (`CMUXCLI.cmuxOwnedCoderouterVerbs`).
+    // Every other verb, and all of `cr`, passes through to the CodeRouter CLI,
+    // so the arguments stay a passthrough rather than a subcommand tree.
+    @Argument(parsing: .captureForPassthrough, completion: .list(["status", "machines", "claude", "agent"]))
+    var arguments: [String] = []
     static let configuration = CommandConfiguration(
         commandName: "coderouter",
         abstract: CMUXCLI.localizedCoderouterAliases(),

@@ -135,6 +135,7 @@ struct PasteBufferCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
     @Option(name: .customLong("surface"), completion: surfaceCompletion) var surfaceID: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var windowID: String?
+    @Flag(name: .customLong("bracketed")) var bracketed = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "paste-buffer", helpNames: [])
 }
@@ -160,6 +161,7 @@ struct ReadScreenCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("window"), completion: windowCompletion) var windowID: String?
     @Flag(name: .customLong("scrollback")) var scrollback = false
     @Option(name: .customLong("lines")) var lines: String?
+    @Flag(name: .customLong("selection")) var selection = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "read-screen", helpNames: [])
 }
@@ -178,6 +180,8 @@ struct SendCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
     @Option(name: .customLong("surface"), completion: surfaceCompletion) var surfaceID: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var windowID: String?
+    @Flag(name: .customLong("force")) var force = false
+    @Flag(name: .customLong("paste")) var paste = false
     @Argument(parsing: .allUnrecognized) var text: [String] = []
     static let configuration = CommandConfiguration(commandName: "send", helpNames: [])
 }
@@ -187,6 +191,7 @@ struct PasteCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("surface"), completion: surfaceCompletion) var surfaceID: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var windowID: String?
     @Flag(name: .customLong("submit")) var submit = false
+    @Flag(name: .customLong("force")) var force = false
     @Argument(parsing: .allUnrecognized) var text: [String] = []
     static let configuration = CommandConfiguration(commandName: "paste", helpNames: [])
 }
@@ -195,6 +200,7 @@ struct SendKeyCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
     @Option(name: .customLong("surface"), completion: surfaceCompletion) var surfaceID: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var windowID: String?
+    @Flag(name: .customLong("force")) var force = false
     @Argument(parsing: .allUnrecognized) var key: [String] = []
     static let configuration = CommandConfiguration(commandName: "send-key", helpNames: [])
 }
@@ -203,6 +209,7 @@ struct SendPanelCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("panel"), completion: .custom(CompletionCandidates.panels)) var panelID: String?
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var windowID: String?
+    @Flag(name: .customLong("force")) var force = false
     @Argument(parsing: .allUnrecognized) var text: [String] = []
     static let configuration = CommandConfiguration(commandName: "send-panel", helpNames: [])
 }
@@ -211,6 +218,7 @@ struct SendKeyPanelCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("panel"), completion: .custom(CompletionCandidates.panels)) var panelID: String?
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var windowID: String?
+    @Flag(name: .customLong("force")) var force = false
     @Argument(parsing: .allUnrecognized) var key: [String] = []
     static let configuration = CommandConfiguration(commandName: "send-key-panel", helpNames: [])
 }

@@ -484,7 +484,7 @@ extension CMUXCLI {
     /// Completion candidates for `cmux docs`, derived from the same table the
     /// runner resolves against so the two cannot drift. Only canonical topics
     /// are offered; the aliases still resolve, but suggesting all of them would
-    /// bury the nine real topics.
+    /// bury the eleven real topics.
     static let docsTopicNames: [String] = docsReferences.map(\.topic) + ["list", "all"]
 
     /// Completion candidates for `cmux settings <target>` and `cmux settings open

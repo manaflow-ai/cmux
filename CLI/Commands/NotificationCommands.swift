@@ -9,6 +9,7 @@ struct NotifyCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspace: String?
     @Option(name: .customLong("surface"), completion: surfaceCompletion) var surface: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var window: String?
+    @Flag(name: .customLong("clear")) var clear = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "notify", helpNames: [])
 }
@@ -50,14 +51,34 @@ struct JumpToUnreadCommand: SharedLegacyFacadeCommand {
 
 struct ClearNotificationsCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspace: String?
+    @Option(name: .customLong("surface"), completion: surfaceCompletion) var surface: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var window: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "clear-notifications", helpNames: [])
 }
 
 struct FeedCommand: SharedLegacyFacadeCommand {
+    // No catch-all argument alongside `subcommands`, and no default subcommand:
+    // a bare `cmux feed` prints the legacy usage, which no leaf stands for.
+    static let configuration = CommandConfiguration(
+        commandName: "feed",
+        subcommands: [FeedTUICommand.self, FeedClearCommand.self],
+        helpNames: []
+    )
+}
+
+struct FeedTUICommand: SharedLegacyFacadeCommand {
+    // The legacy parser rejects the pair together itself.
+    @Flag(name: .customLong("opentui")) var opentui = false
+    @Flag(name: .customLong("legacy")) var legacy = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
-    static let configuration = CommandConfiguration(commandName: "feed", helpNames: [])
+    static let configuration = CommandConfiguration(commandName: "tui", helpNames: [])
+}
+
+struct FeedClearCommand: SharedLegacyFacadeCommand {
+    @Flag(name: [.customLong("yes"), .customShort("y")]) var yes = false
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "clear", helpNames: [])
 }
 
 struct EventsCommand: SharedLegacyFacadeCommand {

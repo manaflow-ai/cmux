@@ -260,8 +260,9 @@ extension CMUXCLI {
     ]
 
     /// The agents `cmux hooks <agent> ...` and `cmux hooks setup --agent <name>`
-    /// accept, derived from the same catalog `agentDef(named:)` resolves against.
-    static let hookAgentNames: [String] = agentDefs.map(\.name).sorted()
+    /// accept, derived from the same catalog `agentDef(named:)` resolves against,
+    /// so catalog aliases are offered alongside primary names.
+    static let hookAgentNames: [String] = Set(agentDefs.flatMap { [$0.name] + $0.aliases }).sorted()
 
     /// Completion candidates for the first token of `cmux hooks`: the two
     /// catalog-wide verbs plus every agent. `hooks` stays an unrecognized-argument

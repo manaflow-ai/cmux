@@ -20468,12 +20468,14 @@ struct CMUXCLI {
             """
         case "wait-for":
             return """
-            Usage: cmux wait-for [-S|--signal] <name> [--timeout <seconds>]
+            Usage: cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]
 
-            Wait for or signal a named synchronization token.
+            Wait for or signal a named synchronization token, or lock/unlock it.
 
             Flags:
               -S, --signal           Signal the token instead of waiting
+              -L                     Take the token's lock, waiting up to the timeout
+              -U                     Release the token's lock
               --timeout <seconds>    Wait timeout (default: 30)
             """
         case "swap-pane":
@@ -42698,7 +42700,9 @@ struct CMUXTermMain {
             if argument == "--json" {
                 continue
             }
-            if CMUXCLI.splitGlobalOption(argument).inlineValue != nil {
+            // An empty inline value (`--socket=`) is malformed; leave it as the
+            // routing token so the legacy path rejects it like `CMUXCLI.run()`.
+            if let inlineValue = CMUXCLI.splitGlobalOption(argument).inlineValue, !inlineValue.isEmpty {
                 continue
             }
             if optionsWithValues.contains(argument) {

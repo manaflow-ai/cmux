@@ -24,6 +24,7 @@ struct FocusWindowCommand: SharedLegacyFacadeCommand {
 
 struct CloseWindowCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("window"), completion: windowCompletion) var target: String?
+    @Flag(name: .customLong("force")) var force = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "close-window", helpNames: [])
 }

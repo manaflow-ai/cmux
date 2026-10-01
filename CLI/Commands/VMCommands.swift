@@ -88,6 +88,7 @@ struct VMBaseOpenCommand: LegacyVMCommand {
     @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
     @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
     @Option(name: .customLong("focus")) var focus: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
     // The image-kind flags. The legacy runner rejects a conflicting pair itself,
     // so they stay independent declarations rather than an exclusive group that
     // would fail before `run()` delegates.
@@ -103,6 +104,8 @@ struct VMBaseResetCommand: LegacyVMCommand {
     @Option(name: .customLong("reason")) var reason: String?
     @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
     @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
+    @Option(name: .customLong("focus")) var focus: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
     // See VMBaseOpenCommand: the kind flags are validated by the legacy runner.
     @Flag(name: .customLong("base")) var base = false
     @Flag(name: .customLong("desktop")) var desktop = false
@@ -123,6 +126,7 @@ struct VMNewCommand: LegacyVMCommand {
     @Option(name: .customLong("workspace"), completion: .custom(CompletionCandidates.workspaces)) var workspace: String?
     @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
     @Option(name: .customLong("focus")) var focus: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
     // See VMBaseOpenCommand: the kind flags are validated by the legacy runner.
     @Flag(name: .customLong("base")) var base = false
     @Flag(name: .customLong("desktop")) var desktop = false
@@ -154,6 +158,8 @@ struct VMForkCommand: VMIDCommand {
     @Argument(completion: vmID) var id: String?
     @Option(name: .customLong("name")) var name: String?
     @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
+    @Option(name: .customLong("focus")) var focus: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
     @Flag(name: [.customLong("detach"), .customShort("d")]) var detach = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "fork", helpNames: [])
@@ -163,6 +169,8 @@ struct VMRestoreCommand: LegacyVMCommand {
     @Argument var snapshotID: String?
     @Option(name: .customLong("provider")) var provider: String?
     @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
+    @Option(name: .customLong("focus")) var focus: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
     @Flag(name: [.customLong("detach"), .customShort("d")]) var detach = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "restore", helpNames: [])
@@ -175,6 +183,7 @@ struct VMRemoveCommand: VMIDCommand {
 }
 
 struct VMExecCommand: VMIDCommand {
+    @Option(name: .customLong("timeout")) var timeout: String?
     @Argument(completion: vmID) var id: String?
     @Argument(parsing: .captureForPassthrough) var command: [String] = []
     static let configuration = CommandConfiguration(commandName: "exec", helpNames: [])
@@ -183,6 +192,8 @@ struct VMExecCommand: VMIDCommand {
 struct VMShellCommand: VMIDCommand {
     @Argument(completion: vmID) var id: String?
     @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
+    @Option(name: .customLong("focus")) var focus: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "shell", helpNames: [], aliases: ["attach"])
 }
@@ -190,6 +201,8 @@ struct VMShellCommand: VMIDCommand {
 struct VMSSHCommand: VMIDCommand {
     @Argument(completion: vmID) var id: String?
     @Option(name: .customLong("window"), completion: .custom(CompletionCandidates.windows)) var window: String?
+    @Option(name: .customLong("focus")) var focus: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
     @Argument(parsing: .captureForPassthrough) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "ssh", helpNames: [])
 }
@@ -252,6 +265,7 @@ struct VMTreeCommand: VMIDCommand {
     // `local` is also accepted in this position; the VM ids are what varies.
     @Argument(completion: vmID) var machine: String?
     @Flag(name: .customLong("refresh")) var refresh = false
+    @Flag(name: .customLong("sidebar")) var sidebar = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "tree", helpNames: [])
 }
@@ -299,6 +313,8 @@ struct VMResumeCommand: VMIDCommand {
 struct VMTuiCommand: VMIDCommand {
     @Argument(completion: vmID) var id: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var window: String?
+    @Option(name: .customLong("focus")) var focus: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "tui", helpNames: [])
 }
@@ -317,6 +333,7 @@ struct VMOpenCommand: VMIDCommand {
     @Flag(name: .customLong("print")) var printsURL = false
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspace: String?
     @Option(name: .customLong("focus"), completion: .list(["true", "false"])) var focus: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
     @Option(name: .customLong("window"), completion: windowCompletion) var window: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "open", helpNames: [], aliases: ["port"])
@@ -357,6 +374,8 @@ struct VMAgentCommand: VMIDCommand {
     @Flag(name: .customLong("new")) var new = false
     @Flag(name: .customLong("wait")) var wait = false
     @Flag(name: .customLong("output")) var output = false
+    @Option(name: .customLong("focus")) var focus: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
     @Argument(parsing: .captureForPassthrough) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "agent", helpNames: [])
 }
@@ -373,6 +392,8 @@ struct VMDevCommand: VMIDCommand {
     @Flag(name: .customLong("no-sync")) var noSync = false
     @Flag(name: .customLong("no-open")) var noOpen = false
     @Flag(name: .customLong("dry-run")) var dryRun = false
+    @Option(name: .customLong("focus")) var focus: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "dev", helpNames: [])
 }
@@ -513,6 +534,8 @@ struct VMWorkspaceNewCommand: VMIDCommand {
     @Option(name: .customLong("name")) var name: String?
     @Flag(name: .customLong("reuse")) var reuse = false
     @Flag(name: .customLong("no-open")) var noOpen = false
+    @Option(name: .customLong("focus")) var focus: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "new", helpNames: [])
 }
@@ -522,6 +545,8 @@ struct VMWorkspaceOpenCommand: VMIDCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspace: String?
     @Option(name: .customLong("pane"), completion: paneCompletion) var pane: String?
     @Flag(name: .customLong("here")) var here = false
+    @Option(name: .customLong("focus")) var focus: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
     @Flag(name: .customLong("tabs")) var tabs = false
     // At most one direction, and only with --pane; the runner validates both.
     @Flag(name: .customLong("left")) var left = false
@@ -639,6 +664,8 @@ struct VMLayoutApplyCommand: VMIDCommand {
     @Option(name: .customLong("cwd"), completion: .directory) var cwd: String?
     @Option(name: .customLong("from-saved")) var fromSaved: String?
     @Flag(name: .customLong("open")) var open = false
+    @Option(name: .customLong("focus")) var focus: String?
+    @Flag(name: .customLong("no-focus")) var noFocus = false
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "apply", helpNames: [], aliases: ["set"])
 }
