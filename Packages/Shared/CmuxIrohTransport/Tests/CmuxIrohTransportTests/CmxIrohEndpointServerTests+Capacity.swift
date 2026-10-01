@@ -64,12 +64,13 @@ extension CmxIrohEndpointServerTests {
         // replaces its own never-usable predecessor instead of being refused:
         // capacity held by a dead connection must not refuse its owner.
         await endpoint.enqueue(replacement)
-        for _ in 0 ..< 1_000 {
+        let replacementDeadline = ContinuousClock().now.advanced(by: .seconds(1))
+        while ContinuousClock().now < replacementDeadline {
             if await started.recordedCount() == 2,
                await active.observedCloseCallCount() == 1 {
                 break
             }
-            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
         }
         let startedCount = await started.recordedCount()
         let activeCloseCount = await active.observedCloseCallCount()

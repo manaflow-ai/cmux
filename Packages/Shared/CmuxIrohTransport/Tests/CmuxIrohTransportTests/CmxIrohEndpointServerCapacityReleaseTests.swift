@@ -50,11 +50,12 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
         _ recorder: EndpointServerRecorder,
         _ expected: Int
     ) async -> Bool {
-        for _ in 0 ..< 1_000 {
+        let deadline = ContinuousClock().now.advanced(by: .seconds(1))
+        while ContinuousClock().now < deadline {
             if await recorder.recordedCount() >= expected { return true }
-            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
         }
-        return false
+        return await recorder.recordedCount() >= expected
     }
 
     private static func makeSupervisor(
@@ -364,11 +365,12 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
                 bidirectionalStreams: []
             )
             await endpoint.enqueue(newcomer)
-            for _ in 0 ..< 1_000 {
+            let deadline = ContinuousClock().now.advanced(by: .seconds(1))
+            while ContinuousClock().now < deadline {
                 let admittedCount = await recorder.recordedCount()
                 let newcomerCloseCount = await newcomer.observedCloseCallCount()
                 if admittedCount == 2 || newcomerCloseCount > 0 { break }
-                await Task.yield()
+                try? await Task.sleep(for: .milliseconds(1))
             }
             if await recorder.recordedCount() == 2 {
                 admittedNewcomer = newcomer
