@@ -48,6 +48,7 @@ public final class CloudSessionController {
     private let approvalClock: any Clock<Duration>
     private let visibilityDefaults: UserDefaults
     private let visibilityDefaultsKey = "mobile.cloud.hiddenMachineIDs.v2"
+    public private(set) var hiddenMachineIDs: Set<String>
 
     private var liveTunnel: (any CloudTunnel)?
     private var identity: CloudDeviceIdentity?
@@ -110,6 +111,9 @@ public final class CloudSessionController {
         self.deviceName = deviceName
         self.approvalClock = approvalClock
         self.visibilityDefaults = visibilityDefaults
+        self.hiddenMachineIDs = Set(
+            (visibilityDefaults.array(forKey: visibilityDefaultsKey) as? [String]) ?? []
+        )
         self.tunnelStartupTimeout = max(.milliseconds(1), tunnelStartupTimeout)
         self.provisioningPollLimit = max(1, provisioningPollLimit)
         self.listRetryLimit = max(1, listRetryLimit)
@@ -379,14 +383,12 @@ public final class CloudSessionController {
     /// Persisted locally and only as hidden ids, so a newly created machine is
     /// visible by default. This is the store behind the Computers screen's
     /// switch; the shell filters the workspace list from it.
-    public var hiddenMachineIDs: Set<String> {
-        Set((visibilityDefaults.array(forKey: visibilityDefaultsKey) as? [String]) ?? [])
-    }
-
     /// Records whether a machine is hidden from the user's computers.
     public func setMachine(id: String, hidden: Bool) {
         var ids = hiddenMachineIDs
         if hidden { ids.insert(id) } else { ids.remove(id) }
+        guard ids != hiddenMachineIDs else { return }
+        hiddenMachineIDs = ids
         visibilityDefaults.set(Array(ids).sorted(), forKey: visibilityDefaultsKey)
     }
 
@@ -453,6 +455,7 @@ public final class CloudSessionController {
         let storedHiddenIDs = hiddenMachineIDs
         let reconciledHiddenIDs = storedHiddenIDs.intersection(liveMachineIDs)
         guard storedHiddenIDs != reconciledHiddenIDs else { return }
+        hiddenMachineIDs = reconciledHiddenIDs
         visibilityDefaults.set(Array(reconciledHiddenIDs).sorted(), forKey: visibilityDefaultsKey)
     }
 

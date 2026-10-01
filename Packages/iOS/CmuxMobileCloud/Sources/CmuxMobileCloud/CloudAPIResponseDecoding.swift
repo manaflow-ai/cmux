@@ -33,11 +33,14 @@ public struct CloudAPIResponseDecoding: Sendable {
         let availableKinds: Set<CloudMachineKind>?
         let machineLimits: CloudMachineLimits?
         if let limits = object["limits"] as? [String: Any] {
-            let entries = limits["imageKinds"] as? [[String: Any]] ?? []
-            availableKinds = Set(entries.compactMap { entry in
-                guard let raw = entry["kind"] as? String else { return nil }
-                return CloudMachineKind(rawValue: raw)
-            })
+            if let entries = limits["imageKinds"] as? [[String: Any]] {
+                availableKinds = Set(entries.compactMap { entry in
+                    guard let raw = entry["kind"] as? String else { return nil }
+                    return CloudMachineKind(rawValue: raw)
+                })
+            } else {
+                availableKinds = nil
+            }
             machineLimits = CloudMachineLimits(
                 maxActiveMachines: Self.int(limits["maxActiveVms"]),
                 activeMachineCount: Self.int(limits["activeVmCount"]),
