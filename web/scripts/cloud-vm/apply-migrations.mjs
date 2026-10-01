@@ -3,7 +3,7 @@ import path from "node:path";
 
 const concurrentIndexPattern = /CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY/i;
 const concurrentIndexNamePattern = /CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY(?:\s+IF\s+NOT\s+EXISTS)?\s+"([^"]+)"/i;
-const concurrentIndexTargetPattern = /CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY(?:\s+IF\s+NOT\s+EXISTS)?\s+"[^"]+"\s+ON\s+(?:(?:"([^"]+)"|([A-Za-z_][\w$]*))\.)?(?:"([^"]+)"|([A-Za-z_][\w$]*))/i;
+const concurrentIndexTargetPattern = /CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY(?:\s+IF\s+NOT\s+EXISTS)?\s+"[^"]+"\s+ON\s+(?:ONLY\s+)?(?:(?:"([^"]+)"|([A-Za-z_][\w$]*))\.)?(?:"([^"]+)"|([A-Za-z_][\w$]*))/i;
 
 async function recordMigration(client, migration) {
   for (const statement of migration.sql) await client.query(statement);
@@ -63,8 +63,13 @@ export async function applyPendingMigrations(pool, webDir) {
   const { getMigrationsToRun } = requireFromWeb("drizzle-orm/migrator.utils");
   const migrations = readMigrationFiles({ migrationsFolder: path.join(webDir, "db/migrations") });
 
-  await pool.query("CREATE SCHEMA IF NOT EXISTS drizzle");
-  await pool.query(`
+  const client = await pool.connect();
+  let locked = false;
+  try {
+    await client.query("select pg_advisory_lock(hashtextextended($1, 0))", ["cmux:migrations"]);
+    locked = true;
+    await client.query("CREATE SCHEMA IF NOT EXISTS drizzle");
+    await client.query(`
     CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (
       id SERIAL PRIMARY KEY,
       hash text NOT NULL,
@@ -72,16 +77,20 @@ export async function applyPendingMigrations(pool, webDir) {
       name text,
       applied_at timestamp with time zone DEFAULT now()
     )
-  `);
-  const applied = await pool.query("select id, hash, created_at, name from drizzle.__drizzle_migrations");
-  const pending = getMigrationsToRun({ localMigrations: migrations, dbMigrations: applied.rows });
-  for (const migration of pending) {
-    if (migration.sql.some((statement) => concurrentIndexPattern.test(statement))) {
-      await dropInvalidConcurrentIndex(pool, migration);
-      await recordMigration(pool, migration);
-    } else {
-      await applyInTransaction(pool, migration);
+    `);
+    const applied = await client.query("select id, hash, created_at, name from drizzle.__drizzle_migrations");
+    const pending = getMigrationsToRun({ localMigrations: migrations, dbMigrations: applied.rows });
+    for (const migration of pending) {
+      if (migration.sql.some((statement) => concurrentIndexPattern.test(statement))) {
+        await dropInvalidConcurrentIndex(client, migration);
+        await recordMigration(client, migration);
+      } else {
+        await applyInTransaction(client, migration);
+      }
     }
+    return pending.length;
+  } finally {
+    if (locked) await client.query("select pg_advisory_unlock(hashtextextended($1, 0))", ["cmux:migrations"]);
+    client.release();
   }
-  return pending.length;
 }

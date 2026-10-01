@@ -24,9 +24,35 @@ def run(*args: str, cwd: str | None = None, timeout: float = FETCH_TIMEOUT_SECON
             args, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout,
         )
     except subprocess.TimeoutExpired as exc:
+        def text(value: str | bytes | None, fallback: str) -> str:
+            if isinstance(value, bytes):
+                return value.decode(errors="replace")
+            return value or fallback
+
         return subprocess.CompletedProcess(
-            args, 124, stdout=exc.stdout or "", stderr=exc.stderr or "command timed out",
+            args, 124, stdout=text(exc.stdout, ""), stderr=text(exc.stderr, "command timed out"),
         )
+
+
+def clear_stale_shallow_lock(path: str) -> None:
+    """Remove a shallow.lock left by a timed-out fetch when no fetch remains."""
+    git_dir = run("git", "-C", path, "rev-parse", "--git-dir", timeout=5)
+    if git_dir.returncode:
+        return
+    lock = Path(git_dir.stdout.strip())
+    if not lock.is_absolute():
+        lock = Path(path) / lock
+    lock /= "shallow.lock"
+    if not lock.exists():
+        return
+    active = run("pgrep", "-af", f"git.*{re.escape(path)}.*fetch", timeout=2)
+    if active.returncode == 0:
+        return
+    try:
+        lock.unlink()
+        print(f"submodule-forward-only: removed stale {lock}", file=sys.stderr)
+    except FileNotFoundError:
+        pass
 
 
 def gitlink(ref: str, path: str) -> str | None:
@@ -96,6 +122,7 @@ def deepened_relation(path: str, base: str, new: str) -> str | None:
     if shallow.returncode != 0 or shallow.stdout.strip() != "true":
         return None
     for round_number in range(1, MAX_DEEPEN_ROUNDS + 1):
+        clear_stale_shallow_lock(path)
         fetched = run(
             "git", "-C", path, "fetch", "--quiet", "--filter=blob:none",
             f"--deepen={DEEPEN_CHUNK}", "origin", base, new,
