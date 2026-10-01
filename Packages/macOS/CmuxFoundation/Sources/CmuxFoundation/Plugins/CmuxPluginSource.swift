@@ -3,8 +3,9 @@ import Foundation
 /// Where `cmux plugin install` clones a plugin from.
 ///
 /// `owner/repo` and `owner/repo/sub/dir` are GitHub shorthands. Anything
-/// that looks like a URL, an SCP-style `user@host:path`, or a local path is
-/// passed to `git clone` unchanged, following the cmux-tui manager's rules:
+/// that looks like a URL or an SCP-style `user@host:path` is passed to
+/// `git clone` unchanged, following the cmux-tui manager's rules. Local paths
+/// use `cmux plugin link` instead:
 /// HTTP(S) sources with credentials, a query, or a fragment are rejected so
 /// tokens never reach the process table.
 public struct CmuxPluginSource: Equatable, Sendable {

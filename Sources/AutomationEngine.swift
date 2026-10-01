@@ -282,9 +282,10 @@ final class AutomationEngine {
     }
 
     private func apply(_ configuration: AutomationConfiguration) {
-        let fileRuleIDs = Set(configuration.rules.map(\.id))
-        let pluginRules = pluginRulesProvider().filter { !fileRuleIDs.contains($0.id) }
-        rules = configuration.rules + pluginRules
+        let pluginRules = pluginRulesProvider()
+        let pluginRuleIDs = Set(pluginRules.map(\.id))
+        let fileRules = configuration.rules.filter { !pluginRuleIDs.contains($0.id) }
+        rules = fileRules + pluginRules
         pluginRuleIDs = Set(pluginRules.map(\.id))
         rebuildRuleIndexes()
         fireDatesByRuleID.removeAll(keepingCapacity: true)

@@ -97,7 +97,7 @@ extension CMUXCLI {
         } catch let error as CmuxPluginManifestError {
             throw CLIError(message: error.message)
         }
-        requestPluginReload(socketPath: socketPath, explicitPassword: explicitPassword, reportFailure: subcommand == "reload")
+        try requestPluginReload(socketPath: socketPath, explicitPassword: explicitPassword, reportFailure: subcommand == "reload")
     }
 
     /// `cmux plugin action invoke <name>.<action>` runs through the app so
@@ -284,14 +284,14 @@ extension CMUXCLI {
 
     /// Asks a running app to reread plugins. The files are already updated,
     /// so an unreachable app just picks them up at its next launch.
-    private func requestPluginReload(socketPath: String, explicitPassword: String?, reportFailure: Bool) {
+    private func requestPluginReload(socketPath: String, explicitPassword: String?, reportFailure: Bool) throws {
         do {
             let client = try connectClient(socketPath: socketPath, explicitPassword: explicitPassword, launchIfNeeded: false)
             defer { client.close() }
             _ = try client.sendV2(method: "plugin.reload")
         } catch {
             if reportFailure {
-                cliWriteStderr("\(error)\n")
+                throw CLIError(message: String(describing: error))
             }
         }
     }

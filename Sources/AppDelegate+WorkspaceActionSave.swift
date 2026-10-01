@@ -174,7 +174,7 @@ extension AppDelegate {
         if let activeStore = context?.cmuxConfigStore {
             cmuxConfigStore = activeStore
         } else {
-            let globalStore = CmuxConfigStore()
+            let globalStore = CmuxConfigStore(pluginActions: { CmuxPluginRuntime.shared.configActions() })
             globalStore.loadAll()
             cmuxConfigStore = globalStore
         }

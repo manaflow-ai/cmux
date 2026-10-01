@@ -1,6 +1,7 @@
 import CmuxFoundation
 import CmuxSettings
 import Foundation
+import os.log
 
 /// Connects enabled extension plugins (`cmux-plugin.toml`, `kind = "extension"`)
 /// to the existing action registry and automation engine.
@@ -95,7 +96,8 @@ final class CmuxPluginRuntime {
                 Task.detached(priority: .utility) {
                     let result = await session.run(timeoutSeconds: timeout)
                     if !result.succeeded {
-                        NSLog("[CmuxPlugin] %@ failed: %@", registryID, result.detail)
+                        Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.cmux", category: "plugins")
+                            .error("Plugin action \(registryID, privacy: .public) failed: \(result.detail, privacy: .public)")
                     }
                 }
                 return true
@@ -140,7 +142,8 @@ final class CmuxPluginRuntime {
 
     private func logProblems() {
         for problem in catalog.problems {
-            NSLog("[CmuxPlugin] skipped %@: %@", problem.name, problem.message)
+            Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.cmux", category: "plugins")
+                .error("Skipped plugin \(problem.name, privacy: .public): \(problem.message, privacy: .public)")
         }
     }
 }
