@@ -10,10 +10,10 @@ public extension Notification.Name {
 
 /// Holds a gallery request until the progressively mounted Custom Sidebars
 /// section is ready to present it.
+// lint:allow namespace-enum — process-wide notification handoff shared by host menu actions and a lazily mounted settings section; converting it to injected instance state would cross the package's settings-window composition boundary.
 @MainActor
 public enum CustomSidebarTemplateGalleryRequest {
     private static var pending = false
-
     public static func request() {
         pending = true
         NotificationCenter.default.post(name: .customSidebarTemplateGalleryRequested)
