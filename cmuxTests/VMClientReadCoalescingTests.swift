@@ -66,7 +66,6 @@ struct VMClientReadCoalescingTests {
         await CloudRefreshURLProtocol.waitUntilStarted()
         let stopBaseline = await CloudRefreshURLProtocol.currentStopCount()
         model.stopPolling()
-        model.endOperation()
         await CloudRefreshURLProtocol.waitUntilStopped(after: stopBaseline)
         #expect(!model.isLoading)
         #expect(model.machines.isEmpty)

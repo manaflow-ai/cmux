@@ -256,7 +256,7 @@ struct MachinesCloudStatusTests {
         // row rather than passing with only the hosting view as its root.
         let rawError = "https://cloud.example.test/api/vm?trace=secret response-body=private"
         let populated = Self.host(treeError: rawError) { _ in }
-        let safeMessage = "This operation did not complete. Check the machine state before you try it again."
+        let safeMessage = String(localized: "cloud.operation.failedAction", defaultValue: "This operation did not complete. Check the machine state before you try it again.")
         let texts = Self.accessibilitySnapshot(in: populated.view).texts
         #expect(texts.contains(safeMessage), "The populated fixture did not expose the sanitized tree status")
         #expect(texts.allSatisfy { !$0.contains(rawError) }, "Upstream error details reached accessibility")
