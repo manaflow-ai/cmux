@@ -38,7 +38,9 @@ public struct KeptLayoutPlan: Codable, Sendable, Equatable {
     /// This plan with `measured` directories (by tab resource id) in place of
     /// the tree's, and `fallback` for a tab with neither.
     public func withDirectories(_ measured: [String: String], fallback: String?) -> KeptLayoutPlan {
-        KeptLayoutPlan(tabs: tabs)  // not implemented yet
+        KeptLayoutPlan(tabs: Dictionary(uniqueKeysWithValues: tabs.map { id, tab in
+            (id, Tab(cwd: measured[id] ?? tab.cwd ?? fallback))
+        }))
     }
 }
 

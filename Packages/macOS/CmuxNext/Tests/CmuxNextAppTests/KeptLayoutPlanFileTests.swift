@@ -18,3 +18,13 @@ struct KeptLayoutPlanFileTests {
         #expect(await file.read() == nil)
     }
 }
+
+/// End Sessions, Keep Layout reads each shell's real directory.
+struct ShellDirectoryTests {
+    @Test func readsThisProcesssDirectory() {
+        let own = URL(filePath: FileManager.default.currentDirectoryPath).resolvingSymlinksInPath().path
+        let measured = ShellDirectory.of(pid: getpid()).map { URL(filePath: $0).resolvingSymlinksInPath().path }
+        #expect(measured == own)
+        #expect(ShellDirectory.of(pid: -1) == nil)
+    }
+}

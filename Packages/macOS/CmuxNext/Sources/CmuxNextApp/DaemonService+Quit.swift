@@ -23,7 +23,9 @@ extension DaemonService {
         }
         let keepLayout = choice == .endKeepLayout && supports(DaemonCapabilities.shared.endTerminalsKeepLayout)
         if keepLayout, let tree = try? await connection.listWorkspaces() {
-            await KeptLayoutPlanFile.forApplication().write(KeptLayoutPlan(tree: tree))
+            let measured = await Self.shellDirectories(in: tree, on: connection)
+            let plan = KeptLayoutPlan(tree: tree).withDirectories(measured, fallback: defaultCwd)
+            await KeptLayoutPlanFile.forApplication().write(plan)
         }
         shutdownConnection()
         do {
@@ -34,6 +36,26 @@ extension DaemonService {
         } catch {
             logger.error("end sessions failed: \(String(describing: error), privacy: .public)")
             await KeptLayoutPlanFile.forApplication().remove()
+        }
+    }
+
+    /// Each live terminal tab's shell directory, by tab resource id, read
+    /// from the shell process (`process-info` pid) on this Mac. The daemon's
+    /// tab cwd misses a `cd` the shell did not report with OSC 7.
+    private static func shellDirectories(in tree: DaemonTree, on connection: DaemonConnection) async -> [String: String] {
+        let tabs = tree.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .pty && !$0.dead }
+        return await withTaskGroup(of: (String, String)?.self) { group in
+            for tab in tabs {
+                guard let id = tab.tabResourceID?.rawValue else { continue }
+                group.addTask {
+                    guard let pid = try? await connection.request(TerminalProcessInfoRequest(surface: tab.surface), timeout: .seconds(1)).pid,
+                          let directory = ShellDirectory.of(pid: Int32(pid)) else { return nil }
+                    return (id, directory)
+                }
+            }
+            var directories: [String: String] = [:]
+            for await entry in group { if let (id, directory) = entry { directories[id] = directory } }
+            return directories
         }
     }
 
