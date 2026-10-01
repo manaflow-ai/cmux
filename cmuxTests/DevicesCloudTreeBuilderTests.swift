@@ -20,6 +20,15 @@ struct DevicesCloudTreeBuilderTests {
     private let studio = SurfaceDeviceInstanceID(deviceID: "22222222-2222-2222-2222-222222222222", tag: "default")
     private let laptop = SurfaceDeviceInstanceID(deviceID: "33333333-3333-3333-3333-333333333333", tag: "issue-8001")
 
+    @Test("A Cloud workspace reveal is scoped by machine and remote workspace id")
+    func cloudWorkspaceRevealIsMachineScoped() {
+        let request = CloudTreeRevealRequest.cloudWorkspace(machineID: "machine-a", remoteWorkspaceID: "ws-7")
+        #expect(request.nodeID == CloudTreeNodeBuilder.nodeID(workspace: "ws-7", machine: .cloud("machine-a")))
+
+        let machineFallback = CloudTreeRevealRequest.cloudWorkspace(machineID: "machine-a", remoteWorkspaceID: nil)
+        #expect(machineFallback.nodeID == CloudTreeNodeBuilder.nodeID(machine: .cloud("machine-a")))
+    }
+
     @MainActor
     @Test("A reveal waits for its device row, expands it once, and accepts a later Open request")
     func revealWaitsForDeviceRow() throws {
