@@ -102,18 +102,51 @@ public final class AgentPaneView: NSView {
     }
 
     /// Whether the page renders at the display's full rate. Setting it
-    /// changes the live page's preferences.
+    /// changes the live page's preferences and re-shows the page so WebKit
+    /// applies them.
     public var rendersAtFullRate: Bool {
         get { webView.configuration.preferences.isWebKitFeatureEnabled(Self.near60FPSFeature) == false }
-        set { webView.configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: !newValue) }
+        set {
+            guard newValue != rendersAtFullRate else { return }
+            webView.configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: !newValue)
+            reapplyRenderRate()
+        }
     }
 
     /// The re-apply of the last rate change, while it runs.
     private(set) var rateReapply: Task<Void, Never>?
-    /// An image of the page as shown (tests set it).
-    var snapshotPage: () async -> NSImage? = { nil }
+    /// An image of the page as shown; nil skips the re-apply (tests set it).
+    lazy var snapshotPage: () async -> NSImage? = { [weak self] in
+        try? await self?.webView.takeSnapshot(configuration: nil)
+    }
     /// Waits out the re-apply's steps (tests set it).
+    // wakeup-allow: one-shot steps of a render-rate change (33 ms hidden, 50 ms covered), injected for tests
     var pause: (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+
+    /// WebKit reads the rate only when the page's visibility changes, so the
+    /// web view is hidden for a moment and shown again. A snapshot of the
+    /// page covers it meanwhile; the adaptive rate changes only after a
+    /// scroll settles, so the snapshot matches what is on screen. Without a
+    /// snapshot the rate waits for the next visibility change instead of
+    /// blinking the page.
+    private func reapplyRenderRate() {
+        let previous = rateReapply
+        rateReapply = Task { [weak self] in
+            await previous?.value
+            guard let self, let image = await self.snapshotPage() else { return }
+            let cover = NSImageView(frame: self.webView.frame)
+            cover.image = image
+            cover.imageScaling = .scaleAxesIndependently
+            cover.autoresizingMask = [.width, .height]
+            self.addSubview(cover, positioned: .above, relativeTo: self.webView)
+            self.webView.isHidden = true
+            await self.pause(.milliseconds(33))
+            self.webView.isHidden = false
+            // The shown page paints its first frame under the cover.
+            await self.pause(.milliseconds(50))
+            cover.removeFromSuperview()
+        }
+    }
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
