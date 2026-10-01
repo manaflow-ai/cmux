@@ -27,6 +27,7 @@ struct EmptiedWorkspaceTests {
             return SurfaceID(rawValue: 42)
         }
         services.emptyWorkspaces.close = { key in recorder.closed.append(key) }
+        services.emptyWorkspaces.cause = { _ in .tabClosed }
         return (services, recorder)
     }
 
@@ -182,6 +183,28 @@ struct EmptiedWorkspaceTests {
         controller.applyCurrent()
         await Self.settle { !recorder.created.isEmpty }
         #expect(recorder.closed == [Self.key])
+        #expect(recorder.created == [Self.key])
+        controller.teardown()
+        withExtendedLifetime((services, state)) {}
+    }
+
+    /// tag nxthm: a relaunch found one terminal host dead only after the
+    /// app had seen its workspace with the tab (asynchronous adoption,
+    /// `host-process-ended-before-adoption`), and the last-tab rule closed
+    /// the workspace: the user's workspace was gone. A lost terminal keeps
+    /// its workspace and gets a new terminal.
+    @Test func workspaceWhoseLastTerminalWasLostIsKeptAndRefilled() async throws {
+        let (services, recorder) = try Self.services()
+        services.emptyWorkspaces.cause = { _ in .terminalLost }
+        let workspace = try #require(services.daemon.store.workspaces.first)
+        let state = WindowState(workspaceID: workspace.id)
+        let controller = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
+        await Self.settle { false }
+        services.daemon.store.apply(snapshot: Self.emptied())
+        controller.applyCurrent()
+        await Self.settle { !recorder.created.isEmpty || !recorder.closed.isEmpty }
+        await Self.settle { false }
+        #expect(recorder.closed.isEmpty)
         #expect(recorder.created == [Self.key])
         controller.teardown()
         withExtendedLifetime((services, state)) {}

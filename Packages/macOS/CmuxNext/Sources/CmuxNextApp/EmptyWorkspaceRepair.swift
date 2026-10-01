@@ -49,6 +49,8 @@ final class EmptyWorkspaceRepair {
     var create: @MainActor (WorkspaceKey) async throws -> SurfaceID?
     /// Closes `key`, a workspace whose last tab closed. Tests replace it.
     var close: @MainActor (WorkspaceKey) async throws -> Void = { _ in }
+    /// Why `key` lost its last pane. Tests replace it.
+    var cause: @MainActor (WorkspaceKey) async -> EmptiedWorkspaceCause = { _ in .tabClosed }
     /// Whether commands can run now. Tests replace it.
     var canCreate: @MainActor () -> Bool
     private(set) var states: [WorkspaceKey: FirstTerminal] = [:]
