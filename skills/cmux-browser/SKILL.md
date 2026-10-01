@@ -72,16 +72,34 @@ or any large DOM change, because refs go stale.
 
 ## Waiting
 
-Waits are not supported yet: there is no command that blocks until a selector,
-text, URL or load state appears. Do not poll with `eval` in a loop. Take a new
-`snapshot` when the page is ready, and if an element is missing, report that
-instead of retrying blindly.
+`wait` blocks until a condition holds, then returns; do not poll with `eval`.
+
+```bash
+cmux browser "$TAB" wait "#results"
+cmux browser "$TAB" wait --url-contains /dashboard --timeout-ms 15000
+cmux browser "$TAB" wait --text "Saved"
+cmux browser "$TAB" wait --load-state complete
+```
+
+The default timeout is 5000 ms. On `timeout`, take a `snapshot` and report
+what the page shows instead of retrying blindly.
+
+## Screenshots
+
+```bash
+cmux browser "$TAB" screenshot --out page.png
+cmux browser "$TAB" screenshot --selector "#chart" --out chart.png
+cmux browser "$TAB" screenshot --full-page --out full.png
+```
+
+Without `--out` the PNG goes to a new file in the temporary directory and the
+command prints its path; `--out -` writes the PNG to stdout.
 
 ## What the CLI does not cover yet
 
-These old `cmux browser` features have no command in the new CLI: waits,
+These old `cmux browser` features have no command in the new CLI:
 cookies, local and session storage, saved state, console and error capture,
-network routing, dialogs, frames, downloads, screenshots to a file, video,
+network routing, dialogs, frames, downloads, video,
 trace and screencast, geolocation, offline and viewport emulation, hover,
 double click, check, select, scroll, key presses on app tabs, `identify`,
 profiles and proxies.

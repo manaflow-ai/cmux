@@ -40,12 +40,34 @@ cmux browser "$TAB" text body
 cmux browser "$TAB" value "#email"
 cmux browser "$TAB" fill "#email" "$APP_USERNAME"
 cmux browser "$TAB" type "#search" "query"
+cmux browser "$TAB" wait "#results"
+cmux browser "$TAB" wait --url-contains /dashboard --timeout-ms 15000
+cmux browser "$TAB" wait --text "Saved"
+cmux browser "$TAB" wait --load-state complete
+cmux browser "$TAB" wait --function 'window.appReady === true'
+cmux browser "$TAB" screenshot --out page.png
+cmux browser "$TAB" screenshot --selector "#chart" --out chart.png
+cmux browser "$TAB" screenshot --full-page --out full.png
+cmux browser "$TAB" screenshot --out - > page.png
 ```
 
 `goto` and `open` are accepted for `navigate`; `url` and `title` are accepted
 for `state`. `fill` replaces the field's value; `type` types into it.
 Selectors are CSS selectors or snapshot refs (`e3`, `@e3`). Add `--json` before
 the scope for machine-readable output (`cmux --json browser "$TAB" state`).
+
+`wait` takes one condition: a selector (positional or `--selector`), else
+`--url-contains`, `--text`, `--load-state interactive|complete`, or
+`--function` (a JavaScript expression), in that order. With none it waits for
+the page to finish loading. The default timeout is 5000 ms (`--timeout-ms`, at
+most 120000, or `--timeout` in seconds); it exits 1 with `timeout` when the
+condition does not hold in time, and keeps waiting across a navigation.
+
+`screenshot` captures the visible viewport as a PNG. `--selector` captures one
+element (scrolled into view, clipped to the viewport); `--full-page` captures
+the whole document. `--out PATH` writes the file, `--out -` writes the PNG to
+stdout, and without `--out` it writes a new file in the temporary directory.
+It prints the path (`--json`: the tab, path, width and height).
 
 ## Daemon browsers (`browser_…`)
 
@@ -79,14 +101,14 @@ cmux browser screenshot-page
 
 ## Removed, no replacement yet
 
-The old CLI's `wait`, `cookies`, `storage`, `state save|load`, `console`,
-`errors`, `highlight`, `screenshot` (to stdout or a file), `download`,
+The old CLI's `cookies`, `storage`, `state save|load`, `console`,
+`errors`, `highlight`, `download`,
 `dialog`, `frame`, `network`, `trace`, `screencast`, `geolocation`,
 `offline`, `viewport`, `hover`, `dblclick`, `check`, `uncheck`, `select`,
 `scroll`, `scroll-into-view`, `press`, `keydown`, `keyup`, `get attr|count|box|styles|html`,
 `tab list|new|switch|close` inside a browser, `identify`, `profile`,
 `design-mode status` and `--snapshot-after` have no command in the new CLI.
-Waits are not supported yet; do not poll with `eval`. For a one-shot read that
+Do not poll with `eval`; use `wait`. For a one-shot read that
 `text` and `value` do not cover, `eval` returns the script's value.
 
 See also [snapshot-refs.md](snapshot-refs.md) and
