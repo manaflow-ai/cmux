@@ -155,6 +155,7 @@ extension TerminalController {
             "vm.workspace_delete",
             "vm.workspace_rename",
             "vm.terminal_close",
+            "vm.terminal_prune",
             "vm.terminal_write",
             "vm.terminal_read",
             "vm.terminal_wait",

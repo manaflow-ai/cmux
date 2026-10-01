@@ -18978,6 +18978,8 @@ struct CMUXCLI {
                                         terminal in it. Permanent.
               terminal close <machine> <term-id>
                                         End a terminal on the machine.
+              terminal prune <machine>
+                                        End every live terminal with no workspace tab; exited history stays.
               terminal send <machine> <term-id> [text] [--keys enter,ctrl+c,…]
                                         Type into a machine terminal headlessly (no
                                         pane, no focus); --keys presses named keys after.
