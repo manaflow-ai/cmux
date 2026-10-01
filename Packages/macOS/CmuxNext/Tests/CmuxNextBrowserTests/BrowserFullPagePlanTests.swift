@@ -23,7 +23,7 @@ import Testing
     @Test func refusesEmptyNonFiniteAndHugePages() {
         let viewport = CGSize(width: 800, height: 600)
         #expect(BrowserFullPagePlan(contentSize: .zero, viewportSize: viewport) == nil)
-        #expect(BrowserFullPagePlan(contentSize: CGSize(width: 800, height: .infinity), viewportSize: viewport) == nil)
+        #expect(BrowserFullPagePlan(contentSize: CGSize(width: 800, height: CGFloat.infinity), viewportSize: viewport) == nil)
         #expect(BrowserFullPagePlan(contentSize: CGSize(width: 800, height: 600), viewportSize: .zero) == nil)
         #expect(BrowserFullPagePlan(contentSize: CGSize(width: 10_000, height: 10_001), viewportSize: viewport) == nil)
         #expect(!BrowserFullPagePlan.isCapturable(contentSize: CGSize(width: 5_000, height: 5_001)))
