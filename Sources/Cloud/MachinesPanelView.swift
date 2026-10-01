@@ -443,10 +443,6 @@ struct MachinesPanelView: View {
     }
 
     private func launchCloudAgent(_ agent: CloudAgentSkillLauncher.CodingAgent) {
-        viewModel.beginOperation(String(
-            format: String(localized: "machines.agent.operation.starting", defaultValue: "Starting %@…"),
-            agent.displayName
-        ))
         Task { @MainActor [weak viewModel] in
             do {
                 _ = try await CloudAgentSkillLauncher.openAgent(agent)
