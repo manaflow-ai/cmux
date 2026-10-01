@@ -162,8 +162,21 @@ chevron, Other Bookmarks, folder menus, drag reorder, link drop), the
 page Open Bookmark…, `cmux bookmark …` verbs and `bookmark.list`, the
 `debug.bookmarks` control method, the Settings toggle.
 
-Daemon: `bookmarks-v1` is implemented in cmux-tui on its own branch; the app
-lists it in `awaitingPin`, so it uses the file until the pin brings it.
+Daemon: `bookmarks-v1` is implemented in cmux-tui on its own branch
+(feat-cmux-next-bookmarks-daemon, landing after the hosted gate); the app
+lists it in `awaitingPin`, so it uses the file until a pin brings it.
+
+Verified on tag nxbm (no-activate launch, control socket, window
+screenshots; the app never became active and no window became key): the
+star turns filled after `cmux bookmark add-page` and opens the edit bubble
+under it; `cmux bookmark toggle-bar` writes `browser.showBookmarksBar` and
+shows the bar with folders, the overflow chevron and Other Bookmarks;
+`cmux bookmark manager` opens `cmux://bookmarks`; Open Bookmark… lists every
+bookmark with its folder path; export, import (into an Imported folder),
+list, search and remove work from the CLI; bookmarks survive relaunch.
+Not verified live: omnibar bookmark rows (typing into the omnibar of a
+non-key window did not reach the field; ranking is unit tested), drag
+reorder on the bar and in the manager, the bubble's Remove and folder change.
 
 Not built: favicons on the bar and in menus (a globe and folder symbol
 stand in; the cache key is stored), Chromium's `chrome.bookmarks` bridge

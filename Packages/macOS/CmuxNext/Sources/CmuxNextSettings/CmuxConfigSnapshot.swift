@@ -109,7 +109,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (newTabPage, newTabPageDiagnostic) = BrowserNewTabPage.parse(root)
         snapshot.browserNewTabPage = newTabPage
         if let newTabPageDiagnostic { snapshot.diagnostics.append(newTabPageDiagnostic) }
-        snapshot.browserShowBookmarksBar = root.value(at: BookmarksBarSetting.configPath)?.boolValue ?? false
+        let (showBar, showBarDiagnostic) = BookmarksBarSetting.parse(root)
+        snapshot.browserShowBookmarksBar = showBar
+        if let showBarDiagnostic { snapshot.diagnostics.append(showBarDiagnostic) }
         let (hibernation, hibernationDiagnostics) = BrowserHibernationSetting.parse(root)
         snapshot.browserHibernation = hibernation
         snapshot.diagnostics += hibernationDiagnostics
