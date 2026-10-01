@@ -436,11 +436,16 @@ enum AutomationSettingsFileMapping {
             defaultsKey: automation.suppressSubagentNotifications.userDefaultsKey
         ),
         .init(jsonKey: "codexIntegration", defaultsKey: automation.codexIntegration.userDefaultsKey),
+        .init(
+            jsonKey: "canonicalAgentScratch",
+            defaultsKey: automation.canonicalAgentScratch.userDefaultsKey
+        ),
         .init(jsonKey: "ampIntegration", defaultsKey: automation.ampIntegration.userDefaultsKey),
         .init(jsonKey: "cursorIntegration", defaultsKey: automation.cursorIntegration.userDefaultsKey),
         .init(jsonKey: "geminiIntegration", defaultsKey: automation.geminiIntegration.userDefaultsKey),
         .init(jsonKey: "kiroIntegration", defaultsKey: automation.kiroIntegration.userDefaultsKey),
         .init(jsonKey: "workspaceAutoNaming", defaultsKey: automation.workspaceAutoNaming.userDefaultsKey),
+        .init(jsonKey: "agentAutoResume", defaultsKey: automation.agentAutoResume.userDefaultsKey),
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [
@@ -453,7 +458,7 @@ enum AutomationSettingsFileMapping {
 enum BrowserSettingsFileMapping {
     static let booleanSettings: [SettingsFileBooleanMapping] = [
         .init(jsonKey: "showSearchSuggestions", defaultsKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey),
-        .init(jsonKey: "discardHiddenWebViews", defaultsKey: BrowserHiddenWebViewDiscardPolicy.enabledKey),
+        .init(jsonKey: "discardHiddenWebViews", defaultsKey: BrowserHiddenWebViewDiscardPolicy.enabledKey), .init(jsonKey: "autoRestoreUnloadedPages", defaultsKey: BrowserHiddenWebViewDiscardPolicy.autoRestoreKey),
         .init(
             jsonKey: "askWhereToSaveDownloads",
             defaultsKey: SettingCatalog().browser.askWhereToSaveDownloads.userDefaultsKey

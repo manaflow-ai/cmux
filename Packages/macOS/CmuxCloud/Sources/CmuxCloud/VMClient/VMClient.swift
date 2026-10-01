@@ -300,6 +300,26 @@ public struct VMSummary: Sendable {
         self.createdBy = createdBy
     }
 
+    public func withStatus(_ status: String) -> VMSummary {
+        VMSummary(
+            id: id,
+            provider: provider,
+            status: status,
+            image: image,
+            createdAt: createdAt,
+            base: base,
+            kind: kind,
+            capabilities: capabilities,
+            displayName: displayName,
+            slug: slug,
+            freeAccessExpiresAt: freeAccessExpiresAt,
+            addressIPv4: addressIPv4,
+            addressIPv6: addressIPv6,
+            cmuxTuiContract: cmuxTuiContract,
+            createdBy: createdBy
+        )
+    }
+
     public let id: String
     public let provider: String
     public let status: String
@@ -326,9 +346,9 @@ public struct VMSummary: Sendable {
     /// the WireGuard tunnel); nil for machines created before private networking.
     public var addressIPv4: String?
     public var addressIPv6: String?
-    /// The image's cmux-tui attach contract from the create receipt
+    /// The image's recorded cmux-tui attach contract
     /// (`"snapshot-v2"`: baked daemon, trusted private-network listener).
-    /// Only the create response carries it; list reads leave it nil.
+    /// This is rollout metadata from the control plane, not a live daemon probe.
     public var cmuxTuiContract: String?
 
     /// The name to show people: the label when set, else the generated slug,
@@ -1169,6 +1189,7 @@ public actor VMClient {
                     summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                     summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 }
+                summary.cmuxTuiContract = (dict["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 return summary
             }
             machineCache.record(hasAnyMachine: !vms.isEmpty)
@@ -1692,6 +1713,7 @@ public actor VMClient {
                 summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             }
+            summary.cmuxTuiContract = (obj["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             return summary
         }
     }
