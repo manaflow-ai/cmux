@@ -28,11 +28,9 @@ public final class CloudSystemVPNController {
     private let operationTimeout: Duration
     private let operationGate = CloudSystemVPNOperationGate()
     private let cleanupRetryCount: Int
-    // The durable store is the source of truth; this cache is only the
-    // bounded working set used while an account transition is in flight.
-    // Match the durable store's fixed capacity so loading persisted work
-    // never strands entries beyond the in-memory cleanup set.
-    private let maxInMemoryPendingRevocations = 4096
+    // The durable store is the source of truth. Keep every pending peer in
+    // the working set too, because evicting one would strand server routes
+    // permanently. Remote cleanup remains bounded per transition and retry.
     // Account transitions do one bounded unit of remote cleanup. Remaining
     // entries continue through the background retry path after the new scope
     // is ready.
@@ -726,10 +724,6 @@ public final class CloudSystemVPNController {
             teamID: tunnelTeamID,
             credentials: tunnel.credentials
         ))
-        let overflow = pendingBrowserTunnelRevocations.count - maxInMemoryPendingRevocations
-        if overflow > 0 {
-            pendingBrowserTunnelRevocations.removeFirst(overflow)
-        }
     }
 
     private func clearPendingBrowserTunnelRevocationCredentials(

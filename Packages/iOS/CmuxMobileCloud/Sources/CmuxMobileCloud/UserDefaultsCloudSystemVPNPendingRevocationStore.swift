@@ -10,7 +10,6 @@ public import Foundation
 {
     private let defaults: UserDefaults
     private let key: String
-    private static let maxPersistedEntries = 4096
 
     /// Creates a store in the supplied defaults domain.
     public init(
@@ -46,10 +45,8 @@ public import Foundation
         _ revocations: Set<CloudSystemVPNPendingRevocation>,
         scope: String
     ) async {
-        // This is an explicit FIFO retention policy. Updating a scope removes
-        // its old entries and appends the current set, so new cleanup work is
-        // retained. When the fixed capacity is full, the oldest entries are
-        // evicted instead of growing UserDefaults without a bound.
+        // Updating a scope removes its old entries and appends the current
+        // set. Every entry stays until the server confirms its revocation.
         var entries = loadEntries().filter { $0.scope != scope }
         entries.append(contentsOf: revocations.sorted {
             if $0.deviceFingerprint != $1.deviceFingerprint {
@@ -59,10 +56,6 @@ public import Foundation
         }.map {
             (scope: scope, fingerprint: $0.deviceFingerprint, teamID: $0.teamID)
         })
-        if entries.count > Self.maxPersistedEntries {
-            entries.removeFirst(entries.count - Self.maxPersistedEntries)
-        }
-
         if entries.isEmpty {
             defaults.removeObject(forKey: key)
         } else {
@@ -97,23 +90,20 @@ public import Foundation
                     fingerprint: fingerprint,
                     teamID: entry["teamID"]
                 )
-            }.prefix(Self.maxPersistedEntries))
+            })
         }
 
-        // Migrate the dictionary written by earlier builds into the bounded
-        // FIFO format on the next save.
+        // Migrate the dictionary written by earlier builds into the current
+        // entry format on the next save.
         let legacy = defaults.dictionary(forKey: key) as? [String: [String]] ?? [:]
         var entries: [(
             scope: String,
             fingerprint: String,
             teamID: String?
         )] = []
-        entries.reserveCapacity(min(Self.maxPersistedEntries, legacy.count))
+        entries.reserveCapacity(legacy.count)
         for scope in legacy.keys.sorted() {
             for fingerprint in legacy[scope, default: []] {
-                guard entries.count < Self.maxPersistedEntries else {
-                    return entries
-                }
                 entries.append(
                     (scope: scope, fingerprint: fingerprint, teamID: nil)
                 )
