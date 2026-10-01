@@ -71,6 +71,7 @@ struct WorkspaceDetailView: View {
     @State var closeConfirmation: MobileWorkspaceCloseConfirmation = .macWorkspace
     #if canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
+    @State private var isAcpmuxPresented = false
     @State private var feedbackText = ""
     @State private var feedbackEmail = ""
     @State private var isSubmittingFeedback = false
@@ -324,6 +325,9 @@ struct WorkspaceDetailView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
             }
+            .sheet(isPresented: $isAcpmuxPresented) {
+                AcpmuxMobileView(client: store.acpmuxClient)
+            }
             .workspaceRenameDialog(
                 isPresented: $isRenamePresented,
                 text: $renameText,
@@ -449,6 +453,14 @@ struct WorkspaceDetailView: View {
         }
         ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
             trailingClusterToolbarContent
+        }
+        if store.acpmuxClient != nil {
+            ToolbarItem(id: "workspace-acpmux", placement: .topBarTrailing) {
+                Button { isAcpmuxPresented = true } label: {
+                    Image(systemName: "bubble.left.and.text.bubble.right")
+                }
+                .accessibilityLabel("Agent chat")
+            }
         }
     }
 

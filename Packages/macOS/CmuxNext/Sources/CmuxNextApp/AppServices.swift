@@ -28,6 +28,10 @@ final class AppServices {
     private(set) var ssh: SSHService!
     /// Phone access; started by the account layer once signed in.
     let mobile = MobileHostService()
+    /// Backend-neutral ACPmux GUI bridge. The same actor serves the Mac
+    /// window and the authenticated phone RPC adapter.
+    let acpmux = AcpmuxAgentService()
+    private var acpmuxWindow: AcpmuxAgentWindowController?
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()
@@ -197,6 +201,17 @@ final class AppServices {
         notifications.start(services: self)
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
         (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] window in self?.notifications.noteMouseDown(in: window) }
+    }
+
+    @MainActor
+    func presentAcpmuxWindow() {
+        if let acpmuxWindow {
+            acpmuxWindow.present()
+            return
+        }
+        let controller = AcpmuxAgentWindowController(service: acpmux)
+        acpmuxWindow = controller
+        controller.present()
     }
 
     // MARK: Lookup

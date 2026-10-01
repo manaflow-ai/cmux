@@ -12,6 +12,7 @@ import os
 /// from disk.
 final class MobileHostService {
     private(set) var host: MobileIrxHost?
+    private let acpmuxService = AcpmuxAgentService()
     private var starting: Task<Void, Never>?
     /// Bumped by every start and stop; a start that lost the race drops out.
     private var generation = 0
@@ -37,9 +38,12 @@ final class MobileHostService {
                 return
             }
             let readiness = self.readiness
+            let acpmux = self.acpmuxService
             let host = MobileIrxHost(configuration: configuration, auth: auth, makeBackend: { @MainActor in
                 let endpoint = try await daemon.endpoint()
                 return try await DaemonCompatBackend.connect(endpointProvider: { endpoint })
+            }, acpmuxRequest: { method, params in
+                try await acpmux.mobileRequest(method: method, params: params)
             }, onUsable: { readiness.report($0) })
             self.host = host
             await host.start()

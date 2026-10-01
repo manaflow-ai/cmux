@@ -166,9 +166,11 @@ extension MobileIrxHost {
         journal.record("next-host", "phone-admitted", ["session": sessionID])
         let host = hostInfo(macDeviceID: macDeviceID)
         let onUsable = onUsable
+        let acpmuxRequest = acpmuxRequest
         let server = MobileIrxConnectionServer(
             connection: irx, control: control, deviceID: peer.deviceID,
-            makeSession: { emit in MobileCompatSession(backend: backend, host: host, emit: emit, onUsable: onUsable) },
+            makeSession: { emit in MobileCompatSession(backend: backend, host: host, emit: emit,
+                                                        acpmuxRequest: acpmuxRequest, onUsable: onUsable) },
             daemonSocketPath: configuration.daemonSocketPath, journal: journal)
         await server.run()
         await irx.close(code: .hostShutdown, origin: .local)

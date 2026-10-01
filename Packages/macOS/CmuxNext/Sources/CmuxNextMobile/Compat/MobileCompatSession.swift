@@ -10,10 +10,12 @@ import os
 /// the phone's selected workspace. Phone focus never moves the Mac's view.
 public actor MobileCompatSession {
     public typealias Emit = @Sendable (_ eventJSON: Data) async -> Void
+    public typealias AcpmuxRequest = @Sendable (_ method: String, _ params: [String: JSONValue]) async throws -> JSONValue
 
     let backend: any MobileCompatBackend
     let host: MobileCompatHostInfo
     let emit: Emit
+    let acpmuxRequest: AcpmuxRequest?
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.compat")
     var subscribed = false
     var workspaceUpdatePending = false
@@ -29,10 +31,12 @@ public actor MobileCompatSession {
     var readiness = MobileReadiness()
 
     public init(backend: any MobileCompatBackend, host: MobileCompatHostInfo, emit: @escaping Emit,
+                acpmuxRequest: AcpmuxRequest? = nil,
                 onUsable: (@Sendable (MobileUsableSession) -> Void)? = nil) {
         self.backend = backend
         self.host = host
         self.emit = emit
+        self.acpmuxRequest = acpmuxRequest
         self.onUsable = onUsable
     }
 
@@ -87,10 +91,27 @@ public actor MobileCompatSession {
             return try await workspaceAction(request)
         case "mobile.surface.focus":
             return .object(["focused": .bool(true)])
+        case "mobile.acpmux.sessions":
+            return try await acpmux("sessions", request.params)
+        case "mobile.acpmux.new":
+            return try await acpmux("new", request.params)
+        case "mobile.acpmux.history":
+            return try await acpmux("history", request.params)
+        case "mobile.acpmux.send":
+            return try await acpmux("send", request.params)
+        case "mobile.acpmux.cancel":
+            return try await acpmux("cancel", request.params)
         default:
             if let result = try await dispatchTerminal(request) { return result }
             throw MobileRPCError.methodNotFound(request.method)
         }
+    }
+
+    private func acpmux(_ method: String, _ params: [String: JSONValue]) async throws -> JSONValue {
+        guard let acpmuxRequest else { throw MobileRPCError.methodNotFound("mobile.acpmux.\(method)") }
+        do { return try await acpmuxRequest(method, params) }
+        catch let error as MobileRPCError { throw error }
+        catch { throw MobileRPCError("acpmux_error", error.localizedDescription) }
     }
 
     // MARK: Events

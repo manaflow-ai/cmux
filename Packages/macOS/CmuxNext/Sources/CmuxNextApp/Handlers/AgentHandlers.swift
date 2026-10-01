@@ -22,7 +22,10 @@ enum AgentHandlers {
         }
         registry.bind("palette.computerUse.accessibility", run: { _ in try openPrivacyPane("Privacy_Accessibility", context) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in try openPrivacyPane("Privacy_ScreenCapture", context) })
-        registry.bindUnavailable(["palette.newAgentChat", "palette.openTerminalChatView"], ActionFailure(message: MiscHandlerStrings.agentChat))
+        // ACPmux is the first backend for the new native GUI surface. Keep
+        // terminal-chat as a separate unavailable legacy action.
+        registry.bind("palette.newAgentChat") { context.services.presentAcpmuxWindow() }
+        registry.bindUnavailable(["palette.openTerminalChatView"], ActionFailure(message: MiscHandlerStrings.agentChat))
         registry.bindUnavailable(["palette.launchClaudeTeams", "palette.launchCodexTeams"], ActionFailure(message: MiscHandlerStrings.agentTeams))
         registry.bindUnavailable(
             ["palette.computerUse.setup", "computerUseFocus", "computerUseFocusCallingTerminal", "computerUseStop"],

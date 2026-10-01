@@ -36,6 +36,11 @@ public enum MobileCompatMethods {
         "mobile.terminal.close": .implemented,
         "mobile.terminal.rename": .implemented,
         "mobile.surface.focus": .acknowledged,
+        "mobile.acpmux.sessions": .implemented,
+        "mobile.acpmux.new": .implemented,
+        "mobile.acpmux.history": .implemented,
+        "mobile.acpmux.send": .implemented,
+        "mobile.acpmux.cancel": .implemented,
     ]
 
     /// Methods listed by `mobile.rpc.methods` (sorted, excluding fallbacks).

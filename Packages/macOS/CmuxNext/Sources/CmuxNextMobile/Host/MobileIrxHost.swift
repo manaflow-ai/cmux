@@ -30,6 +30,9 @@ public actor MobileIrxHost {
     let makeBackend: @Sendable () async throws -> any MobileCompatBackend
     let clock: any Clock<Duration>
     let journal: IrxJournal
+    /// Backend-neutral GUI requests. Nil on hosts built without ACPmux.
+    public typealias AcpmuxRequest = @Sendable (_ method: String, _ params: [String: JSONValue]) async throws -> JSONValue
+    let acpmuxRequest: AcpmuxRequest?
     /// Called once per phone connection that becomes usable (`mobile.rpc.ready`).
     let onUsable: (@Sendable (MobileUsableSession) -> Void)?
 
@@ -64,12 +67,14 @@ public actor MobileIrxHost {
     public init(configuration: MobileHostConfiguration, auth: any MobileHostAuth,
                 makeBackend: @escaping @Sendable () async throws -> any MobileCompatBackend,
                 clock: any Clock<Duration> = ContinuousClock(),
+                acpmuxRequest: AcpmuxRequest? = nil,
                 onUsable: (@Sendable (MobileUsableSession) -> Void)? = nil) {
         self.onUsable = onUsable
         self.configuration = configuration
         self.auth = auth
         self.makeBackend = makeBackend
         self.clock = clock
+        self.acpmuxRequest = acpmuxRequest
         journal = IrxJournal(subsystem: "com.cmuxterm.app.next", category: "irx-host",
                              journalFileURL: URL(fileURLWithPath: "/tmp/cmux-next-irx-journal-\(configuration.tag).jsonl"))
     }
