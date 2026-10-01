@@ -324,6 +324,18 @@ struct WorkspaceShellView: View {
     private var compactTabBarVisibility: Visibility {
         compactRootToolbarVisible ? .automatic : .hidden
     }
+
+    private var compactRootToolbarVisibility: Visibility {
+        guard compactRootToolbarVisible else { return .hidden }
+        guard selectedPrimaryTab == .search else { return .visible }
+        // Before iOS 26, the searchable stack owns the navigation bar that
+        // presents the search field. The shared outer bar must stay hidden so
+        // it does not create a second navigation chrome layer.
+        if #available(iOS 26.0, *) {
+            return .visible
+        }
+        return .hidden
+    }
     #endif
 
     private var listConnectionStatus: MobileMacConnectionStatus {
@@ -470,7 +482,7 @@ struct WorkspaceShellView: View {
     /// system TabView with the transient search tab.
     private func compactScaffold(presentation: WorkspaceShellRenderPresentation) -> some View {
         MobilePrimaryTabNavigationHost(
-            toolbarVisibility: compactRootToolbarVisible ? .visible : .hidden,
+            toolbarVisibility: compactRootToolbarVisibility,
             tabBarVisibility: compactTabBarVisibility,
             toolbar: {
                 if compactRootToolbarVisible {
