@@ -188,6 +188,8 @@ export function AcpmuxApp() {
     let retryTimer: number | undefined;
     let retryDelay = 250;
     // Once a daemon was lost, handshakes only look for one: the user may have stopped it.
+    // Looking is cheap, so a daemon started again elsewhere is found within seconds.
+    const RECONNECT_MAX_DELAY_MS = 2_000;
     let reconnect = false;
     const connectHost = async () => {
       try {
@@ -208,7 +210,7 @@ export function AcpmuxApp() {
           directClient.current = undefined;
           delete window.cmuxAcpmuxActions;
           retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
-          retryDelay = Math.min(retryDelay * 2, 30_000);
+          retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
         });
         if (cancelled) { client.close(); return; }
         directClient.current = client;
@@ -231,7 +233,7 @@ export function AcpmuxApp() {
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
           // Back off so a host without a daemon is not asked four times a second.
           retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
-          retryDelay = Math.min(retryDelay * 2, 30_000);
+          retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
         }
       }
     };

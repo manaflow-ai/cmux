@@ -61,12 +61,15 @@ public actor AcpmuxHost: AgentPaneHostProviding {
 
     private func endpoint(startsDaemon: Bool) async throws -> AcpmuxWebEndpoint {
         if let task = inFlight[startsDaemon] { return try await task.value }
+        // A reconnect during a start waits for that daemon instead of
+        // reporting it stopped.
+        if !startsDaemon, let task = inFlight[true] { return try await task.value }
         if environment == nil { environment = resolveEnvironment() }
         guard let environment else { throw AgentPaneHostError.acpmuxNotFound }
         // task-owner: stored in inFlight and cleared when it settles; callers await its value
         let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon) }
         inFlight[startsDaemon] = task
-        defer { inFlight[startsDaemon] = nil }
+        defer { if inFlight[startsDaemon] == task { inFlight[startsDaemon] = nil } }
         return try await task.value
     }
 

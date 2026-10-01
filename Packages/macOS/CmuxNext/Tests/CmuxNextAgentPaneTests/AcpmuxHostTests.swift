@@ -6,7 +6,8 @@ import Testing
 /// listens on.
 @Suite struct AcpmuxHostTests {
     private func stoppedDaemon() throws -> (AcpmuxEnvironment, URL) {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("acpmux-host-\(UUID().uuidString)", isDirectory: true)
+        // Short: a socket path must fit sun_path (104 bytes).
+        let root = URL(fileURLWithPath: "/tmp/ah-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let executable = root.appendingPathComponent("acpmux")
         let script = #"printf '{"ready":true,"pid":%s,"webUrl":"http://127.0.0.1:5123/?token=tok"}\n' "$$" >&3"#
@@ -27,7 +28,8 @@ import Testing
         await #expect(throws: AgentPaneHostError.daemonStopped) {
             try await host.reconnectHandshake(sessionId: "s-1")
         }
-        #expect(!FileManager.default.fileExists(atPath: environment.logPath), "acpmux was launched")
+        // The launcher makes the daemon's home before it spawns.
+        #expect(!FileManager.default.fileExists(atPath: environment.home.path), "acpmux was launched")
     }
 
     @Test func aFirstHandshakeStartsTheDaemon() async throws {
