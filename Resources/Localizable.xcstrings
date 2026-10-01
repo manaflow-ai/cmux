@@ -234491,6 +234491,256 @@
         }
       }
     },
+      "machines.menu.restart": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Restart"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "再起動"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Redémarrer"
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "إعادة التشغيل"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Reiniciar"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "重新啟動"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "重新启动"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "재시동"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Neustart"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Ponovo pokreni"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Genstart"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Riavvia"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ចាប់ផ្ដើមឡើងវិញ"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Start på nytt"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Uruchom ponownie"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Reiniciar"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Перезапустить"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "เริ่มต้นใหม่"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Yeniden başlat"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Перезапустити"
+            }
+          }
+        }
+      },
+      "machines.menu.shutdown": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Shut Down"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "シャットダウン"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Éteindre"
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "إيقاف التشغيل"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Apagar"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "關機"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "关机"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "종료"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Herunterfahren"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Ugasi"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Luk ned"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Spegni"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "បិទ"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Slå av"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Wyłącz"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Desligar"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Выключить"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ปิดเครื่อง"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Kapat"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Вимកា"
+            }
+          }
+        }
+      },
     "machines.menu.status": {
       "extractionState": "manual",
       "localizations": {
@@ -517748,6 +517998,256 @@
         }
       }
     },
+      "machines.operation.restart": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Restarting %@…"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "%@ を再起動中…"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Redémarrage de %@…"
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "إعادة تشغيل %@…"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Reiniciando %@…"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "正在重新啟動 %@…"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "正在重新启动 %@…"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "%@ 재시동 중…"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "%@ wird neu gestartet …"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Ponovo pokrećem %@…"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Genstarter %@…"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Riavvio di %@…"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "កំពុងចាប់ផ្ដើម %@ ឡើងវិញ…"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Starter %@ på nytt…"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Ponowne uruchamianie %@…"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Reiniciando %@…"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Перезапуск %@…"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "กำลังเริ่ม %@ ใหม่…"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "%@ yeniden başlatılıyor…"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Перезапуск %@…"
+            }
+          }
+        }
+      },
+      "machines.operation.shutdown": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Shutting down %@…"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "%@ をシャットダウン中…"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Arrêt de %@…"
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "إيقاف تشغيل %@…"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Apagando %@…"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "正在關閉 %@…"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "正在关闭 %@…"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "%@ 종료 중…"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "%@ wird heruntergefahren …"
+            }
+          },
+          "bs": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Gasim %@…"
+            }
+          },
+          "da": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Lukker %@ ned…"
+            }
+          },
+          "it": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Spegnimento di %@…"
+            }
+          },
+          "km": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "កំពុងបិទ %@…"
+            }
+          },
+          "nb": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Slår av %@…"
+            }
+          },
+          "pl": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Wyłączanie %@…"
+            }
+          },
+          "pt-BR": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Desligando %@…"
+            }
+          },
+          "ru": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Выключение %@…"
+            }
+          },
+          "th": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "กำลังปิด %@…"
+            }
+          },
+          "tr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "%@ kapatılıyor…"
+            }
+          },
+          "uk": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Вимикаємо %@…"
+            }
+          }
+        }
+      },
     "machines.operation.resize": {
       "extractionState": "manual",
       "localizations": {

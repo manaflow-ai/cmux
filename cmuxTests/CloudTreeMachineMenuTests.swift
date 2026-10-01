@@ -105,6 +105,7 @@ struct CloudTreeMachineMenuTests {
             Self.title("machines.menu.rename", "Rename\u{2026}"),
             Self.title("machines.menu.copyIPAddress", "Copy IP Address"),
             Self.title("machines.menu.status", "Status"),
+            Self.title("machines.menu.shutdown", "Shut Down"),
             Self.title("machines.menu.checkpoint", "Checkpoint"),
             Self.title("machines.menu.fork", "Fork"),
             Self.title("machines.menu.delete", "Delete\u{2026}"),
@@ -155,6 +156,23 @@ struct CloudTreeMachineMenuTests {
         #expect(recorder.pinChanges.count == 1)
         #expect(recorder.pinChanges.first?.0 == Self.machineID)
         #expect(recorder.pinChanges.first?.1 == true)
+    }
+
+    @Test("An asleep machine exposes Restart and dispatches it")
+    func asleepMachineRestarts() throws {
+        var restarted: [String] = []
+        let verbs = CloudMachineMenuVerbs(
+            openShell: { _ in }, newWorkspace: { _ in }, openDesktop: { _ in },
+            runCommand: { _, _ in }, promptRename: { _, _ in }, copyToPasteboard: { _ in },
+            confirmDelete: { _ in }, shutdown: { _ in }, restart: { restarted.append($0) }, promptUpgrade: {}
+        )
+        guard case .machine(let snapshot, _) = Self.machineNode(asleep: true).kind else { Issue.record("Expected machine node"); return }
+        let entries = verbs.manageEntries(snapshot)
+        #expect(entries.contains { $0.id == "machine.\(Self.machineID).restart" })
+        let restart = try #require(entries.first { $0.id == "machine.\(Self.machineID).restart" })
+        guard case .action(let action) = restart else { Issue.record("Expected restart action"); return }
+        action.perform()
+        #expect(restarted == [Self.machineID])
     }
 
     @Test("A nested terminal activates its owning Cloud workspace for click and Return")
@@ -798,7 +816,7 @@ struct CloudTreeMachineMenuTests {
         #expect(buttons.isHidden)
     }
 
-    private static func machineNode(expired: Bool = false) -> CloudTreeNode {
+    private static func machineNode(expired: Bool = false, asleep: Bool = false) -> CloudTreeNode {
         var machine = MachineSnapshot(
             id: machineID,
             provider: "freestyle",
@@ -811,7 +829,7 @@ struct CloudTreeMachineMenuTests {
         if expired { machine.freeAccess = .expired }
         machine.privateAddress = "10.99.0.7"
         machine.stats = VMStats(
-            state: .awake,
+            state: asleep ? .asleep : .awake,
             sampledAt: Date(timeIntervalSince1970: 1_787_400_000),
             cpus: 4,
             cpuPercent: 2.5,

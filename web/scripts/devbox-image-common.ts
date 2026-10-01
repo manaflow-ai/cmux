@@ -806,6 +806,10 @@ export function devboxParkDaemonCommand(): string {
     // [s]tart: the pattern must not match the exec shell carrying this command line.
     "for i in $(seq 1 30); do pgrep -f 'cmux-tui server [s]tart' >/dev/null || break; sleep 1; done",
     "! pgrep -f 'cmux-tui server [s]tart' >/dev/null",
+    // A memory snapshot must carry the enabled unit, not just a parked
+    // process. This keeps cold boots and future Freestyle stop/start cycles
+    // self-healing even when the snapshot is resumed without a warm process.
+    "test \"$(systemctl is-enabled cmux-tui-daemon)\" = enabled",
     "systemctl is-active cmux-tui-daemon >/dev/null",
     devboxWipeDaemonStateKeepingTemplateCommand('"$CMUX_TUI_HOME/.local/state/cmux-tui"'),
     'rm -rf "$CMUX_TUI_HOME/.local/state/cmux/remote" /etc/cmux/daemon-instance-id /etc/cmux/first-terminal.json',

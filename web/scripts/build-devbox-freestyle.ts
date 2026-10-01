@@ -530,7 +530,8 @@ try {
   const service = [
     "[Unit]",
     "Description=cmux-tui session daemon supervisor",
-    "After=network.target",
+    "After=network-online.target",
+    "Wants=network-online.target",
     "",
     "[Service]",
     "Type=simple",

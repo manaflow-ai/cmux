@@ -11,6 +11,8 @@ struct MachineRowActions {
     let openDesktop: @MainActor (String) -> Void
     let runCommand: @MainActor (String, [String]) -> Void
     let confirmDelete: @MainActor (String) -> Void
+    var shutdown: @MainActor (String) -> Void = { _ in }
+    var restart: @MainActor (String) -> Void = { _ in }
     let promptRename: @MainActor (String, String?) -> Void
     /// Grow the machine through the shared `cmux vm resize` command.
     let resizeDisk: @MainActor (String, Int) -> Void
@@ -61,6 +63,16 @@ struct MachineRowActions {
             },
             confirmDelete: { id in
                 presentDeleteConfirmation(id: id, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
+            },
+            shutdown: { id in
+                // Freestyle's pause is the product's graceful shutdown: it stops compute
+                // billing while preserving memory for a fast, lossless restart.
+                onWillMutate(String(format: String(localized: "machines.operation.shutdown", defaultValue: "Shutting down %@…"), id))
+                if !launch(arguments: ["vm", "pause", id], onDidMutate: onDidMutate) { onDidMutate() }
+            },
+            restart: { id in
+                onWillMutate(String(format: String(localized: "machines.operation.restart", defaultValue: "Restarting %@…"), id))
+                if !launch(arguments: ["vm", "resume", id], onDidMutate: onDidMutate) { onDidMutate() }
             },
             promptRename: { id, currentLabel in
                 presentRenamePrompt(id: id, currentLabel: currentLabel, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
