@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextTerminal
-import enum CmuxNextDaemon.DaemonLaunchTimings
+import class CmuxNextDaemon.DaemonLaunchTimings
 import Darwin
 import os
 import Synchronization
