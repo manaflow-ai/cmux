@@ -925,6 +925,44 @@ import Testing
         #expect(await registry.refresh(force: true) == false)
     }
 
+    @Test("A canceled projection waiter leaves the shared operation reusable until shutdown")
+    @MainActor
+    func canceledProjectionWaiterDoesNotEvictSharedTask() async throws {
+        let registry = CloudTerminalProjectionRegistry()
+        let key = "socket\u{0}terminal"
+        let started = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        var operationCount = 0
+        let shared = registry.task(for: key) {
+            operationCount += 1
+            started.resolve(true)
+            _ = await release.result
+            try Task.checkCancellation()
+            return SurfaceRemotePlacement(workspaceID: "workspace", tabID: "tab")
+        }
+
+        let creator = Task { try await registry.awaitValue(shared.task) }
+        #expect(await started.result == true)
+        creator.cancel()
+        await #expect(throws: CancellationError.self) { try await creator.value }
+
+        #expect(registry.tasks[key]?.token == shared.token)
+        let reused = registry.task(for: key) {
+            Issue.record("A second caller must reuse the in-flight projection")
+            return SurfaceRemotePlacement(workspaceID: "unexpected", tabID: "unexpected")
+        }
+        #expect(reused.token == shared.token)
+
+        let survivingWaiter = Task { try await registry.awaitValue(reused.task) }
+        registry.cancelAll()
+        await #expect(throws: CancellationError.self) { try await survivingWaiter.value }
+        #expect(registry.tasks[key] == nil)
+
+        release.resolve(true)
+        await #expect(throws: CancellationError.self) { try await shared.task.value }
+        #expect(operationCount == 1)
+    }
+
     @Test func headlessTerminalIOArgvFollowsTheCLIGrammar() {
         // Verified live against a machine: `write --text` types as-is (no newline),
         // `keys` takes bare key names, `screen read` / `screen wait --pattern` read back.

@@ -10,8 +10,66 @@ import Foundation
 /// A coalesced Cloud projection operation carries a generation token so a late
 /// completion from an old transport cannot clear a newer retry in the provider.
 struct CloudTerminalProjectionTask {
-    let token = UUID()
+    let token: UUID
     let task: Task<SurfaceRemotePlacement, Error>
+
+    init(token: UUID = UUID(), task: Task<SurfaceRemotePlacement, Error>) {
+        self.token = token
+        self.task = task
+    }
+}
+
+/// Owns coalesced terminal projections independently of any one local waiter.
+/// A cancelled waiter only loses its await; the registry keeps the operation
+/// reusable until it finishes or the provider explicitly shuts down transport.
+@MainActor
+final class CloudTerminalProjectionRegistry {
+    private(set) var tasks: [String: CloudTerminalProjectionTask] = [:]
+
+    func task(
+        for key: String,
+        operation: @escaping @MainActor () async throws -> SurfaceRemotePlacement
+    ) -> CloudTerminalProjectionTask {
+        if let existing = tasks[key] { return existing }
+        let token = UUID()
+        let sharedTask = Task<SurfaceRemotePlacement, Error> { @MainActor [weak self] in
+            defer { self?.finish(key: key, token: token) }
+            return try await operation()
+        }
+        let shared = CloudTerminalProjectionTask(token: token, task: sharedTask)
+        // Register before the operation can publish completion. A synchronously
+        // successful operation must still be fenced by the token-matched finish.
+        tasks[key] = shared
+        return shared
+    }
+
+    func cancelAll() {
+        for shared in tasks.values { shared.task.cancel() }
+        tasks.removeAll()
+    }
+
+    func awaitValue(_ task: Task<SurfaceRemotePlacement, Error>) async throws -> SurfaceRemotePlacement {
+        let waiter = CloudProjectionWaiter<SurfaceRemotePlacement>()
+        return try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<SurfaceRemotePlacement, Error>) in
+                waiter.install(continuation)
+                Task {
+                    do {
+                        waiter.resolve(.success(try await task.value))
+                    } catch {
+                        waiter.resolve(.failure(error))
+                    }
+                }
+            }
+        }, onCancel: {
+            waiter.cancel()
+        })
+    }
+
+    private func finish(key: String, token: UUID) {
+        guard tasks[key]?.token == token else { return }
+        tasks[key] = nil
+    }
 }
 /// One cloud machine's resources: its cmux-tui terminals (over the headless link), its
 /// noVNC screen, and its forwarded ports. Terminals live in the machine's cmux-tui
@@ -141,8 +199,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     var tabByTerminal: [String: String] = [:]
     /// Coalesces concurrent first opens of a zero-view terminal. `terminal.project` is a
     /// mutation, so two local panes racing on the same pool row must share one remote view.
-    // Internal so the manual-mirror extension can share the provider-owned task map.
-    var remoteTerminalProjectionTasks: [String: CloudTerminalProjectionTask] = [:]
+    // Internal so the manual-mirror extension can share the provider-owned registry.
+    let remoteTerminalProjectionRegistry = CloudTerminalProjectionRegistry()
     /// User labels from the last authoritative snapshot, used to compensate a
     /// multi-view rename if a later tab mutation fails.
     private var tabNameByID: [String: String] = [:]
@@ -243,8 +301,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         stateRecoveryRefreshTask?.cancel()
         stateRecoveryRefreshTask = nil
         stateRecoveryRefreshQueued = false
-        for task in remoteTerminalProjectionTasks.values { task.task.cancel() }
-        remoteTerminalProjectionTasks.removeAll()
+        remoteTerminalProjectionRegistry.cancelAll()
     }
 
     func update(summary: VMSummary) {

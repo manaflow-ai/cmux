@@ -8,7 +8,7 @@ import Foundation
 /// Bridges a shared projection task to one caller without making that caller
 /// wait for a cancellation-deaf remote RPC. The shared task keeps running for
 /// other panes; only this waiter is resumed with CancellationError.
-private final class CloudProjectionWaiter<Value: Sendable>: @unchecked Sendable {
+final class CloudProjectionWaiter<Value: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Value, Error>?
     private var result: Result<Value, Error>?
@@ -262,10 +262,7 @@ extension CmuxTuiSurfaceProvider {
         // pane opens first. Each accepted pane then submits its bound destination via
         // the catalog's shared placement lane.
         let key = socketPath + "\u{0}" + terminalID
-        if let shared = remoteTerminalProjectionTasks[key] {
-            return try await awaitProjection(shared.task)
-        }
-        let shared = CloudTerminalProjectionTask(task: Task<SurfaceRemotePlacement, Error> { @MainActor [weak self] in
+        let shared = remoteTerminalProjectionRegistry.task(for: key) { @MainActor [weak self] in
             guard let self else { throw ProviderError.terminalNotCreated(terminalID) }
             let snapshot = try await link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: socketPath))
             guard let destination = await CmuxTuiSnapshotParser.terminalProjectionTarget(from: snapshot, preferringWorkspace: preferredWorkspaceID) else {
@@ -275,34 +272,8 @@ extension CmuxTuiSurfaceProvider {
                 SurfaceResourceID(machine: self.machine, kind: .terminal, key: terminalID),
                 preferringRemoteWorkspace: destination.target.workspaceID
             )
-        })
-        remoteTerminalProjectionTasks[key] = shared
-        defer {
-            if remoteTerminalProjectionTasks[key]?.token == shared.token {
-                remoteTerminalProjectionTasks[key] = nil
-            }
         }
-        return try await awaitProjection(shared.task)
-    }
-
-    private func awaitProjection(
-        _ task: Task<SurfaceRemotePlacement, Error>
-    ) async throws -> SurfaceRemotePlacement {
-        let waiter = CloudProjectionWaiter<SurfaceRemotePlacement>()
-        return try await withTaskCancellationHandler(operation: {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<SurfaceRemotePlacement, Error>) in
-                waiter.install(continuation)
-                Task {
-                    do {
-                        waiter.resolve(.success(try await task.value))
-                    } catch {
-                        waiter.resolve(.failure(error))
-                    }
-                }
-            }
-        }, onCancel: {
-            waiter.cancel()
-        })
+        return try await remoteTerminalProjectionRegistry.awaitValue(shared.task)
     }
 
     /// Refreshes attachment identities and repairs a backing placement that
