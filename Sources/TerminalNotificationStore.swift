@@ -276,6 +276,10 @@ final class TerminalNotificationStore: ObservableObject {
     /// keyed by other identities (the Cloud tree's remote terminals) follow the
     /// dismissal even when no local record exists for what they show.
     var readTargetObserver: (@MainActor (NotificationReadTarget) -> Void)?
+    /// Exact feed-record reads reach the Cloud hub synchronously. Target reads
+    /// continue through `readTargetObserver`; this hook avoids waiting for the
+    /// published notification-array diff for an individual read.
+    var readNotificationObserver: (@MainActor ([TerminalNotification]) -> Void)?
     // Workspace panels own their manual unread state on Workspace. Dock panels
     // have no Workspace owner, so their surface-scoped state lives here beside
     // the cross-container unread projection.
@@ -381,6 +385,17 @@ final class TerminalNotificationStore: ObservableObject {
                 topic: Self.feedChangedEventTopic,
                 payload: ["revision": revision]
             )
+            Task { @MainActor in
+                MobileHostService.emitEvent(
+                    topic: "feed.changed",
+                    payload: [
+                        "revision": FeedCoordinator.combinedMobileFeedRevision(
+                            workstream: FeedCoordinator.shared.store?.revision ?? 0,
+                            notifications: revision
+                        )
+                    ]
+                )
+            }
         }
         indexes = Self.buildIndexes(for: notifications)
         userDefaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
@@ -1547,6 +1562,7 @@ final class TerminalNotificationStore: ObservableObject {
             body: request.body,
             createdAt: now,
             isRead: !effects.markUnread,
+            isAgentEvent: request.agent != nil,
             paneFlash: effects.paneFlash,
             scrollPosition: scrollPosition,
             clickAction: clickAction,
@@ -1824,6 +1840,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         if !activeIDs.isEmpty {
             notifications = updated
+            readNotificationObserver?(updated.filter { activeIDs.contains($0.id.uuidString) })
             removeNotificationRequestsAndReleaseSoundReferences(withIdentifiers: activeIDs)
             emitNotificationsDismissed(
                 ids: activeIDs,
@@ -2247,6 +2264,7 @@ final class TerminalNotificationStore: ObservableObject {
             body: notification.body,
             createdAt: notification.createdAt,
             isRead: notification.isRead,
+            isAgentEvent: notification.isAgentEvent,
             paneFlash: notification.paneFlash,
             scrollPosition: notification.scrollPosition,
             clickAction: notification.clickAction,
@@ -2377,6 +2395,7 @@ final class TerminalNotificationStore: ObservableObject {
                 body: notification.body,
                 createdAt: notification.createdAt,
                 isRead: notification.isRead,
+                isAgentEvent: notification.isAgentEvent,
                 paneFlash: notification.paneFlash,
                 scrollPosition: notification.scrollPosition,
                 clickAction: notification.clickAction,
@@ -3024,6 +3043,17 @@ final class TerminalNotificationStore: ObservableObject {
                 topic: Self.feedChangedEventTopic,
                 payload: ["revision": revision]
             )
+            Task { @MainActor in
+                MobileHostService.emitEvent(
+                    topic: "feed.changed",
+                    payload: [
+                        "revision": FeedCoordinator.combinedMobileFeedRevision(
+                            workstream: FeedCoordinator.shared.store?.revision ?? 0,
+                            notifications: revision
+                        )
+                    ]
+                )
+            }
         }
         clearWorkspaceManualUnread()
         clearSurfaceManualUnread()

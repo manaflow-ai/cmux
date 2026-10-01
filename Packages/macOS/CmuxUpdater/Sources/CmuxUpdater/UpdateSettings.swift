@@ -16,10 +16,6 @@ public struct UpdateSettings: Sendable {
     public static let scheduledCheckIntervalKey = "SUScheduledCheckInterval"
     /// Sparkle's "send anonymous system profile" key.
     public static let sendProfileInfoKey = "SUSendProfileInfo"
-    /// cmux's "Install updates automatically" setting. Sparkle's own ``automaticallyUpdateKey``
-    /// follows it, so updates download in the background only when it is on. Its default depends
-    /// on the release channel, so it is registered, never stored, until the user changes it.
-    public static let installAutomaticallyKey = "updateInstallAutomatically"
     /// cmux's marker that the v2 automatic-checks migration already ran.
     public static let migrationKey = "cmux.sparkle.automaticChecksMigration.v2"
 
@@ -40,21 +36,13 @@ public struct UpdateSettings: Sendable {
         self.previousDefaultScheduledCheckInterval = previousDefaultScheduledCheckInterval
     }
 
-    /// Whether updates install automatically on `channel` until the user says otherwise: on for
-    /// nightly, where people follow main and want every build, off for stable and release
-    /// candidates.
-    public static func installsAutomaticallyByDefault(on channel: UpdateFeedResolver.Channel) -> Bool {
-        channel == .nightly
-    }
-
     /// Registers the update defaults on `defaults` and runs the one-time migration.
     ///
     /// Registration is idempotent. The migration (guarded by ``migrationKey``) re-enables
     /// automatic checks and upgrades the legacy 24h interval to ``scheduledCheckInterval`` for
     /// installs that predate the embedded defaults.
-    public func apply(to defaults: UserDefaults, channel: UpdateFeedResolver.Channel = .stable) {
+    public func apply(to defaults: UserDefaults) {
         defaults.register(defaults: [
-            Self.installAutomaticallyKey: Self.installsAutomaticallyByDefault(on: channel),
             Self.automaticChecksKey: true,
             Self.automaticallyUpdateKey: false,
             Self.scheduledCheckIntervalKey: scheduledCheckInterval,
