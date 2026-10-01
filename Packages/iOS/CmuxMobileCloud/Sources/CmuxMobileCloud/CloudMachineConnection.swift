@@ -123,7 +123,7 @@ private actor CloudConnectionInFlight {
                     case .failure(let error):
                         continuation.resume(throwing: error)
                     }
-                } else if cancelled || task.isCancelled {
+                } else if Task.isCancelled || cancelled || task.isCancelled {
                     continuation.resume(throwing: CancellationError())
                 } else {
                     waiters[id] = continuation

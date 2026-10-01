@@ -377,6 +377,28 @@ import Testing
         #expect(controller.connection(for: CloudMachine(id: "vm", provider: "p", status: "running")) == nil)
     }
 
+    @Test func disappearDuringStartCancelsTheTunnelStartupTask() async {
+        let starter = CancellableTunnelStarter()
+        let service = FakeCloudVMService()
+        service.machines = .success([CloudMachine(id: "vm1", provider: "freestyle", status: "running")])
+        let controller = CloudSessionController(
+            service: service,
+            identityStore: InMemoryCloudDeviceIdentityStore(),
+            tunnelStarter: starter,
+            connector: FakeConnector(),
+            stateDirectory: Fixtures.stateDirectory(),
+            deviceName: "phone"
+        )
+
+        controller.sectionDidAppear()
+        await settle { starter.started }
+        controller.sectionDidDisappear()
+        await settle { starter.cancelled }
+
+        #expect(starter.cancelled)
+        #expect(controller.tunnel == .idle)
+    }
+
     @Test func connectionOpensLinkWithInvitationApprovalAndReusesSession() async throws {
         let service = FakeCloudVMService()
         service.machines = .success([CloudMachine(id: "vm1", provider: "freestyle", status: "running")])
@@ -742,6 +764,27 @@ final class GatedTunnelStarter: CloudTunnelStarting, @unchecked Sendable {
     func release() {
         let c = lock.withLock { continuation }
         c?.resume()
+    }
+}
+
+/// A tunnel starter that records when the controller cancels startup.
+final class CancellableTunnelStarter: CloudTunnelStarting, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _started = false
+    private var _cancelled = false
+
+    var started: Bool { lock.withLock { _started } }
+    var cancelled: Bool { lock.withLock { _cancelled } }
+
+    func start(wgQuickConfig: String) async throws -> any CloudTunnel {
+        lock.withLock { _started = true }
+        do {
+            try await Task.sleep(for: .seconds(3_600))
+        } catch {
+            lock.withLock { _cancelled = true }
+            throw error
+        }
+        return FakeTunnel(config: wgQuickConfig)
     }
 }
 

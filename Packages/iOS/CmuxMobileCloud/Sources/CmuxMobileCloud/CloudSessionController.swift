@@ -53,6 +53,7 @@ public final class CloudSessionController {
     private var liveTunnel: (any CloudTunnel)?
     private var identity: CloudDeviceIdentity?
     private var startTask: Task<Void, Never>?
+    private var tunnelStartupTask: Task<(CloudDeviceIdentity, any CloudTunnel), any Error>?
     private var startGeneration: UInt64 = 0
     private var listTask: Task<Void, Never>?
     /// Re-reads the list while a machine is still provisioning, so a new
@@ -343,10 +344,17 @@ public final class CloudSessionController {
                 let live = try await self.tunnelStarter.start(wgQuickConfig: config.text)
                 return (identity, live)
             }
+            self.tunnelStartupTask = startup
             do {
                 let value = try await CloudSystemVPNTaskTimeout(timeout: tunnelStartupTimeout).value(startup)
+                if self.startGeneration == generation {
+                    self.tunnelStartupTask = nil
+                }
                 result = .success(value)
             } catch {
+                if self.startGeneration == generation {
+                    self.tunnelStartupTask = nil
+                }
                 result = .failure(CloudSessionFailure.classify(error, stage: .tunnel))
             }
             guard self.startGeneration == generation, self.wantsTunnel else {
@@ -368,6 +376,8 @@ public final class CloudSessionController {
         startGeneration &+= 1
         startTask?.cancel()
         startTask = nil
+        tunnelStartupTask?.cancel()
+        tunnelStartupTask = nil
         // The machine list is a control-plane read that needs no tunnel, so a
         // tunnel stop must not cancel it: backgrounding mid-refresh would
         // otherwise leave the list stuck loading.
