@@ -70,9 +70,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         services.cache.removePresenter(self)
         // The daemon closed the pane (not a workspace switch or a layout
         // move): its agent tabs, which the daemon does not know, go with it.
-        if case .connected = daemon.store.connectionState, daemon.store.pane(pane.handle) == nil {
-            services.agentTabs.closePane(paneKey)
-        }
+        // The store also catches panes closed with no controller showing them.
+        services.agentTabs.closeGonePanes(in: daemon.store)
         currentTabKey = nil
         view.detachContent()
         services.surfaceInvariant.noteChange()
