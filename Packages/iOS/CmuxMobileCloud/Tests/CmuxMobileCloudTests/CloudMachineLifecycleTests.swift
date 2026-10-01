@@ -9,13 +9,14 @@ import Testing
 
     private func makeController(
         service: FakeCloudVMService,
+        connector: FakeConnector = FakeConnector(),
         visibilityDefaults: UserDefaults = .standard
     ) -> CloudSessionController {
         CloudSessionController(
             service: service,
             identityStore: InMemoryCloudDeviceIdentityStore(),
             tunnelStarter: FakeTunnelStarter(),
-            connector: FakeConnector(),
+            connector: connector,
             stateDirectory: Fixtures.stateDirectory(),
             deviceName: "iPhone",
             visibilityDefaults: visibilityDefaults
@@ -83,6 +84,37 @@ import Testing
         #expect(controller.machineActionsInFlight.isEmpty)
         for _ in 0 ..< 500 where controller.machines.elements != [Self.paused] { await Task.yield() }
         #expect(controller.machines.elements == [Self.paused])
+    }
+
+    @Test func lifecycleChangesCloseCachedConnectionBeforeReuse() async throws {
+        let service = FakeCloudVMService()
+        service.machines = .success([Self.running])
+        let connector = FakeConnector()
+        let controller = makeController(service: service, connector: connector)
+
+        controller.sectionDidAppear()
+        await settle {
+            controller.machines.elements == [Self.running]
+                && controller.tunnel == .ready(fingerprint: "ios-abc")
+        }
+        let runningConnection = try #require(controller.connection(for: Self.running))
+        _ = try await runningConnection.loadCatalog()
+        #expect(connector.connects.count == 1)
+
+        service.machines = .success([Self.paused])
+        controller.refreshMachines()
+        await settle { controller.machines.elements == [Self.paused] }
+        #expect(connector.session.state.disconnected == 1)
+
+        service.machines = .success([Self.running])
+        controller.refreshMachines()
+        await settle { controller.machines.elements == [Self.running] }
+        let resumedConnection = try #require(controller.connection(for: Self.running))
+        #expect(resumedConnection !== runningConnection)
+        _ = try await resumedConnection.loadCatalog()
+        #expect(connector.connects.count == 2)
+
+        controller.sectionDidDisappear()
     }
 
     @Test func aFailedActionIsRecordedAgainstItsMachine() async {

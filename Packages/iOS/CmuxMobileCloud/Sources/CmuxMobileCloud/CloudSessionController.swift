@@ -413,7 +413,9 @@ public final class CloudSessionController {
         if resetProvisioningPollBudget {
             provisioningPollCount = 0
         }
-        let previouslyKnownMachineIDs = Set(machines.elements.map(\.id))
+        let previouslyKnownMachines = Dictionary(
+            uniqueKeysWithValues: machines.elements.map { ($0.id, $0) }
+        )
         listTask?.cancel()
         machineListGeneration &+= 1
         let generation = machineListGeneration
@@ -430,7 +432,7 @@ public final class CloudSessionController {
                 let liveMachines = catalog.machines.filter { $0.lifecycle != .destroyed }
                 self.reconcileConnectionsAndVisibility(
                     for: liveMachines,
-                    previouslyKnownMachineIDs: previouslyKnownMachineIDs
+                    previouslyKnownMachines: previouslyKnownMachines
                 )
                 self.machines = .loaded(liveMachines)
                 self.scheduleProvisioningPollIfNeeded()
@@ -456,13 +458,19 @@ public final class CloudSessionController {
 
     private func reconcileConnectionsAndVisibility(
         for machines: [CloudMachine],
-        previouslyKnownMachineIDs: Set<String>
+        previouslyKnownMachines: [String: CloudMachine]
     ) {
         let liveMachineIDs = Set(machines.map(\.id))
         let staleConnectionIDs = connections.keys.filter {
-            previouslyKnownMachineIDs.contains($0) && !liveMachineIDs.contains($0)
+            previouslyKnownMachines[$0] != nil && !liveMachineIDs.contains($0)
         }
-        for id in staleConnectionIDs {
+        let lifecycleChangedConnectionIDs: [String] = machines.compactMap { machine in
+            guard let previous = previouslyKnownMachines[machine.id],
+                  previous.lifecycle != machine.lifecycle,
+                  connections[machine.id] != nil else { return nil }
+            return machine.id
+        }
+        for id in Set(staleConnectionIDs).union(lifecycleChangedConnectionIDs) {
             connections.removeValue(forKey: id)?.close()
         }
 
