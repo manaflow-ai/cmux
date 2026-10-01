@@ -378,10 +378,10 @@ final class TerminalTabOverviewViewController: UIViewController {
         // so it leaves the first row readable. With one or two tabs it drops
         // into the open space above the centered cards.
         let hintTop = visibleItems.count > 2 ? view.safeAreaInsets.top : view.safeAreaInsets.top + 39
-        // Safari's teaching card is just over 120 points tall on the iPhone
-        // reference device. The old 151 point frame pushed the first row down
-        // and made the compact and one-tab states feel unrelated.
-        hintCard.frame = CGRect(x: 16, y: hintTop, width: max(0, bounds.width - 32), height: 121)
+        // Safari's teaching card is just over 135 points tall on the iPhone
+        // reference device. The card keeps a small breathing space before the
+        // first row instead of touching the tab previews.
+        hintCard.frame = CGRect(x: 16, y: hintTop, width: max(0, bounds.width - 32), height: 137)
         hintCard.alpha = isPrivateMode ? 0 : (hintIsVisible ? 1 : 0)
 
         privateBrowsingView.frame = CGRect(
@@ -456,7 +456,7 @@ final class TerminalTabOverviewViewController: UIViewController {
         guard !visible.isEmpty else { return }
         let compact = visible.count > 1
         let width = compact ? floor((view.bounds.width - 48) / 2) : min(268, view.bounds.width - 32)
-        let height: CGFloat = compact ? 220 : 352
+        let height: CGFloat = compact ? 272 : 400
         let rows = Int(ceil(Double(visible.count) / 2.0))
         let safeTop = view.safeAreaInsets.top
         let bottom = view.bounds.height - view.safeAreaInsets.bottom - 48 - 4
@@ -465,16 +465,14 @@ final class TerminalTabOverviewViewController: UIViewController {
             // With the teaching card visible, Safari places the first row
             // directly below it. Once the card is dismissed the grid rises
             // into the space below the top controls.
-            let desired = hintIsVisible
-                ? safeTop + (visible.count > 2 ? 129 : 180)
-                : safeTop + 67
+            let desired = hintIsVisible ? safeTop + 153 : safeTop + 60
             let maxTop = bottom - CGFloat(rows) * height - CGFloat(max(0, rows - 1)) * 16 - 10
             top = min(desired, maxTop)
         } else {
             // A single tab is centered in the open area. Keep the same anchor
             // when the teaching card fades so the card does not jump during
             // the close transition.
-            let desired = hintIsVisible ? safeTop + 180 : safeTop + 154
+            let desired = safeTop + 210
             let maxTop = bottom - height - 10
             top = min(desired, maxTop)
         }
@@ -1343,7 +1341,7 @@ private final class TerminalTabOverviewHintView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let compact = bounds.height > 0 && (frame.minY <= 70 || bounds.height <= 130)
+        let compact = bounds.height > 0 && (frame.minY <= 70 || bounds.height <= 145)
         handView.frame = CGRect(x: 18, y: compact ? 28 : 45, width: 48, height: 48)
         closeButton.frame = CGRect(x: bounds.width - 46, y: compact ? 19 : 36, width: 30, height: 30)
         titleLabel.frame = CGRect(x: 74.67, y: compact ? 23.67 : 41, width: 239, height: compact ? 23 : 26)
