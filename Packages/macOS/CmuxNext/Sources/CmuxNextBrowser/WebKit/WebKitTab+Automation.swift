@@ -44,6 +44,11 @@ extension WebKitTab {
         for origin in plan.origins {
             try Task.checkCancellation()
             let actual = try await scroll(to: origin)
+            let expected = plan.expectedScroll(for: origin)
+            guard abs(actual.x - expected.x) <= 1, abs(actual.y - expected.y) <= 1 else {
+                // overflow: hidden, or a scroller other than the document.
+                throw BrowserTabError.unsupported("The page did not scroll; a full-page screenshot needs a scrolling document")
+            }
             let tile = try await snapshot()
             if context == nil {
                 scale = CGFloat(tile.width) / plan.viewportSize.width

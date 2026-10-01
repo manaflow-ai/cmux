@@ -11,12 +11,13 @@ extension CEFTab {
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let size = (object["cssContentSize"] ?? object["contentSize"]) as? [String: Any],
               let width = (size["width"] as? NSNumber)?.doubleValue, let height = (size["height"] as? NSNumber)?.doubleValue,
-              BrowserFullPagePlan(contentSize: CGSize(width: width, height: height), viewportSize: CGSize(width: 1, height: 1)) != nil else {
+              BrowserFullPagePlan.isCapturable(contentSize: CGSize(width: width, height: height)) else {
             throw BrowserTabError.unsupported("The page is empty or too large for a full-page screenshot")
         }
         let clip: [String: Any] = ["x": 0, "y": 0, "width": width, "height": height, "scale": 1]
         let json = try await runtime.devTools(browserID, method: "Page.captureScreenshot",
-                                              params: ["format": "png", "captureBeyondViewport": true, "clip": clip])
+                                              params: ["format": "png", "captureBeyondViewport": true, "clip": clip],
+                                              timeout: .seconds(25))
         return try CEFDevToolsResult.screenshot(json)
     }
 }

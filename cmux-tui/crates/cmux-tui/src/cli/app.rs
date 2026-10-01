@@ -482,47 +482,79 @@ fn call(global: &GlobalArgs, mut stream: UnixStream, command: AppCommand) -> Ran
     }
 }
 
-/// Writes a `browser.page.screenshot` PNG to `out` (`-` is stdout, none is
-/// a new file in the temporary directory, as the old `cmux browser
-/// screenshot` did) and prints where it went: the path, or with `--json`
-/// the result with `path` in place of the image data.
+/// Puts a `browser.page.screenshot` PNG where `out` says and prints where it
+/// went: the path, or with `--json` the result without the image data.
+/// The app saves the PNG to a file and returns its `path` (the old `cmux
+/// browser screenshot` did too); `png_base64` comes inline only when small.
+/// Without `--out` the app's file is the result; `--out -` writes only the
+/// PNG to stdout.
 fn save_screenshot(mut result: Value, out: Option<&str>, output: OutputMode) -> i32 {
     let messages = &crate::localization::catalog().app_control;
-    let png = match result
-        .as_object_mut()
-        .and_then(|object| object.remove("png_base64"))
-        .and_then(|data| data.as_str().and_then(|data| BASE64.decode(data).ok()))
-    {
-        Some(png) => png,
-        None => return failure("app.invalid_response", messages.invalid_response, output, 3),
+    let Some(object) = result.as_object_mut() else {
+        return failure("app.invalid_response", messages.invalid_response, output, 3);
+    };
+    let inline = object.remove("png_base64");
+    let saved = object.get("path").and_then(Value::as_str).map(PathBuf::from);
+    let inline = match inline.as_ref().and_then(Value::as_str).map(|data| BASE64.decode(data)) {
+        Some(Ok(png)) => Some(png),
+        Some(Err(_)) => {
+            return failure("app.invalid_response", messages.invalid_response, output, 3);
+        }
+        None => None,
+    };
+    if inline.is_none() && saved.is_none() {
+        return failure("app.invalid_response", messages.invalid_response, output, 3);
+    }
+    let write_failed = |path: &std::path::Path, error: std::io::Error| {
+        let message = messages
+            .screenshot_write_failed
+            .replace("{path}", &path.display().to_string())
+            .replace("{error}", &error.to_string());
+        failure("io.write_failed", &message, output, 1)
     };
     if out == Some("-") {
+        let png = match (inline, &saved) {
+            (Some(png), _) => png,
+            (None, Some(saved)) => match std::fs::read(saved) {
+                Ok(png) => png,
+                Err(error) => return write_failed(saved.as_path(), error),
+            },
+            (None, None) => unreachable!("checked above"),
+        };
         let mut stdout = std::io::stdout().lock();
         return match stdout.write_all(&png).and_then(|()| stdout.flush()) {
             Ok(()) => 0,
             Err(_) => 3,
         };
     }
-    let path = match out {
-        Some(path) => PathBuf::from(path),
-        None => {
-            let name = super::command::random_prefixed("screenshot")
-                .unwrap_or_else(|_| format!("screenshot-{}", std::process::id()));
-            std::env::temp_dir().join("cmux-browser-screenshots").join(format!("{name}.png"))
+    let path = match (out, &saved, inline) {
+        (None, Some(saved), _) => saved.clone(),
+        (target, _, inline) => {
+            let path = match target {
+                Some(path) => PathBuf::from(path),
+                None => {
+                    let name = super::command::random_prefixed("screenshot")
+                        .unwrap_or_else(|_| format!("screenshot-{}", std::process::id()));
+                    std::env::temp_dir()
+                        .join("cmux-browser-screenshots")
+                        .join(format!("{name}.png"))
+                }
+            };
+            let created = path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+                .map_or(Ok(()), std::fs::create_dir_all);
+            let written = created.and_then(|()| match (inline, &saved) {
+                (Some(png), _) => std::fs::write(&path, png),
+                (None, Some(saved)) => std::fs::copy(saved, &path).map(|_| ()),
+                (None, None) => unreachable!("checked above"),
+            });
+            if let Err(error) = written {
+                return write_failed(path.as_path(), error);
+            }
+            path
         }
     };
-    let written = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|()| std::fs::write(&path, &png));
-    if let Err(error) = written {
-        let message = messages
-            .screenshot_write_failed
-            .replace("{path}", &path.display().to_string())
-            .replace("{error}", &error.to_string());
-        return failure("io.write_failed", &message, output, 1);
-    }
     let path = std::fs::canonicalize(&path).unwrap_or(path).display().to_string();
     match output {
         OutputMode::Human => super::wire::print_local_success(&Value::String(path), output),
@@ -1040,6 +1072,22 @@ mod tests {
         assert_eq!(std::fs::read(&out).unwrap(), png);
         let connections = app.join().unwrap();
         assert_eq!(connections[0][0]["method"], "browser.page.screenshot");
+
+        // A large PNG comes only as the app's file, which --out copies.
+        let saved = dir.join("app.png");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&saved, png).unwrap();
+        let response = json!({ "id": 1, "ok": true, "result": {
+            "tab": "tab_01ab", "path": saved.to_str().unwrap(), "width": 1, "height": 1 } });
+        let (socket, app) = fake_app(vec![response]);
+        let copy = dir.join("copy.png");
+        let command = AppCommand::Screenshot {
+            params: json!({}),
+            out: Some(copy.to_str().unwrap().to_owned()),
+        };
+        assert_eq!(run(&global_for(&socket), command), 0);
+        assert_eq!(std::fs::read(&copy).unwrap(), png);
+        app.join().unwrap();
         let _ = std::fs::remove_dir_all(&dir);
 
         let broken = json!({ "id": 1, "ok": true, "result": { "png_base64": "not base64!" } });

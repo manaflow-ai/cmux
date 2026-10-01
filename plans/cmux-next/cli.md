@@ -118,15 +118,18 @@ On `feat-cmux-next-browser-wait` (browser group 1):
 - `browser.page.wait` and `cmux browser <tab_…|page> wait [SELECTOR] [--text T]
   [--url-contains U] [--load-state interactive|complete] [--function JS] [--timeout-ms N]`:
   the old CLI's one-condition precedence and 5 s default (at most 120 s). The page
-  rechecks on DOM mutations and load/navigation events (`BrowserTab.evaluateAsync`, an
-  awaited async function); a navigation restarts the wait in the new page, spaced by
-  `Backoff`. Timeout is `timeout` with `timeout_ms` and the page's `last_error`.
+  rechecks on DOM mutations and load/navigation events, and for `--function` and URLs on a
+  100 ms page timer (`BrowserTab.evaluateAsync`, an awaited async function). Page waits last
+  at most 4 s each (Chromium's DevTools calls end at 5 s) and restart for the rest of the
+  time, as does a navigation, spaced by `Backoff`. Timeout is `timeout` with `timeout_ms`
+  and the page's `last_error`.
 - `browser.page.screenshot` (`png_base64`, `width`, `height`) and `cmux browser … screenshot
   [--out PATH|-] [--selector S|--full-page]`: viewport by default, an element cropped from
   the viewport after scrolling it into view, or the whole document
   (`BrowserTab.fullPageSnapshot`: Chromium `captureBeyondViewport`, WebKit stitched tiles
-  like the old app's fallback). Without `--out` the CLI writes a temporary file, as the old
-  CLI did, and prints the path.
+  like the old app's fallback; at most 25M CSS px and 80 tiles). The app saves the PNG in
+  its temporary directory and returns `path`, as the old app did, with `png_base64` only
+  under 4 MiB (the control socket drops answers over 8 MiB); the CLI copies it for `--out`.
 
 ## Remaining
 

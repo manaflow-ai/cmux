@@ -39,7 +39,7 @@ enum AppBrowserPage {
                 throw ControlError(code: "js_error", message: String(describing: error))
             }
         case .screenshot(let capture):
-            return try await screenshot(page, capture)
+            return try await screenshot(page, tabID: tabID, capture)
         }
         return [:]
     }

@@ -7,6 +7,10 @@ extension BrowserPageService {
     /// `timeout_ms` when the request names none (the old `cmux browser wait`).
     static let defaultWaitMilliseconds = 5_000
     static let maximumWaitMilliseconds = 120_000
+    /// One page wait lasts at most this long, then starts again for the rest
+    /// of the time: Chromium's DevTools calls end after 5 s, and a promise
+    /// WebKit never settles (a navigation) cannot hold the wait.
+    static let pageWaitChunkMilliseconds = 4_000
     /// A full-page capture scrolls and snapshots the page tile by tile.
     static let screenshotDeadline: Duration = .seconds(30)
 
@@ -39,7 +43,7 @@ extension BrowserPageService {
                 }
                 let shot = try await Self.run(engine, .screenshot(capture), tab)
                 var result = Self.base(tab)
-                for key in ["png_base64", "width", "height"] { result[key] = shot[key] ?? .null }
+                for key in ["path", "png_base64", "width", "height"] { result[key] = shot[key] ?? .null }
                 if let selector { result["selector"] = .string(selector) }
                 return .object(result)
             }.withDeadline(.fixed(Self.screenshotDeadline)),
@@ -72,9 +76,10 @@ extension BrowserPageService {
         return value
     }
 
-    /// Waits in the page until `condition` holds. A navigation ends the
-    /// page's wait with an engine error; the wait then starts again in the
-    /// new page, spaced by ``Backoff``, for the rest of the time.
+    /// Waits in the page until `condition` holds, in page waits of at most
+    /// ``pageWaitChunkMilliseconds``. A navigation ends the page's wait with
+    /// an engine error; the wait then starts again in the new page, spaced
+    /// by ``Backoff``, for the rest of the time.
     static func waitUntil(_ engine: any BrowserPageEngine, _ tab: Tab, _ condition: BrowserPageScripts.WaitCondition,
                           timeoutMs: Int, method: String) async throws {
         let deadline = ContinuousClock.now + .milliseconds(timeoutMs)
@@ -82,20 +87,27 @@ extension BrowserPageService {
         var lastError: String?
         while ContinuousClock.now < deadline {
             let remaining = Int(((deadline - .now).inSeconds * 1000).rounded(.up))
+            let chunk = min(remaining, pageWaitChunkMilliseconds)
+            let started = ContinuousClock.now
             do {
                 // The page's own timer ends the wait; this bounds an engine that never answers.
-                let value = try await ControlDeadline.run(method: method, deadline: deadline + .seconds(1)) {
-                    try await Self.run(engine, .evaluateAsync(BrowserPageScripts.waitScript(condition, timeoutMs: remaining)), tab)
+                let value = try await ControlDeadline.run(method: method, deadline: .now + .milliseconds(chunk) + .seconds(1)) {
+                    try await Self.run(engine, .evaluateAsync(BrowserPageScripts.waitScript(condition, timeoutMs: chunk)), tab)
                 }["value"]
                 if value?["met"]?.boolValue == true { return }
                 lastError = value?["error"]?.stringValue ?? lastError
-                break
+                // A page wait that ended before its timer did not wait (no answer, a
+                // page that is not running yet): space the next one.
+                if ContinuousClock.now < started + .milliseconds(chunk) - .milliseconds(50) {
+                    // concurrency-allow: Backoff's async sleep spaces retries after a failure; it blocks no thread
+                    try await backoff.wait(owner: method)
+                }
             } catch let error as ControlError where error.code == "js_error" && error.message.contains("SyntaxError") {
                 throw ControlError(code: "js_error",
                                    message: ControlStrings.format("control.error.waitCondition", "Wait condition could not be evaluated: %@", error.message),
                                    data: ["timeout_ms": JSONValue(timeoutMs)])
-            } catch let error as ControlError where ["js_error", "app_error", "unavailable"].contains(error.code) {
-                // The page navigated or is still starting. The loop ends at the deadline.
+            } catch let error as ControlError where ["js_error", "app_error", "unavailable", "timeout"].contains(error.code) {
+                // The page navigated, is still starting, or never answered. The loop ends at the deadline.
                 lastError = error.message
                 // concurrency-allow: Backoff's async sleep spaces retries after a failure; it blocks no thread
                 try await backoff.wait(owner: method)

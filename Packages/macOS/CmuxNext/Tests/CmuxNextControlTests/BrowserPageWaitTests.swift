@@ -89,8 +89,18 @@ import Testing
         #expect(result.failure?.code == "timeout")
         #expect(result.failure?.data?["timeout_ms"] == 200)
         #expect(result.failure?.data?["last_error"] == "TypeError: x")
-        #expect(engine.operations.count == 1)
-        #expect(script(engine.operations.first).contains("200"))
+        // An answer that came before the page's timer is spaced by Backoff, not repeated at once.
+        #expect((1...5).contains(engine.operations.count))
+        #expect(script(engine.operations.first).contains("setTimeout(() => finish(check()), "))
+        #expect(script(engine.operations.first).contains("setInterval(onEvent, 100)"))
+    }
+
+    @Test func longWaitsRunInPageChunksAndDomWaitsUseNoPageTimer() async throws {
+        let (router, engine) = install { _, _ in Self.met(true) }
+        _ = try await wait(router, ["selector": "#q", "timeout_ms": 60_000]).get()
+        let body = script(engine.operations.first)
+        #expect(body.contains("finish(check()), 4000)"))
+        #expect(!body.contains("setInterval"))
     }
 
     @Test func aNavigationStartsTheWaitAgainInTheNewPage() async throws {

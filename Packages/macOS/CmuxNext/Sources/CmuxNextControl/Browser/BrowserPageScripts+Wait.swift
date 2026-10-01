@@ -32,11 +32,21 @@ extension BrowserPageScripts {
                 "(() => { return (\n\(expression)\n); })()"
             }
         }
+
+        /// Script state and `history.pushState` change without a DOM
+        /// mutation or event, so these also recheck on a page timer.
+        var rechecksOnTimer: Bool {
+            switch self {
+            case .function, .urlContains: true
+            default: false
+            }
+        }
     }
 
     /// The body of an async function that resolves to `{met, error}`: `met`
     /// once `condition` holds, or false after `timeoutMs`. It rechecks on
-    /// DOM mutations and load/navigation events, never on a timer. An
+    /// DOM mutations and load/navigation events, and for script state and
+    /// URLs on a 100 ms page timer (in the page; the app never wakes). An
     /// exception in the condition counts as not met (`error` keeps the last).
     static func waitScript(_ condition: WaitCondition, timeoutMs: Int) -> String {
         """
@@ -48,6 +58,7 @@ extension BrowserPageScripts {
           let done = false;
           let observer = null;
           let timer = null;
+          let recheck = null;
           const finish = (met) => {
             if (done) { return; }
             done = true;
@@ -55,6 +66,7 @@ extension BrowserPageScripts {
             for (const name of events) { window.removeEventListener(name, onEvent, true); }
             document.removeEventListener('readystatechange', onEvent, true);
             clearTimeout(timer);
+            clearInterval(recheck);
             resolve({ met, error: lastError });
           };
           const onEvent = () => { if (check()) { finish(true); } };
@@ -63,6 +75,7 @@ extension BrowserPageScripts {
           for (const name of events) { window.addEventListener(name, onEvent, true); }
           document.addEventListener('readystatechange', onEvent, true);
           timer = setTimeout(() => finish(check()), \(max(0, timeoutMs)));
+          \(condition.rechecksOnTimer ? "recheck = setInterval(onEvent, 100);" : "")
         });
         """
     }
@@ -72,6 +85,7 @@ extension BrowserPageScripts {
     static func elementClip(_ selector: String) -> String {
         wrap(find(selector) + """
         const vw = window.innerWidth, vh = window.innerHeight;
+        if (!(vw > 0 && vh > 0)) { return { error: 'The page has no viewport' }; }
         const before = el.getBoundingClientRect();
         if (before.top < 0 || before.left < 0 || before.bottom > vh || before.right > vw) {
           el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });

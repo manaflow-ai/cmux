@@ -65,9 +65,11 @@ condition does not hold in time, and keeps waiting across a navigation.
 
 `screenshot` captures the visible viewport as a PNG. `--selector` captures one
 element (scrolled into view, clipped to the viewport); `--full-page` captures
-the whole document. `--out PATH` writes the file, `--out -` writes the PNG to
-stdout, and without `--out` it writes a new file in the temporary directory.
-It prints the path (`--json`: the tab, path, width and height).
+the whole document (at most 25 million CSS pixels and 80 viewport tiles;
+fixed headers repeat in WebKit tabs). Without `--out` the PNG is a new file in
+the temporary directory; `--out PATH` copies it there. It prints the path
+(`--json`: the tab, path, width and height). `--out -` writes only the PNG to
+stdout.
 
 ## Daemon browsers (`browser_…`)
 

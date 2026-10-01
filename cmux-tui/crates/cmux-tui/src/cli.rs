@@ -951,8 +951,8 @@ App browser tabs (the cmux app; `page` is the focused tab):
   cmux browser <tab_id|page> screenshot [--out <path>|-] [--selector <s>|--full-page]
 
 wait exits 1 when the condition does not hold before the timeout (default
-5000 ms). screenshot writes a PNG to --out, to stdout with --out -, or to a
-new file in the temporary directory, and prints the path.
+5000 ms). screenshot saves a PNG in the temporary directory, or to --out,
+and prints the path; --out - writes only the PNG to stdout.
 ";
 
 const NOTIFICATION_HELP: &str = "\

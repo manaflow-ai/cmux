@@ -33,9 +33,13 @@ import Testing
         #expect(throws: ControlError.self) { try AppBrowserPage.crop(snapshot, to: clip) }
     }
 
-    @Test func encodesAPNG() async throws {
-        let encoded = await AppBrowserPage.pngBase64(try image(width: 4, height: 3))
-        let data = try #require(encoded.flatMap { Data(base64Encoded: $0) })
+    @Test func encodesAPNGAndSavesItToATemporaryFile() async throws {
+        let data = try #require(await AppBrowserPage.pngData(try image(width: 4, height: 3)))
+        let path = try await AppBrowserPage.save(data, tabID: "tab_0123")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        #expect(path.hasSuffix(".png"))
+        #expect(path.contains("cmux-browser-screenshots/tab_0123-"))
+        #expect(FileManager.default.contents(atPath: path) == data)
         let source = try #require(CGImageSourceCreateWithData(data as CFData, nil))
         #expect(CGImageSourceGetType(source) as String? == "public.png")
         #expect(CGImageSourceCreateImageAtIndex(source, 0, nil)?.width == 4)
