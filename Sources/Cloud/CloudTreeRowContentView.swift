@@ -46,9 +46,15 @@ struct CloudTreeRowContentView: View {
         case .device(let row):
             CloudTreeDeviceRowContent(row: row, style: style)
         case .devicesSection:
-            groupRow(title: String(localized: "cloudTree.group.devices", defaultValue: "My Devices"))
+            groupRow(
+                title: String(localized: "cloudTree.group.devices", defaultValue: "My Devices"),
+                icon: "desktopcomputer"
+            )
         case .cloudMachinesSection:
-            groupRow(title: String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines"))
+            groupRow(
+                title: String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines"),
+                icon: "cloud"
+            )
         case .createAction(let action):
             CloudTreeCreateActionLabel(action: action, style: style)
         case .devicesEmpty:
@@ -129,8 +135,13 @@ struct CloudTreeRowContentView: View {
     }
     /// One section label ("Workspaces", "My Devices") in the shared group row,
     /// so the row switch stays a list of one-line cases.
-    private func groupRow(title: String) -> some View {
-        CloudTreeGroupRowContent(title: title, count: Self.groupCount(for: kind), style: style)
+    private func groupRow(title: String, icon: String? = nil) -> some View {
+        CloudTreeGroupRowContent(
+            title: title,
+            count: Self.groupCount(for: kind),
+            style: style,
+            icon: icon
+        )
     }
 
     /// The count a group header shows after its title ("My Devices 2"); nil shows none.
