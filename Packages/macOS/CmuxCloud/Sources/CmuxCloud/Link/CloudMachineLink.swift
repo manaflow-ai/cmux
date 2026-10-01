@@ -325,17 +325,25 @@ public actor CloudMachineLink {
         state = .unavailable
         connected = nil
         changesContinuation.finish()
-        await cancelEventsStream()
-        if let process, let processExit {
-            await Self.terminateAndWait(process, exit: processExit)
-            if self.process === process {
-                self.process = nil
-                self.processExit = nil
-            }
-        }
-        await resourceConnection?.close()
+        // Capture and clear every owned resource before the first suspension.
+        // A reconnect may otherwise install a new client while this disconnect
+        // is awaiting stream cancellation, and the old cleanup would kill it.
+        let staleStreamID = eventStreamID
+        let staleChannel = resourceConnection
+        let staleProcess = process
+        let staleExit = processExit
+        let staleRelease = releaseHubLease
+        eventStreamID = nil
         resourceConnection = nil
-        await releaseHubLeaseOnce()
+        process = nil
+        processExit = nil
+        releaseHubLease = nil
+        if let staleStreamID { await staleChannel?.cancelStream(staleStreamID) }
+        await staleChannel?.close()
+        if let staleProcess, let staleExit {
+            await Self.terminateAndWait(staleProcess, exit: staleExit)
+        }
+        await staleRelease?()
     }
 
     /// Records a cursor only after the owner has accepted the corresponding
