@@ -130,7 +130,8 @@ def step_row(step: dict[str, Any]) -> str:
     status = STATUS_TEXT.get(step.get("status", ""), "")
     detail = f": {cell(step['detail'])}" if step.get("detail") else ""
     # A code span cannot hold its own backticks, and inside one nothing else is Markdown.
-    command = f"`{str(step['command']).replace('`', chr(39))}`" if step.get("command") else ""
+    one_line = re.sub(r"[\r\n]+", " ", str(step.get("command") or "")).replace("`", "'")
+    command = f"`{one_line}`" if one_line else ""
     return f"| {cell(step.get('index', ''))} | {cell(step.get('title', ''))} | {status}{detail} | {command.replace('|', chr(92) + '|')} |"
 
 
@@ -142,7 +143,7 @@ def cell(text: Any) -> str:
     pull request's code. HTML and Markdown are escaped, and @ is broken so no
     mention or team ping is sent."""
     escaped = MARKDOWN_SPECIAL.sub(r"\\\1", html.escape(str(text), quote=False))
-    return escaped.replace("@", "@\u200b").replace("\n", " ")
+    return re.sub(r"[\r\n]+", " ", escaped.replace("@", "@\u200b"))
 
 
 def image(url: str, title: str, width: int) -> str:

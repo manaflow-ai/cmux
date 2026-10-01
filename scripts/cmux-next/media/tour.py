@@ -227,6 +227,8 @@ class Screen:
         x, y, width, height = frame
         if width < 50 or height < 50:
             return
+        # Until a usable rect is known again, nothing is captured.
+        self.rect = None
         top = self.primary_height - (y + height)
         left, right = max(0.0, x), x + width
         bottom = min(self.primary_height, top + height)
@@ -259,7 +261,8 @@ class Screen:
 
     def helper_capture(self, path: Path, kind: str) -> str | None:
         """The whole display through the helper, cropped to the rect with sips."""
-        raw = path.with_name(path.stem + ".raw.png")
+        # The whole desktop lands outside shots/ and frames/, so a kill mid-capture cannot publish it.
+        raw = Path(tempfile.gettempdir()) / f"cmux-tour-raw-{os.getpid()}-{threading.get_ident()}.png"
         problem = self.session.helper_capture(self.session.helper, ["desktop"], raw)
         if problem:
             return problem
@@ -519,8 +522,14 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session) 
                 manifest["error"] = "the app exited during the tour: " + app.log_tail()
                 break
     finally:
-        # The app first: a cancelled job gets a few seconds before SIGKILL,
-        # and a leftover app or daemon would serve the next run on this Mac.
+        # A second signal must not cut the cleanup short.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        # No frame after this point: once the app is gone, the rect shows
+        # whatever was behind it on the shared console.
+        with recorder.lock:
+            recorder.stopping.set()
+        # Then the app: a leftover app or daemon would serve the next run on this Mac.
         app.stop()
         manifest["frames"] = recorder.stop() if recorder.ident else []
         if recorder.error and not manifest["frames"]:
@@ -579,6 +588,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"screen capture: {session.capture_mode}", flush=True)
     ok = True
     for tour in tours:
+        signal.signal(signal.SIGINT, signal.default_int_handler)
+        signal.signal(signal.SIGTERM, terminated)
         ok = passed(run_tour(args.app, tour, args.out, session)) and ok
     return 0 if ok else 1
 

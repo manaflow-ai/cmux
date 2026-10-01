@@ -120,6 +120,12 @@ class CaptureRect(unittest.TestCase):
         screen.follow([1800, 0, 400, 300])
         self.assertEqual(screen.rect, (1800, 780, 120, 300))
 
+    def test_a_window_that_leaves_the_display_stops_the_capture(self) -> None:
+        screen = self.screen()
+        screen.follow([100, 200, 800, 600])
+        screen.follow([5000, 200, 800, 600])
+        self.assertIsNone(screen.rect)
+
     def test_no_window_means_no_rect_and_no_shot(self) -> None:
         screen = self.screen()
         screen.follow(None)
@@ -207,6 +213,18 @@ class ArtifactIsData(unittest.TestCase):
         self.assertNotIn("![x](", section)
         self.assertNotIn("@manaflow-ai", section)
         self.assertEqual(section.count("`"), 2)
+
+    def test_a_newline_cannot_end_the_code_span_or_the_row(self) -> None:
+        for newline in ("\n\n", "\r\r", "\r\n\r\n"):
+            with self.subTest(newline=repr(newline)):
+                media = self.tour({"title": "T", "steps": [
+                    {"index": 1, "title": f"a{newline}@manaflow-ai/everyone", "status": "ok",
+                     "command": f"x{newline}@manaflow-ai/everyone ![a](https://tracker.example/p.png)"}]})
+                (directory, manifest), = publish.manifests(media)
+                row = publish.step_row(manifest["steps"][0])
+                self.assertNotIn("\n", row)
+                self.assertNotIn("\r", row)
+                self.assertNotIn("@manaflow-ai", row.replace("`x @manaflow-ai", ""))
 
     def test_malformed_step_values_do_not_crash_the_comment(self) -> None:
         media = self.tour({"title": ["x"], "error": {"a": 1}, "frames": "nope", "steps": [

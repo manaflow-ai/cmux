@@ -136,7 +136,9 @@ jobs:
       - name: Run the tours
         env:
           APP: ${{ steps.build.outputs.app }}
-        run: python3 scripts/cmux-next/media/tour.py --app "$APP" --out "$RUNNER_TEMP/media" scripts/cmux-next/media/tours
+        # exec: the runner signals the step's shell on cancel, and bash would
+        # not pass it on, so tour.py could not stop the app and its daemon.
+        run: exec python3 scripts/cmux-next/media/tour.py --app "$APP" --out "$RUNNER_TEMP/media" scripts/cmux-next/media/tours
 
       - name: Keep the media for the publish job
         if: ${{ always() }}
