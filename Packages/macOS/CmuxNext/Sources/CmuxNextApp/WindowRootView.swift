@@ -21,6 +21,9 @@ final class WindowRootView: NSView {
     private var titleHeight: NSLayoutConstraint?
     private var tokenObservation: Task<Void, Never>?
     private(set) weak var content: NSView?
+    /// Empties AppKit's titlebar drag region: the window moves only through
+    /// `TitlebarDragPolicy` (`ShellWindow.sendEvent`).
+    let titlebarBandBlocker = TitlebarDragBlocker(frame: .zero)
 
     init(sidebar: SidebarContainerView) {
         self.sidebar = sidebar
@@ -31,6 +34,7 @@ final class WindowRootView: NSView {
             addSubview(view)
         }
         addSubview(sidebar)
+        addSubview(titlebarBandBlocker)
         let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: 0)
         // Below required, so it yields to the traffic-light inset.
         let titleFollowsSidebar = titlebar.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor)
@@ -107,6 +111,7 @@ final class WindowRootView: NSView {
 
     override func layout() {
         super.layout()
+        TitlebarDragPolicy.layoutBandBlocker(titlebarBandBlocker, in: self)
         guard let badge = titlebarBadge else { return }
         badge.isHidden = !showsTitlebarBadge
         guard showsTitlebarBadge else { return }

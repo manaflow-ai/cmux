@@ -1,13 +1,15 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 
-// Dogfood nxdog12: "tabs at top drag full window around". In a strip in the
-// window's titlebar band, macOS moved the window from a press on a tab,
-// because a plain view never claims the band (`TitlebarDragBlocker`). One
-// per-point rule now decides both paths: the window server's drag region
-// (blockers over the rects below) and the strip's own mouse-down
-// (`WindowTitlebar.handleMouseDown` only on empty space).
-extension TabStripView {
+// Dogfood nxdog12/nxdog14: "tabs at top drag full window around". The strip
+// answers the window's one titlebar decision (`TitlebarDragPolicy`): only
+// empty strip space in the top row moves the window; a tab, a chip, the gap
+// between two, + and the trailing buttons never do.
+extension TabStripView: TitlebarPressDeciding {
+    public func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress {
+        actsAsTitlebar && titlebarHit(at: convert(windowPoint, from: nil)) == .empty ? .movesWindow : .staysPut
+    }
+
     /// What a press at a strip point is for.
     public enum TitlebarHit: Equatable, Sendable {
         /// A tab, a group chip, the gap between two of them, the + button or
@@ -43,20 +45,6 @@ extension TabStripView {
     /// What a press at `point` (strip coordinates) is for.
     public func titlebarHit(at point: CGPoint) -> TitlebarHit {
         Self.titlebarHit(at: point, mouseRects: mouseRects())
-    }
-
-    /// Places one blocker per mouse rect below the strip's content. Runs
-    /// after every frame change; a blocker whose frame is unchanged is not
-    /// touched.
-    func updateDragBlockers() {
-        let rects = mouseRects()
-        while dragBlockers.count < rects.count {
-            let blocker = TitlebarDragBlocker(frame: .zero)
-            addSubview(blocker, positioned: .below, relativeTo: nil)
-            dragBlockers.append(blocker)
-        }
-        while dragBlockers.count > rects.count { dragBlockers.removeLast().removeFromSuperview() }
-        for (blocker, rect) in zip(dragBlockers, rects) where blocker.frame != rect { blocker.frame = rect }
     }
 
     /// The tabs' trailing edge in the clip, scrolled (for a strip whose +

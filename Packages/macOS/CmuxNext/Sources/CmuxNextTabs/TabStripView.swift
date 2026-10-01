@@ -45,8 +45,6 @@ public final class TabStripView: NSView {
     /// Empty strip space in the window's top row acts as a titlebar (`actsAsTitlebar`).
     public var dragsWindowFromEmptySpace = true
     var windowControlsInset: CGFloat = 0
-    /// Keep tabs and buttons in the titlebar band from moving the window (`TabStripView+TitlebarDrag`).
-    var dragBlockers: [TitlebarDragBlocker] = []
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the

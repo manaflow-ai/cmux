@@ -9,11 +9,11 @@ public import AppKit
 /// the mouse-down. Plain views do not claim it, even with
 /// `mouseDownCanMoveWindow` false or their own `mouseDown(with:)`: only an
 /// `NSControl` that accepts first responder does (measured on macOS 26 with
-/// the theme frame's opaque-descendant region). A custom view that handles
-/// the mouse there (the tab strip, the incognito badge) places blockers over
-/// the parts that must not move the window; the blocker returns nil from
-/// `hitTest(_:)`, so every event still reaches the view under it, and it can
-/// never take the keyboard.
+/// the theme frame's opaque-descendant region). The window's root places
+/// one blocker over the whole band, so the window server never moves the
+/// window on its own and `TitlebarDragPolicy` is the only decision. The
+/// blocker returns nil from `hitTest(_:)`, so every event still reaches the
+/// view under it, and it can never take the keyboard.
 public final class TitlebarDragBlocker: NSControl {
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import Testing
 @testable import CmuxNextTabs
 
@@ -49,30 +50,6 @@ import Testing
         func close() { window.close() }
     }
 
-    @Test func pressingATabOrButtonNeverMovesTheWindow() throws {
-        let h = Harness(titles: ["One", "Two", "Three"])
-        defer { h.close() }
-        let region = try #require(AppKitTitlebarDragRegion(window: h.window))
-        for index in 0..<3 {
-            #expect(region.blocksWindowDrag(at: h.windowPoint(stripX: h.tabCenterX(index))), "tab \(index) moves the window")
-        }
-        let plus = h.strip.contentView.convert(h.strip.newTabButton.frame, to: h.strip)
-        #expect(region.blocksWindowDrag(at: h.windowPoint(stripX: plus.midX)), "+ moves the window")
-        let buttons = h.strip.contentView.convert(h.strip.buttonGroup.frame, to: h.strip)
-        #expect(region.blocksWindowDrag(at: h.windowPoint(stripX: buttons.midX)), "a trailing button moves the window")
-    }
-
-    @Test func emptyStripSpaceStillMovesTheWindow() throws {
-        let h = Harness(titles: ["One"])
-        defer { h.close() }
-        let region = try #require(AppKitTitlebarDragRegion(window: h.window))
-        let plus = h.strip.contentView.convert(h.strip.newTabButton.frame, to: h.strip)
-        let buttons = h.strip.contentView.convert(h.strip.buttonGroup.frame, to: h.strip)
-        let empty = (plus.maxX + buttons.minX) / 2
-        #expect(buttons.minX - plus.maxX > 40)
-        #expect(!region.blocksWindowDrag(at: h.windowPoint(stripX: empty)))
-    }
-
     @Test func theDecisionIsPerPoint() {
         let rects = [CGRect(x: 80, y: 0, width: 300, height: 28), CGRect(x: 700, y: 0, width: 60, height: 28)]
         #expect(TabStripView.titlebarHit(at: CGPoint(x: 10, y: 14), mouseRects: rects) == .empty)
@@ -83,28 +60,21 @@ import Testing
         #expect(TabStripView.titlebarHit(at: CGPoint(x: 760, y: 14), mouseRects: [ ]) == .empty)
     }
 
-    @Test func theStripAndAppKitAgreeAtEveryPoint() throws {
+    /// The strip's rule and the window's decision agree every 4 pt, and
+    /// follow a tab added after the first layout.
+    @Test func thePolicyFollowsTheStripRuleAtEveryPoint() {
         let h = Harness(titles: ["One", "Two"])
         defer { h.close() }
-        let region = try #require(AppKitTitlebarDragRegion(window: h.window))
-        // Every 4 pt across the strip; the strip's own rule and AppKit's region match.
-        for x in stride(from: CGFloat(1), to: h.strip.bounds.width, by: 4) {
-            let hit = h.strip.titlebarHit(at: CGPoint(x: x, y: h.strip.bounds.midY))
-            #expect(region.blocksWindowDrag(at: h.windowPoint(stripX: x)) == (hit == .strip), "x \(x): \(hit)")
-        }
-    }
-
-    @Test func blockersFollowTabsAddedAndRemoved() throws {
-        let h = Harness(titles: ["One"])
-        defer { h.close() }
-        let before = h.strip.contentView.convert(h.strip.newTabButton.frame, to: h.strip).maxX
-        h.model.tabs.append(TabItem(id: TabID("t1"), title: "Two"))
+        h.model.tabs.append(TabItem(id: TabID("t2"), title: "Three"))
         h.strip.sync(fromModel: true)
         h.strip.layoutSubtreeIfNeeded()
         h.strip.relayout(animated: false)
-        let region = try #require(AppKitTitlebarDragRegion(window: h.window))
-        #expect(region.blocksWindowDrag(at: h.windowPoint(stripX: h.tabCenterX(1))))
-        #expect(h.strip.contentView.convert(h.strip.newTabButton.frame, to: h.strip).maxX > before)
+        for x in stride(from: CGFloat(1), to: h.strip.bounds.width, by: 4) {
+            let hit = h.strip.titlebarHit(at: CGPoint(x: x, y: h.strip.bounds.midY))
+            let press = TitlebarDragPolicy.decide(at: h.windowPoint(stripX: x), in: h.window)
+            #expect(press == (hit == .empty ? .movesWindow : .staysPut), "x \(x): \(hit) \(press)")
+        }
+        #expect(TitlebarDragPolicy.decide(at: h.windowPoint(stripX: h.tabCenterX(2)), in: h.window) == .staysPut)
     }
 }
 

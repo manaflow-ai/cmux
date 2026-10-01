@@ -10,8 +10,6 @@ import Observation
 final class PaneContentView: NSView, PaneContentChrome {
     let stripView: TabStripView
     private let contentHost = NSView()
-    /// A terminal or page top edge inside the titlebar band never moves the window.
-    private let contentDragBlocker = TitlebarDragBlocker(frame: .zero)
     private(set) weak var content: NSView?
     private var tokenObservation: Task<Void, Never>?
     /// The pane's size changed (divider drag, window resize, animation).
@@ -26,7 +24,6 @@ final class PaneContentView: NSView, PaneContentChrome {
         wantsLayer = true
         contentHost.wantsLayer = true
         contentHost.layer?.masksToBounds = true
-        addSubview(contentDragBlocker)
         addSubview(contentHost)
         addSubview(stripView)
         themeDidChange()
@@ -52,7 +49,6 @@ final class PaneContentView: NSView, PaneContentChrome {
         reportHeaderIfChanged()
         guard contentHost.frame != hostFrame else { return }
         contentHost.frame = hostFrame
-        contentDragBlocker.frame = hostFrame
         onResize?()
     }
 
@@ -159,4 +155,10 @@ final class PaneContentView: NSView, PaneContentChrome {
             layer?.backgroundColor = paints ? Palette.contentBackground.cgColor : nil
         }
     }
+}
+
+// A terminal or page edge inside the titlebar band never moves the window;
+// the strip, hit before this view, answers for its own empty space.
+extension PaneContentView: TitlebarPressDeciding {
+    func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress { .staysPut }
 }

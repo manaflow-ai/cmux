@@ -142,7 +142,6 @@ extension TabStripView {
         let buttonX = tabsClip.frame.minX + min(trailing - offset, viewportWidth)
         newTabButton.frame = CGRect(x: pixel(buttonX), y: tabY, width: buttonWidth, height: tabHeight)
         updateFadeMask()
-        updateDragBlockers()
     }
 
     func updateFadeMask() {

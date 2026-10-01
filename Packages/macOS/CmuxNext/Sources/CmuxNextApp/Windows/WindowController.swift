@@ -306,6 +306,17 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     weak var focus: FocusCoordinator?
     private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
 
+    /// The window's one titlebar decision (`TitlebarDragPolicy`): a left
+    /// mouse-down in the band is delivered as usual, then moves the window
+    /// (or runs the double-click action) only when the policy says so.
+    override func sendEvent(_ event: NSEvent) {
+        guard event.type == .leftMouseDown, TitlebarDragPolicy.decide(at: event.locationInWindow, in: self) == .movesWindow else {
+            return super.sendEvent(event)
+        }
+        super.sendEvent(event)
+        WindowTitlebar.handleMouseDown(event, in: self)
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if let keyRouter, let focus, keyRouter.routeContentKeyEquivalent(event, focus: focus.state) { return true }
         return super.performKeyEquivalent(with: event)

@@ -148,10 +148,10 @@ extension TabStripView {
         }
         // Between tabs or trailing buttons: the strip's, never the window's.
         guard titlebarHit(at: point) == .empty else { return }
-        // In the window's top row empty space is the titlebar: it moves
-        // the window, and a double-click zooms or minimizes (the user's
-        // macOS setting). Elsewhere a double-click opens a tab.
-        if actsAsTitlebar { return WindowTitlebar.handleMouseDown(event, in: window) }
+        // In the window's top row empty space is the titlebar: the window
+        // already moved it or ran the double-click action
+        // (`TitlebarDragPolicy`). Elsewhere a double-click opens a tab.
+        if actsAsTitlebar { return }
         if event.clickCount == 2 { model.send(.newTab(after: nil)) }
     }
 
