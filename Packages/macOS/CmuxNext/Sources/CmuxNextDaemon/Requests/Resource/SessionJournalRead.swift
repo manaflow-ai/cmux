@@ -6,7 +6,7 @@ import Synchronization
 /// `follow:false`, the primitive behind `cmux session current journal
 /// read`; cmux-tui/spec/resource-api-v2.md) on a dedicated short-lived
 /// connection, so the control connection never carries a long replay.
-public struct SessionJournalRead {
+public struct SessionJournalRead: Sendable {
     public static let shared = Self()
     public struct Result: Sendable {
         /// Each record's JSON (the stream item), in journal order.
@@ -94,7 +94,7 @@ public struct SessionJournalRead {
                 if let generation = parsed.cursor?.generation { state.generation = generation }
                 switch parsed.type {
                 case "stream_item":
-                    if let item = Self.item(of: line) {
+                    if let item = item(of: line) {
                         state.records.append(item)
                         if let revision = parsed.cursor?.revision.flatMap(UInt64.init) { state.lastSequence = revision }
                     }

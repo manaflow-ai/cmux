@@ -10,7 +10,7 @@ import os
 /// daemon with its allowlisted subset, and sends the same subset as
 /// per-terminal `env` (`terminal-env-v1`). See `TerminalEnvironment` for why
 /// the full login env never leaves the app.
-public struct LoginEnvironment {
+public struct LoginEnvironment: Sendable {
     public static let shared = Self()
     /// Printed before `env -0` so rc-file chatter on stdout is skipped.
     let marker = "__CMUX_NEXT_LOGIN_ENV__"

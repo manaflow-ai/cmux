@@ -8,7 +8,7 @@ public import Foundation
 /// which can hold tokens and keys. Both get only what a correct shell needs
 /// before its rc files run; the login shell in each terminal sources the
 /// user's rc files for everything else.
-public struct TerminalEnvironment {
+public struct TerminalEnvironment: Sendable {
     public static let instance = Self()
     /// Exact keys taken from the login environment.
     public let allowedKeys: Set<String> = [

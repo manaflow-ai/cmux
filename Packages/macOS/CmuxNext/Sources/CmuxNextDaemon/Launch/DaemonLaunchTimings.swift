@@ -5,7 +5,7 @@ import Synchronization
 /// connect, handshake) for the App's `debug.timings` and Instruments
 /// (signpost events, category "stalls"). Marks come from any thread.
 public final class DaemonLaunchTimings: @unchecked Sendable {
-    public static let shared = Self()
+    public static let shared = DaemonLaunchTimings()
     private let sink = Mutex<(@Sendable (String) -> Void)?>(nil)
     private let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "stalls")
 
