@@ -118,7 +118,9 @@ workspaces in a Pinned section at the top of the sidebar.
 `notification-mark-unread-v1` adds `marked_unread` to every workspace and to
 `set-workspace-metadata`, with the same absent-or-boolean rule. It is a manual
 mark (Mark Workspace as Unread), separate from notification markers and
-`unread_count`; frontends clear it when the workspace is used.
+`unread_count`. The daemon keeps it until a frontend clears it, which the Mac
+app does when the user types into one of the workspace's terminals (on this Mac) or uses Mark
+as Read or Clear Notifications; focusing or opening the workspace keeps it.
 
 `tab-metadata-v1` adds `pinned`, `cwd`, `git_branch`, and `git_detached` to
 every tab. `set-tab-pinned` pins a tab; pinned tabs sort first, and

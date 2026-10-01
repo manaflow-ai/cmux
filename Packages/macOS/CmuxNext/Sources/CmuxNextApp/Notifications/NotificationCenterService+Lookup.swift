@@ -56,8 +56,9 @@ extension NotificationCenterService {
         return LocatedTab(tab: tab, pane: pane, workspace: workspace)
     }
 
-    /// Unread tabs, plus one per workspace marked unread by hand without
-    /// any, roughly as the old app counted its manual unread.
+    /// Each workspace adds its unread tab count, or 1 when that count is 0
+    /// and the workspace is marked unread by hand: a mark adds nothing to a
+    /// workspace that already has unread tabs (roughly the old app's count).
     static func unreadCount(_ store: DaemonStore?) -> Int {
         store?.workspaces.reduce(0) { total, workspace in
             let count = workspace.unreadCount

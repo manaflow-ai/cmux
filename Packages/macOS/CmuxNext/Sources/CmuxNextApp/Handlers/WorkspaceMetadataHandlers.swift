@@ -54,7 +54,7 @@ enum WorkspaceMetadataHandlers {
         registry.bindUnavailable(["palette.workspaceCustomColor"], ActionFailure.needsAppCapability("custom-workspace-colors"))
         registry.bind("palette.markWorkspaceUnread", requires: DaemonCapabilities.shared.notificationMarkUnread, daemon: context.services.activeDaemon, run: { invocation in
             try context.require(DaemonCapabilities.shared.notificationMarkUnread)
-            WorkspaceUnreadMark.set(true, on: [try context.workspace(invocation).model], daemon: context.services.activeDaemon)
+            WorkspaceUnreadMark.set(true, on: [try context.workspace(invocation).model], machines: context.services.machines)
         })
         let missing: [(ActionID, String)] = [
             ("editWorkspaceDescription", "workspace-description-v1"),
@@ -86,13 +86,16 @@ enum WorkspaceMetadataHandlers {
     /// daemon rollup reports unread but no tab carries a marker).
     static func acknowledge(_ workspaces: [WorkspaceModel], _ context: AppActionContext) throws {
         try context.require(DaemonCapabilities.shared.notificationAck)
-        WorkspaceUnreadMark.set(false, on: workspaces, daemon: context.services.activeDaemon)
-        for workspace in workspaces {
+        let machines = context.services.machines
+        WorkspaceUnreadMark.set(false, on: workspaces, machines: machines)
+        // A group's members can live on different machines.
+        for (workspace, daemon) in WorkspaceUnreadMark.routes(workspaces, machines: machines)
+        where daemon.supports(DaemonCapabilities.shared.notificationAck) {
             let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
             let unread = tabs.filter(\.hasUnread)
             let surfaces = (unread.isEmpty && workspace.unreadCount > 0 ? tabs : unread).map(\.surface)
             for surface in surfaces {
-                context.services.activeDaemon.send("ack-tab-notifications") { _ = try await $0.acknowledgeNotifications(of: surface) }
+                daemon.send("ack-tab-notifications") { _ = try await $0.acknowledgeNotifications(of: surface) }
             }
         }
     }
