@@ -176,7 +176,11 @@ public actor DaemonConnection {
 
     public func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
         guard case .ready(let transport, _) = phase else { throw DaemonError.notConnected }
-        return try await Self.perform(request, on: transport, timeout: timeout)
+        let response = try await Self.perform(request, on: transport, timeout: timeout)
+        if let scope = DaemonCommandScope.current, let creating = request as? any DaemonCreatingRequest {
+            scope.noteCreated(creating.createdObjects(inAny: response))
+        }
+        return response
     }
 
     /// The event sequence this connection has routed so far, or nil when

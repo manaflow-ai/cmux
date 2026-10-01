@@ -4,6 +4,14 @@ import CmuxNextDaemon
 /// Maps the daemon mirror into the control socket's value topology. Pure;
 /// the publisher calls it inside Observation tracking so every property it
 /// reads schedules the next publish when it changes.
+extension ControlTabInfo {
+    func withTerminalResource(_ id: String?) -> ControlTabInfo {
+        var info = self
+        info.terminalResourceID = id
+        return info
+    }
+}
+
 enum ControlTopologyMapper {
     /// `selectedTab` answers the tab a window shows for a pane (app-local).
     static func topology(store: DaemonStore, selectedTab: (PaneModel) -> String?) -> ControlTopology {
@@ -84,6 +92,6 @@ enum ControlTopologyMapper {
             hasUnread: model.hasUnread,
             tabGroupID: model.tabGroup?.rawValue,
             agentState: model.agent?.state.rawValue
-        )
+        ).withTerminalResource(model.terminalResourceID?.rawValue)
     }
 }

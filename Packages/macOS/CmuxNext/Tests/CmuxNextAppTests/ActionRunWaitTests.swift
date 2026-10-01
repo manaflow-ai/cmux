@@ -17,6 +17,7 @@ import Testing
     /// A daemon that rejects `rename-workspace` and answers everything else.
     nonisolated final class Counter: Sendable {
         let value = Mutex(0)
+        let mutationIDs = Mutex<[String]>([])
     }
 
     nonisolated static func daemon(renames: Counter) -> @Sendable ([String: CmuxNextDaemon.JSONValue]) -> [String] {
@@ -30,6 +31,7 @@ import Testing
                 return [#"{"id":\#(id),"ok":true,"data":{"generation":"g1","registry_id":"r","workspace_revision":0,"workspaces":[]}}"#]
             case "rename-workspace":
                 renames.value.withLock { $0 += 1 }
+                if let mutation = request["mutation_id"]?.stringValue { renames.mutationIDs.withLock { $0.append(mutation) } }
                 return [#"{"id":\#(id),"ok":false,"error":"no such workspace"}"#]
             default:
                 return [#"{"id":\#(id),"ok":true,"data":{}}"#]
@@ -76,5 +78,32 @@ import Testing
             return
         }
         #expect(error.code == "daemon_error")
+    }
+
+    @Test func aRetryWithTheSameKeySendsTheSameMutationID() async throws {
+        let renames = Counter()
+        let server = try ScriptedDaemonSocket(handler: Self.daemon(renames: renames))
+        defer { server.stop() }
+        let service = DaemonService()
+        let path = server.path
+        service.start(makeConnection: { DaemonConnection(endpoint: DaemonEndpoint(socketPath: path)) })
+        defer { service.shutdownConnection() }
+        try await waitUntil { service.connection != nil }
+        let registry = ActionRegistry()
+        registry.register(Action(id: "test.rename", title: "Rename") {
+            service.send("rename-workspace") { try await $0.renameWorkspace(WorkspaceKey(rawValue: Self.key), to: "x") }
+        })
+        // Two app runs (a fresh router each, as after a relaunch) with one key.
+        for _ in 0..<2 {
+            let bridge = RegistryControlBridge(registry: registry)
+            let router = ControlRouter(identity: ControlIdentity(version: "1", build: "1", bundleID: nil, tag: "test", processID: 1),
+                                       executor: bridge)
+            bridge.attach(to: router)
+            _ = await router.handle(ControlRequest(id: "1", method: "action.run", params: ["action": "test.rename", "idempotency_key": "retry-1"]))
+            bridge.detach()
+        }
+        let ids = renames.mutationIDs.withLock { $0 }
+        #expect(ids.count == 2)
+        #expect(ids.first == ids.last)
     }
 }

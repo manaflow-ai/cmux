@@ -94,6 +94,9 @@ public struct ControlActionInfo: Sendable, Hashable {
     /// Starts a terminal (`ActionDescriptor.startsTerminal`): `action.run`
     /// with `wait` uses the terminal start deadline.
     public var startsTerminal = false
+    /// Has a purpose outside the GUI: the CLI offers it by `cliName`
+    /// (`ActionDescriptor.cli`).
+    public var isCLI = false
 
     public init(
         id: String, title: String, category: String, categoryTitle: String, cliName: String, symbol: String,
@@ -140,6 +143,7 @@ public struct ControlActionInfo: Sendable, Hashable {
             "debug_only": .bool(isDebugOnly),
             "destructive": .bool(isDestructive),
             "starts_terminal": .bool(startsTerminal),
+            "cli": .bool(isCLI),
         ]
         if let mainMenu { members["main_menu"] = .string(mainMenu) }
         if let unavailableReason { members["unavailable_reason"] = .string(unavailableReason) }
@@ -204,6 +208,12 @@ public struct ControlCatalog: Sendable {
         let spaced = trimmed.split(whereSeparator: { $0 == " " }).joined(separator: " ")
         if let index = indexByCLIName[spaced] { return actions[index] }
         return nil
+    }
+
+    /// Resolves a CLI name only (`tab-group create`, extra spaces allowed).
+    public func resolveCLIName(_ name: String) -> ControlActionInfo? {
+        let spaced = name.split(whereSeparator: { $0 == " " }).joined(separator: " ")
+        return indexByCLIName[spaced].map { actions[$0] }
     }
 
     func isAvailable(_ action: ControlActionInfo) -> Bool {

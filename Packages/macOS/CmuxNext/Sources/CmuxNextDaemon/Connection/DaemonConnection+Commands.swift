@@ -7,7 +7,12 @@ extension DaemonConnection {
     /// Stable frontend identity for the exactly-once ledger.
     public static let origin = "cmux-next"
 
-    public func mutation() -> MutationIdentity { MutationIdentity(origin: Self.origin) }
+    /// A fresh mutation identity, or one derived from the running action's
+    /// idempotency key (`DaemonCommandScope`), so a retried action replays.
+    public func mutation() -> MutationIdentity {
+        guard let derived = DaemonCommandScope.current?.nextMutationID() else { return MutationIdentity(origin: Self.origin) }
+        return MutationIdentity(origin: Self.origin, mutationID: derived)
+    }
 
     public func listWorkspaces() async throws -> DaemonTree {
         try await request(ListWorkspacesRequest())

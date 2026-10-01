@@ -19519,6 +19519,792 @@
           }
         }
       }
+    },
+    "control.error.targetNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %1$@ matches %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ に一致する %1$@ はありません"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يوجد %1$@ يطابق %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedan %1$@ ne odgovara %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen %1$@ matcher %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kein %1$@ passt zu %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ningún %1$@ coincide con %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun %1$@ ne correspond à %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun %1$@ corrisponde a %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មាន %1$@ ដែលត្រូវនឹង %2$@ ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@와 일치하는 %1$@이(가) 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen %1$@ samsvarer med %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Żaden %1$@ nie pasuje do %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum %1$@ corresponde a %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет %1$@, соответствующего %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มี %1$@ ที่ตรงกับ %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@ ile eşleşen %1$@ yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає %1$@, що відповідає %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có %1$@ nào khớp với %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有与 %2$@ 匹配的 %1$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有符合 %2$@ 的 %1$@"
+          }
+        }
+      }
+    },
+    "control.error.unknownCLIAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No CLI command '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI コマンド '%@' はありません"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يوجد أمر CLI باسم '%@'"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema CLI naredbe '%@'"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen CLI-kommando '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kein CLI-Befehl '%@'"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay ningún comando de CLI '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucune commande CLI '%@'"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun comando CLI '%@'"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានពាក្យបញ្ជា CLI '%@' ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CLI 명령 '%@'이(가) 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen CLI-kommando '%@'"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak polecenia CLI '%@'"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum comando de CLI '%@'"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет команды CLI '%@'"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีคำสั่ง CLI '%@'"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "'%@' adlı CLI komutu yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає команди CLI '%@'"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có lệnh CLI '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有 CLI 命令“%@”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有 CLI 命令「%@」"
+          }
+        }
+      }
+    },
+    "control.error.afterShape": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "after must be a sequence number from an earlier reply or \"sync\""
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "after には以前の応答のシーケンス番号か \"sync\" を指定してください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يجب أن تكون after رقم تسلسل من رد سابق أو \"sync\""
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after mora biti broj sekvence iz ranijeg odgovora ili \"sync\""
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after skal være et sekvensnummer fra et tidligere svar eller \"sync\""
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after muss eine Sequenznummer aus einer früheren Antwort oder \"sync\" sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after debe ser un número de secuencia de una respuesta anterior o \"sync\""
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after doit être un numéro de séquence d’une réponse précédente ou \"sync\""
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after deve essere un numero di sequenza di una risposta precedente o \"sync\""
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after ត្រូវតែជាលេខលំដាប់ពីចម្លើយមុន ឬ \"sync\""
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after는 이전 응답의 시퀀스 번호나 \"sync\"여야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after må være et sekvensnummer fra et tidligere svar eller \"sync\""
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after musi być numerem sekwencji z wcześniejszej odpowiedzi lub \"sync\""
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after deve ser um número de sequência de uma resposta anterior ou \"sync\""
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after должен быть номером последовательности из прошлого ответа или \"sync\""
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after ต้องเป็นหมายเลขลำดับจากคำตอบก่อนหน้าหรือ \"sync\""
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after, önceki bir yanıttaki sıra numarası veya \"sync\" olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after має бути номером послідовності з попередньої відповіді або \"sync\""
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after phải là số thứ tự từ một phản hồi trước hoặc \"sync\""
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after 必须是先前回复中的序号或 \"sync\""
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "after 必須是先前回覆中的序號或 \"sync\""
+          }
+        }
+      }
+    },
+    "control.error.idempotentRunNotStarted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The earlier run with idempotency key %@ never started; retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "冪等キー %@ の以前の実行は開始されませんでした。再試行してください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يبدأ التشغيل السابق بمفتاح عدم التكرار %@؛ أعد المحاولة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ranije pokretanje s ključem idempotentnosti %@ nije počelo; pokušajte ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den tidligere kørsel med idempotensnøgle %@ startede aldrig; prøv igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der frühere Lauf mit Idempotenzschlüssel %@ hat nie begonnen; erneut versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La ejecución anterior con la clave de idempotencia %@ nunca empezó; reintenta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’exécution précédente avec la clé d’idempotence %@ n’a jamais commencé ; réessayez"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’esecuzione precedente con la chiave di idempotenza %@ non è mai iniziata; riprova"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការដំណើរការមុនដោយសោ idempotency %@ មិនបានចាប់ផ្ដើមទេ សូមព្យាយាមម្ដងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "멱등 키 %@의 이전 실행이 시작되지 않았습니다. 다시 시도하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den tidligere kjøringen med idempotensnøkkel %@ startet aldri; prøv igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wcześniejsze uruchomienie z kluczem idempotencji %@ nigdy się nie zaczęło; spróbuj ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A execução anterior com a chave de idempotência %@ nunca começou; tente novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прошлый запуск с ключом идемпотентности %@ не начался; повторите"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การรันก่อนหน้าด้วยคีย์ idempotency %@ ไม่เคยเริ่ม ลองใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ idempotency anahtarlı önceki çalıştırma hiç başlamadı; yeniden deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Попередній запуск із ключем ідемпотентності %@ не почався; повторіть"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lần chạy trước với khóa idempotency %@ chưa từng bắt đầu; hãy thử lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用幂等键 %@ 的先前运行从未开始；请重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用冪等鍵 %@ 的先前執行從未開始；請重試"
+          }
+        }
+      }
+    },
+    "control.error.idempotencyConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idempotency key %@ was used for a different request"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "冪等キー %@ は別のリクエストで使用されました"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استُخدم مفتاح عدم التكرار %@ لطلب مختلف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ključ idempotentnosti %@ korišten je za drugi zahtjev"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Idempotensnøgle %@ blev brugt til en anden forespørgsel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Idempotenzschlüssel %@ wurde für eine andere Anfrage verwendet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La clave de idempotencia %@ se usó para otra solicitud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La clé d’idempotence %@ a été utilisée pour une autre requête"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La chiave di idempotenza %@ è stata usata per un’altra richiesta"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សោ idempotency %@ ត្រូវបានប្រើសម្រាប់សំណើផ្សេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "멱등 키 %@이(가) 다른 요청에 사용되었습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Idempotensnøkkel %@ ble brukt for en annen forespørsel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klucz idempotencji %@ użyto dla innego żądania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A chave de idempotência %@ foi usada para outra solicitação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ключ идемпотентности %@ использован для другого запроса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คีย์ idempotency %@ ถูกใช้กับคำขออื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ idempotency anahtarı farklı bir istek için kullanıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ключ ідемпотентності %@ використано для іншого запиту"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khóa idempotency %@ đã được dùng cho một yêu cầu khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "幂等键 %@ 已用于其他请求"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "冪等鍵 %@ 已用於其他請求"
+          }
+        }
+      }
+    },
+    "control.error.idempotencyKeyShape": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "idempotency_key must be a non-empty string of at most 200 characters"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "idempotency_key は 200 文字以内の空でない文字列にしてください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يجب أن يكون idempotency_key نصًا غير فارغ من 200 حرف على الأكثر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "idempotency_key mora biti neprazan niz od najviše 200 znakova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "idempotency_key skal være en ikke-tom streng på højst 200 tegn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "idempotency_key muss eine nicht leere Zeichenfolge mit höchstens 200 Zeichen sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "idempotency_key debe ser una cadena no vacía de 200 caracteres como máximo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "idempotency_key doit être une chaîne non vide de 200 caractères au plus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "idempotency_key deve essere una stringa non vuota di al massimo 200 caratteri"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "idempotency_key ត្រូវតែជាខ្សែអក្សរមិនទទេ មិនលើស 200 តួ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "idempotency_key는 200자 이하의 비어 있지 않은 문자열이어야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "idempotency_key må være en ikke-tom streng på høyst 200 tegn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "idempotency_key musi być niepustym ciągiem o długości do 200 znaków"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "idempotency_key deve ser uma string não vazia de até 200 caracteres"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "idempotency_key должен быть непустой строкой не длиннее 200 символов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "idempotency_key ต้องเป็นสตริงที่ไม่ว่างและยาวไม่เกิน 200 อักขระ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "idempotency_key en fazla 200 karakterlik boş olmayan bir dize olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "idempotency_key має бути непорожнім рядком до 200 символів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "idempotency_key phải là chuỗi không rỗng tối đa 200 ký tự"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "idempotency_key 必须是不超过 200 个字符的非空字符串"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "idempotency_key 必須是不超過 200 個字元的非空字串"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
