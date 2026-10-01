@@ -39,15 +39,13 @@ public nonisolated struct PageInfoIndicator: Hashable, Sendable {
     }
 
     /// Symbols. The tune icon replaced the lock in Chrome 117.
-    public enum Symbol {
-        public static let secure = "slider.horizontal.3"
-        public static let notSecure = "exclamationmark.triangle"
-        public static let dangerous = "exclamationmark.triangle.fill"
-        public static let file = "doc"
-        public static let product = "terminal"
-        public static let extensionPage = "puzzlepiece.extension"
-        public static let search = "magnifyingglass"
-    }
+    public static let secureSymbol = "slider.horizontal.3"
+    public static let notSecureSymbol = "exclamationmark.triangle"
+    public static let dangerousSymbol = "exclamationmark.triangle.fill"
+    public static let fileSymbol = "doc"
+    public static let productSymbol = "terminal"
+    public static let extensionPageSymbol = "puzzlepiece.extension"
+    public static let searchSymbol = "magnifyingglass"
 
     /// The button for `site`.
     ///
@@ -72,31 +70,31 @@ public nonisolated struct PageInfoIndicator: Hashable, Sendable {
         switch chip {
         case .input(let symbol): resolve(site: site, isFocused: true, editingSymbol: symbol)
         case .page(let focused): resolve(site: site, isFocused: focused, editingSymbol: nil)
-        case .keyword(let name): PageInfoIndicator(symbol: Symbol.extensionPage, label: .keyword(name), isTriggerable: false)
+        case .keyword(let name): PageInfoIndicator(symbol: PageInfoIndicator.extensionPageSymbol, label: .keyword(name), isTriggerable: false)
         }
     }
 
     private static func pageIndicator(for site: PageInfoSite) -> PageInfoIndicator {
         switch site.kind {
         case .empty:
-            return PageInfoIndicator(symbol: Symbol.search, isTriggerable: false)
+            return PageInfoIndicator(symbol: PageInfoIndicator.searchSymbol, isTriggerable: false)
         case .web(let connection):
             switch connection {
             case .secure:
-                return PageInfoIndicator(symbol: Symbol.secure, isTriggerable: true)
+                return PageInfoIndicator(symbol: PageInfoIndicator.secureSymbol, isTriggerable: true)
             case .insecure, .mixedContent:
-                return PageInfoIndicator(symbol: Symbol.notSecure, label: .notSecure, isTriggerable: true)
+                return PageInfoIndicator(symbol: PageInfoIndicator.notSecureSymbol, label: .notSecure, isTriggerable: true)
             case .certificateError:
-                return PageInfoIndicator(symbol: Symbol.dangerous, label: .notSecure, tone: .danger, isTriggerable: true)
+                return PageInfoIndicator(symbol: PageInfoIndicator.dangerousSymbol, label: .notSecure, tone: .danger, isTriggerable: true)
             case .dangerous:
-                return PageInfoIndicator(symbol: Symbol.dangerous, label: .dangerous, tone: .danger, isTriggerable: true)
+                return PageInfoIndicator(symbol: PageInfoIndicator.dangerousSymbol, label: .dangerous, tone: .danger, isTriggerable: true)
             }
         case .file:
-            return PageInfoIndicator(symbol: Symbol.file, label: .file, isTriggerable: true)
+            return PageInfoIndicator(symbol: PageInfoIndicator.fileSymbol, label: .file, isTriggerable: true)
         case .internalPage, .viewSource, .devTools:
-            return PageInfoIndicator(symbol: Symbol.product, label: .product, isTriggerable: true)
+            return PageInfoIndicator(symbol: PageInfoIndicator.productSymbol, label: .product, isTriggerable: true)
         case .extensionPage:
-            return PageInfoIndicator(symbol: Symbol.extensionPage, isTriggerable: true)
+            return PageInfoIndicator(symbol: PageInfoIndicator.extensionPageSymbol, isTriggerable: true)
         }
     }
 }

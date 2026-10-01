@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "agentPane.crashed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعطلت لوحة الوكيل بشكل متكرر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel agenta se više puta srušio."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentpanelet gik ned gentagne gange."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agentenbereich ist wiederholt abgestürzt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent pane crashed repeatedly."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El panel del agente se bloqueó repetidamente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le panneau de l’agent a planté à plusieurs reprises."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il pannello dell’agente si è arrestato ripetutamente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントペインが繰り返しクラッシュしました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងភ្នាក់ងារបានគាំងម្តងហើយម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 패널이 반복해서 충돌했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentpanelet krasjet gjentatte ganger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel agenta wielokrotnie uległ awarii."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O painel do agente travou repetidamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель агента несколько раз аварийно завершилась."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บานหน้าต่างเอเจนต์ขัดข้องซ้ำหลายครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan bölmesi art arda çöktü."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель агента кілька разів аварійно завершилася."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngăn tác tử đã gặp sự cố nhiều lần."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理窗格反复崩溃。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理窗格反覆當機。"
+          }
+        }
+      }
+    },
+    "agentPane.crashed.reload": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة التحميل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponovo učitaj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genindlæs"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neu laden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recargar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recharger"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ricarica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再読み込み"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទុកឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 로드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last inn på nytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Załaduj ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recarregar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезагрузить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โหลดใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeniden yükle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезавантажити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tải lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新载入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新載入"
+          }
+        }
+      }
+    },
     "agentPane.error.daemonFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -128,6 +390,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "acpmux 無法啟動。記錄檔位於 %@。"
+          }
+        }
+      }
+    },
+    "agentPane.error.daemonStopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux لا يعمل. افتح محادثة وكيل جديدة لتشغيله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux nije pokrenut. Otvorite novi chat s agentom da ga pokrenete."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux kører ikke. Åbn en ny agentchat for at starte den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux läuft nicht. Öffne einen neuen Agenten-Chat, um es zu starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux is not running. Open a new agent chat to start it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux no se está ejecutando. Abre un nuevo chat con el agente para iniciarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux n’est pas en cours d’exécution. Ouvrez une nouvelle discussion avec l’agent pour le démarrer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux non è in esecuzione. Apri una nuova chat con l’agente per avviarlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux が実行されていません。新しいエージェントチャットを開くと起動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux មិនកំពុងដំណើរការទេ។ បើកការជជែកភ្នាក់ងារថ្មី ដើម្បីចាប់ផ្តើមវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux가 실행 중이 아닙니다. 새 에이전트 채팅을 열면 시작됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux kjører ikke. Åpne en ny agentchat for å starte den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux nie działa. Otwórz nowy czat z agentem, aby go uruchomić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O acpmux não está em execução. Abra um novo chat com o agente para iniciá-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux не запущен. Откройте новый чат с агентом, чтобы запустить его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux ไม่ได้ทำงานอยู่ เปิดแชตเอเจนต์ใหม่เพื่อเริ่มการทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux çalışmıyor. Başlatmak için yeni bir ajan sohbeti açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux не запущено. Відкрийте новий чат з агентом, щоб запустити його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux không chạy. Mở một cuộc trò chuyện tác tử mới để khởi động nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux 未运行。打开新的代理聊天即可启动它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux 未執行。開啟新的代理聊天即可啟動它。"
           }
         }
       }

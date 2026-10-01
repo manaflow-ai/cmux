@@ -19,7 +19,7 @@ import Testing
               "synced": {"name": "Mobile bookmarks", "type": "folder", "children": []}
             }}
             """
-        let bookmarks = try ChromiumBookmarksParser.parse(Data(json.utf8))
+        let bookmarks = try ChromiumBookmarksParser().parse(Data(json.utf8))
         #expect(bookmarks.map(\.title) == ["cmux", "https://github.com/manaflow-ai/cmux", "Docs"])
         #expect(bookmarks[1].folderPath == ["Bookmarks bar", "Work"])
         #expect(bookmarks[2].folderPath == ["Other bookmarks"])
@@ -29,13 +29,13 @@ import Testing
     }
 
     @Test func notBookmarksThrows() {
-        #expect(throws: (any Error).self) { try ChromiumBookmarksParser.parse(Data("[]".utf8)) }
+        #expect(throws: (any Error).self) { try ChromiumBookmarksParser().parse(Data("[]".utf8)) }
     }
 
     @Test func historyNewestFirstWithLimit() throws {
         let home = try FixtureHome()
         let file = home.url.appending(path: "History")
-        let t = { (seconds: Int64) in BrowserTime.chromiumMicroseconds(Date(timeIntervalSince1970: TimeInterval(seconds))) }
+        let t = { (seconds: Int64) in BrowserTime().chromiumMicroseconds(Date(timeIntervalSince1970: TimeInterval(seconds))) }
         try FixtureHome.sqlite(file, [
             "CREATE TABLE urls(id INTEGER PRIMARY KEY, url TEXT, title TEXT, visit_count INTEGER, typed_count INTEGER, last_visit_time INTEGER, hidden INTEGER)",
             "INSERT INTO urls VALUES(1, 'https://old.example.com/', 'Old', 3, 0, \(t(1_000_000)), 0)",
@@ -44,12 +44,12 @@ import Testing
             "INSERT INTO urls VALUES(4, 'chrome://newtab/', 'New Tab', 9, 0, \(t(4_000_000)), 0)",
             "INSERT INTO urls VALUES(5, 'https://mid.example.com/', '', 1, 0, \(t(1_500_000)), 0)",
         ])
-        let all = try ChromiumHistoryReader.read(file, limit: 10)
+        let all = try ChromiumHistoryReader().read(file, limit: 10)
         #expect(all.map(\.url.host) == ["new.example.com", "mid.example.com", "old.example.com"])
         #expect(all[0].visitCount == 7)
         #expect(all[1].title == nil)
         #expect(abs(all[0].lastVisit.timeIntervalSince1970 - 2_000_000) < 1)
-        #expect(try ChromiumHistoryReader.read(file, limit: 1).count == 1)
+        #expect(try ChromiumHistoryReader().read(file, limit: 1).count == 1)
     }
 
     @Test func historyReadsWhileTheSourceIsLocked() throws {
@@ -61,7 +61,7 @@ import Testing
             "INSERT INTO urls VALUES(1, 'https://a.example.com/', 'A', 1, 0, 13370000000000000, 0)",
         ])
         let before = try Data(contentsOf: file)
-        #expect(try ChromiumHistoryReader.read(file, limit: 5).count == 1)
+        #expect(try ChromiumHistoryReader().read(file, limit: 5).count == 1)
         #expect(try Data(contentsOf: file) == before, "the source database is never written")
     }
 
@@ -85,7 +85,7 @@ import Testing
         snss.raw(0, 3, 14)
         snss.navigation(tab: 14, index: 0, url: "chrome://newtab/", title: "New Tab")
 
-        let tabs = ChromiumSessionReader.parse(snss.data)
+        let tabs = ChromiumSessionReader().parse(snss.data)
         #expect(tabs.map(\.url.absoluteString) == ["https://pinned.example.com/", "https://first.example.com/"])
         #expect(tabs.map(\.pinned) == [true, false])
         #expect(tabs[1].title == "First")
@@ -94,11 +94,11 @@ import Testing
     @Test func sessionIgnoresEncryptedAndTruncatedFiles() {
         var encrypted = Data("SNSS".utf8) + SNSSWriter.le32(2)
         encrypted.append(contentsOf: [9, 0, 6, 1, 2, 3])
-        #expect(ChromiumSessionReader.parse(encrypted).isEmpty)
+        #expect(ChromiumSessionReader().parse(encrypted).isEmpty)
         var snss = SNSSWriter()
         snss.navigation(tab: 1, index: 0, url: "https://a.example.com/", title: "A")
-        #expect(ChromiumSessionReader.parse(snss.data.dropLast(3)).isEmpty)
-        #expect(ChromiumSessionReader.parse(Data("junk".utf8)).isEmpty)
+        #expect(ChromiumSessionReader().parse(snss.data.dropLast(3)).isEmpty)
+        #expect(ChromiumSessionReader().parse(Data("junk".utf8)).isEmpty)
     }
 
     @Test func latestSessionFileByTimestamp() throws {
@@ -107,7 +107,7 @@ import Testing
         for name in ["Session_13370000000000000", "Session_13380000000000000", "Tabs_13390000000000000"] {
             try home.write("", to: sessions.appending(path: name))
         }
-        #expect(ChromiumSessionReader.latestSessionFile(in: sessions)?.lastPathComponent == "Session_13380000000000000")
+        #expect(ChromiumSessionReader().latestSessionFile(in: sessions)?.lastPathComponent == "Session_13380000000000000")
     }
 
     @Test func extensionsFromPreferencesAndManifests() throws {
@@ -136,7 +136,7 @@ import Testing
             }}}
             """, to: profile.appending(path: "Secure Preferences"))
 
-        let extensions = ChromiumExtensionsReader.read(profile: profile)
+        let extensions = ChromiumExtensionsReader().read(profile: profile)
         #expect(extensions.map(\.name) == ["Dark Reader", "uBlock Origin"])
         #expect(extensions[1].version == "1.60.0")
         #expect(extensions[0].enabled == false)

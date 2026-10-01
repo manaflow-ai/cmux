@@ -22,18 +22,18 @@ extension PageInfoCommand {
     /// The command a registry action runs, from its string arguments.
     public static func from(actionID: String, arguments: [String: String]) throws(PageInfoCommandError) -> PageInfoCommand {
         switch actionID {
-        case ActionID.show: return .show(.main)
-        case ActionID.connection: return .show(.security)
-        case ActionID.cookies: return .show(.cookies)
-        case ActionID.certificate: return .showCertificate
-        case ActionID.resetPermissions: return .resetPermissions
-        case ActionID.siteSettings: return .siteSettings
-        case ActionID.manageSiteData: return .manageSiteData
-        case ActionID.aboutThisPage: return .aboutThisPage
-        case ActionID.deleteSiteData:
+        case PageInfoCommand.showActionID: return .show(.main)
+        case PageInfoCommand.connectionActionID: return .show(.security)
+        case PageInfoCommand.cookiesActionID: return .show(.cookies)
+        case PageInfoCommand.certificateActionID: return .showCertificate
+        case PageInfoCommand.resetPermissionsActionID: return .resetPermissions
+        case PageInfoCommand.siteSettingsActionID: return .siteSettings
+        case PageInfoCommand.manageSiteDataActionID: return .manageSiteData
+        case PageInfoCommand.aboutThisPageActionID: return .aboutThisPage
+        case PageInfoCommand.deleteSiteDataActionID:
             let domain = arguments["domain"]?.trimmingCharacters(in: .whitespaces)
             return .deleteSiteData(domain: domain?.isEmpty == false ? domain : nil)
-        case ActionID.setPermission:
+        case PageInfoCommand.setPermissionActionID:
             let permission = arguments["permission"] ?? ""
             let setting = arguments["setting"] ?? ""
             guard let kind = SitePermissionKind(rawValue: permission) else {
@@ -50,9 +50,9 @@ extension PageInfoCommand {
 
     /// Every registry action id Page Info handles.
     public static let actionIDs = [
-        ActionID.show, ActionID.connection, ActionID.cookies, ActionID.certificate, ActionID.setPermission,
-        ActionID.resetPermissions, ActionID.siteSettings, ActionID.manageSiteData, ActionID.deleteSiteData,
-        ActionID.aboutThisPage,
+        PageInfoCommand.showActionID, PageInfoCommand.connectionActionID, PageInfoCommand.cookiesActionID, PageInfoCommand.certificateActionID, PageInfoCommand.setPermissionActionID,
+        PageInfoCommand.resetPermissionsActionID, PageInfoCommand.siteSettingsActionID, PageInfoCommand.manageSiteDataActionID, PageInfoCommand.deleteSiteDataActionID,
+        PageInfoCommand.aboutThisPageActionID,
     ]
 
     /// Commands that need a web page (not only a bubble).

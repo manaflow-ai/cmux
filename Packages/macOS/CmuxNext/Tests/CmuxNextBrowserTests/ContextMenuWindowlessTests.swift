@@ -14,7 +14,8 @@ import Testing
             items: [BrowserContextMenuItem(id: 1, title: "Back")], target: BrowserContextMenuTarget(),
             location: CGPoint(x: 4, y: 4)
         ) { id in result = .some(id) }
-        BrowserContextMenuBuilder.present(request, in: NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100)))
+        let presenter = BrowserContextMenuBuilder()
+        presenter.present(request, in: NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100)))
         #expect(result == .some(nil))
     }
 }

@@ -20,7 +20,7 @@ struct PageInfoIndicatorTests {
 
     @Test func plainHTTPShowsANotSecureChip() {
         let result = indicator("http://neverssl.com", .insecure)
-        #expect(result.symbol == PageInfoIndicator.Symbol.notSecure)
+        #expect(result.symbol == PageInfoIndicator.notSecureSymbol)
         #expect(result.label == .notSecure)
         #expect(result.tone == .neutral)
         #expect(result.isTriggerable)
@@ -58,11 +58,11 @@ struct PageInfoIndicatorTests {
 
     @Test func localFilesInternalAndExtensionPages() {
         #expect(indicator("file:///tmp/a.html", .local).label == .file)
-        #expect(indicator("file:///tmp/a.html", .local).symbol == PageInfoIndicator.Symbol.file)
+        #expect(indicator("file:///tmp/a.html", .local).symbol == PageInfoIndicator.fileSymbol)
         #expect(indicator("cmux://settings", .none).label == .product)
         #expect(indicator("chrome://version", .none).label == .product)
         let ext = indicator("chrome-extension://abcdef/popup.html", .none)
-        #expect(ext.symbol == PageInfoIndicator.Symbol.extensionPage)
+        #expect(ext.symbol == PageInfoIndicator.extensionPageSymbol)
         #expect(ext.isTriggerable)
     }
 
@@ -74,7 +74,7 @@ struct PageInfoIndicatorTests {
 
     @Test func focusedOmniboxKeepsTheIconAndDropsTheText() {
         let result = indicator("http://neverssl.com", .insecure, chip: .page(focused: true))
-        #expect(result.symbol == PageInfoIndicator.Symbol.notSecure)
+        #expect(result.symbol == PageInfoIndicator.notSecureSymbol)
         #expect(result.label == nil)
         #expect(result.isTriggerable)
     }

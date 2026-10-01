@@ -82,7 +82,7 @@ enum BrowserProfileOpenHandlers {
             // extensions; chrome://extensions in a tab of it manages them.
             let record = try context.requiredBrowserProfile(invocation)
             guard let pane = context.paneController(invocation) else { return }
-            pane.newBrowserTab(url: BrowserExtensionLinks.manage, engine: BrowserEngineTag.cef.rawValue, profile: record.id)
+            pane.newBrowserTab(url: URL.browserExtensionManagement, engine: BrowserEngineTag.cef.rawValue, profile: record.id)
         }
     }
 }
