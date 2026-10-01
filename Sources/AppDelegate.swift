@@ -1779,8 +1779,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             SystemWideHotkeySettings.reset()
             KeyboardShortcutSettings.resetAll()
             if TestProcessDefaults.isolatedDomainName == nil {
-                Self.removeLegacyPersistedWindowGeometry()
-                UserDefaults.standard.removeObjectIfPresent(forKey: Self.persistedWindowGeometryDefaultsKey)
+                Self.forgetPersistedWindowGeometryForTestProcess()
             }
         }
 
@@ -3860,6 +3859,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObjectIfPresent(forKey: $0) }
     }
+
+    nonisolated static func forgetPersistedWindowGeometryForTestProcess(defaults: UserDefaults = .standard) { removeLegacyPersistedWindowGeometry(defaults: defaults); defaults.removeObjectIfPresent(forKey: persistedWindowGeometryDefaultsKey) }
 
     private func persistWindowGeometry(from window: NSWindow?) {
         guard let window else { return }
