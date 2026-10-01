@@ -14,9 +14,11 @@ extension UpdateController {
     /// prompting the user again right after relaunch (issue #6366).
     public func attemptUpdate() {
         model.discardPendingChanges()
-        // A downloaded update waiting for busy agents is already the latest attempt; asking to
-        // install again from the menu means Install Now.
-        if case .installing(let installing) = model.state, installing.relaunchBlockers != nil {
+        // A downloaded update is already the latest attempt; asking to install again from the
+        // menu means Relaunch Now. This covers both an automatic background download and a
+        // download held by the relaunch gate.
+        if case .installing(let installing) = model.state,
+           installing.isAutoUpdate || installing.relaunchBlockers != nil {
             log.append("attemptUpdate while relaunch is held: install now")
             installing.retryTerminatingApplication()
             return

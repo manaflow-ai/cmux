@@ -18,6 +18,7 @@ protocol UpdaterHandle: AnyObject {
     var updateCheckInterval: TimeInterval { get }
     func start() throws
     func checkForUpdates()
+    func checkForUpdatesInBackground()
     func checkForUpdateInformation()
 }
 

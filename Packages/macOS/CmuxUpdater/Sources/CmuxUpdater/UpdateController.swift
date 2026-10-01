@@ -324,10 +324,18 @@ public final class UpdateController {
             return
         }
 
-        // Probe immediately on launch so the sidebar can surface a passive update indicator
-        // without waiting for Sparkle's scheduled check or opening interactive update UI.
-        log.append("starting launch update probe")
-        updater.checkForUpdateInformation()
+        if updater.automaticallyDownloadsUpdates {
+            // A background check lets Sparkle download and stage the newest release while cmux is
+            // idle. `willInstallUpdateOnQuit` keeps the staged update safe until the user chooses
+            // Relaunch, so launch never turns into an unsolicited restart.
+            log.append("starting launch background update check")
+            updater.checkForUpdatesInBackground()
+        } else {
+            // Hosts that do not opt into background downloads still get a passive launch probe so
+            // the sidebar can surface an available release without opening interactive UI.
+            log.append("starting launch update probe")
+            updater.checkForUpdateInformation()
+        }
     }
 
     private func recordUITestTimestamp(key: String) {
