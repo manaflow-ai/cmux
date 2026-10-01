@@ -26,6 +26,9 @@
          location = "group:CmuxClientConfig">
       </FileRef>
       <FileRef
+         location = "group:CmuxConversation">
+      </FileRef>
+      <FileRef
          location = "group:CmuxGhosttyKit">
       </FileRef>
       <FileRef
