@@ -105,12 +105,25 @@ fn cmux_tui_still_sends_the_cloud_guest_spellings() {
     }
 }
 
+/// Workspace groups, rooms and closed history are daemon resources: the
+/// `cmux` name sends them to the session socket, never to the app.
 #[test]
-fn cmux_workspace_group_is_no_longer_a_verb() {
+fn cmux_state_scopes_go_to_the_session_daemon() {
     let names = Names::new("group");
-    let socket = names.missing("app.sock");
-    let output = names.run("cmux", &["--app-socket", &socket, "workspace", "group", "list"]);
-    assert_eq!(output.status.code(), Some(2), "{}", text(&output.stderr));
+    let socket = names.missing("mux.sock");
+    for args in [
+        vec!["workspace", "group", "list"],
+        vec!["room", "list"],
+        vec!["closed", "list"],
+        vec!["tab", "group", "list"],
+    ] {
+        let mut full = vec!["--socket", socket.as_str()];
+        full.extend(args.iter().copied());
+        let output = names.run("cmux", &full);
+        let stderr = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(3), "{args:?}: {stderr}");
+        assert!(stderr.contains("cannot connect to session socket"), "{args:?}: {stderr}");
+    }
 }
 
 #[test]
