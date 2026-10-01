@@ -682,10 +682,7 @@ extension Workspace {
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil,
-                hasReceivedExplicitInput: terminalPanel.hasReceivedExplicitInput,
-                resumeWithContinuation: localTmuxStartCommand == nil
-                    ? UpdateRelaunchContinuationNudges.shared.marksPanel(panelId)
-                    : nil
+                hasReceivedExplicitInput: terminalPanel.hasReceivedExplicitInput
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -2023,11 +2020,6 @@ extension Workspace {
                 return nil
             }
             if deferredAgentResumeAdmission { terminalPanel.restoreRecovery.state = .checking }
-            UpdateRelaunchContinuationNudges.shared.registerRestoredPanel(
-                terminalPanel.id,
-                snapshot: snapshot.terminal,
-                resumesAgent: restoredAgentWillRunStartupInput
-            )
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
             if let restoredRemotePTYSessionID {
                 registerRemoteRelayIDAliases(
