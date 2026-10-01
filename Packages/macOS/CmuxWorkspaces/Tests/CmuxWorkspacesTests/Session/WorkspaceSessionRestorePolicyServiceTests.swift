@@ -369,6 +369,14 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(service.restorableTmuxStartCommand("prompt hud") == nil)
         // A quoted mention is not a HUD launch, so its side effects must not replay on restore.
         #expect(service.restorableTmuxStartCommand("echo \"omp hud\"") == nil)
+        // A shell-wrapped mention is not a HUD launch either, even with the watch flag.
+        #expect(service.restorableTmuxStartCommand("sh -c 'printf x >> /tmp/log; echo omp hud --watch'") == nil)
+        // The HUD script an interpreter runs — behind the env prefix the launcher
+        // records — is a HUD launch.
+        #expect(service.restorableTmuxStartCommand("node /opt/oh-my-pi/dist/omp.js hud --watch")
+            == "node /opt/oh-my-pi/dist/omp.js hud --watch")
+        #expect(service.restorableTmuxStartCommand("env OMP_SESSION_ID=x node '/opt/oh-my-pi/dist/cli/omp.js' hud --watch")
+            == "env OMP_SESSION_ID=x node '/opt/oh-my-pi/dist/cli/omp.js' hud --watch")
     }
 
     @Test("cmux-generated local tmux attach commands are restorable")

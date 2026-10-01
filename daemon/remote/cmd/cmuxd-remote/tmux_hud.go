@@ -37,21 +37,19 @@ var tmuxHudProviders = []tmuxHudProvider{
 // tmuxHudProviderForCommand reports which provider's HUD these arguments launch,
 // or "" when they are not a HUD launch.
 //
-// A command that names the provider is the positive signature. A shim-owned pane
-// is trusted only for the `hud --watch` form the providers actually run, so
-// `echo hud` inside a provider shell is not mistaken for a HUD launch.
+// The provider must identify the command being executed — its program, or the
+// script an interpreter runs, after any leading `env`/`NAME=value` prefix — so
+// an ordinary command that merely mentions the words (`echo 'omp hud'`) is not
+// a HUD launch. A shim-owned pane is trusted only for the `hud --watch` form
+// the providers actually run.
 func tmuxHudProviderForCommand(args []string) string {
 	text := strings.ToLower(strings.Join(args, " "))
 	if !tmuxHudTextContainsWord(text, "hud") {
 		return ""
 	}
 
-	for _, provider := range tmuxHudProviders {
-		for _, word := range provider.commandWords {
-			if tmuxHudTextContainsWord(text, word) {
-				return provider.name
-			}
-		}
+	if provider := tmuxHudProviderExecutingCommand(args); provider != "" {
+		return provider
 	}
 
 	if !strings.Contains(text, "--watch") {
@@ -74,6 +72,85 @@ func tmuxHudProviderForCommand(args []string) string {
 		}
 	}
 	return ""
+}
+
+// tmuxHudInterpreterNames are the runtimes the providers' HUD scripts launch
+// under when the script is not executable directly.
+var tmuxHudInterpreterNames = map[string]bool{"node": true, "bun": true, "deno": true}
+
+// tmuxHudProviderExecutingCommand names the provider a command actually runs,
+// or "" when the provider words appear only in its argument text. A leading
+// `env` and `NAME=value` prefix is skipped first, and an interpreter's script
+// argument identifies its provider the way a directly executed provider binary
+// does: `omp hud`, `node omp.js hud`, and
+// `env OMP_SESSION_ID=x node '/opt/oh-my-pi/dist/cli/omp.js' hud` all run the
+// omp HUD, while `echo 'omp hud'` runs echo.
+func tmuxHudProviderExecutingCommand(args []string) string {
+	index := 0
+	for index < len(args) {
+		if args[index] == "env" || tmuxHudIsEnvironmentAssignment(args[index]) {
+			index++
+			continue
+		}
+		break
+	}
+	if index >= len(args) {
+		return ""
+	}
+	if provider := tmuxHudProviderForExecutableName(args[index]); provider != "" {
+		return provider
+	}
+	if !tmuxHudInterpreterNames[tmuxHudExecutableName(args[index])] || index+1 >= len(args) {
+		return ""
+	}
+	for _, component := range strings.Split(args[index+1], "/") {
+		if provider := tmuxHudProviderForExecutableName(component); provider != "" {
+			return provider
+		}
+	}
+	return ""
+}
+
+// tmuxHudIsEnvironmentAssignment reports whether a token is a leading
+// `NAME=value` environment assignment (`env FOO=1 cmd`).
+func tmuxHudIsEnvironmentAssignment(token string) bool {
+	equals := strings.IndexByte(token, '=')
+	if equals <= 0 {
+		return false
+	}
+	for index, c := range token[:equals] {
+		alphaNumeric := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '_'
+		if !alphaNumeric {
+			return false
+		}
+		if index == 0 && c >= '0' && c <= '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func tmuxHudProviderForExecutableName(token string) string {
+	name := tmuxHudExecutableName(token)
+	for _, provider := range tmuxHudProviders {
+		for _, word := range provider.commandWords {
+			if name == word {
+				return provider.name
+			}
+		}
+	}
+	return ""
+}
+
+// tmuxHudExecutableName reduces a path token to its extensionless basename, so
+// `omp.js` identifies the omp provider.
+func tmuxHudExecutableName(token string) string {
+	base := strings.ToLower(filepath.Base(token))
+	if dot := strings.LastIndexByte(base, '.'); dot > 0 {
+		return base[:dot]
+	}
+	return base
 }
 
 // tmuxHudTextContainsWord matches a word on ASCII identifier boundaries, so
@@ -127,18 +204,25 @@ func tmuxHudConfigDisablesHud(provider, cwd string) bool {
 		}
 	}
 
-	var candidates []string
+	// The dedicated HUD file may disable the HUD through the top-level
+	// `enabled`/`disabled` spelling; a shared config keeps those keys for the
+	// agent itself, matching the local CLI's per-file policy.
+	type hudConfigCandidate struct {
+		path             string
+		allowTopLevelHUD bool
+	}
+	var candidates []hudConfigCandidate
 	appendCandidates := func(dir string, extra []string) {
 		if dir == "" {
 			return
 		}
 		candidates = append(candidates,
-			filepath.Join(dir, "."+provider, "hud-config.json"),
-			filepath.Join(dir, "."+provider, "config.json"),
-			filepath.Join(dir, "."+provider+"-config.json"),
+			hudConfigCandidate{filepath.Join(dir, "."+provider, "hud-config.json"), true},
+			hudConfigCandidate{filepath.Join(dir, "."+provider, "config.json"), false},
+			hudConfigCandidate{filepath.Join(dir, "."+provider+"-config.json"), false},
 		)
 		for _, relative := range extra {
-			candidates = append(candidates, filepath.Join(dir, relative))
+			candidates = append(candidates, hudConfigCandidate{filepath.Join(dir, relative), false})
 		}
 	}
 	appendCandidates(strings.TrimSpace(cwd), nil)
@@ -147,7 +231,7 @@ func tmuxHudConfigDisablesHud(provider, cwd string) bool {
 	}
 
 	for _, candidate := range candidates {
-		if tmuxHudConfigFileDisablesHud(candidate) {
+		if tmuxHudConfigFileDisablesHud(candidate.path, candidate.allowTopLevelHUD) {
 			return true
 		}
 	}
@@ -164,9 +248,10 @@ func tmuxHudProviderExtraHomeConfigPaths(provider string) []string {
 }
 
 // tmuxHudConfigFileDisablesHud reads a JSON config and reports whether it turns
-// the HUD off, accepting both the provider's own top-level `enabled` spelling and
-// HUD-scoped keys.
-func tmuxHudConfigFileDisablesHud(path string) bool {
+// the HUD off. Only the provider's dedicated HUD file may do so through the
+// top-level `enabled`/`disabled` spelling; a shared config file keeps those keys
+// for the agent itself, mirroring the local CLI.
+func tmuxHudConfigFileDisablesHud(path string, allowTopLevelHUDKeys bool) bool {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return false
@@ -175,18 +260,35 @@ func tmuxHudConfigFileDisablesHud(path string) bool {
 	if err := json.Unmarshal(data, &dictionary); err != nil {
 		return false
 	}
-	for _, key := range []string{"enabled", "hudEnabled", "omxHudEnabled", "ompHudEnabled"} {
+	if allowTopLevelHUDKeys {
+		if value, ok := tmuxHudBoolValue(dictionary["enabled"]); ok && !value {
+			return true
+		}
+		if value, ok := tmuxHudBoolValue(dictionary["disabled"]); ok && value {
+			return true
+		}
+	}
+	for _, key := range []string{"hudEnabled", "omxHudEnabled", "ompHudEnabled"} {
 		if value, ok := tmuxHudBoolValue(dictionary[key]); ok && !value {
 			return true
 		}
 	}
-	for _, key := range []string{"disabled", "hudDisabled", "omxHudDisabled", "ompHudDisabled"} {
+	for _, key := range []string{"hudDisabled", "omxHudDisabled", "ompHudDisabled"} {
 		if value, ok := tmuxHudBoolValue(dictionary[key]); ok && value {
 			return true
 		}
 	}
-	for _, key := range []string{"hud", "omxHud", "ompHud", "hudPane"} {
-		nested, ok := dictionary[key].(map[string]any)
+	nestedCandidates := []any{
+		dictionary["hud"], dictionary["omxHud"], dictionary["ompHud"], dictionary["hudPane"],
+	}
+	if omx, ok := dictionary["omx"].(map[string]any); ok {
+		nestedCandidates = append(nestedCandidates, omx["hud"])
+	}
+	if omp, ok := dictionary["omp"].(map[string]any); ok {
+		nestedCandidates = append(nestedCandidates, omp["hud"])
+	}
+	for _, candidate := range nestedCandidates {
+		nested, ok := candidate.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -233,45 +335,6 @@ func tmuxHudConfiguredCwd(raw string) string {
 		return resolved
 	}
 	return trimmed
-}
-
-// tmuxHudStartupScript writes the pane's startup script on the host that runs the
-// pane, so the HUD command launches as a pane command rather than being typed
-// into a shell. It mirrors the local CLI's generated script.
-func tmuxHudStartupScript(commandText string, cwd string) string {
-	trimmed := strings.TrimSpace(commandText)
-	if trimmed == "" {
-		return ""
-	}
-	file, err := os.CreateTemp("", "cmux-tmux-command-*.sh")
-	if err != nil {
-		return ""
-	}
-	path := file.Name()
-	lines := []string{
-		"#!/bin/sh",
-		`rm -f -- "$0" 2>/dev/null || true`,
-	}
-	if resolved := strings.TrimSpace(cwd); resolved != "" {
-		lines = append(lines, "cd -- "+tmuxShellSingleQuote(resolved)+" || exit $?")
-	}
-	lines = append(lines, `exec "${SHELL:-/bin/sh}" -lc `+tmuxShellSingleQuote(trimmed))
-	contents := strings.Join(lines, "\n") + "\n"
-	_, writeErr := file.WriteString(contents)
-	closeErr := file.Close()
-	if writeErr != nil || closeErr != nil {
-		_ = os.Remove(path)
-		return ""
-	}
-	if err := os.Chmod(path, 0o700); err != nil {
-		_ = os.Remove(path)
-		return ""
-	}
-	return path
-}
-
-func tmuxShellSingleQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
 // tmuxSplitSizeCells parses a `-l` size in cells. Percentages are handled by the
@@ -374,19 +437,12 @@ func tmuxDividerPositionForTarget(rc *rpcContext, workspaceId, paneId, surfaceId
 	return tmuxInitialDividerPosition(pane, direction, targetCells)
 }
 
-// tmuxHudSplitMetadata assembles the split parameters the local CLI sends for a
-// HUD pane: the generated startup script, the raw start command for restore, and
-// the compact divider position.
-func tmuxHudSplitMetadata(rc *rpcContext, workspaceId, paneId, surfaceId string, direction string, args []string, cwd string, sizeRaw string) map[string]any {
+// tmuxHudDividerPositionParams assembles the HUD split's compact-size request.
+// Command-bearing parameters (the startup script, the raw start command) are
+// denied by the relay on every method, so the HUD command is typed into the new
+// pane instead and only the layout request travels with the split.
+func tmuxHudDividerPositionParams(rc *rpcContext, workspaceId, paneId, surfaceId, direction, sizeRaw string) map[string]any {
 	params := map[string]any{}
-	commandText := strings.TrimSpace(strings.Join(args, " "))
-	if commandText == "" {
-		return params
-	}
-	params["tmux_start_command"] = commandText
-	if script := tmuxHudStartupScript(commandText, cwd); script != "" {
-		params["initial_command"] = script
-	}
 	if cells, ok := tmuxSplitSizeCells(sizeRaw); ok {
 		if position, ok := tmuxDividerPositionForTarget(rc, workspaceId, paneId, surfaceId, direction, cells); ok {
 			params["initial_divider_position"] = position

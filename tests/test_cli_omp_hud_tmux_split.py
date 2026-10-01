@@ -507,6 +507,51 @@ def assert_disabled_omp_hud_does_not_split(
         raise AssertionError("disabled HUD should not resize, equalize, or launch a command")
 
 
+def assert_quoted_hud_mention_still_splits(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+    cwd: Path,
+    state: FakeCmuxState,
+) -> None:
+    """A command that only mentions the HUD words is an ordinary split.
+
+    The config in `cwd` disables the OMP HUD; `echo omp hud` must still create
+    the requested pane — if the matcher read the words as a HUD signature, the
+    disabled-HUD path would silently drop it.
+    """
+    baseline_splits = len(state.split_params)
+    baseline_texts = len(state.sent_text)
+    proc = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        [
+            "__tmux-compat",
+            "split-window",
+            "-v",
+            "-d",
+            "-c",
+            str(cwd),
+            "echo",
+            "omp hud",
+        ],
+    )
+    if proc.returncode != 0:
+        raise AssertionError(
+            "quoted HUD mention split returned non-zero\n"
+            f"stdout={proc.stdout.strip()}\n"
+            f"stderr={proc.stderr.strip()}"
+        )
+    if len(state.split_params) != baseline_splits + 1:
+        raise AssertionError(
+            f"a command that mentions the HUD words is not a HUD launch: {state.split_params!r}"
+        )
+    typed = state.sent_text[baseline_texts:]
+    if not any("omp hud" in text for text in typed):
+        raise AssertionError(f"the ordinary command must be typed into the new pane: {typed!r}")
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -586,6 +631,13 @@ def main() -> int:
             thread.start()
             try:
                 assert_disabled_omp_hud_does_not_split(
+                    cli_path,
+                    socket_path,
+                    fake_home,
+                    cwd,
+                    state,
+                )
+                assert_quoted_hud_mention_still_splits(
                     cli_path,
                     socket_path,
                     fake_home,

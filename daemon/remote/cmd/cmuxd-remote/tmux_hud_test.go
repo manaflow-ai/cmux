@@ -30,6 +30,9 @@ func TestTmuxHudProviderForCommand(t *testing.T) {
 		{name: "omp watch through shim env", args: []string{"hud", "--watch"}, env: map[string]string{"CMUX_OMP_CMUX_BIN": "/tmp/cmux"}, want: "omp"},
 		{name: "omx shim env is ignored without watch", args: []string{"echo", "hud"}, env: map[string]string{"CMUX_OMX_CMUX_BIN": "/tmp/cmux"}, want: ""},
 		{name: "launch kind wins over inherited shim", args: []string{"hud", "--watch"}, env: map[string]string{"CMUX_OMX_CMUX_BIN": "/tmp/cmux", "CMUX_AGENT_LAUNCH_KIND": "omp"}, want: "omp"},
+		{name: "env prefix identifies the provider script", args: []string{"env", "OMP_SESSION_ID=omp-test", "node", "/opt/oh-my-pi/dist/cli/omp.js", "hud", "--watch"}, want: "omp"},
+		{name: "quoted mention with watch is not a launch", args: []string{"echo", "omp hud --watch"}, want: ""},
+		{name: "shell-wrapped mention is not a launch", args: []string{"sh", "-c", "printf x >> /tmp/log; echo omp hud --watch"}, want: ""},
 	}
 
 	for _, tt := range tests {
@@ -86,17 +89,31 @@ func TestTmuxHudConfigDisablesHud(t *testing.T) {
 		}
 	})
 
-	t.Run("shared config needs hud scoped keys", func(t *testing.T) {
+	t.Run("shared config ignores its top-level enabled key", func(t *testing.T) {
 		cwd := t.TempDir()
 		directory := filepath.Join(cwd, ".omp")
 		if err := os.MkdirAll(directory, 0o755); err != nil {
 			t.Fatalf("mkdir: %v", err)
 		}
-		if err := os.WriteFile(filepath.Join(directory, "config.json"), []byte(`{"unrelated": false}`), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(directory, "config.json"), []byte(`{"enabled": false}`), 0o600); err != nil {
 			t.Fatalf("write: %v", err)
 		}
 		if tmuxHudConfigDisablesHud("omp", cwd) {
-			t.Fatal("an unrelated key in .omp/config.json must not disable the HUD")
+			t.Fatal("the shared .omp/config.json top-level enabled key belongs to the agent, not the HUD")
+		}
+	})
+
+	t.Run("shared config honours hud scoped keys", func(t *testing.T) {
+		cwd := t.TempDir()
+		directory := filepath.Join(cwd, ".omp")
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "config.json"), []byte(`{"hudEnabled": false}`), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		if !tmuxHudConfigDisablesHud("omp", cwd) {
+			t.Fatal("a HUD-scoped key in .omp/config.json must disable the HUD")
 		}
 	})
 }
@@ -251,7 +268,7 @@ func hudSplitEnv(t *testing.T) string {
 	return home
 }
 
-func TestTmuxSplitWindowHudPanesGetStartupMetadata(t *testing.T) {
+func TestTmuxSplitWindowHudPanesCarryOnlyRelayPermittedParams(t *testing.T) {
 	hudSplitEnv(t)
 	recorder := startHudSplitRecorder(t)
 	rc := &rpcContext{socketPath: recorder.socketPath}
@@ -270,15 +287,15 @@ func TestTmuxSplitWindowHudPanesGetStartupMetadata(t *testing.T) {
 	if !ok {
 		t.Fatal("expected a surface.split call")
 	}
-	if got := stringFromAnyGo(params["tmux_start_command"]); got == "" {
-		t.Fatalf("HUD split must keep its raw start command: %v", params)
-	}
-	script := stringFromAnyGo(params["initial_command"])
-	if script == "" {
-		t.Fatalf("HUD split must launch through a startup script: %v", params)
-	}
-	if _, err := os.Stat(script); err != nil {
-		t.Fatalf("startup script %q must exist: %v", script, err)
+	// The relay denies every command-bearing parameter on every method, so a
+	// regression that re-adds one would make the relay reject the split.
+	for _, key := range []string{
+		"initial_command", "tmux_start_command", "working_directory",
+		"startup_environment", "remote_context", "shell", "cwd",
+	} {
+		if params[key] != nil {
+			t.Fatalf("HUD split must not carry the command-bearing parameter %q: %v", key, params)
+		}
 	}
 	if _, ok := params["initial_divider_position"]; !ok {
 		t.Fatalf("HUD split must request a compact divider position: %v", params)
@@ -286,8 +303,10 @@ func TestTmuxSplitWindowHudPanesGetStartupMetadata(t *testing.T) {
 	if recorder.count("workspace.equalize_splits") != 0 {
 		t.Fatal("a HUD split must not be equalized")
 	}
-	if recorder.count("surface.send_text") != 0 {
-		t.Fatal("a HUD command must not be typed into a shell")
+	// The startup-script path cannot travel with the split, so the HUD command
+	// is typed into the new pane instead.
+	if recorder.count("surface.send_text") != 1 {
+		t.Fatal("the HUD command must be typed into the new pane")
 	}
 }
 
@@ -297,7 +316,7 @@ func TestTmuxSplitWindowKeepsNonHudSplitsUnchanged(t *testing.T) {
 	rc := &rpcContext{socketPath: recorder.socketPath}
 
 	_ = captureStdout(t, func() {
-		if err := dispatchTmuxCommand(rc, "split-window", []string{"-v", "-d", "echo", "hud"}); err != nil {
+		if err := dispatchTmuxCommand(rc, "split-window", []string{"-v", "-d", "echo", "omp hud"}); err != nil {
 			t.Fatalf("split-window: %v", err)
 		}
 	})
@@ -307,10 +326,34 @@ func TestTmuxSplitWindowKeepsNonHudSplitsUnchanged(t *testing.T) {
 		t.Fatal("expected a surface.split call")
 	}
 	if params["initial_command"] != nil || params["tmux_start_command"] != nil {
-		t.Fatalf("a lookalike command must not get HUD metadata: %v", params)
+		t.Fatalf("a quoted mention must not get HUD metadata: %v", params)
 	}
 	if recorder.count("surface.send_text") != 1 {
 		t.Fatal("a non-HUD split still types its command")
+	}
+	if recorder.count("workspace.equalize_splits") != 1 {
+		t.Fatal("a quoted mention is an ordinary split and is equalized")
+	}
+}
+
+func TestTmuxSplitWindowForwardsPrintRequestAsUnsupportedRemoteOption(t *testing.T) {
+	hudSplitEnv(t)
+	recorder := startHudSplitRecorder(t)
+	rc := &rpcContext{socketPath: recorder.socketPath}
+
+	_ = captureStdout(t, func() {
+		if err := dispatchTmuxCommand(rc, "split-window", []string{"-v", "-d", "-P", "-F", "#{pane_id}"}); err != nil {
+			t.Fatalf("split-window: %v", err)
+		}
+	})
+
+	params, ok := recorder.request("surface.split")
+	if !ok {
+		t.Fatal("expected a surface.split call")
+	}
+	options, _ := params["remote_tmux_unsupported_options"].([]any)
+	if len(options) != 1 || options[0] != "-P" {
+		t.Fatalf("a print request must carry remote_tmux_unsupported_options=[\"-P\"]: %v", params)
 	}
 }
 

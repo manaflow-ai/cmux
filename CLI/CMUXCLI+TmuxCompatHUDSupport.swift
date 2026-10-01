@@ -195,11 +195,13 @@ extension CMUXCLI {
 
     /// The provider whose HUD this command starts, or nil when it is not a HUD command.
     ///
-    /// A command that names the provider is the positive signature. A shim-owned
-    /// pane (`CMUX_<PROVIDER>_CMUX_BIN`, `CMUX_AGENT_LAUNCH_KIND`) is trusted only for
-    /// the `hud --watch` form the providers actually run, so `echo hud` inside an OMP
-    /// shell is not mistaken for a HUD launch. Provider words match on boundaries so
-    /// `prompt` cannot be read as `omp`.
+    /// The provider must identify the command being executed — its program, or
+    /// the script an interpreter runs, after any leading `env`/`NAME=value`
+    /// prefix — so an ordinary command that merely mentions the words
+    /// (`echo 'omp hud'`) is not a HUD launch. A shim-owned pane
+    /// (`CMUX_<PROVIDER>_CMUX_BIN`, `CMUX_AGENT_LAUNCH_KIND`) is trusted only for
+    /// the `hud --watch` form the providers actually run. Provider words match on
+    /// boundaries so `prompt` cannot be read as `omp`.
     func tmuxHudProviderForCommand(_ commandTokens: [String]) -> TmuxCompatHudProvider? {
         let commandText = commandTokens.joined(separator: " ")
         let lowered = commandText.lowercased()
@@ -207,8 +209,7 @@ extension CMUXCLI {
             return nil
         }
 
-        for provider in TmuxCompatHudProvider.allCases
-        where provider.commandWords.contains(where: { tmuxCommandTextContainsWord(lowered, word: $0) }) {
+        if let provider = tmuxHudProviderExecutingCommand(commandTokens) {
             return provider
         }
 
@@ -234,6 +235,69 @@ extension CMUXCLI {
 
         return nil
     }
+
+    /// The provider a command actually runs, or nil when the provider words
+    /// appear only in its argument text. A leading `env` and `NAME=value`
+    /// prefix is skipped first, and an interpreter's script argument identifies
+    /// its provider the way a directly executed provider binary does:
+    /// `omp hud`, `node omp.js hud`, and
+    /// `env OMP_SESSION_ID=x node '/opt/oh-my-pi/dist/cli/omp.js' hud` all run
+    /// the omp HUD, while `echo 'omp hud'` runs echo.
+    func tmuxHudProviderExecutingCommand(_ commandTokens: [String]) -> TmuxCompatHudProvider? {
+        var index = 0
+        while index < commandTokens.count,
+              commandTokens[index] == "env" || tmuxHudIsEnvironmentAssignment(commandTokens[index]) {
+            index += 1
+        }
+        guard index < commandTokens.count else {
+            return nil
+        }
+
+        if let provider = tmuxHudProviderForExecutableName(commandTokens[index]) {
+            return provider
+        }
+        guard tmuxHudInterpreterNames.contains(tmuxHudExecutableName(commandTokens[index])),
+              index + 1 < commandTokens.count else {
+            return nil
+        }
+        for component in commandTokens[index + 1].split(separator: "/") {
+            if let provider = tmuxHudProviderForExecutableName(String(component)) {
+                return provider
+            }
+        }
+        return nil
+    }
+
+    /// Whether the token is a leading `NAME=value` environment assignment
+    /// (`env FOO=1 cmd`).
+    func tmuxHudIsEnvironmentAssignment(_ token: String) -> Bool {
+        guard let equals = token.firstIndex(of: "="), equals != token.startIndex else {
+            return false
+        }
+        for (offset, character) in token[..<equals].enumerated() {
+            guard character.isLetter || character == "_" || (offset > 0 && character.isNumber) else {
+                return false
+            }
+        }
+        return true
+    }
+
+    func tmuxHudProviderForExecutableName(_ token: String) -> TmuxCompatHudProvider? {
+        let name = tmuxHudExecutableName(token)
+        return TmuxCompatHudProvider.allCases.first { $0.commandWords.contains(name) }
+    }
+
+    /// Reduces a path token to its extensionless basename, so `omp.js`
+    /// identifies the omp provider.
+    func tmuxHudExecutableName(_ token: String) -> String {
+        let base = (token as NSString).lastPathComponent.lowercased()
+        guard let dot = base.lastIndex(of: "."), dot != base.startIndex else {
+            return base
+        }
+        return String(base[..<dot])
+    }
+
+    var tmuxHudInterpreterNames: Set<String> { ["node", "bun", "deno"] }
 
     func tmuxDebugDiagnosticsEnabled() -> Bool {
         let environment = ProcessInfo.processInfo.environment

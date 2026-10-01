@@ -1818,26 +1818,39 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 	}
 
 	focusNewPane := !p.hasFlag("-d")
+	// Only the reviewed relay contract travels with the split: the workspace and
+	// surface selectors, the direction, the focus intent, and the optional
+	// compact divider position. Command-bearing parameters (working_directory,
+	// initial_command, tmux_start_command, …) are denied on every relayed method,
+	// so the pane's command is typed into the new shell below.
 	splitParams := map[string]any{
 		"workspace_id": targetWs,
 		"surface_id":   targetSurface,
 		"direction":    direction,
 		"focus":        focusNewPane,
 	}
-	if hudCwd != "" {
-		splitParams["working_directory"] = hudCwd
-	}
 	if hudProvider != "" {
-		// The HUD pane launches through a generated startup script and keeps its raw
-		// command for restore, the way the local CLI does, instead of receiving the
-		// command as typed input below.
-		for key, value := range tmuxHudSplitMetadata(rc, targetWs, targetPaneId, targetSurface, direction, p.positional, hudCwd, p.value("-l")) {
+		for key, value := range tmuxHudDividerPositionParams(rc, targetWs, targetPaneId, targetSurface, direction, p.value("-l")) {
 			splitParams[key] = value
 		}
+	}
+	if p.hasFlag("-P") {
+		// The local CLI marks `-P` as an option a routed remote tmux split
+		// cannot honor; the app rejects such a request before the remote
+		// mutation instead of creating a pane whose id nobody prints.
+		splitParams["remote_tmux_unsupported_options"] = []string{"-P"}
 	}
 	created, err := rc.call("surface.split", splitParams)
 	if err != nil {
 		return err
+	}
+	if accepted, _ := created["accepted"].(bool); accepted {
+		// Routed to a remote tmux mirror: the split was applied to the remote
+		// session and the pane arrives asynchronously. Option-carrying requests
+		// are rejected server-side before the remote mutation, so reaching here
+		// means a plain split — succeed quietly and skip local layout tracking,
+		// matching the local CLI.
+		return nil
 	}
 	surfaceId, _ := created["surface_id"].(string)
 	if surfaceId == "" {
@@ -1877,14 +1890,17 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 			"workspace_id": targetWs,
 			"orientation":  "vertical",
 		})
+	}
 
-		if text := tmuxShellCommandText(p.positional, p.value("-c")); text != "" {
-			rc.call("surface.send_text", map[string]any{
-				"workspace_id": targetWs,
-				"surface_id":   surfaceId,
-				"text":         text,
-			})
-		}
+	// The pane's command — the HUD's included — is typed into its shell: the
+	// relay denies command-bearing split parameters on every method, so the
+	// startup-script path the local CLI uses cannot travel with the split.
+	if text := tmuxShellCommandText(p.positional, p.value("-c")); text != "" {
+		rc.call("surface.send_text", map[string]any{
+			"workspace_id": targetWs,
+			"surface_id":   surfaceId,
+			"text":         text,
+		})
 	}
 
 	if p.hasFlag("-P") {
