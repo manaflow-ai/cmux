@@ -4,7 +4,7 @@ import CmuxNextCloud
 import CmuxNextDaemon
 
 // Per-machine actions: open, terminal, rename, kill, copy, resize, status,
-// ports, snapshot, restore, fork.
+// ports, handoff, snapshot, restore, fork.
 extension CloudHandlers {
     static func bindMachineActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
         let cloud = context.services.cloud!
@@ -68,6 +68,15 @@ extension CloudHandlers {
                 CloudPresenter.show(CloudStrings.portsTitle, body, copyable: !ports.isEmpty, in: window(context))
             }
         }
+        // `cmux vm handoff`: the live status plus the commands that attach to
+        // and inspect the machine, for pasting to another person or agent.
+        bind("palette.cloud.handoff", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            run("hand off machine", context) {
+                let live = try await cloud.api.machine(session.machineID)
+                CloudPresenter.show(CloudStrings.handoffTitle, handoff(live), copyable: true, in: window(context))
+            }
+        }
         bind("palette.cloud.snapshot", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             run("snapshot machine", context) {
@@ -89,6 +98,14 @@ extension CloudHandlers {
                 await cloud.refresh()
             }
         }
+    }
+
+    /// The handoff text, with the old app's fields and the cmux-next CLI verbs
+    /// for Open Machine and Machine Tools.
+    static func handoff(_ machine: CloudMachine) -> String {
+        let target = "--target machine:\(machine.id)"
+        return ["\(machine.title) (\(machine.id))", "provider: \(machine.provider)", "status: \(machine.status.rawValue)",
+                "attach: cmux cloud open-machine \(target)", "inspect: cmux cloud machine-tools \(target)"].joined(separator: "\n")
     }
 
     /// `size` choices -> (vCPUs, MiB). Pro allows up to 24 GiB.

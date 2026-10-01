@@ -34,9 +34,9 @@ struct MiscActionBindingCoverageTests {
         #expect(reasons["cloudDiagnostics"]! == nil)
         #expect(reasons.allSatisfy { $0.value != MiscHandlerStrings.cloud })
         let unported: [ActionID: String] = ["palette.cloud.promoteTemplate": CloudStrings.promoteTemplate, "palette.cloud.tools": CloudStrings.tools,
-                                            "palette.cloud.handoff": CloudStrings.handoff, "palette.mobileConnect": CloudStrings.mobilePairing]
+                                            "palette.mobileConnect": CloudStrings.mobilePairing]
         for (id, reason) in unported { #expect(reasons[id]! == reason) }
-        for id: ActionID in ["newCloudMachine", "cloudKillMachine", "palette.cloud.status"] {
+        for id: ActionID in ["newCloudMachine", "cloudKillMachine", "palette.cloud.status", "palette.cloud.handoff"] {
             #expect([CloudStrings.noClient, CloudStrings.signInFirst, CloudStrings.localBackend].contains(reasons[id]!))
         }
     }
