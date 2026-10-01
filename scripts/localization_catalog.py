@@ -123,13 +123,16 @@ def tokens(value: str, substitutions: dict | None = None):
     argument position written out, so implicit and explicit numbering compare
     equal.
     """
+    # Foundation numbers unnumbered placeholders on their own counter, so
+    # "%1$@ %@" formats the first argument twice. Report what it formats.
     next_argument = 1
 
     def position(explicit: str | None) -> int:
         nonlocal next_argument
-        argument = int(explicit) if explicit else next_argument
+        if explicit:
+            return int(explicit)
         next_argument += 1
-        return argument
+        return next_argument - 1
 
     for token in placeholders(value):
         if token == "%%":

@@ -135,6 +135,21 @@ class LocalizationCatalogTests(unittest.TestCase):
             with self.subTest(translated=translated):
                 self.assertTrue(MODULE.validate_localization(english, unit(translated), "ja"))
 
+    def test_unnumbered_placeholders_count_separately_from_numbered_ones(self):
+        # String(format: "%1$@ %@", "one", "two") renders "one one" and
+        # String(format: "%@ %2$@", "one", "two") renders "one two".
+        self.assertEqual(MODULE.signature("%1$@ %@"), [(1, "@"), (1, "@")])
+        self.assertEqual(MODULE.canonical_text("%1$@ %@"), "%1$@ %1$@")
+        self.assertEqual(MODULE.validate_localization("Move %@ to %@", unit("%@ を %2$@ へ"), "ja"), [])
+        self.assertEqual(MODULE.validate_localization("Move %@ to %@", unit("%2$@ に %@ を移動"), "ja"), [])
+        for english, translated in (
+            ("Move %@ to %@", "%1$@ %@"),
+            ("Width %*d then %d", "幅 %2$*1$d、%d"),
+            ("Width %*d", "幅 %*1$d"),
+        ):
+            with self.subTest(translated=translated):
+                self.assertTrue(MODULE.validate_localization(english, unit(translated), "ja"))
+
     def test_reordered_placeholders_still_need_every_argument_and_type(self):
         self.assertTrue(MODULE.validate_localization("Move %@ to %@", unit("%2$@ を移動"), "ja"))
         self.assertTrue(MODULE.validate_localization("Move %@ to %@", unit("%2$@ に %1$@ を %3$@ へ移動"), "ja"))
