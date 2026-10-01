@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@mux/brain": "workspace:*",
-    "@mux/protocol": "workspace:*"
+    "@mux/protocol": "workspace:*",
+    "jose": "6.2.12"
   },
   "devDependencies": {
     "@cloudflare/config": "0.22.0",

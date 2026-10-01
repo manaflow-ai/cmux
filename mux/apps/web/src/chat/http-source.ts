@@ -1,15 +1,20 @@
 import type { Conversation, CreateConversationResponse, ServerFrame } from "@mux/protocol";
+import type { Credential } from "../auth/stack.ts";
 import type { ChatSource } from "./source.ts";
 
 /** A ChatSource on the mux worker's REST and WebSocket API. */
-export function httpSource(options: { baseUrl: string; authQuery: () => string }): ChatSource {
-  const url = (path: string) => {
-    const query = options.authQuery();
-    return `${options.baseUrl}${path}${query ? `?${query}` : ""}`;
-  };
-  const json = async <T>(path: string, init?: RequestInit): Promise<T> => {
-    const response = await fetch(url(path), init);
-    if (!response.ok) throw new Error(`${init?.method ?? "GET"} ${path}: ${response.status}`);
+export function httpSource(options: {
+  baseUrl: string;
+  credential: () => Promise<Credential>;
+}): ChatSource {
+  const json = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
+    const credential = await options.credential();
+    const headers = new Headers(init.headers);
+    if (credential.kind === "stack")
+      headers.set("authorization", `Bearer ${credential.accessToken}`);
+    else headers.set("x-mux-dev-user", credential.user);
+    const response = await fetch(`${options.baseUrl}${path}`, { ...init, headers });
+    if (!response.ok) throw new Error(`${init.method ?? "GET"} ${path}: ${response.status}`);
     return (await response.json()) as T;
   };
   return {
@@ -23,23 +28,45 @@ export function httpSource(options: { baseUrl: string; authQuery: () => string }
       });
       return body.conversation as Conversation;
     },
+    listMachines: () => json("/api/machines"),
+    async mintLinkToken() {
+      return (await json<{ token: string }>("/api/link/token", { method: "POST" })).token;
+    },
     connect(conversationId, onFrame, onClose) {
-      const wsUrl = new URL(url(`/api/conversations/${conversationId}/ws`), window.location.href);
-      wsUrl.protocol = wsUrl.protocol === "https:" ? "wss:" : "ws:";
-      const socket = new WebSocket(wsUrl);
+      let socket: WebSocket | undefined;
+      let closed = false;
       const queue: string[] = [];
-      socket.onopen = () => {
-        for (const text of queue.splice(0)) socket.send(text);
-      };
-      socket.onmessage = (event) => onFrame(JSON.parse(String(event.data)) as ServerFrame);
-      socket.onclose = onClose;
+      // Browsers cannot set headers on WebSockets, so the credential goes in the query.
+      void options.credential().then(
+        (credential) => {
+          if (closed) return;
+          const url = new URL(
+            `${options.baseUrl}/api/conversations/${conversationId}/ws`,
+            window.location.href,
+          );
+          url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+          if (credential.kind === "stack")
+            url.searchParams.set("access_token", credential.accessToken);
+          else url.searchParams.set("dev_user", credential.user);
+          socket = new WebSocket(url);
+          socket.onopen = () => {
+            for (const text of queue.splice(0)) socket?.send(text);
+          };
+          socket.onmessage = (event) => onFrame(JSON.parse(String(event.data)) as ServerFrame);
+          socket.onclose = onClose;
+        },
+        () => onClose(),
+      );
       return {
         send(frame) {
           const text = JSON.stringify(frame);
-          if (socket.readyState === WebSocket.OPEN) socket.send(text);
+          if (socket?.readyState === WebSocket.OPEN) socket.send(text);
           else queue.push(text);
         },
-        close: () => socket.close(),
+        close() {
+          closed = true;
+          socket?.close();
+        },
       };
     },
   };

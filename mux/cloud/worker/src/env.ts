@@ -9,6 +9,10 @@ export interface Env {
   LOADER: WorkerLoader;
   /** "1" accepts the `dev_user` query parameter as identity. Never set in staging. */
   MUX_DEV_AUTH?: string;
+  /** Stack Auth project whose access tokens sign humans in. */
+  MUX_STACK_PROJECT_ID?: string;
+  /** Stack publishable client key, served to the web app for sign-in. */
+  MUX_STACK_PUBLISHABLE_CLIENT_KEY?: string;
   CODEROUTER_API_KEY?: string;
   CODEROUTER_BASE_URL?: string;
 }
