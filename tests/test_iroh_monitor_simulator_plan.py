@@ -15,7 +15,7 @@ class MonitorSimulatorPlanTests(unittest.TestCase):
             if step.get("name") == "Run Iroh gate"
         )
         self.assertIn("timeout-minutes", step)
-        self.assertIn("75", step["timeout-minutes"])
+        self.assertIn("125", step["timeout-minutes"])
         self.assertIn("25", step["timeout-minutes"])
 
     def test_gate_script_has_phase_timeout_and_reason(self):
