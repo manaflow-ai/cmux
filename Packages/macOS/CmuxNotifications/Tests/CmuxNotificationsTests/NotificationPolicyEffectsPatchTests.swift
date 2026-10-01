@@ -55,6 +55,31 @@ struct NotificationPolicyEffectsPatchTests {
         #expect(String(decoding: encoded, as: UTF8.self) == #"{"desktop":false,"sound":true}"#)
     }
 
+    /// A hook patch with every effect set decodes to exactly those values.
+    @Test func validPatchDecodesEveryEffect() throws {
+        let json = #"{"record":false,"markUnread":true,"reorderWorkspace":false,"desktop":false,"sound":true,"command":false,"paneFlash":true}"#
+        let decoded = try JSONDecoder().decode(NotificationPolicyEffectsPatch.self, from: Data(json.utf8))
+        #expect(decoded == NotificationPolicyEffectsPatch(
+            record: false, markUnread: true, reorderWorkspace: false, desktop: false,
+            sound: true, command: false, paneFlash: true
+        ))
+    }
+
+    /// A misspelled or unknown effect name fails decoding instead of being dropped.
+    @Test func patchRejectsAnUnknownEffect() {
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(NotificationPolicyEffectsPatch.self, from: Data(#"{"desktp":false}"#.utf8))
+        }
+    }
+
+    /// A present effect must be a JSON boolean: null, a string or a number fails decoding.
+    @Test(arguments: [#"{"desktop":null}"#, #"{"desktop":"true"}"#, #"{"desktop":0}"#])
+    func patchRejectsANonBooleanValue(json: String) {
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(NotificationPolicyEffectsPatch.self, from: Data(json.utf8))
+        }
+    }
+
     /// Effects decode with absent keys on, and a full round trip preserves every field.
     @Test func effectsDecodeAbsentKeysAsOn() throws {
         let empty = try JSONDecoder().decode(NotificationPolicyEffects.self, from: Data("{}".utf8))
