@@ -98,6 +98,17 @@ jobs:
             python3 scripts/ci/preflight-e2e-screen-capture.py
           fi
 
+      # The same grant main's E2E recorder makes on these Macs
+      # (.github/actions/e2e-run-tests on main): screencapture from a job
+      # otherwise fails with "could not create image". Best effort; tour.py
+      # probes which capture route works and reports it.
+      - name: Grant screen capture to screencapture
+        continue-on-error: true
+        run: |
+          tcc="/Library/Application Support/com.apple.TCC/TCC.db"
+          sudo -n sqlite3 "$tcc" "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) VALUES ('kTCCServiceScreenCapture', '/usr/sbin/screencapture', 1, 2, 4, 1, NULL, NULL, 0, 'UNUSED', NULL, 0, $(date +%s));" \
+            || echo "::warning::could not grant screen capture in the system TCC database"
+
       - name: Download pre-built GhosttyKit.xcframework
         run: |
           set -euo pipefail
@@ -175,7 +186,12 @@ jobs:
           note=""
           case "$TOUR_RESULT" in
             skipped) note="The tour did not run: $ROUTE_REASON." ;;
-            failure) note="The tour job failed; failed steps are below, and the run log has the build output." ;;
+            failure)
+              if compgen -G "$RUNNER_TEMP/media/*/manifest.json" >/dev/null; then
+                note="The tour failed; the failed steps are below."
+              else
+                note="The tour job failed before the tour ran (build or setup); the run log has the output."
+              fi ;;
           esac
           python3 scripts/cmux-next/media/publish.py --repo "$GITHUB_REPOSITORY" \
             --media "$RUNNER_TEMP/media" --pr "$PR" --sha "$HEAD_SHA" --run-url "$RUN_URL" --note "$note"

@@ -119,25 +119,58 @@ def command_line(argv: list[str]) -> str:
 
 
 class Session:
-    """Runs commands in the console user's GUI session."""
+    """Runs commands in the console user's GUI session.
+
+    `prefix` reaches that session from another user (app launch, kill).
+    `capture_prefix` is the route screencapture works through: on owned Macs
+    it fails from the runner's own process ("could not create image") and
+    works through `launchctl asuser`, as main's E2E recorder runs it, so both
+    are probed once and the first that writes an image wins.
+    """
 
     def __init__(self) -> None:
         self.prefix: list[str] = []
         self.user = getpass.getuser()
         console = subprocess.run(["stat", "-f", "%Su", "/dev/console"],
                                  capture_output=True, text=True).stdout.strip()
-        if console and console not in ("root", "loginwindow") and console != self.user:
+        asuser: list[str] = []
+        if console and console not in ("root", "loginwindow"):
             uid = subprocess.run(["id", "-u", console], capture_output=True, text=True).stdout.strip()
-            self.prefix = ["sudo", "-n", "launchctl", "asuser", uid, "sudo", "-n", "-H", "-u", console]
-            self.user = console
+            asuser = ["sudo", "-n", "launchctl", "asuser", uid, "sudo", "-n", "-H", "-u", console]
+            if console != self.user:
+                self.prefix = asuser
+                self.user = console
+        self.capture_prefix = self.prefix
+        self.capture_mode = "unprobed"
+        self.capture_routes = [("direct", self.prefix)] + ([("launchctl asuser", asuser)] if asuser and asuser != self.prefix else [])
 
     def run(self, argv: list[str], timeout: float = 15) -> subprocess.CompletedProcess[str]:
         return subprocess.run(self.prefix + argv, capture_output=True, text=True, timeout=timeout)
 
+    def capture(self, argv: list[str], timeout: float = 15) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(self.capture_prefix + argv, capture_output=True, text=True, timeout=timeout)
+
+    def probe_capture(self, scratch: Path) -> None:
+        """Pick the capture route that writes a display image; notes every attempt."""
+        notes = []
+        for mode, prefix in self.capture_routes:
+            image = scratch / f"probe-{len(notes)}.jpg"
+            try:
+                done = subprocess.run(prefix + ["/usr/sbin/screencapture", "-x", "-t", "jpg", "-D", "1", str(image)],
+                                      capture_output=True, text=True, timeout=15)
+                said = (done.stderr or done.stdout).strip() or f"exit {done.returncode}"
+            except (OSError, subprocess.SubprocessError) as error:
+                said = str(error)
+            if image.is_file() and image.stat().st_size > 0:
+                self.capture_prefix, self.capture_mode = prefix, mode
+                return
+            notes.append(f"{mode}: {said}")
+        self.capture_mode = "none (" + "; ".join(notes) + ")"
+
     def shareable(self, path: Path) -> Path:
         """A directory the session's user can write when that user is someone else."""
         path.mkdir(parents=True, exist_ok=True)
-        if self.prefix:
+        if self.prefix or self.capture_prefix:
             path.chmod(0o777)
         return path
 
@@ -153,7 +186,7 @@ class Screen:
                   'var f = $.NSScreen.screens.objectAtIndex(0).frame;'
                   'JSON.stringify([f.size.width, f.size.height])')
         try:
-            done = session.run(["osascript", "-l", "JavaScript", "-e", script])
+            done = session.capture(["osascript", "-l", "JavaScript", "-e", script])
             self.primary_height = float(json.loads(done.stdout)[1])
         except (subprocess.SubprocessError, ValueError, IndexError, TypeError):
             self.primary_height = None
@@ -173,12 +206,21 @@ class Screen:
         argv = ["/usr/sbin/screencapture", "-x", "-t", kind]
         argv += [f"-R{','.join(map(str, self.rect))}"] if self.rect else ["-D", "1"]
         try:
-            done = self.session.run(argv + [str(path)])
+            done = self.session.capture(argv + [str(path)])
         except subprocess.TimeoutExpired:
             return "screencapture timed out"
-        if done.returncode != 0 or not path.is_file() or path.stat().st_size == 0:
-            return (done.stderr or done.stdout or f"screencapture exited {done.returncode}").strip()
-        return None
+        if path.is_file() and path.stat().st_size > 0:
+            return None
+        problem = (done.stderr or done.stdout or f"screencapture exited {done.returncode}").strip()
+        if self.rect:
+            # A rect off the display fails where the whole display works.
+            try:
+                self.session.capture(["/usr/sbin/screencapture", "-x", "-t", kind, "-D", "1", str(path)])
+            except subprocess.TimeoutExpired:
+                pass
+            if path.is_file() and path.stat().st_size > 0:
+                return None
+        return problem
 
 
 class Recorder(threading.Thread):
@@ -365,7 +407,8 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session) 
     shots = session.shareable(directory / "shots")
     frames = session.shareable(directory / "frames")
     manifest: dict[str, Any] = {"name": tour["name"], "title": tour["title"], "steps": [], "frames": [],
-                                "frame_interval": FRAME_INTERVAL, "console_user": session.user}
+                                "frame_interval": FRAME_INTERVAL, "console_user": session.user,
+                                "capture_mode": session.capture_mode}
     workdir = Path(tempfile.mkdtemp(prefix="cmux-tour.", dir="/tmp"))
     app = App(app_path, session, workdir)
     screen = Screen(session)
@@ -437,6 +480,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--app and --out are required unless --check")
     session = Session()
     args.out.mkdir(parents=True, exist_ok=True)
+    session.probe_capture(session.shareable(Path(tempfile.mkdtemp(prefix="cmux-tour-probe.", dir="/tmp"))))
+    print(f"screen capture: {session.capture_mode}", flush=True)
     ok = True
     for tour in tours:
         ok = passed(run_tour(args.app, tour, args.out, session)) and ok
