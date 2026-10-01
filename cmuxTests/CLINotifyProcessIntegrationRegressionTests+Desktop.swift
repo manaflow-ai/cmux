@@ -47,6 +47,30 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(createRequestLines(in: state).count, requestsBeforeRejection, "a rejected flag must not post anything")
     }
 
+    /// `--desktop` has no effect with `--clear`, so its value is not validated
+    /// there: `cmux notify --clear --desktop maybe` clears and succeeds.
+    func testNotifyClearIgnoresTheDesktopValue() throws {
+        let socketPath = makeSocketPath("desktop-clear")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let home = makeNotifyHome("desktop-clear")
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: home)
+        }
+        let state = MockSocketServerState()
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            self.notifyMockResponse(line: line)
+        }
+        let cliPath = try bundledCLIPath()
+
+        let cleared = runNotify(cliPath: cliPath, socketPath: socketPath, home: home, arguments: ["--clear", "--desktop", "maybe"])
+        XCTAssertEqual(cleared.status, 0, cleared.stderr + cleared.stdout)
+        let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertTrue(methods.contains("notification.clear"), "\(methods)")
+        XCTAssertTrue(createRequestLines(in: state).isEmpty, "a clear must not post a notification")
+    }
+
     /// A fresh home directory for one test's CLI runs; the caller removes it.
     private func makeNotifyHome(_ name: String) -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("cmux-notify-\(name)-\(UUID().uuidString)", isDirectory: true)
