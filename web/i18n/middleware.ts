@@ -9,11 +9,12 @@ export function localeMiddleware(request: NextRequest): NextResponse {
   // Next.js removes internal RSC headers before Proxy. Fetch Metadata survives
   // normalization and distinguishes browser fetches from document navigation.
   const destination = request.headers.get("sec-fetch-dest");
-  const isBackgroundRequest = (destination !== null && destination !== "document")
-    || request.headers.get("rsc") === "1"
-    || request.headers.has("next-router-prefetch")
+  const isRsc = request.headers.get("rsc") === "1";
+  const explicitPrefetch = request.headers.has("next-router-prefetch")
     || request.headers.get("purpose")?.includes("prefetch")
     || request.headers.get("sec-purpose")?.includes("prefetch");
+  const isBackgroundRequest = explicitPrefetch
+    || (!isRsc && destination !== null && destination !== "document");
   if (!isBackgroundRequest || !response.cookies.has("NEXT_LOCALE")) return response;
 
   // The selector owns explicit preference changes. A prefetch or RSC response
@@ -26,7 +27,6 @@ export function localeMiddleware(request: NextRequest): NextResponse {
   headers.delete("set-cookie");
   headers.delete("x-middleware-set-cookie");
   for (const cookie of cookies) headers.append("set-cookie", cookie);
-  if (cookies.length) headers.set("x-middleware-set-cookie", cookies.join(","));
   return new NextResponse(response.body, {
     status: response.status,
     statusText: response.statusText,

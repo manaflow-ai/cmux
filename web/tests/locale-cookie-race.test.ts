@@ -10,7 +10,6 @@ function request(path: string, headers: Record<string, string> = {}) {
 
 describe("locale preference ownership", () => {
   for (const [kind, headers] of [
-    ["RSC navigation", { rsc: "1" }],
     ["router prefetch", { rsc: "1", "next-router-prefetch": "1" }],
     ["HTML prefetch", { purpose: "prefetch" }],
     ["browser prefetch", { "sec-purpose": "prefetch" }],
@@ -28,6 +27,16 @@ describe("locale preference ownership", () => {
 
   test("document navigation still remembers an explicitly visited locale", () => {
     const response = middleware(request("/ko/blog", { "sec-fetch-dest": "document" }));
+    expect(response.cookies.get("NEXT_LOCALE")?.value).toBe("ko");
+  });
+
+  test("an RSC document navigation still remembers its locale", () => {
+    const response = middleware(request("/ko/blog", { rsc: "1", "sec-fetch-dest": "document" }));
+    expect(response.cookies.get("NEXT_LOCALE")?.value).toBe("ko");
+  });
+
+  test("an RSC client navigation with an empty fetch destination still remembers its locale", () => {
+    const response = middleware(request("/ko/blog", { rsc: "1", "sec-fetch-dest": "empty" }));
     expect(response.cookies.get("NEXT_LOCALE")?.value).toBe("ko");
   });
 
