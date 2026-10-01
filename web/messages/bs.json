@@ -2039,7 +2039,6 @@
         },
         "app": {
           "confirmQuit": "Određuje kada cmux traži potvrdu prije izlaska. DEV verzije se uvijek odmah zatvaraju bez obzira na ovu postavku. Naslijeđeni app.warnBeforeQuit se i dalje prihvata kao boolean rezervna opcija.",
-          "whatsNew": "Kako cmux prikazuje novosti nakon ažuriranja. off ne prikazuje ništa, quiet označava dugme za pomoć na bočnoj traci tačkom dok ne otvorite pregled, a sheet otvara pregled jednom nakon prvog pokretanja nove verzije. Pomoć > What's New in cmux ga otvara u bilo kojem trenutku.",
           "windowTitleTemplate": "Opcionalni predložak za NSWindow naslov. Prazno zadržava postojeće zadano ponašanje naslova u cmux-u, uključujući rezervu na trenutni direktorij. Podržani rezervisani izrazi: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Naziv ekrana koji se koristi samo u DEBUG izdanjima pri otvaranju novih prozora. Prazna vrijednost koristi zadanu vrijednost sistema.",
           "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit.",
