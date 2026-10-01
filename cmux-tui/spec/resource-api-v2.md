@@ -294,7 +294,8 @@ has its own delivery receipt, which starts `queued`. The message and its
 receipts live in the session registry, so they survive a daemon restart.
 `agent.message.mark` moves a receipt to `delivered`, `acknowledged` or
 `failed` and records the delivery path in `via`; receipts only move forward,
-except that a queued or failed delivery may fail again or be delivered. A
+except that a queued or failed delivery may fail again or be delivered, and a
+delivered one may fail when the path that claimed it could not hand it over. A
 reply without recipients goes to its parent's sender and stays in the
 parent's thread. `agent.message.list` returns the newest messages first (or
 the oldest, with `oldest_first`), filtered by recipient, sender, thread and the

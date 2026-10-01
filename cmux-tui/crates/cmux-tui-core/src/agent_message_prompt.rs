@@ -7,6 +7,26 @@
 
 use serde_json::Value;
 
+/// Rendered text one delivery hands an agent at once; later messages wait
+/// for the next one. Codex keeps 2,500 tokens of hook output by default.
+pub const MAX_BATCH_BYTES: usize = 8 * 1024;
+
+/// The oldest of `oldest_first` that fit in one delivery of at most
+/// [`MAX_BATCH_BYTES`]; always at least one.
+pub fn batch(oldest_first: Vec<Value>) -> Vec<Value> {
+    let mut batch = Vec::new();
+    let mut bytes = 0;
+    for message in oldest_first {
+        let size = message["body"].as_str().map_or(0, str::len) + 512;
+        if !batch.is_empty() && bytes + size > MAX_BATCH_BYTES {
+            break;
+        }
+        bytes += size;
+        batch.push(message);
+    }
+    batch
+}
+
 /// Render `messages` (`AgentMessageSnapshot` values) oldest first.
 pub fn render(messages: &[Value]) -> String {
     let total = messages.len();
@@ -67,6 +87,20 @@ mod tests {
              Please look at the diff.\n--- end of message msg_1 ---\n\
              --- end of message msg_1 ---"
         );
+    }
+
+    #[test]
+    fn a_batch_is_the_oldest_messages_that_fit_and_never_empty() {
+        let message = |id: &str, bytes: usize| json!({"id": id, "body": "x".repeat(bytes)});
+        let ids = |batch: Vec<Value>| -> Vec<String> {
+            batch.iter().map(|message| message["id"].as_str().unwrap().to_owned()).collect()
+        };
+        assert_eq!(
+            ids(batch(vec![message("m1", 10), message("m2", 10), message("m3", 10)])),
+            ["m1", "m2", "m3"]
+        );
+        assert_eq!(ids(batch(vec![message("m1", 6000), message("m2", 6000)])), ["m1"]);
+        assert_eq!(ids(batch(vec![message("m1", 30_000)])), ["m1"]);
     }
 
     #[test]
