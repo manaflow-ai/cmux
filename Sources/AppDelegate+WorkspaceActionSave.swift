@@ -138,6 +138,8 @@ struct ActionsAndLaunchersDiscoveryModel: Equatable {
             return "setting"
         case .actionReference:
             return "action"
+        case .plugin:
+            return "plugin"
         }
     }
 }
