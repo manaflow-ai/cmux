@@ -3359,6 +3359,7 @@
 		5B11E5A100000000000000A1 /* SpinnerGalleryDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B11E5A100000000000000A2 /* SpinnerGalleryDebugWindowController.swift */; };
 		A6AC72060000000000000001 /* SpinnerGalleryRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72060000000000000002 /* SpinnerGalleryRootView.swift */; };
 		A6AC72070000000000000001 /* SpinnerSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72070000000000000002 /* SpinnerSpec.swift */; };
+		1A863EC5DD9CDF6A01803F7B /* SplitDividerDragUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A082A233635DC9DB397DAB /* SplitDividerDragUITests.swift */; };
 		A13387000000000000000011 /* SplitPaneBackgroundUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000012 /* SplitPaneBackgroundUITests.swift */; };
 		A13387000000000000000005 /* SplitPaneGeometryProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000006 /* SplitPaneGeometryProjection.swift */; };
 		A13387000000000000000013 /* SplitPaneGeometryProjectionRenderParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000014 /* SplitPaneGeometryProjectionRenderParityTests.swift */; };
@@ -7635,6 +7636,7 @@
 		5B11E5A100000000000000A2 /* SpinnerGalleryDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerGalleryDebugWindowController.swift; sourceTree = "<group>"; };
 		A6AC72060000000000000002 /* SpinnerGalleryRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerGalleryRootView.swift; sourceTree = "<group>"; };
 		A6AC72070000000000000002 /* SpinnerSpec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerSpec.swift; sourceTree = "<group>"; };
+		21A082A233635DC9DB397DAB /* SplitDividerDragUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitDividerDragUITests.swift; sourceTree = "<group>"; };
 		A13387000000000000000012 /* SplitPaneBackgroundUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneBackgroundUITests.swift; sourceTree = "<group>"; };
 		A13387000000000000000006 /* SplitPaneGeometryProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneGeometryProjection.swift; sourceTree = "<group>"; };
 		A13387000000000000000014 /* SplitPaneGeometryProjectionRenderParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneGeometryProjectionRenderParityTests.swift; sourceTree = "<group>"; };
@@ -8958,6 +8960,7 @@
 				D77690000000000000000006 /* MultiWindowNotificationsWorkspaceHeadlineUITests.swift */,
 				04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */,
 				818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */,
+				21A082A233635DC9DB397DAB /* SplitDividerDragUITests.swift */,
 				C0DE34020000000000000006 /* HelpMenuUITests.swift */,
 				B8F266256A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift */,
 				C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */,
@@ -16743,6 +16746,7 @@
 				B8F266246A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift in Sources */,
 				B9000130A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift in Sources */,
 				B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */,
+				1A863EC5DD9CDF6A01803F7B /* SplitDividerDragUITests.swift in Sources */,
 				A13387000000000000000011 /* SplitPaneBackgroundUITests.swift in Sources */,
 				B82090010000000000000001 /* TCCUsageDescriptionUITests.swift in Sources */,
 				C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */,
