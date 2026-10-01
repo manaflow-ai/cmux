@@ -1,13 +1,20 @@
 import CmuxNextDaemon
 import Foundation
+import Observation
 import Testing
 @testable import CmuxNextApp
 
 /// A daemon that never answers is shown as "connecting" and then, after
 /// the startup deadline, as a typed failure; the app keeps retrying.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct DaemonStartupStateTests {
+    private func waitFor(_ expected: DaemonStartupState, service: DaemonService) async {
+        for await state in Observations({ service.startup }) where state == expected { return }
+    }
+
     @Test func unreachableDaemonBecomesUnavailableAfterTheDeadline() async throws {
         let service = DaemonService()
+        let clock = ManualClock()
+        service.startupClock = clock
         service.startupDeadline = .milliseconds(150)
         let failure = DaemonError.launchFailed("exit 1: the detached session owner did not become ready")
         service.start {
@@ -19,11 +26,12 @@ import Testing
         view.apply(service.startup)
         #expect(view.titleText == Strings.daemonConnecting)
 
-        let clock = ContinuousClock()
-        let end = clock.now.advanced(by: .seconds(10))
-        while !service.startup.isUnavailable, clock.now < end {
-            try await clock.sleep(for: .milliseconds(20))
-        }
+        // The deadline and the first reconnect backoff both use this clock;
+        // wait until both are armed so advancing the clock always crosses the
+        // startup deadline, even if the failure callback is scheduled first.
+        await clock.sleepers(atLeast: 2)
+        clock.advance(by: service.startupDeadline)
+        await waitFor(.unavailable(failure), service: service)
         #expect(service.startup == .unavailable(failure))
         #expect(service.connection == nil)
         view.apply(service.startup)
@@ -38,11 +46,7 @@ import Testing
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil)) { throw failure }
         }
         defer { service.shutdownConnection() }
-        let clock = ContinuousClock()
-        let end = clock.now.advanced(by: .seconds(10))
-        while !service.startup.isUnavailable, clock.now < end {
-            try await clock.sleep(for: .milliseconds(20))
-        }
+        await waitFor(.unavailable(failure), service: service)
         #expect(service.startup == .unavailable(failure))
     }
 }

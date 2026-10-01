@@ -1,6 +1,7 @@
 import CmuxNextDaemon
 import CmuxNextSidebar
 import Foundation
+import Observation
 import Synchronization
 import Testing
 @testable import CmuxNextApp
@@ -29,10 +30,14 @@ import Testing
         }
     }
 
-    func waitUntil(_ condition: () -> Bool) async throws {
-        let clock = ContinuousClock()
-        let end = clock.now.advanced(by: .seconds(10))
-        while !condition(), clock.now < end { try await clock.sleep(for: .milliseconds(20)) } // test-only wait
+    private func waitFor(_ expected: DaemonStartupState, service: DaemonService) async {
+        for await state in Observations({ service.startup }) where state == expected { return }
+    }
+
+    private func waitForConnected(_ service: DaemonService) async {
+        for await state in Observations({ service.store.connectionState }) {
+            if case .connected = state { return }
+        }
     }
 
     @Test func tooOldCloudDaemonIsNotShownAsConnectingAndConnectsOnceUpdated() async throws {
@@ -47,7 +52,7 @@ import Testing
         service.start(remote: { path })
         defer { service.shutdownConnection() }
 
-        try await waitUntil { service.startup.isUnavailable }
+        await waitFor(.unavailable(.missingCapabilities(["view-attachment-detach-v1"])), service: service)
         #expect(service.startup == .unavailable(.missingCapabilities(["view-attachment-detach-v1"])))
         let header = SidebarBridge.machine(for: service, name: "vm", kind: .cloud)
         #expect(header.status != .connecting, "an incompatible machine must not look like it is still connecting")
@@ -58,7 +63,7 @@ import Testing
         // The machine is updated in place: same link socket, newer daemon.
         updated.withLock { $0 = true }
         service.retryWake.fire()
-        try await waitUntil { if case .connected = service.store.connectionState { true } else { false } }
+        await waitForConnected(service)
         guard case .connected = service.store.connectionState else {
             Issue.record("the updated machine never connected: \(service.store.connectionState)")
             return
