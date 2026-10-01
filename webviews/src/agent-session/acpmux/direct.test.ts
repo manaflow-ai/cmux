@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
-import { applySupersededMessage, initialSession, mergeEventRecords, permissionFromMessage, settleOptimisticPrompt } from "./direct";
-import type { AcpmuxRow } from "./model";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { AcpmuxDirectClient, applySupersededMessage, initialSession, mergeEventRecords, permissionFromMessage, settleOptimisticPrompt } from "./direct";
+import type { EventRecord } from "./direct";
+import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 
 describe("direct acpmux event helpers", () => {
   test("uses the permission notification envelope session id", () => {
@@ -54,4 +55,165 @@ describe("initial session", () => {
   test("keeps the host's session", () => expect(initialSession("older", sessions)).toBe("older"));
   test("falls back to the most recent session", () => expect(initialSession(undefined, sessions)).toBe("recent"));
   test("a new chat attaches nothing until its first prompt", () => expect(initialSession(undefined, sessions, true)).toBeUndefined());
+});
+
+type Request = { id?: number; method: string; params: Record<string, any> };
+
+/// A loopback acpmux whose replies a test scripts, holding back any method it names.
+class ScriptedSocket {
+  static OPEN = 1;
+  static current: ScriptedSocket;
+  static respond: (request: Request) => unknown = () => ({});
+  static held = new Set<string>();
+  readyState = 0;
+  sent: Request[] = [];
+  waiting: Request[] = [];
+  onopen?: () => void;
+  onerror?: () => void;
+  onclose?: () => void;
+  onmessage?: (message: { data: string }) => void;
+  constructor(readonly url: URL) {
+    ScriptedSocket.current = this;
+    queueMicrotask(() => { this.readyState = 1; this.onopen?.(); });
+  }
+  send(raw: string) {
+    const request = JSON.parse(raw) as Request;
+    this.sent.push(request);
+    if (request.id === undefined) return;
+    if (ScriptedSocket.held.has(request.method)) { this.waiting.push(request); return; }
+    const result = ScriptedSocket.respond(request);
+    queueMicrotask(() => this.reply(request, result));
+  }
+  reply(request: Request, result: unknown) { this.onmessage?.({ data: JSON.stringify({ id: request.id, result }) }); }
+  release(method: string, result: unknown) {
+    const index = this.waiting.findIndex((request) => request.method === method);
+    if (index < 0) throw new Error(`no ${method} request is waiting`);
+    const [request] = this.waiting.splice(index, 1);
+    this.reply(request!, result);
+  }
+  notify(method: string, params: unknown) { this.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method, params }) }); }
+  close() { this.readyState = 3; }
+}
+
+const userEvent = (sessionId: string, seq: number, text: string): EventRecord => ({ sessionId, seq, at: seq, dir: "mux", kind: "user_message", msg: { text } });
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+describe("direct client session state", () => {
+  const realSocket = globalThis.WebSocket;
+  const host = { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:4100/acp", token: "t", sessionId: "a" } as const;
+  let snapshots: AcpmuxSnapshot[];
+  const latest = () => snapshots[snapshots.length - 1]!;
+  const texts = () => latest().rows.map((row) => row.text);
+  /// Session "a" starts at seq 5 with a queued prompt; "b" holds one message.
+  const attachReply = (sessionId: string) => sessionId === "a"
+    ? { session: { sessionId: "a", status: "idle", queue: [{ promptId: "q1", prompt: "queued" }] }, events: [userEvent("a", 5, "a five"), userEvent("a", 6, "a six")] }
+    : { session: { sessionId: "b", status: "idle" }, events: [userEvent("b", 1, "b one")] };
+
+  beforeEach(() => {
+    snapshots = [];
+    ScriptedSocket.held = new Set();
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b" }] };
+      if (method === "_acpmux/attach") return attachReply(params.sessionId);
+      return {};
+    };
+    (globalThis as any).WebSocket = ScriptedSocket;
+    (globalThis as any).window ??= globalThis;
+  });
+  afterEach(() => { (globalThis as any).WebSocket = realSocket; });
+
+  const connect = () => AcpmuxDirectClient.connect(host, (snapshot) => snapshots.push(snapshot));
+
+  test("purging an unselected session refreshes the picker", async () => {
+    await connect();
+    const before = snapshots.length;
+    ScriptedSocket.current.notify("_acpmux/session_changed", { kind: "purged", session: { sessionId: "b" } });
+    expect(snapshots.length).toBe(before + 1);
+    expect(latest().sessions.map((session) => session.sessionId)).toEqual(["a"]);
+    ScriptedSocket.current.notify("_acpmux/session_changed", { kind: "created", session: { sessionId: "c", title: "Elsewhere" } });
+    expect(latest().sessions.map((session) => session.sessionId)).toEqual(["a", "c"]);
+    expect(latest().sessionId).toBe("a");
+  });
+
+  test("history pages through events and keeps the live summary, queue and permission", async () => {
+    const client = await connect();
+    ScriptedSocket.current.notify("_acpmux/permission_pending", { sessionId: "a", permissionId: "p1", request: { toolCall: { title: "Run" }, options: [] } });
+    ScriptedSocket.respond = ({ method }) => method === "_acpmux/events" ? { events: [userEvent("a", 3, "a three"), userEvent("a", 4, "a four")], hasMore: true } : {};
+    await client.loadOlder();
+    const methods = ScriptedSocket.current.sent.map((request) => request.method);
+    expect(methods.filter((method) => method === "_acpmux/attach").length).toBe(1);
+    expect(ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/events")?.params.beforeSeq).toBe(5);
+    expect(texts()).toEqual(["a three", "a four", "a five", "a six"]);
+    expect(latest().queue).toEqual([{ id: "q1", prompt: "queued" }]);
+    expect(latest().summary?.status).toBe("idle");
+    expect(latest().permission?.permissionId).toBe("p1");
+  });
+
+  test("a history page that lands after the selection changed is dropped", async () => {
+    const client = await connect();
+    ScriptedSocket.held.add("_acpmux/events");
+    const older = client.loadOlder();
+    await settle();
+    await client.select("b");
+    ScriptedSocket.current.release("_acpmux/events", { events: [userEvent("a", 3, "stale a three")] });
+    await older;
+    client.snapshot();
+    expect(latest().sessionId).toBe("b");
+    expect(texts()).toEqual(["b one"]);
+  });
+
+  test("a request on a socket that is not open rejects instead of hanging", async () => {
+    const client = await connect();
+    ScriptedSocket.current.readyState = 3;
+    const sent = ScriptedSocket.current.sent.length;
+    const outcome = await Promise.race([
+      client.setModel("m").then(() => "resolved", () => "rejected"),
+      new Promise((resolve) => setTimeout(() => resolve("pending"), 100)),
+    ]);
+    expect(outcome).toBe("rejected");
+    expect(ScriptedSocket.current.sent.length).toBe(sent);
+  });
+
+  test("lag recovery merges missed events without clearing the transcript", async () => {
+    await connect();
+    ScriptedSocket.respond = ({ method, params }) => method === "_acpmux/events" && params.afterSeq === 6 ? { events: [userEvent("a", 7, "a seven")] } : {};
+    ScriptedSocket.current.notify("_acpmux/lagged", { sessionId: "a" });
+    expect(texts()).toEqual(["a five", "a six"]);
+    await settle();
+    expect(texts()).toEqual(["a five", "a six", "a seven"]);
+    expect(latest().queue).toEqual([{ id: "q1", prompt: "queued" }]);
+  });
+
+  test("lag recovery for a session that is no longer selected is ignored", async () => {
+    const client = await connect();
+    ScriptedSocket.held.add("_acpmux/events");
+    ScriptedSocket.current.notify("_acpmux/lagged", { sessionId: "a" });
+    await client.select("b");
+    ScriptedSocket.current.release("_acpmux/events", { events: [userEvent("a", 7, "stale a seven")] });
+    await settle();
+    client.snapshot();
+    expect(texts()).toEqual(["b one"]);
+    ScriptedSocket.current.notify("_acpmux/lagged", { sessionId: "a" });
+    expect(ScriptedSocket.current.waiting.length).toBe(0);
+  });
+
+  test("selecting a session drops the previous session's queue, summary, permission and pending prompt", async () => {
+    const client = await connect();
+    ScriptedSocket.current.notify("_acpmux/permission_pending", { sessionId: "a", permissionId: "p1", request: { toolCall: { title: "Run" }, options: [] } });
+    ScriptedSocket.held.add("session/prompt");
+    void client.send("still sending").catch(() => undefined);
+    await settle();
+    expect(texts()).toContain("still sending");
+    ScriptedSocket.held.add("_acpmux/attach");
+    const selected = client.select("b");
+    await settle();
+    client.snapshot();
+    expect(latest().rows).toEqual([]);
+    expect(latest().queue).toEqual([]);
+    expect(latest().summary).toBeUndefined();
+    expect(latest().permission).toBeUndefined();
+    ScriptedSocket.current.release("_acpmux/attach", attachReply("b"));
+    expect(await selected).toBe("b");
+    expect(texts()).toEqual(["b one"]);
+  });
 });
