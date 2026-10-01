@@ -18,6 +18,7 @@ struct ClaudeHookSessionStoreRecoveryTests {
         let root = try makeRoot("cmux-hook-state-salvage")
         defer { try? FileManager.default.removeItem(at: root) }
         let validSessionID = "valid-hook-session"
+        let now = Date().timeIntervalSince1970
         let seeded = try JSONSerialization.data(withJSONObject: [
             "version": 1,
             "sessions": [
@@ -25,15 +26,15 @@ struct ClaudeHookSessionStoreRecoveryTests {
                     "sessionId": validSessionID,
                     "workspaceId": "workspace-valid",
                     "surfaceId": "surface-valid",
-                    "startedAt": 1,
-                    "updatedAt": 2,
+                    "startedAt": now,
+                    "updatedAt": now,
                 ],
                 "malformed-hook-session": [
                     "sessionId": 42,
                     "workspaceId": "workspace-malformed",
                     "surfaceId": "surface-malformed",
-                    "startedAt": 1,
-                    "updatedAt": 2,
+                    "startedAt": now,
+                    "updatedAt": now,
                 ],
             ],
         ])
