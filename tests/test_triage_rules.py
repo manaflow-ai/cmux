@@ -292,6 +292,15 @@ class ManifestTests(unittest.TestCase):
         )
         self.assertEqual(manual, [])
 
+    def test_difficulty_labels_are_managed(self):
+        labels = SYNC.load_manifest(MANIFEST)
+        difficulty = {
+            entry["name"]: entry for entry in labels if entry["name"].startswith("difficulty:")
+        }
+        self.assertEqual(set(difficulty), {f"difficulty:{level}" for level in range(1, 5)})
+        for entry in difficulty.values():
+            self.assertTrue(entry.get("description"), f"{entry['name']} needs a description")
+
     def test_manifest_passes_its_own_validation(self):
         sync = load("sync_labels", "scripts/ci/sync_labels.py")
         self.assertEqual(len(sync.load_manifest(MANIFEST)), len(self.manifest["labels"]))
