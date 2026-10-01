@@ -79,9 +79,15 @@ export class MuxDO extends DurableObject<Env> {
     if (!row) return;
     const pending = JSON.parse(row.json) as Pending;
     this.sql.exec("UPDATE inbox SET attempts = attempts + 1 WHERE seq = ?", row.seq);
+    const kind = "event" in pending ? `event ${pending.event.kind}` : "message";
+    console.log(
+      JSON.stringify({ at: "mux.turn.start", seq: row.seq, attempt: row.attempts + 1, kind }),
+    );
     try {
       await this.turn(pending);
+      console.log(JSON.stringify({ at: "mux.turn.end", seq: row.seq }));
     } catch (error) {
+      console.log(JSON.stringify({ at: "mux.turn.error", seq: row.seq, error: String(error) }));
       if (row.attempts + 1 < MAX_ATTEMPTS) {
         await this.ctx.storage.setAlarm(Date.now() + 2_000 * 2 ** row.attempts);
         return;
@@ -131,6 +137,7 @@ export class MuxDO extends DurableObject<Env> {
   private async runTool(call: ToolCall, props: MuxApiProps): Promise<string> {
     if (call.name !== RUN_TOOL.name) return `no tool named ${call.name}`;
     const { code } = JSON.parse(call.arguments) as { code: string };
+    console.log(JSON.stringify({ at: "mux.run", code: code.slice(0, 500) }));
     const exports = this.ctx.exports as unknown as {
       MuxApi: (options: { props: MuxApiProps }) => MuxApi;
     };
@@ -152,6 +159,9 @@ export class MuxDO extends DurableObject<Env> {
         ),
       ),
     ]);
+    console.log(
+      JSON.stringify({ at: "mux.run.result", ok: result.ok, error: result.error?.slice(0, 300) }),
+    );
     return formatRunResult(result);
   }
 

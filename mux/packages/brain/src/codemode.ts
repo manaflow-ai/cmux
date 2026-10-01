@@ -54,14 +54,14 @@ declare const mux: {
       cwd: string; prompt: string; harness?: string; name?: string;
       policy?: "ask" | "approve-reads" | "approve-edits" | "approve-all"; machine?: string;
     }): Promise<{ sessionId: string; name: string }>;
-    /** Queues a prompt on a session (name or id). \`steer\` interrupts the running turn. */
-    prompt(options: { session: string; text: string; steer?: boolean; machine?: string }): Promise<{ queued: true }>;
+    /** Queues a prompt on a session (name or id) and returns at once; you get an event when the turn ends. \`steer\` interrupts the running turn. */
+    prompt(options: { session: string; text: string; steer?: boolean; machine?: string }): Promise<{ queued: true; sessionId: string }>;
     /** The session's last reply text. */
     last(options: { session: string; machine?: string }): Promise<{ text: string }>;
     cancel(options: { session: string; machine?: string }): Promise<{ cancelled: true }>;
   };
   messages: {
-    /** Posts to this conversation right away, before your final reply. Use for progress. */
+    /** Posts to this conversation right away. Only for progress during long work; your final answer is posted for you. */
     send(text: string): Promise<void>;
   };
 };`;
