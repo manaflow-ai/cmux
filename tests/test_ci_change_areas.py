@@ -3098,6 +3098,10 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     assert 'allowed = {"success", "skipped"}' in block
 
 
+# ci.yml's legacy lanes skip PRs into feat-cmux-next, which cmux-next.yml covers.
+FEAT_CMUX_NEXT_PR_SKIP = "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next')"
+
+
 def test_required_tests_status_waits_for_platform_workflows() -> None:
     block = workflow_job_block("tests")
 
@@ -3106,7 +3110,7 @@ def test_required_tests_status_waits_for_platform_workflows() -> None:
         assert f"      - {job_name}" in block
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
-    assert "if: ${{ always() }}" in block
+    assert f"if: ${{{{ always() && {FEAT_CMUX_NEXT_PR_SKIP} }}}}" in block
     assert 'macos_route not in {"true", "false"}' in block
     assert 'macos_result != "success"' in block
     assert 'web_result not in {"success", "skipped"}' in block
@@ -5323,15 +5327,19 @@ def test_claude_wrapper_scope_executes_workflow_shell() -> None:
 def test_claude_wrapper_job_runs_without_full_suite_or_app_compile() -> None:
     workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
     condition = workflow["jobs"]["claude-wrapper"]["if"].strip()[3:-2].strip()
-    for wrapper, macos, full_suite, expected in (
-        ("true", "false", "false", True),
-        ("true", "true", "false", True),
-        ("false", "true", "true", True),
-        ("false", "true", "false", False),
-        ("false", "false", "true", False),
+    # PRs into feat-cmux-next run cmux-next.yml instead of the legacy lanes.
+    assert FEAT_CMUX_NEXT_PR_SKIP in condition, condition
+    for wrapper, macos, full_suite, next_pr, expected in (
+        ("true", "false", "false", False, True),
+        ("true", "true", "false", False, True),
+        ("false", "true", "true", False, True),
+        ("false", "true", "false", False, False),
+        ("false", "false", "true", False, False),
+        ("true", "true", "true", True, False),
     ):
         outputs = {"claude_wrapper": wrapper, "macos": macos, "full_suite": full_suite}
-        expression = re.sub(r"needs\.changes\.outputs\.([a-z_]+)", lambda m: repr(outputs[m.group(1)]), condition)
+        expression = condition.replace(FEAT_CMUX_NEXT_PR_SKIP, repr(not next_pr))
+        expression = re.sub(r"needs\.changes\.outputs\.([a-z_]+)", lambda m: repr(outputs[m.group(1)]), expression)
         expression = re.sub(r"needs\.[a-z-]+\.result", repr("success"), expression)
         expression = expression.replace("!cancelled()", "True").replace("&&", " and ").replace("||", " or ")
         assert eval(expression, {"__builtins__": {}}, {}) is expected, (outputs, condition)

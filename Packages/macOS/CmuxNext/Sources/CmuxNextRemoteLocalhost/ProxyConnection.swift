@@ -54,7 +54,7 @@ final class ProxyConnection: Sendable {
             try? await client.sendAll(ProxyResponses.authenticationRequired)
             return
         }
-        if LoopbackHost.isLoopback(head.host) {
+        if LoopbackHost(head.host).isLoopback {
             await tunnel(head, rest: rest, route: route)
         } else {
             await direct(head, rest: rest)
@@ -200,8 +200,8 @@ final class ProxyConnection: Sendable {
 
     private static func isLocalOnly(_ host: NWEndpoint.Host) -> Bool {
         switch host {
-        case .ipv4(let address): LoopbackHost.isLocalOnly(address)
-        case .ipv6(let address): LoopbackHost.isLocalOnly(address)
+        case .ipv4(let address): address.isLocalOnly
+        case .ipv6(let address): address.isLocalOnly
         case .name: false
         @unknown default: false
         }

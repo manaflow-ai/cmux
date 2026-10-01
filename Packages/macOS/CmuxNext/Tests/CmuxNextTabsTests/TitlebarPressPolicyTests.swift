@@ -52,6 +52,8 @@ import Testing
     }
 
     @Test func theWindowServerNeverMovesTheWindowFromTheBand() throws {
+        let pin = StripHeightPin()
+        defer { pin.restore() }
         let h = Harness(titles: ["One", "Two"])
         defer { h.close() }
         let band = TitlebarDragPolicy.bandRect(in: h.window)
@@ -121,5 +123,24 @@ import Testing
         let plus = h.strip.contentView.convert(h.strip.newTabButton.frame, to: h.strip)
         let buttons = h.strip.contentView.convert(h.strip.buttonGroup.frame, to: h.strip)
         #expect(h.decide(h.windowPoint(stripX: (plus.maxX + buttons.minX) / 2)) == .staysPut)
+    }
+}
+
+/// Pins compact density and no strip-height override for one synchronous
+/// test. The titlebar band is the 32 pt system titlebar, so these checks hold
+/// only at the default strip height; DensityTests, running in parallel, can
+/// leave `.comfortable` or an override set across a suspension.
+@MainActor struct StripHeightPin {
+    private let density = DesignSettings.shared.density
+    private let stripHeight = DesignSettings.shared.overrides[.tabStripHeight]
+
+    init() {
+        DesignSettings.shared.density = .compact
+        DesignSettings.shared.setOverride(.tabStripHeight, nil)
+    }
+
+    func restore() {
+        DesignSettings.shared.density = density
+        DesignSettings.shared.setOverride(.tabStripHeight, stripHeight)
     }
 }

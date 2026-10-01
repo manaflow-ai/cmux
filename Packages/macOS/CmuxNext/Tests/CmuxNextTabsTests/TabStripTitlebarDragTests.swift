@@ -63,6 +63,8 @@ import Testing
     /// The strip's rule and the window's decision agree every 4 pt, and
     /// follow a tab added after the first layout.
     @Test func thePolicyFollowsTheStripRuleAtEveryPoint() {
+        let pin = StripHeightPin()
+        defer { pin.restore() }
         let h = Harness(titles: ["One", "Two"])
         defer { h.close() }
         h.model.tabs.append(TabItem(id: TabID("t2"), title: "Three"))

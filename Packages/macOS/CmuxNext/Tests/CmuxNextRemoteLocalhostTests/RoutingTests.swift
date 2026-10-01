@@ -7,17 +7,17 @@ struct RoutingTests {
     @Test func loopbackHostsAreDecidedWithoutDNS() {
         for host in ["localhost", "LocalHost", "localhost.", "app.localhost", "a-b.c.localhost", "127.0.0.1",
                      "127.12.34.56", "::1", "[::1]", "::ffff:127.0.0.1"] {
-            #expect(LoopbackHost.isLoopback(host), "\(host) goes to the tab's machine")
+            #expect(LoopbackHost(host).isLoopback, "\(host) goes to the tab's machine")
         }
         for host in ["", "example.com", "localhost.example.com", "127.0.0.1.nip.io", "localtest.me", "10.0.0.1",
                      "192.168.1.1", "169.254.169.254", "8.8.8.8", "0.0.0.0", "::", "[::ffff:10.0.0.1]", "fe80::1",
                      "127.1", "0x7f.0.0.1", "2130706433", "-a.localhost", "a..localhost", "a_b.localhost",
                      "[localhost]", "localhost:80", "0127.0.0.1"] {
-            #expect(!LoopbackHost.isLoopback(host), "\(host) goes direct from this Mac")
+            #expect(!LoopbackHost(host).isLoopback, "\(host) goes direct from this Mac")
         }
-        #expect(LoopbackHost.isLoopback(url: URL(string: "http://localhost:5173/src/main.ts")!))
-        #expect(LoopbackHost.isLoopback(url: URL(string: "ws://[::1]:24678/")!))
-        #expect(!LoopbackHost.isLoopback(url: URL(string: "https://github.com/")!))
+        #expect(LoopbackHost(url: URL(string: "http://localhost:5173/src/main.ts")!)?.isLoopback == true)
+        #expect(LoopbackHost(url: URL(string: "ws://[::1]:24678/")!)?.isLoopback == true)
+        #expect(LoopbackHost(url: URL(string: "https://github.com/")!)?.isLoopback == false)
     }
 
     @Test func connectHeadsParse() throws {
