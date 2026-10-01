@@ -1,4 +1,5 @@
 import React, { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { lexer, type Token } from "marked";
 import { applyAgentTheme } from "../shared/theme";
 import { diffRows, layoutConversation, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
@@ -97,10 +98,16 @@ function MeasuredCustomRow({ children, onHeight }: { children: React.ReactNode; 
 const rowKind = (row: AcpmuxRow) => row.kind === "activity" && row.items?.some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ? "editedFiles" : row.kind;
 const currentRegistry = (): NativeRegistry => ({ ...defaultRegistry, ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined) });
 
+/// Scroll steps of rows mounted ahead in the scroll direction, capped in viewports.
+/// A scroll commits from its event, a frame after the offset moved, so without the
+/// lead a fling shows a blank edge on every frame.
+const SCROLL_LEAD_STEPS = 2;
+const MAX_SCROLL_LEAD_VIEWPORTS = 4;
+
 export function VirtualTranscript({ rows, onToggleActivity, expanded, registry = defaultRegistry }: { rows: AcpmuxRow[]; onToggleActivity: (id: string) => void; expanded: Set<string>; registry?: NativeRegistry }) {
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
-  const [scrollTop, setScrollTop] = useState(0);
+  const [scroll, setScroll] = useState({ top: 0, delta: 0 });
   const [height, setHeight] = useState(600);
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(760);
@@ -118,7 +125,8 @@ export function VirtualTranscript({ rows, onToggleActivity, expanded, registry =
   }, [rows, width, measuredHeights, registry]);
   const layout = measured.layout;
   const reportedLayout = useRef<typeof measured | null>(null);
-  const range = visibleLayoutRange(layout, scrollTop, height);
+  const lead = Math.min(Math.abs(scroll.delta) * SCROLL_LEAD_STEPS, height * MAX_SCROLL_LEAD_VIEWPORTS);
+  const range = visibleLayoutRange(layout, scroll.delta < 0 ? scroll.top - lead : scroll.top, height + lead);
   useLayoutEffect(() => {
     const last = range.last - 1;
     acpmuxPerf.mountedTop = range.last > range.first ? layout.tops[range.first] : 0;
@@ -141,13 +149,13 @@ export function VirtualTranscript({ rows, onToggleActivity, expanded, registry =
     if (!didOpenAtLatest.current && node && layout.totalHeight > node.clientHeight) {
       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
       node.scrollTop = latest;
-      setScrollTop(latest);
+      setScroll({ top: latest, delta: 0 });
       didOpenAtLatest.current = true;
     }
     previousLayout.current = layout;
   }, [layout, range.first, height]);
-  const scheduleScroll = useRef<number | null>(null);
-  const onScroll = (event: React.UIEvent<HTMLDivElement>) => { const next = event.currentTarget.scrollTop; if (scheduleScroll.current !== null) return; scheduleScroll.current = requestAnimationFrame(() => { scheduleScroll.current = null; setScrollTop(next); }); };
+  // Commit before this frame paints; deferring to the next animation frame left the edge blank.
+  const onScroll = (event: React.UIEvent<HTMLDivElement>) => { const next = event.currentTarget.scrollTop; flushSync(() => setScroll((current) => ({ top: next, delta: next - current.top }))); };
   return <div ref={ref} className="acpmux-scroll" onScroll={onScroll}><div className="acpmux-spacer" style={{ height: layout.totalHeight }}><div className="acpmux-thread">{rows.slice(range.first, range.last).map((row, index) => { const absoluteIndex = range.first + index; const kind = rowKind(row); const Component = registry[kind] ?? NoticeRow; const rendered = <Component row={row} onToggleActivity={onToggleActivity} expanded={expanded.has(row.id)} />; return <article className={`acpmux-row acpmux-${kind}`} style={{ transform: `translateY(${layout.tops[absoluteIndex]}px)` }} key={row.id}>{Component.measure || defaultRegistry[kind] ? rendered : <MeasuredCustomRow onHeight={(value) => setMeasuredHeights((current) => { if (current.get(row.id) === value) return current; const next = new Map(current); next.set(row.id, value); return next; })}>{rendered}</MeasuredCustomRow>}</article>; })}</div></div></div>;
 }
 
