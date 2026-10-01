@@ -19,6 +19,8 @@ struct CLIRemotesArgumentValidationTests {
         #expect(try RemotesArgumentParser.removeTarget(["studio", "--json"]) == "studio")
         #expect(try RemotesArgumentParser.removeTarget(["--json", "studio"]) == "studio")
         #expect(try RemotesArgumentParser.removeTarget(["--json"]) == nil)
+        #expect(try RemotesArgumentParser.removeTarget(["--", "my-studio"]) == "my-studio")
+        #expect(try RemotesArgumentParser.removeTarget(["--", "-private"]) == "-private")
 
         try expectRemotesError(.unknownFlag("--typo")) {
             _ = try RemotesArgumentParser.removeTarget(["studio", "--typo"])
