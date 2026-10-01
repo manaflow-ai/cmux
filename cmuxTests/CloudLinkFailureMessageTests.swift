@@ -1,5 +1,6 @@
 import CmuxCloud
 import CmuxSurfaceCatalogModel
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -27,6 +28,30 @@ struct CloudLinkFailureMessageTests {
         let empty = machineInfo(linkState: .error, linkError: "")
         #expect(empty.linkFailureMessage == CloudDiagnosticFailure.network.label)
         #expect(machineInfo(linkState: .error).linkFailureMessage == CloudDiagnosticFailure.network.label)
+    }
+
+    @Test("The socket payload carries prose alongside the diagnostic token")
+    func socketPayloadCarriesLinkFailureMessage() {
+        let info = machineInfo(linkState: .unavailable, linkError: "cloud_api_unavailable")
+        let payload = TerminalController.surfaceMachinePayload(info)
+        #expect(payload["link_error"] as? String == "cloud_api_unavailable")
+        #expect(payload["link_error_message"] as? String == info.linkFailureMessage)
+    }
+
+    @Test("vm tree never prints a raw link failure token")
+    func vmTreeUsesLinkFailureMessage() {
+        let message = "cmux cannot reach the Cloud service for this machine right now."
+        let lines = CMUXCLI.vmTreeLines(
+            machine: [
+                "id": "link-copy-test", "local": false, "status": "running",
+                "link_state": "unavailable", "link_error": "cloud_api_unavailable",
+                "link_error_message": message, "remote_workspaces": [[String: Any]]()
+            ],
+            resources: []
+        )
+        let output = lines.joined(separator: "\n")
+        #expect(output.contains(message))
+        #expect(!output.contains("cloud_api_unavailable"))
     }
 
     private func machineInfo(linkState: SurfaceLinkState, linkError: String? = nil) -> SurfaceMachineInfo {
