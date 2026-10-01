@@ -149,13 +149,16 @@ final class ScopedCommandExecutor: ControlActionExecutor {
         #expect(error.data?["not_run"] == false)
     }
 
-    @Test func aStartedRunThatMissesItsDeadlineIsInProgress() async {
+    @Test func aStartedRunThatMissesItsDeadlineIsInProgress() async throws {
         let executor = ScopedCommandExecutor()
         let frames = ManualFrameSource()
-        let router = makeRouter(executor, deadline: .milliseconds(300), frames: frames)
+        let router = makeRouter(executor, deadline: .seconds(1), frames: frames)
         let reply = Task { await run(router, ["target": "tab:tab-1"]) }
         // The handler runs as soon as the frame fires: the run has started.
-        while executor.calls.load(ordering: .relaxed) == 0 { await MainActor.run { frames.fire() } } // test-only wait
+        let end = ContinuousClock.now + .seconds(1)
+        while executor.calls.load(ordering: .relaxed) == 0, ContinuousClock.now < end { await MainActor.run { frames.fire() } } // test-only wait
+        let calls = executor.calls.load(ordering: .relaxed)
+        try #require(calls == 1, "the handler never ran before the deadline (a loaded machine)")
         guard case .failure(let error) = await reply.value else {
             Issue.record("expected a timeout")
             return

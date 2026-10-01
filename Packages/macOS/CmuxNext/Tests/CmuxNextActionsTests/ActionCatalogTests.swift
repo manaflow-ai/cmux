@@ -73,7 +73,7 @@ import Testing
         .workspace: 135, // 80 + 29 room actions (plans/cmux-next/data-model.md 7) + showResources + 25 workspace verbs
         .pane: 66, // + Move Pane to New Workspace
         .screen: 62,
-        .tab: 74,
+        .tab: 75, // + Show Tab (`tab.focus`, state-ownership.md 3)
         .terminal: 33,
         .browser: 78,
         .sidebar: 30,

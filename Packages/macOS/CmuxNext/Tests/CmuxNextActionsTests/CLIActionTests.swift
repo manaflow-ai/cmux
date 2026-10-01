@@ -21,7 +21,7 @@ import Testing
         for id: ActionID in ["focusLeft", "commandPalette", "toggleSidebar", "browserZoomIn", "commandPaletteNext"] {
             #expect(byID[id]?.cli == false, "\(id)")
         }
-        for id: ActionID in ["newTab", "renameWorkspace", "closeTab", "screen.new", "tabGroup.create", "newWindow"] {
+        for id: ActionID in ["newTab", "renameWorkspace", "closeTab", "tab.focus", "screen.new", "tabGroup.create", "newWindow"] {
             #expect(byID[id]?.cli == true, "\(id)")
         }
     }

@@ -9,7 +9,7 @@
 nonisolated extension ActionCatalog {
     static let cliActionIDs: Set<ActionID> = [
         // Windows
-        "newWindow", "newIncognitoWindow", "closeWindow",
+        "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus",
         // Workspaces
         "newTab", "newBrowserWorkspace", "openFolder", "reopenClosedWorkspace", "renameWorkspace",
         "palette.clearWorkspaceName", "editWorkspaceDescription", "palette.clearWorkspaceDescription", "closeWorkspace",

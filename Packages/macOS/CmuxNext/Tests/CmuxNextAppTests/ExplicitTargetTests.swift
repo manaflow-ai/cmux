@@ -22,4 +22,11 @@ struct ExplicitTargetTests {
             #expect(outcome != .ran, "\(id) reported success for a workspace that does not exist")
         }
     }
+
+    @Test func aMissingTargetIsNotFoundAndNeverTheFocusedObject() {
+        let services = ActionBindingCoverageTests.boundServices()
+        #expect(Self.run(services, "renameWorkspace", kind: .workspace, target: "ws_missing", arguments: ["name": .string("x")])
+            == .notFound("no workspace ws_missing"))
+        #expect(Self.run(services, "tab.focus", kind: .tab, target: "tab_missing") == .notFound("no tab tab_missing"))
+    }
 }
