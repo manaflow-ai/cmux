@@ -1,6 +1,6 @@
 import { accountAccessForIdentity, type CoderouterAccountAccess } from "./accountAccess";
 import { lookup as dnsLookup } from "node:dns/promises";
-import { request as httpRequest, type IncomingMessage } from "node:http";
+import { request as httpRequest, type ClientRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP, type LookupFunction } from "node:net";
 import { Readable, pipeline } from "node:stream";
@@ -808,15 +808,45 @@ function pinnedFetch(pin: ProviderPin): typeof fetch {
       });
       outgoing.on("error", reject);
       if (body) {
-        // pipeline destroys the request when the client body fails.
-        pipeline(Readable.fromWeb(body as import("node:stream/web").ReadableStream), outgoing, (error) => {
-          if (error) reject(error);
-        });
+        // Read the Web stream directly. Bun 1.3's Readable.fromWeb adapter can
+        // surface a body error outside pipeline's callback, leaving the test
+        // process with an unhandled rejection and the upstream request open.
+        void writeWebRequestBody(body, outgoing).catch(reject);
       } else {
         outgoing.end();
       }
     });
   }) as typeof fetch;
+}
+
+async function writeWebRequestBody(body: ReadableStream<Uint8Array>, outgoing: ClientRequest): Promise<void> {
+  const reader = body.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        outgoing.end();
+        return;
+      }
+      if (value?.byteLength && !outgoing.write(value)) {
+        await new Promise<void>((resolve, reject) => {
+          const onDrain = () => { cleanup(); resolve(); };
+          const onError = (error: Error) => { cleanup(); reject(error); };
+          const cleanup = () => {
+            outgoing.off("drain", onDrain);
+            outgoing.off("error", onError);
+          };
+          outgoing.once("drain", onDrain);
+          outgoing.once("error", onError);
+        });
+      }
+    }
+  } catch (error) {
+    outgoing.destroy(error instanceof Error ? error : new Error(String(error)));
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 const BODY_DECODERS: Record<string, () => NodeJS.ReadWriteStream> = {
