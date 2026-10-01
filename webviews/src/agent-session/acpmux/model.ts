@@ -62,6 +62,9 @@ export type ConversationLayout = {
 
 const MEASURE_FONT = '13px "Helvetica Neue"';
 const MESSAGE_LINE_HEIGHT = 20;
+/// Vertical padding of a user bubble (`.acpmux-user-bubble` in styles.css).
+const USER_BUBBLE_PADDING = 18;
+const chromeHeight = (row: AcpmuxRow) => row.kind === "user" ? USER_BUBBLE_PADDING : 0;
 
 export function diffRows(previous: Map<string, AcpmuxRow>, next: AcpmuxRow[]): RowChange {
   const nextById = new Map(next.map((row) => [row.id, row]));
@@ -86,7 +89,7 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   const textLines = Math.max(1, Math.ceil((row.text?.length ?? 0) / Math.max(24, Math.floor(width / 8))));
   if (row.kind === "activity") return Math.max(46, 24 + (row.items?.length ?? 0) * 20);
   if (row.kind === "turnSummary" || row.kind === "notice" || row.kind === "typing") return 32;
-  return 24 + textLines * MESSAGE_LINE_HEIGHT;
+  return 24 + chromeHeight(row) + textLines * MESSAGE_LINE_HEIGHT;
 }
 
 function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>): number {
@@ -110,7 +113,7 @@ function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, Pre
     }
     contentHeight += layout(prepared, contentWidth, MESSAGE_LINE_HEIGHT).height;
   }
-  return Math.max(34, 16 + contentHeight + Math.max(0, blocks.length - 1) * 8);
+  return Math.max(34, 16 + chromeHeight(row) + contentHeight + Math.max(0, blocks.length - 1) * 8);
 }
 
 /** DOM-free row geometry. Only visible rows need their React elements painted. */
