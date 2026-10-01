@@ -485,10 +485,21 @@ VM subcommands:
 | `surface ls [<machine>\|local] [--refresh] [--json]` | The surface catalog, exactly `vm tree` (This Mac and every cloud machine). |
 | `surface open <resource> [--workspace <id\|ref\|index>] [--pane <id\|ref>] [--left\|--right\|--up\|--down\|--tab] [--new] [--focus\|--no-focus] [--json]` | Put one surface in a pane through the single open path (`surface.project {resource, workspace_id?, pane_id?, direction?, placement?, reuse?, focus?}` → `{surface_id, workspace_id, reused, resource}`). `<resource>` is `<machine>/<kind>/<key>` from `surface ls --json` (`local/terminal/<uuid>`, `<m>/terminal/<term_…>`, `<m>/display/display:1`, `<m>/browser/port:<n>`). Reuses the pane already showing the resource unless `--new`; `--pane` + a side splits that pane on that side, `--tab` adds a tab to it, otherwise the workspace's focused pane; a local terminal moves to the destination (it is shown once). Prints `OK surface=… workspace=… resource=… [reused=true]`. |
 | `surface new-terminal --machine <id\|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id\|ref\|index>] [--no-open] [--focus\|--no-focus] [--json] [-- <command...>]` | Create a terminal on a machine through its provider (`surface.new_terminal {machine, command?, cwd?, name?, remote_workspace_id?, open?, workspace_id?, …}` → `{resource, terminal_id, machine, remote_workspace_id, workspace_id?, surface_id?}`) and open it as a pane unless `--no-open`. Cloud terminals land in the machine's cmux-tui session (`--remote-workspace` picks the workspace); local ones are a new shell on This Mac. |
+
 | `vm tools <id>`, `vm tool-inspector <id>` | Inspect installed tools inside the VM. |
 | `vm ports <id>` | Show listening TCP ports inside the VM. |
 | `vm handoff <id>` | Print a short attach handoff block. |
 | `vm promote-template <id>` | Promote the VM into a reusable template. |
+
+Surface resume bindings (`surface resume` and `surface-resume`):
+
+| Command | Contract |
+| --- | --- |
+| `surface resume set [--workspace <id\|ref\|index>] [--surface <id\|ref\|index>] [--window <id\|ref\|index>] [--name <name>] [--kind <kind>] [--checkpoint <id>\|--checkpoint-id <id>] [--source <source>] [--cwd <path>] (--shell <command>\|-- <argv...>)` | Store a restart command for the selected terminal surface (`surface.resume.set`). `--checkpoint-id` takes precedence over `--checkpoint`; `--source` defaults to `cli`, and `--cwd` defaults to `$PWD` or the current directory. `--shell` takes one complete command string; the `-- <argv...>` form also stores a structured launch command. |
+| `surface resume [show\|get] [--json] [--workspace <id\|ref\|index>] [--surface <id\|ref\|index>] [--window <id\|ref\|index>]` | Read the binding (`surface.resume.get`); `show` is the default and `get` is an alias. Plain output is the command, `No resume binding` if absent, or `null` if the public binding hides a private routed command. `--json` prints the public socket payload, including `resume_binding` and surface/workspace identifiers. |
+| `surface resume clear [--workspace <id\|ref\|index>] [--surface <id\|ref\|index>] [--window <id\|ref\|index>] [--checkpoint <id>\|--checkpoint-id <id>] [--source <source>]` | Clear the binding (`surface.resume.clear`). Optional checkpoint and source values guard the clear so a different binding is not removed; `--checkpoint-id` takes precedence over `--checkpoint`. The response includes `cleared` and the resulting `resume_binding`. |
+
+The selectors default to the caller's `CMUX_SURFACE_ID` or `CMUX_WORKSPACE_ID` when applicable; `--window` supplies context for refs and indexes. These bindings record how to resume a surface; `session restore` and `restore` perform recovery. `surface --help` and `surface-resume --help` print the same family help without a socket.
 
 Remotes subcommands:
 
@@ -966,6 +977,8 @@ the expected text without connecting to a cmux socket.
 - `cmux vm prompt --help` -> `cmux vm prompt --open <agent>`
 - `cmux vm base --help` -> `cmux vm base reset [--desktop|--base] [--reason <text>]`
 - `cmux surface --help` -> `Usage: cmux surface ls [<machine>|local] [--refresh] [--json]`
+- `cmux surface --help` -> `cmux surface resume set [flags] -- <argv...>`
+- `cmux surface-resume --help` -> `cmux surface resume show [--json] [flags]`
 - `cmux remotes --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux coderouter --help` -> `Usage: cmux coderouter <status|machines|claude|agent> [options]`
