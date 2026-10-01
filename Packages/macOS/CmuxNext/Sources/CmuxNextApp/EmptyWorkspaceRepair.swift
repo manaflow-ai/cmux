@@ -50,10 +50,14 @@ final class EmptyWorkspaceRepair {
     /// Closes `key`, a workspace whose last tab closed. Tests replace it.
     var close: @MainActor (WorkspaceKey) async throws -> Void = { _ in }
     /// Why `key` lost its last pane. Tests replace it.
-    var cause: @MainActor (WorkspaceKey) async -> EmptiedWorkspaceCause = { _ in .tabClosed }
+    var cause: @MainActor (WorkspaceKey) async -> EmptiedWorkspaceCause
     /// Whether commands can run now. Tests replace it.
     var canCreate: @MainActor () -> Bool
     private(set) var states: [WorkspaceKey: FirstTerminal] = [:]
+    /// The last emptied workspaces and what this app did with each (closed,
+    /// or kept with a new terminal), newest last, for `debug.windows`: a
+    /// workspace that disappears is always explained.
+    private(set) var decisions: [(key: WorkspaceKey, cause: EmptiedWorkspaceCause)] = []
     /// Workspaces seen with a pane, with the connection epoch they were seen
     /// on: one seen on the current connection that has no pane now had its
     /// last tab closed.
@@ -82,6 +86,13 @@ final class EmptyWorkspaceRepair {
         }
         epoch = { [weak daemon] in daemon?.store.connectionEpoch ?? 0 }
         isLive = { [weak daemon] in daemon?.store.isLoaded ?? false }
+        cause = { [weak daemon] key in
+            // When the registry cannot be read, keep the workspace: a
+            // needless repair costs one terminal, a needless close loses
+            // the user's workspace.
+            guard let connection = daemon?.connection, let terminals = try? await connection.listTerminals() else { return .terminalLost }
+            return EmptiedWorkspaceCause.from(terminals, workspace: key)
+        }
         close = { [weak daemon] key in
             guard let daemon, let connection = daemon.connection else { throw DaemonError.notConnected }
             // No tab is left, so no terminal to end here.
@@ -138,10 +149,26 @@ final class EmptyWorkspaceRepair {
         guard populated[key] == epoch(), states[key] == nil, canCreate() else { return states[key] == .closing }
         states[key] = .closing
         populated[key] = nil
-        logger.info("workspace \(key.rawValue, privacy: .public) lost its last tab; closing it")
-        let close = close
-        // task-owner: one close per emptied workspace; the claim is the state above
+        let close = close, cause = cause, create = create
+        // task-owner: one decision per emptied workspace; the claim is the state above
         Task {
+            // A lost terminal (its host died: crash, kill, reboot) is not a
+            // closed tab: the workspace stays and gets a new terminal.
+            if await cause(key) == .terminalLost {
+                guard states[key] == .closing else { return }
+                states[key] = .awaitingPane
+                record(key, .terminalLost)
+                logger.info("workspace \(key.rawValue, privacy: .public) lost its last terminal; keeping it with a new terminal")
+                do {
+                    _ = try await create(key)
+                } catch {
+                    if states[key] == .awaitingPane { states[key] = nil }
+                    logger.error("refilling a workspace with a lost terminal failed: \(String(describing: error), privacy: .public)")
+                }
+                return
+            }
+            record(key, .tabClosed)
+            logger.info("workspace \(key.rawValue, privacy: .public) lost its last tab; closing it")
             do {
                 try await close(key)
             } catch {
@@ -151,6 +178,11 @@ final class EmptyWorkspaceRepair {
             }
         }
         return true
+    }
+
+    private func record(_ key: WorkspaceKey, _ cause: EmptiedWorkspaceCause) {
+        decisions.append((key, cause))
+        if decisions.count > 32 { decisions.removeFirst(decisions.count - 32) }
     }
 
     /// Checks `workspace` (shown in a window) after a store change. An

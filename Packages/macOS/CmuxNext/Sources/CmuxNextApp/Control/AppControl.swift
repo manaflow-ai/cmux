@@ -59,7 +59,13 @@ final class AppControl {
             // without a workspace).
             .mainActor("debug.windows") { [weak services] _ in
                 guard let services, let windows = services.windows else { return .value(.null) }
-                return .value(WindowInvariants.report(windows))
+                guard case .object(var report) = WindowInvariants.report(windows) else { return .value(.null) }
+                // Every workspace the app closed or kept after it lost its
+                // last pane, with the cause (EmptyWorkspaceRepair).
+                report["emptied_workspaces"] = .array((services.emptyWorkspaces?.decisions ?? []).map {
+                    .object(["key": .string($0.key.rawValue), "cause": .string(String(describing: $0.cause))])
+                })
+                return .value(.object(report))
             },
             // Omnibar state machine vs its field editor (focus.md section 7).
             .mainActor("debug.omnibar") { [weak services] call in
