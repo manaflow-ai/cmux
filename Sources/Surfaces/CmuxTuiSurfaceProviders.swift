@@ -87,8 +87,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private var watchedLink: CloudMachineLink?
     private var changeWatcherID: UUID?
     private var scheduledRefresh: Task<Void, Never>?
-    fileprivate var recoveryRetryTask: Task<Void, Never>?; fileprivate var recoveryRetryCount = 0
-    fileprivate static let recoveryRetryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(5), .seconds(15), .seconds(30)]
+    var recoveryRetryTask: Task<Void, Never>?; var recoveryRetryCount = 0
+    static let recoveryRetryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(5), .seconds(15), .seconds(30)]
     private var portsCache: (ports: [Int], at: Date)?
     var portDiscovery = CloudPortDiscovery()
     private(set) var summaryGeneration: UInt64 = 0
