@@ -54,3 +54,7 @@ The nightly builds the app in Release (-O, whole-module) with Xcode 26.6 (Swift 
 - A class with `isolated deinit` must write `@MainActor` itself (or subclass an AppKit view, window or controller). `.defaultIsolation(MainActor.self)` alone is lost across modules in a Swift 6.2 Release build. `check-concurrency.sh` enforces this.
 - Swift 6.0 (skills/cmux-architecture/references/swift-6-0-compatibility.md) does not apply to this package: Package.swift needs tools 6.2, so Xcode 26.0 is the oldest toolchain that can build cmux-next.
 - A failed xcodebuild in CI now repeats each `error:` line as an annotation and at the end of the log (`scripts/ci/run-xcodebuild-with-diagnostics.sh`). `gh run view --log-failed` cuts long logs; read the run's annotations or `gh api repos/manaflow-ai/cmux/actions/jobs/<job-id>/logs`.
+
+## Build load (added 2026-09-30, load 400+)
+
+Pass `-j 4` to every `swift build` and `swift test`. Run focused test filters while you iterate and the full package tests once, right before you land. Never run two builds at the same time yourself.
