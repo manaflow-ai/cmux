@@ -2745,7 +2745,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             #"{"type":"turn_context","payload":{"turn_id":"old-turn"}}"#,
             #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-turn"}}"#,
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
-        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        let launchEnvironment = codexLaunchEnvironment(
+            context: context,
+            sessionId: sessionId,
+            observedHookPID: "2"
+        )
         startAgentHookMockServerAccepting(context: context)
 
         let oldPrompt = runCodexHook(
@@ -2780,6 +2784,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"current-turn"}}"#,
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
 
+        // The late terminal monitor is asynchronous. Wait for its old-turn
+        // completion journal before invoking the current Stop; this preserves
+        // the race discriminator covered by upstream PR #10143 rather than
+        // allowing the test to pass or fail on monitor scheduling.
+        XCTAssertTrue(
+            waitForMockSocketCommand(in: context.state) {
+                AgentJournalAppendCapture.captures(in: [$0]).contains {
+                    $0.kind == "agent.turn.completed"
+                        && $0.isSubagent
+                        && ($0.draft["attention"] as? [String: Any])?["turnIdentity"] as? String == "old-turn"
+                }
+            },
+            "The late terminal monitor event must be observed before the current Stop"
+        )
+
         let currentStopStart = context.state.commands.count
         let currentStop = runCodexHook(
             context: context,
@@ -2792,8 +2811,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
 
         XCTAssertTrue(
-            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
-            "A late terminal prior turn must not suppress the current top-level completion notification, saw \(currentStopCommands)"
+            AgentJournalAppendCapture.captures(in: currentStopCommands).contains { capture in
+                guard capture.kind == "agent.turn.completed",
+                      capture.agentKey == "codex",
+                      capture.workspaceId == context.workspaceId,
+                      capture.surfaceId == context.surfaceId,
+                      let attention = capture.draft["attention"] as? [String: Any],
+                      let notification = attention["notification"] as? [String: Any]
+                else { return false }
+                return notification["category"] as? String == "turn-complete"
+                    && notification["body"] as? String == "current done"
+            },
+            "A late terminal prior turn must not suppress the current top-level completion journal, saw \(currentStopCommands)"
         )
         XCTAssertTrue(
             currentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
@@ -3571,7 +3600,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(terminalObservations.allSatisfy { ($0["attention"] as? [String: Any])?["notification"] == nil })
 
         XCTAssertTrue(
-            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            AgentJournalAppendCapture.captures(in: currentStopCommands).contains { capture in
+                guard capture.kind == "agent.turn.completed",
+                      capture.agentKey == "codex",
+                      capture.workspaceId == context.workspaceId,
+                      capture.surfaceId == context.surfaceId,
+                      let attention = capture.draft["attention"] as? [String: Any],
+                      let notification = attention["notification"] as? [String: Any]
+                else { return false }
+                return notification["category"] as? String == "turn-complete"
+                    && notification["body"] as? String == "current done"
+            },
             "A Stop after a missed prompt-submit must clear terminal stale turns and notify, saw \(currentStopCommands)"
         )
         XCTAssertTrue(

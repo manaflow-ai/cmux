@@ -12709,18 +12709,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if startWithHiddenSidebar {
                 context.sidebarState.setVisible(false)
             }
+            if env["CMUX_UI_TEST_BONSPLIT_CLOUD_WORKSPACE"] == "1" {
+                // Binds the workspace to a Cloud machine without a transport, so the
+                // Cloud pane destinations (CloudSurfaceDropGate) cover its tab strips.
+                workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "ui-test-cloud-vm", isBase: false)
+            }
             if showRightSidebar {
                 guard let fileExplorerState = context.fileExplorerState else {
                     self.writeBonsplitTabDragUITestData(["setupError": "Missing right sidebar state"])
                     return
                 }
-                fileExplorerState.mode = .files
+                fileExplorerState.mode = env["CMUX_UI_TEST_BONSPLIT_RIGHT_SIDEBAR_MODE"]
+                    .flatMap(RightSidebarMode.init(rawValue:)) ?? .files
                 fileExplorerState.setVisible(true)
             }
             self.writeBonsplitTabDragUITestData([
                 "ready": "1",
                 "sidebarVisible": startWithHiddenSidebar ? "0" : "1",
                 "rightSidebarVisible": context.fileExplorerState?.isVisible == true ? "1" : "0",
+                "cloudWorkspace": workspace.isManagedCloudVMWorkspace ? "1" : "0",
                 "workspaceId": workspace.id.uuidString,
                 "workspaceTitle": workspaceTitle,
                 "alphaTitle": alphaTitle,
