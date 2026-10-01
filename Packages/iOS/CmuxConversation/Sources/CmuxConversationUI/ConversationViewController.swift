@@ -40,7 +40,6 @@ public final class ConversationViewController: UIViewController {
     /// Set while `composerDidTapSend` inserts the optimistic row.
     var pendingFlight: SendFlight?
     var composerBottomConstraint: NSLayoutConstraint?
-    var pickedAssetIDs: [String] = []
     lazy var cameraDelegate: ConversationMediaDelegate = {
         let delegate = ConversationMediaDelegate()
         delegate.controller = self
@@ -67,7 +66,8 @@ public final class ConversationViewController: UIViewController {
     var replyTarget: ConversationMessage?
     var isSelecting = false
     var selectedRowIDs: Set<String> = []
-    var photoDrawer: ConversationPhotoDrawer?
+    var photoDrawer: ConversationPhotoGridView?
+    var pickedAssets: [String: UUID] = [:]
     var drawerHeightConstraint: NSLayoutConstraint?
 
     public init(store: ConversationStore, options: ConversationPresentationOptions = ConversationPresentationOptions()) {
@@ -152,6 +152,9 @@ public final class ConversationViewController: UIViewController {
         }
 
         installGestures()
+        NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.dismissPhotoDrawer() }
+        }
         store.onChange = { [weak self] change in self?.storeDidChange(change) }
         store.start()
         rebuild(change: .reset)

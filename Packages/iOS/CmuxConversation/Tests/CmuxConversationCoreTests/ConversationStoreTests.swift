@@ -243,3 +243,58 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     }
     func close() {}
 }
+
+@MainActor
+@Suite struct ConversationStoreUpdateTests {
+    @Test func editsAndTapbacksReplaceTheMessageInPlace() async throws {
+        let backend = ScriptedBackend(total: 5)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        var edited = backend.makeMessage(seq: 5, sender: "lc")
+        edited.text = "edited"
+        edited.editedAt = Date()
+        edited.reactions = [ConversationReactionMark(participantID: "aw", reaction: .haha)]
+        store.apply(.message(edited, eventSeq: 1))
+        #expect(store.messages.count == 5)
+        #expect(store.messages.last?.text == "edited")
+        #expect(store.messages.last?.reactions.first?.reaction == .haha)
+        var removed = edited
+        removed.reactions = []
+        store.apply(.message(removed, eventSeq: 2))
+        #expect(store.messages.last?.reactions.isEmpty == true)
+    }
+
+    @Test func receiptsNeverRegress() {
+        #expect(ConversationStore.maxDelivery(.read(nil), .delivered) == .read(nil))
+        #expect(ConversationStore.maxDelivery(.delivered, .sent) == .delivered)
+        #expect(ConversationStore.maxDelivery(.sending, .delivered) == .delivered)
+        #expect(ConversationStore.maxDelivery(.failed("x"), .sent) == .sent)
+    }
+
+    @Test func olderPagesDoNotOverwriteNewerLiveState() async throws {
+        let backend = ScriptedBackend(total: 60)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        var live = backend.makeMessage(seq: 31, sender: "lc")
+        live.text = "edited live"
+        store.apply(.message(live, eventSeq: 1))
+        store.loadOlder()
+        try await waitUntil { store.messages.count == 60 }
+        #expect(store.message(id: "m31")?.text == "edited live")
+        #expect(store.messages.compactMap(\.seq) == Array(1...60))
+    }
+
+    @Test func singleOlderRequestInFlight() async throws {
+        let backend = ScriptedBackend(total: 200)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        store.loadOlder()
+        store.loadOlder()
+        store.loadOlder()
+        try await waitUntil { store.older == .idle }
+        #expect(store.messages.count == 60)
+    }
+}

@@ -31,6 +31,8 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         let flight = SendFlight(text: text, attachments: attachments.map(\.image), fieldFrame: fieldFrame, textFrame: textFrame)
         pendingFlight = flight
         composer.clearAfterSend()
+        photoDrawer?.clearSelection()
+        pickedAssets = [:]
         guard let rowID = store.send(text: text, images: images, replyToID: replyTo) else {
             pendingFlight = nil
             return

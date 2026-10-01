@@ -69,43 +69,28 @@ enum ConversationRowBuilder {
         rows.reserveCapacity(store.messages.count * 2 + 3)
         if store.older == .exhausted {
             rows.append(.conversationStart)
-        } else if store.hasLoadedNewest, !hidesLoadingRow {
+        } else if store.hasLoadedNewest, !hidesLoadingRow, store.older != .idle {
+            // Spinner only while an older page is in flight (or retrying).
             rows.append(.loadingOlder)
         }
         let isGroup = info.kind == .group
         let messages = store.messages
         let meID = store.meID
-        let lastOutgoingAcked = messages.lastIndex { $0.senderID == meID && $0.seq != nil }
         let typingIDs = store.typingParticipantIDs
 
-        var previous: ConversationMessage?
+        let plan = ConversationRunPlan(messages: messages, meID: meID, typingParticipantIDs: typingIDs)
         for (index, message) in messages.enumerated() {
-            let next = index + 1 < messages.count ? messages[index + 1] : nil
-            let needsTimestamp = previous.map { message.sentAt.timeIntervalSince($0.sentAt) >= ConversationTheme.timestampGap } ?? true
-            if needsTimestamp {
+            let entry = plan.entries[index]
+            if entry.showsTimestamp {
                 rows.append(.timestamp(id: "ts:\(message.rowID)", date: message.sentAt))
             }
-            let groupedWithPrevious = !needsTimestamp && previous.map { sameGroup($0, message) } ?? false
-            let nextBreaksGroup: Bool = {
-                guard let next else {
-                    // A typing bubble from the same sender continues the group visually.
-                    return !(typingIDs.contains(message.senderID))
-                }
-                if next.sentAt.timeIntervalSince(message.sentAt) >= ConversationTheme.timestampGap { return true }
-                return !sameGroup(message, next)
-            }()
+            let groupedWithPrevious = !entry.isFirstInRun
+            let nextBreaksGroup = entry.isLastInRun
             let isOutgoing = message.senderID == meID
             let sender = info.participant(message.senderID)
-            let footer: MessageFooter
-            if message.delivery?.isFailed == true {
-                footer = .notDelivered
-            } else if isOutgoing, index == lastOutgoingAcked || (message.seq == nil && index == messages.count - 1 && lastOutgoingAcked == nil) {
-                footer = statusFooter(message.delivery, isGroup: isGroup)
-            } else {
-                footer = .none
-            }
+            let footer = footer(for: entry.status, isGroup: isGroup)
             let quote = message.replyToID.flatMap { store.message(id: $0) }.map {
-                ReplyQuote(text: $0.text.isEmpty ? "Photo" : $0.text, isOutgoing: $0.senderID == meID, hasImage: !$0.attachments.isEmpty)
+                ReplyQuote(text: $0.text.isEmpty ? String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module) : $0.text, isOutgoing: $0.senderID == meID, hasImage: !$0.attachments.isEmpty)
             }
             rows.append(.message(MessageRowModel(
                 rowID: message.rowID,
@@ -128,7 +113,6 @@ enum ConversationRowBuilder {
                 },
                 hasMyReaction: message.reactions.contains { $0.participantID == meID }
             )))
-            previous = message
         }
         if !typingIDs.isEmpty {
             rows.append(.typing(participantIDs: typingIDs))
@@ -136,15 +120,16 @@ enum ConversationRowBuilder {
         return rows
     }
 
-    private static func sameGroup(_ a: ConversationMessage, _ b: ConversationMessage) -> Bool {
-        a.senderID == b.senderID && b.sentAt.timeIntervalSince(a.sentAt) < 5 * 60 && b.replyToID == nil
-    }
-
-    private static func statusFooter(_ delivery: ConversationDelivery?, isGroup: Bool) -> MessageFooter {
-        switch delivery {
+    private static func footer(for status: ConversationRunPlan.Status, isGroup: Bool) -> MessageFooter {
+        switch status {
+        case .none:
+            return .none
+        case .notDelivered:
+            return .notDelivered
         case .delivered:
             return .status(String(localized: "conversation.status.delivered", defaultValue: "Delivered", bundle: .module))
         case let .read(date):
+            // Group chats never expose read state.
             guard !isGroup else {
                 return .status(String(localized: "conversation.status.delivered", defaultValue: "Delivered", bundle: .module))
             }
@@ -156,10 +141,6 @@ enum ConversationRowBuilder {
                 ))
             }
             return .status(String(localized: "conversation.status.read", defaultValue: "Read", bundle: .module))
-        case .sent, .sending, nil:
-            return .none
-        case .failed:
-            return .notDelivered
         }
     }
 

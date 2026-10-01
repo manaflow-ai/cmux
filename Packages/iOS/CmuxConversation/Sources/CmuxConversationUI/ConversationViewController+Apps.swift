@@ -1,6 +1,6 @@
 #if canImport(UIKit)
 import CmuxConversationCore
-@preconcurrency import PhotosUI
+import Photos
 import UIKit
 import UniformTypeIdentifiers
 
@@ -15,9 +15,10 @@ final class AppsMenuOverlay: UIView {
     }
 
     private let backdrop = UIVisualEffectView(effect: nil)
-    private let panel = makeGlassView(cornerRadius: 28)
+    private let panel = makeGlassView(cornerRadius: 36)
     private let stack = UIStackView()
     private let anchor: CGRect
+    private var blurAnimator: UIViewPropertyAnimator?
 
     init(frame: CGRect, anchor: CGRect, items: [Item]) {
         self.anchor = anchor
@@ -34,15 +35,15 @@ final class AppsMenuOverlay: UIView {
             icon.tintColor = .white
             icon.contentMode = .center
             icon.backgroundColor = item.color
-            icon.layer.cornerRadius = 14
-            icon.frame = CGRect(x: 20, y: 10, width: 28, height: 28)
+            icon.layer.cornerRadius = 16
+            icon.frame = CGRect(x: 26, y: 15.5, width: 32, height: 32)
             row.addSubview(icon)
-            let label = UILabel(frame: CGRect(x: 62, y: 0, width: 180, height: 48))
+            let label = UILabel(frame: CGRect(x: 80, y: 0, width: 190, height: 63))
             label.text = item.title
-            label.font = .systemFont(ofSize: 17)
+            label.font = .systemFont(ofSize: 20)
             label.textColor = .label
             row.addSubview(label)
-            row.heightAnchor.constraint(equalToConstant: 48).isActive = true
+            row.heightAnchor.constraint(equalToConstant: 63).isActive = true
             row.accessibilityLabel = item.title
             row.accessibilityIdentifier = "conversation.apps.\(item.symbol)"
             row.addAction(UIAction { [weak self] _ in self?.dismiss(then: item.handler) }, for: .touchUpInside)
@@ -55,14 +56,23 @@ final class AppsMenuOverlay: UIView {
     required init?(coder: NSCoder) { fatalError() }
 
     func present() {
-        let height = CGFloat(stack.arrangedSubviews.count) * 48 + 16
-        let width: CGFloat = 230
-        panel.frame = CGRect(x: anchor.minX, y: anchor.minY - 10 - height, width: width, height: height)
-        stack.frame = panel.bounds.insetBy(dx: 0, dy: 8)
+        let height = CGFloat(stack.arrangedSubviews.count) * 63 + 32
+        let width: CGFloat = 284
+        // Anchored to the + button's corner; covers the composer like Messages.
+        panel.frame = CGRect(x: 16, y: anchor.maxY - height + 4, width: width, height: height)
+        stack.frame = panel.bounds.insetBy(dx: 0, dy: 16)
+        // A partial blur, as in Messages: the transcript fades but stays legible.
+        let animator = UIViewPropertyAnimator(duration: 1, curve: .linear) {
+            self.backdrop.effect = UIBlurEffect(style: .systemThinMaterial)
+        }
+        animator.pausesOnCompletion = true
+        animator.fractionComplete = 0.0
+        blurAnimator = animator
+        backdrop.alpha = 0
         panel.alpha = 0
         panel.transform = CGAffineTransform(translationX: -width * 0.25, y: height * 0.3).scaledBy(x: 0.5, y: 0.5)
         UIView.animate(withDuration: 0.45, delay: 0, usingSpringWithDamping: 0.82, initialSpringVelocity: 0) {
-            self.backdrop.effect = UIBlurEffect(style: .systemUltraThinMaterial)
+            self.backdrop.alpha = 1
             self.panel.alpha = 1
             self.panel.transform = .identity
         }
@@ -70,10 +80,12 @@ final class AppsMenuOverlay: UIView {
 
     func dismiss(then completion: (() -> Void)? = nil) {
         UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0) {
-            self.backdrop.effect = nil
+            self.backdrop.alpha = 0
             self.panel.alpha = 0
             self.panel.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
         } completion: { _ in
+            self.blurAnimator?.stopAnimation(true)
+            self.blurAnimator = nil
             self.removeFromSuperview()
             completion?()
         }
@@ -84,22 +96,7 @@ final class AppsMenuOverlay: UIView {
     }
 }
 
-/// Inline photo picker occupying the keyboard area, like Messages' Photos app.
-final class ConversationPhotoDrawer: UIView {
-    let picker: PHPickerViewController
-
-    init(picker: PHPickerViewController) {
-        self.picker = picker
-        super.init(frame: .zero)
-        backgroundColor = .systemBackground
-        accessibilityIdentifier = "conversation.photoDrawer"
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
-}
-
-extension ConversationViewController: PHPickerViewControllerDelegate {
+extension ConversationViewController {
     func presentAppsMenu() {
         dismissPhotoDrawer()
         view.endEditing(true)
@@ -115,7 +112,7 @@ extension ConversationViewController: PHPickerViewControllerDelegate {
         items.append(.init(title: String(localized: "conversation.apps.files", defaultValue: "Files", bundle: .module), symbol: "folder.fill", color: .systemIndigo) { [weak self] in
             self?.presentFilePicker()
         })
-        let anchor = composer.convert(composer.plusButton.superview?.frame ?? .zero, to: view)
+        let anchor = composer.plusButton.convert(composer.plusButton.bounds, to: view)
         let overlay = AppsMenuOverlay(frame: view.bounds, anchor: anchor, items: items)
         view.addSubview(overlay)
         overlay.present()
@@ -123,24 +120,14 @@ extension ConversationViewController: PHPickerViewControllerDelegate {
 
     func presentPhotoDrawer() {
         guard photoDrawer == nil else { return }
-        var configuration = PHPickerConfiguration(photoLibrary: .shared())
-        configuration.filter = .images
-        configuration.selectionLimit = 10
-        configuration.selection = .continuousAndOrdered
-        configuration.mode = .compact
-        configuration.disabledCapabilities = [.search, .collectionNavigation, .stagingArea, .selectionActions]
-        configuration.edgesWithoutContentMargins = .all
-        let picker = PHPickerViewController(configuration: configuration)
-        picker.delegate = self
-        let drawer = ConversationPhotoDrawer(picker: picker)
+        view.endEditing(true)
+        let drawer = ConversationPhotoGridView()
+        drawer.onToggle = { [weak self] asset, selected in
+            self?.photoSelectionChanged(asset: asset, selected: selected)
+        }
         let height: CGFloat = 330 + view.safeAreaInsets.bottom
-        drawer.frame = CGRect(x: 0, y: view.bounds.height, width: view.bounds.width, height: height)
-        addChild(picker)
-        drawer.addSubview(picker.view)
-        picker.view.frame = drawer.bounds
-        picker.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        drawer.frame = CGRect(x: 6, y: view.bounds.height, width: view.bounds.width - 12, height: height - 6)
         view.addSubview(drawer)
-        picker.didMove(toParent: self)
         photoDrawer = drawer
         UIView.animate(withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
             drawer.frame.origin.y = self.view.bounds.height - height
@@ -152,38 +139,32 @@ extension ConversationViewController: PHPickerViewControllerDelegate {
     func dismissPhotoDrawer() {
         guard let drawer = photoDrawer else { return }
         photoDrawer = nil
+        pickedAssets = [:]
         UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0) {
             drawer.frame.origin.y = self.view.bounds.height
             self.composerBottomConstraintConstant(-4)
             self.view.layoutIfNeeded()
         } completion: { _ in
-            drawer.picker.willMove(toParent: nil)
-            drawer.picker.view.removeFromSuperview()
-            drawer.picker.removeFromParent()
             drawer.removeFromSuperview()
         }
     }
 
-    public func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-        // Continuous selection reports the full ordered set each time.
-        let existing = Set(pickedAssetIDs)
-        let current = results.compactMap(\.assetIdentifier)
-        pickedAssetIDs = current
-        for result in results {
-            if let id = result.assetIdentifier, existing.contains(id) { continue }
-            loadAttachment(from: result.itemProvider)
+    private func photoSelectionChanged(asset: PHAsset, selected: Bool) {
+        let id = asset.localIdentifier
+        guard selected else {
+            if let attachmentID = pickedAssets.removeValue(forKey: id) { composer.removeAttachment(id: attachmentID) }
+            return
         }
-        if results.isEmpty { dismissPhotoDrawer() }
-    }
-
-    func loadAttachment(from provider: NSItemProvider) {
-        let type = provider.hasItemConformingToTypeIdentifier(UTType.jpeg.identifier) ? UTType.jpeg : UTType.image
-        provider.loadDataRepresentation(forTypeIdentifier: type.identifier) { [weak self] data, _ in
-            guard let data, let image = UIImage(data: data) else { return }
-            let mime = type == .jpeg ? "image/jpeg" : (UTType(filenameExtension: "png") == type ? "image/png" : "image/jpeg")
-            let payload = type == .jpeg ? data : (image.jpegData(compressionQuality: 0.92) ?? data)
+        let options = PHImageRequestOptions()
+        options.isNetworkAccessAllowed = true
+        options.deliveryMode = .highQualityFormat
+        PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { [weak self] data, uti, _, _ in
             Task { @MainActor in
-                self?.composer.addAttachment(ComposerAttachment(image: image, data: payload, mimeType: mime))
+                guard let self, let data, let image = UIImage(data: data) else { return }
+                let isPNG = uti == UTType.png.identifier
+                let attachment = ComposerAttachment(image: image, data: data, mimeType: isPNG ? "image/png" : "image/jpeg")
+                self.pickedAssets[id] = attachment.id
+                self.composer.addAttachment(attachment)
             }
         }
     }
