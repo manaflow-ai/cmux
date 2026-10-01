@@ -264,6 +264,38 @@ describe("acpmux measured rows", () => {
       restore();
     }
   });
+  /// A fling mounts rows that have not drawn yet, and each one reports its height once.
+  /// Placing it must not measure every row of the conversation again.
+  test("a row's drawn height re-places the rows without measuring them again", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    let measures = 0;
+    const Plain = Object.assign(() => null, { measure: () => { measures += 1; return 50; } });
+    const registry = { user: Plain, assistant: Plain } as never;
+    const prototype = dom.window.HTMLElement.prototype;
+    const original = prototype.getBoundingClientRect;
+    let drawnHeight = 0;
+    prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const height = this.classList.contains("acpmux-row") && this.getAttribute("aria-posinset") === "200" ? drawnHeight : 0;
+      return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: height, width: 0, height, toJSON() { return {}; } } as DOMRect;
+    };
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>(), registry })));
+      const spacer = dom.window.document.querySelector(".acpmux-spacer") as HTMLElement;
+      const estimated = parseFloat(spacer.style.height);
+      const afterOpen = measures;
+      drawnHeight = 90;
+      const latest = dom.window.document.querySelector<HTMLElement>('.acpmux-row[aria-posinset="200"]')!;
+      await act(async () => { for (const callback of resizeCallbacks) (callback as (entries: { target: Element }[]) => void)([{ target: latest }]); });
+      expect(parseFloat(spacer.style.height)).toBe(estimated + 40);
+      expect(measures).toBe(afterOpen);
+    } finally {
+      await act(async () => root.unmount());
+      prototype.getBoundingClientRect = original;
+      restore();
+    }
+  });
+
   /// Rows that draw shorter than estimated shrink the content under a viewport at the latest row,
   /// and the browser clamps the offset before the layout effect sees it.
   test("opened at the latest row, it stays there as rows draw shorter than estimated", async () => {
