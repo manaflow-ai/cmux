@@ -1437,10 +1437,13 @@ struct cmuxApp: App {
     /// host. Reads `historyMenuCoordinator.state` so the menu re-evaluates on
     /// window-focus and workspace-selection changes: the coordinator refreshes its
     /// state when focus history changes and when a window becomes key, and a window
-    /// must become key before its menu bar opens.
+    /// must become key before its menu bar opens. Reads the controller's `mirrorSet`
+    /// for the change selection cannot show: the selected workspace stops being a
+    /// mirror while it stays open and selected.
     private var newLocalWorkspaceMenuItemVisible: Bool {
         let _ = historyMenuCoordinator.state
         guard let appDelegate = AppDelegate.shared else { return false }
+        let _ = appDelegate.remoteTmuxController.mirrorSet.value
         return appDelegate.remoteTmuxController.wouldNewWorkspaceSpawnRemote(in: activeTabManager)
     }
 
