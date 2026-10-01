@@ -3255,7 +3255,6 @@
         },
         "app": {
           "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
-          "whatsNew": "How cmux shows what's new after an update. off shows nothing, quiet marks the sidebar help button with a dot until you open the recap, and sheet opens the recap once after the first launch of a new version. Help > What's New in cmux opens it any time.",
           "windowTitleTemplate": "Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "DEBUG-only display name used when opening new windows. An empty value uses the system default.",
           "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs.",

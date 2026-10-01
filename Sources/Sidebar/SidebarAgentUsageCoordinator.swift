@@ -283,7 +283,7 @@ final class SidebarAgentUsageCoordinator {
         // panes' numbers across refreshes that the user did not cause.
         let ownerPair = sessions
             .filter { $0.value.workspaceID == row.workspaceID && $0.value.source == row.source }
-            .max { ($0.value.lastEventAt, $0.key) < ($1.value.lastEventAt, $1.key) }?
+            .max { ($0.value.lastEventAt, $0.key) < ($1.value.lastEventAt, $1.key) }
         let owner = ownerPair?.value
         let usage = isEnabled ? owner?.snapshot.map(Self.sidebarUsage) : nil
         if usage == nil, !rowsShowingUsage.contains(row) { return }
