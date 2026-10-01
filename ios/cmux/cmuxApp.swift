@@ -3,6 +3,7 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTransport
+import CmuxMobileRPC
 import Foundation
 import OSLog
 import SwiftUI
@@ -113,6 +114,47 @@ struct cmuxApp: App {
         }
         let runtimeSupportedRouteKinds = transportFactory.supportedKinds
         let runtimeTransportFactory: any CmxByteTransportFactory = transportFactory
+        let independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider?
+        let terminalLaneProvider: MobileTerminalLaneProvider?
+        let terminalInputLaneProvider: MobileTerminalLaneProvider?
+        let artifactLaneProvider: MobileArtifactLaneProvider?
+        let simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider?
+        let tunnelConnectProvider: MobileTunnelConnectProvider?
+        let tunnelListeningPortsProvider: MobileTunnelListeningPortsProvider?
+        if webRTCExperimentEnabled {
+            independentEventByteStreamProvider = nil
+            terminalLaneProvider = nil
+            terminalInputLaneProvider = nil
+            artifactLaneProvider = nil
+            simulatorStreamLaneProvider = nil
+            tunnelConnectProvider = nil
+            tunnelListeningPortsProvider = nil
+        } else {
+            independentEventByteStreamProvider = { request in
+                try await irx.serverEventByteStream(for: request)
+            }
+            terminalLaneProvider = { request, surfaceID, cursor in
+                guard let surfaceUUID = UUID(uuidString: surfaceID) else { throw MobileIrohTerminalLaneError.invalidSurfaceID }
+                return try await irx.openTerminalLane(for: request, surfaceID: surfaceUUID, cursor: cursor)
+            }
+            terminalInputLaneProvider = { request, surfaceID, _ in
+                guard let surfaceUUID = UUID(uuidString: surfaceID) else { throw MobileIrohTerminalLaneError.invalidSurfaceID }
+                return try await irx.openTerminalInputLane(for: request, surfaceID: surfaceUUID)
+            }
+            artifactLaneProvider = { request, resourceID, offset in
+                try await irx.openArtifactLane(for: request, resourceID: resourceID, offset: offset)
+            }
+            simulatorStreamLaneProvider = { request, panelID in
+                guard let panelUUID = UUID(uuidString: panelID) else { throw MobileIrohSimulatorStreamLaneError.invalidPanelID }
+                return try await irx.openSimulatorStreamLane(for: request, panelID: panelUUID)
+            }
+            tunnelConnectProvider = { request, host, port in
+                try await irx.openTunnelConnection(for: request, host: host, port: port)
+            }
+            tunnelListeningPortsProvider = { request in
+                try await irx.tunnelListeningPorts(for: request)
+            }
+        }
 
         let runtime = CMUXMobileRuntime(
             supportedRouteKinds: runtimeSupportedRouteKinds,
@@ -120,32 +162,15 @@ struct cmuxApp: App {
             stackAccessTokenProvider: CMUXMobileRuntime.stackAccessTokenProvider(from: auth.coordinator),
             stackAccessTokenForStatusProvider: CMUXMobileRuntime.stackAccessTokenForStatusProvider(from: auth.coordinator),
             stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator),
-            independentEventByteStreamProvider: webRTCExperimentEnabled ? nil : { request in
-                try await irx.serverEventByteStream(for: request)
-            },
-            terminalLaneProvider: webRTCExperimentEnabled ? nil : { request, surfaceID, cursor in
-                guard let surfaceUUID = UUID(uuidString: surfaceID) else { throw MobileIrohTerminalLaneError.invalidSurfaceID }
-                return try await irx.openTerminalLane(for: request, surfaceID: surfaceUUID, cursor: cursor)
-            },
-            terminalInputLaneProvider: webRTCExperimentEnabled ? nil : { request, surfaceID, _ in
-                guard let surfaceUUID = UUID(uuidString: surfaceID) else { throw MobileIrohTerminalLaneError.invalidSurfaceID }
-                return try await irx.openTerminalInputLane(for: request, surfaceID: surfaceUUID)
-            },
-            artifactLaneProvider: webRTCExperimentEnabled ? nil : { request, resourceID, offset in
-                try await irx.openArtifactLane(for: request, resourceID: resourceID, offset: offset)
-            },
-            simulatorStreamLaneProvider: webRTCExperimentEnabled ? nil : { request, panelID in
-                guard let panelUUID = UUID(uuidString: panelID) else { throw MobileIrohSimulatorStreamLaneError.invalidPanelID }
-                return try await irx.openSimulatorStreamLane(for: request, panelID: panelUUID)
-            },
+            independentEventByteStreamProvider: independentEventByteStreamProvider,
+            terminalLaneProvider: terminalLaneProvider,
+            terminalInputLaneProvider: terminalInputLaneProvider,
+            artifactLaneProvider: artifactLaneProvider,
+            simulatorStreamLaneProvider: simulatorStreamLaneProvider,
             // irx.serverEventByteStream merges every per-surface event lane.
             independentEventsMergeSurfaceLanes: !webRTCExperimentEnabled,
-            tunnelConnectProvider: webRTCExperimentEnabled ? nil : { request, host, port in
-                try await irx.openTunnelConnection(for: request, host: host, port: port)
-            },
-            tunnelListeningPortsProvider: webRTCExperimentEnabled ? nil : { request in
-                try await irx.tunnelListeningPorts(for: request)
-            }
+            tunnelConnectProvider: tunnelConnectProvider,
+            tunnelListeningPortsProvider: tunnelListeningPortsProvider
         )
 
         return AppCompositionRoot(
