@@ -198,9 +198,9 @@ fn terminal_output_read(
         // Journal failures can contain SQLite paths, trigger text, and other
         // host diagnostics. Keep those details in daemon logs; this resource
         // is user-facing and must return a stable, non-sensitive error.
-        eprintln!("cmux-tui: terminal output read failed: {error:#}");
+        eprintln!("cmux-tui: terminal output read failed for {terminal_id}: {error:#}");
         ResourceError::operation_failed(
-            "terminal.output.read",
+            "terminal.output_read",
             "could not read terminal output",
             json!({}),
         )
