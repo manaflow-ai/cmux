@@ -426,8 +426,7 @@
         "memberReadOnly": "Seuls les admins de l’équipe peuvent modifier ce forfait.",
         "grantedBody": "L’accès Team a été accordé à {team} par l’équipe cmux. Il n’y a aucun abonnement à gérer.",
         "seatsUsed": "{members} sur {seats} utilisés",
-        "overSeat": "{team} compte {members} membres pour {seats} sièges payés. Il est toujours possible de rejoindre l’équipe ; ajoutez des sièges pour couvrir tout le monde.",
-        "addSeats": "Ajouter des sièges"
+        "overSeat": "{team} compte {members} membres pour {seats} sièges payés. Les sièges suivent le nombre de membres ; l’abonnement se met à jour tout seul."
       },
       "teamList": {
         "heading": "Périmètres de facturation",
@@ -942,7 +941,7 @@
         "featurePrioritySupport": "Assistance prioritaire",
         "chooseFree": "Continuer avec le forfait gratuit",
         "chooseTeam": "Passer à Team ({price} $/siège/mois)",
-        "upgradeLater": "Les sièges sont flexibles : vous pouvez inviter plus de personnes que vous n’en payez et ajouter des sièges plus tard.",
+        "upgradeLater": "Les sièges suivent le nombre de membres : chaque membre est facturé et le total change lorsque quelqu’un rejoint ou quitte l’équipe.",
         "inviteTitle": "Inviter des personnes dans {team}",
         "inviteDescription": "Facultatif. Vous pouvez aussi inviter des personnes plus tard depuis la page Membres de l’équipe.",
         "inviteByEmail": "Inviter par e-mail",
@@ -1059,8 +1058,6 @@
         "revoke": "Révoquer",
         "linksTitle": "Liens d’invitation",
         "linksDescription": "Un lien réutilisable que n’importe qui peut utiliser pour rejoindre l’équipe en tant que membre.",
-        "seatNudge": "{used} personnes sont membres ou invitées, mais le forfait compte {seats} sièges. Les invitations fonctionnent toujours ; ajoutez {over, plural, one {# siège} other {# sièges}} pour couvrir tout le monde.",
-        "seatNudgeAction": "Gérer les sièges",
         "actions": {
           "makeAdmin": "Promouvoir admin",
           "makeMember": "Rétrograder en membre",
