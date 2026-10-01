@@ -173,13 +173,22 @@ jobs:
         run: ../../../scripts/cmux-next/compile-string-catalogs.sh
 
       # Samples and fails a run still going after 15 minutes, so a hang shows
-      # its stacks; the step timeout stops it holding the runner regardless.
-      - name: Run package tests
+      # its stacks; each test step timeout stops it holding the runner regardless.
+      # Control tests use tight request deadlines and run in their own process so
+      # they do not compete with the other MainActor-isolated suites.
+      - name: Run package tests (excluding control deadline tests)
         timeout-minutes: 20
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --skip CmuxNextControlTests
+
+      - name: Run control package tests
+        timeout-minutes: 20
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_NEXT_TEST_HANG_SECONDS: "900"
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextControlTests
 
   release-compile:
     if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' }}

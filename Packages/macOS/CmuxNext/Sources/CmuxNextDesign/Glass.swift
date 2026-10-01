@@ -5,7 +5,8 @@ public import AppKit
 /// Use glass for chrome only (sidebar, tab strip, palette, popovers), never
 /// over terminal content. When several glass panels sit near each other,
 /// wrap them in `makeContainer` so AppKit merges and batches their rendering.
-public enum Glass {
+public struct Glass {
+    public init() {}
     public enum Style: Sendable {
         case regular
         case clear

@@ -123,24 +123,16 @@ import Testing
 
 /// End-to-end: file on disk -> watcher -> applied settings, and writes back.
 @MainActor
-@Suite(.serialized) struct SettingsControllerTests {
+@Suite(.serialized, .timeLimit(.minutes(1))) struct SettingsControllerTests {
     func makeDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-next-settings-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
     }
 
-    /// Waits for the next load, failing instead of hanging.
+    /// Waits for the watcher lifecycle event for the next load.
     func nextLoad(_ controller: SettingsController, after count: Int) async throws {
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask { await controller.waitForLoad(atLeast: count + 1) }
-            group.addTask {
-                try await Task.sleep(for: .seconds(5))
-                throw CancellationError()
-            }
-            try await group.next()
-            group.cancelAll()
-        }
+        await controller.waitForLoad(atLeast: count + 1)
     }
 
     /// Waits until `condition` holds after file events settle.

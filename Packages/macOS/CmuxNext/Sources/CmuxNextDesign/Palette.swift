@@ -13,7 +13,8 @@ public import AppKit
 /// Rule from plans/cmux-next/REWRITE.md: no blue accent. Selection, focus
 /// and hover are the theme's foreground at low alpha over its background.
 /// Modules never hardcode colors; add a token here instead.
-public enum Palette {
+public struct Palette {
+    public init() {}
     /// Window background behind chrome and content: the terminal background.
     public static var windowBackground: NSColor { color(\.windowBackground, dynamic: PaletteDynamic.windowBackground) }
     /// Sidebar surface: the same as the window (no panel).

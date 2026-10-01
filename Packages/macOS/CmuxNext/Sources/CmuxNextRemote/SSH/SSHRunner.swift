@@ -14,7 +14,8 @@ public struct SSHProcessResult: Sendable {
 /// Foundation's pipe threads (bounded: 1 MiB stdout, 16 KiB stderr tail),
 /// never the main actor. The deadline terminates the process; cancelling
 /// the calling task does too.
-public enum SSHProcessRunner {
+public struct SSHProcessRunner {
+    public init() {}
     public enum Input: Sendable {
         case none
         case data(Data)

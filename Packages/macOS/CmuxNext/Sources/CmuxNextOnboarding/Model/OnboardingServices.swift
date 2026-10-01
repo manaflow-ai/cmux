@@ -44,7 +44,8 @@ public protocol OnboardingServices: AnyObject {
 }
 
 /// System Settings deep links.
-public enum SystemSettingsLink {
+public struct SystemSettingsLink {
+    public init() {}
     /// Privacy & Security > Full Disk Access.
     public static let fullDiskAccess = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!
     /// Keyboard > Keyboard Shortcuts > Services.

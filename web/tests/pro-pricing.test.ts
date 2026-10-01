@@ -195,7 +195,10 @@ describe("VM defaults and pricing copy", () => {
     }
   });
 
-  test("native pricing translations preserve the shared plan quantities", () => {
+  // On feat-cmux-next the legacy Resources/Localizable.xcstrings no longer carries the
+  // pricing.native.* keys, and cmux-next has no native pricing strings yet. Re-enable
+  // against cmux-next's catalog when it gets a native pricing screen.
+  test.skip("native pricing translations preserve the shared plan quantities", () => {
     const catalog = JSON.parse(readFileSync(new URL("../../Resources/Localizable.xcstrings", import.meta.url), "utf8"));
     const sharedTerms: Record<string, string> = {
       en: "shared across all",
