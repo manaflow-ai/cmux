@@ -46,10 +46,11 @@ struct WorkspaceCoordinatorGroupBlockTests {
         let l1 = CoordinatorStubTab()
         let l2 = CoordinatorStubTab()
         model.tabs = [m1, m2, m3, m4, l1, l2]
-        let groupId = try #require(groups.createWorkspaceGroup(
-            name: "G",
-            childWorkspaceIds: [m1.id, m2.id, m3.id, m4.id]
-        ))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G"))
+        groups.addWorkspaceToGroup(workspaceId: m1.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: m2.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: m3.id, groupId: groupId)
+        groups.addWorkspaceToGroup(workspaceId: m4.id, groupId: groupId)
         let anchorId = try #require(model.workspaceGroups.first?.anchorWorkspaceId)
         try #require(model.tabs.map(\.id) == [anchorId, m1.id, m2.id, m3.id, m4.id, l1.id, l2.id])
         return (model, host, reorder, groupId, anchorId, m1, m2, m3, m4, l1, l2)

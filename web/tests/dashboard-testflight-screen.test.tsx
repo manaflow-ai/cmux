@@ -93,6 +93,7 @@ const { accountRouter } = await import("../orpc/server/dashboard/account");
 const GET = (request: Request) => procedureResponse(accountRouter.testflight, undefined, request);
 const { TestflightScreen } = await import("../dashboard-app/screens/testflight/testflight-screen");
 const { testflightQuery } = await import("../dashboard-app/queries/testflight");
+const { planQuery } = await import("../dashboard-app/queries/billing");
 
 function testflightRequest() {
   return new NextRequest("https://cmux.test/api/testflight");
@@ -166,16 +167,40 @@ describe("dashboard TestFlight screen", () => {
     expect(html).not.toContain("/api/testflight");
   });
 
-  test("renders not eligible state with pricing link", async () => {
+  test("a Free viewer gets the Requires Pro panel with a checkout that returns to TestFlight", async () => {
     currentUser = createTestflightUser({ eligible: false });
 
-    const html = await renderTestflightPage();
+    const html = await renderTestflightPage({}, { planId: "free", isPro: false, billingManagement: "none" });
 
-    expect(html).toContain("Subscription required");
-    expect(html).toContain("active personal Pro subscribers");
-    expect(html).toContain('href="/pricing"');
-    expect(html).not.toContain("/api/testflight");
+    expect(html).toContain('data-testid="requires-pro"');
+    expect(html).toContain("The cmux iOS app is part of Pro.");
+    expect(html).toContain("returnTo=%2Fdashboard%2Ftestflight");
+    expect(html).toContain("plan=pro");
+    // The panel above already explains it; no second "subscription required" card.
+    expect(html).not.toContain("Subscription required");
     expect(ascFetch).not.toHaveBeenCalled();
+  });
+
+  test("a paid plan without TestFlight explains it and links to Plan & billing", async () => {
+    currentUser = createTestflightUser({ eligible: false });
+
+    const html = await renderTestflightPage({}, { planId: "go", isPro: true, billingManagement: "stripe" });
+
+    expect(html).not.toContain('data-testid="requires-pro"');
+    expect(html).toContain("Subscription required");
+    expect(html).toContain('href="/dashboard/billing"');
+  });
+
+  test("after checkout, TestFlight shows the welcome line instead of the upgrade prompt", async () => {
+    const html = await renderTestflightPage({ welcome: "pro" }, { planId: "pro", isPro: true, billingManagement: "stripe" });
+    expect(html).toContain('data-testid="plan-welcome"');
+    expect(html).not.toContain('data-testid="requires-pro"');
+  });
+
+  test("a stale welcome link does not hide the upgrade prompt from a Free viewer", async () => {
+    const html = await renderTestflightPage({ welcome: "pro" }, { planId: "free", isPro: false, billingManagement: "none" });
+    expect(html).toContain('data-testid="requires-pro"');
+    expect(html).not.toContain('data-testid="plan-welcome"');
   });
 
   test("renders eligible not enrolled state with join form", async () => {
@@ -249,12 +274,17 @@ function resetFixtures() {
 }
 
 /** The API route answers from the mocked user; the screen renders that answer. */
-async function renderTestflightPage(search: { testflight?: string } = {}) {
+async function renderTestflightPage(
+  search: { testflight?: string; welcome?: string } = {},
+  plan?: { planId: "free" | "go" | "pro" | "max"; isPro: boolean; billingManagement: "stripe" | "external" | "none" },
+) {
   const response = await GET(testflightRequest());
   expect(response.status).toBe(200);
   const queryClient = createScreenQueryClient();
   queryClient.setQueryData(testflightQuery.queryKey, await response.json());
-  const query = search.testflight ? `?testflight=${search.testflight}` : "";
+  if (plan) queryClient.setQueryData(planQuery.queryKey, plan);
+  const params = new URLSearchParams(Object.entries(search).filter(([, value]) => value !== undefined) as [string, string][]);
+  const query = params.size ? `?${params}` : "";
   return renderDashboardScreen({
     url: `/dashboard/testflight${query}`,
     queryClient,

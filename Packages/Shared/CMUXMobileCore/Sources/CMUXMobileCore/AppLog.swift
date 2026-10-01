@@ -1532,6 +1532,7 @@ public extension DiagnosticEventCode {
              .admissionSucceeded, .admissionFailed,
              .transportSessionLifecycle,
              .transportCloseAttribution, .transportPathEvent,
+             .transportPathInventory,
              .transportDialPlanBuilt, .transportPrivateAddressJoin,
              .transportLANDiscovery, .transportDialLegSucceeded,
              .transportDialLegFailed, .lanPublicationState,

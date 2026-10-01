@@ -79,6 +79,21 @@ mock.module("@tanstack/react-router", () => ({
 const { DashboardAccountMenu } = await import(
   "../dashboard-app/shell/dashboard-account-menu"
 );
+const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+const { planQuery } = await import("../dashboard-app/queries/billing");
+
+type Plan = { planId: "free" | "go" | "pro" | "max"; isPro: boolean; billingManagement: "stripe" | "external" | "none" };
+
+/** The menu with the viewer's plan in the cache (or none, as while it loads). */
+function renderMenu(user: MenuUser, plan?: Plan) {
+  const queryClient = new QueryClient();
+  if (plan) queryClient.setQueryData(planQuery.queryKey, plan);
+  return renderToStaticMarkup(
+    <QueryClientProvider client={queryClient}>
+      <DashboardAccountMenu user={user} />
+    </QueryClientProvider>,
+  );
+}
 
 function sessionUser(): MenuUser {
   return {
@@ -94,7 +109,7 @@ function sessionUser(): MenuUser {
 describe("dashboard account menu", () => {
   test("matches the chatmux identity row and exposes the account menu", () => {
     currentUser = sessionUser();
-    const html = renderToStaticMarkup(<DashboardAccountMenu user={currentUser} />);
+    const html = renderMenu(currentUser);
 
     expect(html).toContain("Lawrence");
     expect(html).toContain("lawrence@example.com");
@@ -109,9 +124,9 @@ describe("dashboard account menu", () => {
   test("offers the theme switch inside the menu, named after the theme it switches to", () => {
     currentUser = sessionUser();
     resolvedTheme = "dark";
-    expect(renderToStaticMarkup(<DashboardAccountMenu user={currentUser} />)).toContain(">themeLight<");
+    expect(renderMenu(currentUser)).toContain(">themeLight<");
     resolvedTheme = "light";
-    const html = renderToStaticMarkup(<DashboardAccountMenu user={currentUser} />);
+    const html = renderMenu(currentUser);
     expect(html).toContain(">themeDark<");
     expect(html.indexOf(">themeDark<")).toBeGreaterThan(html.indexOf("/dashboard/settings"));
     expect(html.indexOf(">themeDark<")).toBeLessThan(html.indexOf("/dashboard/billing"));
@@ -126,7 +141,7 @@ describe("dashboard account menu", () => {
     ];
     teamScope = { status: "ready", teams, selected: teams[1], switchTeam: () => undefined };
     resolvedTheme = "dark";
-    const html = renderToStaticMarkup(<DashboardAccountMenu user={currentUser} />);
+    const html = renderMenu(currentUser);
     teamScope = { status: "unavailable" };
 
     expect(html.match(/data-testid="team-submenu"/g)).toHaveLength(1);
@@ -147,11 +162,26 @@ describe("dashboard account menu", () => {
 
   test("uses the unlocalized auth handler and names the compact sign-in link", () => {
     currentUser = null;
-    const html = renderToStaticMarkup(<DashboardAccountMenu user={currentUser} />);
+    const html = renderMenu(currentUser);
 
     expect(html).toContain('aria-label="signIn"');
     expect(html).toContain('href="/handler/sign-in?');
     expect(html).toContain("dashboard");
     expect(html).not.toContain("/en/handler/sign-in");
+  });
+
+  test("shows the plan under the name, and Upgrade only for a Free account", () => {
+    currentUser = sessionUser();
+    const free = renderMenu(currentUser, { planId: "free", isPro: false, billingManagement: "none" });
+    expect(free).toContain('data-testid="account-plan"');
+    expect(free).toContain(">names.free<");
+    expect(free).toContain(">upgrade<");
+    const pro = renderMenu(currentUser, { planId: "max", isPro: true, billingManagement: "stripe" });
+    expect(pro).toContain(">names.max<");
+    expect(pro).not.toContain(">upgrade<");
+    // While the plan loads there is neither a badge nor an upgrade prompt.
+    const loading = renderMenu(currentUser);
+    expect(loading).not.toContain('data-testid="account-plan"');
+    expect(loading).not.toContain(">upgrade<");
   });
 });

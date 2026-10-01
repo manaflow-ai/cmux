@@ -17,7 +17,7 @@ import { loadCoderouterTeamMetrics } from "@/services/coderouter/teamMetrics";
 import { loadCoderouterTeamMachineMetrics } from "@/services/coderouter/vmMetrics";
 import { teamMachineUsage } from "@/services/coderouter/vmUsageContract";
 import { hostedSubrouterCutoverReadyForTeam } from "@/services/subrouter/cutover";
-import { createHostedSubrouterClient } from "@/services/subrouter/hostedClient";
+import { createHostedSubrouterClient, HostedSubrouterError, HostedSubrouterUnreachableError } from "@/services/subrouter/hostedClient";
 import type { SubrouterAccount } from "@/services/subrouter/types";
 import { withPrioritySpan } from "@/services/telemetry";
 import {
@@ -193,9 +193,21 @@ async function loadSharedAccounts(
     });
     const accounts = await client.listAccounts(tenant.tenantKey);
     return { kind: "ok", accounts: accounts.map(publicSharedAccount) };
-  } catch {
-    return { kind: "error" };
+  } catch (error) {
+    console.error("coderouter shared accounts failed", failureFields(error));
+    return sharedAccountsFailureState(error);
   }
+}
+
+/** An unreachable hosted service is its own state; any other failure is a load error. */
+export function sharedAccountsFailureState(error: unknown): SharedAccountsState {
+  return error instanceof HostedSubrouterUnreachableError ? { kind: "unavailable" } : { kind: "error" };
+}
+
+/** What a failed account source logs: the error class and HTTP status, never its message. */
+function failureFields(error: unknown): { readonly errorType: string; readonly status?: number } {
+  const errorType = error instanceof Error ? error.name : typeof error;
+  return error instanceof HostedSubrouterError ? { errorType, status: error.status } : { errorType };
 }
 
 /** The hosted response may carry more than the row shows; forward only that. */
@@ -219,7 +231,8 @@ function publicSharedAccount(account: SubrouterAccount): SubrouterAccount {
 async function loadNativeAccounts(teamId: string, userId: string): Promise<NativeAccountsState> {
   try {
     return { kind: "ok", accounts: await listNativeAccounts(teamId, { kind: "user", userId }) };
-  } catch {
+  } catch (error) {
+    console.error("coderouter native accounts failed", failureFields(error));
     return { kind: "error" };
   }
 }
@@ -227,7 +240,8 @@ async function loadNativeAccounts(teamId: string, userId: string): Promise<Nativ
 async function loadClaudeAccounts(teamId: string, userId: string): Promise<ClaudeAccountsState> {
   try {
     return { kind: "ok", accounts: await listClaudeAccounts(teamId, { kind: "user", userId }) };
-  } catch {
+  } catch (error) {
+    console.error("coderouter claude accounts failed", failureFields(error));
     return { kind: "error" };
   }
 }
