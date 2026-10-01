@@ -33,7 +33,9 @@ static void CmuxRetainTestWindow(NSWindow *window) {
     // Window-zombie regressions intentionally verify that ordinary AppKit
     // windows can be released. Retain only the synthetic close-routing class
     // whose weak identity is exercised after a non-destructive close.
-    if (![NSStringFromClass(window.class) containsString:@"NonDestructiveCloseWindow"]) {
+    Class nonDestructiveCloseWindowClass = NSClassFromString(@"cmuxTests.NonDestructiveCloseWindow");
+    if (nonDestructiveCloseWindowClass == Nil ||
+        ![window isKindOfClass:nonDestructiveCloseWindowClass]) {
         return;
     }
     @synchronized ([NSWindow class]) {

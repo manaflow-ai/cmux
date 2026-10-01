@@ -38,7 +38,9 @@ struct AgentNotificationRegressionTests {
         let originalControllerTabManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
-        let originalAppFocusOverride = AppFocusState.overrideIsFocused; let agentPermissionKey = NotificationsCatalogSection().agentPermissionPrompt.userDefaultsKey; let originalAgentPermission = UserDefaults.standard.object(forKey: agentPermissionKey)
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let agentPermissionKey = NotificationsCatalogSection().agentPermissionPrompt.userDefaultsKey
+        let originalAgentPermission = UserDefaults.standard.object(forKey: agentPermissionKey)
 
         let configRoot = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-notification-move-race-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: configRoot, withIntermediateDirectories: true)
@@ -59,7 +61,8 @@ struct AgentNotificationRegressionTests {
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
         TerminalController.shared.setActiveTabManager(manager)
-        AppFocusState.overrideIsFocused = false; NotificationsCatalogSection().agentPermissionPrompt.set(true, in: .standard)
+        AppFocusState.overrideIsFocused = false
+        NotificationsCatalogSection().agentPermissionPrompt.set(true, in: .standard)
 
         let windowId = appDelegate.registerMainWindowContextForTesting(
             tabManager: manager,
@@ -89,7 +92,12 @@ struct AgentNotificationRegressionTests {
                 appDelegate.notificationStore = originalNotificationStore
                 TerminalController.shared.setActiveTabManager(originalControllerTabManager)
                 AppDelegate.shared = previousAppDelegate
-                AppFocusState.overrideIsFocused = originalAppFocusOverride; if let originalAgentPermission { UserDefaults.standard.set(originalAgentPermission, forKey: agentPermissionKey) } else { UserDefaults.standard.removeObject(forKey: agentPermissionKey) }
+                AppFocusState.overrideIsFocused = originalAppFocusOverride
+                if let originalAgentPermission {
+                    UserDefaults.standard.set(originalAgentPermission, forKey: agentPermissionKey)
+                } else {
+                    UserDefaults.standard.removeObject(forKey: agentPermissionKey)
+                }
                 try? FileManager.default.removeItem(at: configRoot)
             }
         )
@@ -162,7 +170,6 @@ struct AgentNotificationRegressionTests {
         }
         return FileManager.default.fileExists(atPath: url.path)
     }
-
     @Test("Muted workspaces do not execute notification policy hooks")
     func mutedWorkspaceSkipsPolicyHooks() async throws {
         let marker = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -189,7 +196,6 @@ struct AgentNotificationRegressionTests {
         #expect(!(await waitForFile(at: marker, timeout: .milliseconds(500))))
         #expect(fixture.store.notifications.isEmpty)
     }
-
     @Test("Feed notification admission follows a moved surface to its muted owner")
     func feedNotificationAdmissionUsesLiveSurfaceOwner() async throws {
         let fixture = try makeFixture()
@@ -212,7 +218,6 @@ struct AgentNotificationRegressionTests {
         #expect(decision.disposition == .muted)
         #expect(decision.effects == .allSuppressed)
     }
-
     @Test("Workspace clear resolves a repeated pending surface only once")
     func workspaceClearMemoizesPendingSurfaceResolution() {
         let bus = TerminalMutationBus.shared
@@ -244,7 +249,6 @@ struct AgentNotificationRegressionTests {
         #expect(sequences.count == 128)
         #expect(resolutionCount == 1)
     }
-
     @Test("Source-confined synchronous delivery does not follow a moved surface")
     func sourceConfinedSynchronousDeliveryDoesNotRetarget() throws {
         let fixture = try makeFixture()
@@ -264,7 +268,6 @@ struct AgentNotificationRegressionTests {
         #expect(recorded.map(\.tabId) == [fixture.source.id])
         #expect(!recorded.contains { $0.tabId == fixture.destination.id })
     }
-
     @Test("Moving a pane preserves its pending notification")
     func paneMovePreservesPendingNotification() throws {
         let fixture = try makeFixture()
@@ -284,7 +287,6 @@ struct AgentNotificationRegressionTests {
         #expect(recorded.map(\.tabId) == [fixture.destination.id])
         #expect(recorded.first?.surfaceId == fixture.panelId)
     }
-
     @Test("Desktop OSC suppression follows the live pane owner after hook lookup")
     func desktopOSCSuppressionUsesLiveOwnerAfterHookLookup() async throws {
         let fixture = try makeFixture()
@@ -306,7 +308,6 @@ struct AgentNotificationRegressionTests {
 
         #expect(!fixture.store.notifications.contains { $0.title == "OSC live-owner suppression" })
     }
-
     @Test("Policy-delayed delivery resolves the pane owner again after a move")
     func policyDelayedDeliveryRetargetsAtFinalApply() async throws {
         let fixture = try makeFixture(policyHookCommand: "cat")
@@ -345,7 +346,6 @@ struct AgentNotificationRegressionTests {
         #expect(recorded.map(\.tabId) == [fixture.destination.id])
         #expect(recorded.first?.surfaceId == fixture.panelId)
     }
-
     @Test("Policy-suppressed delivery does not expose a dismiss handle")
     func policySuppressedDeliveryOmitsNotificationID() async throws {
         let fixture = try makeFixture(
