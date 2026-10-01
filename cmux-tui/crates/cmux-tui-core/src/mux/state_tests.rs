@@ -995,8 +995,10 @@ fn v1_screen_tables_from_a_feat_cmux_next_daemon_migrate_at_open() {
         .unwrap()
     };
     assert_eq!(
-        rows("SELECT group_id || ' ' || workspace_id || ' ' || name || ' ' || color || ' ' ||
-                     collapsed FROM screen_groups"),
+        rows(
+            "SELECT group_id || ' ' || workspace_id || ' ' || name || ' ' || color || ' ' ||
+                     collapsed FROM screen_groups"
+        ),
         vec![format!("sgrp_00000000000000000000000000000001 {workspace} Build orange 1")]
     );
     assert_eq!(
