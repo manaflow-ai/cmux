@@ -353,30 +353,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             }
             let task = Task<Bool, Never> { [weak self] in
                 guard let self else { return false }
-                guard access == self.accessEpoch, !Task.isCancelled else { return false }
-                guard let discovered = await self.discoverMachines(force: force, updateExisting: true) else { return false }
-                guard access == self.accessEpoch, !Task.isCancelled else { return false }
-                // Another team's machines behind open surfaces are not on the
-                // selected team's page; read them one by one with their own
-                // team, then refresh them so a revoked membership surfaces as
-                // a card, not a freeze.
-                await self.refreshForeignOwnedMachines()
-                guard access == self.accessEpoch, !Task.isCancelled else { return false }
-                let refreshable = discovered.filter { $0.info.linkFailure == nil }
-                let foreign = self.retainedForeignTeamMachineIDs(activeTeamID: self.activeTeamID())
-                    .subtracting(refreshable.map(\.machine))
-                    .compactMap { self.providers[$0] }
-                let candidates = refreshable + foreign
-                let activeMachines: Set<SurfaceMachineID> = (force || !self.hasCompletedInitialRefresh) ? Set(candidates.map(\.machine)) : (self.catalog?.projectedMachines ?? []).union(self.catalog?.pendingRestoredMachineIDs.map(SurfaceMachineID.cloud) ?? []).union(self.pendingMachineCreationIDs.map(SurfaceMachineID.cloud)).union(Set(refreshable.filter { !self.refreshedMachineIDs.contains($0.machine) || $0.info.linkState != .connected || $0.cloudState?.cursor == nil }.map(\.machine)))
-                await withTaskGroup(of: Void.self) { group in
-                    for provider in candidates where activeMachines.contains(provider.machine) {
-                        group.addTask { @MainActor in
-                            guard access == self.accessEpoch, !Task.isCancelled else { return }
-                            let succeeded = await self.refreshProvider(provider, force); if succeeded, provider.isRegisteredInCatalog() { self.refreshedMachineIDs.insert(provider.machine) }
-                        }
-                    }
-                }
-                self.hasCompletedInitialRefresh = true; return access == self.accessEpoch && !Task.isCancelled
+                return await self.performRefreshPass(access: access, force: force)
             }
             refreshInFlight = task
             let listed = await task.value
@@ -384,6 +361,28 @@ final class CmuxTuiSurfaceProviderRegistry {
             guard access == accessEpoch, isCloudEnabled(), !Task.isCancelled else { return false }
             return listed
         }
+    }
+    private func performRefreshPass(access: UInt64, force: Bool) async -> Bool {
+        guard access == accessEpoch, !Task.isCancelled else { return false }
+        guard let discovered = await discoverMachines(force: force, updateExisting: true) else { return false }
+        guard access == accessEpoch, !Task.isCancelled else { return false }
+        await refreshForeignOwnedMachines()
+        guard access == accessEpoch, !Task.isCancelled else { return false }
+        let refreshable = discovered.filter { $0.info.linkFailure == nil }
+        let foreign = retainedForeignTeamMachineIDs(activeTeamID: activeTeamID()).subtracting(refreshable.map(\.machine)).compactMap { providers[$0] }
+        let candidates = refreshable + foreign
+        let activeMachines: Set<SurfaceMachineID> = (force || !hasCompletedInitialRefresh) ? Set(candidates.map(\.machine)) : (catalog?.projectedMachines ?? []).union(catalog?.pendingRestoredMachineIDs.map(SurfaceMachineID.cloud) ?? []).union(pendingMachineCreationIDs.map(SurfaceMachineID.cloud)).union(Set(refreshable.filter { !refreshedMachineIDs.contains($0.machine) || $0.info.linkState != .connected || $0.cloudState?.cursor == nil }.map(\.machine)))
+        await withTaskGroup(of: Void.self) { group in
+            for provider in candidates where activeMachines.contains(provider.machine) {
+                group.addTask { @MainActor in
+                    guard access == self.accessEpoch, !Task.isCancelled else { return }
+                    let succeeded = await self.refreshProvider(provider, force)
+                    if succeeded, provider.isRegisteredInCatalog() { self.refreshedMachineIDs.insert(provider.machine) }
+                }
+            }
+        }
+        hasCompletedInitialRefresh = true
+        return access == accessEpoch && !Task.isCancelled
     }
     /// Serializes only fleet listing and registration. The returned provider
     /// snapshot belongs to this pass; a later discovery must not add more work
