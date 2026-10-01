@@ -40,14 +40,17 @@ private actor GatedHost: AgentPaneHostProviding {
         let host = GatedHost()
         let page = FileManager.default.temporaryDirectory.appendingPathComponent("agent-pane-bridge-test.html")
         let weak = Weak()
-        let bridge: AgentPaneBridge = try autoreleasepool {
-            let view = try #require(AgentPaneView(model: AgentPaneModel(host: host), source: .bundled(page)))
-            weak.view = view
-            return AgentPaneBridge(view: view)
+        var view: AgentPaneView? = try autoreleasepool {
+            try #require(AgentPaneView(model: AgentPaneModel(host: host), source: .bundled(page)))
         }
+        weak.view = view
+        let bridge = try #require(view.map { AgentPaneBridge(view: $0) })
         let transport = Task { (await bridge.reply(to: .ready)["value"] as? [String: Any])?["transport"] as? String }
         await host.waitUntilAsked()
-        autoreleasepool { weak.view?.close() }
+        autoreleasepool {
+            view?.close()
+            view = nil
+        }
         #expect(weak.view == nil)
         await host.open()
         #expect(await transport.value == "mock")
