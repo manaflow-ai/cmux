@@ -594,7 +594,7 @@ public actor CloudMachineLink {
         channel: CloudTuiPersistentResourceConnection
     ) async {
         guard eventsSubscriptionID == subscriptionID else { return }
-        if !receivedStreamEnd, await channel.isClosed {
+        if !receivedStreamEnd, await channel.lostTransport {
             await retireForTransportFailure(
                 LinkError.transportLost,
                 resourceConnection: channel,
@@ -755,21 +755,27 @@ public actor CloudMachineLink {
         eventsRecoveryTask = nil
         cancelEventsStabilityReset()
         eventsRecoveryPhase = .healthy
-        await cancelEventsStream()
+        // Clear every owned resource before the first suspension. A reconnect
+        // can install a new client while these old resources finish closing.
+        let staleStreamID = eventStreamID
+        let staleChannel = resourceConnection
+        let staleRelease = releaseHubLease
+        eventStreamID = nil
+        resourceConnection = nil
+        releaseHubLease = nil
         connected = nil
-
         let staleProcess = process
         let staleExit = processExit
         process = nil
         processExit = nil
+        changesContinuation.yield(.streamEnded(reason: reason, cursor: cursor))
+        changesContinuation.finish()
+        if let staleStreamID { await staleChannel?.cancelStream(staleStreamID) }
+        await staleChannel?.close()
         if terminateProcess, let staleProcess, let staleExit {
             await Self.terminateAndWait(staleProcess, exit: staleExit)
         }
-        await resourceConnection?.close()
-        resourceConnection = nil
-        changesContinuation.yield(.streamEnded(reason: reason, cursor: cursor))
-        changesContinuation.finish()
-        await releaseHubLeaseOnce()
+        await staleRelease?()
     }
 
     /// Foundation aborts if a running `Process` is released. Keep a detached exit

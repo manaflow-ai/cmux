@@ -7,6 +7,21 @@ import Testing
 /// Otherwise connect reports success while the manager keeps a dead process.
 @Suite("Cloud machine link transport recovery")
 struct CloudMachineLinkTransportRecoveryTests {
+    @Test("Invalid protocol responses do not report a lost daemon transport")
+    func invalidResponseKeepsLinkRecoverable() async {
+        let invalidChannel = CloudTuiPersistentResourceConnection(socketPath: "/unused")
+        await invalidChannel.close(invalidResponse: true)
+        // The socket pump also calls close when its stream finishes; it must
+        // retain the original invalid-response reason.
+        await invalidChannel.close()
+        #expect(await invalidChannel.isClosed)
+        #expect(!(await invalidChannel.lostTransport))
+
+        let lostChannel = CloudTuiPersistentResourceConnection(socketPath: "/unused")
+        await lostChannel.close()
+        #expect(await lostChannel.lostTransport)
+    }
+
     /// A refused event socket must release the stale link so the manager can
     /// establish a fresh client on refresh.
     @Test("A refused event socket retires the live link")
