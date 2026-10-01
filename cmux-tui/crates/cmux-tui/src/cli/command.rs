@@ -11,6 +11,8 @@ use serde_json::{Map, Number, Value, json};
 
 use super::{GlobalArgs, UsageError};
 
+mod state;
+
 pub(super) enum ParsedCommand {
     Help(Option<String>),
     Command { global: GlobalArgs, plan: CommandPlan },
@@ -19,7 +21,7 @@ pub(super) enum ParsedCommand {
 pub(super) enum CommandPlan {
     Server(super::lifecycle::ServerPlan),
     AgentHooks(crate::agent_hook_install::Plan),
-    Protocol(RequestPlan),
+    Protocol(Box<RequestPlan>),
     SessionResetState(SessionResetStatePlan),
     Plugin(PluginPlan),
     ProviderAuthority(ProviderAuthorityPlan),
@@ -32,6 +34,22 @@ pub(super) struct RequestPlan {
     pub params: Value,
     pub idempotency_key: Option<String>,
     pub stream: bool,
+    /// Reads to run on the same connection before the request is sent.
+    pub resolve: Vec<Resolve>,
+}
+
+/// A parameter the command names indirectly. The CLI fills it with reads on
+/// the request's own connection just before it sends the request, so the
+/// request itself (and its idempotency fingerprint) carries only ids.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum Resolve {
+    /// `workspace` becomes the workspace that holds this terminal: the
+    /// caller's own terminal (`CMUX_TUI_TERMINAL_ID`). With `--socket` or
+    /// `--session` the target is that session's `current` workspace.
+    CallerWorkspace { terminal: String },
+    /// `field` names a state record (room or group) by id or exact name; a
+    /// unique name becomes that record's id.
+    StateName { field: &'static str, list: ResourceOperation },
 }
 
 #[derive(Clone, Debug)]
@@ -173,6 +191,8 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "terminal" => parse_terminal(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "browser" => parse_browser(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "notification" => parse_notification(&tokens.words[1..], &mut tokens.flags)?,
+        "room" => state::parse_room(&strs(&tokens.words[1..]), &mut tokens.flags)?,
+        "closed" => state::parse_closed(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "notify" => parse_notify(&tokens.words[1..], &mut tokens.flags)?,
         "agent" => parse_agent(&tokens.words[1..], &mut tokens.flags)?,
         "sidebar" => parse_sidebar(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
@@ -304,6 +324,15 @@ const BOOLEAN_FLAGS: &[&str] = &[
     "mutation",
     "stream",
     "ignore-case",
+    "all",
+    "indeterminate",
+    "clear-title",
+    "clear-color",
+    "clear-icon",
+    "clear-theme",
+    "clear-browser-profile",
+    "clear-default-session",
+    "clear-zoom",
 ];
 
 pub(super) fn is_boolean_flag(name: &str) -> bool {
@@ -630,8 +659,15 @@ fn parse_workspace(
     flags: &mut Flags,
     argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
-    match strs(words).as_slice() {
-        ["group", rest @ ..] => parse_workspace_group(rest, selectors, flags),
+    let refs = strs(words);
+    if let Some(plan) = state::parse_workspace_status(&refs, selectors, flags, argv.as_deref())? {
+        return Ok(plan);
+    }
+    match refs.as_slice() {
+        ["group", rest @ ..] => state::parse_workspace_group(rest, selectors, flags),
+        ["placement", "list"] => {
+            request(ResourceOperation::WorkspacePlacementList, selectors, flags, Map::new())
+        }
         ["list"] => request(ResourceOperation::WorkspaceList, selectors, flags, Map::new()),
         ["create"] => {
             let mut params = Map::new();
@@ -654,6 +690,10 @@ fn parse_workspace(
         [selector, "rename"] => {
             selectors.insert("workspace", "ws", selector)?;
             request_with_required_name(ResourceOperation::WorkspaceRename, selectors, flags)
+        }
+        [selector, "update"] => {
+            selectors.insert("workspace", "ws", selector)?;
+            state::workspace_update(selectors, flags)
         }
         [selector, "move"] => {
             selectors.insert("workspace", "ws", selector)?;
@@ -706,6 +746,7 @@ fn parse_screen_strings(
     argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     match words {
+        ["group", rest @ ..] => state::parse_screen_group(rest, selectors, flags),
         ["list"] => request(ResourceOperation::ScreenList, selectors, flags, Map::new()),
         ["create"] => {
             let mut params = Map::new();
@@ -723,6 +764,10 @@ fn parse_screen_strings(
         [selector, "focus"] => {
             selectors.insert("screen", "screen", selector)?;
             request(ResourceOperation::ScreenFocus, selectors, flags, Map::new())
+        }
+        [selector, action @ ("update" | "pin" | "unpin" | "move")] => {
+            selectors.insert("screen", "screen", selector)?;
+            state::screen_change(action, selectors, flags)
         }
         [selector, "close"] => {
             selectors.insert("screen", "screen", selector)?;
@@ -903,7 +948,7 @@ fn parse_tab_strings(
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
     match words {
-        ["group", rest @ ..] => parse_tab_group(rest, flags),
+        ["group", rest @ ..] => state::parse_tab_group(rest, flags),
         ["list"] => request(ResourceOperation::TabList, selectors, flags, Map::new()),
         [selector, "show"] => {
             selectors.insert("tab", "tab", selector)?;
@@ -942,6 +987,10 @@ fn parse_tab_strings(
         [selector, "focus"] => {
             selectors.insert("tab", "tab", selector)?;
             request(ResourceOperation::TabFocus, selectors, flags, Map::new())
+        }
+        [selector, action @ ("pin" | "unpin" | "update" | "zoom"), rest @ ..] => {
+            selectors.insert("tab", "tab", selector)?;
+            state::tab_change(action, rest, selectors, flags)
         }
         [selector, "close"] => {
             selectors.insert("tab", "tab", selector)?;
@@ -1850,20 +1899,6 @@ fn group_id_value(value: &str) -> Value {
     value.parse::<u64>().map(Value::from).unwrap_or_else(|_| Value::String(value.to_string()))
 }
 
-fn group_id_list(flags: &mut Flags, name: &str) -> Result<Value, UsageError> {
-    let values = flags
-        .required(name)?
-        .split(',')
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(group_id_value)
-        .collect::<Vec<_>>();
-    if values.is_empty() {
-        return Err(UsageError::new(format!("--{name} needs at least one id")));
-    }
-    Ok(Value::Array(values))
-}
-
 fn group_number(flags: &mut Flags, name: &str) -> Result<Option<Value>, UsageError> {
     flags
         .take(name)
@@ -1916,172 +1951,53 @@ fn group_raw_plan(command: &str, mut request: Map<String, Value>) -> CommandPlan
     })
 }
 
-fn parse_tab_group(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+/// Tab group moves with no `cmux.protocol/2` operation yet use the private
+/// control protocol, like `raw command`, so they work against a headless
+/// daemon with no app running. Every other tab group verb is a v2 operation
+/// (`state.rs`).
+fn parse_tab_group_private(
+    group: &str,
+    action: &str,
+    flags: &mut Flags,
+) -> Result<CommandPlan, UsageError> {
     let mut request = Map::new();
     insert_optional_string(&mut request, flags, "transaction", "transaction");
-    let command = match words {
-        ["list"] => "list-tab-groups",
-        ["create"] => {
-            request.insert("tabs".into(), group_id_list(flags, "tabs")?);
-            insert_optional_string(&mut request, flags, "name", "name");
-            insert_optional_string(&mut request, flags, "color", "color");
-            insert_optional_string(&mut request, flags, "id", "group");
-            "create-tab-group"
-        }
-        ["remove"] => {
-            request.insert("tabs".into(), group_id_list(flags, "tabs")?);
-            "remove-tabs-from-tab-group"
-        }
-        ["saved", "list"] => "list-saved-tab-groups",
-        ["saved", saved, "delete"] => {
-            request.insert("saved".into(), Value::String((*saved).to_string()));
-            "delete-saved-tab-group"
-        }
-        ["saved", saved, "reopen"] => {
-            request.insert("saved".into(), Value::String((*saved).to_string()));
+    request.insert("group".into(), Value::String(group.to_string()));
+    let command = match action {
+        "split" => {
             request.insert("pane".into(), group_id_value(&flags.required("pane")?));
-            "reopen-saved-tab-group"
-        }
-        [group, action] => {
-            request.insert("group".into(), Value::String((*group).to_string()));
-            match *action {
-                "update" => {
-                    insert_optional_string(&mut request, flags, "name", "name");
-                    insert_optional_string(&mut request, flags, "color", "color");
-                    group_collapse(flags, &mut request)?;
-                    "update-tab-group"
-                }
-                "add" => {
-                    request.insert("tabs".into(), group_id_list(flags, "tabs")?);
-                    "add-tabs-to-tab-group"
-                }
-                "move" => {
-                    if let Some(pane) = flags.take("pane") {
-                        request.insert("pane".into(), group_id_value(&pane));
-                    }
-                    if let Some(index) = group_number(flags, "index")? {
-                        request.insert("index".into(), index);
-                    }
-                    "move-tab-group"
-                }
-                "split" => {
-                    request.insert("pane".into(), group_id_value(&flags.required("pane")?));
-                    request.insert("edge".into(), Value::String(flags.required("edge")?));
-                    if let Some(ratio) = group_float(flags, "ratio")? {
-                        request.insert("ratio".into(), ratio);
-                    }
-                    "move-tab-group-to-split"
-                }
-                "column" => {
-                    if let Some(pane) = flags.take("pane") {
-                        request.insert("pane".into(), group_id_value(&pane));
-                    }
-                    if let Some(screen) = group_number(flags, "screen")? {
-                        request.insert("screen".into(), screen);
-                    }
-                    if let Some(column) = group_number(flags, "after-column")? {
-                        request.insert("after_column".into(), column);
-                    }
-                    if let Some(width) = group_float(flags, "width")? {
-                        request.insert("width".into(), width);
-                    }
-                    "move-tab-group-to-column"
-                }
-                "new-workspace" => {
-                    insert_optional_string(
-                        &mut request,
-                        flags,
-                        "workspace-group",
-                        "workspace_group",
-                    );
-                    if let Some(index) = group_number(flags, "index")? {
-                        request.insert("index".into(), index);
-                    }
-                    "move-tab-group-to-new-workspace"
-                }
-                "ungroup" => "ungroup-tab-group",
-                "close" => "close-tab-group",
-                "save" => "save-tab-group",
-                "unsave" => "unsave-tab-group",
-                _ => return usage("tab group action"),
+            request.insert("edge".into(), Value::String(flags.required("edge")?));
+            if let Some(ratio) = group_float(flags, "ratio")? {
+                request.insert("ratio".into(), ratio);
             }
+            "move-tab-group-to-split"
         }
+        "column" => {
+            if let Some(pane) = flags.take("pane") {
+                request.insert("pane".into(), group_id_value(&pane));
+            }
+            if let Some(screen) = group_number(flags, "screen")? {
+                request.insert("screen".into(), screen);
+            }
+            if let Some(column) = group_number(flags, "after-column")? {
+                request.insert("after_column".into(), column);
+            }
+            if let Some(width) = group_float(flags, "width")? {
+                request.insert("width".into(), width);
+            }
+            "move-tab-group-to-column"
+        }
+        "new-workspace" => {
+            insert_optional_string(&mut request, flags, "workspace-group", "workspace_group");
+            if let Some(index) = group_number(flags, "index")? {
+                request.insert("index".into(), index);
+            }
+            "move-tab-group-to-new-workspace"
+        }
+        "unsave" => "unsave-tab-group",
         _ => return usage("tab group action"),
     };
     Ok(group_raw_plan(command, request))
-}
-
-/// Workspace groups are personal state of the home session
-/// (plans/cmux-next/state-ownership.md): the commands use the
-/// `workspace_group.*` and `workspace.place` resource operations. The
-/// legacy shared group commands are gone.
-fn parse_workspace_group(
-    words: &[&str],
-    selectors: &mut Selectors,
-    flags: &mut Flags,
-) -> Result<CommandPlan, UsageError> {
-    let mut params = Map::new();
-    let operation = match words {
-        ["list"] => {
-            insert_optional_string(&mut params, flags, "room", "room");
-            ResourceOperation::WorkspaceGroupList
-        }
-        ["create"] => {
-            params.insert("name".into(), Value::String(flags.required("name")?));
-            insert_optional_string(&mut params, flags, "color", "color");
-            insert_optional_string(&mut params, flags, "room", "room");
-            if let Some(index) = group_number(flags, "index")? {
-                params.insert("index".into(), index);
-            }
-            if flags.boolean("collapse") {
-                params.insert("collapsed".into(), Value::Bool(true));
-            }
-            ResourceOperation::WorkspaceGroupCreate
-        }
-        ["remove"] => {
-            selectors.insert("workspace", "ws", &flags.required("workspace")?)?;
-            params.insert("group".into(), Value::Null);
-            ResourceOperation::WorkspacePlace
-        }
-        [group, action] => match *action {
-            "update" => {
-                params.insert("workspace_group".into(), Value::String((*group).to_string()));
-                insert_optional_string(&mut params, flags, "name", "name");
-                if flags.boolean("clear-color") {
-                    params.insert("color".into(), Value::Null);
-                } else {
-                    insert_optional_string(&mut params, flags, "color", "color");
-                }
-                insert_optional_string(&mut params, flags, "room", "room");
-                group_collapse(flags, &mut params)?;
-                ResourceOperation::WorkspaceGroupUpdate
-            }
-            "delete" => {
-                params.insert("workspace_group".into(), Value::String((*group).to_string()));
-                ResourceOperation::WorkspaceGroupDelete
-            }
-            "move" => {
-                params.insert("workspace_group".into(), Value::String((*group).to_string()));
-                params.insert(
-                    "index".into(),
-                    group_number(flags, "index")?
-                        .ok_or_else(|| UsageError::new("--index is required"))?,
-                );
-                ResourceOperation::WorkspaceGroupMove
-            }
-            "add" => {
-                selectors.insert("workspace", "ws", &flags.required("workspace")?)?;
-                params.insert("group".into(), Value::String((*group).to_string()));
-                if let Some(index) = group_number(flags, "index")? {
-                    params.insert("index".into(), index);
-                }
-                ResourceOperation::WorkspacePlace
-            }
-            _ => return usage("workspace group action"),
-        },
-        _ => return usage("workspace group action"),
-    };
-    request(operation, selectors, flags, params)
 }
 
 fn parse_raw(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
@@ -2211,12 +2127,13 @@ fn finalize_request(
     if explicit_key.is_some() && class != OperationClass::Mutation {
         return Err(UsageError::new("--idempotency-key is accepted only for mutations"));
     }
-    Ok(CommandPlan::Protocol(RequestPlan {
+    Ok(CommandPlan::Protocol(Box::new(RequestPlan {
         stream: class == OperationClass::StreamOpen,
         operation,
         params,
         idempotency_key: explicit_key,
-    }))
+        resolve: Vec::new(),
+    })))
 }
 
 fn structural_ancestors(scope: &str) -> &'static [&'static str] {
@@ -3379,49 +3296,21 @@ mod tests {
     }
 
     #[test]
-    fn cmux_next_group_actions_map_to_private_group_commands() {
-        let created = raw_request(&[
-            "tab",
-            "group",
-            "create",
-            "--tabs",
-            "4,tab_0123",
-            "--name",
-            "agents",
-            "--color",
-            "green",
-        ]);
-        assert_eq!(created["cmd"], "create-tab-group");
-        assert_eq!(created["tabs"], serde_json::json!([4, "tab_0123"]));
-        assert_eq!(created["name"], "agents");
-        let collapsed = raw_request(&["tab", "group", "tgrp_1", "update", "--collapse"]);
-        assert_eq!(collapsed["cmd"], "update-tab-group");
-        assert_eq!(collapsed["collapsed"], true);
+    fn tab_group_moves_without_a_v2_operation_map_to_private_group_commands() {
         let split = raw_request(&[
             "tab", "group", "tgrp_1", "split", "--pane", "pane_ab", "--edge", "right",
         ]);
         assert_eq!(split["cmd"], "move-tab-group-to-split");
         assert_eq!(split["pane"], "pane_ab");
-        let reopen = raw_request(&["tab", "group", "saved", "saved_9", "reopen", "--pane", "3"]);
-        assert_eq!(reopen["cmd"], "reopen-saved-tab-group");
-        assert_eq!(reopen["pane"], 3);
+        let unsave = raw_request(&["tab", "group", "tgrp_1", "unsave"]);
+        assert_eq!(unsave["cmd"], "unsave-tab-group");
+        assert_eq!(unsave["group"], "tgrp_1");
+        let created =
+            protocol(&["tab", "group", "create", "--tabs", "tab_00000000000000000000000000000001"]);
+        assert_eq!(operation(&created), "tab_group.create");
         let group = protocol(&["workspace", "group", "create", "--name", "Work"]);
         assert_eq!(operation(&group), "workspace_group.create");
         assert_eq!(group.params["name"], "Work");
-        let add = protocol(&[
-            "workspace",
-            "group",
-            "grp_1",
-            "add",
-            "--workspace",
-            "ws_0123456789abcdef0123456789abcdef",
-            "--index",
-            "0",
-        ]);
-        assert_eq!(operation(&add), "workspace.place");
-        assert_eq!(add.params["workspace"], "ws_0123456789abcdef0123456789abcdef");
-        assert_eq!(add.params["group"], "grp_1");
-        assert_eq!(add.params["index"], 0);
         let remove = protocol(&[
             "workspace",
             "group",
@@ -3510,7 +3399,7 @@ mod tests {
 
     fn protocol(values: &[&str]) -> RequestPlan {
         match parse(&strings(values), super::super::Surface::CmuxTui).unwrap() {
-            CommandPlan::Protocol(plan) => plan,
+            CommandPlan::Protocol(plan) => *plan,
             _ => panic!("expected protocol plan"),
         }
     }
@@ -3567,30 +3456,210 @@ mod tests {
         assert_eq!(advice.code, "session.reset_state.invalid_state_path");
     }
 
-    fn is_state_resource_operation(name: &str) -> bool {
-        const PREFIXES: [&str; 9] = [
-            "tab_group.",
-            "saved_tab_group.",
-            "workspace_group.",
-            "room.",
-            "screen_group.",
-            "closed.",
-            "workspace_status.",
-            "workspace_progress.",
-            "workspace_log.",
-        ];
-        PREFIXES.iter().any(|prefix| name.starts_with(prefix))
-            || matches!(
-                name,
-                "workspace.update"
-                    | "workspace.place"
-                    | "workspace.placement.list"
-                    | "tab.pin"
-                    | "tab.unpin"
-                    | "tab.update"
-                    | "screen.update"
-                    | "screen.move"
-            )
+    /// One path per state resource operation (state-ownership.md steps A
+    /// and B), exercising every catalog field.
+    fn state_resource_cases<'a>(
+        workspace: &'a str,
+        screen: &'a str,
+        pane: &'a str,
+        tab: &'a str,
+    ) -> Vec<(Vec<&'a str>, &'a str)> {
+        vec![
+            (
+                vec![
+                    "workspace",
+                    workspace,
+                    "update",
+                    "--title",
+                    "T",
+                    "--color",
+                    "red",
+                    "--icon",
+                    "star",
+                ],
+                "workspace.update",
+            ),
+            (
+                vec!["workspace", "group", "g", "add", "--workspace", workspace, "--index", "0"],
+                "workspace.place",
+            ),
+            (vec!["workspace", "placement", "list"], "workspace.placement.list"),
+            (vec!["workspace", "group", "list", "--room", "r"], "workspace_group.list"),
+            (
+                vec![
+                    "workspace",
+                    "group",
+                    "create",
+                    "--name",
+                    "n",
+                    "--color",
+                    "blue",
+                    "--room",
+                    "r",
+                    "--index",
+                    "0",
+                    "--collapse",
+                ],
+                "workspace_group.create",
+            ),
+            (
+                vec![
+                    "workspace",
+                    "group",
+                    "g",
+                    "update",
+                    "--name",
+                    "n",
+                    "--color",
+                    "red",
+                    "--room",
+                    "r",
+                    "--collapse",
+                ],
+                "workspace_group.update",
+            ),
+            (vec!["workspace", "group", "g", "delete"], "workspace_group.delete"),
+            (vec!["workspace", "group", "g", "move", "--index", "1"], "workspace_group.move"),
+            (vec!["tab", tab, "pin"], "tab.pin"),
+            (vec!["tab", tab, "unpin"], "tab.unpin"),
+            (
+                vec!["tab", tab, "update", "--zoom", "1.5", "--back", "a", "--forward", "b"],
+                "tab.update",
+            ),
+            (vec!["tab", "group", "list", "--pane", pane], "tab_group.list"),
+            (vec!["tab", "group", "g", "show"], "tab_group.get"),
+            (
+                vec!["tab", "group", "create", "--tabs", tab, "--name", "n", "--color", "green"],
+                "tab_group.create",
+            ),
+            (
+                vec!["tab", "group", "g", "update", "--name", "n", "--color", "red", "--collapse"],
+                "tab_group.update",
+            ),
+            (vec!["tab", "group", "g", "add", "--tabs", tab, "--index", "0"], "tab_group.add_tabs"),
+            (vec!["tab", "group", "remove", "--tabs", tab], "tab_group.remove_tabs"),
+            (vec!["tab", "group", "g", "move", "--pane", pane, "--index", "0"], "tab_group.move"),
+            (vec!["tab", "group", "g", "ungroup"], "tab_group.ungroup"),
+            (vec!["tab", "group", "g", "close"], "tab_group.close"),
+            (vec!["tab", "group", "saved", "list", "--room", "r"], "saved_tab_group.list"),
+            (vec!["tab", "group", "g", "save", "--room", "r"], "saved_tab_group.save"),
+            (
+                vec!["tab", "group", "saved", "s", "reopen", "--pane", pane],
+                "saved_tab_group.reopen",
+            ),
+            (vec!["tab", "group", "saved", "s", "delete"], "saved_tab_group.delete"),
+            (vec!["room", "list"], "room.list"),
+            (
+                vec![
+                    "room", "create", "--name", "n", "--color", "c", "--icon", "i", "--theme", "t",
+                    "--index", "0",
+                ],
+                "room.create",
+            ),
+            (
+                vec![
+                    "room",
+                    "r",
+                    "update",
+                    "--name",
+                    "n",
+                    "--color",
+                    "c",
+                    "--icon",
+                    "i",
+                    "--theme",
+                    "t",
+                    "--browser-profile",
+                    "p",
+                    "--default-session",
+                    "s",
+                ],
+                "room.update",
+            ),
+            (vec!["room", "r", "delete", "--move-to", "r2"], "room.delete"),
+            (vec!["room", "r", "move", "--index", "0"], "room.move"),
+            (vec!["room", "r", "follow", "--sessions", "s1"], "room.follow"),
+            (vec!["room", "r", "pin", "--workspace", workspace], "room.pin"),
+            (vec!["room", "unpin", "--workspace", workspace], "room.unpin"),
+            (
+                vec!["screen", screen, "update", "--pinned", "true", "--color", "c", "--icon", "i"],
+                "screen.update",
+            ),
+            (vec!["screen", screen, "move", "--index", "0"], "screen.move"),
+            (vec!["screen", "group", "list", "--workspace", workspace], "screen_group.list"),
+            (vec!["screen", "group", "g", "show"], "screen_group.get"),
+            (
+                vec![
+                    "screen",
+                    "group",
+                    "create",
+                    "--screens",
+                    screen,
+                    "--name",
+                    "n",
+                    "--color",
+                    "blue",
+                ],
+                "screen_group.create",
+            ),
+            (
+                vec![
+                    "screen",
+                    "group",
+                    "g",
+                    "update",
+                    "--name",
+                    "n",
+                    "--color",
+                    "red",
+                    "--collapse",
+                ],
+                "screen_group.update",
+            ),
+            (vec!["screen", "group", "g", "add", "--screens", screen], "screen_group.add_screens"),
+            (vec!["screen", "group", "remove", "--screens", screen], "screen_group.remove_screens"),
+            (vec!["screen", "group", "g", "ungroup"], "screen_group.ungroup"),
+            (vec!["closed", "list"], "closed.list"),
+            (vec!["closed", "c1", "reopen"], "closed.reopen"),
+            (vec!["workspace", workspace, "status", "list"], "workspace_status.list"),
+            (
+                vec![
+                    "workspace",
+                    workspace,
+                    "status",
+                    "set",
+                    "k",
+                    "t",
+                    "--icon",
+                    "i",
+                    "--color",
+                    "c",
+                ],
+                "workspace_status.set",
+            ),
+            (vec!["workspace", workspace, "status", "clear", "k"], "workspace_status.clear"),
+            (
+                vec!["workspace", workspace, "progress", "set", "0.5", "--label", "l"],
+                "workspace_progress.set",
+            ),
+            (vec!["workspace", workspace, "progress", "clear"], "workspace_progress.clear"),
+            (
+                vec![
+                    "workspace",
+                    workspace,
+                    "log",
+                    "append",
+                    "t",
+                    "--level",
+                    "info",
+                    "--source",
+                    "s",
+                ],
+                "workspace_log.append",
+            ),
+            (vec!["workspace", workspace, "log", "list", "--limit", "5"], "workspace_log.list"),
+            (vec!["workspace", workspace, "log", "clear"], "workspace_log.clear"),
+        ]
     }
 
     fn operation_catalog() -> Value {
@@ -5348,8 +5417,10 @@ mod tests {
                 "notification.clear",
             ),
         ];
+        let mut cases = cases;
+        cases.extend(state_resource_cases(WORKSPACE, SCREEN, PANE, TAB));
 
-        assert_eq!(cases.len(), 120);
+        assert_eq!(cases.len(), 171);
         let catalog = operation_catalog();
         assert_eq!(catalog["operations"].as_object().unwrap().len(), 178);
         let mut seen = std::collections::BTreeSet::new();
@@ -5418,9 +5489,6 @@ mod tests {
             .as_object()
             .unwrap()
             .keys()
-            // The state resources (state-ownership.md steps A and B) get
-            // their curated CLI grammar in step D.
-            .filter(|name| !is_state_resource_operation(name))
             .filter(|name| {
                 !matches!(
                     name.as_str(),

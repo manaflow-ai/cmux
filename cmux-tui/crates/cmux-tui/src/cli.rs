@@ -9,6 +9,7 @@ mod app;
 mod command;
 mod lifecycle;
 mod raw;
+mod resolve;
 mod shorthand;
 mod wire;
 
@@ -31,6 +32,8 @@ const PUBLIC_SCOPES: &[&str] = &[
     "browser",
     "notification",
     "agent",
+    "room",
+    "closed",
     "sidebar",
     "pairing",
     "projection",
@@ -52,6 +55,8 @@ const CMUX_SCOPES: &[&str] = &[
     "browser",
     "notification",
     "agent",
+    "room",
+    "closed",
 ];
 
 /// Scopes only the `cmux-tui` name accepts. Cloud VM guest scripts
@@ -237,7 +242,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         Ok(ParsedCommand::Command { global, plan }) => match plan {
             CommandPlan::Server(server) => lifecycle::run(global, server),
             CommandPlan::AgentHooks(plan) => command::run_agent_hooks(global, plan),
-            CommandPlan::Protocol(request) => wire::run(global, request),
+            CommandPlan::Protocol(request) => wire::run(global, *request),
             CommandPlan::SessionResetState(plan) => command::run_session_reset_state(global, plan),
             CommandPlan::Plugin(plugin) => command::run_plugin(global, plugin),
             CommandPlan::ProviderAuthority(authority) => {
@@ -652,6 +657,8 @@ fn scope_help_for(
         "browser" => Cow::Borrowed(BROWSER_HELP),
         "notification" => Cow::Borrowed(NOTIFICATION_HELP),
         "agent" => Cow::Borrowed(AGENT_HELP),
+        "room" => Cow::Borrowed(ROOM_HELP),
+        "closed" => Cow::Borrowed(CLOSED_HELP),
         "sidebar" => Cow::Borrowed(SIDEBAR_HELP),
         "pairing" => Cow::Borrowed(PAIRING_HELP),
         "projection" => Cow::Borrowed(PROJECTION_HELP),
@@ -710,6 +717,8 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   browser       Navigate and attach to browsers
   notification  List and create notifications
   agent         List and report agent state
+  room          Organize workspaces into rooms
+  closed        List and reopen closed tabs, screens, workspaces
   sidebar       Manage sidebar views and local plugins
   pairing       Resolve pairing requests
   projection    Read and update frontend projections
@@ -792,20 +801,40 @@ USAGE
 const WORKSPACE_HELP: &str = "\
 USAGE
   cmux workspace list
-  cmux workspace create [--name <value>] [--empty] [--correlation-key <value>] [--expected-revision <revision>]
+  cmux workspace create [--name <value>] [--empty] [--ephemeral] [--correlation-key <value>]
+    [--expected-revision <revision>]
   cmux workspace <selector> show|rename|move|focus|close
+  cmux workspace <selector> update [--title <value>|--clear-title] [--color <value>|--clear-color]
+    [--icon <value>|--clear-icon]
   cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
   cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] shell <script>
   cmux workspace <selector> layout apply [OPTIONS]
   cmux workspace <selector> screen ...
+  cmux workspace [<selector>] status list
+  cmux workspace status list --all
+  cmux workspace [<selector>] status set <key> <text> [--icon <value>] [--color <value>]
+  cmux workspace [<selector>] status clear [<key>]
+  cmux workspace [<selector>] progress set <0..1>|--indeterminate [--label <value>]
+  cmux workspace [<selector>] progress clear
+  cmux workspace [<selector>] log append <text> [--level <level>] [--source <value>]
+  cmux workspace [<selector>] log list [--limit <1..200>]
+  cmux workspace [<selector>] log clear
+  cmux workspace placement list
   cmux workspace group list [--room <room>]
   cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
-  cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color] [--collapse|--expand]
+  cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color]
+    [--room <room>] [--collapse|--expand]
   cmux workspace group <group> delete|move --index <n>
-  cmux workspace group <group> add --workspace <ws_…> [--index <n>]
-  cmux workspace group remove --workspace <ws_…>
-  Nested panes support split --right or --down. Workspace groups are personal: they
-  live in this Mac's home session and order your sidebar only.
+  cmux workspace group <group> add --workspace <selector> [--index <n>]
+  cmux workspace group remove --workspace <selector>
+
+Nested panes support split --right or --down. Without a selector, status,
+progress and log target the caller's workspace inside a cmux terminal, else
+the current one. Levels: info, progress, success, warning, error. Text that
+starts with a dash goes after --. --ephemeral creates an incognito workspace
+the session closes at its next start. Workspace groups and rooms are
+personal: they live in this Mac's home session. A group or room is named by
+its id or exact name.
 ";
 
 const SCREEN_HELP: &str = "\
@@ -813,10 +842,23 @@ USAGE
   cmux screen list
   cmux screen create [--correlation-key <value>]
   cmux screen <selector> show|rename|focus|close
+  cmux screen <selector> pin|unpin
+  cmux screen <selector> update [--pinned <bool>] [--color <value>|--clear-color]
+    [--icon <value>|--clear-icon]
+  cmux screen <selector> move --index <n>
   cmux screen <selector> layout export
   cmux screen <selector> layout undo [--confirm-close]
     [--confirmation-token <value>]
   cmux screen <selector> pane ...
+  cmux screen group list [--workspace <selector>]
+  cmux screen group create --screens <screen_…,...> [--name <value>] [--color <color>]
+  cmux screen group <group> show|ungroup
+  cmux screen group <group> update [--name <value>] [--color <color>] [--collapse|--expand]
+  cmux screen group <group> add --screens <screen_…,...>
+  cmux screen group remove --screens <screen_…,...>
+
+Pinned screens sort first and leave their group. Group colors: grey, blue,
+red, yellow, green, pink, purple, cyan, orange.
 ";
 
 const PANE_HELP: &str = "\
@@ -841,22 +883,31 @@ const TAB_HELP: &str = "\
 USAGE
   cmux tab list
   cmux tab <selector> show|rename|move|focus|close
+  cmux tab <selector> pin|unpin
+  cmux tab <selector> zoom <0.25..5>|reset
+  cmux tab <selector> update [--zoom <0.25..5>|--clear-zoom] [--back <url,...>] [--forward <url,...>]
   cmux tab create terminal [--correlation-key <value>] [OPTIONS]
   cmux tab create browser --url <value> [--correlation-key <value>] [OPTIONS]
   cmux tab <selector> terminal|browser ...
-  cmux tab group list
-  cmux tab group create --tabs <id,...> [--name <value>] [--color <color>] [--id <id>]
+  cmux tab group list [--pane <pane_…>]
+  cmux tab group create --tabs <tab_…,...> [--name <value>] [--color <color>]
+  cmux tab group <group> show|ungroup|close
   cmux tab group <group> update [--name <value>] [--color <color>] [--collapse|--expand]
-  cmux tab group <group> add --tabs <id,...>
-  cmux tab group remove --tabs <id,...>
-  cmux tab group <group> move [--pane <id>] [--index <n>]
+  cmux tab group <group> add --tabs <tab_…,...> [--index <n>]
+  cmux tab group remove --tabs <tab_…,...>
+  cmux tab group <group> move [--pane <pane_…>] [--index <n>]
+  cmux tab group <group> save [--room <room>]
   cmux tab group <group> split --pane <id> --edge <left|right|top|bottom> [--ratio <r>]
   cmux tab group <group> column [--pane <id>|--screen <id>] [--after-column <id>] [--width <w>]
   cmux tab group <group> new-workspace [--workspace-group <id>] [--index <n>]
-  cmux tab group <group> ungroup|close|save|unsave
-  cmux tab group saved list
-  cmux tab group saved <saved> delete|reopen --pane <id>
-  Tab ids are numeric or tab_... ids; pane ids are numeric or pane_... ids.
+  cmux tab group <group> unsave
+  cmux tab group saved list [--room <room>]
+  cmux tab group saved <saved> reopen [--pane <pane_…>]
+  cmux tab group saved <saved> delete
+
+Zoom is a browser page zoom or a terminal font scale. Pinned tabs sort first
+and leave their group. A group or saved group is named by its id or exact
+name. Group colors: grey, blue, red, yellow, green, pink, purple, cyan, orange.
 ";
 
 const TERMINAL_HELP: &str = "\
@@ -908,6 +959,36 @@ USAGE
   cmux agent plugin install <git-url> [--name <value>] [--force]
   cmux agent plugin use|update|remove <name-or-id>
   cmux agent plugin use --builtin
+";
+
+const ROOM_HELP: &str = "\
+USAGE
+  cmux room list
+  cmux room create --name <value> [--color <value>] [--icon <value>] [--theme <value>] [--index <n>]
+  cmux room <room> update [--name <value>] [--color <value>|--clear-color]
+    [--icon <value>|--clear-icon] [--theme <value>|--clear-theme]
+    [--browser-profile <id>|--clear-browser-profile]
+    [--default-session <id>|--clear-default-session]
+  cmux room <room> delete [--move-to <room>]
+  cmux room <room> move --index <n>
+  cmux room <room> follow --sessions <session,...>
+  cmux room <room> pin --workspace <selector>
+  cmux room unpin --workspace <selector>
+
+Rooms are personal views of this Mac's home session. A room shows the
+workspaces pinned to it and the unpinned workspaces of the sessions it
+follows; --sessions is the complete follow set (\"\" follows none). A
+workspace is pinned to at most one room. A room is named by its id or exact
+name.
+";
+
+const CLOSED_HELP: &str = "\
+USAGE
+  cmux closed list
+  cmux closed <closed> reopen
+
+The session keeps recently closed tabs, screens and workspaces. A tab reopens
+in its pane, a screen in its workspace, a workspace as a new workspace.
 ";
 
 const SIDEBAR_HELP: &str = "\
@@ -1214,6 +1295,29 @@ mod tests {
             }
         }
         assert!(WORKSPACE_HELP.contains("workspace group create"));
+    }
+
+    #[test]
+    fn cmux_shows_and_accepts_the_state_scopes() {
+        for args in [
+            vec!["room", "list"],
+            vec!["closed", "list"],
+            vec!["help", "room"],
+            vec!["closed", "--help"],
+            vec!["tab", "group", "list"],
+            vec!["screen", "group", "list"],
+            vec!["workspace", "current", "status", "list"],
+        ] {
+            assert!(parse(&strings(&args), Surface::Cmux).is_ok(), "{args:?}");
+        }
+        for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
+            let help = crate::localization::catalog_for_locale(locale).local_server.cmux_root_help;
+            assert!(help.contains("  room "), "{locale}");
+            assert!(help.contains("  closed "), "{locale}");
+        }
+        assert!(TAB_HELP.contains("tab group saved list"));
+        assert!(SCREEN_HELP.contains("screen group create"));
+        assert!(WORKSPACE_HELP.contains("progress set <0..1>"));
     }
 
     #[test]
