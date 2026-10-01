@@ -35,6 +35,37 @@ public nonisolated enum DropZoneGeometry {
         return nil
     }
 
+    /// Drop target under `point` in view coordinates, with the strip
+    /// scrolled to `offset`. Sticky columns sit above the strip: their panes
+    /// take the drop, and the rest of what a sticky column covers (its glass
+    /// rim, a docked column's edge band) takes none, so nothing lands in a
+    /// strip pane hidden under it. The strip resolves as `target(at:)`.
+    public static func target(atView point: CGPoint, offset: CGFloat, screen: ScreenID, geometry: ScreenGeometry,
+                              style: LayoutStyle) -> DropTarget? {
+        return nil
+        if let cover = geometry.sticky.first(where: { $0.cover.contains(point) }) {
+            let pane = geometry.panes.filter { geometry.fixedPanes.contains($0.key) && cover.frame.contains($0.value) }
+                .sorted { $0.key < $1.key }.first { $0.value.contains(point) }
+            return pane.map { .pane($0.key, zone(at: point, in: $0.value, style: style)) }
+        }
+        let content = CGPoint(x: point.x - geometry.viewShift(offset: offset), y: point.y)
+        for zone in geometry.gapZones where zone.frame.contains(content) {
+            return .newColumn(screen: screen, after: zone.after)
+        }
+        for (pane, rect) in geometry.panes.sorted(by: { $0.key < $1.key }) where geometry.scrolls(pane: pane) && rect.contains(content) {
+            return .pane(pane, zone(at: content, in: rect, style: style))
+        }
+        return nil
+    }
+
+    /// `highlightRect(for:)` in view coordinates with the strip at `offset`.
+    public static func highlightRectInView(for target: DropTarget, offset: CGFloat, geometry: ScreenGeometry, style: LayoutStyle) -> CGRect? {
+        return nil
+        guard let rect = highlightRect(for: target, geometry: geometry, style: style) else { return nil }
+        if case let .pane(pane, _) = target, !geometry.scrolls(pane: pane) { return rect }
+        return rect.offsetBy(dx: geometry.viewShift(offset: offset), dy: 0)
+    }
+
     /// Where the glass highlight goes for `target` (content space).
     public static func highlightRect(for target: DropTarget, geometry: ScreenGeometry, style: LayoutStyle) -> CGRect? {
         switch target {

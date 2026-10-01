@@ -4,11 +4,14 @@ public nonisolated struct LayoutColumn: Hashable, Sendable, Identifiable {
     /// Fraction of the viewport width, 0.1...1.0 (daemon `set-viewport-pane-width`).
     public var width: Double
     public var root: SplitNode
+    /// Pinned to a viewport edge (daemon `columns[].sticky`); nil scrolls.
+    public var sticky: StickyColumn?
 
-    public init(id: ColumnID, width: Double = ColumnWidthPreset.defaultWidth, root: SplitNode) {
+    public init(id: ColumnID, width: Double = ColumnWidthPreset.defaultWidth, root: SplitNode, sticky: StickyColumn? = nil) {
         self.id = id
         self.width = width
         self.root = root
+        self.sticky = sticky
     }
 }
 
@@ -79,7 +82,9 @@ public nonisolated enum ScreenLayout: Hashable, Sendable {
         case let (.splits(x), .splits(y)):
             return x.hasSameShape(as: y)
         case let (.columns(x), .columns(y)):
-            return x.count == y.count && zip(x, y).allSatisfy { $0.id == $1.id && $0.root.hasSameShape(as: $1.root) }
+            return x.count == y.count && zip(x, y).allSatisfy {
+                $0.id == $1.id && $0.root.hasSameShape(as: $1.root)
+            }
         default:
             return false
         }
@@ -87,7 +92,28 @@ public nonisolated enum ScreenLayout: Hashable, Sendable {
 
     public func settingWidth(_ width: Double, for column: ColumnID) -> ScreenLayout {
         guard case let .columns(columns) = self else { return self }
-        return .columns(columns.map { $0.id == column ? LayoutColumn(id: $0.id, width: width, root: $0.root) : $0 })
+        return .columns(columns.map { entry in
+            guard entry.id == column else { return entry }
+            var entry = entry
+            entry.width = width
+            return entry
+        })
+    }
+
+    /// A copy with `column` made sticky (or scrolling for nil), keeping the
+    /// daemon's rules: another column on the same edge scrolls again.
+    public func settingSticky(_ sticky: StickyColumn?, for column: ColumnID) -> ScreenLayout {
+        return self
+        guard case let .columns(columns) = self else { return self }
+        return .columns(columns.map { entry in
+            var entry = entry
+            if entry.id == column {
+                entry.sticky = sticky
+            } else if let sticky, entry.sticky?.edge == sticky.edge {
+                entry.sticky = nil
+            }
+            return entry
+        })
     }
 }
 
