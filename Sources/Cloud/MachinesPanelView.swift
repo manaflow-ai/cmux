@@ -24,6 +24,9 @@ struct MachinesPanelView: View {
     /// it is starting, waiting for the extension approval, up, or failed.
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
+    /// The main workspace selection is the authority for the tree projection.
+    /// Keep this request window-local so another window cannot move this tree.
+    @State private var selectionReveal: CloudTreeRevealRequest?
     @State private var bannerDismissals: CloudBannerDismissalStore
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
@@ -100,6 +103,12 @@ struct MachinesPanelView: View {
 
     private var treeSource: CloudTreeMachineSource { .cloudWithDevicesSection }
 
+    private var selectedCloudIdentity: String? {
+        guard let workspace = tabManager?.selectedWorkspace,
+              let machineID = workspace.cloudVMID else { return nil }
+        return [machineID, workspace.cloudVMBinding?.remoteWorkspaceID ?? ""].joined(separator: "\u{1f}")
+    }
+
     private var treeSnapshot: SurfaceCatalogSnapshot {
         viewModel.visibleCatalog.applyingDeviceVisibility(
             includesCloud: includesCloud,
@@ -125,6 +134,8 @@ struct MachinesPanelView: View {
             }
         }
         .onAppear { syncPolling(for: authState) }
+        .onAppear { refreshSelectionReveal() }
+        .onChange(of: selectedCloudIdentity) { _, _ in refreshSelectionReveal() }
         .onChange(of: devicesModel.preferences?.discoveryEnabled) { _, _ in syncPolling(for: authState) }
         .onChange(of: cloudBetaEnabled) { _, _ in syncPolling(for: authState) }
         .onReceive(NotificationCenter.default.publisher(for: DeviceSurfaceProviderRegistry.revealDeviceNotification)) { _ in
@@ -160,6 +171,25 @@ struct MachinesPanelView: View {
             if devBackend.status?.isReady == true { viewModel.refresh() }
         }
         .accessibilityIdentifier("CloudMachinesPanel")
+    }
+
+    /// Project the selected workspace by stable machine/workspace identity.
+    /// Names are intentionally absent: duplicate workspace names are valid.
+    private func refreshSelectionReveal() {
+        guard let workspace = tabManager?.selectedWorkspace,
+              let machineID = workspace.cloudVMID else {
+            selectionReveal = nil
+            return
+        }
+        let machine = SurfaceMachineID.cloud(machineID)
+        let nodeID: String
+        if let remoteWorkspaceID = workspace.cloudVMBinding?.remoteWorkspaceID,
+           !remoteWorkspaceID.isEmpty {
+            nodeID = CloudTreeNodeBuilder.nodeID(workspace: remoteWorkspaceID, machine: machine)
+        } else {
+            nodeID = CloudTreeNodeBuilder.nodeID(machine: machine)
+        }
+        selectionReveal = CloudTreeRevealRequest(token: UUID(), nodeID: nodeID)
     }
 
     @ViewBuilder
@@ -458,7 +488,7 @@ struct MachinesPanelView: View {
             showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             canCreateCloudMachine: includesCloud,
             cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
-            reveal: devicesModel.revealRequest,
+            reveal: devicesModel.revealRequest ?? selectionReveal,
             creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
         )
         .accessibilityIdentifier("CloudMachinesTree")

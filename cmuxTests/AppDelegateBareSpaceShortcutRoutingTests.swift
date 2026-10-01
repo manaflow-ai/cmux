@@ -186,29 +186,26 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(window.frame.height, savedFrame.height, accuracy: 1)
     }
 
-    /// App-host test processes share the app's standard defaults, so a
-    /// 320-point fixture closed by an earlier process used to size this
-    /// process's launch window, and every window copied from it was too narrow
-    /// for a side-by-side split. The test-process reset must restore the
-    /// default size.
-    func testTestProcessResetIgnoresWindowGeometryPersistedByEarlierProcess() throws {
+    /// A 320-point fixture closed by an earlier app-host test process used to
+    /// size this process's launch window through the app's shared preferences
+    /// domain, and every window copied from it was too narrow for a
+    /// side-by-side split. The frame is planted in that shared domain the way
+    /// an earlier process saved it; this process's own domain must not see it.
+    func testWindowGeometrySavedByEarlierTestProcessDoesNotSizeNewWindow() throws {
         let previousShared = AppDelegate.shared
         let appDelegate = AppDelegate()
         defer { AppDelegate.shared = previousShared }
 
-        let defaults = UserDefaults.standard
-        let persistedGeometryKey = AppDelegate.debugPersistedWindowGeometryDefaultsKey
-        let previousPersistedGeometry = defaults.object(forKey: persistedGeometryKey)
+        let sharedDomain = try XCTUnwrap(Bundle.main.bundleIdentifier) as CFString
+        let persistedGeometryKey = AppDelegate.debugPersistedWindowGeometryDefaultsKey as CFString
+        let previousSharedGeometry = CFPreferencesCopyAppValue(persistedGeometryKey, sharedDomain)
         var windowId: UUID?
         defer {
             if let windowId {
                 closeWindow(withId: windowId)
             }
-            restoreDefaultsValue(
-                previousPersistedGeometry,
-                forKey: persistedGeometryKey,
-                defaults: defaults
-            )
+            CFPreferencesSetAppValue(persistedGeometryKey, previousSharedGeometry, sharedDomain)
+            CFPreferencesAppSynchronize(sharedDomain)
         }
 
         let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
@@ -227,9 +224,12 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
                 visibleFrame: SessionRectSnapshot(screen.visibleFrame)
             )
         )
-        defaults.set(try JSONEncoder().encode(payload), forKey: persistedGeometryKey)
-
-        AppDelegate.forgetPersistedWindowGeometryForTestProcess()
+        CFPreferencesSetAppValue(
+            persistedGeometryKey,
+            try JSONEncoder().encode(payload) as CFData,
+            sharedDomain
+        )
+        CFPreferencesAppSynchronize(sharedDomain)
 
         let createdWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
         windowId = createdWindowId

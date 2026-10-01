@@ -2366,8 +2366,7 @@ private struct NotificationsPopoverView: View {
     @AppStorage("cmux.notifications.popover.height")
     private var savedHeight: Double = Double(NotificationsPopoverMetrics.defaultHeight)
 
-    // Live size while the user drags the resize handle. We avoid writing through @AppStorage
-    // on every mouseDragged event because each write hits UserDefaults and posts
+    // Avoid writing through @AppStorage while dragging because each write hits UserDefaults and posts
     // UserDefaults.didChangeNotification, which wakes up every observer in the app.
     @State private var liveWidth: CGFloat?
     @State private var liveHeight: CGFloat?
@@ -2436,8 +2435,7 @@ private struct NotificationsPopoverView: View {
         return min(upper, max(NotificationsPopoverMetrics.minHeight, raw))
     }
 
-    // Invisible bottom-right corner resize region. NSPopover has no native resize chrome and
-    // there's no first-class SwiftUI resize API for it. SwiftUI's `DragGesture` reports
+    // AppKit resize tracking avoids SwiftUI's moving coordinate space. SwiftUI's `DragGesture` reports
     // translations in a local coordinate space that is literally being resized under the
     // cursor as the user drags, which produces dimension oscillation. We use an AppKit
     // representable that tracks `NSEvent.mouseLocation` in stable global screen coordinates.

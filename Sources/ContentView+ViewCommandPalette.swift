@@ -91,6 +91,45 @@ extension ContentView {
         )
     }
 
+    /// Sets the browser toggle states that palette titles reflect.
+    static func setCommandPaletteBrowserToggleContext(
+        for browserPanel: BrowserPanel,
+        in snapshot: inout CommandPaletteContextSnapshot
+    ) {
+        snapshot.setBool(CommandPaletteContextKeys.panelBrowserFocusModeActive, browserPanel.isBrowserFocusModeActive)
+        snapshot.setBool(CommandPaletteContextKeys.panelBrowserKeepsPageActive, browserPanel.keepsPageActiveWhileHidden)
+    }
+
+    static func appendBrowserKeepPageActiveCommandContribution(
+        to contributions: inout [CommandPaletteCommandContribution],
+        panelSubtitle: @escaping (CommandPaletteContextSnapshot) -> String
+    ) {
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.browserKeepPageActive",
+                title: { context in
+                    context.bool(CommandPaletteContextKeys.panelBrowserKeepsPageActive)
+                        ? String(localized: "command.browserKeepPageActive.disable.title", defaultValue: "Allow Page to Unload While Hidden")
+                        : String(localized: "command.browserKeepPageActive.enable.title", defaultValue: "Keep Page Active While Hidden")
+                },
+                subtitle: panelSubtitle,
+                keywords: ["browser", "keep", "active", "pin", "memory", "unload", "discard", "background", "hidden"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+            )
+        )
+    }
+
+    func registerBrowserKeepPageActiveCommandHandler(
+        _ registry: inout CommandPaletteHandlerRegistry,
+        performBrowserAction: @escaping (BrowserAction) -> Bool
+    ) {
+        registry.register(commandId: "palette.browserKeepPageActive") {
+            if !performBrowserAction(.toggleKeepPageActive) {
+                NSSound.beep()
+            }
+        }
+    }
+
     func registerViewCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         registry.register(commandId: "palette.triggerFlash") {
             tabManager.triggerFocusFlash()
