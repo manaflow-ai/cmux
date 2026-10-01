@@ -24,6 +24,9 @@ struct CommandPaletteCloudCapabilityPolicyTests {
             policy.capability(for: "palette.cloud.fork") == .cloudOnly
         )
         #expect(
+            policy.capability(for: "palette.cloud.restore") == .shared
+        )
+        #expect(
             policy.capability(for: "palette.cloud.newMachine") == .shared
         )
         #expect(
@@ -35,6 +38,9 @@ struct CommandPaletteCloudCapabilityPolicyTests {
         #expect(
             policy.capability(for: "palette.terminalOpenDirectory.finder") == .localOnly
         )
+        #expect(
+            policy.capability(for: "palette.openTerminalChatView") == .localOnly
+        )
     }
 
     /// The audited sets stay explicit so a new palette action cannot silently drift.
@@ -43,7 +49,6 @@ struct CommandPaletteCloudCapabilityPolicyTests {
         let cloudOnly = [
             "palette.cloud.fork",
             "palette.cloud.snapshot",
-            "palette.cloud.restore",
             "palette.cloud.promoteTemplate",
             "palette.cloud.status",
             "palette.cloud.ports",
@@ -68,6 +73,7 @@ struct CommandPaletteCloudCapabilityPolicyTests {
             "palette.browserSplitDown",
             "palette.terminalSplitBrowserRight",
             "palette.terminalSplitBrowserDown",
+            "palette.openTerminalChatView",
             "palette.terminalOpenDirectory.finder",
         ]
 
@@ -75,6 +81,7 @@ struct CommandPaletteCloudCapabilityPolicyTests {
         #expect(localOnly.allSatisfy { policy.capability(for: $0) == .localOnly })
         #expect(policy.capability(for: "palette.newTerminalTab") == .shared)
         #expect(policy.capability(for: "palette.browserBack") == .shared)
+        #expect(policy.capability(for: "palette.cloud.restore") == .shared)
     }
 
     /// Context gating allows only capabilities valid for the selected workspace.
@@ -117,6 +124,30 @@ struct CommandPaletteCloudCapabilityPolicyTests {
         #expect(
             policy.allows(
                 commandId: "palette.browserSplitRight",
+                context: localContext
+            )
+        )
+        #expect(
+            policy.allows(
+                commandId: "palette.cloud.restore",
+                context: localContext
+            )
+        )
+        #expect(
+            policy.allows(
+                commandId: "palette.cloud.restore",
+                context: cloudContext
+            )
+        )
+        #expect(
+            !policy.allows(
+                commandId: "palette.openTerminalChatView",
+                context: cloudContext
+            )
+        )
+        #expect(
+            policy.allows(
+                commandId: "palette.openTerminalChatView",
                 context: localContext
             )
         )
