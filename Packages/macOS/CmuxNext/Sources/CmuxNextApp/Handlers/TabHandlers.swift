@@ -52,7 +52,7 @@ enum TabHandlers {
             } else if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
                 pane.newBrowserTab(url: ctx.services.cache.existingBrowser(id.rawValue)?.tab.state.url)
             } else if id.rawValue.hasPrefix(LocalAgentTab.prefix) {
-                pane.newAgentTab()
+                pane.duplicateAgentTab(id.rawValue)
             } else {
                 pane.newTerminalTab(cwd: pane.tab(id)?.cwd)
             }
