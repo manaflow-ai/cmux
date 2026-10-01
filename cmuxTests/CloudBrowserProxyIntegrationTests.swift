@@ -43,14 +43,16 @@ struct CloudBrowserProxyIntegrationTests {
         defer { server.stop() }
 
         let clock = CloudBrowserProxyManualClock()
+        let probeResult = CloudLinkFirstValue<Bool>()
         let probe = Task {
-            try await CloudBrowserRouting.desktopIsReachable(
+            let result = (try? await CloudBrowserRouting.desktopIsReachable(
                 endpoint: server.endpoint,
                 address: server.address,
                 port: 8000,
                 timeout: .milliseconds(200),
                 clock: clock
-            )
+            )) ?? false
+            probeResult.resolve(result)
         }
         defer { probe.cancel() }
 
@@ -62,15 +64,7 @@ struct CloudBrowserProxyIntegrationTests {
         guard deadlineParked == true else { return }
         clock.advance(by: .milliseconds(200))
 
-        let completed = await withTaskGroup(of: Bool?.self) { group in
-            group.addTask { try? await probe.value }
-            group.addTask {
-                try? await Task.sleep(for: .seconds(2))
-                return nil
-            }
-            defer { group.cancelAll() }
-            return await group.next() ?? nil
-        }
+        let completed = await CloudBrowserProxyTestDeadline.value(probeResult, timeout: .seconds(2))
         #expect(completed == false, "The readiness deadline must release the stalled receive")
     }
 
