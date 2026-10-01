@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import WebKit
@@ -38,6 +39,33 @@ import WebKit
         _ = await full.model.respond(to: .framePacing(missed))
         #expect(!adaptive.rendersAtFullRate)
         #expect(full.rendersAtFullRate)
+    }
+
+    /// WebKit reads the rate only when the page's visibility changes, so
+    /// setting it on a live page did nothing until the pane was hidden and
+    /// shown. The pane now re-shows the web view itself, under a snapshot
+    /// of the page so nothing visibly blinks.
+    @Test func aLiveRateChangeReShowsThePageUnderASnapshot() async throws {
+        let pane = try #require(AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost()), source: .bundled(page)))
+        defer { pane.close() }
+        guard pane.webView.configuration.preferences.isWebKitFeatureEnabled(key) != nil else { return }
+        pane.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        pane.snapshotPage = { NSImage(size: NSSize(width: 400, height: 300)) }
+        var steps: [(hidden: Bool, covered: Bool)] = []
+        pane.pause = { [unowned pane] _ in
+            steps.append((pane.webView.isHidden, pane.subviews.contains { $0 is NSImageView }))
+        }
+        pane.rendersAtFullRate = true
+        await pane.rateReapply?.value
+        #expect(steps.first?.hidden == true)
+        #expect(steps.allSatisfy(\.covered))
+        #expect(!pane.webView.isHidden)
+        #expect(!pane.subviews.contains { $0 is NSImageView })
+        // Setting the rate it already has changes nothing.
+        steps = []
+        pane.rendersAtFullRate = true
+        await pane.rateReapply?.value
+        #expect(steps.isEmpty)
     }
 
     @Test func anUnknownFeatureIsLeftAlone() {

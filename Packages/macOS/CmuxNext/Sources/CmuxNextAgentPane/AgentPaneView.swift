@@ -108,6 +108,13 @@ public final class AgentPaneView: NSView {
         set { webView.configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: !newValue) }
     }
 
+    /// The re-apply of the last rate change, while it runs.
+    private(set) var rateReapply: Task<Void, Never>?
+    /// An image of the page as shown (tests set it).
+    var snapshotPage: () async -> NSImage? = { nil }
+    /// Waits out the re-apply's steps (tests set it).
+    var pause: (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
         webView.configuration.userContentController.removeScriptMessageHandler(forName: AgentPaneRequest.handlerName, contentWorld: .page)
