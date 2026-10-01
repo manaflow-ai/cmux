@@ -54,3 +54,40 @@ if (read.model !== "m1" || read.effort !== "high" || read.permissionMode !== "pl
 }
 
 console.log("options store assertions passed");
+
+// Embedded browser storage can reject either property access or a write.
+// These are defaults used by the live composer, not injected healthy storage.
+const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+try {
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    get() { throw new DOMException("Storage access denied", "SecurityError"); },
+  });
+  if (Object.keys(readStoredProviderOptions("denied-storage")).length) {
+    throw new Error("denied storage should start with empty options");
+  }
+  updateStoredProviderOption("denied-storage", "permissionMode", "plan", options("m1"));
+  if (readStoredProviderOptions("denied-storage").permissionMode !== "plan") {
+    throw new Error("permission selection should survive denied storage within the page");
+  }
+
+  const fullStorage = {
+    getItem() { return JSON.stringify({ version: 2, model: "m1", harness: {}, models: { m1: { effort: "high" } } }); },
+    setItem() { throw new DOMException("Storage is full", "QuotaExceededError"); },
+    removeItem() { throw new DOMException("Storage is full", "QuotaExceededError"); },
+  };
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: fullStorage });
+  const selected = updateStoredProviderOption("full-storage", "permissionMode", "plan", options("m1"));
+  if (selected.effort !== "high" || selected.permissionMode !== "plan") {
+    throw new Error("a rejected preference write should preserve both existing and selected options");
+  }
+  const restored = readStoredProviderOptions("full-storage");
+  if (restored.effort !== "high" || restored.permissionMode !== "plan") {
+    throw new Error("a remounted composer should read the selection from memory when disk writes fail");
+  }
+} finally {
+  if (originalStorage) Object.defineProperty(globalThis, "localStorage", originalStorage);
+  else Reflect.deleteProperty(globalThis, "localStorage");
+}
+
+console.log("options store storage-failure assertions passed");

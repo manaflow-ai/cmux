@@ -65,7 +65,7 @@ struct MachineListStatusPresentation {
             subtitle = String(localized: "machines.offline.subtitle", defaultValue: "Cloud machines load when this Mac is back online.")
             action = nil
             isFailure = false
-            staleTitle = String(localized: "machines.offline.stale", defaultValue: "Offline \u{2014} showing last known")
+            staleTitle = String(localized: "machines.offline.stale", defaultValue: "Offline — showing last known")
         case .reconnecting:
             symbolName = nil
             title = String(localized: "machines.reconnecting.title", defaultValue: "Reconnecting to Cloud…")
@@ -83,7 +83,7 @@ struct MachineListStatusPresentation {
             )
             action = .retry
             isFailure = true
-            staleTitle = String(localized: "machines.listUnavailable.stale", defaultValue: "Machine list unavailable \u{2014} showing last known")
+            staleTitle = String(localized: "machines.listUnavailable.stale", defaultValue: "Machine list unavailable — showing last known")
         case .failed(.sessionRejected):
             // HTTP 401: retrying can never fix it, so route to a fresh sign-in.
             symbolName = "person.crop.circle.badge.exclamationmark"
@@ -94,7 +94,7 @@ struct MachineListStatusPresentation {
             )
             action = .signInAgain
             isFailure = true
-            staleTitle = String(localized: "machines.sessionRejected.stale", defaultValue: "Sign-in needs a refresh, showing last known")
+            staleTitle = String(localized: "machines.sessionRejected.stale", defaultValue: "Sign-in needs a refresh — showing last known")
         case .failed(.requiresPro):
             // HTTP 402: the fix is an upgrade, not a retry and not a sign-in.
             symbolName = "sparkles"
@@ -105,7 +105,7 @@ struct MachineListStatusPresentation {
             )
             action = .upgrade
             isFailure = true
-            staleTitle = String(localized: "machines.requiresPro.stale", defaultValue: "Cloud machines need cmux Pro, showing last known")
+            staleTitle = String(localized: "machines.requiresPro.stale", defaultValue: "Cloud machines need cmux Pro — showing last known")
         }
     }
 }
@@ -197,15 +197,22 @@ struct MachinesListStatusEmptyState: View {
 /// The toolbar's one-line status while cached machines stay on screen.
 struct MachinesListStatusToolbarRow: View {
     let status: MachineListStatus
-    let error: String?
+    /// Stable dismissal identity only; upstream details are never presented.
+    let dismissalSignature: String?
     let onDismiss: (String) -> Void
     let perform: (MachineListStatusPresentation.Action) -> Void
 
+    /// Safe next steps shared by hover help and Copy Error.
+    var errorMessage: String? {
+        let presentation = MachineListStatusPresentation(status)
+        return presentation.isFailure ? (presentation.subtitle ?? presentation.title) : nil
+    }
+
     var body: some View {
         let presentation = MachineListStatusPresentation(status)
-        // Only a failure is orange, carries the raw error on hover, and can be
-        // dismissed. Waiting and reconnecting stay quiet.
-        let failure = presentation.isFailure ? error : nil
+        // Only a failure is orange, carries safe recovery copy on hover, and
+        // can be dismissed. Upstream response details stay out of the view.
+        let failure = presentation.isFailure ? dismissalSignature : nil
         let row = HStack(spacing: 5) {
             if let symbolName = presentation.symbolName {
                 Image(systemName: symbolName)
@@ -232,8 +239,8 @@ struct MachinesListStatusToolbarRow: View {
         // must not run for waiting or reconnecting.
         if let failure {
             row
-                .help(failure)
-                .cloudErrorCopyMenu(failure)
+                .help(errorMessage ?? presentation.title)
+                .cloudErrorCopyMenu(errorMessage)
             CloudBannerDismissButton { onDismiss(failure) }
         } else {
             row

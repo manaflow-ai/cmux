@@ -580,6 +580,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored let taskModelCatalogClient: MobileTaskModelCatalogClient
     /// Mac/provider model responses observed by the task composer.
     var taskModelCache: [MobileTaskModelCacheKey: MobileTaskModelCacheEntry] = [:]
+    @ObservationIgnored var taskModelRefreshRequests: [MobileTaskModelCacheKey: MobileTaskModelRefreshRequest] = [:]
+    @ObservationIgnored var taskModelSuccessfulConnections: [MobileTaskModelCacheKey: String] = [:]
+    @ObservationIgnored var taskModelPrefetchTasks:
+        [MobileTaskModelPrefetchKey: Task<MobileTaskModelRefreshOutcome, Never>] = [:]
+    @ObservationIgnored var taskModelPrefetchTaskTokens: [MobileTaskModelPrefetchKey: UUID] = [:]
+    @ObservationIgnored var taskModelPrefetchWorkers: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored var taskModelPrefetchDesiredTargets:
+        [MobileTaskModelPrefetchKey: MobileTaskModelPrefetchTarget] = [:]
+    @ObservationIgnored var taskModelPrefetchCompletedKeys: Set<MobileTaskModelPrefetchKey> = []
+    @ObservationIgnored var taskModelPrefetchFailedKeys: Set<MobileTaskModelPrefetchKey> = []
+    @ObservationIgnored var taskModelPrefetchCatalog: MobileTaskModelPrefetchCatalog?
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
@@ -2243,6 +2254,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         notificationFeedOpenTask?.cancel()
         teamScopeCleanupTask?.cancel()
         cancelAllTerminalReplayTasks()
+        for request in taskModelRefreshRequests.values { request.cancel() }
+        for task in taskModelPrefetchTasks.values { task.cancel() }
+        for worker in taskModelPrefetchWorkers.values { worker.cancel() }
+        taskModelPrefetchCatalog?.cancel()
         teardownSecondaryMacSubscriptions()
         let terminalLaneCoordinator = terminalLaneCoordinator
         Task { await terminalLaneCoordinator?.deactivateAll() }
@@ -2348,6 +2363,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             enqueueDraftOperation { await draftStore.clearAllDrafts() }
         }
         taskTemplateStore?.clearAllUserData()
+        for request in taskModelRefreshRequests.values { request.cancel() }
+        taskModelRefreshRequests.removeAll()
+        for task in taskModelPrefetchTasks.values { task.cancel() }
+        taskModelPrefetchTasks.removeAll()
+        taskModelPrefetchTaskTokens.removeAll()
+        for worker in taskModelPrefetchWorkers.values { worker.cancel() }
+        taskModelPrefetchWorkers.removeAll()
+        taskModelPrefetchDesiredTargets.removeAll()
+        taskModelPrefetchCompletedKeys.removeAll()
+        taskModelPrefetchFailedKeys.removeAll()
+        taskModelPrefetchCatalog?.cancel()
+        taskModelPrefetchCatalog = nil
+        taskModelSuccessfulConnections.removeAll()
         taskModelCache.removeAll()
         // Drop unflushed keystroke snapshots too: an armed flush that runs
         // before the wipe would only write text the wipe then deletes, but the
@@ -3774,6 +3802,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // workspace event.
             if oldValue != pairedMacs {
                 recomputeDerivedWorkspaceState()
+                pruneTaskModelStateToPairedMacs()
             }
             guard oldValue.count != pairedMacs.count else { return }
             analytics.setSuperProperties(["paired_mac_count": .int(pairedMacs.count)])

@@ -44,9 +44,6 @@ actor TestDeadlineClock: UpdateClock {
         fireDeadlines()
     }
 
-    /// Whether a task is currently waiting on a deadline.
-    var hasParkedDeadline: Bool { !parked.isEmpty }
-
     private func cancelParked(_ id: UUID) {
         parked.removeValue(forKey: id)?.resume(throwing: CancellationError())
     }
