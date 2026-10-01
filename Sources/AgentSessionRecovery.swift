@@ -91,6 +91,7 @@ struct AgentSessionRecovery: Sendable {
                     kind: kind.rawValue,
                     sessionId: record.sessionId,
                     workspaceId: record.workspaceId,
+                    surfaceId: record.surfaceId,
                     cwd: record.cwd,
                     launchCommand: Self.trustedLaunchCommand(record.launchCommand, kind: kind),
                     pid: record.pid,

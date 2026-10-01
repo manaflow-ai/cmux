@@ -2513,12 +2513,17 @@ final class ClaudeHookSessionStore {
         if let deadline, Date.now >= deadline {
             throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
         }
+        let sessionIdsBefore = Set(state.sessions.keys)
         let result = try body(&state)
         if let deadline, Date.now >= deadline {
             throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
         }
         if persist {
-            try saveUnlocked(state, deadline: deadline)
+            // Crash recovery finds a session's panel and launch here. Flush
+            // the write that first records a session so it survives power
+            // loss; later per-turn writes skip the flush to keep hooks fast.
+            let recordsNewSession = state.sessions.keys.contains { !sessionIdsBefore.contains($0) }
+            try saveUnlocked(state, deadline: deadline, durable: recordsNewSession)
         }
         return result
     }
@@ -2727,7 +2732,7 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    private func saveUnlocked(_ state: ClaudeHookSessionStoreFile, deadline: Date? = nil) throws {
+    private func saveUnlocked(_ state: ClaudeHookSessionStoreFile, deadline: Date? = nil, durable: Bool = false) throws {
         if let deadline, Date.now >= deadline {
             throw CLIError(message: "Claude hook state deadline exceeded: \(statePath)")
         }
@@ -2749,6 +2754,9 @@ final class ClaudeHookSessionStore {
         ]) else {
             throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: statePath])
         }
+        if durable {
+            Self.flushToDisk(path: tempURL.path, flags: O_WRONLY)
+        }
         if let deadline, Date.now >= deadline {
             try? fileManager.removeItem(at: tempURL)
             throw CLIError(message: "Claude hook state deadline exceeded: \(statePath)")
@@ -2764,6 +2772,19 @@ final class ClaudeHookSessionStore {
             throw POSIXError(code)
         }
         try? fileManager.setAttributes([.posixPermissions: NSNumber(value: Int16(0o600))], ofItemAtPath: stateURL.path)
+        if durable {
+            Self.flushToDisk(path: parentURL.path, flags: O_RDONLY)
+        }
+    }
+
+    /// Best-effort `F_FULLFSYNC` (falling back to `fsync`) of a file or directory.
+    private static func flushToDisk(path: String, flags: Int32) {
+        let descriptor = open(path, flags | O_CLOEXEC)
+        guard descriptor >= 0 else { return }
+        if fcntl(descriptor, F_FULLFSYNC) != 0 {
+            _ = fsync(descriptor)
+        }
+        Darwin.close(descriptor)
     }
 
     private func pruneExpired(_ state: inout ClaudeHookSessionStoreFile) {

@@ -331,7 +331,9 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
             if let existingData = try? Data(contentsOf: fileURL), existingData == data {
                 return true
             }
-            try data.write(to: fileURL, options: .atomic)
+            // Restore after a crash or power loss reads this file; it must
+            // be on disk, not only in the page cache.
+            try DurableFileWriter.write(data, to: fileURL)
             return true
         } catch {
             return false
