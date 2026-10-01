@@ -46,6 +46,7 @@ struct PaneResizeShortcutTests {
             workspace.bonsplitController.setContainerFrame(
                 CGRect(x: 0, y: 0, width: 1000, height: 1000)
             )
+            let controller = workspace.bonsplitController
             let first = try #require(workspace.focusedPanelId)
             let horizontal = direction == "left" || direction == "right"
             let second = try #require(workspace.newTerminalSplit(

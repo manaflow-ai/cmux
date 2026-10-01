@@ -20,6 +20,12 @@ enum CmuxTuiRemoteRouting {
         }
     }
 
+    /// Seconds between `vm.status` polls; invalid overrides use the safe cadence.
+    static func vmReadyPollInterval(environment: [String: String] = ProcessInfo.processInfo.environment) -> TimeInterval {
+        guard let raw = environment["CMUX_VM_WAIT_POLL_SECONDS"], let parsed = TimeInterval(raw), parsed.isFinite, parsed >= 0.01, parsed <= 3 else { return 3 }
+        return parsed
+    }
+
     static func isAgentSubcommand(_ raw: String?) -> Bool {
         raw?.lowercased() == "agent"
     }
