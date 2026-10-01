@@ -33,9 +33,10 @@ struct MiscActionBindingCoverageTests {
         let reasons = Dictionary(uniqueKeysWithValues: cloud.map { ($0, registry.unavailableReason(for: $0)) })
         #expect(reasons["cloudDiagnostics"]! == nil)
         #expect(reasons.allSatisfy { $0.value != MiscHandlerStrings.cloud })
-        let unported: [ActionID: String] = ["palette.cloud.promoteTemplate": CloudStrings.promoteTemplate, "palette.mobileConnect": CloudStrings.mobilePairing]
+        let unported: [ActionID: String] = ["palette.mobileConnect": CloudStrings.mobilePairing]
         for (id, reason) in unported { #expect(reasons[id]! == reason) }
-        for id: ActionID in ["newCloudMachine", "cloudKillMachine", "palette.cloud.status", "palette.cloud.tools", "palette.cloud.handoff"] {
+        for id: ActionID in ["newCloudMachine", "cloudKillMachine", "palette.cloud.status", "palette.cloud.tools", "palette.cloud.handoff",
+                             "palette.cloud.promoteTemplate"] {
             #expect([CloudStrings.noClient, CloudStrings.signInFirst, CloudStrings.localBackend].contains(reasons[id]!))
         }
     }
