@@ -726,14 +726,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        XCTAssertEqual(
-            CMUXCLI.vmReadyPollInterval(environment: ["CMUX_VM_WAIT_POLL_SECONDS": "3600"]),
-            3,
-            "oversized poll overrides must fall back to the command-safe cadence"
-        )
-        // The mock answers instantly, so keep the process-level check on a
-        // valid short override rather than waiting out the production cadence.
-        environment["CMUX_VM_WAIT_POLL_SECONDS"] = "0.05"
+        // Exercise the shipped CLI's bounded override. The mock answers instantly,
+        // so the fallback cadence allows the second poll before this deadline.
+        environment["CMUX_VM_WAIT_POLL_SECONDS"] = "3600"
 
         let result = runProcess(
             executablePath: cliPath,
