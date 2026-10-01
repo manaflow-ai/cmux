@@ -51,7 +51,7 @@ private actor RecordingHost: AgentPaneHostProviding {
 
     @Test func aMissingDaemonFailsWithoutIO() async throws {
         let reply = await AgentPaneModel(host: AcpmuxHost(environment: nil)).respond(to: .ready)
-        #expect((reply["error"] as? [String: Any])?["userMessage"] as? String == AgentPaneStrings.message(for: AgentPaneHostError.acpmuxNotFound))
+        #expect((reply["error"] as? [String: Any])?["userMessage"] as? String == AgentPaneHostError.userMessage(for: AgentPaneHostError.acpmuxNotFound))
     }
 
     @Test func unsupportedRequestsAreRefused() async {

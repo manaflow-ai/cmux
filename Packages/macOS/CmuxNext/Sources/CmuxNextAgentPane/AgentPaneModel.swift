@@ -32,7 +32,7 @@ public final class AgentPaneModel {
                 lastError = nil
                 return AgentPaneReply.handshake(handshake)
             } catch {
-                let message = AgentPaneStrings.message(for: error)
+                let message = AgentPaneHostError.userMessage(for: error)
                 lastError = message
                 return AgentPaneReply.failure(code: "host_unavailable", message: message)
             }

@@ -25,7 +25,7 @@ enum AgentHandlers {
         }
         registry.bind("palette.computerUse.accessibility", run: { _ in try openPrivacyPane("Privacy_Accessibility", context) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in try openPrivacyPane("Privacy_ScreenCapture", context) })
-        AgentPaneActions.bind(into: registry) { invocation in
+        registry.bindAgentPane { invocation in
             guard let pane = context.scope(invocation).pane else { return context.refuse(MiscHandlerStrings.noPane) }
             pane.newAgentTab()
         }

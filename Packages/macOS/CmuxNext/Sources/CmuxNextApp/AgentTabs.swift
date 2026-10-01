@@ -41,7 +41,7 @@ final class AgentTabStore {
     func tabIDs(in paneKey: String) -> [String] { tabsByPane[paneKey] ?? [] }
 
     func stripItem(_ key: String) -> StripTabItem {
-        StripTabItem(id: StripTabID(key), title: AgentPaneStrings.tabTitle, subtitle: nil,
+        StripTabItem(id: StripTabID(key), title: AgentPaneModel.tabTitle, subtitle: nil,
                      icon: .symbol("bubble.left.and.text.bubble.right"), isBusy: false)
     }
 
