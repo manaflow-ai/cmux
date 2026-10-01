@@ -108,6 +108,17 @@ import SwiftUI
         )
 
         #expect(workspace.focusedPanelId == localPanelID)
+
+        // Pointer activation must converge the visible pane selection before
+        // the portal's asynchronous callback gets a chance to run.
+        let pointerView = GhosttyNSView(frame: .zero)
+        pointerView.terminalSurface = cloudPanel.surface
+        pointerView.activateContainerFocusFromPointerDown()
+        #expect(workspace.focusedPanelId == cloudPanel.id)
+        #expect(workspace.isFocusedTerminalInputSurface(cloudPanel.id))
+
+        workspace.focusPanel(localPanelID)
+        #expect(workspace.focusedPanelId == localPanelID)
         cloudPanel.surface.onExplicitInput?()
         #expect(workspace.focusedPanelId == cloudPanel.id)
         cloudPanel.surface.onExplicitInput?()
