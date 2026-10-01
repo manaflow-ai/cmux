@@ -47,6 +47,15 @@ extension TerminalController {
     ) async -> V2CallResult {
         let pendingOnly = params["pending_only"] as? Bool ?? false
         let workstreamRevision = FeedCoordinator.shared.store?.revision ?? 0
+        // Keep the preexisting wire revision namespace for phones that may
+        // still have a combined revision cached from an older Mac. This is
+        // only a compatibility lane; notification history never becomes a
+        // Feed row and never invalidates the Agent Feed.
+        let revision = FeedCoordinator.combinedMobileFeedRevision(
+            workstream: workstreamRevision,
+            notifications: TerminalNotificationStore.shared
+                .notificationFeedHistory.revision
+        )
         let items = FeedCoordinator.shared.snapshot(pendingOnly: pendingOnly)
 
         // The phone Feed is a decision surface, not a raw event log: session
@@ -88,11 +97,11 @@ extension TerminalController {
 
         let fittedRows = await Self.mobileFeedRowsFittingFrame(
             responseID: responseID,
-            revision: workstreamRevision,
+            revision: revision,
             rows: rows
         )
         return .ok([
-            "revision": workstreamRevision,
+            "revision": revision,
             "items": fittedRows,
         ])
     }
