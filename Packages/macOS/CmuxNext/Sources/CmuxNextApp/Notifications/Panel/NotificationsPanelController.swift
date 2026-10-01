@@ -97,7 +97,6 @@ final class NotificationsPanelController {
         let inset = Metrics.space3
         let origin = NSPoint(x: content.maxX - size.width - inset, y: content.maxY - size.height - inset)
         let frame = window.convertToScreen(NSRect(origin: origin, size: size))
-        panel.appearance = window.effectiveAppearance
         panel.setFrame(frame, display: true)
     }
 
@@ -132,8 +131,7 @@ final class NotificationsPanelController {
                 let entries = try await connection.notificationLedger()
                 await MainActor.run { self?.apply(entries, generation: generation) }
             } catch {
-                // The failure is logged; the panel shows the empty state rather than nothing.
-                await MainActor.run { self?.apply([], generation: generation) }
+                await MainActor.run { self?.failed(generation: generation) }
                 throw error
             }
         }
@@ -146,6 +144,14 @@ final class NotificationsPanelController {
         let fresh = NotificationsPanelRow.make(entries) { notifications.locate(surface: $0, in: store)?.workspace.displayName }
         selection.reconcile(old: rows, new: fresh)
         rows = fresh
+        loaded = true
+        render()
+    }
+
+    /// A ledger read failed (and was logged): the rows shown stay, and a
+    /// first read shows the empty state rather than nothing.
+    private func failed(generation: Int) {
+        guard generation == self.generation, isShown, !loaded else { return }
         loaded = true
         render()
     }
