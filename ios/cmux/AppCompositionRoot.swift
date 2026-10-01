@@ -399,6 +399,9 @@ final class AppCompositionRoot {
         let emitter = analytics.emitter
         switch phase {
         case .active:
+            #if DEBUG
+            MobileLatencyTrace.stamp("scene.active")
+            #endif
             analytics.terminalLatencyReporter.setForeground(true)
             analytics.terminalTraceReporter.setForeground(true)
             diagnosticLog.recordAppEvent(.appForegrounded)

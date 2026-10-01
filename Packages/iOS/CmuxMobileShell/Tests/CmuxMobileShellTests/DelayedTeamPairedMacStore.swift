@@ -21,6 +21,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
     private var blockers: [String: [(id: UUID, continuation: CheckedContinuation<Void, Never>)]] = [:]
     private var upsertCount = 0
     private var loadAllCount = 0
+    private var activeMacCount = 0
     private var recordReplacement: (
         afterLoadAllCount: Int,
         teamKey: String,
@@ -218,7 +219,10 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
         return result
     }
 
-    func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? { nil }
+    func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? {
+        activeMacCount += 1
+        return nil
+    }
     func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         let key = teamID ?? ""
         recordsByTeam[key] = recordsByTeam[key]?.map { mac in
@@ -401,6 +405,10 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
 
     func currentLoadAllCount() -> Int {
         loadAllCount
+    }
+
+    func currentActiveMacCount() -> Int {
+        activeMacCount
     }
 
     func failNextLoadAll(_ count: Int = 1) {

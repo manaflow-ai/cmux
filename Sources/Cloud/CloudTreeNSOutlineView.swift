@@ -28,6 +28,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     func endDragDestination(_ info: any NSDraggingInfo) {
         guard isCurrentDragDestination(info) else { return }
         clearDragDestination(sequence: info.draggingSequenceNumber)
+        reorderPresentation.clear(sequence: info.draggingSequenceNumber)
         guard let source = info.draggingSource as? CloudTreeNSOutlineView, source === self,
               let session = activeNativeDragSession,
               session.draggingSequenceNumber == info.draggingSequenceNumber,

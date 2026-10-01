@@ -81,6 +81,7 @@ extension BrowserPanel {
         // committed, so their session state would bring back the wrong page.
         if navigationDelegate?.activeErrorPageDisplayURL == nil,
            pendingRecoveryURL == nil,
+           let documentURL,
            BrowserDiscardRestoreStrategy.canRestoreSessionState(for: documentURL),
            let restoreURL,
            BrowserFormStateSnapshot.isSameDocument(
