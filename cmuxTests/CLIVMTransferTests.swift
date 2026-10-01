@@ -734,13 +734,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        XCTAssertEqual(
-            VMReadyPollInterval.resolve(environment: ["CMUX_VM_WAIT_POLL_SECONDS": "3600"]),
-            3,
-            "oversized poll overrides must fall back to the bounded production cadence"
-        )
-        // Shared poll interval tests cover parser fallback; this process check uses
-        // a valid short override so the instant mock avoids production cadence.
+        // CLIVMReadyPollIntervalTests covers parser fallback; this process check
+        // uses a valid short override so the instant mock avoids production cadence.
         environment["CMUX_VM_WAIT_POLL_SECONDS"] = "0.05"
 
         let result = runProcess(
