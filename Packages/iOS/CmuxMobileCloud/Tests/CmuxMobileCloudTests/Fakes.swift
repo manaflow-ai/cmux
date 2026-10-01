@@ -277,6 +277,7 @@ final class FakeTerminalSession: CloudTerminalSession, @unchecked Sendable {
     var workspaces: [CloudWorkspaceSummary] = []
     var loadCatalogCalls = 0
     var createTerminalGate: (started: TestSignal, release: TestSignal)?
+    var attachGate: (started: TestSignal, release: TestSignal)?
     var attachFailure: (any Error)?
     var outputHandler: (@Sendable (CloudTerminalOutputEvent) -> Void)? {
         lock.withLock { _ in handlerBox.withLock { $0 } }
@@ -303,6 +304,10 @@ final class FakeTerminalSession: CloudTerminalSession, @unchecked Sendable {
     }
 
     func attach(terminalID: String, output: @escaping @Sendable (CloudTerminalOutputEvent) -> Void) async throws {
+        if let attachGate {
+            await attachGate.started.signal()
+            await attachGate.release.wait()
+        }
         if let attachFailure { throw attachFailure }
         lock.withLock { $0.attached = terminalID }
         handlerBox.withLock { $0 = output }

@@ -469,6 +469,34 @@ import Testing
         #expect(connector.session.loadCatalogCalls == 0)
     }
 
+    @Test func closeInvalidatesAnInFlightTerminalAttach() async throws {
+        let connector = FakeConnector()
+        let started = TestSignal()
+        let release = TestSignal()
+        connector.session.attachGate = (started, release)
+        let controller = makeController(connector: connector)
+        controller.sectionDidAppear()
+        await settle { if case .ready = controller.tunnel { return true } else { return false } }
+        let connection = try #require(controller.connection(for: CloudMachine(id: "vm1", provider: "freestyle", status: "running")))
+        _ = try await connection.loadCatalog()
+
+        let attachTask = Task {
+            try await connection.attach(terminalID: "t1") { _ in }
+        }
+        await started.wait()
+        connection.close()
+        await release.signal()
+
+        do {
+            _ = try await attachTask.value
+            Issue.record("attach unexpectedly succeeded after close")
+        } catch is CancellationError {
+            // Closing the connection invalidates the native attach result.
+        }
+        #expect(connector.session.state.detached == 1)
+        #expect(connector.session.state.disconnected == 1)
+    }
+
     @Test func closedConnectionCannotDialAgain() async throws {
         let service = FakeCloudVMService()
         service.machines = .success([CloudMachine(id: "vm1", provider: "freestyle", status: "running")])

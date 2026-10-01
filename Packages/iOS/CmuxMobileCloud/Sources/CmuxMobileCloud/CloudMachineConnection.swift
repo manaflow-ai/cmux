@@ -329,13 +329,19 @@ public final class CloudMachineConnection {
         terminalID: String,
         output: @escaping @Sendable (CloudTerminalOutputEvent) -> Void
     ) async throws -> CloudTerminalAttachment {
+        let generation = operationGeneration
         do {
             let session = try await connectedSession()
             // A superseded caller cancels this attach while the dial above runs;
             // attaching anyway would re-point the machine's single attachment
             // slot at the OLD terminal and replace the new one's output handler.
+            guard isCurrentOperation(generation) else { throw CancellationError() }
             try Task.checkCancellation()
             try await session.attach(terminalID: terminalID, output: output)
+            guard isCurrentOperation(generation), !Task.isCancelled else {
+                session.detach()
+                throw CancellationError()
+            }
             lastError = nil
             return CloudTerminalAttachment(session: session, terminalID: terminalID)
         } catch {

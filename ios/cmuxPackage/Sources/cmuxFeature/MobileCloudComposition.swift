@@ -77,6 +77,8 @@ struct MobileCloudComposition {
                     )
                 } catch AuthError.unauthorized {
                     return nil
+                } catch {
+                    return nil
                 }
             },
             pendingRevocationStore: UserDefaultsCloudSystemVPNPendingRevocationStore(

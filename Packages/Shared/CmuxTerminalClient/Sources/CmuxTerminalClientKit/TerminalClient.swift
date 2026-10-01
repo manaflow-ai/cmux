@@ -109,7 +109,7 @@ public final class TerminalClient: @unchecked Sendable {
         disconnect()
     }
 
-    /// Closes the daemon link immediately. Safe to call more than once.
+    /// Schedules closure of the daemon link. Safe to call more than once.
     public func disconnect() {
         lock.lock()
         guard !didDisconnect else {
@@ -118,19 +118,18 @@ public final class TerminalClient: @unchecked Sendable {
         }
         didDisconnect = true
         requestedOutputBox = nil
-        let deferUntilCallbackReturns = outputCallbackDepth > 0
         let shouldFinalize = !disconnectFinalizationScheduled
         disconnectFinalizationScheduled = true
         lock.unlock()
 
         guard shouldFinalize else { return }
-        if deferUntilCallbackReturns {
+        // Drain native operations off the caller's thread. Cloud lifecycle
+        // methods run on the main actor, and a native operation may remain in
+        // flight until its timeout or callback returns.
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
             // The C callback must return before its setter can be called from
-            // the same callback thread. Keep the client alive until then.
-            DispatchQueue.global(qos: .userInitiated).async { [self] in
-                finishDisconnect()
-            }
-        } else {
+            // the same callback thread. Keeping self alive also keeps the
+            // callback context valid until the drain completes.
             finishDisconnect()
         }
     }
