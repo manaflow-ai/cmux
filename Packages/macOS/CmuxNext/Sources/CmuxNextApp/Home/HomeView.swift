@@ -2,30 +2,43 @@ import AppKit
 import CmuxNextDesign
 import WebKit
 
-/// Home's content: the mux Messages app (mux/apps/web) in a web view. The
-/// page keeps its own session (website data persists), so sign-in survives
-/// relaunch. A native Messages view can replace this view behind the same
-/// `HomePresenter` without touching the window.
-final class HomeView: NSView {
+/// Home's content: the mux Messages app in a web view, by default from the
+/// local mux server on this Mac (mux/local: acpmux agents, no sign-in). When
+/// nothing answers, a native message says how to start it and offers Retry.
+/// A native Messages view can replace this view behind `HomePresenter`.
+final class HomeView: NSView, WKNavigationDelegate {
     let webView: WKWebView
+    private let url: URL
+    private let unavailable = HomeUnavailableView()
 
     init(url: URL) {
+        self.url = url
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init(frame: .zero)
-        webView.autoresizingMask = [.width, .height]
+        webView.navigationDelegate = self
         webView.setAccessibilityLabel(HomeStrings.title)
         addSubview(webView)
-        webView.load(URLRequest(url: url))
+        unavailable.isHidden = true
+        unavailable.onRetry = { [weak self] in self?.load() }
+        addSubview(unavailable)
+        load()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    private func load() {
+        unavailable.isHidden = true
+        webView.isHidden = false
+        webView.load(URLRequest(url: url))
+    }
+
     override func layout() {
         super.layout()
         webView.frame = bounds
+        unavailable.frame = bounds
     }
 
     override func viewDidMoveToWindow() {
@@ -42,20 +55,19 @@ final class HomeView: NSView {
     private func applyTheme() {
         performWithTheme { webView.underPageBackgroundColor = Palette.windowBackground }
     }
-}
 
-/// Where Home loads mux from. `CMUX_NEXT_MUX_URL` overrides the default
-/// (staging until mux has a production deployment).
-enum HomeLocation {
-    static let defaultURL = URL(string: "https://mux-staging.debussy.workers.dev")!
+    // MARK: WKNavigationDelegate
 
-    static func url(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
-        guard let override = environment["CMUX_NEXT_MUX_URL"].flatMap(URL.init(string:)),
-              override.scheme == "https" || override.scheme == "http" else { return defaultURL }
-        return override
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+        showUnavailable()
     }
-}
 
-enum HomeStrings {
-    static var title: String { String(localized: "home.title", defaultValue: "Home", bundle: .module) }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+        showUnavailable()
+    }
+
+    private func showUnavailable() {
+        webView.isHidden = true
+        unavailable.isHidden = false
+    }
 }

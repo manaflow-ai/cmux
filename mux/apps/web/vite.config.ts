@@ -9,7 +9,8 @@ export default defineConfig({
     react(),
   ]),
   server: {
-    // `cf dev` in cloud/worker serves the API on 8787.
-    proxy: { "/api": { target: "http://localhost:8787", ws: true } },
+    // The local form (mux/local) serves the API on 47820; MUX_API_URL points
+    // at another server, e.g. `cf dev` in cloud/worker on http://localhost:8787.
+    proxy: { "/api": { target: process.env.MUX_API_URL ?? "http://127.0.0.1:47820", ws: true } },
   },
 });
