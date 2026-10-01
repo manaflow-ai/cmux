@@ -145,8 +145,18 @@ extension CmuxTuiSurfaceProviderTests {
         } catch {
             Issue.record("a cancelled link connect returned \(error) instead of CancellationError")
         }
-        let killResult = Darwin.kill(helperPID, 0)
-        let killErrno = errno
-        #expect(killResult == -1 && killErrno == ESRCH, "cancellation must reap descendants holding link pipes")
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        var helperExited = false
+        while clock.now < deadline {
+            let killResult = Darwin.kill(helperPID, 0)
+            let killErrno = errno
+            if killResult == -1 && killErrno == ESRCH {
+                helperExited = true
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(helperExited, "cancellation must reap descendants holding link pipes")
     }
 }
