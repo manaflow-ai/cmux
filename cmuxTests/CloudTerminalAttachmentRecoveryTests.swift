@@ -19,9 +19,9 @@ import Testing
 
     @Test
     func staleReplayDaemonRequiresExplicitRecovery() {
-        #expect(CloudTuiManualMirrorSession.isStaleReplayDaemon(capabilities: ["view-attachment-lease-v1"]))
-        #expect(!CloudTuiManualMirrorSession.isStaleReplayDaemon(capabilities: []))
-        #expect(!CloudTuiManualMirrorSession.isStaleReplayDaemon(capabilities: [
+        #expect(CloudTuiManualReplayCapabilities.isStaleReplayDaemon(capabilities: ["view-attachment-lease-v1"]))
+        #expect(!CloudTuiManualReplayCapabilities.isStaleReplayDaemon(capabilities: []))
+        #expect(!CloudTuiManualReplayCapabilities.isStaleReplayDaemon(capabilities: [
             "view-attachment-lease-v1", "terminal-pending-sequence-v1",
         ]))
     }
@@ -178,6 +178,7 @@ import Testing
         #expect(!session.allowsAutomaticReconnect)
         #expect(reconnects.count == 0)
         #expect(session.connectionPresentation != nil)
+        #expect(session.connectionPresentation?.detail == CloudTerminalAttachmentInterruption.staleDaemon.localizedDescription)
         guard case let .reconnecting(_, reason) = session.attachmentStatus.state else {
             Issue.record("expected a reconnecting state")
             return

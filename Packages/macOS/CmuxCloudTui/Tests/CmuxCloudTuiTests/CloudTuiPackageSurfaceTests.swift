@@ -39,4 +39,12 @@ import CmuxCloudTui
     @Test func legacyParserReadsNothingFromMalformedData() {
         #expect(CloudTuiLegacySnapshotParser().protocolVersion(from: Data("not json".utf8)) == nil)
     }
+
+    @Test func staleReplayCapabilityPolicyKeepsLegacyPeersCompatible() {
+        #expect(CloudTuiManualReplayCapabilities.isStaleReplayDaemon(capabilities: ["view-attachment-lease-v1"]))
+        #expect(!CloudTuiManualReplayCapabilities.isStaleReplayDaemon(capabilities: []))
+        #expect(!CloudTuiManualReplayCapabilities.isStaleReplayDaemon(capabilities: [
+            "view-attachment-lease-v1", "terminal-pending-sequence-v1",
+        ]))
+    }
 }

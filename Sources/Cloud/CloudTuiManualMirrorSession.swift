@@ -130,9 +130,12 @@ final class CloudTuiManualMirrorSession {
         case .none:
             return nil
         case .failure:
+            let detail = interruption == .staleDaemon
+                ? interruption?.localizedDescription
+                : diagnosticFailure?.label
             var presentation = CloudTerminalReconnectOverlayPolicy.presentation(
                 isManagedCloudWorkspace: true, isRemoteTerminalSurface: true,
-                connectionState: .error, detail: diagnosticFailure?.label
+                connectionState: .error, detail: detail
             )
             presentation?.diagnosticReference = diagnosticReference
             return presentation
@@ -844,7 +847,7 @@ final class CloudTuiManualMirrorSession {
                 return
             }
             serverCapabilities = Set(capabilities)
-            if Self.isStaleReplayDaemon(capabilities: capabilities) {
+            if CloudTuiManualReplayCapabilities.isStaleReplayDaemon(capabilities: capabilities) {
                 // This daemon can attach, but it cannot preserve incomplete VT
                 // sequences across replay boundaries. Retrying the same VM
                 // forever only recreates the garbled pane, so leave the pane
