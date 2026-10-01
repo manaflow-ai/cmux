@@ -81,7 +81,12 @@ struct CmuxTaskManagerSnapshot {
         for window in windows {
             Self.appendWindow(window, to: &rows)
         }
-        let agentRows = Self.agentRows(from: payload["coding_agents"] as? [[String: Any]] ?? [])
+        let agentRows = Self.codingAgentRows(
+            from: payload["coding_agents"] as? [[String: Any]] ?? [],
+            hierarchyRows: rows,
+            agentPanels: payload["agent_panels"] as? [[String: Any]] ?? [],
+            now: self.sampledAt ?? Date()
+        )
         self.rows = Self.rowsWithAgentAssets(
             rows,
             assetNameByProcessID: Self.agentAssetNameByProcessID(from: agentRows)
@@ -128,31 +133,6 @@ struct CmuxTaskManagerSnapshot {
                 rootProcessIds: group.processIds,
                 foregroundProcessGroupIds: [],
                 agentAssetName: agentAssetName(for: [group.name])
-            )
-        }
-    }
-
-    private static func agentRows(from payloads: [[String: Any]]) -> [CmuxTaskManagerRow] {
-        payloads.compactMap { payload in
-            guard let id = nonEmptyString(payload["id"]),
-                  let title = nonEmptyString(payload["display_name"]) else { return nil }
-            let resources = CmuxTaskManagerResources(payload["resources"] as? [String: Any] ?? [:])
-            guard resources.processCount > 0 else { return nil }
-            return CmuxTaskManagerRow(
-                id: "codingAgentAggregate:\(id)",
-                kind: .codingAgentAggregate,
-                level: 0,
-                title: title,
-                detail: processCountDetail(resources.processCount),
-                resources: resources,
-                isDimmed: false,
-                workspaceId: nil,
-                surfaceId: nil,
-                terminalSurfaceId: nil,
-                processId: nil,
-                rootProcessIds: resources.processIds,
-                foregroundProcessGroupIds: [],
-                agentAssetName: nonEmptyString(payload["asset_name"])
             )
         }
     }
@@ -297,7 +277,7 @@ struct CmuxTaskManagerSnapshot {
         }
     }
 
-    private static func processCountDetail(_ processCount: Int) -> String {
+    static func processCountDetail(_ processCount: Int) -> String {
         if processCount == 1 {
             return String(localized: "taskManager.aggregate.processCount.one", defaultValue: "1 process")
         }
@@ -638,18 +618,18 @@ struct CmuxTaskManagerSnapshot {
         }
     }
 
-    private static func nonEmptyString(_ raw: Any?) -> String? {
+    static func nonEmptyString(_ raw: Any?) -> String? {
         guard let value = raw as? String else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func uuid(_ raw: Any?) -> UUID? {
+    static func uuid(_ raw: Any?) -> UUID? {
         guard let value = nonEmptyString(raw) else { return nil }
         return UUID(uuidString: value)
     }
 
-    private static func agentAssetName(for candidates: [String?]) -> String? {
+    static func agentAssetName(for candidates: [String?]) -> String? {
         for candidate in candidates.compactMap({ $0?.lowercased() }) {
             if candidate.contains("opencode") {
                 return SessionAgent.opencode.assetName
