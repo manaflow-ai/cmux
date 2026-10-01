@@ -116,6 +116,9 @@ fn detached_hook_without_a_listener_fails_immediately() {
     // child gives up at once and the provider-facing process reports it,
     // without spending the retry deadline.
     assert!(!output.status.success(), "{output:?}");
+    // Nothing on stdout: the installed command's fallback prints the one
+    // object the provider reads.
+    assert!(output.stdout.is_empty(), "{output:?}");
     assert!(started.elapsed() < Duration::from_secs(2));
 }
 
@@ -162,5 +165,69 @@ fn embedded_hook_mode_delivers_through_the_detached_child() {
         .expect("embedded hook must exit before the journal receipt arrives");
     assert!(output.status.success(), "{output:?}");
     reply(&stream, &request);
+    let _ = std::fs::remove_file(&socket);
+}
+
+/// A codex prompt in a terminal with a queued message gets the message as
+/// additional context, and the message is then marked delivered.
+#[test]
+fn prompt_hook_hands_queued_messages_to_the_agent_and_marks_them_delivered() {
+    let socket = socket_path("inbox");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let terminal = "term_0123456789abcdef0123456789abcdef";
+    let server = thread::spawn(move || {
+        let mut operations = Vec::new();
+        let mut marked = serde_json::Value::Null;
+        while !operations.iter().any(|operation| operation == "agent.message.mark") {
+            let (stream, _) = listener.accept().unwrap();
+            let request = read_request(&stream);
+            let value: serde_json::Value = serde_json::from_str(&request).unwrap();
+            let operation = value["operation"].as_str().unwrap().to_owned();
+            let result = match operation.as_str() {
+                "agent.message.list" => serde_json::json!([{
+                    "id": "msg_1",
+                    "sender": "acp:planner",
+                    "sender_name": "planner",
+                    "body": "please rerun the tests",
+                    "in_reply_to": null,
+                }]),
+                "agent.message.mark" => {
+                    marked = value["params"].clone();
+                    serde_json::json!({"value": []})
+                }
+                _ => serde_json::json!({"value": {"sequence": "1"}}),
+            };
+            let response = serde_json::json!({
+                "protocol": "cmux.protocol/2", "type": "response", "id": value["id"],
+                "ok": true, "result": result,
+            });
+            let mut stream = &stream;
+            stream.write_all(format!("{response}\n").as_bytes()).unwrap();
+            operations.push(operation);
+        }
+        marked
+    });
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui-hook"))
+        .args(["codex", "UserPromptSubmit"])
+        .env("CMUX_TUI_SOCKET", &socket)
+        .env("CMUX_TUI_TERMINAL_ID", terminal)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"{\"prompt\":\"hi\"}\n").unwrap();
+    let output = wait_with_output(child, Duration::from_secs(5)).expect("hook must finish");
+    assert!(output.status.success(), "{output:?}");
+    let printed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let context = printed["hookSpecificOutput"]["additionalContext"].as_str().unwrap();
+    assert!(context.contains("[cmux agent message] from planner (acp:planner)"), "{context}");
+    assert!(context.contains("please rerun the tests"), "{context}");
+    assert_eq!(printed["hookSpecificOutput"]["hookEventName"], "UserPromptSubmit");
+    let marked = server.join().unwrap();
+    assert_eq!(marked["ids"], serde_json::json!(["msg_1"]));
+    assert_eq!(marked["recipient"], terminal);
+    assert_eq!(marked["state"], "delivered");
+    assert_eq!(marked["via"], "codex.prompt-submit");
     let _ = std::fs::remove_file(&socket);
 }
