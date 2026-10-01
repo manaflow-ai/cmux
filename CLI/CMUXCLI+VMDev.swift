@@ -129,9 +129,12 @@ extension CMUXCLI {
             .map { "(\($0))" }
             .joined(separator: " && ")
         let run = setup.isEmpty ? ":" : setup
-        // mkdir is an atomic lock on the Linux guest. A failed recipe removes
-        // the lock before returning, so a later invocation can retry.
-        return "mkdir -p \"\(root)\"; while [ ! -f \"\(marker)\" ]; do if mkdir \"\(lock)\" 2>/dev/null; then \(run) && : > \"\(marker)\"; status=$?; rmdir \"\(lock)\" 2>/dev/null || true; [ \"$status\" -eq 0 ] || exit \"$status\"; else sleep 0.1; fi; done"
+        // `flock` is provided by util-linux in every devbox image. Holding the
+        // descriptor for the whole check/install/marker transaction means a
+        // killed owner cannot leave a stale directory that blocks future runs;
+        // the marker is checked again after lock acquisition so a waiter never
+        // replays a recipe that another owner completed while it was waiting.
+        return "mkdir -p \"\(root)\" && ( flock 9; if [ -f \"\(marker)\" ]; then :; else \(run) && : > \"\(marker)\"; fi ) 9>\"\(lock)\""
     }
 
     /// Framework → default dev port, decided from the script's words (what the author
