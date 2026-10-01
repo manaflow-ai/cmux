@@ -272,7 +272,20 @@ final class TerminalTabOverviewViewController: UIViewController {
             accessibilityLabel: L10n.string("mobile.terminal.overview.more", defaultValue: "More Tab Options"),
             accessibilityIdentifier: "MobileTerminalOverviewMore"
         )
-        moreButton.addTarget(self, action: #selector(moreTapped), for: .touchUpInside)
+        // Safari presents these two actions through UIKit's menu presenter.
+        // Using UIButton.menu keeps the Liquid Glass surface, focus behavior,
+        // dismissal animation, and VoiceOver hierarchy in UIKit's ownership.
+        moreButton.menu = UIMenu(children: [
+            UIAction(
+                title: "Manage Tab Groups",
+                image: UIImage(systemName: "list.bullet")
+            ) { _ in },
+            UIAction(
+                title: "Select Tabs",
+                image: UIImage(systemName: "checkmark.circle")
+            ) { _ in },
+        ])
+        moreButton.showsMenuAsPrimaryAction = true
         topBar.addSubview(moreButton)
     }
 
@@ -590,10 +603,6 @@ final class TerminalTabOverviewViewController: UIViewController {
         // up the keyboard and makes the search affordance immediately usable.
         overlay.searchField.becomeFirstResponder()
         UIAccessibility.post(notification: .screenChanged, argument: overlay.searchField)
-    }
-
-    @objc private func moreTapped() {
-        toggleMenu(kind: .more)
     }
 
     @objc private func layoutTapped() {
