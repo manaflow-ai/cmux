@@ -60,6 +60,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: [
                 "HOME": home.path,
                 "CFFIXED_USER_HOME": home.path,
+                // The usage error is localized; the assertion reads English.
+                "AppleLanguages": "(en)",
+                "AppleLocale": "en_US",
+                "LANG": "en_US.UTF-8",
+                "LC_ALL": "en_US.UTF-8",
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_SOCKET_PATH": socketPath,
                 "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
