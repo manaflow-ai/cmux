@@ -20,15 +20,15 @@ import CmuxSettings
 #endif
 
 let lastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
-
-func drainMainQueue() {
+func drainMainQueue(timeout: TimeInterval = 1.0) {
     let expectation = XCTestExpectation(description: "drain main queue")
     DispatchQueue.main.async {
         expectation.fulfill()
     }
-    XCTWaiter().wait(for: [expectation], timeout: 1.0)
+    XCTWaiter().wait(for: [expectation], timeout: timeout)
 }
 
+func drainMainQueue() { drainMainQueue(timeout: 1.0) }
 @discardableResult
 private func waitForCondition(
     timeout: TimeInterval = 3.0,
@@ -1707,7 +1707,7 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
         XCTAssertTrue(manager.tabs.contains(where: { $0.id == workspace.id }))
     }
 
-    func testRunningProcessWorkspaceCloseSkipsPromptWhenSettingDisabled() {
+    func testRunningProcessWorkspaceCloseStillWarnsWhenSettingDisabled() {
         let manager = makeManager(warnBeforeClosingWorkspace: false)
         let workspace = manager.tabs[1]
         markRunningProcess(workspace)
@@ -1718,9 +1718,9 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
             return false
         }
 
-        XCTAssertTrue(manager.closeWorkspaceWithConfirmation(workspace))
-        XCTAssertEqual(prompts, [])
-        XCTAssertFalse(manager.tabs.contains(where: { $0.id == workspace.id }))
+        XCTAssertFalse(manager.closeWorkspaceWithConfirmation(workspace))
+        XCTAssertEqual(prompts, [closeWorkspaceTitle])
+        XCTAssertTrue(manager.tabs.contains(where: { $0.id == workspace.id }))
     }
 
     func testMultiWorkspaceCloseSkipsPromptWhenSettingDisabled() {
@@ -1780,8 +1780,8 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
         XCTAssertTrue(manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: false))
 
         manager.closeTabWarningDefaults.set(false, forKey: AppCatalogSection().warnBeforeClosingWindow.userDefaultsKey)
-        XCTAssertFalse(manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: false), "The window setting turns the prompt off")
-        XCTAssertFalse(manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: true))
+        XCTAssertTrue(manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: false), "Active processes always require a safety prompt")
+        XCTAssertTrue(manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: true))
     }
 
     func testClosingEveryWorkspaceFollowsTheWindowSetting() {
@@ -1877,12 +1877,13 @@ final class TabManagerCloseDontAskAgainTests: XCTestCase {
         }
 
         XCTAssertTrue(manager.closeWorkspaceWithConfirmation(first))
-        XCTAssertEqual(offered, [.workspace])
+        XCTAssertEqual(offered, [[.workspace, .safety]])
         XCTAssertFalse(AppCatalogSection().warnBeforeClosingWorkspace.value(in: defaults))
         XCTAssertTrue(AppCatalogSection().warnBeforeClosingTab.value(in: defaults))
 
+        drainMainQueue()
         XCTAssertTrue(manager.closeWorkspaceWithConfirmation(second))
-        XCTAssertEqual(promptCount, 1, "The second close should not ask")
+        XCTAssertEqual(promptCount, 2, "The safety warning cannot be disabled")
     }
 
     func testUntickedDontAskAgainKeepsWarningOn() {
@@ -1917,7 +1918,7 @@ final class TabManagerCloseDontAskAgainTests: XCTestCase {
 
         manager.closeRuntimeSurfaceWithConfirmation(tabId: workspace.id, surfaceId: panelId)
 
-        XCTAssertEqual(offered, [.tab])
+        XCTAssertEqual(offered, [[.tab, .safety]])
         XCTAssertFalse(AppCatalogSection().warnBeforeClosingTab.value(in: defaults))
         XCTAssertTrue(AppCatalogSection().warnBeforeClosingWorkspace.value(in: defaults))
         XCTAssertNotNil(workspace.panels[panelId], "Cancel still keeps the tab open")
@@ -2102,28 +2103,38 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
 @MainActor
 final class TabManagerCloseCurrentPanelTests: XCTestCase {
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
-    private var savedLastSurfaceCloseSetting: Any?
+    private var originalLastSurfaceCloseSetting: Any?
 
-    // Several tests here expect Close to take a workspace with its last
-    // surface, which is the preference's default. Start each test from that
-    // default so a value left in the shared defaults cannot keep it open.
+    /// Start every test from the shipped last-surface behavior (closing the
+    /// last surface closes the workspace). The app host shares
+    /// `UserDefaults.standard` across suites, so a value left by an earlier
+    /// suite must not decide these assertions.
     override func setUp() {
         super.setUp()
-        savedLastSurfaceCloseSetting = UserDefaults.standard.object(forKey: lastSurfaceCloseShortcutDefaultsKey)
-        UserDefaults.standard.removeObject(forKey: lastSurfaceCloseShortcutDefaultsKey)
+        let defaults = UserDefaults.standard
+        originalLastSurfaceCloseSetting = defaults.object(forKey: lastSurfaceCloseShortcutDefaultsKey)
+        defaults.set(
+            AppCatalogSection().keepWorkspaceOpenWhenClosingLastSurface.defaultValue,
+            forKey: lastSurfaceCloseShortcutDefaultsKey
+        )
     }
 
     override func tearDown() {
-        restore(savedLastSurfaceCloseSetting, forKey: lastSurfaceCloseShortcutDefaultsKey, defaults: .standard)
-        savedLastSurfaceCloseSetting = nil
+        let defaults = UserDefaults.standard
+        if let originalLastSurfaceCloseSetting {
+            defaults.set(originalLastSurfaceCloseSetting, forKey: lastSurfaceCloseShortcutDefaultsKey)
+        } else {
+            defaults.removeObject(forKey: lastSurfaceCloseShortcutDefaultsKey)
+        }
+        originalLastSurfaceCloseSetting = nil
         super.tearDown()
     }
 
     func testCloseCurrentPanelHonorsWarnBeforeClosingTabDisabledFromCmuxJSON() throws {
         try assertCloseCurrentPanelConfirmation(
             warnBeforeClosingTab: false,
-            expectedPromptCount: 0,
-            expectedPanelClosed: true
+            expectedPromptCount: 1,
+            expectedPanelClosed: false
         )
     }
 
@@ -2239,8 +2250,8 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
     func testCloseCurrentPanelHonorsWarnBeforeClosingTabDisabledForPinnedWorkspaceLastSurface() throws {
         try assertPinnedWorkspaceLastSurfaceConfirmation(
             warnBeforeClosingTab: false,
-            expectedPromptCount: 0,
-            expectedWorkspaceClosed: true
+            expectedPromptCount: 1,
+            expectedWorkspaceClosed: false
         )
     }
 

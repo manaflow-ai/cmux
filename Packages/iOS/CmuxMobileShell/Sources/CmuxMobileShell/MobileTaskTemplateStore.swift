@@ -29,6 +29,8 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     ]
     private static let lastTemplateIDKey = "cmux.mobile.taskComposer.lastTemplateID"
     private static let lastMacDeviceIDKey = "cmux.mobile.taskComposer.lastMacDeviceID"
+    private static let lastMacPairingIDKey = "cmux.mobile.taskComposer.lastMacPairingID"
+    private static let pickerPreferencesPrefix = "cmux.mobile.taskComposer.pickers.v1."
     private static let lastDirectoryPrefix = "cmux.mobile.taskComposer.lastDirectory."
     private static let recentDirectoriesPrefix = "cmux.mobile.taskComposer.recentDirectories.v1."
     private static let legacyComposerDraftKey = "cmux.mobile.taskComposer.draft.v1"
@@ -129,6 +131,38 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     /// Stores the last selected Mac device id.
     public func setLastMacDeviceID(_ id: String?) {
         setOptional(id, forKey: Self.lastMacDeviceIDKey)
+    }
+
+    /// Returns the last selected Mac app-instance pairing id, if any.
+    public func lastMacPairingID() -> String? {
+        defaults.string(forKey: Self.lastMacPairingIDKey)
+    }
+
+    /// Stores the last selected Mac app-instance pairing id.
+    public func setLastMacPairingID(_ id: String?) {
+        setOptional(id, forKey: Self.lastMacPairingIDKey)
+    }
+
+    /// Returns the last picker values saved for one paired Mac.
+    public func composerPickerPreferences(macPairingID: String) -> MobileTaskComposerPickerPreferences? {
+        guard let data = defaults.data(forKey: Self.pickerPreferencesPrefix + macPairingID) else { return nil }
+        do {
+            return try decoder.decode(MobileTaskComposerPickerPreferences.self, from: data)
+        } catch {
+            diagnosticLog?.recordAppEvent(
+                .templatePersistenceFailed,
+                failure: .protocolViolation
+            )
+            return nil
+        }
+    }
+
+    /// Stores the picker values for one paired Mac.
+    public func setComposerPickerPreferences(
+        _ preferences: MobileTaskComposerPickerPreferences, macPairingID: String
+    ) {
+        guard !macPairingID.isEmpty, let data = try? encoder.encode(preferences) else { return }
+        defaults.set(data, forKey: Self.pickerPreferencesPrefix + macPairingID)
     }
 
     /// Returns the last successful directory for one Mac.
@@ -321,10 +355,14 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
             Self.builtInProtectionMigrationKey,
             Self.lastTemplateIDKey,
             Self.lastMacDeviceIDKey,
+            Self.lastMacPairingIDKey,
             Self.legacyComposerDraftKey,
             Self.composerDraftsKey,
         ] + Self.legacyKeys
         for key in keys {
+            defaults.removeObject(forKey: key)
+        }
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(Self.pickerPreferencesPrefix) {
             defaults.removeObject(forKey: key)
         }
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(Self.lastDirectoryPrefix) {

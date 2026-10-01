@@ -2066,9 +2066,12 @@ impl RemoteSession {
             // Join shared sizing as a terminal client named after this host,
             // like the Mac and iPhone (docs/shared-terminal-sizing.md).
             negotiated.push(SHARED_SIZING_CAPABILITY);
+            // One cmux-tui install per host, so the host name is also the
+            // stable device id that keeps two hosts' priority keys apart.
+            let host = local_hostname().unwrap_or_else(|| "cmux-tui".to_string());
             client_info["device_kind"] = json!("tui");
-            client_info["device_name"] =
-                json!(local_hostname().unwrap_or_else(|| "cmux-tui".to_string()));
+            client_info["device_name"] = json!(host);
+            client_info["device_id"] = json!(host);
         }
         // Replays are applied with colors written after them, so the
         // daemon's incomplete sequence must arrive separately.
