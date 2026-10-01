@@ -275,6 +275,7 @@ pub struct PreviewRegistry {
 
 struct ProxyRuntime {
     port: u16,
+    capability: String,
     shutdown: tokio::sync::watch::Sender<bool>,
     task: tokio::task::JoinHandle<()>,
 }
@@ -347,6 +348,10 @@ impl PreviewRegistry {
         Ok(wire::WorkspaceResultBody::PreviewOpen(wire::PreviewOpenResult {
             op: wire::TagPreviewOpen::PreviewOpen,
             proxy_port: i64::from(proxy_port),
+            capability: proxies
+                .get(&target_port)
+                .map(|runtime| runtime.capability.clone())
+                .expect("preview runtime retained after open"),
         }))
     }
 
@@ -392,6 +397,7 @@ struct Peer {
 
 struct ProxyShared {
     target_port: u16,
+    capability: String,
     ring: Arc<ConsoleRing>,
     page: Mutex<Option<Peer>>,
     devtools: Mutex<Option<Peer>>,
@@ -446,8 +452,10 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRu
         })?
         .port();
     let (shutdown, mut stopped) = tokio::sync::watch::channel(false);
+    let capability = mint_preview_capability()?;
     let shared = Arc::new(ProxyShared {
         target_port,
+        capability: capability.clone(),
         ring,
         page: Mutex::new(None),
         devtools: Mutex::new(None),
@@ -506,7 +514,15 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRu
     // Do not publish the port until the accept loop has started. This avoids
     // clients racing the task scheduler immediately after preview_open.
     let _ = ready_rx.await;
-    Ok(ProxyRuntime { port: proxy_port, shutdown, task })
+    Ok(ProxyRuntime { port: proxy_port, capability, shutdown, task })
+}
+
+fn mint_preview_capability() -> Result<String, Refusal> {
+    let mut bytes = [0_u8; 32];
+    getrandom::fill(&mut bytes).map_err(|error| {
+        Refusal::failed(format!("could not allocate preview capability: {error}"))
+    })?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 fn wants_websocket(request: &hyper::Request<hyper::body::Incoming>) -> bool {
@@ -666,10 +682,22 @@ fn accept_control_websocket(
     request: hyper::Request<hyper::body::Incoming>,
     role: PeerRole,
 ) -> hyper::Response<ProxyBody> {
-    if !control_origin_allowed(request.headers(), role) {
+    if !websocket_capability_allowed(&request, &shared.capability)
+        || !control_origin_allowed(request.headers(), role)
+    {
         return text_response(403, "origin not allowed");
     }
     accept_websocket(shared, request, role)
+}
+
+fn websocket_capability_allowed(
+    request: &hyper::Request<hyper::body::Incoming>,
+    expected: &str,
+) -> bool {
+    request.uri().query().is_some_and(|query| {
+        url::form_urlencoded::parse(query.as_bytes())
+            .any(|(name, value)| name == "capability" && value == expected)
+    })
 }
 
 fn accept_websocket(
@@ -886,7 +914,6 @@ async fn run_peer<S>(
 // Reverse proxy to the target port
 // ---------------------------------------------------------------------------
 
-const INJECT_TAG: &[u8] = b"<script src=\"/__chatmux__/target.js\"></script>";
 const NO_INJECT_HEADER: &str = "x-chatmux-no-inject";
 /// HTML responses are buffered only for injection, so bound both memory and
 /// time spent waiting on a target that never finishes its response.
@@ -986,7 +1013,7 @@ async fn forward_plain(
         Ok(Err(error)) => return text_response(502, &format!("target body failed: {error}")),
         Err(_) => return text_response(502, "target HTML body timed out"),
     };
-    let injected = inject_into_html(&collected);
+    let injected = inject_into_html(&collected, &shared.capability);
     parts.headers.remove(hyper::header::CONTENT_LENGTH);
     parts.headers.remove(hyper::header::CONTENT_ENCODING);
     parts.headers.remove(hyper::header::TRANSFER_ENCODING);
@@ -1061,11 +1088,14 @@ fn find_ascii_case_insensitive(haystack: &[u8], needle: &[u8]) -> Option<usize> 
 
 /// Inject the target.js script tag: before `</head>`, else right after the
 /// `<body ...>` opening tag, else prepended (pinned contract).
-fn inject_into_html(html: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(html.len() + INJECT_TAG.len());
+fn inject_into_html(html: &[u8], capability: &str) -> Vec<u8> {
+    let inject_tag =
+        format!("<script src=\"/__chatmux__/target.js?capability={capability}\"></script>");
+    let inject_tag = inject_tag.as_bytes();
+    let mut out = Vec::with_capacity(html.len() + inject_tag.len());
     if let Some(head_end) = find_ascii_case_insensitive(html, b"</head>") {
         out.extend_from_slice(&html[..head_end]);
-        out.extend_from_slice(INJECT_TAG);
+        out.extend_from_slice(inject_tag);
         out.extend_from_slice(&html[head_end..]);
         return out;
     }
@@ -1074,11 +1104,11 @@ fn inject_into_html(html: &[u8]) -> Vec<u8> {
             html[body_start..].iter().position(|byte| *byte == b'>').map(|at| body_start + at + 1)
     {
         out.extend_from_slice(&html[..tag_close]);
-        out.extend_from_slice(INJECT_TAG);
+        out.extend_from_slice(inject_tag);
         out.extend_from_slice(&html[tag_close..]);
         return out;
     }
-    out.extend_from_slice(INJECT_TAG);
+    out.extend_from_slice(inject_tag);
     out.extend_from_slice(html);
     out
 }
@@ -1203,9 +1233,13 @@ mod tests {
     }
 
     async fn open_proxy(registry: &PreviewRegistry, target_port: u16) -> u16 {
+        open_proxy_credentials(registry, target_port).await.0
+    }
+
+    async fn open_proxy_credentials(registry: &PreviewRegistry, target_port: u16) -> (u16, String) {
         match registry.open(i64::from(target_port)).await.expect("preview_open") {
             wire::WorkspaceResultBody::PreviewOpen(result) => {
-                u16::try_from(result.proxy_port).expect("port range")
+                (u16::try_from(result.proxy_port).expect("port range"), result.capability)
             }
             other => panic!("wrong body: {other:?}"),
         }
@@ -1260,34 +1294,37 @@ mod tests {
     async fn injects_into_html_and_honors_the_opt_outs() {
         let registry = PreviewRegistry::new();
         let target = spawn_target().await;
-        let proxy = open_proxy(&registry, target).await;
-        let tag = std::str::from_utf8(INJECT_TAG).expect("tag utf8");
-
+        let (proxy, capability) = open_proxy_credentials(&registry, target).await;
         let (status, _, body) = http_get(proxy, "/", &[]).await;
         assert_eq!(status, 200);
-        let tag_at = body.find(tag).expect("tag injected");
+        let tag_at =
+            body.find("<script src=\"/__chatmux__/target.js?capability=").expect("tag injected");
+        assert!(body[tag_at..].contains(&format!("capability={capability}")));
         let head_at = body.find("</head>").expect("head kept");
         assert!(tag_at < head_at, "before </head>");
 
         let (_, _, body) = http_get(proxy, "/body-only", &[]).await;
-        let tag_at = body.find(tag).expect("tag injected");
+        let tag_at =
+            body.find("<script src=\"/__chatmux__/target.js?capability=").expect("tag injected");
         assert!(body[..tag_at].contains("<body>"), "after the <body> tag");
 
         let (_, _, body) = http_get(proxy, "/plain", &[]).await;
-        assert!(!body.contains(tag), "non-HTML passes through");
+        assert!(!body.contains("/__chatmux__/target.js?capability="), "non-HTML passes through");
 
         let (_, _, body) = http_get(proxy, "/opt-out", &[]).await;
-        assert!(!body.contains(tag), "response header opts out");
+        assert!(!body.contains("/__chatmux__/target.js?capability="), "response header opts out");
 
         let (status, _, body) = http_get(proxy, "/oversized", &[]).await;
         assert_eq!(status, 502);
         assert!(body.contains("target HTML response exceeds"));
 
         let (_, _, body) = http_get(proxy, "/", &[(NO_INJECT_HEADER, "1")]).await;
-        assert!(!body.contains(tag), "request header opts out");
+        assert!(!body.contains("/__chatmux__/target.js?capability="), "request header opts out");
 
         // Reuse: the same target port keeps its proxy port.
-        assert_eq!(open_proxy(&registry, target).await, proxy);
+        let (reused_proxy, reused_capability) = open_proxy_credentials(&registry, target).await;
+        assert_eq!(reused_proxy, proxy);
+        assert_eq!(reused_capability, capability);
         registry.shutdown().await;
         assert!(tokio::net::TcpStream::connect(("127.0.0.1", proxy)).await.is_err());
     }
@@ -1400,16 +1437,20 @@ mod tests {
         );
         assert!(body.contains("chobitsu"));
         assert!(body.contains("/__chatmux__/page"));
+        assert!(body.contains("searchParams.get('capability')"));
     }
 
     async fn connect_ws(
         port: u16,
         path: &str,
+        capability: &str,
     ) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>
     {
-        let (socket, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}{path}"))
-            .await
-            .expect("ws connect");
+        let (socket, _) = tokio_tungstenite::connect_async(format!(
+            "ws://127.0.0.1:{port}{path}?capability={capability}"
+        ))
+        .await
+        .expect("ws connect");
         socket
     }
 
@@ -1435,10 +1476,10 @@ mod tests {
     async fn pipes_page_and_devtools_tees_the_ring_and_replaces_stale_pages() {
         let registry = PreviewRegistry::new();
         let target = spawn_target().await;
-        let proxy = open_proxy(&registry, target).await;
+        let (proxy, capability) = open_proxy_credentials(&registry, target).await;
 
         // Fake CDP page peer: the proxy enables its tee domains first.
-        let mut page = connect_ws(proxy, "/__chatmux__/page").await;
+        let mut page = connect_ws(proxy, "/__chatmux__/page", &capability).await;
         let mut enabled = Vec::new();
         for _ in 0..3 {
             let frame: Value = serde_json::from_str(&next_text(&mut page, "enable command").await)
@@ -1457,7 +1498,7 @@ mod tests {
         assert_eq!(body, "{\"targetConnected\":true}");
 
         // DevTools frontend speaks through the proxy to the page...
-        let mut devtools = connect_ws(proxy, "/__chatmux__/devtools").await;
+        let mut devtools = connect_ws(proxy, "/__chatmux__/devtools", &capability).await;
         devtools
             .send(Message::text("{\"id\":1,\"method\":\"Runtime.evaluate\"}"))
             .await
@@ -1520,7 +1561,7 @@ mod tests {
         assert!(has_network, "network teed: {tail:?}");
 
         // Latest page connection wins; the earlier one gets a close frame.
-        let mut replacement = connect_ws(proxy, "/__chatmux__/page").await;
+        let mut replacement = connect_ws(proxy, "/__chatmux__/page", &capability).await;
         let closed = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 match page.next().await {
@@ -1547,9 +1588,13 @@ mod tests {
     async fn ws_handshake(
         port: u16,
         path: &str,
+        capability: Option<&str>,
         headers: &[(&str, &str)],
     ) -> Result<TestSocket, tungstenite::Error> {
         use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
+        let path = capability
+            .map(|capability| format!("{path}?capability={capability}"))
+            .unwrap_or_else(|| path.to_owned());
         let mut request =
             format!("ws://127.0.0.1:{port}{path}").into_client_request().expect("ws request");
         for (name, value) in headers {
@@ -1569,13 +1614,14 @@ mod tests {
     async fn control_sockets_refuse_cross_site_browser_origins() {
         let registry = PreviewRegistry::new();
         let target = spawn_target().await;
-        let proxy = open_proxy(&registry, target).await;
+        let (proxy, capability) = open_proxy_credentials(&registry, target).await;
 
         // A public web page the user visits can dial the loopback port; its
         // browser stamps the page's Origin on the handshake.
         for path in ["/__chatmux__/page", "/__chatmux__/devtools"] {
             for origin in ["https://evil.example", "http://evil.example", "null"] {
-                let outcome = ws_handshake(proxy, path, &[("origin", origin)]).await;
+                let outcome =
+                    ws_handshake(proxy, path, Some(&capability), &[("origin", origin)]).await;
                 assert!(refused_with_forbidden(outcome), "{path} accepted Origin {origin}");
             }
         }
@@ -1586,6 +1632,7 @@ mod tests {
         let outcome = ws_handshake(
             proxy,
             "/__chatmux__/devtools",
+            Some(&capability),
             &[("host", &rebinding_host), ("origin", &rebinding_origin)],
         )
         .await;
@@ -1594,24 +1641,41 @@ mod tests {
         let outcome = ws_handshake(
             proxy,
             "/__chatmux__/page",
+            Some(&capability),
             &[("host", "p1.preview.test"), ("origin", "https://chatmux.dev")],
         )
         .await;
         assert!(refused_with_forbidden(outcome), "cross-origin page accepted");
+        // A sibling preview can present a valid HTTPS Origin, but cannot know
+        // this preview's capability and therefore cannot attach its DevTools.
+        let outcome = ws_handshake(
+            proxy,
+            "/__chatmux__/devtools",
+            None,
+            &[("host", "p1.preview.test"), ("origin", "https://q1.preview.test")],
+        )
+        .await;
+        assert!(refused_with_forbidden(outcome), "sibling preview attached without capability");
 
         // The legitimate peers still connect: the injected connector on the
         // proxy's own origin, a local DevTools frontend, the tunneled page,
         // the chatmux web app's DevTools drawer, and non-browser clients.
         let local_origin = format!("http://127.0.0.1:{proxy}");
-        ws_handshake(proxy, "/__chatmux__/page", &[("origin", &local_origin)])
+        ws_handshake(proxy, "/__chatmux__/page", Some(&capability), &[("origin", &local_origin)])
             .await
             .expect("same-origin loopback page");
-        ws_handshake(proxy, "/__chatmux__/devtools", &[("origin", "http://localhost:3000")])
-            .await
-            .expect("loopback devtools");
+        ws_handshake(
+            proxy,
+            "/__chatmux__/devtools",
+            Some(&capability),
+            &[("origin", "http://localhost:3000")],
+        )
+        .await
+        .expect("loopback devtools");
         ws_handshake(
             proxy,
             "/__chatmux__/page",
+            Some(&capability),
             &[("host", "p1.preview.test"), ("origin", "https://p1.preview.test")],
         )
         .await
@@ -1619,11 +1683,14 @@ mod tests {
         ws_handshake(
             proxy,
             "/__chatmux__/devtools",
+            Some(&capability),
             &[("host", "p1.preview.test"), ("origin", "https://chatmux.dev")],
         )
         .await
         .expect("tunneled devtools drawer");
-        ws_handshake(proxy, "/__chatmux__/devtools", &[]).await.expect("originless client");
+        ws_handshake(proxy, "/__chatmux__/devtools", Some(&capability), &[])
+            .await
+            .expect("originless client");
         registry.shutdown().await;
     }
 
