@@ -60,16 +60,26 @@ console.log("@@" + JSON.stringify({ ms: Date.now() - t0, printed: printed.length
 });
 
 test("perf: 300 frames, a third cross-origin and a third nested, snapshot in bounded time", async () => {
-  const r = await run(`await page.goto(${JSON.stringify(stress("iframes", 300, `&peer=${encodeURIComponent(peer)}`))});
-await page.waitForTimeout(1000);
-await snapshot();
-const t = Date.now();
-const s = await snapshot();
-console.log("@@" + JSON.stringify({ ms: Date.now() - t, frames: s._timing.frames, buttons: (s.tree.match(/button "(Frame|Inner) /g) || []).length }));`);
+  // Timed against a 30-frame page in the same run, so machine load cancels out.
+  const r = await run(`const t = {};
+let s;
+for (const n of [30, 300]) {
+  await page.goto(${JSON.stringify(stress("iframes", "N", `&peer=${encodeURIComponent(peer)}`))}.replace("n=N", "n=" + n));
+  await page.waitForTimeout(1000);
+  await snapshot();
+  const t0 = Date.now();
+  s = await snapshot();
+  t[n] = Date.now() - t0;
+}
+console.log("@@" + JSON.stringify({ t, frames: s._timing.frames, buttons: (s.tree.match(/button "(Frame|Inner) /g) || []).length }));`);
   assert.equal(r.frames, 1 + 300 + 100);
   assert.equal(r.buttons, 300 + 100);
-  // Frames are read concurrently: well under one sequential round trip each.
-  assert.ok(r.ms < 4000, `took ${r.ms}ms for ${r.frames} frames`);
+  // Concurrent frame reads scale with the frame count (10x frames, ~10x time);
+  // the serialized frame lookup this guards against was 61x. The ceiling only
+  // catches a hang.
+  const ratio = r.t[300] / Math.max(50, r.t[30]);
+  assert.ok(ratio < 25, `10x the frames took ${ratio.toFixed(1)}x the time (${JSON.stringify(r.t)})`);
+  assert.ok(r.t[300] < 30000, `300 frames took ${r.t[300]}ms`);
 });
 
 test("perf: a 2 MB text node and a 5,000-option select print within the budget", async () => {
