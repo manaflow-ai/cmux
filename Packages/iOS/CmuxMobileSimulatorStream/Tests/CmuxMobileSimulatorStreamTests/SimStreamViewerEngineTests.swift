@@ -16,7 +16,7 @@ private actor FakeLane: MobileSimulatorStreamLaneConnection {
     private var sendError: Error?
 
     func hostSends(_ message: SimStreamMessage) {
-        push(SimStreamWireCodec.encodeFramed(message))
+        push(SimStreamWireCodec().encodeFramed(message))
     }
 
     func hostFinishes() {
@@ -49,7 +49,7 @@ private actor FakeLane: MobileSimulatorStreamLaneConnection {
         var accumulator = SimStreamFrameAccumulator()
         accumulator.append(data)
         while let body = try accumulator.nextMessageBody() {
-            sent.append(try SimStreamWireCodec.decode(body))
+            sent.append(try SimStreamWireCodec().decode(body))
         }
     }
 

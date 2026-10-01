@@ -2,6 +2,8 @@
 // per-provider implementations behind an interface. Callers hold a `VMProvider` and never reach
 // into specifics.
 
+import type { GuestPromptIdentity } from "../guestPrompt";
+
 export type ProviderId = "freestyle";
 
 const PROVIDER_IDS: readonly ProviderId[] = ["freestyle"];
@@ -17,6 +19,8 @@ export type VMStatus = "creating" | "running" | "paused" | "destroyed";
 export type VMStats = {
   readonly state: "awake" | "asleep" | "unknown";
   readonly sampledAt: number;
+  /** Timestamp of the latest guest reporter sample, even when it is stale. */
+  readonly resourceSampledAt?: number;
   readonly cpus?: number;
   readonly cpuPercent?: number;
   readonly loadAverage1m?: number;
@@ -24,6 +28,11 @@ export type VMStats = {
   readonly memoryUsedMb?: number;
   readonly diskTotalMb?: number;
   readonly diskUsedMb?: number;
+};
+
+/** Validated guest gauges and their server observation time; never capacity. */
+export type VMResourceStatsResult = Pick<VMStats, "cpuPercent" | "memoryUsedMb" | "diskUsedMb"> & {
+  readonly resourceSampledAt: number;
 };
 
 /** A provider persistent volume normalized for report-only inventory scans. */
@@ -68,8 +77,12 @@ export type VMHandle = {
 
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
+  /** Provider-enforced lifetime runtime allowance for this allocation. */
+  runtimeBudgetSeconds?: number;
   /** Human-facing machine label; providers may ignore this cosmetic field. */
   displayName?: string;
+  /** Current prompt name, written into the guest rather than a shell environment. */
+  promptIdentity?: GuestPromptIdentity;
   providerMetadata?: Record<string, unknown>;
   /**
    * Name of a persistent volume to mount as the machine's home directory. Providers that
@@ -110,6 +123,7 @@ export type CreateOptions = {
 /** Enough of a provider network to attach a machine or a tunnel to it. */
 export type ProviderNetworkRef = {
   readonly id: string;
+  readonly memberIngress?: boolean;
 };
 
 /** One edge header-injection rule; see CreateOptions.edgeRules. */
@@ -130,6 +144,16 @@ export type VmEdgeRule = {
 export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata"> & {
   /** The owner's private network; see {@link CreateOptions.network}. */
   network?: ProviderNetworkRef;
+};
+
+/** Private guest SSH, with the host key read through the authenticated provider API.
+ * The client keeps its private key; only its public key reaches the control plane. */
+export type SCPEndpoint = {
+  host: string;
+  port: number;
+  username: string;
+  hostPublicKey: string;
+  expiresAtUnix: number;
 };
 
 export type SSHEndpoint = {
@@ -232,6 +256,8 @@ export type CmuxRemoteEndpoint = {
 };
 
 export type CmuxRemoteAttachOptions = {
+  /** Authoritative display name and revision, refreshed before returning the terminal. */
+  promptIdentity?: GuestPromptIdentity;
   /**
    * The caller's cmux-tui device fingerprint, when it already enrolled with this
    * VM's daemon. Lets the provider skip minting an invitation.
@@ -362,7 +388,18 @@ export type ProviderTunnel = {
   /** The tunnel's address inside the attached network, i.e. what the VMs see. */
   readonly addressV4: string | null;
   readonly addressV6: string | null;
+  readonly attachments?: readonly ProviderTunnelAttachment[];
 };
+
+export type ProviderTunnelAttachment = {
+  readonly networkId: string;
+  readonly addressV4: string | null;
+  readonly addressV6: string | null;
+};
+
+export class ProviderTunnelNetworkOverlapError extends Error {
+  readonly kind = "network_overlap" as const;
+}
 
 /** Result of enrolling a tunnel, including whether provider state was recovered or rotated. */
 export type ProviderTunnelCreateResult = {
@@ -393,9 +430,9 @@ export interface VMPrivateNetworking {
    * under concurrent calls with the same slug: two machines created at once
    * must land on one network, not two.
    */
-  ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean }): Promise<ProviderNetwork>;
-  /** Read a network back, or null when it no longer exists at the provider. */
-  getNetwork(networkId: string): Promise<ProviderNetwork | null>;
+  ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean; membersRule?: boolean }): Promise<ProviderNetwork>;
+  /** Read a network back by id or slug, or null when the provider has none. */
+  getNetwork(networkIdOrSlug: string): Promise<ProviderNetwork | null>;
   /** Delete a network. Must succeed when it is already gone. */
   deleteNetwork(networkId: string): Promise<void>;
   /** Create a tunnel with the network already attached. */
@@ -414,6 +451,10 @@ export interface VMPrivateNetworking {
   rotateTunnelKey(tunnelId: string, clientPublicKey: string, networkId: string): Promise<ProviderTunnel>;
   /** Delete a tunnel. Must succeed when it is already gone. */
   deleteTunnel(tunnelId: string): Promise<void>;
+  attachTunnelNetwork?(tunnelId: string, networkId: string): Promise<ProviderTunnelAttachment>;
+  detachTunnelNetwork?(tunnelId: string, networkId: string): Promise<void>;
+  /** Ids of every tunnel attached to a network. */
+  listNetworkTunnelIds?(networkId: string): Promise<string[]>;
 }
 
 export interface VMProvider {
@@ -450,11 +491,14 @@ export interface VMProvider {
   /// Live CPU/memory/disk for the Cloud panel's activity view. Must not wake a
   /// sleeping machine.
   getStats?(vmId: string): Promise<VMStats>;
+  /** Optional direct guest probe; must not install tooling, mutate, or wake. */
+  getResourceStats?(vmId: string): Promise<VMResourceStatsResult | null>;
   /** Grow one or more VM resources. Freestyle currently uses storage only. */
   resize?(vmId: string, options: VMResizeOptions): Promise<void>;
 
   pause(vmId: string): Promise<void>;
   resume(vmId: string): Promise<VMHandle>;
+  setRuntimeBudget?(vmId: string, remainingSeconds: number | null): Promise<void>;
 
   exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult>;
 
@@ -514,6 +558,7 @@ export interface VMProvider {
   // ensuring sshd is running (some providers need an explicit start step). Only drivers
   // listing `ssh` in attachTransports implement this.
   openSSH?(vmId: string): Promise<SSHEndpoint>;
+  prepareSCP?(vmId: string, publicKey: string): Promise<SCPEndpoint>;
 
   // Best-effort revocation of an identity handle that `openSSH` previously returned. No-op
   // if the driver doesn't mint revocable credentials, must not throw on unknown
@@ -539,5 +584,38 @@ export class ProviderError extends Error {
   ) {
     super(`[${provider}] ${message}`);
     this.name = "ProviderError";
+  }
+}
+
+/**
+ * A machine that can never be attached as it is: it was created before the
+ * attach contract the server now requires, and nothing on the server changes
+ * that. Routes answer with a non-retryable recreate action, never a retryable
+ * outage; see docs/cloud-guest-upgrades.md.
+ */
+export class ProviderMachineRecreateRequiredError extends ProviderError {
+  constructor(provider: ProviderId, message: string) {
+    super(provider, message);
+    this.name = "ProviderMachineRecreateRequiredError";
+  }
+}
+
+/**
+ * The owner's private network has no free address for another member. It
+ * stays full until machines are deleted or computers are revoked, so routes
+ * answer with a non-retryable cleanup action, never a retryable outage.
+ */
+export class ProviderNetworkFullError extends ProviderError {
+  constructor(provider: ProviderId, message: string, cause?: unknown) {
+    super(provider, message, cause);
+    this.name = "ProviderNetworkFullError";
+  }
+}
+
+/** An unpublished runtime artifact; diagnostics stay server-side while routes localize the failure. */
+export class ProviderArtifactUnavailableError extends ProviderError {
+  constructor(provider: ProviderId, diagnostic: { readonly manifestUrl: string; readonly target: string }) {
+    super(provider, "vm_artifact_unavailable", diagnostic);
+    this.name = "ProviderArtifactUnavailableError";
   }
 }

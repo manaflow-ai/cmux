@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import createMiddleware from "next-intl/middleware";
+import { localeMiddleware } from "./i18n/middleware";
 import { preferredLocaleFromAcceptLanguage } from "./i18n/accept-language";
 import { routing } from "./i18n/routing";
 import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
@@ -12,7 +12,7 @@ import {
   remoteTmuxDocsLocales,
 } from "./i18n/locale-availability";
 import { buildAlternateLinkHeader } from "./i18n/seo";
-import { requestOrigin, requestWithOrigin } from "./app/lib/request-origin";
+import { requestOrigin, requestWithOrigin, responseWithInternalRewrite } from "./app/lib/request-origin";
 import {
   DASHBOARD_RETURN_PATH_HEADER,
   dashboardReturnPathForRequest,
@@ -24,10 +24,13 @@ import {
   VM_REFLECTION_ALIAS_VALUE,
 } from "./services/coderouter/vmGuestEnv";
 
-const intlMiddleware = createMiddleware(routing);
 const localeSet = new Set<string>(routing.locales);
 
 export default function middleware(incomingRequest: NextRequest) {
+  return responseWithInternalRewrite(routeRequest(incomingRequest), incomingRequest);
+}
+
+function routeRequest(incomingRequest: NextRequest) {
   const request = requestWithOrigin(incomingRequest);
   const dashboardReturnPath = dashboardReturnPathForRequest(
     request.nextUrl.pathname,
@@ -70,7 +73,25 @@ export default function middleware(incomingRequest: NextRequest) {
   response = handleLegalAndDocsRoutes(request, pathname);
   if (response) return response;
 
-  response = intlMiddleware(request);
+  response = localeMiddleware(request);
+  if (
+    request.headers.has("next-router-prefetch") ||
+    request.headers.get("purpose") === "prefetch"
+  ) {
+    // A delayed prefetch for the previous locale must not overwrite a newer
+    // explicit choice. The header also covers runtime/shell prefetch variants.
+    // Keep next-intl's routing, but do not publish its cookie.
+    // Rebuild the response so later cookie writes cannot resurrect that cookie
+    // from NextResponse's internal cookie map.
+    const headers = new Headers(response.headers);
+    headers.delete("set-cookie");
+    headers.delete("x-middleware-set-cookie");
+    response = new NextResponse(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
   if (featureWorkflowDocRequest) {
     setFeatureWorkflowDocLinkHeader(
       response,

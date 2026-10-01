@@ -31,6 +31,7 @@ use crate::resource::{
 use crate::terminal_host_runtime::TerminalHostLiveness;
 
 mod effect_store;
+mod idle_policy_store;
 mod journal_extensions;
 mod public_projection_store;
 mod resource_store;
@@ -58,6 +59,7 @@ pub(crate) use journal_extensions::{
     JournalSegmentSealCommit, JournalSegmentSealStart,
 };
 pub use public_projection_store::RegistryPublicProjections;
+pub(crate) use public_projection_store::agent_projection_extra;
 #[cfg(test)]
 pub use public_projection_store::{RegistryAgentProjection, RegistryNotificationProjection};
 #[cfg(test)]
@@ -125,6 +127,7 @@ const RESOURCE_EFFECT_PEPPER_FILE: &str = "resource-effect-pepper";
 const RESOURCE_EFFECT_PEPPER_LOCK_FILE: &str = "resource-effect-pepper.lock";
 const RESOURCE_EFFECT_PEPPER_META_KEY: &str = "resource_effect_pepper_id";
 const RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY: &str = "resource_effect_pepper_cleanup_pending";
+const JOURNAL_PLUGIN_GENERATION_META_KEY: &str = "journal_plugin_generation";
 const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id.v1";
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
@@ -2621,6 +2624,11 @@ impl WorkspaceRegistry {
             migrate_resource_tabs_to_multiview(&tx)?;
             tx.commit()?;
         }
+        {
+            let tx = connection.unchecked_transaction()?;
+            resource_store::migrate_tab_name_authority(&tx)?;
+            tx.commit()?;
+        }
         if terminal_hosts_has_workspace_foreign_key(&connection)? {
             let tx = connection.unchecked_transaction()?;
             migrate_terminal_hosts_to_session_ownership(&tx)?;
@@ -2859,6 +2867,13 @@ impl WorkspaceRegistry {
 
     pub fn machine_id(&self) -> &MachinePublicId {
         &self.machine_id
+    }
+
+    /// The current terminal registry revision alone. Lookups that only need to
+    /// stamp their answer read this instead of materializing every terminal
+    /// row while holding the registry lock.
+    pub fn terminal_revision(&self) -> anyhow::Result<u64> {
+        current_terminal_revision(&self.connection)
     }
 
     /// Returns the canonical, non-tombstoned terminal placement projection.
@@ -4027,6 +4042,7 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
          CREATE INDEX IF NOT EXISTS terminal_events_by_terminal
            ON terminal_events(terminal_id, revision);",
     )?;
+    idle_policy_store::create_terminal_idle_policy_schema(transaction)?;
     Ok(())
 }
 

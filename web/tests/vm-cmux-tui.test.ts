@@ -1,4 +1,5 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { runChild } from "./helpers/run-child";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +8,6 @@ import {
   CMUX_TUI_DAEMON_TERMINAL_ENV,
   CMUX_TUI_LAYOUT_MARKER_PATH,
   cmuxTuiDaemonCommand,
-  cmuxTuiAgentHooksInstallCommand,
   cmuxTuiAsDaemonUser,
   cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
@@ -70,11 +70,23 @@ describe("cmux-tui daemon source", () => {
     expect(source).toEqual({ url: URL, sha256: SHA, commit: COMMIT, builtAt: "2026-08-19T07:05:35Z", hookUrl: HOOK_URL, hookSha256: HOOK_SHA });
   });
 
+  test("pins binaries from the manifest commit when the manifest uses latest", () => {
+    const source = parseCmuxTuiManifest("https://files.cmux.com/cmux-tui/latest/manifest.json", {
+      commit: COMMIT,
+      binaries: {
+        "cmux-tui-x86_64-unknown-linux-musl": SHA,
+        "cmux-tui-hook-x86_64-unknown-linux-musl": HOOK_SHA,
+      },
+    });
+    expect(source.url).toBe(URL);
+    expect(source.hookUrl).toBe(HOOK_URL);
+  });
+
   test("fails closed on a manifest without a commit, without the musl build, or without the hook helper", () => {
     const both = { "cmux-tui-x86_64-unknown-linux-musl": SHA, "cmux-tui-hook-x86_64-unknown-linux-musl": HOOK_SHA };
     expect(() => parseCmuxTuiManifest(MANIFEST, { binaries: both })).toThrow(/commit/);
     expect(() => parseCmuxTuiManifest(MANIFEST, { commit: COMMIT, binaries: { "cmux-tui-x86_64-unknown-linux-gnu": SHA, "cmux-tui-hook-x86_64-unknown-linux-musl": HOOK_SHA } })).toThrow(/musl/);
-    expect(() => parseCmuxTuiManifest(MANIFEST, { commit: COMMIT, binaries: { "cmux-tui-x86_64-unknown-linux-musl": SHA } })).toThrow(/cmux-tui-hook/);
+    expect(() => parseCmuxTuiManifest(MANIFEST, { commit: COMMIT, binaries: { "cmux-tui-x86_64-unknown-linux-musl": SHA } })).toThrow(/vm_artifact_unavailable/);
     expect(() => parseCmuxTuiManifest(MANIFEST, "nonsense")).toThrow();
   });
 
@@ -96,7 +108,7 @@ describe("cmux-tui install and daemon commands", () => {
     // Skip the download when the installed copy already matches the pin.
     expect(command).toContain(`'${SHA}' "$CMUX_TUI_BIN" | sha256sum -c >/dev/null 2>&1; then :; else`);
     // The download is verified against the same pin before it replaces anything.
-    expect(command).toContain(`curl -fsSL --retry 3 --retry-delay 2 -o "$CMUX_TUI_TMP" '${URL}'`);
+    expect(command).toContain(`curl -fsSL --retry 3 -o "$CMUX_TUI_TMP" '${URL}'`);
     expect(command).toContain(`wget -q -O "$CMUX_TUI_TMP" '${URL}'`);
     expect(command).toContain(`'${SHA}' "$CMUX_TUI_TMP" | sha256sum -c >/dev/null 2>&1 && chmod 755`);
     expect(command).toContain('ln -sfn "$CMUX_TUI_BIN" /usr/local/bin/cmux-tui');
@@ -112,7 +124,7 @@ describe("cmux-tui install and daemon commands", () => {
     // Beside the binary: the one place `agent hook install` finds it without a PATH search.
     expect(command).toContain('CMUX_TUI_HOOK_BIN="$(dirname "$CMUX_TUI_BIN")/cmux-tui-hook"');
     expect(command).toContain(`'${HOOK_SHA}' "$CMUX_TUI_HOOK_BIN" | sha256sum -c >/dev/null 2>&1; then :; else`);
-    expect(command).toContain(`curl -fsSL --retry 3 --retry-delay 2 -o "$CMUX_TUI_HOOK_TMP" '${HOOK_URL}'`);
+    expect(command).toContain(`curl -fsSL --retry 3 -o "$CMUX_TUI_HOOK_TMP" '${HOOK_URL}'`);
     expect(command).toContain(`'${HOOK_SHA}' "$CMUX_TUI_HOOK_TMP" | sha256sum -c >/dev/null 2>&1 && chmod 755`);
     expect(command).toContain('"$CMUX_TUI_BIN" "$CMUX_TUI_HOOK_BIN" 2>/dev/null || true');
     // The hooks are the daemon user's (HOME=/home/cmux), never root's: root's
@@ -139,15 +151,7 @@ describe("cmux-tui install and daemon commands", () => {
       expect(() => cmuxTuiPinnedManifestUrl(COMMIT)).toThrow(/manifest\.json/));
   });
 
-  test("the hooks-only install never touches the daemon binary", () => {
-    const source = { url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: HOOK_URL, hookSha256: HOOK_SHA };
-    const command = cmuxTuiAgentHooksInstallCommand(source);
-    expect(command).toContain(cmuxTuiLayoutSelector());
-    expect(command).toContain(HOOK_URL);
-    expect(command).not.toContain(URL);
-    expect(command).not.toContain("ln -sfn");
-    expect(command).not.toContain("--version");
-    expect(command).toContain("agent hook install claude codex");
+  test("the hooks-ready check runs as the daemon layout and checks the installed helper", () => {
     expect(cmuxTuiHooksReadyCommand()).toContain(cmuxTuiLayoutSelector());
     expect(cmuxTuiHooksReadyCommand()).toContain('test -x "$CMUX_TUI_HOME/.local/share/cmux-tui/bin/cmux-tui-hook"');
   });
@@ -207,7 +211,7 @@ describe("cmux-tui install and daemon commands", () => {
   });
 
   /** Runs a shell snippet with `bin` first on PATH and returns its stdout. */
-  function runWithStubs(snippet: string, stubs: Record<string, string>): string {
+  async function runWithStubs(snippet: string, stubs: Record<string, string>): Promise<string> {
     const root = mkdtempSync(join(tmpdir(), "cmux-tui-layout-"));
     const fakeBin = join(root, "bin");
     mkdirSync(fakeBin, { recursive: true });
@@ -217,9 +221,8 @@ describe("cmux-tui install and daemon commands", () => {
         writeFileSync(file, body);
         chmodSync(file, 0o755);
       }
-      const result = spawnSync("/bin/sh", ["-c", snippet], {
+      const result = await runChild("/bin/sh", ["-c", snippet], {
         env: { ...process.env, PATH: [fakeBin, "/usr/bin", "/bin"].join(":") },
-        encoding: "utf8",
       });
       expect(result.status).toBe(0);
       return (result.stdout ?? "").trim();
@@ -230,8 +233,8 @@ describe("cmux-tui install and daemon commands", () => {
 
   const report = '; printf %s:%s:%s "$CMUX_TUI_USER" "$CMUX_TUI_HOME" "$CMUX_TUI_BIN"';
 
-  test("a machine with a usable work user runs its sessions as that user", () => {
-    const out = runWithStubs(`${cmuxTuiLayoutSelector()}${report}`, {
+  test("a machine with a usable work user runs its sessions as that user", async () => {
+    const out = await runWithStubs(`${cmuxTuiLayoutSelector()}${report}`, {
       id: "#!/bin/sh\nexit 0\n",
       setpriv: "#!/bin/sh\nexit 0\n",
       sudo: "#!/bin/sh\nexit 0\n",
@@ -239,8 +242,8 @@ describe("cmux-tui install and daemon commands", () => {
     expect(out).toBe("cmux:/home/cmux:/home/cmux/.cmux/bin/cmux-tui");
   });
 
-  test("a machine from a pre-work-user image keeps its root daemon and /root state", () => {
-    const out = runWithStubs(`${cmuxTuiLayoutSelector()}${report}`, {
+  test("a machine from a pre-work-user image keeps its root daemon and /root state", async () => {
+    const out = await runWithStubs(`${cmuxTuiLayoutSelector()}${report}`, {
       // No such user: an image baked before the work user existed.
       id: "#!/bin/sh\nexit 1\n",
       setpriv: "#!/bin/sh\nexit 0\n",
@@ -248,8 +251,8 @@ describe("cmux-tui install and daemon commands", () => {
     expect(out).toBe("root:/root:/root/.cmux/bin/cmux-tui");
   });
 
-  test("a work user without passwordless sudo falls back to root rather than trapping the session", () => {
-    const out = runWithStubs(`${cmuxTuiLayoutSelector()}${report}`, {
+  test("a work user without passwordless sudo falls back to root rather than trapping the session", async () => {
+    const out = await runWithStubs(`${cmuxTuiLayoutSelector()}${report}`, {
       id: "#!/bin/sh\nexit 0\n",
       // the writability probe passes, the `sudo -n true` probe does not.
       setpriv: '#!/bin/sh\ncase "$*" in *sudo*) exit 1;; esac\nexit 0\n',
@@ -263,7 +266,8 @@ describe("cmux-tui attach bundle", () => {
   const stdoutFor = (probe: string, devices: string, trusted: string) =>
     ["__CMUX_PROBE__", probe, "__CMUX_DEVICES__", devices, "__CMUX_TRUSTED__", trusted, "__CMUX_END__", ""].join("\n");
 
-  const runBundle = (readyGate: string, deviceFingerprint?: string) => {
+  /** Runs the attach bundle against a fake cmux-tui and returns its result and recorded calls. */
+  const runBundle = async (readyGate: string, deviceFingerprint?: string) => {
     const root = mkdtempSync(join(tmpdir(), "cmux-tui-attach-bundle-"));
     const binary = join(root, "cmux-tui");
     const callsPath = join(root, "calls");
@@ -288,8 +292,7 @@ describe("cmux-tui attach bundle", () => {
     ].join("\n"));
     chmodSync(binary, 0o755);
     try {
-      const result = spawnSync("/bin/sh", ["-c", cmuxTuiAttachBundleCommand({ readyGate, deviceFingerprint, binary })], {
-        encoding: "utf8",
+      const result = await runChild("/bin/sh", ["-c", cmuxTuiAttachBundleCommand({ readyGate, deviceFingerprint, binary })], {
         env: {
           ...process.env,
           CMUX_TEST_CALLS: callsPath,
@@ -308,8 +311,8 @@ describe("cmux-tui attach bundle", () => {
     }
   };
 
-  test("a successful readiness exit reads build, devices, and the trusted probe; nothing is minted", () => {
-    const result = runBundle("exit 0", "fp-new");
+  test("a successful readiness exit reads build, devices, and the trusted probe; nothing is minted", async () => {
+    const result = await runBundle("exit 0", "fp-new");
     expect(result.status).toBe(0);
     expect(result.calls).toEqual([
       "remote-probe --json",
@@ -323,15 +326,15 @@ describe("cmux-tui attach bundle", () => {
     expect(bundle.trustedCarrier).toBe(false);
   });
 
-  test("a failed readiness exit returns the repair signal without calling the daemon", () => {
-    const result = runBundle("exit 1");
+  test("a failed readiness exit returns the repair signal without calling the daemon", async () => {
+    const result = await runBundle("exit 1");
     expect(result.status).toBe(3);
     expect(result.calls).toEqual([]);
     expect(result.stdout).toBe("");
   });
 
-  test("an enrolled device is recognized so the heal never restarts under it", () => {
-    const result = runBundle("exit 0", "fp-1");
+  test("an enrolled device is recognized so the heal never restarts under it", async () => {
+    const result = await runBundle("exit 0", "fp-1");
     expect(result.status).toBe(0);
     const bundle = parseCmuxTuiAttachBundle(result.stdout, "freestyle", "vm-1", "fp-1");
     expect(bundle.enrolled).toBe(true);

@@ -3,7 +3,7 @@
 // or, for personal organizations (whose team id is the Stack user id), when
 // the row has no billing team and was created by that user. Destroyed rows
 // stay visible so usage a machine spent before deletion remains attributable.
-import { and, desc, eq, isNull, ne, or } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
@@ -32,10 +32,7 @@ export function normalizeVmId(value: string | null | undefined): string | null {
 }
 
 function teamScope(teamId: string) {
-  return or(
-    eq(cloudVms.billingTeamId, teamId),
-    and(isNull(cloudVms.billingTeamId), eq(cloudVms.userId, teamId)),
-  );
+  return eq(cloudVms.ownerTeamId, teamId);
 }
 
 function machineFromRow(row: {

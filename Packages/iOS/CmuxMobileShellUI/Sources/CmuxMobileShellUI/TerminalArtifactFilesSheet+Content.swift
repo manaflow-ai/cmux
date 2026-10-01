@@ -2,6 +2,7 @@
 import CmuxAgentChat
 import CmuxAgentChatUI
 import SwiftUI
+import UIKit
 
 extension TerminalArtifactFilesSheet {
     var scopePicker: some View {
@@ -176,7 +177,10 @@ extension TerminalArtifactFilesSheet {
                 let referenced = presentation.items(in: .referenced)
                 let swipeOrder = ChatArtifactGallerySwipeOrder(groups: presentation.groups)
                 ScrollViewReader { proxy in
-                    ScrollView {
+                    SessionGalleryScrollView(
+                        topTolerance: Self.sessionTopTolerance,
+                        onViewportChange: { sessionViewportIsAtTopOrFits = $0 }
+                    ) {
                         VStack(spacing: 0) {
                             Color.clear
                                 .frame(height: 0)
@@ -225,15 +229,6 @@ extension TerminalArtifactFilesSheet {
                             showsEagerFooter: usesCompleteSessionSnapshot
                         )
                     }
-                    }
-                    .onScrollGeometryChange(for: Bool.self) { geometry in
-                        let isAtTop = geometry.contentOffset.y
-                            <= geometry.contentInsets.top + Self.sessionTopTolerance
-                        let fits = geometry.contentSize.height
-                            <= geometry.containerSize.height + Self.sessionTopTolerance
-                        return isAtTop || fits
-                    } action: { _, isAtTopOrFits in
-                        sessionViewportIsAtTopOrFits = isAtTopOrFits
                     }
                     .overlay(alignment: .top) {
                         if liveRefreshState.pendingNewFileCount > 0 {
@@ -577,31 +572,36 @@ extension TerminalArtifactFilesSheet {
     private static let sessionTopTolerance: CGFloat = 1
 
     private var galleryControls: some View {
-        HStack(spacing: 12) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(ChatArtifactGalleryFilter.allCases, id: \.self) { filter in
-                        Button {
-                            galleryFilter = filter
-                        } label: {
-                            Text(filterTitle(filter))
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(galleryFilter == filter ? Color.white : Color.primary)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 7)
-                                .background(
-                                    galleryFilter == filter
-                                        ? Color.accentColor
-                                        : Color(uiColor: .secondarySystemBackground),
-                                    in: Capsule()
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(galleryFilter == filter ? .isSelected : [])
+        HorizontalEdgeFadePillBar(
+            contentInsets: UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 12),
+            fadesLeadingEdge: false,
+            accessibilityIdentifier: "TerminalArtifactGalleryFilterScroller"
+        ) {
+            EmptyView()
+        } pills: {
+            HStack(spacing: 8) {
+                ForEach(ChatArtifactGalleryFilter.allCases, id: \.self) { filter in
+                    Button {
+                        galleryFilter = filter
+                    } label: {
+                        Text(filterTitle(filter))
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(galleryFilter == filter ? Color.white : Color.primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(
+                                galleryFilter == filter
+                                    ? Color.accentColor
+                                    : Color(uiColor: .secondarySystemBackground),
+                                in: Capsule()
+                            )
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(galleryFilter == filter ? .isSelected : [])
                 }
             }
-
+            .fixedSize()
+        } trailing: {
             TerminalArtifactGallerySortMenu(
                 value: TerminalArtifactGallerySortMenuValue(sort: gallerySort),
                 actions: TerminalArtifactGallerySortMenuActions(
@@ -610,7 +610,10 @@ extension TerminalArtifactFilesSheet {
             )
             .equatable()
         }
-        .padding(.horizontal, 16)
+        .frame(height: 34)
+        // Keep the resting inset inside the scroller so chips leave at the
+        // sheet boundary. Only the fixed sort control needs outer padding.
+        .padding(.trailing, 16)
         .padding(.vertical, 10)
     }
 

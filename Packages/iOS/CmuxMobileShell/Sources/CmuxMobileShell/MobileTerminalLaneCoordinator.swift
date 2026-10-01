@@ -35,6 +35,8 @@ actor MobileTerminalLaneCoordinator {
         let cursor: @Sendable () async -> UInt64?
         let consume: @Sendable (MobileTerminalLaneOutputFrame) async -> FrameDisposition
         let readinessChanged: @Sendable (Bool) async -> Void
+        /// The host's answers to identified input sent on this lane.
+        let acknowledged: @Sendable (MobileTerminalInputAcknowledgement) async -> Void
 
         init(
             request: CmxByteTransportRequest,
@@ -42,7 +44,8 @@ actor MobileTerminalLaneCoordinator {
             mode: LaneMode = .output,
             cursor: @escaping @Sendable () async -> UInt64?,
             consume: @escaping @Sendable (MobileTerminalLaneOutputFrame) async -> FrameDisposition,
-            readinessChanged: @escaping @Sendable (Bool) async -> Void
+            readinessChanged: @escaping @Sendable (Bool) async -> Void,
+            acknowledged: @escaping @Sendable (MobileTerminalInputAcknowledgement) async -> Void = { _ in }
         ) {
             self.request = request
             self.surfaceID = surfaceID
@@ -50,6 +53,7 @@ actor MobileTerminalLaneCoordinator {
             self.cursor = cursor
             self.consume = consume
             self.readinessChanged = readinessChanged
+            self.acknowledged = acknowledged
         }
     }
 
@@ -148,7 +152,12 @@ actor MobileTerminalLaneCoordinator {
         launch(key: key, id: entry.id)
     }
 
-    func sendInput(_ input: String, surfaceID: String) async -> InputResult {
+    func sendInput(
+        _ input: String,
+        surfaceID: String,
+        sequence: UInt64? = nil,
+        delivery: MobileTerminalInputDelivery? = nil
+    ) async -> InputResult {
         guard let key = focusedKeyBySurfaceID[surfaceID],
               let entry = entriesByKey[key],
               entry.phase == .active,
@@ -156,12 +165,22 @@ actor MobileTerminalLaneCoordinator {
               let lane = entry.lane else {
             return .unavailable
         }
+        if let delivery, delivery.surfaceID.uuidString.caseInsensitiveCompare(surfaceID) != .orderedSame {
+            // A unit only ever travels on its own terminal's lane.
+            return .unavailable
+        }
         do {
-            try await lane.sendInput(input)
+            if let delivery {
+                try await lane.sendInput(input, sequence: sequence, delivery: delivery)
+            } else {
+                try await lane.sendInput(input, sequence: sequence)
+            }
             guard let current = entriesByKey[key], current.id == entry.id else {
                 return .failed
             }
             return .sent
+        } catch is MobileTerminalLaneDeliveryUnsupported {
+            return .unavailable
         } catch {
             await fail(key: key, id: entry.id, lane: lane)
             return .failed
@@ -254,6 +273,15 @@ actor MobileTerminalLaneCoordinator {
                 }
                 var isFirstFrame = true
                 while !Task.isCancelled, let frame = try await lane.receiveOutput() {
+                    if frame.kind == .inputAcknowledgement {
+                        guard let acknowledgement = frame.inputAcknowledgement else {
+                            throw CoordinatorError.invalidEnvelope
+                        }
+                        // Answers stay valid after the lane is retired; the
+                        // sender matches them to units by stream identity.
+                        await configuration.acknowledged(acknowledgement)
+                        continue
+                    }
                     try Self.validate(
                         frame,
                         isFirstFrame: isFirstFrame,

@@ -136,7 +136,7 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
-    @Test func sidebarImmediateObservationPublisherCoalescesDescriptionBursts() {
+    @Test func sidebarImmediateObservationPublisherCoalescesDescriptionBursts() async {
         let workspace = Workspace()
 
         var publishCount = 0
@@ -155,8 +155,7 @@ struct WorkspaceSidebarObservationTests {
             "A synchronous burst of immediate fields must deliver only its leading edge immediately."
         )
 
-        // Generous pump so the 50ms trailing emission fires deterministically.
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        #expect(await AppKitTestEventPump().waitUntil { publishCount == 2 })
 
         #expect(
             publishCount == 2,
@@ -311,6 +310,17 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func agentRuntimeObservationReplaysChangeBeforeSubscriberRegistration() async {
+        let model = WorkspaceSidebarAgentRuntimeObservationModel()
+        model.setAgentPIDs(["codex.session-gap": 12_347])
+
+        var changes = model.changes().makeAsyncIterator()
+        #expect(
+            await changes.next() != nil,
+            "A runtime update between snapshot construction and observation setup must wake the first sidebar subscriber."
+        )
+    }
+
     @Test func redundantAgentLifecycleWriteDoesNotNotifySidebarRows() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
@@ -417,6 +427,67 @@ struct WorkspaceSidebarObservationTests {
                 statesByPanelId: statesByPanelId
             ) == 2
         )
+    }
+
+    /// Two Claude panes share the `claude_code` key (and its one PID, held by
+    /// the pane that started last). The row is a workspace aggregate: the pane
+    /// An active turn wins over a pane waiting on the person, even when its
+    /// status report is newer. Lifecycle urgency is shared with the compact
+    /// glyph: running, background work, then needs input.
+    @Test func sharedAgentStatusKeyShowsTheMostUrgentPane() throws {
+        let workspace = Workspace()
+        let waitingPanelId = try #require(workspace.focusedPanelId)
+        let runningPanelId = try #require(
+            workspace.newTerminalSplit(from: waitingPanelId, orientation: .horizontal, focus: false)?.id
+        )
+        let owner = ControlSidebarPanelOwner.workspace(workspace)
+        workspace.recordAgentPID(key: "claude_code", pid: 12_402, panelId: runningPanelId, refreshPorts: false)
+
+        owner.setStatusEntry(
+            SidebarStatusEntry(key: "claude_code", value: "Needs input", timestamp: Date(timeIntervalSince1970: 1_000)),
+            key: "claude_code",
+            panelId: waitingPanelId
+        )
+        workspace.setAgentLifecycle(key: "claude_code", panelId: waitingPanelId, lifecycle: .needsInput)
+        owner.setStatusEntry(
+            SidebarStatusEntry(key: "claude_code", value: "Running", timestamp: Date(timeIntervalSince1970: 2_000)),
+            key: "claude_code",
+            panelId: runningPanelId
+        )
+        workspace.setAgentLifecycle(key: "claude_code", panelId: runningPanelId, lifecycle: .running)
+
+        #expect(
+            workspace.sidebarStatusEntriesInDisplayOrder().first { $0.key == "claude_code" }?.value == "Running",
+            "An active turn must outrank a pane waiting on the person."
+        )
+
+        _ = workspace.clearAgentLifecycle(key: "claude_code", panelId: waitingPanelId)
+        #expect(
+            workspace.sidebarStatusEntriesInDisplayOrder().first { $0.key == "claude_code" }?.value == "Running",
+            "Once the waiting pane's lifecycle ends, its old Needs input text must not linger."
+        )
+    }
+
+    /// Across different agents, an active turn sorts first even when another
+    /// agent is waiting on the person and reported more recently.
+    @Test func needsInputStatusSortsAheadOfNewerEntries() throws {
+        let workspace = Workspace()
+        let codexPanelId = try #require(workspace.focusedPanelId)
+        let claudePanelId = try #require(
+            workspace.newTerminalSplit(from: codexPanelId, orientation: .horizontal, focus: false)?.id
+        )
+        workspace.recordAgentPID(key: "codex.a", pid: 12_403, panelId: codexPanelId, refreshPorts: false)
+        workspace.recordAgentPID(key: "claude_code.a", pid: 12_404, panelId: claudePanelId, refreshPorts: false)
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code", value: "Needs input", timestamp: Date(timeIntervalSince1970: 1_000)
+        )
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex", value: "Running", timestamp: Date(timeIntervalSince1970: 2_000)
+        )
+        workspace.setAgentLifecycle(key: "claude_code", panelId: claudePanelId, lifecycle: .needsInput)
+        workspace.setAgentLifecycle(key: "codex", panelId: codexPanelId, lifecycle: .running)
+
+        #expect(workspace.sidebarStatusEntriesInDisplayOrder().map(\.key) == ["codex", "claude_code"])
     }
 }
 
