@@ -32,45 +32,55 @@ import Testing
 
     private func waitFor(_ expected: DaemonStartupState, service: DaemonService,
                          timeout: Duration = .seconds(10)) async throws {
-        let observation = Task { @MainActor in
-            for await state in Observations({ service.startup }) where state == expected { return }
+        let observation = Task { @MainActor () -> Bool in
+            for await state in Observations({ service.startup }) where state == expected { return true }
+            return false
         }
-        let timeoutTask = Task<Void, Error> {
-            try await Task.sleep(for: timeout)
-            throw DaemonError.timedOut("daemon startup state did not become (expected)")
+        let timeoutTask = Task<Void, Never> {
+            try? await Task.sleep(for: timeout)
         }
-        defer {
+        let observed = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { await observation.value }
+            group.addTask {
+                await timeoutTask.value
+                return false
+            }
+            let result = await group.next() ?? false
             observation.cancel()
             timeoutTask.cancel()
-        }
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask { await observation.value }
-            group.addTask { try await timeoutTask.value }
-            try await group.next()
             group.cancelAll()
+            return result
+        }
+        guard observed else {
+            throw DaemonError.timedOut("daemon startup state did not become (expected)")
         }
     }
 
     private func waitForConnected(_ service: DaemonService,
                                   timeout: Duration = .seconds(10)) async throws {
-        let observation = Task { @MainActor in
+        let observation = Task { @MainActor () -> Bool in
             for await state in Observations({ service.store.connectionState }) {
-                if case .connected = state { return }
+                if case .connected = state { return true }
             }
+            return false
         }
-        let timeoutTask = Task<Void, Error> {
-            try await Task.sleep(for: timeout)
-            throw DaemonError.timedOut("daemon connection did not become connected")
+        let timeoutTask = Task<Void, Never> {
+            try? await Task.sleep(for: timeout)
         }
-        defer {
+        let observed = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { await observation.value }
+            group.addTask {
+                await timeoutTask.value
+                return false
+            }
+            let result = await group.next() ?? false
             observation.cancel()
             timeoutTask.cancel()
-        }
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask { await observation.value }
-            group.addTask { try await timeoutTask.value }
-            try await group.next()
             group.cancelAll()
+            return result
+        }
+        guard observed else {
+            throw DaemonError.timedOut("daemon connection did not become connected")
         }
     }
 
