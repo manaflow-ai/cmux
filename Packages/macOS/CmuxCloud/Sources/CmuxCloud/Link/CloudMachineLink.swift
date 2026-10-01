@@ -79,6 +79,7 @@ public actor CloudMachineLink {
     public enum LinkError: Error, LocalizedError {
         case clientMissing
         case spawnFailed(String)
+        case failureMessage(String)
         case exited(status: Int32, output: String)
         case timedOut
         case inputTooLarge
@@ -91,6 +92,8 @@ public actor CloudMachineLink {
                 return "No cmux-tui client is bundled with this build (Contents/Resources/bin/cmux-tui) and CMUX_TUI_CLIENT is unset."
             case .spawnFailed(let detail):
                 return "cmux-tui could not be started: \(detail)"
+            case .failureMessage(let detail):
+                return detail
             case .exited(let status, let output):
                 let tail = output.split(separator: "\n").suffix(3).joined(separator: " · ")
                 return "cmux-tui link exited with status \(status)" + (tail.isEmpty ? "" : ": \(tail)")
