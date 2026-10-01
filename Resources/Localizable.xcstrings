@@ -117222,55 +117222,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠ link %@: %@"
+            "value": "⚠ %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠ リンク %@: %@"
+            "value": "⚠ リンク %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠ 链路 %@: %@"
+            "value": "⚠ 链路 %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠ Link %@: %@"
+            "value": "⚠ Link %@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠ lien %@ : %@"
+            "value": "⚠ lien %@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠ رابط %@: %@"
+            "value": "⚠ رابط %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠ enlace %@: %@"
+            "value": "⚠ enlace %@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠ 連結 %@: %@"
+            "value": "⚠ 連結 %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠ 링크 %@: %@"
+            "value": "⚠ 링크 %@"
           }
         }
       }
