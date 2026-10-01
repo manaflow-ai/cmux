@@ -15,56 +15,48 @@ struct CMUXCLIForkVerbRegressionTests {
     private final class BundleToken {}
 
     @Test
-    func claudeForkSeedsTranscriptWhenDestinationCwdDiffers() throws {
+    func claudeForkSeedsTranscriptWhenDestinationCwdDiffers() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-claude-fork-seed-\(UUID().uuidString)")
         let config = root.appendingPathComponent("claude-config")
         let source = root.appendingPathComponent("source")
         let destination = root.appendingPathComponent("destination")
         let sessionID = "seed-session"
-        let sourceProject = config.appendingPathComponent("projects/-tmp-source")
+        let sourceProject = config.appendingPathComponent("projects").appendingPathComponent(
+            source.path.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
+        )
         try FileManager.default.createDirectory(at: sourceProject, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         let sourceTranscript = sourceProject.appendingPathComponent("\(sessionID).jsonl")
         try Data("{\"type\":\"user\"}\n".utf8).write(to: sourceTranscript)
-        try FileManager.default.createDirectory(at: sourceProject.appendingPathComponent(sessionID), withIntermediateDirectories: true)
+        let sourceSidecar = sourceProject.appendingPathComponent(sessionID)
+        try FileManager.default.createDirectory(at: sourceSidecar, withIntermediateDirectories: true)
+        let sourceSidecarFile = sourceSidecar.appendingPathComponent("state.json")
+        try Data("{\"state\":\"fixture\"}".utf8).write(to: sourceSidecarFile)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let record = CMUXCLI.RestoreRecord(
-            mode: AgentRestoreRequestMode.forkAgent.rawValue,
-            kind: "claude",
-            checkpointID: sessionID,
-            source: nil,
-            workingDirectory: source.path,
-            environment: ["CLAUDE_CONFIG_DIR": config.path],
-            launchCommand: AgentLaunchCommand(
-                launcher: "claude",
-                executablePath: nil,
-                arguments: ["claude", "--resume", sessionID],
-                workingDirectory: source.path,
-                environment: [:]
-            ),
-            preparedArguments: nil,
-            preparedArgumentsWorkingDirectory: nil,
-            forkArguments: nil,
-            forkArgumentsWorkingDirectory: nil,
-            permissionMode: nil,
-            legacyCommand: nil,
-            legacyForkCommand: nil,
-            continuationPrompt: nil
+        let targetProject = config.appendingPathComponent("projects").appendingPathComponent(
+            destination.path.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
         )
-
-        try CMUXCLI.seedClaudeTranscriptForForkIfNeeded(
-            record: record,
+        try await ClaudeTranscriptForkSeeder.seed(ClaudeTranscriptForkSeedRequest(
+            sessionID: sessionID,
+            sourceWorkingDirectory: source.path,
             targetWorkingDirectory: destination.path,
-            homeDirectory: root.path
-        )
+            configDirectory: config.path
+        ))
 
-        let targetTranscript = config.appendingPathComponent("projects/-tmp-destination/\(sessionID).jsonl")
+        let targetTranscript = targetProject.appendingPathComponent("\(sessionID).jsonl")
         #expect(FileManager.default.fileExists(atPath: targetTranscript))
-        #expect(Data(contentsOf: targetTranscript) == Data(contentsOf: sourceTranscript))
-        #expect(FileManager.default.fileExists(atPath: targetTranscript.replacingOccurrences(of: ".jsonl", with: "")))
+        let copiedTranscript = try Data(contentsOf: targetTranscript)
+        let sourceTranscriptData = try Data(contentsOf: sourceTranscript)
+        #expect(copiedTranscript == sourceTranscriptData)
+        let targetSidecar = targetTranscript.deletingPathExtension()
+        #expect(FileManager.default.fileExists(atPath: targetSidecar.path))
+        let targetSidecarFile = targetSidecar.appendingPathComponent("state.json")
+        let copiedSidecar = try Data(contentsOf: targetSidecarFile)
+        let sourceSidecarData = try Data(contentsOf: sourceSidecarFile)
+        #expect(copiedSidecar == sourceSidecarData)
     }
 
     @Test
