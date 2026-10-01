@@ -155,13 +155,27 @@ extension ControlRouter {
         }
         if let failure { return .failure(Self.workError(failure, action: action, method: method)) }
         if let failure = scope.failures.first { return .failure(Self.scopeError(failure, action: action, method: method)) }
-        // No local daemon command: the work queue's frame already published
-        // the app-local change (selection, focus, settings).
-        guard let barrier = scope.barrier(machine: ControlCommandScope.localMachine) else { return .success(snapshots.current) }
-        guard let snapshot = await snapshots.snapshot(reflecting: barrier, deadline: deadline) else {
+        // No daemon command: the work queue's frame already published the
+        // app-local change (selection, focus, settings).
+        let barriers = scope.barriers
+        guard !barriers.isEmpty else { return .success(snapshots.current) }
+        guard let snapshot = await snapshots.snapshot(reflecting: Self.sequenceBarrier(barriers, in: snapshots.current.topology),
+                                                      deadline: deadline) else {
             return .failure(Self.stillRunning(method, action: action))
         }
         return .success(snapshot)
+    }
+
+    /// The scope's per-machine barriers as snapshot sequences: the local
+    /// daemon's is the home sequence, a remote machine's its session's. A
+    /// machine the topology no longer lists cannot be waited for.
+    static func sequenceBarrier(_ barriers: [String: UInt64], in topology: ControlTopology) -> ControlSequenceBarrier {
+        var barrier = ControlSequenceBarrier(home: barriers[ControlCommandScope.localMachine] ?? 0)
+        for (machine, sequence) in barriers where machine != ControlCommandScope.localMachine {
+            guard let session = topology.sessions.first(where: { $0.machineID == machine && !$0.isHome }) else { continue }
+            barrier.sessions[session.id] = sequence
+        }
+        return barrier
     }
 
     /// Returns once no command of `scope` is open, checked on the main
