@@ -99,15 +99,15 @@ public enum DaemonCapabilities {
     public static let optional: [String] = [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
                                             terminalReap, batchClose, loopbackForward, screenMetadata, screenGroups, profiles,
-                                            terminalPendingSequence]
+                                            terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
+                                            terminalShellArgs, launchSnapshot]
 
     /// Capabilities the app already speaks but the pinned cmux-tui does not
     /// serve yet. They are advertised, so a daemon that has them enables them,
     /// but they are not in `optional` (the pinned daemon must serve every
     /// `optional` capability, BranchDaemonTests). The pin commit that brings
     /// one moves it into `optional`.
-    public static let awaitingPin: [String] = [personalTerminals, remoteTerminalTabs, browserProfiles, detachedTerminals,
-                                               notificationSource, terminalShellArgs, launchSnapshot]
+    public static let awaitingPin: [String] = [remoteTerminalTabs, detachedTerminals]
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     public static let advertised: [String] = required + optional + awaitingPin + [
