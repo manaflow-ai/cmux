@@ -45,7 +45,6 @@ final class HostSettingsActions: SettingsHostActions {
     /// sanctioned seam for bridging a Foundation type that exposes change
     /// only via KVO (`UserDefaults`). The token is invalidated in `deinit`.
     private var appIconModeObservation: NSKeyValueObservation?
-
     /// Retains the AppKit window hosting ``ConfigSettingsView`` so repeated
     /// "Open Config" presses reuse the same dedicated terminal-config
     /// window instead of stacking duplicates.
@@ -56,12 +55,12 @@ final class HostSettingsActions: SettingsHostActions {
     /// task behind.
     private var notificationSoundPreviewTask: Task<Void, Never>?
     private var customSidebarPreview: (id: String, providerId: String, previousProviderId: String)?
-
     init(
         configFileURL: URL,
         computerUseRuntimeService: ComputerUseRuntimeService,
         browserDataImportCoordinator: BrowserDataImportCoordinator,
         automationConfigStore: AutomationConfigStore = AutomationConfigStore(),
+        customSidebarTemplateGalleryRequest: CustomSidebarTemplateGalleryRequest? = nil,
         openAutomationRulesFile: @escaping @MainActor (URL) -> Void = {
             PreferredEditorService(defaults: .standard).open($0)
         },
@@ -81,6 +80,7 @@ final class HostSettingsActions: SettingsHostActions {
         runComputerUseOnboardingAction:
             @escaping @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void
     ) {
+        self.customSidebarTemplateGalleryRequest = customSidebarTemplateGalleryRequest ?? CustomSidebarTemplateGalleryRequest()
         self.computersActions = computersActions ?? ComputersSettingsActions()
         self.configFileURL = configFileURL
         self.automationConfigStore = automationConfigStore

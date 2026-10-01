@@ -7,6 +7,18 @@ import XCTest
 /// has no app host, so it resolves it from `CMUX_CLI_PATH` or relative to the
 /// built products directory the bundle itself was copied into.
 enum BundledCLITestSupport {
+    /// Resolves the repository root used by source-backed CLI fixtures.
+    static func repositoryRoot(file: StaticString = #filePath) -> URL {
+        if let runtimeRoot = ProcessInfo.processInfo.environment["CMUX_CI_RUNTIME_SOURCE_ROOT"],
+           !runtimeRoot.isEmpty {
+            return URL(fileURLWithPath: runtimeRoot, isDirectory: true)
+                .appendingPathComponent("src", isDirectory: true)
+        }
+        return URL(fileURLWithPath: String(describing: file))
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
     /// The daemon handshake must match the CLI under test, not the xctest host.
     static func appVersion(cliPath: String) throws -> String {
         let result = CLIHookProcessRunner.run(

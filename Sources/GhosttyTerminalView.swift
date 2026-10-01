@@ -4164,9 +4164,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var windowOcclusionObserver: NSObjectProtocol?
     private var windowKeyObservers: [NSObjectProtocol] = []
     /// Windows that have reported an occlusion `.visible` bit at least once, so the
-    /// visibility rule knows when that signal is trustworthy (see `TerminalRendererWindowVisibility`).
-    /// Store only identities so teardown never asks AppKit to weak-reference a deallocating window.
-    private static var windowsThatReportedVisible = Set<ObjectIdentifier>()
+    /// visibility rule knows when that signal is trustworthy (see
+    /// `TerminalRendererWindowVisibility`). Weak: windows come and go.
+    private static let windowsThatReportedVisible = NSHashTable<NSWindow>.weakObjects()
     private var lastScrollEventTime: CFTimeInterval = 0
     private let scrollSpeedAccumulator = TerminalScrollSpeedAccumulator()
     private var visibleInUI: Bool = true
@@ -9832,12 +9832,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func applyRendererWindowVisibility(for window: NSWindow) {
         let occlusionVisible = window.occlusionState.contains(.visible)
         if occlusionVisible {
-            Self.windowsThatReportedVisible.insert(ObjectIdentifier(window))
+            Self.windowsThatReportedVisible.add(window)
         }
         terminalSurface?.setRendererWindowVisible(
             TerminalRendererWindowVisibility(
                 occlusionVisible: occlusionVisible,
-                windowHasReportedVisible: Self.windowsThatReportedVisible.contains(ObjectIdentifier(window)),
+                windowHasReportedVisible: Self.windowsThatReportedVisible.contains(window),
                 isWindowVisible: window.isVisible,
                 isMiniaturized: window.isMiniaturized,
                 isOnActiveSpace: window.isOnActiveSpace,

@@ -123,7 +123,7 @@ final class MainWindowVisibilityController {
     }
 
     private var dependencies: Dependencies
-    private var committedClosedWindowIdentifiers = Set<ObjectIdentifier>()
+    private let committedClosedWindows = NSHashTable<NSWindow>.weakObjects()
     private let workspaceSwitchSignposts = WorkspaceSwitchSignposts()
     var appHiddenWindowRestoreTargets: [NSWindow] = []
     var dismissedWindowRestoreTargets: [NSWindow] = []
@@ -134,12 +134,12 @@ final class MainWindowVisibilityController {
     }
 
     func commitClose(_ window: NSWindow) {
-        committedClosedWindowIdentifiers.insert(ObjectIdentifier(window))
+        committedClosedWindows.add(window)
         discardClosedWindow(window)
     }
 
     func hasCommittedClose(for window: NSWindow) -> Bool {
-        committedClosedWindowIdentifiers.contains(ObjectIdentifier(window))
+        committedClosedWindows.contains(window)
     }
 
     /// Returns whether a hidden window was explicitly retained for a later

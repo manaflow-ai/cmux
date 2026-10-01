@@ -2953,6 +2953,7 @@ jobs:
             "TEST_RUNNER_CFFIXED_USER_HOME=$CMUX_CLI_TESTS_HOME" \
             "TEST_RUNNER_XDG_CONFIG_HOME=$CMUX_CLI_TESTS_HOME/.config" \
             "TEST_RUNNER_SSH_AUTH_SOCK=" \
+            "TEST_RUNNER_CMUX_CI_RUNTIME_SOURCE_ROOT=$CMUX_CI_RUNTIME_SOURCE_ROOT" \
             "TEST_RUNNER_CMUX_CLI_PATH=$CMUX_CLI_PATH" \
             bash scripts/ci/run-and-capture.sh "$test_log" \
             xcodebuild test-without-building \

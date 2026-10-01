@@ -675,13 +675,16 @@ enum TitlebarControlsLayoutMetrics {
         config: TitlebarControlsStyleConfig,
         titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX
     ) -> NSSize {
-        // Reserve the larger width for buttons and shortcut hints.
+        // Two width requirements; reserve the larger so neither the buttons nor the
+        // shortcut hints are clipped by the accessory's allocated frame.
         let buttonReservation = outerLeadingPadding
             + config.groupPadding.leading
             + buttonRowWidth(config: config)
             + config.groupPadding.trailing
             + hintTrailingInset(titlebarShortcutHintXOffset: titlebarShortcutHintXOffset)
-        // Reserve the planner's rightmost hint edge to prevent clipping.
+        // Drive the reservation from the planner's actual rightmost hint edge so the
+        // overlap-shift the planner applies (which the fixed inset above ignores) is
+        // always covered. This is what prevents the rightmost pill from clipping.
         let hintReservation = hintLeadingPadding
             + titlebarHintLayoutRightmostExtent(
                 config: config,
@@ -889,7 +892,10 @@ private struct TitlebarControlButtonStyleBody: View {
         configuration.label
             .frame(width: config.buttonSize, height: config.buttonSize)
             .foregroundStyle(foregroundColor.opacity(foregroundOpacity))
-            // Hosted symbols bake tint opacity into the bitmap; badges keep their own colors.
+            // Hosted symbols bake their tint into the bitmap, so they read the
+            // same dimming from the environment (`TitlebarControlSymbol`)
+            // while other label content (the notification badge) keeps its
+            // own colors.
             .environment(\.titlebarControlForegroundOpacity, foregroundOpacity)
             .background {
                 if backgroundOpacity > 0 {
@@ -1943,7 +1949,7 @@ enum TitlebarWindowGeometryNotifications {
 
 final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewController, NSPopoverDelegate {
     private let hostingView: NonDraggableHostingView<AnyView>
-    private let containerView: NSView
+    private let containerView: TitlebarAccessoryContainerView
     private let notificationStore: TerminalNotificationStore
     private let layoutModel: TitlebarControlsLayoutModel
     private lazy var notificationsPopover: NSPopover = makeNotificationsPopover()
@@ -1952,7 +1958,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var cachedContentSize: NSSize?
     private var lastObservedViewSize: NSSize = .zero
     private var lastAppliedLayoutSnapshot: TitlebarControlsLayoutSnapshot?
-    private var observedWindowIdentifier: ObjectIdentifier?
+    private weak var observedWindow: NSWindow?
     private var windowGeometryObservers: [NSObjectProtocol] = []
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
@@ -2037,6 +2043,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         hostingView.clipsToBounds = false
         hostingView.layer?.masksToBounds = false
         containerView.addSubview(hostingView)
+        containerView.onWindowChange = { [weak self] window in
+            self?.observeWindow(window)
+        }
 
         userDefaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             guard let self else { return }
@@ -2075,7 +2084,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
     override func viewDidAppear() {
         super.viewDidAppear()
-        updateObservedWindowIfNeeded()
         scheduleSizeUpdate(invalidateIntrinsicSize: true)
     }
 
@@ -2096,33 +2104,32 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        let observedWindowChanged = updateObservedWindowIfNeeded()
         let currentViewSize = view.bounds.size
         guard titlebarControlsShouldScheduleForViewSizeChange(
             previous: lastObservedViewSize,
             current: currentViewSize
-        ) || observedWindowChanged else {
+        ) else {
             return
         }
         lastObservedViewSize = currentViewSize
-        scheduleSizeUpdate(invalidateIntrinsicSize: true, invalidateLayout: observedWindowChanged)
+        scheduleSizeUpdate(invalidateIntrinsicSize: true)
     }
 
-    @discardableResult
-    private func updateObservedWindowIfNeeded() -> Bool {
-        let currentWindow = view.window
-        let currentWindowIdentifier = currentWindow.map { ObjectIdentifier($0) }
-        guard currentWindowIdentifier != observedWindowIdentifier else { return false }
+    /// Tracks the host window from `viewDidMoveToWindow` for deferred layout.
+    /// AppKit supplies a live window here; the weak reference later reads nil.
+    private func observeWindow(_ window: NSWindow?) {
+        guard window !== observedWindow else { return }
         removeWindowGeometryObservers()
-        observedWindowIdentifier = currentWindowIdentifier
-        guard let currentWindow else { return true }
-        let center = NotificationCenter.default
-        windowGeometryObservers = TitlebarWindowGeometryNotifications.names.map { name in
-            center.addObserver(forName: name, object: currentWindow, queue: .main) { [weak self] _ in
-                self?.scheduleSizeUpdate(invalidateIntrinsicSize: true, invalidateLayout: true)
+        observedWindow = window
+        if let window {
+            let center = NotificationCenter.default
+            windowGeometryObservers = TitlebarWindowGeometryNotifications.names.map { name in
+                center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                    self?.scheduleSizeUpdate(invalidateIntrinsicSize: true, invalidateLayout: true)
+                }
             }
         }
-        return true
+        scheduleSizeUpdate(invalidateIntrinsicSize: true, invalidateLayout: true)
     }
 
     private func removeWindowGeometryObservers() {
@@ -2137,7 +2144,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         invalidateIntrinsicSize: Bool = false,
         invalidateLayout: Bool = false
     ) {
-        updateObservedWindowIfNeeded()
         if invalidateLayout {
             lastAppliedLayoutSnapshot = nil
         }
@@ -2153,7 +2159,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     }
 
     private func updateSize() {
-        updateObservedWindowIfNeeded()
         applyWorkspaceTitlebarVisibility()
         guard showsWorkspaceTitlebar else { return }
         let contentSize = layoutModel.snapshot.contentSize
@@ -2164,17 +2169,18 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         cachedContentSize = contentSize
 
         guard contentSize.width > 0, contentSize.height > 0 else { return }
-        let closeButton = view.window?.standardWindowButton(.closeButton)
+        let window = observedWindow
+        let closeButton = window?.standardWindowButton(.closeButton)
         let titlebarView = closeButton?.superview
         let trafficLightFrame = closeButton.map { button in
             view.convert(button.convert(button.bounds, to: nil), from: nil)
         }
 #if DEBUG
-        TitlebarChromeUITestRecorder.recordTrafficLightFrames(window: view.window)
+        TitlebarChromeUITestRecorder.recordTrafficLightFrames(window: window)
 #endif
         let titlebarHeight = (titlebarView?.frame.height ?? 0) > 0
             ? titlebarView?.frame.height ?? contentSize.height
-            : view.window.map { window in
+            : window.map { window in
                 window.frame.height - window.contentLayoutRect.height
             } ?? contentSize.height
         let containerHeight = TitlebarControlsLayoutMetrics.containerHeight(
@@ -2746,7 +2752,7 @@ final class UpdateTitlebarAccessoryController {
     private let settingsRuntime: SettingsRuntime?
     private let layoutModel: TitlebarControlsLayoutModel
     private var didStart = false
-    private var attachedWindowIdentifiers = Set<ObjectIdentifier>()
+    private let attachedWindows = NSHashTable<NSWindow>.weakObjects()
     private var observers: [NSObjectProtocol] = []
     private var pendingAttachRetries: [ObjectIdentifier: Int] = [:]
     private var startupScanWorkItems: [DispatchWorkItem] = []
@@ -2840,10 +2846,9 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            let windowIdentifier = ObjectIdentifier(window)
-            Task { @MainActor [weak self] in
-                guard let self, let window = self.liveWindow(withIdentifier: windowIdentifier) else { return }
-                self.attachIfNeeded(to: window)
+            Task { @MainActor [weak self, weak window] in
+                guard let window else { return }
+                self?.attachIfNeeded(to: window)
             }
         })
 
@@ -2853,10 +2858,9 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            let windowIdentifier = ObjectIdentifier(window)
-            Task { @MainActor [weak self] in
-                guard let self, let window = self.liveWindow(withIdentifier: windowIdentifier) else { return }
-                self.attachIfNeeded(to: window)
+            Task { @MainActor [weak self, weak window] in
+                guard let window else { return }
+                self?.attachIfNeeded(to: window)
             }
         })
 
@@ -2873,6 +2877,7 @@ final class UpdateTitlebarAccessoryController {
     }
 
     private func reattachIfPresentationModeChanged() {
+
         let currentMode = WorkspacePresentationModeSettings.mode()
         guard currentMode != lastKnownPresentationMode else { return }
         lastKnownPresentationMode = currentMode
@@ -2880,7 +2885,7 @@ final class UpdateTitlebarAccessoryController {
         if currentMode == .standard {
             attachToExistingWindows()
         }
-        for window in NSApp.windows where attachedWindowIdentifiers.contains(ObjectIdentifier(window)) {
+        for window in attachedWindows.allObjects {
             applyAccessoryVisibility(for: window)
         }
     }
@@ -2889,10 +2894,6 @@ final class UpdateTitlebarAccessoryController {
         for window in NSApp.windows {
             attachIfNeeded(to: window)
         }
-    }
-
-    private func liveWindow(withIdentifier identifier: ObjectIdentifier) -> NSWindow? {
-        NSApp.windows.first { ObjectIdentifier($0) == identifier }
     }
 
     private func scheduleStartupWindowScans() {
@@ -2934,9 +2935,9 @@ final class UpdateTitlebarAccessoryController {
             let attempts = pendingAttachRetries[key, default: 0]
             if attempts < 40 {
                 pendingAttachRetries[key] = attempts + 1
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                    Task { @MainActor [weak self] in
-                        guard let self, let window = self.liveWindow(withIdentifier: key) else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak window] in
+                    Task { @MainActor [weak self, weak window] in
+                        guard let self, let window else { return }
                         self.attachIfNeeded(to: window)
                     }
                 }
@@ -2950,7 +2951,7 @@ final class UpdateTitlebarAccessoryController {
         guard canAccessTitlebarAccessories(on: window) else { return }
 
         // Don't re-attach controls if already attached.
-        guard !attachedWindowIdentifiers.contains(ObjectIdentifier(window)) else {
+        guard !attachedWindows.contains(window) else {
             applyAccessoryVisibility(for: window)
             return
         }
@@ -2967,7 +2968,7 @@ final class UpdateTitlebarAccessoryController {
             controlsControllers.add(controls)
         }
 
-        attachedWindowIdentifiers.insert(ObjectIdentifier(window))
+        attachedWindows.add(window)
         applyAccessoryVisibility(for: window)
 
 #if DEBUG
@@ -2981,7 +2982,7 @@ final class UpdateTitlebarAccessoryController {
 
     private func applyAccessoryVisibility(for window: NSWindow) {
         guard canAccessTitlebarAccessories(on: window) else {
-            attachedWindowIdentifiers.remove(ObjectIdentifier(window))
+            attachedWindows.remove(window)
             pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
             return
         }
@@ -2997,7 +2998,7 @@ final class UpdateTitlebarAccessoryController {
 
     private func removeAccessoryIfPresent(from window: NSWindow) {
         guard canAccessTitlebarAccessories(on: window) else {
-            attachedWindowIdentifiers.remove(ObjectIdentifier(window))
+            attachedWindows.remove(window)
             pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
             return
         }
@@ -3005,7 +3006,7 @@ final class UpdateTitlebarAccessoryController {
             let id = window.titlebarAccessoryViewControllers[index].view.identifier
             return id == controlsIdentifier
         }
-        guard !matchingIndices.isEmpty || attachedWindowIdentifiers.contains(ObjectIdentifier(window)) else { return }
+        guard !matchingIndices.isEmpty || attachedWindows.contains(window) else { return }
 
         for index in matchingIndices {
             let accessory = window.titlebarAccessoryViewControllers[index]
@@ -3015,11 +3016,10 @@ final class UpdateTitlebarAccessoryController {
             window.removeTitlebarAccessoryViewController(at: index)
         }
 
-        attachedWindowIdentifiers.remove(ObjectIdentifier(window))
+        attachedWindows.remove(window)
         pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
-        let windowIdentifier = ObjectIdentifier(window)
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let window = self.liveWindow(withIdentifier: windowIdentifier) else { return }
+        DispatchQueue.main.async { [weak window] in
+            guard let window else { return }
             window.contentView?.needsLayout = true
             window.contentView?.superview?.needsLayout = true
             window.contentView?.layoutSubtreeIfNeeded()

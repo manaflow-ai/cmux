@@ -133,18 +133,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
             return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected command \(command)"])
         }
-
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["vm", "pull", "brave-otter", "work/report.bin", localFile.path],
             environment: environment,
             timeout: 30
         )
-
         wait(for: [serverHandled], timeout: 30)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
@@ -152,11 +149,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let pulled = try Data(contentsOf: localFile)
         XCTAssertEqual(pulled, remoteData, "pulled bytes must match the machine's file")
     }
-
     private static func writeJSON(_ object: Any, to url: URL) throws {
         try JSONSerialization.data(withJSONObject: object).write(to: url)
     }
-
     private static func vmRunWorkKey(forDirectory path: String) -> String {
         let canonical = URL(fileURLWithPath: path).standardizedFileURL.path
         let digest = SHA256.hash(data: Data(canonical.utf8))
@@ -739,6 +734,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        XCTAssertEqual(
+            VMReadyPollInterval.resolve(environment: ["CMUX_VM_WAIT_POLL_SECONDS": "3600"]),
+            3,
+            "oversized poll overrides must fall back to the bounded production cadence"
+        )
         // Shared poll interval tests cover parser fallback; this process check uses
         // a valid short override so the instant mock avoids production cadence.
         environment["CMUX_VM_WAIT_POLL_SECONDS"] = "0.05"

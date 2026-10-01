@@ -1429,9 +1429,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
     }
 
     private var repositoryRoot: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
+        BundledCLITestSupport.repositoryRoot(file: #filePath)
     }
 
     private func makeSettingsCapturingClaude(at url: URL) throws {

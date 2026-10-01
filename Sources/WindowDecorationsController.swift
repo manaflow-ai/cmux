@@ -9,7 +9,10 @@ final class WindowDecorationsController {
     private var lastMinimalModeTitlebarClick: MinimalModeTitlebarClickRecord?
     private var lastKnownPresentationMode = WorkspacePresentationModeSettings.mode()
     private var lastKnownTitlebarDebugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
-    private var minimalModeSidebarTitlebarClickTargets = [ObjectIdentifier: MinimalModeSidebarControlActionView]()
+    private let minimalModeSidebarTitlebarClickTargets = NSMapTable<NSWindow, MinimalModeSidebarControlActionView>(
+        keyOptions: .weakMemory,
+        valueOptions: .strongMemory
+    )
 
     deinit {
         let center = NotificationCenter.default
@@ -19,7 +22,8 @@ final class WindowDecorationsController {
         if let minimalModeSidebarChromeHoverMonitor {
             NSEvent.removeMonitor(minimalModeSidebarChromeHoverMonitor)
         }
-        for view in minimalModeSidebarTitlebarClickTargets.values {
+        let enumerator = minimalModeSidebarTitlebarClickTargets.objectEnumerator()
+        while let view = enumerator?.nextObject() as? NSView {
             view.removeFromSuperview()
         }
         WindowMouseMovedEventsCoordinator.disableOwner(self)
@@ -331,9 +335,8 @@ final class WindowDecorationsController {
         }
         #endif
 
-        let windowIdentifier = ObjectIdentifier(window)
-        Task { @MainActor in
-            guard let window = NSApp.windows.first(where: { ObjectIdentifier($0) == windowIdentifier }),
+        Task { @MainActor [weak window] in
+            guard let window,
                   let appDelegate = AppDelegate.shared,
                   let context = appDelegate.prepareSenderRelativeMainWindowAction(in: window) else {
                 return
@@ -408,21 +411,19 @@ final class WindowDecorationsController {
             return
         }
 
-        let windowIdentifier = ObjectIdentifier(window)
-        let target = minimalModeSidebarTitlebarClickTargets[windowIdentifier] ?? {
+        let target = minimalModeSidebarTitlebarClickTargets.object(forKey: window) ?? {
             let view = MinimalModeSidebarControlActionView()
             view.autoresizingMask = [.maxXMargin, .minYMargin]
-            minimalModeSidebarTitlebarClickTargets[windowIdentifier] = view
+            minimalModeSidebarTitlebarClickTargets.setObject(view, forKey: window)
             return view
         }()
         target.config = TitlebarControlsStyle.stored().config
         target.isEnabled = true
         target.requiresRevealedState = true
         target.telemetryPrefix = "minimalSidebarTitlebarClickTarget"
-        target.onAction = { [weak self, weak target] slot, _, locationInWindow in
+        target.onAction = { [weak self, weak window, weak target] slot, _, locationInWindow in
             let anchorView = target
-            guard let self,
-                  let window = NSApp.windows.first(where: { ObjectIdentifier($0) == windowIdentifier }) else { return }
+            guard let self, let window else { return }
             self.performMinimalModeSidebarControlAction(
                 slot,
                 window: window,
@@ -465,9 +466,9 @@ final class WindowDecorationsController {
     }
 
     private func removeMinimalModeSidebarTitlebarClickTarget(from window: NSWindow) {
-        guard let target = minimalModeSidebarTitlebarClickTargets[ObjectIdentifier(window)] else { return }
+        guard let target = minimalModeSidebarTitlebarClickTargets.object(forKey: window) else { return }
         target.removeFromSuperview()
-        minimalModeSidebarTitlebarClickTargets.removeValue(forKey: ObjectIdentifier(window))
+        minimalModeSidebarTitlebarClickTargets.removeObject(forKey: window)
     }
 
     private func shouldHideTrafficLights(for window: NSWindow) -> Bool {

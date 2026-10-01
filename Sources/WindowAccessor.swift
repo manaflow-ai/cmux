@@ -36,10 +36,9 @@ struct WindowAccessor: NSViewRepresentable {
             coordinator: context.coordinator
         )
         // Not nsView.window: SwiftUI can update this view while its window is
-        // deallocating. Resolve the identity captured by AppKit's move callback
-        // against the live application windows instead of touching a weak
-        // reference during teardown.
-        if let window = nsView.liveWindow {
+        // deallocating, and the coordinator's weak store of that window aborts
+        // ("Cannot form weak reference"). The tracked window reads nil then.
+        if let window = nsView.trackedWindow {
             nsView.onWindow?(window)
         }
     }
@@ -64,7 +63,7 @@ struct WindowAccessor: NSViewRepresentable {
 
 extension WindowAccessor {
     final class Coordinator {
-        private var lastWindowIdentifier: ObjectIdentifier?
+        private weak var lastWindow: NSWindow?
         private var lastRefreshID: AnyHashable?
 
         func shouldInvoke(
@@ -72,12 +71,11 @@ extension WindowAccessor {
             dedupeByWindow: Bool,
             refreshID: AnyHashable?
         ) -> Bool {
-            let windowIdentifier = ObjectIdentifier(window)
-            if dedupeByWindow, lastWindowIdentifier == windowIdentifier, lastRefreshID == refreshID {
+            if dedupeByWindow, lastWindow === window, lastRefreshID == refreshID {
                 return false
             }
 
-            lastWindowIdentifier = windowIdentifier
+            lastWindow = window
             lastRefreshID = refreshID
             return true
         }
@@ -87,16 +85,8 @@ extension WindowAccessor {
 @MainActor
 final class WindowObservingView: NSView {
     var onWindow: (@MainActor (NSWindow) -> Void)?
-    /// Set only from AppKit's move callback, where the window identity is live.
-    /// Keeping the identity avoids forming a weak reference while AppKit is
-    /// tearing down an NSKVONotifying window.
-    private(set) var trackedWindowIdentifier: ObjectIdentifier?
-
-    @MainActor
-    var liveWindow: NSWindow? {
-        guard let trackedWindowIdentifier else { return nil }
-        return NSApp.windows.first { ObjectIdentifier($0) == trackedWindowIdentifier }
-    }
+    /// Set only from AppKit's move callback, where the window is alive.
+    private(set) weak var trackedWindow: NSWindow?
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
@@ -107,7 +97,7 @@ final class WindowObservingView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        trackedWindowIdentifier = window.map { ObjectIdentifier($0) }
+        trackedWindow = window
         if let window {
             onWindow?(window)
         }
