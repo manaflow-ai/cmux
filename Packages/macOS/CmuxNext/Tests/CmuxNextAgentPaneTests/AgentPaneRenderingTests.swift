@@ -69,6 +69,26 @@ import WebKit
         #expect(steps.isEmpty)
     }
 
+    /// Hiding a view that holds keyboard focus hands focus to the next key
+    /// view, and showing it again does not take it back. A rate change
+    /// after a settled scroll left the composer without focus, so the next
+    /// keystrokes went elsewhere.
+    @Test func aLiveRateChangeKeepsKeyboardFocusOnThePage() async throws {
+        let pane = try #require(AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost()), source: .bundled(page)))
+        defer { pane.close() }
+        guard pane.webView.configuration.preferences.isWebKitFeatureEnabled(key) != nil else { return }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        defer { window.close() }
+        window.isReleasedWhenClosed = false
+        window.contentView = pane
+        pane.snapshotPage = { NSImage(size: NSSize(width: 400, height: 300)) }
+        pane.pause = { _ in }
+        #expect(window.makeFirstResponder(pane.webView))
+        pane.rendersAtFullRate = true
+        await pane.rateReapply?.value
+        #expect(window.firstResponder === pane.webView)
+    }
+
     @Test func anUnknownFeatureIsLeftAlone() {
         let preferences = WKPreferences()
         #expect(preferences.isWebKitFeatureEnabled("NoSuchCmuxFeature") == nil)
