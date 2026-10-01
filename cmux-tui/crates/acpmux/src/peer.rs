@@ -34,8 +34,7 @@ pub struct Peer {
     pub name: String,
     pub url: String,
     token: Option<String>,
-    /// For `ssh://host[:port]` peers: the local port the tunnel binds.
-    tunnel_port: Option<u16>,
+    /// The `ssh -W` process carrying an `ssh://` peer's current connection.
     tunnel: Mutex<Option<tokio::process::Child>>,
     out: mpsc::Sender<String>,
     out_rx: Mutex<Option<mpsc::Receiver<String>>>,
@@ -48,6 +47,9 @@ pub struct Peer {
     attached: StdMutex<HashSet<String>>,
     notices: mpsc::Sender<(String, PeerNotice)>,
     stop: AtomicBool,
+    /// Counts connect attempts that settled (ready or failed), bumped by the
+    /// hub once it applied the outcome, so a caller can await the next one.
+    settled: tokio::sync::watch::Sender<u64>,
 }
 
 impl Peer {
@@ -58,20 +60,10 @@ impl Peer {
         notices: mpsc::Sender<(String, PeerNotice)>,
     ) -> Arc<Self> {
         let (out, out_rx) = mpsc::channel(1024);
-        let tunnel_port = url.starts_with("ssh://").then(|| {
-            // Stable local port derived from the peer name, in 48000..48999.
-            let mut h: u32 = 2166136261;
-            for b in name.bytes() {
-                h ^= b as u32;
-                h = h.wrapping_mul(16777619);
-            }
-            48000 + (h % 1000) as u16
-        });
         Arc::new(Self {
             name: name.to_owned(),
             url: url.to_owned(),
             token,
-            tunnel_port,
             tunnel: Mutex::new(None),
             out,
             out_rx: Mutex::new(Some(out_rx)),
@@ -83,7 +75,18 @@ impl Peer {
             attached: StdMutex::new(HashSet::new()),
             notices,
             stop: AtomicBool::new(false),
+            settled: tokio::sync::watch::channel(0).0,
         })
+    }
+
+    /// Receives every later settled connect attempt.
+    pub fn settled(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.settled.subscribe()
+    }
+
+    /// The hub applied a connect outcome (sessions listed, or the error).
+    pub fn mark_settled(&self) {
+        self.settled.send_modify(|count| *count += 1);
     }
 
     pub fn stop(&self) {
@@ -108,57 +111,47 @@ impl Peer {
         Some((host, port))
     }
 
-    /// Open (or reopen) the SSH tunnel and, if no token is configured, read
-    /// the remote daemon's token from its config over the same SSH access.
-    async fn ensure_tunnel(&self) -> Result<String, String> {
+    /// Open an `ssh -W` stdio channel to the peer's WebSocket port. The
+    /// connection runs over ssh's stdin and stdout, so there is no local port
+    /// to wait for: the WebSocket handshake itself says whether it works.
+    async fn open_tunnel(
+        &self,
+    ) -> Result<
+        (tokio::io::Join<tokio::process::ChildStdout, tokio::process::ChildStdin>, u16),
+        String,
+    > {
         let (host, remote_port) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
-        let local = self.tunnel_port.ok_or_else(|| "no tunnel port".to_owned())?;
-        let mut guard = self.tunnel.lock().await;
-        let alive = guard.as_mut().map(|c| matches!(c.try_wait(), Ok(None))).unwrap_or(false);
-        if !alive {
-            let child = tokio::process::Command::new("ssh")
-                .args([
-                    "-N",
-                    "-o",
-                    "BatchMode=yes",
-                    "-o",
-                    "ExitOnForwardFailure=yes",
-                    "-o",
-                    "ServerAliveInterval=15",
-                    "-o",
-                    "ServerAliveCountMax=3",
-                    "-o",
-                    "ConnectTimeout=10",
-                    "-L",
-                    &format!("127.0.0.1:{local}:127.0.0.1:{remote_port}"),
-                    &host,
-                ])
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::piped())
-                .kill_on_drop(true)
-                .spawn()
-                .map_err(|e| format!("spawn ssh: {e}"))?;
-            *guard = Some(child);
-            // Wait for the forward to accept connections.
-            let mut ok = false;
-            for _ in 0..40 {
-                tokio::time::sleep(Duration::from_millis(250)).await;
-                if tokio::net::TcpStream::connect(("127.0.0.1", local)).await.is_ok() {
-                    ok = true;
-                    break;
-                }
-                if let Some(c) = guard.as_mut()
-                    && let Ok(Some(status)) = c.try_wait()
-                {
-                    return Err(format!("ssh tunnel to {host} exited: {status}"));
-                }
-            }
-            if !ok {
-                return Err(format!("ssh tunnel to {host} did not come up on port {local}"));
-            }
-        }
-        drop(guard);
+        let mut child = tokio::process::Command::new("ssh")
+            .args([
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ServerAliveInterval=15",
+                "-o",
+                "ServerAliveCountMax=3",
+                "-o",
+                "ConnectTimeout=10",
+                "-W",
+                &format!("127.0.0.1:{remote_port}"),
+                &host,
+            ])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| format!("spawn ssh: {e}"))?;
+        let stdout = child.stdout.take().ok_or_else(|| "ssh stdout".to_owned())?;
+        let stdin = child.stdin.take().ok_or_else(|| "ssh stdin".to_owned())?;
+        // Replacing the previous channel ends its ssh process.
+        *self.tunnel.lock().await = Some(child);
+        Ok((tokio::io::join(stdout, stdin), remote_port))
+    }
+
+    /// The configured token, else the remote daemon's own, read once over
+    /// the same SSH access.
+    async fn remote_token(&self) -> Result<String, String> {
+        let (host, _) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
         if let Some(t) = &self.token {
             return Ok(t.clone());
         }
@@ -263,24 +256,52 @@ impl Peer {
         self: &Arc<Self>,
         out_rx: &mut mpsc::Receiver<String>,
     ) -> Result<(), String> {
-        let (ws_url, token) = if let Some(local) = self.tunnel_port {
-            let token = self.ensure_tunnel().await?;
-            (format!("ws://127.0.0.1:{local}"), Some(token))
-        } else {
-            (self.url.clone(), self.token.clone())
-        };
-        let mut req = ws_url.as_str().into_client_request().map_err(|e| e.to_string())?;
-        if let Some(t) = &token {
-            req.headers_mut().insert(
-                "authorization",
-                format!("Bearer {t}").parse().map_err(|_| "bad token".to_owned())?,
-            );
+        if self.ssh_parts().is_some() {
+            let token = self.remote_token().await?;
+            let (stream, remote_port) = self.open_tunnel().await?;
+            let req = self.ws_request(&format!("ws://127.0.0.1:{remote_port}"), Some(&token))?;
+            let (ws, _) = tokio::time::timeout(
+                Duration::from_secs(10),
+                tokio_tungstenite::client_async(req, stream),
+            )
+            .await
+            .map_err(|_| "connect timed out".to_owned())?
+            .map_err(|e| e.to_string())?;
+            return self.serve(ws, out_rx).await;
         }
+        let req = self.ws_request(&self.url, self.token.as_deref())?;
         let (ws, _) =
             tokio::time::timeout(Duration::from_secs(10), tokio_tungstenite::connect_async(req))
                 .await
                 .map_err(|_| "connect timed out".to_owned())?
                 .map_err(|e| e.to_string())?;
+        self.serve(ws, out_rx).await
+    }
+
+    fn ws_request(
+        &self,
+        url: &str,
+        token: Option<&str>,
+    ) -> Result<tokio_tungstenite::tungstenite::handshake::client::Request, String> {
+        let mut req = url.into_client_request().map_err(|e| e.to_string())?;
+        if let Some(t) = token {
+            req.headers_mut().insert(
+                "authorization",
+                format!("Bearer {t}").parse().map_err(|_| "bad token".to_owned())?,
+            );
+        }
+        Ok(req)
+    }
+
+    /// Run one connected WebSocket until it closes.
+    async fn serve<S>(
+        self: &Arc<Self>,
+        ws: tokio_tungstenite::WebSocketStream<S>,
+        out_rx: &mut mpsc::Receiver<String>,
+    ) -> Result<(), String>
+    where
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+    {
         let (mut sink, mut source) = ws.split();
         self.connected.store(true, Ordering::SeqCst);
         *self.last_error.lock().unwrap() = None;

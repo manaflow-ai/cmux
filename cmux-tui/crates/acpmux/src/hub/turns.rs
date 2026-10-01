@@ -21,7 +21,128 @@ impl Hub {
     /// `prompt` with a client prompt id and an acceptance callback. The
     /// response gains `_meta.acpmux {promptId, turnId, turnSeq}` next to the
     /// agent's own `_meta`.
+    ///
+    /// A client prompt id is run once: the same id again (a resend after the
+    /// connection closed) answers with the first run's outcome, marked
+    /// `_meta.acpmux.duplicate`, waiting for it when it is still running.
     pub async fn prompt_with(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        blocks: Vec<Value>,
+        client: &str,
+        steer: bool,
+        mut opts: PromptOptions,
+    ) -> Result<Value, RpcError> {
+        let Some(prompt_id) = opts.prompt_id.clone() else {
+            return self.run_prompt(session, blocks, client, steer, opts).await;
+        };
+        let duplicate = |v: Value| json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true, "queued": false, "turnId": v.pointer("/_meta/acpmux/turnId")});
+        let seen = {
+            let mut ledger = session.prompts.lock().unwrap();
+            match ledger.iter().find(|(id, _)| *id == prompt_id) {
+                Some((_, outcome)) => Err(outcome.subscribe()),
+                None => {
+                    let outcome = Arc::new(tokio::sync::watch::channel(None).0);
+                    ledger.push_back((prompt_id.clone(), outcome.clone()));
+                    if ledger.len() > PROMPT_LEDGER {
+                        ledger.pop_front();
+                    }
+                    Ok(outcome)
+                }
+            }
+        };
+        let outcome = match seen {
+            Err(mut first) => {
+                if let Some(f) = opts.on_accepted.take() {
+                    f(duplicate(Value::Null));
+                }
+                let result = first
+                    .wait_for(Option::is_some)
+                    .await
+                    .map_err(|_| RpcError::internal("the first run of this prompt was dropped"))?
+                    .clone()
+                    .expect("waited for an outcome");
+                return result.map(|mut v| {
+                    merge_mux_meta(&mut v, json!({"duplicate": true}));
+                    v
+                });
+            }
+            Ok(outcome) => outcome,
+        };
+        if opts.resend
+            && let Some(logged) = self.logged_prompt(session, &prompt_id)
+        {
+            if let Some(f) = opts.on_accepted.take() {
+                f(duplicate(logged.clone()));
+            }
+            outcome.send_replace(Some(Ok(logged.clone())));
+            return Ok(logged);
+        }
+        // Remember the outcome only for a prompt that reached the session:
+        // one refused before that (no agent, a bad session) may be sent again.
+        let accepted = Arc::new(AtomicBool::new(false));
+        if let Some(f) = opts.on_accepted.take() {
+            let accepted = accepted.clone();
+            opts.on_accepted = Some(Box::new(move |v| {
+                accepted.store(true, Ordering::SeqCst);
+                f(v);
+            }));
+        } else {
+            let accepted = accepted.clone();
+            opts.on_accepted = Some(Box::new(move |_| accepted.store(true, Ordering::SeqCst)));
+        }
+        let result = self.run_prompt(session, blocks, client, steer, opts).await;
+        if !accepted.load(Ordering::SeqCst) {
+            session.prompts.lock().unwrap().retain(|(id, _)| *id != prompt_id);
+        }
+        outcome.send_replace(Some(result.clone()));
+        result
+    }
+
+    /// A prompt id the session's log already holds (`user_message` or
+    /// `queued`), answered from the log: its turn's result when it ended,
+    /// else `interrupted` (the daemon stopped during the turn).
+    fn logged_prompt(&self, session: &Session, prompt_id: &str) -> Option<Value> {
+        let last = session.meta().last_turn;
+        if let Some(last) =
+            last.filter(|l| l.get("promptId").and_then(Value::as_str) == Some(prompt_id))
+        {
+            return Some(json!({
+                "stopReason": last.get("stopReason").cloned().unwrap_or(Value::Null),
+                "_meta": {"acpmux": {"promptId": prompt_id, "turnId": last.get("turnId"), "status": last.get("status"), "duplicate": true}},
+            }));
+        }
+        let mut turn_id: Option<String> = None;
+        let mut ended: Option<Value> = None;
+        let _ = self.store.scan(&session.id, 0, &mut |rec| {
+            match (rec.kind.as_str(), &turn_id) {
+                ("user_message" | "queued", None)
+                    if rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) =>
+                {
+                    turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+                }
+                ("turn_result", Some(id))
+                    if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>
+                {
+                    ended = Some(rec.msg);
+                    return false;
+                }
+                _ => {}
+            }
+            true
+        });
+        let turn_id = turn_id?;
+        let status = ended
+            .as_ref()
+            .and_then(|e| e.get("status").cloned())
+            .unwrap_or_else(|| json!("interrupted"));
+        Some(json!({
+            "stopReason": ended.as_ref().and_then(|e| e.get("stopReason").cloned()).unwrap_or(Value::Null),
+            "_meta": {"acpmux": {"promptId": prompt_id, "turnId": turn_id, "status": status, "duplicate": true}},
+        }))
+    }
+
+    async fn run_prompt(
         self: &Arc<Self>,
         session: &Arc<Session>,
         mut blocks: Vec<Value>,

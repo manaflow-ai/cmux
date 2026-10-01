@@ -58,19 +58,13 @@ impl App {
                             } else {
                                 format!("ssh://{host}")
                             };
-                            self.request_bg(
+                            // `wait`: the reply comes once the first connect settled.
+                            self.request_then(
                                 "_acpmux/peer_add",
-                                json!({"name": name, "url": url}),
+                                json!({"name": name, "url": url, "wait": true}),
                                 Some(format!("adding host {name}…")),
+                                Reread::Status,
                             );
-                            let c = self.client.clone();
-                            let tx = self.tx.clone();
-                            tokio::spawn(async move {
-                                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                                if let Ok(v) = c.request(method::MUX_STATUS, json!({})).await {
-                                    let _ = tx.send(AppMsg::Status(v));
-                                }
-                            });
                         }
                     }
                     _ => {

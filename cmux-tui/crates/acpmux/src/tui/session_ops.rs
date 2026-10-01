@@ -785,12 +785,12 @@ impl App {
                     self.status = format!("draft: {group} · {value}");
                 } else if let Some(id) = live {
                     if same_harness {
-                        self.request_bg(
+                        self.request_then(
                             method::SESSION_SET_MODEL,
                             json!({"sessionId": id.clone(), "modelId": value.clone()}),
                             Some(format!("model {value}")),
+                            Reread::Detail(id.clone()),
                         );
-                        self.refresh_detail_later(&id);
                     } else {
                         // Another harness: start a new session tab with it.
                         self.open_draft();
@@ -807,25 +807,12 @@ impl App {
             }
             PickTarget::Policy(live) => match live {
                 Some(id) => {
-                    self.request_bg(
+                    self.request_then(
                         method::MUX_SET_POLICY,
                         json!({"sessionId": id.clone(), "policy": value.clone()}),
                         Some(format!("policy {value}")),
+                        Reread::Sessions,
                     );
-                    // The daemon answers before the list refresh; re-read shortly after.
-                    let client = self.client.clone();
-                    let tx = self.tx.clone();
-                    tokio::spawn(async move {
-                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-                        if let Ok(v) = client.request(method::MUX_SESSIONS, json!({})).await {
-                            let _ = tx.send(AppMsg::Sessions(
-                                v.get("sessions")
-                                    .and_then(Value::as_array)
-                                    .cloned()
-                                    .unwrap_or_default(),
-                            ));
-                        }
-                    });
                 }
                 None => {
                     if let Some(d) = self.draft_mut() {
@@ -836,12 +823,12 @@ impl App {
                 }
             },
             PickTarget::Mode(id) => {
-                self.request_bg(
+                self.request_then(
                     method::SESSION_SET_MODE,
                     json!({"sessionId": id.clone(), "modeId": value.clone()}),
                     Some(format!("mode {value}")),
+                    Reread::Detail(id.clone()),
                 );
-                self.refresh_detail_later(&id);
             }
             PickTarget::Config(id, cid) => {
                 let v = match value.as_str() {
@@ -849,12 +836,12 @@ impl App {
                     "false" => json!(false),
                     s => json!(s),
                 };
-                self.request_bg(
+                self.request_then(
                     method::SESSION_SET_CONFIG_OPTION,
                     json!({"sessionId": id.clone(), "configId": cid.clone(), "value": v}),
                     Some(format!("{cid} = {value}")),
+                    Reread::Detail(id.clone()),
                 );
-                self.refresh_detail_later(&id);
             }
             PickTarget::DraftEffort => self.set_effort(value),
             PickTarget::DraftHarness => {

@@ -46,6 +46,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     "_acpmux/models",
     "_acpmux/peer_add",
     "_acpmux/peer_remove",
+    "_acpmux/peer_reconnect",
 ];
 
 pub(super) async fn handle_request(
@@ -259,12 +260,17 @@ pub(super) async fn handle_request(
                 .and_then(Value::as_str)
                 .filter(|p| !p.is_empty())
                 .map(str::to_owned);
+            let resend = mux_meta(&params)
+                .and_then(|m| m.get("resend"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             let notify = conn.clone();
             let opts = crate::hub::PromptOptions {
                 prompt_id,
                 on_accepted: Some(Box::new(move |v| {
                     notify.send(&Message::notification(method::MUX_PROMPT_ACCEPTED, v))
                 })),
+                resend,
             };
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }
@@ -384,7 +390,15 @@ pub(super) async fn handle_request(
             let url = str_param(&params, "url")
                 .ok_or_else(|| RpcError::invalid_params("url is required"))?;
             let token = str_param(&params, "token").map(str::to_owned);
-            hub.add_peer(name, url, token).await?;
+            let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
+            hub.add_peer(name, url, token, wait).await?;
+            Ok(json!({"peers": hub.peers()}))
+        }
+        "_acpmux/peer_reconnect" => {
+            let name = str_param(&params, "name")
+                .ok_or_else(|| RpcError::invalid_params("name is required"))?;
+            let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
+            hub.reconnect_peer(name, wait).await?;
             Ok(json!({"peers": hub.peers()}))
         }
         "_acpmux/peer_remove" => {

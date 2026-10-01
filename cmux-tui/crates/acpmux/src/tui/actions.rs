@@ -824,12 +824,12 @@ impl App {
             }
             Action::Model => match (sid, args.first(), self.on_draft()) {
                 (Some(id), Some(m), false) => {
-                    self.request_bg(
+                    self.request_then(
                         method::SESSION_SET_MODEL,
                         json!({"sessionId": id.clone(), "modelId": m}),
                         Some(format!("model {m}")),
+                        Reread::Detail(id.clone()),
                     );
-                    self.refresh_detail_later(&id);
                 }
                 (_, Some(m), true) => {
                     if let Some(d) = self.draft_mut() {
@@ -840,12 +840,12 @@ impl App {
             },
             Action::Mode => match (sid, args.first()) {
                 (Some(id), Some(m)) => {
-                    self.request_bg(
+                    self.request_then(
                         method::SESSION_SET_MODE,
                         json!({"sessionId": id.clone(), "modeId": m}),
                         Some(format!("mode {m}")),
+                        Reread::Detail(id.clone()),
                     );
-                    self.refresh_detail_later(&id);
                 }
                 _ => self.open_mode_picker(),
             },
@@ -927,12 +927,12 @@ impl App {
                             "false" => json!(false),
                             s => json!(s),
                         };
-                        self.request_bg(
+                        self.request_then(
                             method::SESSION_SET_CONFIG_OPTION,
                             json!({"sessionId": id.clone(), "configId": k, "value": value}),
                             Some(format!("{k} set")),
+                            Reread::Detail(id.clone()),
                         );
-                        self.refresh_detail_later(&id);
                     } else {
                         self.open_config_picker(kv);
                     }
@@ -1041,12 +1041,12 @@ impl App {
             return;
         }
         if let Some(id) = self.selected_id() {
-            self.request_bg(
+            self.request_then(
                 method::SESSION_SET_CONFIG_OPTION,
                 json!({"sessionId": id.clone(), "configId": "effort", "value": level}),
                 Some(format!("effort {level}")),
+                Reread::Detail(id.clone()),
             );
-            self.refresh_detail_later(&id);
         }
     }
 }

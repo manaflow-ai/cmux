@@ -150,6 +150,10 @@ pub enum Command {
         /// Report prompt_stalled (exit 1) when nothing happens for this many seconds after sending; 0 disables.
         #[arg(long, default_value_t = 30)]
         stall: u64,
+        /// Send this prompt id again (from a `daemon_closed` error): the daemon runs an id once and
+        /// answers a repeat with the first run's outcome.
+        #[arg(long)]
+        prompt_id: Option<String>,
     },
     /// List sessions on every host.
     #[command(alias = "list", alias = "list-sessions")]
@@ -269,6 +273,9 @@ pub enum Command {
     Reload,
     #[command(hide = true)]
     Status,
+    /// `daemon start`: status, starting a daemon first when none runs.
+    #[command(hide = true)]
+    DaemonStart,
     #[command(hide = true, alias = "kill-server")]
     Shutdown,
     #[command(hide = true)]
@@ -396,7 +403,9 @@ pub enum DaemonCmd {
     },
     /// Daemon status, hosts, and the web URL.
     Status,
-    /// Stop the daemon and every agent process.
+    /// Start the daemon unless one runs, wait until it accepts clients, and print its status.
+    Start,
+    /// Stop the daemon and every agent process; returns once it exited.
     #[command(alias = "kill-server")]
     Shutdown,
     /// Print the config path and contents.
@@ -495,6 +504,9 @@ pub struct NewArgs {
     /// Report prompt_stalled (exit 1) when nothing happens for this many seconds; 0 disables.
     #[arg(long, default_value_t = 30)]
     pub stall: u64,
+    /// Send the first prompt with this id again (from a `daemon_closed` error); it runs once.
+    #[arg(long)]
+    pub prompt_id: Option<String>,
 }
 
 /// Map the grouped spellings onto the flat handlers.
@@ -527,6 +539,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::DaemonRun { listen, token, memory, log, ready_fd }
             }
             DaemonCmd::Status => Command::Status,
+            DaemonCmd::Start => Command::DaemonStart,
             DaemonCmd::Shutdown => Command::Shutdown,
             DaemonCmd::Config => Command::Config,
             DaemonCmd::Harnesses => Command::Harnesses,

@@ -1554,3 +1554,99 @@ async fn turn_result_carries_error_text_and_streamed_error_chunks() {
     let summary = hub.session_summary(&hub.resolve("errs").unwrap());
     assert_eq!(summary["lastTurn"]["status"], "completed");
 }
+
+fn prompt_with_id(id: &str, text: &str, prompt_id: &str, resend: bool) -> Value {
+    json!({
+        "sessionId": id,
+        "prompt": [{"type": "text", "text": text}],
+        "_meta": {"acpmux": {"promptId": prompt_id, "resend": resend}},
+    })
+}
+
+fn user_messages(hub: &Arc<Hub>, id: &str) -> usize {
+    hub.events(id, 0, 10_000).unwrap().iter().filter(|e| e.kind == "user_message").count()
+}
+
+#[tokio::test]
+async fn a_resent_prompt_id_runs_once_and_answers_with_the_first_outcome() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let first = c
+        .request(method::SESSION_PROMPT, prompt_with_id(&id, "hi", "p-once", false))
+        .await
+        .unwrap();
+    assert_eq!(first["stopReason"], "end_turn");
+    assert!(first["_meta"]["acpmux"]["duplicate"].is_null(), "{first}");
+    let again = c
+        .request(method::SESSION_PROMPT, prompt_with_id(&id, "hi", "p-once", false))
+        .await
+        .unwrap();
+    assert_eq!(again["stopReason"], "end_turn");
+    assert_eq!(again["_meta"]["acpmux"]["duplicate"], true);
+    assert_eq!(user_messages(&hub, &id), 1);
+
+    // A resend while the first run is still going waits for it.
+    c.next += 1;
+    let running = c.next;
+    c.tx.send(
+        Message::request(
+            running,
+            method::SESSION_PROMPT,
+            prompt_with_id(&id, "slow", "p-slow", false),
+        )
+        .to_line(),
+    )
+    .await
+    .unwrap();
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-slow").await;
+    let resent = c
+        .request(method::SESSION_PROMPT, prompt_with_id(&id, "slow", "p-slow", false))
+        .await
+        .unwrap();
+    assert_eq!(resent["_meta"]["acpmux"]["duplicate"], true);
+    assert_eq!(user_messages(&hub, &id), 2);
+}
+
+#[tokio::test]
+async fn a_resend_after_a_restart_is_answered_from_the_log() {
+    let dir = std::env::temp_dir().join(format!("acpmux-resend-{}", uuid::Uuid::now_v7()));
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut agents = BTreeMap::new();
+    agents.insert(
+        "fake".to_owned(),
+        HarnessProfile {
+            kind: Default::default(),
+            argv: vec!["python3".into(), fake.into()],
+            env: BTreeMap::new(),
+            description: None,
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        },
+    );
+    let mut cfg =
+        Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
+    cfg.store.mode = StoreMode::Local;
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &dir).unwrap());
+    let mut c = connect(&hub).await;
+    let id = new_session(&mut c, "resend").await;
+    c.send(method::SESSION_PROMPT, prompt_with_id(&id, "hi", "p-restart", false)).await;
+    c.collect_until(|m, p| m == method::MUX_EVENT && p["kind"] == "turn_end").await;
+    hub.shutdown_all().await;
+    drop(hub);
+
+    let store2 = acpmux::store::open(&cfg.store, &dir).unwrap();
+    let hub2 = Hub::new(cfg, store2);
+    let mut c2 = connect(&hub2).await;
+    let n = c2.send(method::SESSION_PROMPT, prompt_with_id(&id, "hi", "p-restart", true)).await;
+    let (reply, _) = c2.response(n).await;
+    let reply = reply.unwrap();
+    assert_eq!(reply["_meta"]["acpmux"]["duplicate"], true, "{reply}");
+    assert_eq!(reply["stopReason"], "end_turn");
+    assert_eq!(user_messages(&hub2, &id), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}

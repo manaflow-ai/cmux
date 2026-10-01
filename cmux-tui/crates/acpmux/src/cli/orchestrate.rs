@@ -537,6 +537,7 @@ pub(crate) async fn compare(
                         stall_secs: 0,
                         retries: 0,
                     },
+                    &crate::cli::output::PromptId::new(None),
                 )
                 .await;
                 let wall = started.elapsed().as_millis() as u64;

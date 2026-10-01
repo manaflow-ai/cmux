@@ -212,6 +212,33 @@ pub fn set_daemon_prefix(prefix: Vec<std::ffi::OsString>) {
 /// How long a started daemon may take to report that its socket is bound.
 const START_BUDGET: Duration = Duration::from_secs(8);
 
+/// Wait until no daemon holds this home's lock (the running one exited),
+/// at most `SHUTDOWN_BUDGET` plus a margin. The kernel wakes the blocked
+/// `flock` when the lock is released. True when it was released.
+pub async fn wait_for_exit() -> bool {
+    wait_for_lock_release(home().join("daemon.lock"), SHUTDOWN_BUDGET + Duration::from_secs(2))
+        .await
+}
+
+async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
+    let wait = tokio::task::spawn_blocking(move || {
+        use std::os::unix::io::AsRawFd;
+        let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&lock) else {
+            return true;
+        };
+        loop {
+            // SAFETY: flock on a descriptor this closure owns.
+            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
+                return true;
+            }
+            if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+                return false;
+            }
+        }
+    });
+    matches!(tokio::time::timeout(budget, wait).await, Ok(Ok(true)))
+}
+
 /// Connect to the daemon, starting one if needed.
 pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
     let path = socket_path();
@@ -376,5 +403,29 @@ async fn notify_loop(hub: Arc<Hub>) {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn lock_release_wakes_the_waiter_and_a_held_lock_times_out() {
+        let dir = std::env::temp_dir().join(format!("acpmux-lock-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let lock = dir.join("daemon.lock");
+        let held = acquire_lock(&lock).unwrap();
+        // Held for the whole budget: not released.
+        assert!(!wait_for_lock_release(lock.clone(), Duration::from_millis(200)).await);
+        let started = std::time::Instant::now();
+        let waiter = tokio::spawn(wait_for_lock_release(lock.clone(), Duration::from_secs(10)));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        drop(held);
+        assert!(waiter.await.unwrap());
+        assert!(started.elapsed() < Duration::from_secs(5));
+        // No lock file at all means no daemon.
+        assert!(wait_for_lock_release(dir.join("absent.lock"), Duration::from_secs(1)).await);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

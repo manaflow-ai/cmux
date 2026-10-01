@@ -61,6 +61,42 @@ use std::time::Instant;
 use theme::Chrome;
 use tokio::sync::mpsc;
 
+/// What `App::request_then` re-reads once the request's reply arrived.
+pub(super) enum Reread {
+    Nothing,
+    /// The session's detail (mode, model, config options).
+    Detail(String),
+    /// The session list (policy and other summary fields).
+    Sessions,
+    /// Daemon status (hosts and their connection state).
+    Status,
+}
+
+impl Reread {
+    async fn run(self, client: &Arc<Client>, tx: &mpsc::UnboundedSender<AppMsg>) {
+        match self {
+            Reread::Nothing => {}
+            Reread::Detail(id) => {
+                if let Ok(v) = client.request(method::MUX_INFO, json!({"sessionId": id})).await {
+                    let _ = tx.send(AppMsg::Attached { id, detail: v, events: vec![] });
+                }
+            }
+            Reread::Sessions => {
+                if let Ok(v) = client.request(method::MUX_SESSIONS, json!({})).await {
+                    let _ = tx.send(AppMsg::Sessions(
+                        v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default(),
+                    ));
+                }
+            }
+            Reread::Status => {
+                if let Ok(v) = client.request(method::MUX_STATUS, json!({})).await {
+                    let _ = tx.send(AppMsg::Status(v));
+                }
+            }
+        }
+    }
+}
+
 /// Screen rects from the last frame, for mouse hit testing.
 pub struct App {
     pub(super) client: Arc<Client>,
@@ -446,22 +482,39 @@ impl App {
         });
     }
 
-    pub(super) fn refresh_detail_later(&self, id: &str) {
+    pub(super) fn request_bg(&self, m: &'static str, params: Value, ok_msg: Option<String>) {
+        // Shares `request_then`, which re-reads nothing here.
+        self.request_then(m, params, ok_msg, Reread::Nothing);
+    }
+
+    /// `request_bg`, then re-read what the request changed once its reply
+    /// arrived. The daemon applies a mode, model, config or policy change
+    /// before it replies, so no timer is needed.
+    pub(super) fn request_then(
+        &self,
+        m: &'static str,
+        params: Value,
+        ok_msg: Option<String>,
+        reread: Reread,
+    ) {
         let client = self.client.clone();
         let tx = self.tx.clone();
-        let id = id.to_owned();
         tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-            if let Ok(v) = client.request(method::MUX_INFO, json!({"sessionId": id})).await {
-                let _ = tx.send(AppMsg::Attached { id, detail: v, events: vec![] });
+            let ok = Self::run_request(&client, &tx, m, params, ok_msg).await;
+            if ok {
+                reread.run(&client, &tx).await;
             }
         });
     }
 
-    pub(super) fn request_bg(&self, m: &'static str, params: Value, ok_msg: Option<String>) {
-        let client = self.client.clone();
-        let tx = self.tx.clone();
-        tokio::spawn(async move {
+    async fn run_request(
+        client: &Arc<Client>,
+        tx: &mpsc::UnboundedSender<AppMsg>,
+        m: &'static str,
+        params: Value,
+        ok_msg: Option<String>,
+    ) -> bool {
+        {
             match client.request(m, params).await {
                 Ok(v) => {
                     if (m == method::SESSION_NEW
@@ -474,12 +527,14 @@ impl App {
                     if let Some(msg) = ok_msg {
                         let _ = tx.send(AppMsg::Info(msg));
                     }
+                    true
                 }
                 Err(e) => {
                     let _ = tx.send(AppMsg::Error(e.to_string()));
+                    false
                 }
             }
-        });
+        }
     }
 
     pub(super) fn send_prompt(&mut self, steer: bool) {
