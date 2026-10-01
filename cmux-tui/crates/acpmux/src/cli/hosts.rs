@@ -58,23 +58,40 @@ const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 </dict></plist>
 "#;
 
-/// (Re)start the remote daemon: launchd on macOS, nohup elsewhere.
+/// Restart the daemon away from launchd: `daemon shutdown` returns once the
+/// old daemon released its lock, and `daemon start` returns once the new one
+/// accepts clients (its readiness pipe), so no step waits on a timer.
+const RESTART_DETACHED: &str = "~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1; ~/.local/bin/acpmux --json daemon start | head -c 400";
+
+/// launchd starts the daemon on its own schedule and has no readiness
+/// callback, so a launchd host is given this long before its status is read.
+const LAUNCHD_START_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// (Re)start the remote daemon: launchd on macOS, a detached start elsewhere.
 fn restart_daemon(host: &str) -> Result<String> {
     let os = ssh(host, "uname -s")?;
-    if os == "Darwin" {
-        ssh(
-            host,
-            "launchctl kickstart -k gui/$(id -u)/com.acpmux.daemon 2>/dev/null || (launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist && echo bootstrapped)",
-        )?;
-    } else {
-        ssh(
-            host,
-            "~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1; sleep 1; nohup ~/.local/bin/acpmux daemon run >> ~/.acpmux/launchd.log 2>&1 &",
-        )?;
+    if os != "Darwin" {
+        return ssh(host, RESTART_DETACHED);
     }
-    // Let it come up, then report.
-    std::thread::sleep(std::time::Duration::from_secs(2));
+    ssh(
+        host,
+        "launchctl kickstart -k gui/$(id -u)/com.acpmux.daemon 2>/dev/null || (launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist && echo bootstrapped)",
+    )?;
+    std::thread::sleep(LAUNCHD_START_GRACE);
     ssh(host, "~/.local/bin/acpmux --json daemon status 2>/dev/null | head -c 400 || echo starting")
+}
+
+/// Connect a peer now and answer once that attempt settled: add it, or, when
+/// it is known, reconnect it (its daemon was just restarted).
+async fn connect_peer(client: &Client, name: &str, url: Option<&str>) -> Result<Value> {
+    match url {
+        Some(url) => {
+            client
+                .request("_acpmux/peer_add", json!({"name": name, "url": url, "wait": true}))
+                .await
+        }
+        None => client.request("_acpmux/peer_reconnect", json!({"name": name, "wait": true})).await,
+    }
 }
 
 pub(crate) async fn setup(
@@ -109,7 +126,7 @@ pub(crate) async fn setup(
     let cfg_text = serde_json::to_string_pretty(&cfg)?;
     ssh(host, &format!("cat > ~/.acpmux/config.json <<'ACPMUX_CFG'\n{cfg_text}\nACPMUX_CFG"))?;
     let os = ssh(host, "uname -s")?;
-    if os == "Darwin" {
+    let status = if os == "Darwin" {
         let home = ssh(host, "echo $HOME")?;
         let plist = PLIST.replace("__HOME__", &home);
         ssh(
@@ -118,14 +135,14 @@ pub(crate) async fn setup(
                 "mkdir -p ~/Library/LaunchAgents && cat > ~/Library/LaunchAgents/com.acpmux.daemon.plist <<'ACPMUX_PLIST'\n{plist}\nACPMUX_PLIST\nlaunchctl bootout gui/$(id -u)/com.acpmux.daemon 2>/dev/null || true; launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist"
             ),
         )?;
+        std::thread::sleep(LAUNCHD_START_GRACE);
+        ssh(host, "~/.local/bin/acpmux daemon status 2>/dev/null | head -3")?
     } else {
         ssh(
             host,
-            "~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1; sleep 1; nohup ~/.local/bin/acpmux daemon run >> ~/.acpmux/launchd.log 2>&1 &",
-        )?;
-    }
-    std::thread::sleep(std::time::Duration::from_secs(2));
-    let status = ssh(host, "~/.local/bin/acpmux daemon status 2>/dev/null | head -3")?;
+            "~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1; ~/.local/bin/acpmux daemon start | head -3",
+        )?
+    };
     // Register (or re-register) the peer.
     let url = if port == 47811 { format!("ssh://{host}") } else { format!("ssh://{host}:{port}") };
     let peers = client.request("_acpmux/peers", json!({})).await?;
@@ -134,11 +151,7 @@ pub(crate) async fn setup(
         .and_then(Value::as_array)
         .map(|a| a.iter().any(|p| p.get("name").and_then(Value::as_str) == Some(name.as_str())))
         .unwrap_or(false);
-    if !known {
-        client.request("_acpmux/peer_add", json!({"name": name, "url": url})).await?;
-    }
-    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
-    let peers = client.request("_acpmux/peers", json!({})).await?;
+    let peers = connect_peer(&client, &name, (!known).then_some(url.as_str())).await?;
     if json_out {
         print_json(
             &json!({"host": host, "name": name, "remoteVersion": version, "status": status, "peers": peers.get("peers")}),
@@ -208,8 +221,14 @@ pub(crate) async fn update(
             }
         }
     }
-    tokio::time::sleep(std::time::Duration::from_millis(3000)).await;
-    let peers = client.request("_acpmux/peers", json!({})).await?;
+    let mut peers = json!({});
+    for row in rows.iter().filter(|r| r.get("ok") == Some(&json!(true))) {
+        let name = row.get("peer").and_then(Value::as_str).unwrap_or_default();
+        peers = connect_peer(&client, name, None).await?;
+    }
+    if peers.get("peers").is_none() {
+        peers = client.request("_acpmux/peers", json!({})).await?;
+    }
     if json_out {
         print_json(&json!({"updated": rows, "peers": peers.get("peers")}));
     } else {

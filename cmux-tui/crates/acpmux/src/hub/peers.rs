@@ -2,22 +2,37 @@
 
 use super::*;
 
+/// How long `peer_add` with `wait` waits for the first connect attempt: an
+/// ssh peer may take its ssh connect, tunnel and WebSocket timeouts in turn.
+const PEER_SETTLE_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+
 impl Hub {
     // ------------------------------------------------------------- peers
 
-    pub(super) fn start_peer(&self, name: &str, url: &str, token: Option<String>) {
+    pub(super) fn start_peer(
+        &self,
+        name: &str,
+        url: &str,
+        token: Option<String>,
+    ) -> tokio::sync::watch::Receiver<u64> {
         let peer = crate::peer::Peer::new(name, url, token, self.peer_notices.clone());
+        let settled = peer.settled();
         if let Some(old) = self.peers.lock().unwrap().insert(name.to_owned(), peer.clone()) {
             old.stop();
         }
         tokio::spawn(peer.run());
+        settled
     }
 
+    /// Add (or replace) a peer. With `wait`, answer once its first connect
+    /// attempt settled (connected with its sessions listed, or failed), at
+    /// most `PEER_SETTLE_BUDGET` later, so the caller's listing is real.
     pub async fn add_peer(
         &self,
         name: &str,
         url: &str,
         token: Option<String>,
+        wait: bool,
     ) -> Result<(), RpcError> {
         crate::session_name::validate(name).map_err(RpcError::invalid_params)?;
         if !(url.starts_with("ws://") || url.starts_with("wss://") || url.starts_with("ssh://")) {
@@ -35,7 +50,25 @@ impl Hub {
                 tracing::warn!("save config failed: {e}");
             }
         }
-        self.start_peer(name, url, token);
+        let mut settled = self.start_peer(name, url, token);
+        if wait {
+            let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
+        }
+        Ok(())
+    }
+
+    /// Reconnect a configured peer now (its daemon was restarted), without
+    /// waiting out the reconnect backoff; with `wait`, answer once the
+    /// attempt settled.
+    pub async fn reconnect_peer(&self, name: &str, wait: bool) -> Result<(), RpcError> {
+        let peer = self.config.read().await.peers.get(name).cloned();
+        let Some(peer) = peer else {
+            return Err(RpcError::not_found(format!("no peer {name:?}")));
+        };
+        let mut settled = self.start_peer(name, &peer.url, peer.token);
+        if wait {
+            let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
+        }
         Ok(())
     }
 
@@ -129,6 +162,18 @@ impl Hub {
         let Some(mut rx) = self.peer_notices_rx.lock().await.take() else { return };
         use crate::peer::PeerNotice;
         while let Some((peer, notice)) = rx.recv().await {
+            let settles = matches!(notice, PeerNotice::Connected | PeerNotice::Disconnected(_));
+            self.apply_peer_notice(&peer, notice);
+            if settles && let Some(p) = self.peer(&peer) {
+                p.mark_settled();
+            }
+        }
+    }
+
+    fn apply_peer_notice(&self, peer: &str, notice: crate::peer::PeerNotice) {
+        use crate::peer::PeerNotice;
+        let peer = peer.to_owned();
+        {
             match notice {
                 PeerNotice::Connected => tracing::info!(peer = %peer, "peer ready"),
                 PeerNotice::Disconnected(e) => {
@@ -184,7 +229,7 @@ impl Hub {
                     let Some(id) =
                         session.get("sessionId").and_then(Value::as_str).map(str::to_owned)
                     else {
-                        continue;
+                        return;
                     };
                     if kind == "purged" {
                         self.remote_sessions.lock().unwrap().remove(&id);
@@ -202,7 +247,7 @@ impl Hub {
                                 summary: json!({"sessionId": session.get("sessionId")}),
                             }),
                         });
-                        continue;
+                        return;
                     }
                     let summary = Self::remote_summary(&peer, session);
                     self.remote_sessions.lock().unwrap().insert(
@@ -225,7 +270,7 @@ impl Hub {
                     let Some(id) =
                         params.get("sessionId").and_then(Value::as_str).map(str::to_owned)
                     else {
-                        continue;
+                        return;
                     };
                     let summary = self
                         .remote_sessions
@@ -268,7 +313,7 @@ impl Hub {
                             msg: params.get("msg").cloned().unwrap_or(Value::Null),
                         },
                         // permission_pending is derived from the permission_request event locally.
-                        _ => continue,
+                        _ => return,
                     };
                     let _ = self.events.send(HubEvent {
                         session_id: id,

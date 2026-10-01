@@ -22,6 +22,97 @@ pub(crate) fn arg_or_stdin(words: &[String]) -> Result<String> {
     Ok(s)
 }
 
+/// A client prompt id (`_meta.acpmux.promptId`). The daemon runs each id
+/// once, so the same prompt sent again after its connection closed answers
+/// with the first run's outcome instead of starting a second turn.
+#[derive(Debug, Clone)]
+pub(crate) struct PromptId {
+    pub id: String,
+    /// The id came from `--prompt-id`: the daemon also looks for it in the
+    /// session's log, which outlives a daemon restart.
+    pub resend: bool,
+}
+
+impl PromptId {
+    pub(crate) fn new(given: Option<String>) -> Self {
+        match given {
+            Some(id) => Self { id, resend: true },
+            None => Self { id: uuid::Uuid::now_v7().to_string(), resend: false },
+        }
+    }
+
+    pub(crate) fn params(&self, session: &str, text: &str, steer: bool) -> Value {
+        json!({
+            "sessionId": session,
+            "prompt": [{"type": "text", "text": text}],
+            "_meta": {"acpmux": {"steer": steer, "promptId": self.id, "resend": self.resend}},
+        })
+    }
+
+    /// The error for a connection that closed while this prompt was in
+    /// flight: the prompt may have started, and resending it is safe.
+    pub(crate) fn closed(&self, client: &Client, session: &str, context: &str) -> anyhow::Error {
+        crate::cli::errors::AppError::new(
+            crate::cli::errors::Code::Runtime,
+            "daemon_closed",
+            format!(
+                "{} The prompt may have started; send it again with --prompt-id {} to get its outcome without running it twice.",
+                client.closed(context),
+                self.id
+            ),
+        )
+        .with_session(session)
+        .with_prompt(&self.id)
+        .retryable()
+        .into()
+    }
+}
+
+/// Send a prompt and return once the daemon recorded it (queued or
+/// started), signalled by `_acpmux/prompt_accepted` for this prompt id.
+/// The turn keeps running in the daemon after this process exits.
+pub(crate) async fn queue_prompt(
+    client: Arc<Client>,
+    id: &str,
+    text: &str,
+    steer: bool,
+    prompt: &PromptId,
+) -> Result<Value> {
+    let mut notes =
+        client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
+    let c = client.clone();
+    let params = prompt.params(id, text, steer);
+    let mut turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
+    loop {
+        tokio::select! {
+            // A turn that ends before the acceptance arrives (a fast agent,
+            // or a peer that does not relay it) answers the same question.
+            r = &mut turn => {
+                return match r? {
+                    Err(_) if client.is_closed() => Err(prompt.closed(&client, id, "queueing the prompt")),
+                    other => other,
+                };
+            }
+            n = notes.recv() => {
+                let (m, params) = match n {
+                    Some(Message::Notification { method, params }) => (method, params),
+                    Some(_) => continue,
+                    None => return Err(prompt.closed(&client, id, "queueing the prompt")),
+                };
+                if m == method::MUX_DISCONNECTED {
+                    return Err(prompt.closed(&client, id, "queueing the prompt"));
+                }
+                let params = params.unwrap_or(Value::Null);
+                if m == method::MUX_PROMPT_ACCEPTED
+                    && params.get("promptId").and_then(Value::as_str) == Some(prompt.id.as_str())
+                {
+                    return Ok(params);
+                }
+            }
+        }
+    }
+}
+
 pub(crate) fn print_json(v: &Value) {
     println!("{}", serde_json::to_string_pretty(v).unwrap_or_default());
 }
@@ -125,6 +216,7 @@ async fn auto_answer(client: &Arc<Client>, id: &str, p: &Value, mode: OnPermissi
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn stream_prompt(
     client: Arc<Client>,
     id: &str,
@@ -134,20 +226,14 @@ pub(crate) async fn stream_prompt(
     json_out: bool,
     opts: CollectOpts,
     suppress_reads: bool,
+    prompt: &PromptId,
 ) -> Result<()> {
     let mut notes =
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
     client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
     let c = client.clone();
-    let id2 = id.to_owned();
-    let text2 = text.to_owned();
-    let turn = tokio::spawn(async move {
-        c.request(
-            method::SESSION_PROMPT,
-            json!({"sessionId": id2, "prompt": [{"type": "text", "text": text2}], "_meta": {"acpmux": {"steer": steer}}}),
-        )
-        .await
-    });
+    let params = prompt.params(id, text, steer);
+    let turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
     let mut t = Transcript::default();
     let mut printed_assistant = 0usize;
     let mut last_tool = String::new();
@@ -192,9 +278,9 @@ pub(crate) async fn stream_prompt(
                 }
             }
             n = notes.recv() => {
-                let Some(m) = n else { return Err(client.closed("streaming the session")) };
+                let Some(m) = n else { return Err(prompt.closed(&client, id, "streaming the session")) };
                 let Message::Notification { method: m, params } = m else { continue };
-                if m == method::MUX_DISCONNECTED { return Err(client.closed("streaming the session")); }
+                if m == method::MUX_DISCONNECTED { return Err(prompt.closed(&client, id, "streaming the session")); }
                 let p = params.unwrap_or(Value::Null);
                 if p.get("sessionId").and_then(Value::as_str) != Some(id) { continue; }
                 if agent_activity(&m, &p) {
@@ -277,6 +363,7 @@ pub(crate) async fn stream_prompt(
             }
             Ok(())
         }
+        Err(_) if client.is_closed() => Err(prompt.closed(&client, id, "waiting for the turn")),
         Err(e) => Err(e),
     }
 }
@@ -385,10 +472,14 @@ pub(crate) async fn collect_reply(
     id: &str,
     text: &str,
     opts: CollectOpts,
+    prompt: &PromptId,
 ) -> Result<CollectResult> {
     let mut attempt = 0u32;
+    // A retry after an agent error is a new turn on purpose, so it gets a
+    // new prompt id; the daemon would otherwise answer with the failure.
+    let mut prompt = prompt.clone();
     loop {
-        match collect_once(client.clone(), id, text, opts).await {
+        match collect_once(client.clone(), id, text, opts, &prompt).await {
             Ok(r) => return Ok(r),
             Err(e) => {
                 let retryable = e
@@ -404,6 +495,7 @@ pub(crate) async fn collect_reply(
                 );
                 eprintln!("acpmux: agent error, retry {attempt}/{} in {:?}", opts.retries, backoff);
                 tokio::time::sleep(backoff).await;
+                prompt = PromptId::new(None);
             }
         }
     }
@@ -414,20 +506,14 @@ async fn collect_once(
     id: &str,
     text: &str,
     opts: CollectOpts,
+    prompt: &PromptId,
 ) -> Result<CollectResult> {
     let mut notes =
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
     client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
     let c = client.clone();
-    let id2 = id.to_owned();
-    let text2 = text.to_owned();
-    let mut turn = tokio::spawn(async move {
-        c.request(
-            method::SESSION_PROMPT,
-            json!({"sessionId": id2, "prompt": [{"type": "text", "text": text2}]}),
-        )
-        .await
-    });
+    let params = prompt.params(id, text, false);
+    let mut turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
     let mut t = Transcript::default();
     let started = tokio::time::Instant::now();
     let deadline = opts.timeout.map(|s| started + std::time::Duration::from_secs(s));
@@ -463,9 +549,9 @@ async fn collect_once(
                 }
             }
             n = notes.recv() => {
-                let Some(m) = n else { return Err(client.closed("streaming the session")) };
+                let Some(m) = n else { return Err(prompt.closed(&client, id, "streaming the session")) };
                 let Message::Notification { method: m, params } = m else { continue };
-                if m == method::MUX_DISCONNECTED { return Err(client.closed("streaming the session")); }
+                if m == method::MUX_DISCONNECTED { return Err(prompt.closed(&client, id, "streaming the session")); }
                 let p = params.unwrap_or(Value::Null);
                 if p.get("sessionId").and_then(Value::as_str) != Some(id) { continue; }
                 if agent_activity(&m, &p) {
@@ -517,6 +603,9 @@ async fn collect_once(
     }
     let result = match result {
         Ok(v) => v,
+        Err(_) if client.is_closed() => {
+            return Err(prompt.closed(&client, id, "waiting for the turn"));
+        }
         Err(e) => {
             // ACP internal (-32603) or parse (-32700) errors with nothing
             // produced are the only retryable failures.
@@ -537,7 +626,7 @@ async fn collect_once(
             return Err(app.into());
         }
     };
-    let reply = t
+    let mut reply = t
         .items
         .iter()
         .rev()
@@ -546,6 +635,11 @@ async fn collect_once(
             _ => None,
         })
         .unwrap_or_default();
+    // A resent prompt id streams nothing: its turn already ran, so read the
+    // reply from the log.
+    if reply.is_empty() && result.pointer("/_meta/acpmux/duplicate") == Some(&json!(true)) {
+        reply = last_replies(&client, id, 1).await?.pop().unwrap_or_default();
+    }
     let stop_reason =
         result.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn").to_owned();
     Ok(CollectResult { reply, stop_reason, permissions_asked: asked, permissions_denied: denied })
@@ -574,4 +668,69 @@ pub(crate) async fn last_replies(
         .collect();
     out.reverse();
     Ok(out)
+}
+
+#[cfg(test)]
+mod prompt_tests {
+    use super::*;
+    use crate::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
+    use std::collections::BTreeMap;
+
+    /// A hub with the fake agent behind a real Unix socket, and a client.
+    async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, std::path::PathBuf) {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut harnesses = BTreeMap::new();
+        harnesses.insert(
+            "fake".to_owned(),
+            HarnessProfile {
+                kind: Default::default(),
+                argv: vec!["python3".into(), fake.into()],
+                env: BTreeMap::new(),
+                description: None,
+                fallback: None,
+                family: None,
+                models: vec![],
+                model: None,
+                effort: None,
+                policy: None,
+            },
+        );
+        let mut cfg =
+            Config { harnesses, default_harness: Some("fake".into()), ..Default::default() };
+        cfg.store.mode = StoreMode::Memory;
+        cfg.permission_policy = PermissionPolicy::ApproveAll;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = crate::hub::Hub::new(cfg, store);
+        let dir = std::env::temp_dir().join(format!("acpmux-queue-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("d.sock");
+        let listener = crate::server::bind_unix(&path).await.unwrap();
+        tokio::spawn(crate::server::serve_unix(hub.clone(), listener));
+        let client = Client::connect(&path).await.unwrap();
+        (hub, client, dir)
+    }
+
+    #[tokio::test]
+    async fn queue_prompt_returns_on_acceptance_while_the_turn_runs() {
+        let (hub, client, dir) = daemon().await;
+        let s = client
+            .request(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+            .await
+            .unwrap();
+        let id = s["sessionId"].as_str().unwrap().to_owned();
+        let prompt = PromptId::new(None);
+        // "slow" streams for about a second; acceptance comes first.
+        let accepted = queue_prompt(client.clone(), &id, "slow", false, &prompt).await.unwrap();
+        assert_eq!(accepted["promptId"], prompt.id.as_str());
+        let session = hub.resolve(&id).unwrap();
+        assert!(session.turn().is_some(), "the turn should still be running");
+        // The same id again is answered by the first run, not a second turn.
+        let again = PromptId { id: prompt.id.clone(), resend: true };
+        let dup = queue_prompt(client.clone(), &id, "slow", false, &again).await.unwrap();
+        assert_eq!(dup["duplicate"], true);
+        let user_messages =
+            hub.events(&id, 0, 1000).unwrap().iter().filter(|e| e.kind == "user_message").count();
+        assert_eq!(user_messages, 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

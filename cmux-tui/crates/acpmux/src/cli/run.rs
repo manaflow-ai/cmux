@@ -323,6 +323,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             }
             if !args.prompt.is_empty() {
                 let text = args.prompt.join(" ");
+                let prompt = PromptId::new(args.prompt_id.clone());
                 if one_shot {
                     let opts = CollectOpts {
                         timeout: args.timeout,
@@ -330,7 +331,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                         stall_secs: args.stall,
                         retries: args.retries,
                     };
-                    let outcome = collect_reply(client.clone(), &id, &text, opts).await;
+                    let outcome = collect_reply(client.clone(), &id, &text, opts, &prompt).await;
                     if args.ephemeral {
                         let _ = client
                             .request(method::MUX_KILL, json!({"sessionId": id, "purge": true}))
@@ -347,12 +348,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                     return Ok(());
                 }
                 if args.detach {
-                    let c = client.clone();
-                    let id2 = id.clone();
-                    tokio::spawn(async move {
-                        let _ = c.request(method::SESSION_PROMPT, json!({"sessionId": id2, "prompt": [{"type": "text", "text": text}]})).await;
-                    });
-                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    queue_prompt(client, &id, &text, false, &prompt).await?;
                     return Ok(());
                 }
                 let opts = CollectOpts {
@@ -370,6 +366,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                     json_out,
                     opts,
                     suppress_reads,
+                    &prompt,
                 )
                 .await;
             }
@@ -378,7 +375,18 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             }
             crate::tui::run(client, Some(id)).await
         }
-        Command::Send { session, prompt, steer, no_wait, quiet, timeout, on_permission, stall } => {
+        Command::Send {
+            session,
+            prompt,
+            steer,
+            no_wait,
+            quiet,
+            timeout,
+            on_permission,
+            stall,
+            prompt_id,
+        } => {
+            let prompt_id = PromptId::new(prompt_id);
             let client = connect(true).await?;
             let text = arg_or_stdin(&prompt)?;
             let id = resolve_id(&client, &session).await?;
@@ -409,14 +417,12 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                 eprintln!("queued behind {}", parts.join(" and "));
             }
             if no_wait {
-                let c = client.clone();
-                let id2 = id.clone();
-                tokio::spawn(async move {
-                    let _ = c.request(method::SESSION_PROMPT, json!({"sessionId": id2, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"steer": steer}}})).await;
-                });
-                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                // Return once the daemon recorded the prompt, not after a guess.
+                let accepted = queue_prompt(client, &id, &text, steer, &prompt_id).await?;
                 if json_out {
-                    print_json(&json!({"sessionId": id, "queued": true, "queuedBehind": behind}));
+                    print_json(
+                        &json!({"sessionId": id, "queued": true, "queuedBehind": behind, "promptId": prompt_id.id, "accepted": accepted}),
+                    );
                 } else {
                     println!("queued");
                 }
@@ -424,7 +430,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             }
             let opts = CollectOpts { timeout, on_permission, stall_secs: stall, retries: 0 };
             if quiet || json_out {
-                let r = collect_reply(client, &id, &text, opts).await?;
+                let r = collect_reply(client, &id, &text, opts, &prompt_id).await?;
                 if json_out {
                     print_json(
                         &json!({"sessionId": id, "reply": r.reply, "stopReason": r.stop_reason, "queuedBehind": behind, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied}),
@@ -434,7 +440,18 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                 }
                 return Ok(());
             }
-            stream_prompt(client, &id, &text, steer, quiet, json_out, opts, suppress_reads).await
+            stream_prompt(
+                client,
+                &id,
+                &text,
+                steer,
+                quiet,
+                json_out,
+                opts,
+                suppress_reads,
+                &prompt_id,
+            )
+            .await
         }
         Command::Attach { session, plain } => {
             let client = connect(true).await?;
@@ -524,8 +541,8 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
         Command::Cancel { session } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
-            client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await?;
-            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            // As a request, the reply says the daemon handled the cancel.
+            client.request(method::SESSION_CANCEL, json!({"sessionId": id})).await?;
             println!("cancel sent");
             Ok(())
         }
@@ -749,8 +766,8 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             }
             Ok(())
         }
-        Command::Status => {
-            match connect(false).await {
+        which @ (Command::Status | Command::DaemonStart) => {
+            match connect(matches!(which, Command::DaemonStart)).await {
                 Ok(client) => {
                     let v = client.request(method::MUX_STATUS, json!({})).await?;
                     if json_out {
@@ -809,7 +826,13 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
         Command::Shutdown => {
             let client = connect(false).await?;
             let _ = client.request(method::MUX_SHUTDOWN, json!({})).await;
-            println!("shutdown requested");
+            // The daemon holds its lock until it exits, so a `daemon start`
+            // right after this cannot lose the lock to the stopping one.
+            if crate::daemon::wait_for_exit().await {
+                println!("stopped");
+            } else {
+                println!("shutdown requested");
+            }
             Ok(())
         }
         Command::Config => {
@@ -854,10 +877,10 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                     if let Some(t) = token {
                         p["token"] = json!(t);
                     }
-                    client.request("_acpmux/peer_add", p).await?;
-                    // Give the connect loop a moment so the listing shows the real state.
-                    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-                    client.request("_acpmux/peers", json!({})).await?
+                    // `wait`: the daemon answers after the first connect attempt
+                    // settled, so the listing shows the real state.
+                    p["wait"] = json!(true);
+                    client.request("_acpmux/peer_add", p).await?
                 }
                 PeerCmd::Ls => client.request("_acpmux/peers", json!({})).await?,
                 PeerCmd::Rm { name } => {

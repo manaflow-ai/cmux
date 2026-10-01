@@ -4,9 +4,13 @@
 //! mux has no windows and no actions. Everything the mux owns stays in the
 //! resource grammar (plans/cmux-next/cli.md, "Owners and routing").
 //!
-//! Every registered action is also a verb here: `cmux app new-window` or
-//! `cmux workspace move-to-window --target ws_…` runs the action whose CLI
-//! name is those words, so the app's registry, not this file, lists them.
+//! An action the app marks for the CLI (`cli: true` in `action.list`) is also
+//! a verb here: `cmux app new-window` or `cmux workspace move-to-window
+//! --target ws_…` runs the action whose CLI name is those words, so the app's
+//! registry, not this file, lists them. `cmux action run <id>` runs any action.
+//!
+//! `action.run` carries an idempotency key and waits for its work by default
+//! (plans/cmux-next/state-ownership.md, section 4).
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -26,6 +30,21 @@ pub(super) const APP_SCOPES: &[&str] = &["app", "action", "settings", "window", 
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
 const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_RESPONSE_BYTES: u64 = 16 << 20;
+/// A `busy` app that says the run never started is asked again this many
+/// times, after the delay it names (`retry_after_ms`, else this default).
+const BUSY_RETRIES: u32 = 3;
+const BUSY_RETRY_DELAY: Duration = Duration::from_millis(100);
+const MAX_BUSY_RETRY_DELAY: Duration = Duration::from_secs(1);
+
+/// How `action.run` names its action.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ActionName {
+    /// `cmux action run`: any action id, alias or CLI name.
+    Any,
+    /// `cmux <noun> <verb>`: only a CLI name the app marks for the CLI; the
+    /// app answers `not_found` for anything else and runs nothing.
+    Cli,
+}
 
 #[derive(Debug, PartialEq)]
 pub(super) enum AppCommand {
@@ -80,7 +99,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             let Some((id, tail)) = rest[1..].split_first() else {
                 return Err(UsageError::new(messages.action_run_usage));
             };
-            run_action(id, tail)?
+            run_action(id, tail, ActionName::Any)?
         }
         ("settings", Some("get")) => match &rest[1..] {
             [] => call("settings.get", json!({})),
@@ -126,7 +145,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                 return Err(UsageError::new(messages.scope_usage.replace("{scope}", scope)));
             }
             let name = words.iter().map(|word| word.as_str()).collect::<Vec<_>>().join(" ");
-            run_action(&name, &args[words.len()..])?
+            run_action(&name, &args[words.len()..], ActionName::Cli)?
         }
     };
     Ok(Some(command))
@@ -198,14 +217,22 @@ fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
     })
 }
 
-/// `action.run` for an action id or CLI name: `--target ID`, `--wait`,
-/// `--interactive`, and `--<argument> VALUE` for each schema argument
-/// (`--arg name=value` also works).
-pub(super) fn run_action(action: &str, args: &[String]) -> Result<AppCommand, UsageError> {
+/// `action.run` for an action id or CLI name: `--target ID`, `--no-wait`
+/// (`--wait` is the default), `--interactive`, and `--<argument> VALUE` for
+/// each schema argument (`--arg name=value` also works).
+pub(super) fn run_action(
+    action: &str,
+    args: &[String],
+    name: ActionName,
+) -> Result<AppCommand, UsageError> {
     let messages = &crate::localization::catalog().app_control;
     let mut params = Map::new();
     let mut arguments = Map::new();
     params.insert("action".into(), json!(action));
+    if name == ActionName::Cli {
+        params.insert("cli".into(), json!(true));
+    }
+    params.insert("wait".into(), json!(true));
     let mut index = 0;
     while index < args.len() {
         let flag = args[index].as_str();
@@ -213,8 +240,9 @@ pub(super) fn run_action(action: &str, args: &[String]) -> Result<AppCommand, Us
             return Err(UsageError::new(messages.unexpected_argument.replace("{value}", flag)));
         };
         match name {
-            "wait" | "interactive" => {
-                params.insert(name.into(), json!(true));
+            "wait" | "no-wait" | "interactive" => {
+                let key = if name == "interactive" { "interactive" } else { "wait" };
+                params.insert(key.into(), json!(name != "no-wait"));
                 index += 1;
                 continue;
             }
@@ -259,46 +287,133 @@ pub(super) fn run_action(action: &str, args: &[String]) -> Result<AppCommand, Us
 }
 
 pub(super) fn run(global: &GlobalArgs, command: AppCommand) -> i32 {
-    let socket = match socket_path(global) {
-        Ok(socket) => socket,
-        Err(error) => return failure("app.not_found", &error, global.output, 3),
-    };
-    let mut stream = match connect(&socket) {
-        Ok(stream) => stream,
-        Err(error) => return failure("app.unreachable", &error, global.output, 3),
-    };
-    match command {
-        AppCommand::Call { method, params, timeout, pick } => {
-            let response = match request(&mut stream, method, params, timeout) {
-                Ok(response) => response,
-                Err(error) => return failure("app.transport", &error, global.output, 3),
-            };
-            match response {
-                Ok(result) => {
-                    let value = match pick {
-                        Some(key) => {
-                            result.get("topology").and_then(|topology| topology.get(key)).cloned()
-                        }
-                        None => None,
-                    }
-                    .unwrap_or(result);
-                    super::wire::print_local_success(&value, global.output)
-                }
-                Err(error) => super::wire::print_local_error(&error, global.output, 1),
-            }
+    match run_command(global, command) {
+        Ran::Done(code) => code,
+        Ran::NoSuchCliAction(scope) => {
+            let messages = &crate::localization::catalog().app_control;
+            failure(
+                "usage.invalid",
+                &messages.scope_usage.replace("{scope}", &scope),
+                global.output,
+                2,
+            )
         }
-        AppCommand::Events { params } => stream_events(&mut stream, params, global.output),
     }
 }
 
-/// Whether a reachable app has an action with this id or CLI name.
-pub(super) fn has_action(global: &GlobalArgs, name: &str) -> bool {
-    let Ok(socket) = socket_path(global) else { return false };
-    let Ok(mut stream) = connect(&socket) else { return false };
-    matches!(
-        request(&mut stream, "action.describe", json!({ "action": name }), READ_TIMEOUT),
-        Ok(Ok(_))
-    )
+/// Runs `<noun> <verb…> [--flags]` as the app action with that CLI name.
+/// `None` when no app answers or the app has no CLI action by that name, so
+/// the caller reports its own usage error. One connection, one `action.run`.
+pub(super) fn run_cli_action(global: &GlobalArgs, name: &str, args: &[String]) -> Option<i32> {
+    let command = run_action(name, args, ActionName::Cli).ok()?;
+    let socket = socket_path(global).ok()?;
+    let stream = connect(&socket).ok()?;
+    match call(global, stream, command) {
+        Ran::Done(code) => Some(code),
+        Ran::NoSuchCliAction(_) => None,
+    }
+}
+
+enum Ran {
+    Done(i32),
+    /// The app ran nothing: no action marked for the CLI has this name.
+    NoSuchCliAction(String),
+}
+
+fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
+    let socket = match socket_path(global) {
+        Ok(socket) => socket,
+        Err(error) => return Ran::Done(failure("app.not_found", &error, global.output, 3)),
+    };
+    let stream = match connect(&socket) {
+        Ok(stream) => stream,
+        Err(error) => return Ran::Done(failure("app.unreachable", &error, global.output, 3)),
+    };
+    call(global, stream, command)
+}
+
+fn call(global: &GlobalArgs, mut stream: UnixStream, command: AppCommand) -> Ran {
+    let (method, mut params, timeout, pick) = match command {
+        AppCommand::Call { method, params, timeout, pick } => (method, params, timeout, pick),
+        AppCommand::Events { params } => {
+            return Ran::Done(stream_events(&mut stream, params, global.output));
+        }
+    };
+    let cli_name = params.get("cli") == Some(&Value::Bool(true));
+    let key = if method == "action.run" {
+        match global.idempotency_key.clone().map(Ok).unwrap_or_else(|| {
+            super::command::random_prefixed("mutation").map_err(|error| error.to_string())
+        }) {
+            Ok(key) => {
+                params["idempotency_key"] = json!(key);
+                Some(key)
+            }
+            Err(error) => return Ran::Done(failure("app.transport", &error, global.output, 3)),
+        }
+    } else if global.idempotency_key.is_some() {
+        let message = "--idempotency-key is accepted only for mutations";
+        return Ran::Done(failure("usage.invalid", message, global.output, 2));
+    } else {
+        None
+    };
+    let report = super::wire::KeyReport::new(key.as_deref());
+    let mut retries = 0;
+    let response = loop {
+        match request(&mut stream, method, params.clone(), timeout) {
+            Ok(Err(error)) if retries < BUSY_RETRIES && busy_before_running(&error) => {
+                retries += 1;
+                std::thread::sleep(busy_retry_delay(&error));
+            }
+            Ok(response) => break response,
+            Err(error) => {
+                let code = failure("app.transport", &error, global.output, 3);
+                report.finish(global.output);
+                return Ran::Done(code);
+            }
+        }
+    };
+    match response {
+        Ok(result) => {
+            let value = match pick {
+                Some(key) => result.get("topology").and_then(|topology| topology.get(key)).cloned(),
+                None => None,
+            }
+            .unwrap_or(result);
+            Ran::Done(super::wire::print_local_success(&value, global.output))
+        }
+        Err(error) if cli_name && error_code(&error) == Some("not_found") => {
+            let scope = params["action"].as_str().unwrap_or_default();
+            Ran::NoSuchCliAction(scope.split(' ').next().unwrap_or_default().to_owned())
+        }
+        Err(mut error) => {
+            report.annotate(&mut error, global.output);
+            let code = super::wire::print_local_error(&error, global.output, 1);
+            report.finish(global.output);
+            Ran::Done(code)
+        }
+    }
+}
+
+fn error_code(error: &Value) -> Option<&str> {
+    error.get("code").and_then(Value::as_str)
+}
+
+/// A `busy` answer is safe to retry only when the app says the request
+/// never ran; one that may have started (`in_progress`) is reported.
+fn busy_before_running(error: &Value) -> bool {
+    let data = error.get("data").unwrap_or(&Value::Null);
+    error_code(error) == Some("busy")
+        && (data.get("not_run") == Some(&Value::Bool(true))
+            || data.get("state").and_then(Value::as_str) == Some("not_run"))
+}
+
+fn busy_retry_delay(error: &Value) -> Duration {
+    error
+        .get("data")
+        .and_then(|data| data.get("retry_after_ms"))
+        .and_then(Value::as_u64)
+        .map_or(BUSY_RETRY_DELAY, Duration::from_millis)
+        .min(MAX_BUSY_RETRY_DELAY)
 }
 
 fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
@@ -499,7 +614,130 @@ mod tests {
     fn unknown_words_run_the_action_with_that_cli_name() {
         let (method, params) = call(parse(&args(&["app", "new-window"])).unwrap().unwrap());
         assert_eq!(method, "action.run");
-        assert_eq!(params, json!({ "action": "app new-window" }));
+        assert_eq!(params, json!({ "action": "app new-window", "cli": true, "wait": true }));
+    }
+
+    #[test]
+    fn action_runs_wait_by_default_and_no_wait_opts_out() {
+        let (_, params) = call(parse(&args(&["action", "run", "window.new"])).unwrap().unwrap());
+        assert_eq!(params, json!({ "action": "window.new", "wait": true }));
+        let command = parse(&args(&["action", "run", "window.new", "--no-wait"])).unwrap().unwrap();
+        let AppCommand::Call { timeout, .. } = &command else { panic!("expected a call") };
+        assert_eq!(*timeout, READ_TIMEOUT);
+        assert_eq!(call(command).1, json!({ "action": "window.new", "wait": false }));
+    }
+
+    #[test]
+    fn busy_is_retried_only_when_the_app_says_nothing_ran() {
+        let not_run = json!({ "code": "busy", "data": { "state": "not_run" } });
+        assert!(busy_before_running(&not_run));
+        assert!(busy_before_running(&json!({ "code": "busy", "data": { "not_run": true } })));
+        assert!(!busy_before_running(
+            &json!({ "code": "busy", "data": { "state": "in_progress" } })
+        ));
+        assert!(!busy_before_running(&json!({ "code": "busy" })));
+        assert!(!busy_before_running(
+            &json!({ "code": "timeout", "data": { "state": "not_run" } })
+        ));
+        assert_eq!(busy_retry_delay(&not_run), BUSY_RETRY_DELAY);
+        let later =
+            json!({ "code": "busy", "data": { "state": "not_run", "retry_after_ms": 60_000 } });
+        assert_eq!(busy_retry_delay(&later), MAX_BUSY_RETRY_DELAY);
+    }
+
+    /// A fake app control socket that answers each request line with the
+    /// next canned response and records what it received, per connection.
+    fn fake_app(responses: Vec<Value>) -> (PathBuf, std::thread::JoinHandle<Vec<Vec<Value>>>) {
+        use std::os::unix::net::UnixListener;
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-app-cli-{}-{}",
+            std::process::id(),
+            super::super::command::random_prefixed("t").unwrap()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("app.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        listener.set_nonblocking(false).unwrap();
+        let handle = std::thread::spawn(move || {
+            let mut connections = Vec::new();
+            let mut responses = responses.into_iter();
+            // One connection is expected; a second one would show up here.
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut writer = stream;
+            let mut received = Vec::new();
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap() > 0 {
+                received.push(serde_json::from_str::<Value>(&line).unwrap());
+                line.clear();
+                let Some(response) = responses.next() else { break };
+                writeln!(writer, "{response}").unwrap();
+            }
+            connections.push(received);
+            listener.set_nonblocking(true).unwrap();
+            if let Ok((stream, _)) = listener.accept() {
+                let mut extra = String::new();
+                let _ = BufReader::new(stream).read_line(&mut extra);
+                connections.push(vec![json!(extra)]);
+            }
+            let _ = std::fs::remove_dir_all(dir);
+            connections
+        });
+        (socket, handle)
+    }
+
+    fn global_for(socket: &std::path::Path) -> GlobalArgs {
+        GlobalArgs {
+            app_socket: Some(socket.to_path_buf()),
+            output: OutputMode::Quiet,
+            ..GlobalArgs::default()
+        }
+    }
+
+    #[test]
+    fn unknown_cli_name_is_one_action_run_and_not_found_means_not_an_action() {
+        let not_found =
+            json!({ "id": 1, "ok": false, "error": { "code": "not_found", "message": "x" } });
+        let (socket, app) = fake_app(vec![not_found]);
+        let ran =
+            run_cli_action(&global_for(&socket), "workspace frobnicate", &args(&["--x", "1"]));
+        assert_eq!(ran, None);
+        let connections = app.join().unwrap();
+        assert_eq!(connections.len(), 1, "opened more than one connection: {connections:?}");
+        let [request] = connections[0].as_slice() else { panic!("{connections:?}") };
+        assert_eq!(request["method"], "action.run");
+        assert_eq!(request["params"]["action"], "workspace frobnicate");
+        assert_eq!(request["params"]["cli"], true);
+        assert_eq!(request["params"]["wait"], true);
+        assert!(request["params"]["idempotency_key"].as_str().is_some_and(|key| !key.is_empty()));
+    }
+
+    #[test]
+    fn a_busy_run_that_never_started_is_resent_with_the_same_key() {
+        let busy = json!({ "id": 1, "ok": false, "error": { "code": "busy", "data": { "state": "not_run", "retry_after_ms": 1 } } });
+        let ran = json!({ "id": 1, "ok": true, "result": { "ran": true } });
+        let (socket, app) = fake_app(vec![busy, ran]);
+        let mut global = global_for(&socket);
+        global.idempotency_key = Some("mutation-retry-1".into());
+        let command = parse(&args(&["action", "run", "window.new"])).unwrap().unwrap();
+        assert_eq!(run(&global, command), 0);
+        let connections = app.join().unwrap();
+        assert_eq!(connections.len(), 1);
+        let keys: Vec<_> = connections[0]
+            .iter()
+            .map(|request| request["params"]["idempotency_key"].clone())
+            .collect();
+        assert_eq!(keys, vec![json!("mutation-retry-1"), json!("mutation-retry-1")]);
+    }
+
+    #[test]
+    fn a_run_that_may_have_started_is_not_retried() {
+        let timeout = json!({ "id": 1, "ok": false, "error": { "code": "timeout", "message": "slow", "data": { "state": "in_progress" } } });
+        let (socket, app) = fake_app(vec![timeout]);
+        let command = parse(&args(&["action", "run", "window.new"])).unwrap().unwrap();
+        assert_eq!(run(&global_for(&socket), command), 1);
+        let connections = app.join().unwrap();
+        assert_eq!(connections[0].len(), 1);
     }
 
     #[test]

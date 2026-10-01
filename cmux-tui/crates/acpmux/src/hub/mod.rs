@@ -92,9 +92,20 @@ pub struct PromptOptions {
     /// Client-chosen id (`_meta.acpmux.promptId`); generated when absent.
     pub prompt_id: Option<String>,
     /// Called once, as soon as the prompt is recorded (queued or started),
-    /// with `{sessionId, promptId, turnId, queued, position?, steer?}`.
+    /// with `{sessionId, promptId, turnId, queued, position?, steer?}`, or
+    /// `{sessionId, promptId, duplicate: true}` for a prompt id seen before.
     pub on_accepted: Option<Box<dyn FnOnce(Value) + Send>>,
+    /// The client sends this prompt id again (`_meta.acpmux.resend`), for
+    /// example after its daemon connection closed: also look in the
+    /// session's log, which outlives a daemon restart.
+    pub resend: bool,
 }
+
+/// The outcome of one client prompt id, shared with a resend of it.
+pub(super) type PromptOutcome = Arc<tokio::sync::watch::Sender<Option<Result<Value, RpcError>>>>;
+
+/// Client prompt ids remembered per session for deduplication.
+pub(super) const PROMPT_LEDGER: usize = 64;
 
 /// What the agent's stream says about the current assistant message, used
 /// to record `message_superseded` and to attach streamed error text to
@@ -144,6 +155,9 @@ pub struct Session {
     /// Last stderr lines of the current turn, quoted when the agent
     /// process dies without an answer ("Not logged in", a launcher error).
     pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
+    /// Recent client prompt ids and their outcomes, newest last: a prompt
+    /// sent again with the same id never runs a second turn.
+    pub(super) prompts: StdMutex<std::collections::VecDeque<(String, PromptOutcome)>>,
 }
 
 impl Session {
@@ -376,6 +390,7 @@ impl Hub {
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
+            prompts: StdMutex::new(std::collections::VecDeque::new()),
         })
     }
 

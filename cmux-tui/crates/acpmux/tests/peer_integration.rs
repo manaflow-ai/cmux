@@ -109,18 +109,15 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
 
     // A: mirrors B.
     let a = hub(config(PermissionPolicy::Ask)).await;
-    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into())).await.unwrap();
+    // `wait`: add_peer answers once the first connect settled, with B's
+    // sessions already listed on A.
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), true).await.unwrap();
     let mut ca = client(a.clone()).await;
-    let mut listed = false;
-    for _ in 0..50 {
-        let v = ca.call(method::MUX_SESSIONS, json!({})).await.unwrap();
-        if v["sessions"].as_array().unwrap().iter().any(|x| x["name"] == "b/remote-one") {
-            listed = true;
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    assert!(listed, "peer session never appeared on A");
+    let v = ca.call(method::MUX_SESSIONS, json!({})).await.unwrap();
+    assert!(
+        v["sessions"].as_array().unwrap().iter().any(|x| x["name"] == "b/remote-one"),
+        "peer session not listed after add_peer settled: {v}"
+    );
 
     // Prompt through A by the prefixed name; the reply streams to A's client.
     ca.call(method::MUX_ATTACH, json!({"session": "b/remote-one", "limit": 0})).await.unwrap();
@@ -214,7 +211,7 @@ async fn watchers_learn_peer_sessions_that_arrive_after_their_snapshot() {
     ca.call(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
     let v = ca.call(method::MUX_SESSIONS, json!({})).await.unwrap();
     assert!(v["sessions"].as_array().unwrap().is_empty());
-    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), None).await.unwrap();
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), None, false).await.unwrap();
     let changed =
         ca.wait(method::MUX_SESSION_CHANGED, |p| p["session"]["sessionId"] == remote_id).await;
     assert_eq!(changed["peer"], "b");
@@ -226,4 +223,17 @@ async fn watchers_learn_peer_sessions_that_arrive_after_their_snapshot() {
         p["session"]["sessionId"] == remote_id && p["kind"] == "purged"
     })
     .await;
+}
+
+#[tokio::test]
+async fn waiting_peer_add_answers_after_a_failed_first_attempt() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    // Nothing listens on this port: the first attempt fails at once.
+    let port = free_port();
+    let started = std::time::Instant::now();
+    a.add_peer("gone", &format!("ws://127.0.0.1:{port}"), None, true).await.unwrap();
+    assert!(started.elapsed() < Duration::from_secs(15), "{:?}", started.elapsed());
+    let peers = a.peers();
+    assert_eq!(peers[0]["connected"], false);
+    assert!(peers[0]["error"].is_string(), "{peers:?}");
 }

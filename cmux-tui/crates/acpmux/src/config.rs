@@ -748,19 +748,16 @@ fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
         .stderr(std::process::Stdio::piped());
     scrub_nested_claude_env(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| format!("{}: {e}", argv[0]))?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) if std::time::Instant::now() < deadline => {
-                std::thread::sleep(std::time::Duration::from_millis(100))
-            }
-            Ok(None) => {
-                let _ = child.kill();
-                return Err(format!("{} claude proxy --version did not finish in 20s", argv[0]));
-            }
-            Err(e) => return Err(e.to_string()),
+    // Woken by the child's exit (SIGCHLD), not a polling tick.
+    use wait_timeout::ChildExt;
+    match child.wait_timeout(std::time::Duration::from_secs(20)) {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("{} claude proxy --version did not finish in 20s", argv[0]));
         }
+        Err(e) => return Err(e.to_string()),
     }
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     let text =

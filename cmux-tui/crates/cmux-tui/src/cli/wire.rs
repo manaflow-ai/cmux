@@ -63,6 +63,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     };
     let request_id =
         request["id"].as_str().expect("locally built request IDs are strings").to_string();
+    let key_report = KeyReport::new(request.get("idempotency_key").and_then(Value::as_str));
 
     let (socket, socket_is_derived) = match resolve_socket_with_origin(&global) {
         Ok(resolved) => resolved,
@@ -87,10 +88,10 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         }
     }
     #[cfg(unix)]
-    let signal_interrupt_armed = plan.stream && arm_signal_interrupt(reader.get_ref().as_ref());
+    let interrupt_handled = !plan.stream || stream_interrupt(reader.get_ref().as_ref());
     #[cfg(not(unix))]
-    let signal_interrupt_armed = false;
-    let _ = reader.get_mut().set_read_timeout(response_read_timeout(&plan, signal_interrupt_armed));
+    let interrupt_handled = !plan.stream;
+    let _ = reader.get_mut().set_read_timeout(response_read_timeout(&plan, interrupt_handled));
     if let Err(error) = reader.get_mut().write_all(&encoded).and_then(|_| {
         reader.get_mut().write_all(b"\n")?;
         reader.get_mut().flush()
@@ -99,9 +100,84 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             return 0;
         }
         eprintln!("transport error: {error}");
+        // Part of the request may have reached the daemon.
+        key_report.finish(global.output);
         return 3;
     }
-    run_response(&mut reader, &global, &plan, &request_id)
+    let code = run_response(&mut reader, &global, &plan, &request_id, &key_report);
+    if code != 0 {
+        key_report.finish(global.output);
+    }
+    code
+}
+
+/// Reports a mutation's idempotency key once when the command fails after
+/// its request was sent, so `--idempotency-key` can retry it safely
+/// (plans/cmux-next/state-ownership.md, section 4).
+pub(super) struct KeyReport {
+    key: Option<String>,
+    done: std::cell::Cell<bool>,
+}
+
+impl KeyReport {
+    pub(super) fn new(key: Option<&str>) -> Self {
+        Self { key: key.map(str::to_owned), done: std::cell::Cell::new(false) }
+    }
+
+    /// A successful mutation has nothing to retry.
+    fn succeeded(&self) {
+        self.done.set(true);
+    }
+
+    /// Adds `details.idempotency_key` to an error the command prints in a
+    /// JSON mode. Human modes print the note after the message instead.
+    pub(super) fn annotate(&self, error: &mut Value, output: OutputMode) {
+        let Some(key) = self.key.as_deref() else { return };
+        if !matches!(output, OutputMode::Json | OutputMode::JsonLines) || !error.is_object() {
+            return;
+        }
+        let details = &mut error["details"];
+        if !details.is_object() {
+            *details = json!({});
+        }
+        details
+            .as_object_mut()
+            .expect("details is an object")
+            .entry("idempotency_key")
+            .or_insert(Value::String(key.to_owned()));
+        self.done.set(true);
+    }
+
+    /// Prints the key unless an annotated error or a success already did.
+    pub(super) fn finish(&self, output: OutputMode) {
+        let Some(key) = self.key.as_deref() else { return };
+        if self.done.replace(true) {
+            return;
+        }
+        let note =
+            crate::localization::catalog().local_server.mutation_key_note.replace("{key}", key);
+        match output {
+            OutputMode::Json | OutputMode::JsonLines => {
+                let error = json!({
+                    "code": "mutation.outcome_unknown",
+                    "message": note,
+                    "details": {"idempotency_key": key},
+                    "retryable": true,
+                });
+                let _ = serde_json::to_writer(io::stderr().lock(), &error);
+                eprintln!();
+            }
+            OutputMode::Quiet | OutputMode::Human => eprintln!("{note}"),
+        }
+    }
+}
+
+/// Makes a stream end on SIGINT, SIGTERM or SIGHUP without a read timeout:
+/// a watcher thread shuts the socket down, or, when that thread cannot
+/// start, the signals get their default action back and end the process.
+#[cfg(unix)]
+fn stream_interrupt(stream: &dyn transport::Stream) -> bool {
+    arm_signal_interrupt(stream) || crate::restore_default_termination_signals().is_ok()
 }
 
 #[cfg(unix)]
@@ -214,9 +290,12 @@ fn validate_capability_identity(identity: &Value) -> Result<(), &'static str> {
     Ok(())
 }
 
-fn response_read_timeout(plan: &RequestPlan, signal_interrupt_armed: bool) -> Option<Duration> {
+/// `interrupt_handled` is false only for a stream on a platform with no
+/// signal watcher (Windows): there a console interrupt only sets the
+/// shutdown flag, so the read wakes every 250 ms to look at it.
+fn response_read_timeout(plan: &RequestPlan, interrupt_handled: bool) -> Option<Duration> {
     if plan.stream {
-        return (!signal_interrupt_armed).then_some(Duration::from_millis(250));
+        return (!interrupt_handled).then_some(Duration::from_millis(250));
     }
     if matches!(
         &plan.operation,
@@ -272,6 +351,7 @@ fn run_response(
     global: &GlobalArgs,
     plan: &RequestPlan,
     request_id: &str,
+    key_report: &KeyReport,
 ) -> i32 {
     let mut accepted_stream = false;
     let expose_stream_lifecycle = matches!(
@@ -320,9 +400,11 @@ fn run_response(
                     if matches!(global.output, OutputMode::Quiet | OutputMode::Human) {
                         localize_operation_error(plan, &mut error);
                     }
+                    key_report.annotate(&mut error, global.output);
                     return print_operation_error(&error, global.output);
                 }
                 let result = response.result.expect("validated result");
+                key_report.succeeded();
                 if !plan.stream {
                     let code = print_success(&result, global.output);
                     return if code == 0 { success_exit_code(plan, &result) } else { code };

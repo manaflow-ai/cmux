@@ -38,6 +38,9 @@ pub struct AppError {
     pub detail: String,
     pub message: String,
     pub session_id: Option<String>,
+    /// The client prompt id of a prompt whose outcome is unknown; sending
+    /// it again (`--prompt-id`) never runs a second turn.
+    pub prompt_id: Option<String>,
     pub retryable: bool,
 }
 
@@ -48,6 +51,7 @@ impl AppError {
             detail: detail.into(),
             message: message.into(),
             session_id: None,
+            prompt_id: None,
             retryable: false,
         }
     }
@@ -68,13 +72,17 @@ impl AppError {
         self.session_id = Some(id.to_owned());
         self
     }
+    pub fn with_prompt(mut self, id: &str) -> Self {
+        self.prompt_id = Some(id.to_owned());
+        self
+    }
     pub fn retryable(mut self) -> Self {
         self.retryable = true;
         self
     }
     /// JSON envelope for stderr under --json.
     pub fn envelope(&self) -> serde_json::Value {
-        serde_json::json!({"error": {"code": self.code.name(), "exit": self.code as i32, "detail": self.detail, "message": self.message, "sessionId": self.session_id, "retryable": self.retryable}})
+        serde_json::json!({"error": {"code": self.code.name(), "exit": self.code as i32, "detail": self.detail, "message": self.message, "sessionId": self.session_id, "promptId": self.prompt_id, "retryable": self.retryable}})
     }
 }
 
