@@ -4,7 +4,7 @@ import CmuxNextDaemon
 /// A native Mac ACPmux surface. It owns no agent state: all session state is
 /// read from ACPmux, so closing this window cannot interrupt an agent turn.
 @MainActor
-final class AcpmuxAgentWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate {
+final class AcpmuxAgentWindowController: NSWindowController, NSSplitViewDelegate, NSTableViewDataSource, NSTableViewDelegate {
     private let service: AcpmuxAgentService
     private var sessions: [AcpmuxAgentService.Session] = []
     private var selectedSessionID: String?
@@ -44,6 +44,7 @@ final class AcpmuxAgentWindowController: NSWindowController, NSTableViewDataSour
         guard let content = window?.contentView else { return }
         splitView.isVertical = true
         splitView.dividerStyle = .thin
+        splitView.delegate = self
         splitView.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(splitView)
 
@@ -124,6 +125,12 @@ final class AcpmuxAgentWindowController: NSWindowController, NSTableViewDataSour
             splitView.topAnchor.constraint(equalTo: content.topAnchor),
             splitView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
         ])
+    }
+
+    func splitView(_ splitView: NSSplitView, constrainSplitPosition proposedPosition: CGFloat,
+                   ofSubviewAt dividerIndex: Int) -> CGFloat {
+        guard dividerIndex == 0 else { return proposedPosition }
+        return min(max(proposedPosition, 220), 340)
     }
 
     @objc private func refresh() {
