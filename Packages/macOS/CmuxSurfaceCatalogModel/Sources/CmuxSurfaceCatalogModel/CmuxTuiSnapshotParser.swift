@@ -1937,7 +1937,7 @@ public struct CmuxTuiSnapshotParser: Sendable {
         case "browser": return .collection("browsers")
         case "client": return .collection("clients")
         case "notification": return .collection("notifications")
-        case "agent": return .collection("agents")
+        case "agent", "agents": return .collection("agents")
         case "pairing_request": return .collection("pairing_requests")
         case "frontend_projection": return .collection("frontend_projections")
         case "sidebar_view": return .collection("sidebar_views")
