@@ -215,7 +215,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 |---|---|---|---|---|
 | newCloudWorkspace | New Cloud Workspace | ⇧⌘Y | KMC | KSS:97 |
 | newCloudMachine | New Cloud Machine… | ⌘Y | PKMC | KSS:98 |
-| palette.cloud.{fork,snapshot,restore,promoteTemplate,status,ports,tools,handoff} | Cloud VM ops (8) | — | P | ContentView+AuthCommandPalette:83-90. cmux-next: tools runs the `cmux vm tools` probe through `POST /api/vm/{id}/exec`; promoteTemplate takes a snapshot named `template-<id12>-<unix>`, as `cmux vm promote-template` did |
+| palette.cloud.{fork,snapshot,restore,promoteTemplate,status,ports,tools,handoff} | Cloud VM ops (8) | — | P | ContentView+AuthCommandPalette:83-90. cmux-next: tools runs the `cmux vm tools` probe through `POST /api/vm/{id}/exec`; handoff shows the live status and the `cmux cloud open-machine` / `machine-tools` commands for the machine; promoteTemplate takes a snapshot named `template-<id12>-<unix>`, as `cmux vm promote-template` did |
 | (cloud tree) | New Terminal, Open, Rename, Kill, Copy Link/Port/ID, Resize ▸ (25) | — | C | CloudTreeOutlineView:624, CloudTreeResizeMenu |
 | cloudDiagnostics | Cloud Diagnostics… | — | M | CmuxHelpCommands:14 |
 | openTeamPicker | Team Picker | ⌥⇧⌘T | PK | KSS:85 |

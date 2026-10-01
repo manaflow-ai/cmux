@@ -4,7 +4,7 @@ import CmuxNextCloud
 import CmuxNextDaemon
 
 // Per-machine actions: open, terminal, rename, kill, copy, resize, status,
-// ports, tools, snapshot, promote to template, restore, fork.
+// ports, tools, handoff, snapshot, promote to template, restore, fork.
 extension CloudHandlers {
     static func bindMachineActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
         let cloud = context.services.cloud!
@@ -75,6 +75,15 @@ extension CloudHandlers {
                 CloudPresenter.show(CloudStrings.toolsTitle, result.stdout, copyable: true, in: window(context))
             }
         }
+        // `cmux vm handoff`: the live status plus the commands that attach to
+        // and inspect the machine, for pasting to another person or agent.
+        bind("palette.cloud.handoff", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            run("hand off machine", context) {
+                let live = try await cloud.api.machine(session.machineID)
+                CloudPresenter.show(CloudStrings.handoffTitle, handoff(live), copyable: true, in: window(context))
+            }
+        }
         bind("palette.cloud.snapshot", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             run("snapshot machine", context) {
@@ -115,6 +124,14 @@ extension CloudHandlers {
         "zsh --version 2>/dev/null || true",
         "gh --version 2>/dev/null | head -n 1 || true"
     ].joined(separator: "; ")
+
+    /// The handoff text, with the old app's fields and the cmux-next CLI verbs
+    /// for Open Machine and Machine Tools.
+    static func handoff(_ machine: CloudMachine) -> String {
+        let target = "--target machine:\(machine.id)"
+        return ["\(machine.title) (\(machine.id))", "provider: \(machine.provider.isEmpty ? "?" : machine.provider)", "status: \(machine.status.rawValue)",
+                "attach: cmux cloud open-machine \(target)", "inspect: cmux cloud machine-tools \(target)"].joined(separator: "\n")
+    }
 
     /// `template-<first 12 of the id>-<unix seconds>`, the old CLI's name.
     static func templateName(_ machineID: String, at date: Date) -> String {

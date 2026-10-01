@@ -3931,137 +3931,6 @@
         }
       }
     },
-    "cloud.unavailable.handoff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Handing off a machine needs the session sharing flow, which is not ported to cmux-next yet."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マシンの引き渡しにはセッション共有フローが必要ですが、cmux-next にはまだ移植されていません。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يتطلب تسليم الجهاز مسار مشاركة الجلسة، ولم يُنقل إلى cmux-next بعد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Predaja mašine zahtijeva tok dijeljenja sesije, koji još nije prenesen u cmux-next."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Overdragelse af en maskine kræver sessionsdelingsflowet, som endnu ikke er porteret til cmux-next."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zum Übergeben einer Maschine ist der Ablauf zur Sitzungsfreigabe nötig, der noch nicht nach cmux-next portiert ist."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Traspasar una máquina requiere el flujo de uso compartido de sesiones, que aún no está portado a cmux-next."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le transfert d’une machine nécessite le partage de session, pas encore porté dans cmux-next."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La cessione di una macchina richiede il flusso di condivisione della sessione, non ancora portato in cmux-next."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការប្រគល់ម៉ាស៊ីនត្រូវការលំហូរចែករំលែកវគ្គ ដែលមិនទាន់បានផ្ទេរទៅ cmux-next នៅឡើយទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "기기를 인계하려면 세션 공유 흐름이 필요하지만 아직 cmux-next로 이식되지 않았습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Overlevering av en maskin krever øktdelingsflyten, som ikke er overført til cmux-next ennå."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Przekazanie maszyny wymaga udostępniania sesji, którego nie przeniesiono jeszcze do cmux-next."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Transferir uma máquina requer o fluxo de compartilhamento de sessão, que ainda não foi portado para o cmux-next."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Для передачи машины нужен совместный доступ к сеансу, который еще не перенесен в cmux-next."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การส่งต่อเครื่องต้องใช้โฟลว์การแชร์เซสชัน ซึ่งยังไม่ได้พอร์ตมายัง cmux-next"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Makine devretmek için oturum paylaşımı akışı gerekir; bu akış henüz cmux-next’e taşınmadı."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Для передавання машини потрібен процес спільного доступу до сеансу, який ще не перенесено в cmux-next."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bàn giao máy cần luồng chia sẻ phiên, luồng này chưa được chuyển sang cmux-next."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "移交机器需要会话共享流程，该流程尚未移植到 cmux-next。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "移交機器需要階段作業共享流程，但 cmux-next 尚未移植該功能。"
-          }
-        }
-      }
-    },
     "cloud.unavailable.localBackend": {
       "extractionState": "manual",
       "localizations": {
@@ -4582,6 +4451,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "機器工具"
+          }
+        }
+      }
+    },
+    "cloud.result.handoffTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine Handoff"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンの引き継ぎ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تسليم الجهاز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Predaja mašine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Overdragelse af maskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maschinenübergabe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Traspaso de la máquina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transfert de la machine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passaggio della macchina"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការប្រគល់ម៉ាស៊ីន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "머신 인계"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Overlevering av maskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przekazanie maszyny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transferência da máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Передача машины"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่งต่อเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makine Devri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Передавання машини"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bàn giao máy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "机器交接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "機器交接"
           }
         }
       }
