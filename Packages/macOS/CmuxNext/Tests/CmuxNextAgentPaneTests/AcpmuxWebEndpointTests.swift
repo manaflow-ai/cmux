@@ -9,10 +9,15 @@ import Testing
         #expect(endpoint.token == "abc123")
     }
 
-    @Test func keepsOtherQueryItemsAndMapsHTTPSToWSS() throws {
-        let endpoint = try #require(AcpmuxWebEndpoint(webURL: "https://localhost:9000?view=x&token=t"))
-        #expect(endpoint.url.absoluteString == "wss://localhost:9000/?view=x")
+    @Test func keepsOtherQueryItems() throws {
+        let endpoint = try #require(AcpmuxWebEndpoint(webURL: "http://localhost:9000?view=x&token=t"))
+        #expect(endpoint.url.absoluteString == "ws://localhost:9000/?view=x")
         #expect(endpoint.token == "t")
+    }
+
+    @Test func refusesWhatThePageCSPWouldBlock() {
+        #expect(AcpmuxWebEndpoint(webURL: "https://localhost:9000/?token=t") == nil)
+        #expect(AcpmuxWebEndpoint(webURL: "http://[::1]:9000/?token=t") == nil)
     }
 
     @Test func refusesAnythingButATokenOnLoopback() {
