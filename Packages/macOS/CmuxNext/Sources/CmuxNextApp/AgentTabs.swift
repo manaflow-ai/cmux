@@ -16,6 +16,10 @@ enum LocalAgentTab {
 /// shared by every tab, so opening several at once starts one daemon.
 final class AgentTabStore {
     private let host: any AgentPaneHostProviding
+    /// The page every agent tab loads: the bundled file, or in Debug builds
+    /// the dev server `CMUX_NEXT_AGENT_PANE_DEV_URL` names (nil only when the
+    /// bundled page is missing).
+    private let source: AgentPaneSource?
     private var tabsByPane: [String: [String]] = [:]
     private var views: [String: AgentPaneView] = [:]
     /// Session each tab last showed, kept across a web content crash or a
@@ -29,6 +33,16 @@ final class AgentTabStore {
             let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
             host = AcpmuxHost { AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment) }
         }
+        // Release loads only the bundled page; the dev server is for Debug
+        // and tagged builds (webviews/src/agent-session/acpmux/README.md).
+        #if DEBUG
+        let allowsDevServer = true
+        #else
+        let allowsDevServer = false
+        #endif
+        source = AgentPaneSource.resolve(
+            environment: environment, bundledPage: AgentPaneView.bundledPage, allowsDevServer: allowsDevServer
+        )
     }
 
     /// Adds a new chat tab to `paneKey`'s strip and returns its id.
@@ -51,7 +65,7 @@ final class AgentTabStore {
         guard tabsByPane.values.contains(where: { $0.contains(key) }) else { return nil }
         let model = AgentPaneModel(host: host, sessionId: sessions[key])
         model.onSessionChange = { [weak self] session in self?.sessions[key] = session }
-        guard let view = AgentPaneView(model: model) else { return nil }
+        guard let source, let view = AgentPaneView(model: model, source: source) else { return nil }
         views[key] = view
         return view
     }
