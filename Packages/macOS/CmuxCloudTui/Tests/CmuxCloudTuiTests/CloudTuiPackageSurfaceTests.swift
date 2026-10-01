@@ -40,6 +40,8 @@ import CmuxCloudTui
         #expect(CloudTuiLegacySnapshotParser().protocolVersion(from: Data("not json".utf8)) == nil)
     }
 
+    /// The package policy preserves old identify-capability fallbacks while
+    /// rejecting modern daemons that cannot frame incomplete VT sequences.
     @Test func staleReplayCapabilityPolicyKeepsLegacyPeersCompatible() {
         #expect(CloudTuiManualReplayCapabilities.isStaleReplayDaemon(capabilities: ["view-attachment-lease-v1"]))
         #expect(!CloudTuiManualReplayCapabilities.isStaleReplayDaemon(capabilities: []))
