@@ -94,7 +94,7 @@ struct CloudTreeNodeActions {
         catalog: @escaping @MainActor () -> SurfaceCatalog,
         selectedWorkspaceID: @escaping @MainActor () -> UUID?,
         selectLocalWorkspace: @escaping @MainActor (UUID) -> Void,
-        onWillMutate: @escaping @MainActor (String) -> Void,
+        onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
         onDidMutate: @escaping @MainActor () -> Void,
         onFailure: @escaping @MainActor (String) -> Void,
         refresh: @escaping @MainActor () -> Void,
