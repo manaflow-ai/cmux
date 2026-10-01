@@ -41,6 +41,7 @@ extension WorkspaceListView {
                 canCreate: canCreateWorkspaceForMacSelection,
                 // Groups are a Mac concept; a Cloud machine has none.
                 canCreateGroup: createWorkspaceGroup != nil && scopedExternalHostID == nil,
+                scopedExternalHostID: scopedExternalHostID,
                 computerTargets: createOnComputer == nil ? [] : computerTargets,
                 sshKinds: createSSHWorkspace == nil ? [] : sshNewWorkspaceKinds,
                 sshTargetHostID: createSSHWorkspace == nil ? nil : sshCreateHostID

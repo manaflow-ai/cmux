@@ -223,7 +223,13 @@ public final class TerminalClient: @unchecked Sendable {
 
     private func abandonOutputHandlerUpdate() {
         lock.lock()
-        outputBox = nil
+        // A failed update can race with disconnect after it has read the
+        // installed box but before `withConnectedFFI` enters the native call.
+        // The native client still owns that unretained context until
+        // `finishDisconnect` clears the callback, so let that path release it.
+        if !didDisconnect {
+            outputBox = nil
+        }
         requestedOutputBox = nil
         outputCallbackUpdateInFlight = false
         lock.unlock()
@@ -464,8 +470,13 @@ private let outputTrampoline: OutputCallback = { context, kind, bytes, length, c
 extension Duration {
     fileprivate var milliseconds: UInt64 {
         let (seconds, attoseconds) = components
-        let total = seconds * 1_000 + attoseconds / 1_000_000_000_000_000
-        return total <= 0 ? 0 : UInt64(total)
+        guard seconds >= 0, attoseconds >= 0 else { return 0 }
+        let (wholeMilliseconds, secondsOverflowed) = seconds.multipliedReportingOverflow(by: 1_000)
+        guard !secondsOverflowed else { return .max }
+        let fractionalMilliseconds = attoseconds / 1_000_000_000_000_000
+        let (total, fractionalOverflowed) = wholeMilliseconds.addingReportingOverflow(fractionalMilliseconds)
+        guard !fractionalOverflowed else { return .max }
+        return total == 0 ? 1 : UInt64(total)
     }
 }
 

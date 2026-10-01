@@ -4,6 +4,9 @@ import SwiftUI
 struct WorkspaceListNewWorkspaceMenuValue: Equatable {
     let canCreate: Bool
     let canCreateGroup: Bool
+    /// The Cloud machine selected by the current computer scope. It is part
+    /// of the value because the menu stores action closures separately.
+    var scopedExternalHostID: String? = nil
     /// Computers a new workspace can go to while "All Computers" is shown.
     /// With more than one, `+` asks which; otherwise it creates directly.
     var computerTargets: [WorkspaceCreateComputerTarget] = []
