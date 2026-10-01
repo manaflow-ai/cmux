@@ -1666,8 +1666,8 @@ mod tests {
             "a locked journal must not prevent shutdown forever"
         );
         assert!(
-            !mux.daemon_shutdown_requested(),
-            "a journal lock must not stop live terminal hosts"
+            mux.daemon_shutdown_requested(),
+            "explicit shutdown must request daemon shutdown even when journal flush times out"
         );
         blocker.execute_batch("ROLLBACK;").unwrap();
         assert!(
