@@ -133,6 +133,10 @@ public final class DaemonStore {
         applyTree(tree)
         if isProvisional { isProvisional = false }
         if !isLoaded { isLoaded = true }
+        if restoredEpoch != connectionEpoch {
+            restoredEpoch = connectionEpoch
+            restoredTabIDs = currentTabIDs
+        }
         structureChanged()
         reapplyPendingPatches()
         workspaceListMayHaveChanged()
