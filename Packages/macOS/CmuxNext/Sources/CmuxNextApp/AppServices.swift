@@ -48,8 +48,6 @@ final class AppServices {
     /// Input invariants and desync reports (plans/cmux-next/input-spec.md).
     var inputMonitor: InputInvariantMonitor!
     var inputGeometryObservers: [any NSObjectProtocol] = []
-    /// Hook statuses shown in sidebar rows (`set_status`).
-    let statusBoard = WorkspaceStatusBoard()
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
     /// Reopen Closed Tab history; set when the tab handlers bind.
     var closedTabs: ClosedTabTracker?
