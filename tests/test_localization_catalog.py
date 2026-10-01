@@ -102,6 +102,17 @@ class LocalizationCatalogTests(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertTrue(MODULE.validate_localization("Open", unit(marker), "de"))
 
+    def test_numbered_placeholders_may_change_order(self):
+        self.assertEqual(MODULE.validate_localization("Move %@ to %@", unit("%2$@ に %1$@ を移動"), "ja"), [])
+        self.assertEqual(MODULE.validate_localization("Count %d; name %@", unit("名前 %2$@、件数 %1$d"), "ja"), [])
+        self.assertEqual(MODULE.validate_localization("%d%% of %@", unit("%2$@ の %1$d%%"), "ja"), [])
+
+    def test_reordered_placeholders_still_need_every_argument_and_type(self):
+        self.assertTrue(MODULE.validate_localization("Move %@ to %@", unit("%2$@ を移動"), "ja"))
+        self.assertTrue(MODULE.validate_localization("Move %@ to %@", unit("%2$@ に %1$@ を %3$@ へ移動"), "ja"))
+        self.assertTrue(MODULE.validate_localization("Count %d; name %@", unit("名前 %2$d、件数 %1$@"), "ja"))
+        self.assertTrue(MODULE.validate_localization("%d%% of %@", unit("%2$@ の %1$d"), "ja"))
+
     def test_rejects_lost_line_breaks(self):
         self.assertTrue(MODULE.validate_localization("Name: %@\nStatus: %@", unit("Name: %@ Status: %@"), "de"))
 
