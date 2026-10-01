@@ -90,7 +90,7 @@ mini, so `rg`/`grep` work wherever the repo lives.
 A mux has one tool: run code. The code runs in a Cloudflare Dynamic Worker with
 egress controlled and a typed `mux` API passed in as bindings:
 
-- `messages`: send, react, reply in thread, to humans and other muxes.
+- `messages`: later (send to other conversations, react, reply in thread). Slice 1 has none: the final answer is the reply, and an early `messages.send` made the model post everything twice.
 - `memory`: recall, zoom, note.
 - `machines`: registered Macs and VMs, via their links.
 - `agents`: spawn, prompt, steer, cancel acpmux sessions on a machine.
@@ -151,3 +151,18 @@ Rust link that lets a mux spawn and drive acpmux agents on a Mac.
 ## Open
 
 - Cloudflare account and Worker names for staging.
+
+## Slice 1 findings (2026-10-01)
+
+- Freestyle has no VM size below 4 vCPU / 8 GiB / 32 GiB, and resize only
+  grows. The memory VM pauses after 300 s idle instead; exec wakes it in about
+  0.1 s. It runs no service: memory operations are git and Python commands
+  through Freestyle exec.
+- `cf deploy` (cf 0.13) sends no Authorization header in its deploy step, so
+  `cloud/worker/scripts/deploy-staging.sh` runs wrangler with the cf OAuth
+  token. `cf dev` works.
+- Stack's REST API allows any origin, so email and password sign-in needs no
+  Stack configuration. OAuth (GitHub, Google) needs the staging domain in the
+  Stack project's trusted domains.
+- Sign-in uses the cmux development Stack project (cmuxterm-dev). Production
+  accounts need that project switched in `cloudflare.config.ts`.

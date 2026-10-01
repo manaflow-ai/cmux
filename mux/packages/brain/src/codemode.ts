@@ -28,7 +28,6 @@ export interface MuxApiMethods {
   }): Promise<{ queued: true }>;
   agentsLast(options: { session: string; machine?: string }): Promise<{ text: string }>;
   agentsCancel(options: { session: string; machine?: string }): Promise<{ cancelled: true }>;
-  messagesSend(text: string): Promise<void>;
   memoryRecall(options: {
     pattern: string;
     limit?: number;
@@ -65,10 +64,6 @@ declare const mux: {
     /** The session's last reply text. */
     last(options: { session: string; machine?: string }): Promise<{ text: string }>;
     cancel(options: { session: string; machine?: string }): Promise<{ cancelled: true }>;
-  };
-  messages: {
-    /** Posts to this conversation right away. Only for progress during long work; your final answer is posted for you. */
-    send(text: string): Promise<void>;
   };
   memory: {
     /** Log lines matching a regular expression (case-insensitive), newest first. Exact detail from any time. */
@@ -124,7 +119,6 @@ export class Run extends WorkerEntrypoint {
         last: (o) => api.agentsLast(o),
         cancel: (o) => api.agentsCancel(o),
       },
-      messages: { send: (text) => api.messagesSend(String(text)) },
       memory: {
         recall: (o) => api.memoryRecall(o),
         zoom: (o) => api.memoryZoom(o),

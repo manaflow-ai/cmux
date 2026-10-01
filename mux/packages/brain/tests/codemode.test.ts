@@ -25,16 +25,12 @@ test("code calls the flat API through mux.* and returns value and logs", async (
     `const [m] = await mux.machines.list();
      const a = await mux.agents.spawn({ cwd: "/tmp", prompt: "hi", machine: m.id });
      console.log("spawned", a);
-     await mux.messages.send("started");
      return a.name;`,
     {
       machinesList: async () => [{ id: "mac", name: "mac", os: "macos", online: true }],
       agentsSpawn: async (options) => {
         calls.push(options);
         return { sessionId: "s1", name: "hi-agent" };
-      },
-      messagesSend: async (text) => {
-        calls.push(text);
       },
     },
   );
@@ -43,7 +39,7 @@ test("code calls the flat API through mux.* and returns value and logs", async (
     value: "hi-agent",
     logs: ['spawned {"sessionId":"s1","name":"hi-agent"}'],
   });
-  expect(calls).toEqual([{ cwd: "/tmp", prompt: "hi", machine: "mac" }, "started"]);
+  expect(calls).toEqual([{ cwd: "/tmp", prompt: "hi", machine: "mac" }]);
 });
 
 test("a thrown error comes back as a result, with logs so far", async () => {
