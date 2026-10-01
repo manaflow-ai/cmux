@@ -187,16 +187,17 @@ extension CloudTuiManualMirrorSession: CloudSizingPhoneRelaying, TerminalSharing
     /// Explicit focus or input on this Mac pane (`note-size-activity`).
     /// `set-client-sizing` is not used here: under shared sizing its
     /// `enabled: false` means counts false.
-    func sendSharingFocusActivity() {
-        _ = sendSizing(commandBuilder.noteSizeActivity(surfaceID: remoteSurfaceID, requestID: takeRequestID()))
+    func sendSharingActivity(kind: TerminalSizingActivityKind) {
+        _ = sendSizing(commandBuilder.noteSizeActivity(surfaceID: remoteSurfaceID, kind: kind, requestID: takeRequestID()))
     }
 
+    /// Input from a phone behind this Mac. Sent even while the phone owns the
+    /// grid: the owner's own input refreshes its typing hold on the host.
     func relayPhoneActivity(clientID: String) {
-        // Activity only matters when it moves ownership to this phone.
-        if let phone = sizingRelay.hostParticipantID(clientID: clientID), sizingRelay.state?.owners == [phone] { return }
         _ = sendSizing(commandBuilder.noteSizeActivity(
             surfaceID: remoteSurfaceID,
             view: CloudTerminalSizingRelay.viewKey(clientID: clientID),
+            kind: .input,
             requestID: takeRequestID()
         ))
     }
@@ -233,8 +234,9 @@ extension CloudTuiManualMirrorSession: CloudSizingPhoneRelaying, TerminalSharing
         ))
     }
 
+    /// Size to My Window: an explicit claim, so it skips the typing hold.
     func sharingNoteSelfActivity() {
-        sendSharingFocusActivity()
+        sendSharingActivity(kind: .focus)
     }
 
     func sharingReattach(asViewer: Bool) -> Bool {

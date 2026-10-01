@@ -634,8 +634,8 @@ impl Session {
         self.set_client_sizing(surface, client, true, true)
     }
 
-    /// Focus on a terminal. Under shared sizing this is activity only
-    /// (`note-size-activity`): the legacy `set-client-sizing` would clear a
+    /// Focus on a terminal. Under shared sizing this is focus activity only
+    /// (`note-size-activity` with `kind: "focus"`, which skips the typing hold): the legacy `set-client-sizing` would clear a
     /// counts choice another participant made for this view. Daemons without
     /// `shared-sizing-v1` keep the legacy exclusive claim.
     pub fn claim_terminal_geometry(&self, surface: SurfaceId) -> anyhow::Result<()> {
@@ -645,7 +645,10 @@ impl Session {
                 .map(|_| ())
                 .ok_or_else(|| anyhow::anyhow!("unknown terminal {surface}")),
             Session::Remote(remote) if remote.supports_capability(SHARED_SIZING_CAPABILITY) => {
-                remote.request(json!({"cmd": "note-size-activity", "surface": surface})).map(|_| ())
+                // Focus skips the typing hold; an older daemon ignores `kind`.
+                remote
+                    .request(json!({"cmd": "note-size-activity", "surface": surface, "kind": "focus"}))
+                    .map(|_| ())
             }
             Session::Remote(remote) => remote
                 .request(json!({

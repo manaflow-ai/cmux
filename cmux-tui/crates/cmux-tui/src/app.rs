@@ -31335,13 +31335,13 @@ mod tests {
         engine.attach(TerminalSizingParticipant {
             viewport: Some(TerminalGridSize::new(100, 40)),
             ..TerminalSizingParticipant::new("c0", TerminalDeviceKind::Tui)
-        });
+        }, 0);
         engine.attach(TerminalSizingParticipant {
             display_name: Some("Maya Ortiz".into()),
             device_name: Some("Mac Studio".into()),
             viewport: Some(TerminalGridSize::new(118, 30)),
             ..TerminalSizingParticipant::new("c7", TerminalDeviceKind::Mac)
-        });
+        }, 10_000);
         SurfaceSizeState { state: engine.state().clone(), self_participant: Some("c0".into()) }
     }
 

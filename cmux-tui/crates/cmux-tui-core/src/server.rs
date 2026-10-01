@@ -68,8 +68,8 @@ use crate::sidebar_resource::{
     sidebar_attach_snapshot, sidebar_snapshot,
 };
 use crate::sizing_policy::{
-    TerminalDetachActor, TerminalDeviceKind, TerminalSizingPolicy, TerminalSizingState,
-    detach_reason,
+    TerminalDetachActor, TerminalDeviceKind, TerminalSizingActivityKind, TerminalSizingPolicy,
+    TerminalSizingState, detach_reason,
 };
 use crate::surface::{
     AttachLifecycle, CLEAR_HISTORY_KEY_TEXT_MAX_BYTES, ClearHistoryDelivery, ClearHistoryFailure,
@@ -996,10 +996,13 @@ enum Command {
     },
     /// Record explicit input or focus activity for the caller's own view, or
     /// with `view` for one of its relay sub-views (input a relay forwards).
+    /// `kind` defaults to input, which waits for the owner's typing hold.
     NoteSizeActivity {
         surface: SurfaceId,
         #[serde(default)]
         view: Option<String>,
+        #[serde(default)]
+        kind: Option<TerminalSizingActivityKind>,
     },
     ReloadConfig,
     SetWindowTitle {
@@ -12234,7 +12237,7 @@ fn handle_command_with_cancellation(
                 .ok_or_else(|| anyhow::anyhow!("unknown participant {participant}"))?;
             Ok(json!({"outcome": "applied", "changed": changed, "participant": participant}))
         }
-        Command::NoteSizeActivity { surface, view } => {
+        Command::NoteSizeActivity { surface, view, kind } => {
             anyhow::ensure!(
                 mux.control_clients.supports_capability(client, SHARED_SIZING_CAPABILITY),
                 "note-size-activity requires client capability {SHARED_SIZING_CAPABILITY}"
@@ -12247,7 +12250,7 @@ fn handle_command_with_cancellation(
                     .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal"))?,
             };
             let changed = mux
-                .note_terminal_activity(surface, client, view.as_deref())
+                .note_terminal_activity(surface, client, view.as_deref(), kind.unwrap_or_default())
                 .ok_or_else(|| anyhow::anyhow!("unknown participant {participant}"))?;
             Ok(json!({"participant": participant, "changed": changed}))
         }
@@ -20630,13 +20633,23 @@ mod tests {
         mux.pin_latest_size_policy_for_test(surface.id);
         let writer = test_writer();
         let relay = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-        let activity = |view: Option<&str>| {
+        let now = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        mux.set_sizing_clock_for_test({
+            let now = now.clone();
+            move || now.load(std::sync::atomic::Ordering::SeqCst)
+        });
+        let at = |ms: u64| now.store(ms, std::sync::atomic::Ordering::SeqCst);
+        let activity_kind = |view: Option<&str>, kind: Option<&str>| {
             let mut request = json!({"cmd": "note-size-activity", "surface": surface.id});
             if let Some(view) = view {
                 request["view"] = json!(view);
             }
+            if let Some(kind) = kind {
+                request["kind"] = json!(kind);
+            }
             handle_command(&mux, relay, json_command(request), &writer)
         };
+        let activity = |view: Option<&str>| activity_kind(view, None);
         // The command is gated on the client capability.
         assert!(activity(None).unwrap_err().to_string().contains(SHARED_SIZING_CAPABILITY));
         handle_command(
@@ -20664,17 +20677,31 @@ mod tests {
         let phone = format!("c{relay}/mobile:p1");
         assert_eq!(mux.set_terminal_size_counts(surface.id, &phone, Some(true)), Some(true));
 
-        // The Mac's own activity keeps the grid on the Mac.
+        // The Mac's own activity, once the phone's attach hold has passed,
+        // puts the grid on the Mac.
+        at(10_000);
         assert_eq!(activity(None).unwrap()["participant"], format!("c{relay}"));
         assert_eq!(surface.size(), (150, 42));
         assert_eq!(mux.terminal_size_state(surface.id).unwrap().owners, [format!("c{relay}")]);
 
-        // Forwarded phone input marks the phone, which then owns the grid.
+        // Forwarded phone input inside the Mac's 2 s typing hold is ignored.
+        at(11_999);
         let response = activity(Some("mobile:p1")).unwrap();
         assert_eq!(response["participant"], phone);
+        assert_eq!(response["changed"], false);
+        assert_eq!(surface.size(), (150, 42));
+
+        // After the hold the phone's input takes the grid.
+        at(12_000);
+        let response = activity(Some("mobile:p1")).unwrap();
         assert_eq!(response["changed"], true);
         assert_eq!(surface.size(), (54, 26));
-        assert_eq!(mux.terminal_size_state(surface.id).unwrap().owners, [phone]);
+        assert_eq!(mux.terminal_size_state(surface.id).unwrap().owners, [phone.clone()]);
+
+        // An explicit focus takes it back at once; `kind` is optional.
+        at(12_100);
+        assert_eq!(activity_kind(None, Some("focus")).unwrap()["changed"], true);
+        assert_eq!(surface.size(), (150, 42));
 
         assert!(
             activity(Some("mobile:gone")).unwrap_err().to_string().contains("unknown participant")

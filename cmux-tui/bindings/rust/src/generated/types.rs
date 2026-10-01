@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 8956ad6492bfd776f7c94fa11ba79b6fe23de0a0df61c6baf782d7d0ecf1f4cd.
+// cmux-tui mux protocol 12, IR 1bfa1f45d7ba43258f2c876911eb1b1cf6a74434117e8de44a15ced5219ccafb.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1102,6 +1102,15 @@ pub struct SidebarPluginResult {
 pub struct Size {
     pub cols: u16,
     pub rows: u16,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SizeActivityKind {
+    #[serde(rename = "input")]
+    Input,
+    #[serde(rename = "focus")]
+    Focus,
 }
 
 #[rustfmt::skip]
