@@ -249,6 +249,44 @@ names on cmux, account counts on Aside, no content); `run [--ops a,b]
 summaries (counts, sha256-prefixed ids, key names, lengths, order agreement,
 latency) in the gitignored `sites/live-results/`, with the verdict per read.
 
+<!-- live-diff:begin -->
+Live comparison on the user's own sign-ins, 2026-10-01, tag `brepl-live` with the fixes in this branch loaded (counts and lengths only; ids compared as sha256 prefixes). Aside's own profile was signed in to Google and Slack only; where it was not, the row says so.
+
+| Operation | Verdict | Evidence | cmux ok, median ms | Aside ok, median ms |
+| --- | --- | --- | --- | --- |
+| googleAccounts.list | cmux-better | count 5 vs 2; ids in common 2; order agreement 100% | 1/1 433 | 1/1 0 |
+| gmail.inbox | same | count 50 vs 50; ids in common 50; order agreement 100% | 1/1 6021 | 1/1 742 |
+| gmail.search is:unread | same | count 50 vs 50; ids in common 50; order agreement 100% | 1/1 5771 | 1/1 462 |
+| gmail.thread | same | count 1 vs 1; ids in common 1 | 1/1 6402 | 1/1 331 |
+| gmail.attachments (metadata) | same | count 2 vs 2; ids in common 2; order agreement 100% | 1/1 5474 | 1/1 368 |
+| googleCalendar.events (next 10) | cmux-better | Aside has no tool for this read | 1/1 3038 | n/a |
+| googleDrive.recent | cmux-better | Aside has no tool for this read | 1/1 3120 | n/a |
+| google document read | same | text 28500 vs 26894 chars | 1/1 1797 | 1/1 1895 |
+| google spreadsheets read | cmux-better | count 1108 vs 358; ids in common 0 | 1/1 963 | 1/1 556 |
+| google presentation read | skipped | no Slides file owned by the user was found (Drive Recent and search) |  |  |
+| googleSearch.search | cmux-better | Aside failed:  Google Search returned bot challenge HTML. Open <url> in the browser, solve it, then retry. | 1/1 1152 | 0/1 595 |
+| slack.workspaces | same | count 1 vs 1; ids in common 1 | 1/1 835 | 1/1 0 |
+| slack.channels | same | count 55 vs 55; ids in common 55; order agreement 100% | 1/1 1321 | 1/1 209 |
+| slack.history (last 20) | same | count 20 vs 20; ids in common 20; order agreement 100% | 1/1 1103 | 1/1 145 |
+| slack.search | same | count 0 vs 0; ids in common 0 | 1/1 1048 | 1/1 121 |
+| notion.search | aside-unavailable | Aside's profile is not signed in to this site; cmux read it | 1/1 2001 | 0/1 23 |
+| notion.read (first page) | aside-unavailable | Aside's profile is not signed in to this site; cmux read it | 1/1 757 | 0/1 21 |
+| linkedin.me | aside-unavailable | Aside's profile is not signed in to this site; cmux read it | 1/1 880 | 0/1 19 |
+| linkedin.feed (first page) | cmux-better | Aside has no tool for this read | 1/1 7206 | n/a |
+| linkedin.search people | aside-unavailable | Aside's profile is not signed in to this site; cmux read it | 1/1 2563 | 0/1 22 |
+| x.user | aside-unavailable | Aside's profile is not signed in to this site; cmux read it | 1/1 1796 | 0/1 19 |
+| x.timeline | aside-unavailable | Aside's profile is not signed in to this site; cmux read it | 1/1 6682 | 0/1 21 |
+| x.search | aside-unavailable | Aside's profile is not signed in to this site; cmux read it | 1/1 3141 | 0/1 20 |
+| github.assigned | cmux-better | Aside has no tool for this read | 1/1 24183 | n/a |
+| linear.assigned | cmux-better | Aside has no tool for this read | 1/1 801 | n/a |
+| jira.sites | cmux-better | Aside has no tool for this read | 1/1 998 | n/a |
+| jira.assigned | skipped | the Atlassian account has no Jira Cloud site (jira.sites: 0) |  |  |
+| tabs.content | cmux-better | Aside has no tool for this read | 1/1 688 | n/a |
+| tabs.history | cmux-better | Aside has no tool for this read | 1/1 15 | n/a |
+| pageAssets.list | cmux-better | Aside has no tool for this read | 1/1 652 | n/a |
+| googleDrive.search (own Sheets, Slides) | cmux-better | Aside has no tool for this read | 1/1 4385 | n/a |
+<!-- live-diff:end -->
+
 Tools against private accounts (Gmail, Calendar, Slack, Notion, LinkedIn, X
 timelines, Linear, Jira) are verified only against the mocks: running them
 live reads the user's private data. Their page selectors follow the sites'

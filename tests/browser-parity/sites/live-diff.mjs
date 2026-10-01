@@ -247,7 +247,7 @@ async function signedIn() {
 
 // Verdict from two summaries.
 function verdict(op, c, a, cap) {
-  const unavailable = (r) => r.code === "not_signed_in" || /not signed in|sign in|invalid_auth|not_authed|unauthorized|login/i.test(r.error || "");
+  const unavailable = (r) => r.code === "not_signed_in" || /not signed in|sign in|invalid_auth|not_authed|unauthorized|login|logged in|cookie found|cookies missing|session may be expired/i.test(r.error || "");
   if (!c.ok && unavailable(c)) return { verdict: "cmux-unavailable", note: "user not signed in to cmux" };
   if (!a.ok && a.code === "no_tool") return c.ok ? { verdict: "cmux-better", note: "Aside has no tool for this read" } : { verdict: "cmux-worse", note: `cmux failed: ${c.code || ""} ${redact(c.error)}` };
   if (!a.ok && unavailable(a)) return { verdict: "aside-unavailable", note: "Aside not signed in" };
