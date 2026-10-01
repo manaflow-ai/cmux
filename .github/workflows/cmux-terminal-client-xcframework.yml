@@ -232,6 +232,8 @@ jobs:
           PLIST
           plutil -lint "$xcf/Info.plist"
           out="$RUNNER_TEMP/xcframework"
+          # Keep release ZIP bytes stable across reruns of the same build.
+          find "$xcf" -exec touch -t 198001010000 {} +
           (cd "$out" && ditto -c -k --keepParent CmuxTerminalClient.xcframework CmuxTerminalClient.xcframework.zip)
           archive="$out/CmuxTerminalClient.xcframework.zip"
           checksum="$(shasum -a 256 "$archive" | awk '{print $1}')"
