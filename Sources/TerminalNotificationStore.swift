@@ -276,6 +276,10 @@ final class TerminalNotificationStore: ObservableObject {
     /// keyed by other identities (the Cloud tree's remote terminals) follow the
     /// dismissal even when no local record exists for what they show.
     var readTargetObserver: (@MainActor (NotificationReadTarget) -> Void)?
+    /// Exact feed-record reads reach the Cloud hub synchronously. Target reads
+    /// continue through `readTargetObserver`; this hook avoids waiting for the
+    /// published notification-array diff for an individual read.
+    var readNotificationObserver: (@MainActor ([TerminalNotification]) -> Void)?
     // Workspace panels own their manual unread state on Workspace. Dock panels
     // have no Workspace owner, so their surface-scoped state lives here beside
     // the cross-container unread projection.
@@ -1836,6 +1840,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         if !activeIDs.isEmpty {
             notifications = updated
+            readNotificationObserver?(updated.filter { activeIDs.contains($0.id.uuidString) })
             removeNotificationRequestsAndReleaseSoundReferences(withIdentifiers: activeIDs)
             emitNotificationsDismissed(
                 ids: activeIDs,

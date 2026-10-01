@@ -358,6 +358,9 @@ Feed and agent hooks:
 | `feed.item.completed` | `feed.push` returned a hook decision, timeout, or no-op result. |
 | `feed.item.resolved` | A Feed reply command resolved a permission, question, or plan item. |
 | `agent.hook.<HookEventName>` | Agent hook event received through Feed. Examples include Claude Code and Codex permission requests when their hooks are installed. |
+| `agent.message.queued` | `cmux agent message` stored a message for an agent. Payload: `id`, `thread_id`, `sender_name`, `sender_surface_id`, `body_length`. |
+| `agent.message.delivered` | An agent hook handed a message to its agent (`delivered_via`). |
+| `agent.message.read` | The recipient finished the turn it was delivered in, or someone marked it read. |
 
 App, browser, and config:
 

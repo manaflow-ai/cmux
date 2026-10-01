@@ -131,7 +131,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func resetAllSettingsSideEffects() {
-        LanguageSettingsStore(defaults: .standard).applyLanguageOverride(.system)
+        LanguageSettingsStore(defaults: .standard, domainName: ProcessDefaultsDomain.name).applyLanguageOverride(.system)
         PaneChromeSettings.notifyDidChange()
         TerminalAdaptiveDefaultThemeSettings.notifyDidChange()
         PhonePushClient.shared.reloadConfigurationFromDefaults()
@@ -250,7 +250,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func applyLanguageOverride(_ language: AppLanguage) {
-        LanguageSettingsStore(defaults: .standard).applyLanguageOverride(language)
+        LanguageSettingsStore(defaults: .standard, domainName: ProcessDefaultsDomain.name).applyLanguageOverride(language)
     }
 
     func openConfigInExternalEditor() {
@@ -686,10 +686,6 @@ final class HostSettingsActions: SettingsHostActions {
         task.arguments = ["-n", bundlePath]
         try? task.run()
         NSApp.terminate(nil)
-    }
-
-    func installUpdatesAutomaticallyDidChange() {
-        AppDelegate.shared?.installUpdatesAutomaticallyDidChange()
     }
 
     func socketControlConfigurationDidChange() {

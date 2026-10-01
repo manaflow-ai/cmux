@@ -88,6 +88,15 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "auth.team.list",
         "auth.team.use",
         "auth.team.create",
+        "auth.team.members",
+        "auth.team.invite",
+        "auth.team.invite_link",
+        "auth.team.revoke_invite",
+        "auth.team.remove_member",
+        "auth.team.open_members",
+        "auth.team.invitations",
+        "auth.team.accept_invite",
+        "auth.team.decline_invite",
         "feedback.submit",
         // `feed.jump` awaits its actor-owned hook-session lookup while the
         // socket worker waits for the response.
@@ -104,6 +113,18 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "agent.restore.admit",
         // Releases only the tokenized claim owned by a failed restore exec.
         "agent.restore.release",
+        // Manual hibernation awaits a transcript snapshot and a fresh process
+        // census before teardown; wake shares the lane so both verbs route alike.
+        "agent.hibernate",
+        "agent.wake",
+        // Agent messages: store reads and appends with at most one
+        // main-actor hop for target resolution or the delivery hold.
+        "agent.message.send",
+        "agent.message.list",
+        "agent.message.claim",
+        "agent.message.ack",
+        "agent.message.mark_read",
+        "agent.message.poll",
         "browser.download.list", "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",
@@ -171,6 +192,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // never runs inline on the main thread, and no in-process main-thread
         // caller needs it.
         "surface.read_text",
+        // `surface.input_state` reads the screen through the render-grid
+        // export in one short `v2MainSync` hop (`cmux send` asks it before
+        // typing). App-side for the same reason as `surface.read_text`.
+        "surface.input_state",
         // Selection providers own AppKit/WebKit state on the main actor, then
         // return one immutable snapshot for response shaping on this worker.
         // The async bridge must never be entered inline by a main-thread caller.

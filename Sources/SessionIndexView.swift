@@ -9,6 +9,10 @@ import UniformTypeIdentifiers
 
 @MainActor
 enum SessionEntryResumeCoordinator {
+    enum ActiveTarget {
+        case workspace(workspaceID: UUID, surfaceID: UUID)
+        case dock(panelID: UUID)
+    }
     @discardableResult
     private static func launchInNewWorkspace(
         _ launch: SessionEntryResumeLaunch,
@@ -27,46 +31,109 @@ enum SessionEntryResumeCoordinator {
     /// Keeping target discovery separate from the focus mutation lets the Vault
     /// row expose an honest enabled/disabled state without focusing anything
     /// while SwiftUI is rendering a context menu.
+    ///
+    /// Pass `schedulingIndexRefresh: false` from a view body: it reads the
+    /// cached live index without starting a refresh, and the caller schedules
+    /// refreshes from its lifecycle hooks instead.
     static func activeTarget(
         for entry: SessionEntry,
-        tabManager: TabManager
-    ) -> (workspaceID: UUID, surfaceID: UUID)? {
+        tabManager: TabManager,
+        schedulingIndexRefresh: Bool = true
+    ) -> ActiveTarget? {
+        activeTargets(
+            for: [entry],
+            tabManager: tabManager,
+            schedulingIndexRefresh: schedulingIndexRefresh
+        )[VaultLiveSessionKeys.key(for: entry)]
+    }
+
+    /// Resolves several live entries in one snapshot pass. Conversations can
+    /// have many indexed rows that are all live; scanning every workspace,
+    /// Dock, and process observation once keeps rendering proportional to the
+    /// topology rather than the number of rows.
+    static func activeTargets(
+        for entries: [SessionEntry],
+        tabManager: TabManager,
+        schedulingIndexRefresh: Bool = true
+    ) -> [String: ActiveTarget] {
+        let requestedKeys = Set(entries.map(VaultLiveSessionKeys.key(for:)))
+        guard !requestedKeys.isEmpty else { return [:] }
+        var targets: [String: ActiveTarget] = [:]
+
         // Prefer the tab manager's authoritative surface snapshots. This
         // catches an open-but-idle session even while the process index is
         // between refreshes.
         for workspace in tabManager.tabs {
-            if let panel = workspace.restoredAgentSnapshotsByPanelId.first(where: { panelID, snapshot in
-                workspace.panels[panelID] != nil
-                    && workspace.panelShellActivityStates[panelID] == .commandRunning
-                    && snapshot.kind.rawValue == entry.agent.rawValue
-                    && ManagedAgentSessionIdentity.sessionIDsMatch(
-                        kind: entry.agent.rawValue,
-                        lhs: snapshot.sessionId,
-                        rhs: entry.sessionId
-                    )
-            }) {
-                return (workspace.id, panel.key)
+            for (panelID, snapshot) in workspace.restoredAgentSnapshotsByPanelId {
+                guard workspace.panels[panelID] != nil,
+                      workspace.panelShellActivityStates[panelID] == .commandRunning else {
+                    continue
+                }
+                let key = VaultLiveSessionKeys.key(
+                    kind: snapshot.kind.rawValue,
+                    sessionID: snapshot.sessionId
+                )
+                guard requestedKeys.contains(key), targets[key] == nil else { continue }
+                targets[key] = .workspace(workspaceID: workspace.id, surfaceID: panelID)
+            }
+        }
+
+        // Dock terminals keep the same restore snapshot and shell activity
+        // state, but do not appear in the workspace panel dictionaries.
+        for dock in DockSplitStore.liveStores {
+            for (panelID, snapshot) in dock.restoredAgentLifecycle.snapshotsByPanelId {
+                guard dock.panels[panelID] != nil,
+                      (dock.panels[panelID] as? TerminalPanel)?.shellActivity.state == .commandRunning else {
+                    continue
+                }
+                let key = VaultLiveSessionKeys.key(
+                    kind: snapshot.kind.rawValue,
+                    sessionID: snapshot.sessionId
+                )
+                guard requestedKeys.contains(key), targets[key] == nil else { continue }
+                targets[key] = .dock(panelID: panelID)
             }
         }
 
         // Process-detected sessions can still be present in the live index
         // before their snapshot has been projected into the tab manager.
-        guard let index = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh(),
-              let match = index.forkValidationEntries().first(where: { panelKey, observation in
-                  observation.processLiveness == .running
-                      && observation.snapshot.kind.rawValue == entry.agent.rawValue
-                      && ManagedAgentSessionIdentity.sessionIDsMatch(
-                          kind: entry.agent.rawValue,
-                          lhs: observation.snapshot.sessionId,
-                          rhs: entry.sessionId
-                      )
-                      && tabManager.tabs.contains(where: { $0.id == panelKey.workspaceId })
-                      && tabManager.tabs.first(where: { $0.id == panelKey.workspaceId })?.panels[panelKey.panelId] != nil
-              }) else {
-            return nil
-        }
+        let liveIndex = schedulingIndexRefresh
+            ? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+            : SharedLiveAgentIndex.shared.index
+        guard let index = liveIndex else { return targets }
 
-        return (match.0.workspaceId, match.0.panelId)
+        var workspacePanelIDsByWorkspaceID: [UUID: Set<UUID>] = [:]
+        for workspace in tabManager.tabs {
+            workspacePanelIDsByWorkspaceID[workspace.id] = Set(workspace.panels.keys)
+        }
+        var dockPanelOwnersByWorkspaceID: [UUID: [UUID: UUID]] = [:]
+        for dock in DockSplitStore.liveStores {
+            for (panelID, panel) in dock.panels {
+                dockPanelOwnersByWorkspaceID[dock.workspaceId, default: [:]][panelID] = panelID
+                if let terminal = panel as? TerminalPanel {
+                    dockPanelOwnersByWorkspaceID[dock.workspaceId, default: [:]][terminal.surface.id] = panelID
+                }
+            }
+            for (surfaceID, panelID) in dock.surfaceIdToPanelId {
+                if dock.panels[panelID] != nil {
+                    dockPanelOwnersByWorkspaceID[dock.workspaceId, default: [:]][surfaceID.uuid] = panelID
+                }
+            }
+        }
+        for (panelKey, observation) in index.forkValidationEntries() {
+            guard observation.processLiveness == .running else { continue }
+            let key = VaultLiveSessionKeys.key(
+                kind: observation.snapshot.kind.rawValue,
+                sessionID: observation.snapshot.sessionId
+            )
+            guard requestedKeys.contains(key), targets[key] == nil else { continue }
+            if let panelID = dockPanelOwnersByWorkspaceID[panelKey.workspaceId]?[panelKey.panelId] {
+                targets[key] = .dock(panelID: panelID)
+            } else if workspacePanelIDsByWorkspaceID[panelKey.workspaceId]?.contains(panelKey.panelId) == true {
+                targets[key] = .workspace(workspaceID: panelKey.workspaceId, surfaceID: panelKey.panelId)
+            }
+        }
+        return targets
     }
 
     /// Returns managed-session identities whose agent command is currently
@@ -135,7 +202,23 @@ enum SessionEntryResumeCoordinator {
         guard let target = activeTarget(for: entry, tabManager: tabManager) else {
             return false
         }
-        tabManager.focusTab(target.workspaceID, surfaceId: target.surfaceID)
+        switch target {
+        case .workspace(let workspaceID, let surfaceID):
+            tabManager.focusTab(workspaceID, surfaceId: surfaceID)
+        case .dock(let panelID):
+            guard let dock = DockSplitStore.liveStore(containingPanel: panelID) else { return false }
+            if dock.scope == .global {
+                // The live target is consumed even if its owning window is
+                // temporarily unavailable. Do not fall through to `open`,
+                // which would launch a duplicate session.
+                _ = TerminalController.shared.focusAndRevealWindowDock(for: dock, fallback: tabManager)
+            } else if let owner = AppDelegate.shared?.tabManagerFor(tabId: dock.workspaceId) {
+                owner.focusTab(dock.workspaceId)
+            } else {
+                tabManager.focusTab(dock.workspaceId)
+            }
+            dock.focusPanelFromDockInteraction(panelID, window: nil)
+        }
         return true
     }
 

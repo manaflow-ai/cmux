@@ -28,6 +28,10 @@ final class CloudTuiManualMirrorSession {
     /// Set when someone disconnected this Mac; the pane shows it with Reattach
     /// and the session does not reconnect by itself.
     var sharingDetachment: TerminalSharingDetachment?
+    /// Set while only this Mac's own view is detached (`scope:"view"`): the
+    /// connection stays and keeps relaying phones; this pane stops sending
+    /// its own activity until `reattach-view`.
+    var sharingOwnViewDetached = false
     /// Reattach as a viewer: send `counts: false` for this lease after attach.
     var sharingReattachAsViewerPending = false
     /// The local surface id this session published sharing state under.
@@ -463,6 +467,7 @@ final class CloudTuiManualMirrorSession {
     /// is also used by the composed explicit-input callback.
     func claimGeometry() {
         guard surface?.isRendererPortalVisible == true else { return }
+        guard !sharingOwnViewDetached else { return }
         if sizingRelay.isSupported {
             sendSharingFocusActivity()
             return
@@ -476,6 +481,7 @@ final class CloudTuiManualMirrorSession {
     /// user is typing in must be the authoritative geometry owner. An owner
     /// already confirmed, or a server without claims, sends its keys alone.
     func noteExplicitInput() {
+        guard !sharingOwnViewDetached else { return }
         if sizingRelay.isSupported {
             // Activity only matters when it moves ownership to this Mac.
             if let me = sizingRelay.selfParticipantID, sizingRelay.state?.owners == [me] { return }
@@ -644,9 +650,9 @@ final class CloudTuiManualMirrorSession {
         case let .colorsChanged(surfaceID, colors):
             guard surfaceID == remoteSurfaceID else { return }
             applyColors(colors)
-        case let .detached(surfaceID, reason, view):
+        case let .detached(surfaceID, reason, view, viewOnly):
             guard surfaceID == remoteSurfaceID else { return }
-            handleSharingDetached(reason: reason, view: view)
+            handleSharingDetached(reason: reason, view: view, viewOnly: viewOnly)
         case let .sizeState(surfaceID, state):
             guard surfaceID == remoteSurfaceID else { return }
             receiveSizeState(state)
@@ -838,6 +844,8 @@ final class CloudTuiManualMirrorSession {
             }
             serverCapabilities = Set(capabilities)
             sizingRelay.connectionStarted(capabilities: serverCapabilities)
+            // A new connection attaches a fresh view.
+            sharingOwnViewDetached = false
             if creationAttachment != nil, !serverCapabilities.contains("attach-identity-v1") {
                 guard let resolveLegacySurfaceID, let currentConnection = connection else {
                     transitionToDisconnected(reason: .rejected("creation attachment identity unsupported"))
