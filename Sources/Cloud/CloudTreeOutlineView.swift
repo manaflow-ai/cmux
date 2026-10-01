@@ -81,7 +81,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             cloudMachinesUsage: cloudMachinesUsage
         ))
         context.coordinator.reveal(reveal)
-        context.coordinator.reveal(cloudWorkspaceReveal)
+        // A device reveal is the explicit sidebar action and takes precedence
+        // over the passive workspace mirror while it is being applied.
+        if reveal == nil {
+            context.coordinator.reveal(cloudWorkspaceReveal)
+        }
         context.coordinator.reveal(creation: creationReveal)
     }
     // MARK: - Coordinator
@@ -106,10 +110,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var pendingWorkspaceDeletions: [SurfaceMachineID: Set<String>] = [:]
         var pendingMachineDeletions: Set<String> = []
         private let deletionPresentation = CloudTreeDeletionPresentation()
-        var lastRevealToken: UUID?
+        /// Reveal requests are independently fenced so device and Cloud
+        /// workspace selection cannot re-arm one another during refreshes.
+        var consumedRevealTokens: Set<UUID> = []
         /// A reveal whose row is not in the current catalog yet. A user selection
         /// cancels it so a late catalog refresh cannot steal the tree selection.
-        var pendingRevealToken: UUID?
+        var pendingRevealTokens: Set<UUID> = []
         var creationRevealPresentation = CloudTreeCreationRevealPresentation()
         private(set) var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
@@ -410,9 +416,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isUpdatingProgrammatically, let outlineView else { return }
-            if let pendingRevealToken {
-                lastRevealToken = pendingRevealToken
-                self.pendingRevealToken = nil
+            if !pendingRevealTokens.isEmpty {
+                consumedRevealTokens.formUnion(pendingRevealTokens)
+                pendingRevealTokens.removeAll(keepingCapacity: true)
             }
             creationRevealPresentation.noteSelectionChange()
             selectedNodeID = outlineView.selectedRow >= 0

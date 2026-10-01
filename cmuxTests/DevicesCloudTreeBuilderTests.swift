@@ -27,6 +27,9 @@ struct DevicesCloudTreeBuilderTests {
 
         let machineFallback = CloudTreeRevealRequest.cloudWorkspace(machineID: "machine-a", remoteWorkspaceID: nil)
         #expect(machineFallback.nodeID == CloudTreeNodeBuilder.nodeID(machine: .cloud("machine-a")))
+
+        let blankFallback = CloudTreeRevealRequest.cloudWorkspace(machineID: "machine-a", remoteWorkspaceID: "   ")
+        #expect(blankFallback.nodeID == CloudTreeNodeBuilder.nodeID(machine: .cloud("machine-a")))
     }
 
     @MainActor

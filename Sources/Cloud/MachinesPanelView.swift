@@ -152,8 +152,11 @@ struct MachinesPanelView: View {
         .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
             viewModel.refreshAccountScope()
         }
-        .onReceive(selectedWorkspacePublisher) { _ in
-            selectedCloudWorkspaceReveal = cloudWorkspaceRevealRequest(for: tabManager?.selectedWorkspace)
+        .onReceive(selectedWorkspacePublisher) { selectedWorkspaceID in
+            let workspace = selectedWorkspaceID.flatMap { id in
+                tabManager?.workspacesById[id]
+            }
+            selectedCloudWorkspaceReveal = cloudWorkspaceRevealRequest(for: workspace)
         }
         .onDisappear {
             viewModel.stopPolling()
