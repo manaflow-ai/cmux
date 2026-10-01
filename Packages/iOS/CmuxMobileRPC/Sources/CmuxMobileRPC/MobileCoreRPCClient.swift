@@ -399,7 +399,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
               JSONSerialization.isValidJSONObject(hostStatus) else {
             return nil
         }
-        return try? JSONSerialization.data(withJSONObject: hostStatus)
+        guard let encoded = try? JSONSerialization.data(withJSONObject: hostStatus),
+              (try? MobileHostStatusResponse.decode(encoded)) != nil else {
+            return nil
+        }
+        return encoded
     }
 
     private func sendRequestOperation(
