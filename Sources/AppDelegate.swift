@@ -3862,6 +3862,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObjectIfPresent(forKey: $0) }
     }
 
+#if DEBUG
+    /// Clears all persisted window geometry for isolated UI-test processes.
+    ///
+    /// Tests must start from the same clean geometry state regardless of which
+    /// schema version a previous test run wrote.
+    private nonisolated static func forgetPersistedWindowGeometryForTestProcess(
+        defaults: UserDefaults = .standard
+    ) {
+        defaults.removeObjectIfPresent(forKey: persistedWindowGeometryDefaultsKey)
+        removeLegacyPersistedWindowGeometry(defaults: defaults)
+    }
+#endif
+
     private func persistWindowGeometry(from window: NSWindow?) {
         guard let window else { return }
         persistWindowGeometry(
