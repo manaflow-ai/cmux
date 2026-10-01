@@ -43,6 +43,10 @@ public final class CloudTuiManualIOConnection: @unchecked Sendable {
     // This storage is queue-owned and reused for every socket read.
     private var readBuffer = [UInt8](repeating: 0, count: CloudTuiManualIOConnection.readChunkBytes)
     private var pendingWrites: [Data] = []
+    /// Index of the first queued frame that has not been fully written.
+    /// Keeping consumed frames in place avoids Array.removeFirst shifting the
+    /// entire backlog during sustained terminal input.
+    private var pendingWriteHead = 0
     private var pendingWriteOffset = 0
     private var pendingWriteBytes = 0
     private let pendingWriteByteLimit = 256 * 1024
@@ -315,10 +319,11 @@ public final class CloudTuiManualIOConnection: @unchecked Sendable {
 
     private func flushWritesLocked() {
         guard !closed, isConnected, descriptor >= 0 else { return }
-        while let first = pendingWrites.first, !closed {
+        while pendingWriteHead < pendingWrites.count, !closed {
+            let first = pendingWrites[pendingWriteHead]
             let remaining = first.count - pendingWriteOffset
             guard remaining > 0 else {
-                pendingWrites.removeFirst()
+                pendingWriteHead += 1
                 pendingWriteOffset = 0
                 continue
             }
@@ -334,7 +339,7 @@ public final class CloudTuiManualIOConnection: @unchecked Sendable {
                 pendingWriteOffset += result
                 pendingWriteBytes -= result
                 if pendingWriteOffset == first.count {
-                    pendingWrites.removeFirst()
+                    pendingWriteHead += 1
                     pendingWriteOffset = 0
                 }
                 continue
@@ -347,7 +352,18 @@ public final class CloudTuiManualIOConnection: @unchecked Sendable {
             closeLocked()
             return
         }
+        compactPendingWritesLocked()
         suspendWriteSourceLocked()
+    }
+
+    /// Reclaims consumed queue storage without shifting on every frame.
+    private func compactPendingWritesLocked() {
+        guard pendingWriteHead > 0 else { return }
+        guard pendingWriteHead == pendingWrites.count
+                || pendingWriteHead >= 64
+                || pendingWriteHead * 2 >= pendingWrites.count else { return }
+        pendingWrites.removeFirst(pendingWriteHead)
+        pendingWriteHead = 0
     }
 
     private func resumeWriteSourceLocked() {
@@ -369,6 +385,7 @@ public final class CloudTuiManualIOConnection: @unchecked Sendable {
         pendingLine.removeAll(keepingCapacity: false)
         pendingLineSearchOffset = 0
         pendingWrites.removeAll(keepingCapacity: false)
+        pendingWriteHead = 0
         pendingWriteOffset = 0
         pendingWriteBytes = 0
         let descriptorToClose = self.descriptor

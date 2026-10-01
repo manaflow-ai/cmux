@@ -12,6 +12,19 @@ import Testing
 #endif
 
 @Suite struct CloudTuiManualIOConnectionTests {
+    @Test func sustainedQueuedWritesPreserveOrder() async throws {
+        try await Self.withConnection { connection, peer in
+            let lines = (0..<512).map { Data("input-\($0)\n".utf8) }
+            for line in lines { connection.send(line: line) }
+            let received = try await Self.blocking {
+                try lines.indices.reduce(into: [Data]()) { result, _ in
+                    result.append(try Self.readLine(peer))
+                }
+            }
+            #expect(received == lines)
+        }
+    }
+
     @Test func burstSurvivesAConsumerWaitingForAnInputRoundTrip() async throws {
         try await Self.withConnection { connection, peer in
             let chunks = (0..<100).map { Data("\u{1b}[?2026hchunk-\($0)\u{1b}[?2026l".utf8) }
