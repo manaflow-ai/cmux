@@ -8,6 +8,8 @@ public nonisolated struct HiddenHistory: Hashable, Sendable, Codable {
     public struct Range: Hashable, Sendable, Codable {
         public var from: Date
         public var until: Date
+        /// The entry kind it clears (`agent`, `command`); nil: every kind.
+        public var kind: String?
     }
 
     public static let schemaVersion: UInt32 = 1
@@ -23,8 +25,8 @@ public nonisolated struct HiddenHistory: Hashable, Sendable, Codable {
 
     /// Hides everything active from `since` (nil: all time) until `now`.
     /// Later activity shows again.
-    public mutating func hide(since: Date?, now: Date) {
-        ranges.append(Range(from: since ?? .distantPast, until: now))
+    public mutating func hide(since: Date?, now: Date, kind: String? = nil) {
+        ranges.append(Range(from: since ?? .distantPast, until: now, kind: kind))
         if ranges.count > Self.rangeLimit { ranges.removeFirst(ranges.count - Self.rangeLimit) }
     }
 
@@ -34,8 +36,10 @@ public nonisolated struct HiddenHistory: Hashable, Sendable, Codable {
         if entries.count > Self.entryLimit { entries.removeFirst(entries.count - Self.entryLimit) }
     }
 
-    public func hides(_ id: String, activeAt time: Date) -> Bool {
-        entries.contains(id) || ranges.contains { $0.from <= time && time <= $0.until }
+    public func hides(_ id: String, activeAt time: Date, kind: String? = nil) -> Bool {
+        entries.contains(id) || ranges.contains { range in
+            (range.kind == nil || range.kind == kind) && range.from <= time && time <= range.until
+        }
     }
 
     /// Both documents' hides (a conflict merge keeps every clear).

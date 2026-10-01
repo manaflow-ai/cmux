@@ -22,6 +22,11 @@ enum HistoryPalettePages {
              symbol: "clock.arrow.circlepath", kinds: [.closed])
     }
 
+    static func commands(_ services: AppServices) -> PalettePageSpec {
+        page(services, id: "history.commands", title: HistoryAppStrings.commandsTitle,
+             placeholder: HistoryAppStrings.commandsPlaceholder, symbol: "terminal", kinds: [.command])
+    }
+
     static func agents(_ services: AppServices) -> PalettePageSpec {
         page(services, id: "history.agents", title: HistoryAppStrings.agentsTitle, placeholder: HistoryAppStrings.agentsPlaceholder,
              symbol: "arrow.clockwise.circle", kinds: [.agent])
@@ -63,8 +68,12 @@ enum HistoryPalettePages {
                 secondary.append(PaletteCommand(id: "copyResume", title: HistoryAppStrings.copyResumeCommand, symbol: "terminal",
                                                 effect: .perform { restorer.copy(command) }))
             }
-        case .command:
-            primaryTitle = HistoryAppStrings.open
+        case .command(let command):
+            primaryTitle = HistoryAppStrings.runAgain
+            if let text = command.command {
+                secondary.append(PaletteCommand(id: "copyCommand", title: HistoryAppStrings.copyCommand, symbol: "doc.on.doc",
+                                                effect: .perform { restorer.copy(text) }))
+            }
         }
         if !entry.isAvailable { accessory = HistoryAppStrings.offline }
         secondary.append(PaletteCommand(id: "remove", title: HistoryAppStrings.remove, symbol: "trash", isDestructive: true,
