@@ -22,13 +22,24 @@ struct ColumnCloseScrollTests {
         return (view, window, provider)
     }
 
-    /// Waits (up to 5 s of wall time) for `condition`; springs run on the
-    /// window's display link, so this needs real time, not just yields.
+    /// Waits (up to 5 s of wall time) for `condition`; model changes reach
+    /// the view through an observation task, so this needs real yields.
     private func settle(_ view: LayoutRootView, _ condition: () -> Bool) async {
         let deadline = ContinuousClock.now + .seconds(5)
         while !condition(), ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(5))
         }
+    }
+
+    /// Steps the springs at 60 Hz until they rest. They normally run on the
+    /// window's display link, which need not fire for an offscreen test
+    /// window (a headless CI Mac), so the test drives the frames itself. A
+    /// display link that does fire goes through the same `onFrame`.
+    private func runToRest(_ view: LayoutRootView) {
+        for _ in 0..<600 {
+            guard view.driver.onFrame?(1.0 / 60) == true else { return }
+        }
+        Issue.record("springs still moving after 10 s of frames")
     }
 
     @Test func closingTheRightmostColumnSpringsBack() async {
@@ -37,13 +48,12 @@ struct ColumnCloseScrollTests {
         guard view.driver.isAttached, !view.context.reduceMotion else { return }
         let screen = view.screenViews["s"]!
         view.model.focus("c")
-        await settle(view) { !view.driver.isRunning && screen.scroll.value > 0 }
+        await settle(view) { screen.scroll.target > 0 }
+        runToRest(view)
         let before = screen.scroll.value
         #expect(before == screen.geometry.maxOffset)
 
-        // Record every frame from here on. How far a frame moves depends on
-        // how late the display link fires on a loaded host, so the checks are
-        // on the path the spring takes, not on where it is at some instant.
+        // Record every frame from here on, whoever drives it.
         var frames: [(from: Double, to: Double)] = []
         let step = view.driver.onFrame
         view.driver.onFrame = { dt in
@@ -54,9 +64,9 @@ struct ColumnCloseScrollTests {
         }
         view.model.apply(screens: columns(["a", "b"]))
         view.model.focus("b", notify: false)
-        await settle(view) { screen.geometry.columnOrder.count == 2 && !frames.isEmpty && !view.driver.isRunning }
-        #expect(screen.geometry.columnOrder.count == 2)
+        await settle(view) { screen.geometry.columnOrder.count == 2 }
         #expect(screen.scroll.target == screen.geometry.maxOffset)
+        runToRest(view)
         // The close did not jump to the new end: the first frame starts where
         // the view was, past the new end, and springs back from there.
         #expect(frames.first?.from == before)
@@ -73,13 +83,15 @@ struct ColumnCloseScrollTests {
         defer { window.close() }
         let screen = view.screenViews["s"]!
         view.model.focus("c")
-        await settle(view) { !view.driver.isRunning && screen.scroll.value > 0 }
+        await settle(view) { screen.scroll.target > 0 }
+        runToRest(view)
         let before = view.frame(of: "c")
         #expect(before != nil)
+        #expect(screen.scroll.value > 0)
 
         view.model.apply(screens: columns(["b", "c", "d"]))
         await settle(view) { screen.geometry.columnOrder.count == 3 }
-        await settle(view) { !view.driver.isRunning }
+        runToRest(view)
         #expect(view.frame(of: "c") == before)
         withExtendedLifetime(provider) {}
     }
