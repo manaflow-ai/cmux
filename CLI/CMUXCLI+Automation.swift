@@ -8,6 +8,7 @@ extension CMUXCLI {
     ) throws {
         let subcommand = commandArgs.first?.lowercased() ?? "list"
         let rest = Array(commandArgs.dropFirst())
+        try Self.validateAutomationArguments(subcommand: subcommand, arguments: rest)
         let response: [String: Any]
 
         switch subcommand {
@@ -34,7 +35,7 @@ extension CMUXCLI {
             )
         case "logs":
             var params: [String: Any] = [:]
-            if let limit = try automationLimit(from: rest) {
+            if let limit = try Self.automationLimit(from: rest) {
                 params["limit"] = limit
             }
             response = try client.sendV2(method: "automation.logs", params: params)
@@ -100,13 +101,63 @@ extension CMUXCLI {
         }
     }
 
-    private func parseAutomationEvent(_ args: [String]) throws -> [String: Any] {
-        guard let markerIndex = args.firstIndex(where: { $0 == "--event" || $0.hasPrefix("--event=") }) else {
-            throw CLIError(message: automationLocalized(
-                "cli.automation.error.eventFlag",
+    /// Validates the argument shape before any automation RPC is sent.
+    ///
+    /// Keeping this separate from the socket-backed command makes malformed
+    /// requests fail locally and gives tests a pure parser contract to cover.
+    static func validateAutomationArguments(subcommand: String, arguments: [String]) throws {
+        switch subcommand {
+        case "list", "reload":
+            guard arguments.isEmpty else { throw CLIError(message: Self.automationUsage()) }
+        case "show", "enable", "disable":
+            guard arguments.count == 1,
+                  let id = arguments.first,
+                  !id.isEmpty,
+                  !id.hasPrefix("--") else {
+                throw CLIError(message: Self.automationUsage())
+            }
+        case "test":
+            guard let id = arguments.first,
+                  !id.isEmpty,
+                  !id.hasPrefix("--") else {
+                throw CLIError(message: Self.automationUsage())
+            }
+            try validateAutomationEventArguments(Array(arguments.dropFirst()))
+        case "logs":
+            _ = try Self.automationLimit(from: arguments)
+        case "help", "--help", "-h":
+            break
+        default:
+            throw CLIError(message: Self.automationUsage())
+        }
+    }
+
+    private static func validateAutomationEventArguments(_ args: [String]) throws {
+        let markers = args.indices.filter { index in
+            args[index] == "--event" || args[index].hasPrefix("--event=")
+        }
+        guard markers.count == 1, let markerIndex = markers.first else {
+            throw CLIError(message: String(
+                localized: "cli.automation.error.eventFlag",
                 defaultValue: "automation test requires --event <json>"
             ))
         }
+        guard markerIndex == 0 else {
+            throw CLIError(message: Self.automationUsage())
+        }
+        let marker = args[markerIndex]
+        if marker == "--event" {
+            guard markerIndex + 1 == args.count - 1 else {
+                throw CLIError(message: Self.automationUsage())
+            }
+        } else if markerIndex != args.count - 1 {
+            throw CLIError(message: Self.automationUsage())
+        }
+    }
+
+    private func parseAutomationEvent(_ args: [String]) throws -> [String: Any] {
+        try Self.validateAutomationEventArguments(args)
+        let markerIndex = args.firstIndex(where: { $0 == "--event" || $0.hasPrefix("--event=") })!
         let marker = args[markerIndex]
         let raw: String
         if let inline = marker.split(separator: "=", maxSplits: 1).dropFirst().first {
@@ -119,7 +170,7 @@ extension CMUXCLI {
                     defaultValue: "automation test requires --event <json>"
                 ))
             }
-            raw = args[valueStart...].joined(separator: " ")
+            raw = args[valueStart]
         }
         let data: Data
         if raw.hasPrefix("@") {
@@ -275,15 +326,19 @@ extension CMUXCLI {
         }
     }
 
-    private func automationLimit(from args: [String]) throws -> Int? {
+    private static func automationLimit(from args: [String]) throws -> Int? {
+        guard args.isEmpty || args.count <= 2 else {
+            throw CLIError(message: Self.automationUsage())
+        }
         guard let index = args.firstIndex(where: { $0 == "--limit" || $0.hasPrefix("--limit=") }) else {
+            guard args.isEmpty else { throw CLIError(message: Self.automationUsage()) }
             return nil
         }
         let argument = args[index]
         let rawLimit: String
         if argument == "--limit" {
             let valueIndex = index + 1
-            guard valueIndex < args.count, !args[valueIndex].hasPrefix("--") else {
+            guard valueIndex == args.count - 1, !args[valueIndex].hasPrefix("--") else {
                 throw CLIError(message: Self.automationUsage())
             }
             rawLimit = args[valueIndex]
@@ -292,6 +347,7 @@ extension CMUXCLI {
             guard !rawLimit.isEmpty else {
                 throw CLIError(message: Self.automationUsage())
             }
+            guard args.count == 1 else { throw CLIError(message: Self.automationUsage()) }
         }
         guard let limit = Int(rawLimit) else {
             throw CLIError(message: Self.automationUsage())
