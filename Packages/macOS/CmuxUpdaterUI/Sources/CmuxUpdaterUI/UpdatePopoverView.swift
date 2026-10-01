@@ -442,7 +442,7 @@ private struct WaitingToRelaunchView: View {
                 Text(String(localized: "update.readyWaiting", defaultValue: "Update Ready"))
                     .cmuxFont(size: 13, weight: .semibold)
 
-                Text(UpdateStateModel.relaunchBlockersDescription(blockers, holdMode: installing.holdMode))
+                Text(UpdateStateModel.relaunchBlockersDescription(blockers, askingUser: installing.updateWhenClear != nil))
                     .cmuxFont(size: 11)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -487,7 +487,7 @@ private struct WaitingToRelaunchView: View {
                     }
                     .keyboardShortcut(.defaultAction)
                     .controlSize(.small)
-                } else if installing.holdMode == .waitingForAgents || blockers.needsConfirmation {
+                } else if blockers.needsConfirmation {
                     updateNowButton
                 } else {
                     updateNowButton
@@ -499,7 +499,9 @@ private struct WaitingToRelaunchView: View {
     }
 
     private var updateNowButton: some View {
-        Button(String(localized: "update.updateNow", defaultValue: "Update Now")) {
+        Button(blockers.needsConfirmation
+            ? String(localized: "update.updateAnyway", defaultValue: "Update Anyway")
+            : String(localized: "update.updateNow", defaultValue: "Update Now")) {
             installing.retryTerminatingApplication()
             dismiss()
         }

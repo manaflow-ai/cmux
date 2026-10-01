@@ -415,7 +415,7 @@ public final class UpdateStateModel {
         case .safe:
             return String(localized: "update.safety.safe", defaultValue: "Safe")
         case .care:
-            return String(localized: "update.safety.safe", defaultValue: "Safe")
+            return String(localized: "update.safety.care", defaultValue: "Resumes")
         case .risky:
             return String(localized: "update.safety.risky", defaultValue: "Risky")
         }
