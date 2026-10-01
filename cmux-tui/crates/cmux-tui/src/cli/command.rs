@@ -3477,10 +3477,14 @@ mod tests {
             assert_eq!(plan.operation.name().unwrap(), "notification.create");
             assert!(plan.params.get("effects").is_none(), "{parity:?}");
         }
-        assert!(
-            parse(&strings(&["notify", "--workspace", "current", "--desktop", "maybe"])).is_err(),
-            "--desktop is validated like the local flag"
-        );
+        match parse(&strings(&["notify", "--workspace", "current", "--desktop", "maybe"])) {
+            Err(error) => assert_eq!(
+                error.to_string(),
+                "--desktop must be true|false",
+                "--desktop is validated like the local flag, with the local error text"
+            ),
+            Ok(_) => panic!("--desktop maybe was accepted"),
+        }
         if std::env::var_os("CMUX_TUI_TERMINAL_ID").is_none() {
             assert!(
                 parse(&strings(&["notify", "--clear"])).is_err(),
