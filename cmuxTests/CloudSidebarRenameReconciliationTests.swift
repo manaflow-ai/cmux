@@ -103,7 +103,11 @@ struct CloudSidebarRenameReconciliationTests {
         try await fixture.drain()
         fixture.install(try fixture.state(revision: 2, name: "Finished task", nameSource: "auto", includeAgent: true))
         fixture.reconcile()
-        fixture.provider.beforeMutation = { throw Rejected() }
+        var clearAttempts = 0
+        fixture.provider.beforeMutation = {
+            clearAttempts += 1
+            throw Rejected()
+        }
 
         fixture.install(try fixture.state(revision: 3, name: "Finished task", nameSource: "auto", includeAgent: false))
         fixture.reconcile()
@@ -112,10 +116,17 @@ struct CloudSidebarRenameReconciliationTests {
         #expect(fixture.workspace.panelTitle(panelId: fixture.panelID) == "Finished task")
         #expect(fixture.workspace.panelCustomTitleSources[fixture.panelID] == .remote)
         #expect(fixture.provider.tabRenames == ["Finished task"])
+        #expect(clearAttempts == 1)
 
         fixture.reconcile()
         try await fixture.drain()
         #expect(fixture.provider.tabRenames == ["Finished task"])
+        #expect(clearAttempts == 1)
+
+        fixture.install(try fixture.state(revision: 4, name: "Finished task", nameSource: "auto", includeAgent: false))
+        fixture.reconcile()
+        try await fixture.drain()
+        #expect(clearAttempts == 2)
     }
 
     @Test("A rejected stale-title clear restores a newer accepted remote name")

@@ -130,7 +130,11 @@ extension CloudWorkspaceRenameService {
             let key = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)
             let pending = catalog.pendingCloudRenameName(for: key)
             let acceptedName = tab.name ?? ""
-            if resource.agent != nil || self.rejectedAutomaticTabClears[key] != acceptedName {
+            if resource.agent != nil,
+               self.rejectedAutomaticTabClears[key] != nil {
+                self.rejectedAutomaticTabClears.removeValue(forKey: key)
+            } else if let rejected = self.rejectedAutomaticTabClears[key],
+                      rejected.name != acceptedName || rejected.cursor != state.cursor {
                 self.rejectedAutomaticTabClears.removeValue(forKey: key)
             }
             if let pending, pending != (tab.name ?? "") { continue }
@@ -140,7 +144,8 @@ extension CloudWorkspaceRenameService {
                let name = tab.name,
                !name.isEmpty,
                (workspace.panelCustomTitleSources[projection.panelID] ?? .user) != .user,
-               self.rejectedAutomaticTabClears[key] != name {
+               self.rejectedAutomaticTabClears[key]
+                   != RejectedAutomaticTabClear(name: name, cursor: state.cursor) {
                 clearStaleAutomaticTabName(
                     resource: resource,
                     tabID: tabID,
@@ -208,7 +213,10 @@ extension CloudWorkspaceRenameService {
                 .lookupIndex.tab(id: tabID)?.name,
                   !acceptedName.isEmpty else { return }
             if acceptedName == name {
-                self.rejectedAutomaticTabClears[key] = acceptedName
+                self.rejectedAutomaticTabClears[key] = RejectedAutomaticTabClear(
+                    name: acceptedName,
+                    cursor: catalog.cloudStates[resource.machine]?.cursor
+                )
             } else {
                 self.rejectedAutomaticTabClears.removeValue(forKey: key)
             }
