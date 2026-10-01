@@ -4,21 +4,14 @@ import type { ErrorComponentProps } from "@tanstack/react-router";
 import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 import { RouteSectionError } from "@/dashboard-app/components/route-section-error";
-import { AccountPlanBadge } from "./account-plan-badge";
+import { SettingsPageHeader } from "@/dashboard-app/components/settings-ui";
 
-/** Billing page frame and header: rendered while billing loads and when it fails, too. */
+/** Plan & billing frame inside the Settings hub: rendered while billing loads and when it fails, too. */
 export function BillingPageFrame({ children }: { readonly children: ReactNode }) {
   const t = useTranslations("dashboard.billing");
   return (
-    <div className="mx-auto w-full max-w-5xl px-3 py-4">
-      <div className="mb-4 border-b border-border pb-3">
-        <p className="text-xs font-medium text-muted">{t("eyebrow")}</p>
-        <h1 className="mt-1 text-sm font-medium">{t("title")}</h1>
-        <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
-        <div className="mt-2">
-          <AccountPlanBadge />
-        </div>
-      </div>
+    <div className="min-w-0">
+      <SettingsPageHeader title={t("title")} description={t("description")} />
       {children}
     </div>
   );

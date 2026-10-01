@@ -28,6 +28,8 @@ export type SharedAccountsState =
   | { readonly kind: "ok"; readonly accounts: readonly SubrouterAccount[] }
   | { readonly kind: "migrationPending" }
   | { readonly kind: "notConfigured" }
+  /** The hosted account service cannot be reached; other providers still work. */
+  | { readonly kind: "unavailable" }
   | { readonly kind: "error" };
 
 export type MachineUsage =

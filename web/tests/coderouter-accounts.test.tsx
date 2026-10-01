@@ -226,8 +226,8 @@ describe("coderouter accounts section", () => {
     expect(html).toContain("sk-ant-oat01-…a1b2");
     expect(html).toContain("Codex");
     expect(html).toContain("shared codex");
-    expect(html).toContain("last used 2 hours ago");
-    expect(html).toContain("added 2026-08-20");
+    expect(html).toContain("Last used 2 hours ago");
+    expect(html).toContain("Added 2026-08-20");
     // Provider rows are text only.
     expect(html).not.toContain("<svg");
   });
@@ -323,6 +323,22 @@ describe("coderouter accounts section", () => {
     );
     expect(render(true)).toContain("not listed here");
     expect(render(false)).not.toContain("not listed here");
+  });
+
+  test("an unreachable shared-account service explains itself and never claims the team has no accounts", () => {
+    const html = renderToStaticMarkup(
+      <CoderouterAccountsSection
+        teamId="team-1"
+        canManage
+        canManageApiKeys
+        claude={{ kind: "ok", accounts: [] }}
+        native={{ kind: "ok", accounts: [] }}
+        shared={{ kind: "unavailable" }}
+      />,
+    );
+    expect(html).toContain("Shared accounts are unavailable");
+    expect(html).not.toContain("No accounts yet");
+    expect(html).not.toContain("Some accounts could not load");
   });
 
   test("keeps the loaded provider visible when the other one fails", () => {
