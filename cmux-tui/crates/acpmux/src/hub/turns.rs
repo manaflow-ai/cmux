@@ -602,11 +602,24 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         // A harness that takes its model on the command line or in env
         // gets it at the next spawn: record it and drop the current process.
+        // Same test as `new_session`: the profile, its defaults' env, or the
+        // session's preset env may carry `${model}`.
         let at_spawn = {
             let cfg = self.config.read().await;
-            cfg.profile(&session.meta().harness)
+            let meta = session.meta();
+            let in_env = |env: &std::collections::BTreeMap<String, String>| {
+                env.values().any(|v| v.contains("${model}"))
+            };
+            cfg.profile(&meta.harness)
                 .map(super::lifecycle::profile_takes_model_at_spawn)
                 .unwrap_or(false)
+                || in_env(&cfg.defaults_for(&meta.harness).env)
+                || meta
+                    .preset
+                    .as_ref()
+                    .and_then(|n| cfg.presets.get(n))
+                    .map(|p| in_env(&p.env))
+                    .unwrap_or(false)
         };
         if at_spawn {
             session.meta.lock().unwrap().model_request = Some(model_id.to_owned());

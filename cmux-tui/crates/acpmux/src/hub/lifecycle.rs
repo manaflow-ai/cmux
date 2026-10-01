@@ -138,15 +138,11 @@ impl Hub {
             )));
         }
         let id = uuid::Uuid::now_v7().to_string();
-        let name = name.unwrap_or_else(|| self.unique_name(agent));
-        if self.sessions.lock().unwrap().values().any(|s| s.meta().name == name) {
-            return Err(RpcError::invalid_params(format!("session name {name:?} is taken")));
-        }
         let now = now_ms();
-        let meta = SessionMeta {
+        let mut meta = SessionMeta {
             schema: META_SCHEMA.into(),
             id: id.clone(),
-            name,
+            name: String::new(),
             harness: agent.into(),
             harness_argv: profile.argv.clone(),
             family: Some(family),
@@ -177,12 +173,37 @@ impl Hub {
             unread: false,
             last_turn: None,
         };
-        let session = self.make_session(meta);
-        self.store.save(&session.meta()).map_err(|e| RpcError::internal(e.to_string()))?;
-        self.sessions.lock().unwrap().insert(id.clone(), session.clone());
+        // Pick or check the name and insert under one lock, so concurrent
+        // creations can never publish the same name twice.
+        let session = {
+            let mut sessions = self.sessions.lock().unwrap();
+            meta.name = match name {
+                Some(n) => {
+                    if sessions.values().any(|s| s.meta().name == n) {
+                        return Err(RpcError::invalid_params(format!(
+                            "session name {n:?} is taken"
+                        )));
+                    }
+                    n
+                }
+                None => unique_name_among(&sessions, agent),
+            };
+            let session = self.make_session(meta);
+            sessions.insert(id.clone(), session.clone());
+            session
+        };
+        if let Err(e) = self.store.save(&session.meta()) {
+            self.sessions.lock().unwrap().remove(&id);
+            return Err(RpcError::internal(e.to_string()));
+        }
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
-        self.ensure_child(&session, &self.spawn_profile(&session, &profile, &defaults.env).await)
-            .await?;
+        let spawn = self.spawn_profile(&session, &profile, &defaults.env).await;
+        if let Err(e) = self.ensure_child(&session, &spawn).await {
+            // A session whose agent never started is not left behind, and
+            // neither is a child that spawned but failed to initialize.
+            let _ = self.kill(&session, true).await;
+            return Err(e);
+        }
         // Defaults and explicit values, applied once the harness is up. A bad
         // value fails creation loudly rather than starting a session that
         // silently runs another model.
@@ -282,15 +303,7 @@ impl Hub {
     }
 
     pub(super) fn unique_name(&self, agent: &str) -> String {
-        let taken: Vec<String> =
-            self.sessions.lock().unwrap().values().map(|s| s.meta().name).collect();
-        for n in 0.. {
-            let candidate = if n == 0 { agent.to_owned() } else { format!("{agent}-{n}") };
-            if !taken.contains(&candidate) {
-                return candidate;
-            }
-        }
-        unreachable!()
+        unique_name_among(&self.sessions.lock().unwrap(), agent)
     }
 
     /// Make sure a live child process exists for the session. Spawns, runs
@@ -300,6 +313,9 @@ impl Hub {
         session: &Arc<Session>,
         profile: &HarnessProfile,
     ) -> Result<Arc<ChildAgent>, RpcError> {
+        // One spawn at a time per session; a caller that waited here finds
+        // the child the previous holder started.
+        let _spawning = session.spawn_lock.lock().await;
         if let Some(child) = session.child.lock().await.as_ref()
             && child.is_alive().await
         {
@@ -374,7 +390,8 @@ impl Hub {
         });
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         let existing_sid = session.meta().agent_session_id.clone();
-        let fork_from = session.fork_from.lock().unwrap().take();
+        // Cleared only once the fork has started; a failed start retries it.
+        let fork_from = session.fork_from.lock().unwrap().clone();
         let child = if is_claude {
             // Claude carries its own session in the process: resume by id, or
             // fork from a parent id into a fresh session.
@@ -510,6 +527,9 @@ impl Hub {
                 m.modes = Some(modes);
                 m.config_options = Some(opts);
                 drop(m);
+                if fork_from.is_some() {
+                    session.fork_from.lock().unwrap().take();
+                }
                 if level != "new" {
                     self.append(session, "mux", "resumed", json!({"level": level}));
                 }
@@ -640,7 +660,9 @@ impl Hub {
                 Err(e) => tracing::warn!(session = %session.id, "replay {id}: {}", e.message),
             }
         }
-        if opts.is_empty()
+        // No model option was replayed (the agent may list other options,
+        // such as effort, without one): restore the legacy model id.
+        if !opts.iter().any(|(k, v)| k == "model" && !v.is_null())
             && let Some(model) =
                 saved.models.as_ref().and_then(|m| m.get("currentModelId")).and_then(Value::as_str)
             && let Err(e) = child
@@ -878,6 +900,18 @@ impl Hub {
         }
         p
     }
+}
+
+/// The agent name, or `agent-N` for the first N not taken in `sessions`.
+fn unique_name_among(sessions: &HashMap<String, Arc<Session>>, agent: &str) -> String {
+    let taken: Vec<String> = sessions.values().map(|s| s.meta().name).collect();
+    for n in 0.. {
+        let candidate = if n == 0 { agent.to_owned() } else { format!("{agent}-{n}") };
+        if !taken.contains(&candidate) {
+            return candidate;
+        }
+    }
+    unreachable!()
 }
 
 /// Whether the harness takes its model on the command line or in env.
