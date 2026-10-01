@@ -66,9 +66,11 @@ import Testing
         // Connected with the required set only: the optional features stay
         // off and the header offers the update instead of hiding it.
         #expect(service.compatibility?.level == .limited)
-        // Rooms (profiles-v1) live on the home session; a remote machine
-        // without them is not limited by that.
-        #expect(service.compatibility?.missingOptional == DaemonCapabilities.optional.filter { $0 != DaemonCapabilities.profiles })
+        // Home-only personal state does not make a remote machine limited;
+        // workspace groups remain machine capabilities until the local
+        // MachineRegistry has a profiles-backed home store.
+        let homeOnly = Set(DaemonCapabilities.homeOnly)
+        #expect(service.compatibility?.missingOptional == DaemonCapabilities.optional.filter { !homeOnly.contains($0) })
         #expect(SidebarBridge.machine(for: service, name: "vm", kind: .cloud).status == .updateAvailable)
         #expect(SidebarBridge.machine(for: service, name: "vm", kind: .local).status == .connected)
     }

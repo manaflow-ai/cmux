@@ -155,20 +155,11 @@ import Testing
 
 /// File on disk -> watcher -> `snapshot.tabBar`, live.
 @MainActor
-@Suite(.serialized) struct SurfaceTabBarLiveReloadTests {
-    /// Waits (bounded) until `condition` holds, one settings load at a time.
+@Suite(.serialized, .timeLimit(.minutes(1))) struct SurfaceTabBarLiveReloadTests {
+    /// Waits for each settings watcher lifecycle event until `condition` holds.
     func eventually(_ controller: SettingsController, line: Int = #line, _ condition: () -> Bool) async throws {
         for _ in 0..<20 where !condition() {
-            let target = controller.loadCount + 1
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                group.addTask { await controller.waitForLoad(atLeast: target) }
-                group.addTask {
-                    try await Task.sleep(for: .seconds(5))
-                    throw CancellationError()
-                }
-                try await group.next()
-                group.cancelAll()
-            }
+            await controller.waitForLoad(atLeast: controller.loadCount + 1)
         }
         #expect(condition(), "line \(line)")
     }
