@@ -1658,7 +1658,9 @@ fn rewrite_json_hooks(
         let command = hook_command(provider.id, event);
         let timeout = installed_hook_timeout(provider, event, timeout);
         let entry = if nested {
-            let command = if matches!(provider.format, Format::Nested { asynchronous: true, .. }) {
+            let command = if matches!(provider.format, Format::Nested { asynchronous: true, .. })
+                && !delivers_messages(provider.id, event)
+            {
                 json!({"type":"command","command":command,"timeout":timeout,"async":true})
             } else {
                 json!({"type":"command","command":command,"timeout":timeout})
@@ -1885,6 +1887,9 @@ pub(crate) fn claude_session_hook_settings(
             for handler in handlers.into_iter().flatten() {
                 if let Some(handler) = handler.as_object_mut() {
                     handler.insert("command".into(), Value::String(command.clone()));
+                    // `agent hook emit` delivers no messages, so nothing
+                    // needs Claude to wait for its output.
+                    handler.insert("async".into(), Value::Bool(true));
                 }
             }
         }
@@ -1903,6 +1908,17 @@ fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String
     )
 }
 
+/// Events whose hook output carries the agent's pending messages
+/// (`cmux agent message`): the helper prints the provider's JSON itself, so
+/// the command echoes `{}` only when the helper is missing or fails, and
+/// Claude runs the hook synchronously to read that output.
+fn delivers_messages(provider: &str, event: &str) -> bool {
+    matches!(
+        (provider, event),
+        ("claude", "UserPromptSubmit") | ("codex", "UserPromptSubmit") | ("codex", "Stop")
+    )
+}
+
 /// The installed hook command. It runs `$CMUX_TUI_HOOK`, which every cmux-tui
 /// terminal exports. An agent inside tmux may have been started by a tmux
 /// server that never ran in a cmux-tui terminal, so without that variable a
@@ -1910,6 +1926,19 @@ fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String
 /// cmux-tui terminal attached to the pane's tmux session. Anywhere else the
 /// command stays a process-free no-op.
 fn hook_command(provider: &str, event: &str) -> String {
+    if delivers_messages(provider, event) {
+        return format!(
+            "h=${{CMUX_TUI_HOOK:-${{TMUX:+${{XDG_DATA_HOME:-$HOME/.local/share}}/cmux-tui/bin/cmux-tui-hook}}}};\"${{h:-false}}\" {} {} 2>/dev/null||echo {{}};#{COMMAND_MARKER}",
+            shell_quote(provider),
+            shell_quote(event),
+        );
+    }
+    journal_hook_command(provider, event)
+}
+
+/// The command shape that only reports to the journal, still installed for
+/// every event that delivers no messages.
+fn journal_hook_command(provider: &str, event: &str) -> String {
     format!(
         "h=${{CMUX_TUI_HOOK:-${{TMUX:+${{XDG_DATA_HOME:-$HOME/.local/share}}/cmux-tui/bin/cmux-tui-hook}}}};\"${{h:-:}}\" {} {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
         shell_quote(provider),
@@ -2119,6 +2148,7 @@ fn codex_owned_trust_hashes() -> anyhow::Result<BTreeSet<String>> {
             let timeout = codex_hook_timeout(event);
             Ok([
                 codex_trust_hash(label, &hook_command("codex", event), timeout),
+                codex_trust_hash(label, &journal_hook_command("codex", event), timeout),
                 codex_trust_hash(label, &legacy_hook_command("codex", event), timeout),
             ])
         })
@@ -2837,9 +2867,9 @@ mod tests {
         ),
         (
             "user_prompt_submit",
-            "sha256:11c9dc25e1d294a6f3c33e6c03354c7e032250357e143879ac720a392cf632b9",
+            "sha256:91bfad4b3a61a1ebf6a96ac16455b6556ae57fd5dacb87b18c52bdc6910d8d97",
         ),
-        ("stop", "sha256:c44b06979e220fd6665d250bb2cc470787cc4b06568e62b6cd8004577cdd124a"),
+        ("stop", "sha256:7d79bd0e1f09b6202b1244fce48947903d0bb62db620e7747bb46bc5e7bbdcbf"),
         (
             "permission_request",
             "sha256:6a6d12a917dfc12fdfc3e0796f4c5f43d31db0a9dd1f7372cce0f6635cd32b24",
@@ -3728,7 +3758,7 @@ esac
         let root: Value =
             serde_json::from_slice(&fs::read(context.home.join(".codex/hooks.json")).unwrap())
                 .unwrap();
-        let command = root["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
+        let command = root["hooks"]["PreToolUse"][0]["hooks"][0]["command"].as_str().unwrap();
         assert!(command.len() <= 170, "hook command is {} bytes: {command}", command.len());
         assert!(!command.contains("CMUX_TUI_SOCKET"));
         assert!(!hook_command("claude", "Stop").contains("GROK_HOOK_EVENT"));
@@ -3754,7 +3784,7 @@ esac
             .unwrap();
         assert!(output.status.success());
         assert_eq!(output.stdout, b"{}\n");
-        assert_eq!(fs::read_to_string(&capture).unwrap(), "codex Stop\n");
+        assert_eq!(fs::read_to_string(&capture).unwrap(), "codex PreToolUse\n");
         fs::remove_file(&capture).unwrap();
 
         // A tmux pane without the session's variables falls back to the
@@ -3770,7 +3800,77 @@ esac
             .unwrap();
         assert!(output.status.success());
         assert_eq!(output.stdout, b"{}\n");
-        assert_eq!(fs::read_to_string(&capture).unwrap(), "codex Stop\n");
+        assert_eq!(fs::read_to_string(&capture).unwrap(), "codex PreToolUse\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn message_hooks_print_the_helper_output_and_fall_back_to_an_empty_object() {
+        use std::process::Command;
+
+        let root = tempfile::tempdir().unwrap();
+        let helper = root.path().join("helper");
+        let command = hook_command("codex", "Stop");
+        assert!(command.contains("||echo {}"), "{command}");
+        let run = |hook: Option<&Path>| {
+            let mut shell = Command::new("/bin/sh");
+            shell.args(["-c", &command]).env_remove("TMUX");
+            match hook {
+                Some(hook) => shell.env("CMUX_TUI_HOOK", hook),
+                None => shell.env_remove("CMUX_TUI_HOOK"),
+            };
+            let output = shell.output().unwrap();
+            assert!(output.status.success());
+            String::from_utf8(output.stdout).unwrap()
+        };
+        // No helper: an empty object, without starting a process.
+        assert_eq!(run(None), "{}\n");
+        // The helper's own object is the whole output.
+        atomic_write(&helper, b"#!/bin/sh\necho '{\"decision\":\"block\"}'\n", Some(0o755))
+            .unwrap();
+        assert_eq!(run(Some(&helper)), "{\"decision\":\"block\"}\n");
+        // A failing helper prints nothing, and the command adds the object.
+        atomic_write(&helper, b"#!/bin/sh\nexit 1\n", Some(0o755)).unwrap();
+        assert_eq!(run(Some(&helper)), "{}\n");
+    }
+
+    #[test]
+    fn only_the_message_events_change_shape_and_claude_runs_them_synchronously() {
+        for (provider, event) in
+            [("claude", "UserPromptSubmit"), ("codex", "UserPromptSubmit"), ("codex", "Stop")]
+        {
+            assert_ne!(hook_command(provider, event), journal_hook_command(provider, event));
+        }
+        for (provider, event) in [("claude", "Stop"), ("codex", "PreToolUse"), ("gemini", "Stop")] {
+            assert_eq!(hook_command(provider, event), journal_hook_command(provider, event));
+        }
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let install = Plan { action: Action::Install, providers: vec!["claude".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let settings: Value =
+            serde_json::from_slice(&fs::read(context.home.join(".claude/settings.json")).unwrap())
+                .unwrap();
+        let prompt = &settings["hooks"]["UserPromptSubmit"][0]["hooks"][0];
+        assert_eq!(prompt.get("async"), None, "{prompt}");
+        assert_eq!(settings["hooks"]["Stop"][0]["hooks"][0]["async"], true);
+    }
+
+    #[test]
+    fn codex_trust_covers_the_journal_only_shape_of_message_events() {
+        // An install from before agent messages has the journal-only command
+        // for UserPromptSubmit and Stop; an upgrade must recognize its trust
+        // entries as cmux-owned and replace them.
+        let owned = codex_owned_trust_hashes().unwrap();
+        for event in ["UserPromptSubmit", "Stop"] {
+            let label = codex_event_state_label(event).unwrap();
+            let hash = codex_trust_hash(
+                label,
+                &journal_hook_command("codex", event),
+                codex_hook_timeout(event),
+            );
+            assert!(owned.contains(&hash), "{event}");
+        }
     }
 
     #[test]
