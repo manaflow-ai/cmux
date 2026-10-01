@@ -426,8 +426,7 @@
         "memberReadOnly": "Ovaj plan mogu mijenjati samo administratori tima.",
         "grantedBody": "Tim cmux je timu {team} dodijelio pristup Team planu. Nema pretplate kojom treba upravljati.",
         "seatsUsed": "Iskorišteno {members} od {seats}",
-        "overSeat": "{team}: članova {members}, plaćenih mjesta {seats}. Pridruživanje i dalje radi; dodajte mjesta da pokrijete sve.",
-        "addSeats": "Dodaj mjesta"
+        "overSeat": "{team} ima {members} članova i {seats} plaćenih mjesta. Mjesta prate broj članova, pa se pretplata ažurira sama."
       },
       "teamList": {
         "heading": "Opsezi naplate",
@@ -942,7 +941,7 @@
         "featurePrioritySupport": "Prioritetna podrška",
         "chooseFree": "Nastavi besplatno",
         "chooseTeam": "Nadogradi na Team (${price}/mjesto/mjesečno)",
-        "upgradeLater": "Broj mjesta je fleksibilan: možete pozvati više ljudi nego što plaćate i kasnije dodati mjesta.",
+        "upgradeLater": "Mjesta prate broj članova: svaki član se naplaćuje, a ukupan broj se ažurira kada se ljudi pridruže ili odu.",
         "inviteTitle": "Pozovite ljude u {team}",
         "inviteDescription": "Neobavezno. Ljude možete pozvati i kasnije sa stranice Članovi tima.",
         "inviteByEmail": "Pozovi putem e-pošte",
@@ -1059,8 +1058,6 @@
         "revoke": "Opozovi",
         "linksTitle": "Linkovi za pozivnicu",
         "linksDescription": "Link za višekratnu upotrebu kojim se svako može pridružiti kao član.",
-        "seatNudge": "Članova i pozvanih: {used}, a plan ima mjesta: {seats}. Pozivnice i dalje rade; dodajte {over, plural, one {# mjesto} few {# mjesta} other {# mjesta}} da pokrijete sve.",
-        "seatNudgeAction": "Upravljaj mjestima",
         "actions": {
           "makeAdmin": "Postavi za administratora",
           "makeMember": "Postavi za člana",

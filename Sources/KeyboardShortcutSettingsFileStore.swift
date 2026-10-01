@@ -916,13 +916,7 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[BrowserThemeSettings.modeKey] = .string(mode.rawValue)
         }
-        if let value = jsonDouble(section["hiddenWebViewDiscardDelaySeconds"]) {
-            guard let delay = BrowserHiddenWebViewDiscardPolicy.resolvedHiddenDelay(value) else {
-                logInvalid("browser.hiddenWebViewDiscardDelaySeconds", sourcePath: sourcePath)
-                return
-            }
-            snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey] = .double(delay)
-        }
+        _ = parseBrowserMemorySaverSettings(section, sourcePath: sourcePath, snapshot: &snapshot)
         applyNormalizedStringArraySettings(BrowserSettingsFileMapping.stringArraySettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
     }
 
