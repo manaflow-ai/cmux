@@ -983,6 +983,7 @@ private final class TitlebarControlRightClickNSView: NSView {
 }
 
 private struct TitlebarNotificationBadge: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let unreadModel: SidebarUnreadModel
     let config: TitlebarControlsStyleConfig
     @Environment(\.cmuxAccentColor) private var cmuxAccent
@@ -2012,7 +2013,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         )
         hostingView = NonDraggableHostingView(
             rootView: AnyView(
-                rootView.environment(\.settingsRuntime, settingsRuntime)
+                rootView
+                    .environment(\.settingsRuntime, settingsRuntime)
+                    .cmuxAccentColorEnvironment()
             )
         )
 
@@ -2255,6 +2258,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                     openPhoneForwardingSettings(in: window)
                 }
             )
+            .cmuxAccentColorEnvironment()
         )
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = .clear
@@ -3128,13 +3132,13 @@ final class UpdateTitlebarAccessoryController {
                     openPhoneForwardingSettings(in: window)
                 }
             )
+            .cmuxAccentColorEnvironment()
         )
 
         contentView.layoutSubtreeIfNeeded()
         anchorView.superview?.layoutSubtreeIfNeeded()
         let anchorRect = anchorView.convert(anchorView.bounds, to: contentView)
         guard !anchorRect.isEmpty else { return }
-
         detachedNotificationsPopover = popover
         detachedNotificationsPopoverDelegate = delegate
         popover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
@@ -3144,12 +3148,10 @@ final class UpdateTitlebarAccessoryController {
             windowNumber: window.windowNumber
         )
     }
-
     func isNotificationsPopoverShown() -> Bool {
         detachedNotificationsPopover?.isShown == true ||
             controlsControllers.allObjects.contains(where: { $0.popoverIsShownForTesting })
     }
-
     @discardableResult
     func dismissNotificationsPopoverIfShown() -> Bool {
         let controllers = controlsControllers.allObjects
@@ -3164,11 +3166,9 @@ final class UpdateTitlebarAccessoryController {
         }
         return dismissed
     }
-
     func showNotificationsPopover(animated: Bool = true) {
         let controllers = controlsControllers.allObjects
         guard !controllers.isEmpty else { return }
-
         let target = preferredNotificationsController(from: controllers, preferShownPopover: false)
         for controller in controllers {
             if controller !== target {
