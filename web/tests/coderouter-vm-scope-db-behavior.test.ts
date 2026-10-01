@@ -143,6 +143,10 @@ dbTest("a signed VM authorization authenticates against the live VM row", async 
 dbTest("a selected team's shared Codex account is routable through the VM model plane", async () => {
   const credential = codexCredential(USER, "cloud-codex-workspace");
   const accountId = await insertLegacyCodexAccount(credential, "team");
+  const privateAccountId = await insertLegacyCodexAccount(
+    codexCredential(USER, "private-cloud-codex-workspace"),
+    "private",
+  );
   await db`delete from coderouter_pool_accounts where pool_id = ${poolA}`;
 
   const signed = await issueVmAuthorizationToken(TEAM_A, USER, vmA);
@@ -154,7 +158,9 @@ dbTest("a selected team's shared Codex account is routable through the VM model 
 
   const vmAccess = access();
   expect((await listAccounts(TEAM_A, vmAccess)).map((account) => account.id)).toContain(accountId);
+  expect((await listAccounts(TEAM_A, vmAccess)).map((account) => account.id)).not.toContain(privateAccountId);
   expect((await selectAccountForRequest(TEAM_A, "codex", [], undefined, vmAccess))?.id).toBe(accountId);
+  expect((await listClaudeAccounts(TEAM_A, vmAccess)).map((account) => account.id)).toContain(claudeA);
 
   await db`delete from coderouter_pool_accounts where pool_id = ${poolA} and account_id = ${accountId}`;
   await issueVmAuthorizationToken(TEAM_A, USER, vmA);
