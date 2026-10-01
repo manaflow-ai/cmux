@@ -129,7 +129,7 @@ extension CMUXCLI {
                 // Re-read and recompute under the lock so the preview matches
                 // what is actually written if another process changed the file.
                 let currentString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
-                guard currentString == oldString else {
+                if currentString != oldString {
                     newString = VibeHookConfig().installing(events: events, in: currentString)
                     Self.printInstallPreview(
                         path: filePath,

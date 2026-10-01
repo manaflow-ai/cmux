@@ -1269,6 +1269,7 @@
 		B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */; };
 		D1FF52000000000000000001 /* CMUXCLI+TypedDiffViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF52000000000000000002 /* CMUXCLI+TypedDiffViewer.swift */; };
 		3694B7A8D2894E549E59A8F6 /* CMUXCLI+Vault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74B5FDC25DCB4D39ADD17F39 /* CMUXCLI+Vault.swift */; };
+		84108ADDAD1D990CC729D7D7 /* CMUXCLI+VibeHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C9F9C04146AA82B86A4D44C /* CMUXCLI+VibeHooks.swift */; };
 		E02A94E613C7C3565FA40A26 /* CMUXCLI+VMDev.swift in Sources */ = {isa = PBXBuildFile; fileRef = A097380F83E238D57E0ABC4B /* CMUXCLI+VMDev.swift */; };
 		CC0033E15A1B2C3D4E5F0030 /* CMUXCLI+VMHelp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0031 /* CMUXCLI+VMHelp.swift */; };		CC0033E15A1B2C3D4E5F0101 /* CMUXCLI+VMTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0102 /* CMUXCLI+VMTransfer.swift */; };
 		E082D369A3254DC975D8B371 /* CMUXCLI+VMLayoutEnv.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7BEF29029A61AF2B389D31B /* CMUXCLI+VMLayoutEnv.swift */; };
@@ -3999,6 +4000,7 @@
 		9758D0159758D0159758D015 /* VaultAgentRegistry+Amp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9758D0059758D0059758D005 /* VaultAgentRegistry+Amp.swift */; };
 		B3575000000000000000000E /* VaultAgentRegistry+Campfire.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3575000000000000000000D /* VaultAgentRegistry+Campfire.swift */; };
 		858200000000000000000004 /* VaultAgentRegistry+Kimi.swift in Sources */ = {isa = PBXBuildFile; fileRef = 858200000000000000000003 /* VaultAgentRegistry+Kimi.swift */; };
+		1580DFBEEAA5EADBD01B1DD8 /* VaultAgentRegistry+Vibe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83E8C251A922DB0943087B9D /* VaultAgentRegistry+Vibe.swift */; };
 		B35750000000000000000002 /* VaultAgentRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000001 /* VaultAgentRegistry.swift */; };
 		58A9932D36B3423F90031CB8 /* VaultAllSessionsBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2C22D3F893E4B2D8FB3B91F /* VaultAllSessionsBar.swift */; };
 		112F421D5BA34A11BB7B8334 /* VaultCheckpointFork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CB2C1AE71C547DB914F26E4 /* VaultCheckpointFork.swift */; };
@@ -5679,6 +5681,7 @@
 		B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TopRendering.swift"; sourceTree = "<group>"; };
 		D1FF52000000000000000002 /* CMUXCLI+TypedDiffViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TypedDiffViewer.swift"; sourceTree = "<group>"; };
 		74B5FDC25DCB4D39ADD17F39 /* CMUXCLI+Vault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Vault.swift"; sourceTree = "<group>"; };
+		0C9F9C04146AA82B86A4D44C /* CMUXCLI+VibeHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VibeHooks.swift"; sourceTree = "<group>"; };
 		A097380F83E238D57E0ABC4B /* CMUXCLI+VMDev.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMDev.swift"; sourceTree = "<group>"; };
 		CC0033E15A1B2C3D4E5F0031 /* CMUXCLI+VMHelp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMHelp.swift"; sourceTree = "<group>"; };		CC0033E15A1B2C3D4E5F0102 /* CMUXCLI+VMTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMTransfer.swift"; sourceTree = "<group>"; };
 		D7BEF29029A61AF2B389D31B /* CMUXCLI+VMLayoutEnv.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMLayoutEnv.swift"; sourceTree = "<group>"; };
@@ -8276,6 +8279,7 @@
 		9758D0059758D0059758D005 /* VaultAgentRegistry+Amp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentRegistry+Amp.swift"; sourceTree = "<group>"; };
 		B3575000000000000000000D /* VaultAgentRegistry+Campfire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentRegistry+Campfire.swift"; sourceTree = "<group>"; };
 		858200000000000000000003 /* VaultAgentRegistry+Kimi.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentRegistry+Kimi.swift"; sourceTree = "<group>"; };
+		83E8C251A922DB0943087B9D /* VaultAgentRegistry+Vibe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentRegistry+Vibe.swift"; sourceTree = "<group>"; };
 		B35750000000000000000001 /* VaultAgentRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAgentRegistry.swift; sourceTree = "<group>"; };
 		A2C22D3F893E4B2D8FB3B91F /* VaultAllSessionsBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAllSessionsBar.swift; sourceTree = "<group>"; };
 		3CB2C1AE71C547DB914F26E4 /* VaultCheckpointFork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultCheckpointFork.swift; sourceTree = "<group>"; };
@@ -11607,6 +11611,7 @@
 				1D73814AACE7C58BF8E4A217 /* PortProcessTableReading.swift */,
 				C037CA7A6B20B3F495BAB401 /* PortTerminalDeviceLookup.swift */,
 				7195972CC9EBB2353ACFF8AB /* TestProcessDefaults.swift */,
+				83E8C251A922DB0943087B9D /* VaultAgentRegistry+Vibe.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -11872,6 +11877,7 @@
 				054B01530302FCEEAA5CFEAD /* CMUXCLI+DiffViewerPreferences.swift */,
 				57AE38B536A608CB2CDEE6AD /* CMUXCLI+DiffViewerReviewLabels.swift */,
 				5A2776CC5FE1E0083FAAB3A8 /* VMReadyPollInterval.swift */,
+				0C9F9C04146AA82B86A4D44C /* CMUXCLI+VibeHooks.swift */,
 			);
 			path = CLI;
 			sourceTree = "<group>";
@@ -16205,6 +16211,7 @@
 				9758D0159758D0159758D015 /* VaultAgentRegistry+Amp.swift in Sources */,
 					B3575000000000000000000E /* VaultAgentRegistry+Campfire.swift in Sources */,
 					858200000000000000000004 /* VaultAgentRegistry+Kimi.swift in Sources */,
+				1580DFBEEAA5EADBD01B1DD8 /* VaultAgentRegistry+Vibe.swift in Sources */,
 					B35750000000000000000002 /* VaultAgentRegistry.swift in Sources */,
 				58A9932D36B3423F90031CB8 /* VaultAllSessionsBar.swift in Sources */,
 				112F421D5BA34A11BB7B8334 /* VaultCheckpointFork.swift in Sources */,
@@ -16631,6 +16638,7 @@
 				B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */,
 				D1FF52000000000000000001 /* CMUXCLI+TypedDiffViewer.swift in Sources */,
 				3694B7A8D2894E549E59A8F6 /* CMUXCLI+Vault.swift in Sources */,
+				84108ADDAD1D990CC729D7D7 /* CMUXCLI+VibeHooks.swift in Sources */,
 				E02A94E613C7C3565FA40A26 /* CMUXCLI+VMDev.swift in Sources */,
 				CC0033E15A1B2C3D4E5F0030 /* CMUXCLI+VMHelp.swift in Sources */,				CC0033E15A1B2C3D4E5F0101 /* CMUXCLI+VMTransfer.swift in Sources */,
 				E082D369A3254DC975D8B371 /* CMUXCLI+VMLayoutEnv.swift in Sources */,
