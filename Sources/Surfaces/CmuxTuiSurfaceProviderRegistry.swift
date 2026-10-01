@@ -369,7 +369,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         await refreshForeignOwnedMachines()
         guard access == accessEpoch, !Task.isCancelled else { return false }
         let refreshable = discovered.filter { $0.info.linkFailure == nil }
-        let refreshableMachines = refreshable.map { provider in provider.machine }
+        let refreshableMachines = Set(refreshable.map { provider in provider.machineID })
         let retainedForeign = retainedForeignTeamMachineIDs(activeTeamID: activeTeamID())
         let foreignIDs = retainedForeign.subtracting(refreshableMachines)
         let foreign = foreignIDs.compactMap { id in providers[id] }
