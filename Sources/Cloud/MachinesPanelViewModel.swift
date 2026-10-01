@@ -25,8 +25,6 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Per-machine coderouter spend from the last successful usage fetch.
     @Published private(set) var usageByMachineID: [String: MachineUsageSnapshot] = [:]
 
-    /// Human-readable label of the Cloud VM action currently running from this panel.
-    @Published private(set) var activeOperation: String?
     /// Surface catalog: machines, their resources, and local projections.
     @Published private(set) var catalog: SurfaceCatalogSnapshot = .empty
     /// Local workspaces in sidebar order for terminal grouping.
@@ -49,12 +47,7 @@ final class MachinesPanelViewModel: ObservableObject {
         let selected = tabManager.selectedTabId
         return tabManager.tabs.map { CloudTreeLocalWorkspace(id: $0.id, title: $0.title, isSelected: $0.id == selected) }
     }
-    func beginOperation(_ label: String) {
-        activeOperation = label
-    }
-
     func endOperation() {
-        activeOperation = nil
         if wantsPolling { refresh() }
     }
 
@@ -417,7 +410,6 @@ final class MachinesPanelViewModel: ObservableObject {
         localWorkspaces = []
         treeErrorDescription = nil
         plan = nil
-        activeOperation = nil
         createCoordinator.cancelAllForAuthTransition()
         lastErrorDescription = nil
         listProblem = nil
@@ -560,7 +552,6 @@ final class MachinesPanelViewModel: ObservableObject {
                 machines = []
                 machineIndexByID.removeAll()
                 plan = nil
-                activeOperation = nil
                 lastErrorDescription = nil
                 listProblem = nil
                 hasLoadedOnce = false

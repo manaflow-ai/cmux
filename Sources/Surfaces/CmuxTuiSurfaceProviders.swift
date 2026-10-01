@@ -83,6 +83,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private var watchedLink: CloudMachineLink?
     private var changeWatcherID: UUID?
     private var scheduledRefresh: Task<Void, Never>?
+    private var scheduledRefreshForce = false
     private var portsCache: (ports: [Int], at: Date)?
     var portDiscovery = CloudPortDiscovery()
     private(set) var summaryGeneration: UInt64 = 0
@@ -200,7 +201,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             installNotificationSync()
         }
     }
-
     /// Stops machine-bound activity while retaining this provider and its graph.
     /// The control plane may report the machine running again later.
     func stopTransportResources() {
@@ -208,7 +208,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         displayCoordinator.stop()
         portDiscovery.invalidate()
     }
-
     private func stopSharedTransportResources() {
         lifecycleGeneration &+= 1
         guestURLService?.stop()
@@ -227,13 +226,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         changeWatcherID = nil
         scheduledRefresh?.cancel()
         scheduledRefresh = nil
+        scheduledRefreshForce = false
         stateRecoveryRefreshTask?.cancel()
         stateRecoveryRefreshTask = nil
         stateRecoveryRefreshQueued = false
         for task in remoteTerminalProjectionTasks.values { task.cancel() }
         remoteTerminalProjectionTasks.removeAll()
     }
-
     func update(summary: VMSummary) {
         guard let current = catalog.provider(for: machine), ObjectIdentifier(current) == ObjectIdentifier(self) else { return }
         isFeatureSuspended = false
@@ -283,7 +282,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let inactive = current.withStatus(status)
         update(summary: inactive)
     }
-
     /// Retires every attachment and transport task this provider owns.
     ///
     /// - Parameter stopReason: What open panes present afterwards. Panes stay
@@ -334,7 +332,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         info.linkError = detail
         catalog.updateMachine(info, from: self)
     }
-
     /// One refresh pass. Sleeping machines retain their graph without being woken.
     func performRefresh(force: Bool) async -> Bool {
         guard !hasLostAccess else { return false }
@@ -1619,7 +1616,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             // to publish its listener. Always refresh on the successful
             // connection edge so stale hub/link errors disappear from the
             // machine, ports, and display rows immediately.
-            scheduleRefresh()
+            scheduleRefresh(force: true)
             notificationSync?.linkDidConnect()
         case .snapshot(let cursor, _, let payload):
             guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
@@ -1768,15 +1765,19 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
     func resetLinkFailureAfterRouteChange() { guard info.linkFailure != nil else { return }; info.linkFailure = nil; info.linkError = nil; info.linkState = .connecting; attachmentRetry.reset(); catalog.updateMachine(info, from: self) }
     func reconcileRemovedRemoteWorkspace(_ id: String) { info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }; catalog.updateMachine(info, from: self) }
-    func scheduleRefresh() {
+    func scheduleRefresh(force: Bool = false) {
         let lifecycle = lifecycleGeneration
+        scheduledRefreshForce = scheduledRefreshForce || force
         guard scheduledRefresh == nil else { return }
         scheduledRefresh = Task { [weak self] in
             await Task.yield()
             guard !Task.isCancelled, let self else { return }
             self.scheduledRefresh = nil
+            let requestedForce = self.scheduledRefreshForce
+            self.scheduledRefreshForce = false
             guard self.lifecycleGeneration == lifecycle, self.isRegisteredInCatalog() else { return }
-            await self.refreshCurrentGraph(force: false)
+            if requestedForce { await self.refreshDisplays() }
+            await self.refreshCurrentGraph(force: requestedForce)
         }
     }
     func projectionsRestored() { reprojectRestoredPanes(generation: lifecycleGeneration) }

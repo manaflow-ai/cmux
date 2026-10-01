@@ -341,8 +341,8 @@ struct CloudWorkspaceLiveProjectionTests {
         let exhausted = budget.admit(.init(state: state, projectionVersion: 1_000, bindings: [:]))
         #expect(!exhausted)
         let next = try graph(["first": "a"], revision: 2)
-        let admittedAfterGraphChange = budget.admit(.init(state: next, projectionVersion: 1_000, bindings: [:]))
-        #expect(admittedAfterGraphChange, "A new graph starts a new budget")
+        let admittedNextGraph = budget.admit(.init(state: next, projectionVersion: 1_000, bindings: [:]))
+        #expect(admittedNextGraph, "A new graph starts a new budget")
     }
 
     @Test("Lifecycle cancellation is not retained as a projection failure")
