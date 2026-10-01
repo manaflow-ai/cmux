@@ -5,7 +5,7 @@
 use super::*;
 use crate::model::{ColumnSticky, StickyEdge, StickyMode};
 
-fn open_restart_mux(root: &std::path::Path, session: &str) -> Arc<Mux> {
+fn open_restart_mux(root: &Path, session: &str) -> Arc<Mux> {
     Mux::from_workspace_registry(
         session.into(),
         SurfaceOptions::default(),
