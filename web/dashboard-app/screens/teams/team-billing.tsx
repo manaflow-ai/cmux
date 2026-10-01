@@ -6,7 +6,7 @@ import { IsolatedErrorBoundary, SectionUnavailable } from "@/app/components/erro
 import { teamBillingQuery } from "@/dashboard-app/queries/billing";
 import { TeamBillingPanel } from "@/dashboard-app/screens/billing/team-billing-panel";
 
-const teamBillingApi = getRouteApi("/shell/dashboard/teams/$teamId/billing");
+const teamBillingApi = getRouteApi("/shell/hub/dashboard/teams/$teamId/billing");
 
 /**
  * `/dashboard/teams/$teamId/billing`. The team layout already confirmed

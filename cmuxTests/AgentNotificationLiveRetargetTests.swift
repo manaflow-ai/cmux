@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentJournal
 import CmuxControlSocket
 import CmuxCore
 import Testing
@@ -174,6 +175,73 @@ extension AgentNotificationRegressionTests {
             return
         }
         #expect(code == "invalid_params")
+    }
+
+    @Test
+    func testRelayAgentMessageHandlersCannotChooseLocalSplit() async throws {
+        let fixture = try makeLiveRetargetFixture()
+        defer { fixture.restore() }
+
+        fixture.owningWorkspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "example.invalid",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_007,
+            relayID: "relay",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: nil,
+            ownerWorkspaceID: fixture.owningWorkspace.id,
+            terminalStartupCommand: nil
+        )
+        fixture.owningWorkspace.activeRemoteSessionControllerID = UUID()
+        fixture.owningWorkspace.trackRemoteTerminalSurface(fixture.panelId)
+
+        let paneID = try #require(fixture.owningWorkspace.bonsplitController.allPaneIds.first)
+        let localPanel = try #require(fixture.owningWorkspace.newTerminalSurface(
+            inPane: paneID,
+            focus: true
+        ))
+
+        let remoteBody = "relay-remote-\(UUID().uuidString)"
+        let localBody = "relay-local-\(UUID().uuidString)"
+        try AgentMessageCenter.store.append(AgentMessageDraft(
+            senderName: "test",
+            recipientSurfaceId: localPanel.id.uuidString,
+            recipientWorkspaceId: fixture.owningWorkspace.id.uuidString,
+            body: localBody
+        ))
+        let connectionID = try #require(fixture.owningWorkspace.activeRemoteSessionControllerID)
+        let provenance: [String: JSONValue] = [
+            WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey: .string(
+                fixture.owningWorkspace.id.uuidString
+            ),
+            WorkspaceRemoteRelayCommandRewriter.connectionIDKey: .string(
+                connectionID.uuidString
+            ),
+        ]
+        var sendParams = provenance
+        sendParams["target"] = .string(fixture.owningWorkspace.id.uuidString)
+        sendParams["body"] = .string(remoteBody)
+        let sendResponse = await TerminalController.shared.agentMessageResponse(ControlRequest(
+            id: .string("relay-send"),
+            method: "agent.message.send",
+            params: sendParams
+        ))
+        #expect(sendResponse.contains(remoteBody))
+        #expect(sendResponse.contains(fixture.panelId.uuidString))
+        #expect(!sendResponse.contains(localPanel.id.uuidString))
+
+        var listParams = provenance
+        listParams["surface"] = .string(fixture.owningWorkspace.id.uuidString)
+        let listResponse = await TerminalController.shared.agentMessageResponse(ControlRequest(
+            id: .string("relay-list"),
+            method: "agent.message.list",
+            params: listParams
+        ))
+        #expect(listResponse.contains(remoteBody))
+        #expect(!listResponse.contains(localBody))
     }
 
     @Test

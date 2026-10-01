@@ -1,6 +1,7 @@
 import CmuxCloud
 import CmuxCloudTui
 import CmuxSurfaceCatalogModel
+import Darwin
 import Foundation
 import Testing
 
@@ -15,6 +16,19 @@ import Testing
 /// it never invokes the ratatui renderer or inspects source text.
 @Suite
 struct CloudManualMirrorTransportTests {
+    @Test
+    func closingFixtureIsIdempotent() throws {
+        let fixture = try CloudManualMirrorSocketFixture()
+        fixture.close()
+        fixture.close()
+
+        let fd = Darwin.open("/dev/null", O_RDONLY)
+        #expect(fd >= 0)
+        fixture.close()
+        #expect(Darwin.fcntl(fd, F_GETFD) != -1)
+        Darwin.close(fd)
+    }
+
     @Test("Restored Cloud terminal failures render a copyable error")
     func restoredTerminalFailurePresentation() {
         let presentation = Workspace.cloudMaterializationFailurePresentation(

@@ -168,13 +168,12 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sendAnonymousTelemetry"
     )
 
-    /// Whether updates download in the background and install at a quiet moment. The updater
-    /// registers the default per release channel (on for nightly), so this fallback applies
-    /// only where the updater never ran.
-    public let installUpdatesAutomatically = DefaultsKey<Bool>(
-        id: "app.installUpdatesAutomatically",
-        defaultValue: false,
-        userDefaultsKey: "updateInstallAutomatically"
+    /// How What's New appears after an update. Quiet by default: an indicator
+    /// the user can open, never an automatic window.
+    public let whatsNew = DefaultsKey<WhatsNewPresentationMode>(
+        id: "app.whatsNew",
+        defaultValue: .quiet,
+        userDefaultsKey: "whatsNewPresentationMode"
     )
 
     public let confirmQuitMode = DefaultsKey<ConfirmQuitMode>(
