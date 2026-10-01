@@ -19,6 +19,11 @@ struct CloudTreeRowHoverButtons: View {
                     setDiscovery: { nodeActions.setDeviceDiscovery($0) },
                     setIncomingAccess: { nodeActions.setDeviceIncomingAccess($0) }
                 )
+                Divider()
+                Button(String(localized: "devices.settings", defaultValue: "Devices Settings…")) {
+                    SettingsWindowPresenter.show(navigationTarget: .computers)
+                }
+                .accessibilityIdentifier("DevicesSettingsButton")
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 11, weight: .medium))

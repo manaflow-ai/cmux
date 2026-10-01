@@ -32,14 +32,14 @@ struct CloudTreeDevicesEmptyView: View {
                 symbol: "magnifyingglass",
                 identifier: "DevicesEnableDiscovery"
             ) {
-                actions.setDeviceDiscovery(!section.discoveryControl.isOn)
+                actions.setDeviceDiscovery($0)
             }
             actionRow(
                 section.incomingControl,
                 symbol: "dot.radiowaves.left.and.right",
                 identifier: "DevicesEnableIncomingAccess"
             ) {
-                actions.setDeviceIncomingAccess(!section.incomingControl.isOn)
+                actions.setDeviceIncomingAccess($0)
             }
         }
         .lineLimit(1)
@@ -51,26 +51,26 @@ struct CloudTreeDevicesEmptyView: View {
         _ control: DeviceAccessControl,
         symbol: String,
         identifier: String,
-        action: @escaping () -> Void
+        action: @escaping (Bool) -> Void
     ) -> some View {
         let hovered = hoveredAction == identifier && control.isEnabled
-        return Button(action: action) {
+        return Toggle(
+            isOn: Binding(
+                get: { control.isOn },
+                set: action
+            )
+        ) {
             CloudTreeLeafRow(
                 style: style, icon: symbol, tint: .secondary,
                 title: control.title, titleDimmed: !hovered
-            ) {
-                if control.isOn {
-                    Image(systemName: "checkmark")
-                        .cmuxFont(size: style.detailSize, design: style.fontDesign)
-                        .accessibilityHidden(true)
-                }
-            }
+            ) { EmptyView() }
             .padding(.leading, scaled(contentInset))
             .frame(height: scaled(style.rowHeight))
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .toggleStyle(.switch)
+        .controlSize(.small)
         .background(
             RoundedRectangle(cornerRadius: 4, style: .continuous)
                 .fill(hovered ? Color.primary.opacity(0.06) : Color.clear)
@@ -80,7 +80,6 @@ struct CloudTreeDevicesEmptyView: View {
         .onHover { hoveredAction = $0 ? identifier : nil }
         .help(control.help)
         .accessibilityLabel(control.title)
-        .accessibilityAddTraits(control.isOn ? [.isSelected] : [])
         .accessibilityIdentifier(identifier)
     }
 

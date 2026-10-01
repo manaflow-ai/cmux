@@ -69,11 +69,26 @@ final class DeviceDiscoverabilityUITests: SettingsUITestCase {
         mode.click()
         let tree = app.descendants(matching: .any).matching(identifier: "CloudMachinesTree").firstMatch
         XCTAssertTrue(tree.waitForExistence(timeout: 10))
-        let incoming = tree.buttons["DevicesEnableIncomingAccess"]
-        let discovery = tree.buttons["DevicesEnableDiscovery"]
+        let incoming = toggle(tree, id: "DevicesEnableIncomingAccess")
+        let discovery = toggle(tree, id: "DevicesEnableDiscovery")
         XCTAssertTrue(incoming.waitForExistence(timeout: 5))
         XCTAssertTrue(discovery.waitForExistence(timeout: 5))
         XCTAssertTrue(incoming.isHittable && discovery.isHittable)
+        XCTAssertTrue([XCUIElement.ElementType.switch, .checkBox].contains(incoming.elementType))
+        XCTAssertTrue([XCUIElement.ElementType.switch, .checkBox].contains(discovery.elementType))
+
+        let optionsMenu = app.descendants(matching: .any)["DevicesOptionsMenu"]
+        XCTAssertTrue(optionsMenu.waitForExistence(timeout: 5))
+        optionsMenu.click()
+        let settingsItem = app.menuItems["DevicesSettingsButton"]
+        XCTAssertTrue(settingsItem.waitForExistence(timeout: 5))
+        XCTAssertEqual(settingsItem.label, "Devices Settings…")
+        settingsItem.click()
+        let settingsFromMenu = app.windows[Self.settingsWindowIdentifier]
+        XCTAssertTrue(settingsFromMenu.waitForExistence(timeout: 5))
+        navigate(settingsFromMenu, to: "Devices")
+        XCTAssertTrue(toggle(settingsFromMenu, id: "SettingsComputersIncomingAccessToggle").exists)
+        closeSettings(app, settingsFromMenu)
         if incoming.label == "Hide this Mac from My Devices" {
             incoming.click()
             XCTAssertTrue(poll(timeout: 5) { incoming.label == "Make this Mac discoverable" })
