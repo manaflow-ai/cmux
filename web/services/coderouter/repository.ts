@@ -152,6 +152,20 @@ export async function issueVmAuthorizationToken(
     throw new VmOwnerTeamMismatchError("VM owner team does not match CodeRouter team");
   }
   const expiresAt = new Date(Date.now() + ROUTE_TOKEN_LIFETIME_MS);
+  // Seed an isolated VM pool from this team's eligible accounts before the
+  // first guest request. Imports are not the only way a new VM becomes usable.
+  await cloudDb().transaction(async (tx) => {
+    await tx.execute(sql`insert into coderouter_pool_accounts (team_id, pool_id, account_id, granted_by_user_id)
+      select vm.owner_team_id, vm.coderouter_pool_id, account.id, account.created_by
+      from cloud_vms vm join coderouter_accounts account on account.team_id = vm.owner_team_id
+      where vm.id = ${vmId}::uuid and (account.visibility = 'team' or account.created_by = vm.owner_team_id)
+      on conflict (pool_id, account_id) do nothing`);
+    await tx.execute(sql`insert into coderouter_pool_accounts (team_id, pool_id, claude_account_id, granted_by_user_id)
+      select vm.owner_team_id, vm.coderouter_pool_id, account.id, account.created_by
+      from cloud_vms vm join coderouter_claude_accounts account on account.team_id = vm.owner_team_id
+      where vm.id = ${vmId}::uuid and (account.visibility = 'team' or account.created_by = vm.owner_team_id)
+      on conflict (pool_id, claude_account_id) do nothing`);
+  });
   const token = await signVmAuthorization({
     vmId,
     teamId,
