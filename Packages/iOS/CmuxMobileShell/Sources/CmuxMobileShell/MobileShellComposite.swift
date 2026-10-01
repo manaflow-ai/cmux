@@ -4004,7 +4004,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     && visibleDeviceIDs.contains(key.canonicalMacDeviceID)
                 || sshOwnsPairingKey(key)
         }
-        workspacesByMac = reconciled
+        if Set(reconciled.keys) != Set(workspacesByMac.keys) {
+            workspacesByMac = reconciled
+            recomputeDerivedWorkspaceState()
+        }
     }
 
     /// Persist only a complete live workspace list. The snapshot is scoped by

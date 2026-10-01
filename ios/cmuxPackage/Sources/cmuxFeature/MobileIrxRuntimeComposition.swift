@@ -45,6 +45,7 @@ public actor MobileIrxRuntimeComposition {
     var controlTask: Task<Void, Never>?
     var foregroundTask: Task<Void, Never>?
     var endpointWarmupTask: Task<Void, Never>?
+    var endpointWarmupEpoch: UInt64?
     var cachedWarmupTask: Task<Void, Never>?
     var preparedCachedRuntime: PreparedCachedRuntime?
     var control: V2ControlService?

@@ -91,6 +91,7 @@ extension MobileIrxRuntimeComposition {
                   await auth.cachedTeamIdentity == cachedIdentity else { return }
             let credentials = Self.credentials(restored)
             if credentials.contains(where: { $0.isUsable(at: Date()) }) {
+                endpointWarmupEpoch = expectedEpoch
                 endpointWarmupTask = Task { [weak self] in
                     guard let self,
                           await self.epoch == expectedEpoch,
@@ -202,9 +203,15 @@ extension MobileIrxRuntimeComposition {
             try await assertScope(scope, epoch: currentEpoch)
         }
         // Cached IROH binding never waits for a backend handshake or Stack refresh.
+        if endpointWarmupEpoch != currentEpoch {
+            endpointWarmupTask?.cancel()
+            endpointWarmupTask = nil
+            endpointWarmupEpoch = nil
+        }
         if endpointWarmupTask == nil, let restored, !restored.authorityRevoked {
             let credentials = Self.credentials(restored)
             if credentials.contains(where: { $0.isUsable(at: Date()) }) {
+                endpointWarmupEpoch = currentEpoch
                 endpointWarmupTask = Task { [weak self] in
                     guard let self else { return }
                     do {
@@ -289,6 +296,7 @@ extension MobileIrxRuntimeComposition {
             let directSupervisor = directEndpointSupervisor
             endpointWarmupTask?.cancel()
             endpointWarmupTask = nil
+            endpointWarmupEpoch = nil
             for engine in engines { await engine.stop(code: .revoked) }
             await supervisor?.deactivate()
             await directSupervisor?.deactivate()
@@ -394,7 +402,7 @@ extension MobileIrxRuntimeComposition {
         controlTask?.cancel(); controlTask = nil
         foregroundTask?.cancel(); foregroundTask = nil
         if !preservePrepared {
-            endpointWarmupTask?.cancel(); endpointWarmupTask = nil
+            endpointWarmupTask?.cancel(); endpointWarmupTask = nil; endpointWarmupEpoch = nil
         }
         if !preservePrepared {
             cachedWarmupTask?.cancel(); cachedWarmupTask = nil
