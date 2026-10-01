@@ -38,10 +38,26 @@ public enum DaemonCapabilities {
     public static let notificationAck = "notification-ack-v1"
     public static let tabGroups = "tab-groups-v1"
     public static let savedTabGroups = "saved-tab-groups-v1"
-    /// Screen color, icon, pin, and order (`set-screen-metadata`, `set-screen-pinned`, `move-screen`).
+    /// Screen color, icon, pin, and order. Served by the v2 state
+    /// resources (`screen.update`, `screen.move`), so `DaemonStore.supports`
+    /// reports it with `stateResources`.
     public static let screenMetadata = "screen-metadata-v1"
-    /// Screen groups and saved screen groups.
+    /// Screen groups (`screen_group.*`), reported with `stateResources`.
+    /// Saved screen groups and group moves across workspaces have no daemon
+    /// operation yet (`savedScreenGroups`).
     public static let screenGroups = "screen-groups-v1"
+    /// Saved screen groups and moving a screen or screen group to another
+    /// position or workspace as a whole: no daemon serves them yet.
+    public static let savedScreenGroups = "saved-screen-groups-v1"
+    /// The state resources over `cmux.protocol/2` (state-ownership.md steps
+    /// A and B): closed history, ephemeral workspaces, workspace status,
+    /// screen metadata and groups, tab records, terminal progress, and the
+    /// v2 state mutations. The daemon does not advertise it in `identify`;
+    /// `DaemonStore` reports it once `session.events` delivers a snapshot
+    /// listing state resources (`servesStateResources`).
+    public static let stateResources = "state-resources-v1"
+    /// Capabilities the state resources provide.
+    public static let providedByStateResources: Set<String> = [stateResources, screenMetadata, screenGroups]
     /// Per-terminal `env` on `new-tab`, `split`, `create-terminal`; `cwd` on `split`.
     public static let terminalEnv = "terminal-env-v1"
     /// Caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and
@@ -100,7 +116,7 @@ public enum DaemonCapabilities {
     public static let terminalPendingSequence = "terminal-pending-sequence-v1"
     public static let optional: [String] = [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, batchClose, loopbackForward, screenMetadata, screenGroups, profiles,
+                                            terminalReap, batchClose, loopbackForward, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, launchSnapshot]
 
@@ -109,7 +125,7 @@ public enum DaemonCapabilities {
     /// but they are not in `optional` (the pinned daemon must serve every
     /// `optional` capability, BranchDaemonTests). The pin commit that brings
     /// one moves it into `optional`.
-    public static let awaitingPin: [String] = [remoteTerminalTabs, detachedTerminals, bookmarks]
+    public static let awaitingPin: [String] = [remoteTerminalTabs, detachedTerminals, bookmarks, savedScreenGroups]
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     public static let advertised: [String] = required + optional + awaitingPin + [

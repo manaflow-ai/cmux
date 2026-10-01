@@ -36,7 +36,8 @@ nonisolated extension ActionCatalog {
             ActionDescriptor(
                 id: "recentlyClosed", title: t("action.history.closed", "Recently Closed…"),
                 keywords: ["history", "reopen", "undo", "closed", "restore"], category: .window,
-                symbol: "clock.arrow.circlepath", surfaces: [.palette, .keyboard, .menu], cliName: "history closed",
+                symbol: "clock.arrow.circlepath", surfaces: [.palette, .keyboard, .menu],
+                arguments: [CatalogArgument.closedItem], cliName: "history closed",
                 mainMenu: .window
             ),
             ActionDescriptor(

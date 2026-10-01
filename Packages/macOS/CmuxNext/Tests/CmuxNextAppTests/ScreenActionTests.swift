@@ -54,15 +54,8 @@ struct ScreenActionTests {
     @Test func screenGroupActionsNeedAKnownGroup() {
         let services = Coverage.boundServices()
         let group = ActionTargetRef(kind: .screenGroup, id: "sgrp_missing")
-        for id in ["screenGroup.rename", "screenGroup.color.red", "screenGroup.ungroup"] {
+        for id in ["screenGroup.rename", "screenGroup.color.red", "screenGroup.moveLeft", "screenGroup.save", "screenGroup.ungroup"] {
             #expect(Coverage.run(services, id, target: group) == .refused(ScreenStrings.noScreenGroup("sgrp_missing")), "\(id)")
-        }
-        // Moving and saving screen groups have no protocol/2 resource yet.
-        for id in ["screenGroup.moveLeft", "screenGroup.save"] {
-            guard case .refused = Coverage.run(services, id, target: group) else {
-                Issue.record("\(id) should be refused while unavailable")
-                continue
-            }
         }
     }
 

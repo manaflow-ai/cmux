@@ -14,7 +14,8 @@ enum WorkspaceMetadataHandlers {
         registry.bind("palette.clearWorkspaceName", requires: DaemonCapabilities.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in
             try context.require(DaemonCapabilities.workspaceMetadata)
             let key = try context.workspace(invocation).key
-            context.services.activeDaemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, title: .clear) }
+            let daemon = context.services.activeDaemon, resource = daemon.store.stateResourceID(workspace: key)
+            daemon.send("set-workspace-metadata") { try await $0.setWorkspaceIdentity(key, resource: resource, title: .clear) }
         })
         registry.bind("palette.workspaceColor", requires: DaemonCapabilities.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in
             guard let raw = invocation["color"]?.stringValue, let color = GroupColor(rawValue: raw) else {
@@ -65,7 +66,8 @@ enum WorkspaceMetadataHandlers {
             sidebar.handle(.setColor([SidebarWorkspaceID(workspace.id)], color))
         } else {
             let update: FieldUpdate<String> = color.map { .set($0.rawValue) } ?? .clear
-            context.services.activeDaemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, color: update) }
+            let daemon = context.services.activeDaemon, resource = daemon.store.stateResourceID(workspace: key)
+            daemon.send("set-workspace-metadata") { try await $0.setWorkspaceIdentity(key, resource: resource, color: update) }
         }
     }
 

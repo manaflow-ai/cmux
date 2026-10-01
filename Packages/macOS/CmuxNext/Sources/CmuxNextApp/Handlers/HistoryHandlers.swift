@@ -26,8 +26,10 @@ enum HistoryHandlers {
         ]
         for (id, make) in pages {
             services.palette.sources.actionPages[id] = { [weak services] in services.map(make) }
+            guard id != "recentlyClosed" else { continue }
             registry.bind(id, run: { _ in services.palette.show(page: make(services), relativeTo: context.activeWindow?.window) })
         }
+        bindRecentlyClosed(registry, context)
         services.palette.sources.actionPages["history.resumeAgentSession"] = { [weak services] in services.map(HistoryPalettePages.agents) }
         registry.bind("history.resumeAgentSession", run: { invocation in
             guard let id = invocation["session"]?.stringValue, !id.isEmpty else {
@@ -51,6 +53,35 @@ enum HistoryHandlers {
             services.history.clear(kinds: kind.map { [$0] } ?? [], range: range)
         })
         bindLayoutUndo(registry, context)
+    }
+
+    /// Recently Closed…: on a daemon that serves the closed history (state
+    /// resources), reopens the item named by `closed`, else shows the
+    /// daemons' closed items as a menu. Without it, the app's history
+    /// palette lists what this app saw closed.
+    private static func bindRecentlyClosed(_ registry: ActionRegistry, _ context: AppActionContext) {
+        let services = context.services
+        registry.bind("recentlyClosed", run: { invocation in
+            guard DaemonClosedHistory.isServed(in: services) else {
+                if let id = invocation["closed"]?.stringValue {
+                    throw ActionFailure(message: RefusalStrings.noClosedItem(id))
+                }
+                services.palette.show(page: HistoryPalettePages.closed(services), relativeTo: context.activeWindow?.window)
+                return
+            }
+            if let id = invocation["closed"]?.stringValue {
+                guard let entry = DaemonClosedHistory.entry(id, in: services) else {
+                    throw ActionFailure(message: RefusalStrings.noClosedItem(id))
+                }
+                return DaemonClosedHistory.reopen(entry, services: services)
+            }
+            let entries = DaemonClosedHistory.entries([.tab, .screen, .workspace], in: services)
+            guard !entries.isEmpty else { throw ActionFailure(message: RefusalStrings.noRecentlyClosedItem) }
+            guard let window = context.activeWindow?.window else { throw ActionFailure(message: RefusalStrings.noWindowOpen) }
+            ClosedHistoryMenu.popUp(entries, in: window) { id in
+                _ = registry.perform("recentlyClosed", invocation: ActionInvocation(arguments: ["closed": .string(id)]))
+            }
+        })
     }
 
     /// A layout undo the daemon asked to confirm (it closes panes): the

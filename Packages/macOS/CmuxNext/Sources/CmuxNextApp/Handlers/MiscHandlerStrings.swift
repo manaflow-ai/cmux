@@ -3,6 +3,9 @@ import Foundation
 /// User-facing reasons for typed "unavailable" and "failed" action
 /// results. Keys live in Resources/MiscHandlers.xcstrings (en, ja).
 enum MiscHandlerStrings {
+    static var untitledTab: String { String(localized: "handlers.misc.closed.untitledTab", defaultValue: "Untitled Tab", table: "MiscHandlers", bundle: .module) }
+    static var untitledScreen: String { String(localized: "handlers.misc.closed.untitledScreen", defaultValue: "Untitled Screen", table: "MiscHandlers", bundle: .module) }
+    static var untitledWorkspace: String { String(localized: "handlers.misc.closed.untitledWorkspace", defaultValue: "Untitled Workspace", table: "MiscHandlers", bundle: .module) }
     static var cloud: String { String(localized: "handlers.misc.unavailable.cloud", defaultValue: "Cloud actions arrive with the Cloud wave; cmux-next has no Cloud client yet.", table: "MiscHandlers", bundle: .module) }
     static var diffViewer: String { String(localized: "handlers.misc.unavailable.diffViewer", defaultValue: "cmux-next has no diff viewer yet.", table: "MiscHandlers", bundle: .module) }
     static var markdownViewer: String { String(localized: "handlers.misc.unavailable.markdownViewer", defaultValue: "cmux-next has no Markdown viewer yet.", table: "MiscHandlers", bundle: .module) }

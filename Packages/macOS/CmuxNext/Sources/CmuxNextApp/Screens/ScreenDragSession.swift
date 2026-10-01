@@ -93,6 +93,11 @@ final class ScreenDragSession {
         strip?.restoreDetachedTab(tabID)
         defer { onEnd?() }
         guard let point else { return }
+        // Moving a screen to another workspace or window has no daemon
+        // operation on the state resources yet (`savedScreenGroups`).
+        guard daemon.supports(DaemonCapabilities.savedScreenGroups) else {
+            return services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.savedScreenGroups))
+        }
         if let (controller, hit) = hit {
             switch hit.drop {
             case .intoWorkspace(let id):

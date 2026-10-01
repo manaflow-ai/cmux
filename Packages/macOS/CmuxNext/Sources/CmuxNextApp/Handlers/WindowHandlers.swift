@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextActions
+import CmuxNextDaemon
 import CmuxNextSettings
 
 /// Window and app-level actions (category `window`) not bound in

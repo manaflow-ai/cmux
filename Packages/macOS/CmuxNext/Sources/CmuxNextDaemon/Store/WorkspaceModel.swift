@@ -17,6 +17,14 @@ public final class WorkspaceModel: Identifiable {
     public internal(set) var color: String?
     public internal(set) var icon: String?
     public internal(set) var title: String?
+    /// Closed by the daemon at its next start (incognito); from the daemon's
+    /// state resources (`DaemonStore.sessionState`).
+    public internal(set) var ephemeral = false
+    /// Status line, progress, and newest log line hooks and the CLI report
+    /// (`workspace_status.*`); from the daemon's state resources.
+    public internal(set) var status: WorkspaceStatus?
+    /// Screen groups come from the daemon's state resources.
+    @ObservationIgnored var screenGroupsFromState = false
     /// Daemon rollup (`notification-ack-v1`); nil on older daemons.
     public internal(set) var daemonUnreadCount: Int?
 
@@ -66,10 +74,18 @@ public final class WorkspaceModel: Identifiable {
         if icon != s.icon { icon = s.icon }
         if title != s.title { title = s.title }
         if daemonUnreadCount != s.unreadCount { daemonUnreadCount = s.unreadCount }
-        if screenGroups != s.screenGroups { screenGroups = s.screenGroups }
+        if !screenGroupsFromState, screenGroups != s.screenGroups { screenGroups = s.screenGroups }
         if let reordered = reconcile(screens, with: s.screens, id: ScreenModel.identity, make: ScreenModel.init, update: { $0.update($1) }) {
             screens = reordered
         }
+    }
+
+    /// Lays the daemon's workspace state over the record.
+    func applyState(ephemeral: Bool, status: WorkspaceStatus?, screenGroups groups: [ScreenGroupSnapshot]?) {
+        if self.ephemeral != ephemeral { self.ephemeral = ephemeral }
+        if self.status != status { self.status = status }
+        screenGroupsFromState = groups != nil
+        if let groups, screenGroups != groups { screenGroups = groups }
     }
 
     func setName(_ value: String) { if name != value { name = value } }

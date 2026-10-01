@@ -93,7 +93,8 @@ final class DaemonService {
         }
         let configuration = DaemonConnection.Configuration(
             retryWake: retryWake,
-            terminalEnvironment: terminalEnvironmentProvider)
+            terminalEnvironment: terminalEnvironmentProvider,
+            sessionEvents: true)
         start { DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider) }
     }
 
@@ -155,7 +156,8 @@ final class DaemonService {
             // wakeup-allow: each iteration runs a connection to its end, then waits in RetryPacer
             while !Task.isCancelled {
                 let connected = await DaemonStartup.connect(wake: wake, clock: clock) {
-                    DaemonConnection(configuration: DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil)) {
+                    DaemonConnection(configuration: DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil,
+                                                                                    sessionEvents: true)) {
                         DaemonEndpoint(socketPath: try await endpoint())
                     }
                 } onFailure: { error in
@@ -218,7 +220,7 @@ final class DaemonService {
     }
 
     func supports(_ capability: String) -> Bool {
-        identity?.supports(capability) ?? false
+        store.supports(capability)
     }
 
     /// The socket for dedicated terminal attachments (re-read on reconnect).
