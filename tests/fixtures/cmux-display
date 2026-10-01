@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import socket
 import socketserver
 import subprocess
@@ -23,6 +24,7 @@ import uuid
 
 MAX_DISPLAYS = 16
 STARTER = "/usr/local/bin/start-vnc.sh"
+WALLPAPER_HELPER = "/usr/local/bin/cmux-wallpaper"
 
 
 def descriptor(number, state="running"):
@@ -321,6 +323,7 @@ class DisplayService:
             }))
 
     def start_session_components(self, number, environment, runtime):
+        started = False
         for executable, args in [
             ("openbox", []), ("tint2", ["-c", "/etc/cmux/tint2rc"]),
             ("vncconfig", ["-nowin"]),
@@ -338,6 +341,75 @@ class DisplayService:
                                        stdin=subprocess.DEVNULL,
                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.track_process(number, executable, process)
+            started = True
+        return self.start_resize_watch(number, environment) or started
+
+    def start_resize_watch(self, number, environment):
+        """Watch RandR like start-vnc.sh does for :1; noVNC resizes displays live."""
+        existing = self.named_processes.get(number, {}).get("resize-watch")
+        if existing is not None and self.process_alive(existing):
+            return False
+        xev = shutil.which("xev")
+        if not xev:
+            return False
+        process = subprocess.Popen([xev, "-root", "-event", "randr"], env=environment,
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stderr=subprocess.DEVNULL, text=True)
+        self.track_process(number, "resize-watch", process)
+        threading.Thread(target=self.repaint_on_resize, args=(number, environment, process),
+                         daemon=True).start()
+        return True
+
+    def repaint_on_resize(self, number, environment, process):
+        """Re-fill the grown root (the old pixmap tiles) and refresh the dock strut."""
+        stream = getattr(process, "stdout", None)
+        if stream is None:
+            return
+        for line in stream:
+            if "RRScreenChangeNotify" not in line:
+                continue
+            try:
+                self.apply_wallpaper(number, environment)
+            except RuntimeError:
+                pass
+            tint2 = self.named_processes.get(number, {}).get("tint2")
+            if tint2 is not None and self.process_alive(tint2):
+                try:
+                    os.kill(tint2.pid, signal.SIGUSR1)
+                except OSError:
+                    pass
+
+    def apply_wallpaper(self, number, environment):
+        """Paint the display root or fail startup before exposing a black screen."""
+        helper = Path(WALLPAPER_HELPER)
+        if helper.is_file() and os.access(helper, os.X_OK):
+            command = [str(helper)]
+        else:
+            # Existing machines may not have the rebuilt helper yet. Their
+            # original asset remains a safe compatibility fallback.
+            command = [shutil.which("feh") or "feh", "--no-fehbg", "--bg-fill",
+                       "/usr/share/backgrounds/cmux/wallpaper.jpg"]
+        try:
+            result = subprocess.run(command, env=environment,
+                                    stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL, timeout=10,
+                                    check=False)
+            if getattr(result, "returncode", 0) == 0:
+                return
+        except (OSError, subprocess.SubprocessError):
+            pass
+        try:
+            result = subprocess.run(
+                [shutil.which("xsetroot") or "xsetroot", "-solid", "#27304a"],
+                env=environment, stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=10, check=False)
+            if getattr(result, "returncode", 0) == 0:
+                return
+        except (OSError, subprocess.SubprocessError):
+            pass
+        raise RuntimeError("display wallpaper unavailable")
 
     def start_websockify(self, number, environment, executable):
         path = executable if "/" in executable else shutil.which(executable)
@@ -365,7 +437,10 @@ class DisplayService:
             raise NoVNCUnavailable("display runtime unavailable")
         if not rfb_is_ready and not vnc:
             raise RuntimeError("display runtime unavailable")
-        if rfb_is_ready and number not in self.named_processes:
+        # A helper upgrade adopts X servers its predecessor started, which may
+        # never have been painted; adoption repaints them.
+        adopted = rfb_is_ready and number not in self.named_processes
+        if adopted:
             self.recover_processes(number, runtime, environment)
         if not rfb_is_ready:
             self.terminate(number)
@@ -382,6 +457,7 @@ class DisplayService:
                 raise RuntimeError("Xvnc did not become ready")
             self.start_dbus(number, environment, runtime)
             self.start_session_components(number, environment, runtime)
+            session_started = True
         elif number in self.named_processes:
             named = self.named_processes[number]
             dbus = named.get("dbus")
@@ -389,7 +465,11 @@ class DisplayService:
                 for name in ("openbox", "tint2", "vncconfig"):
                     self.remove_process(number, name)
                 self.start_dbus(number, environment, runtime)
-            self.start_session_components(number, environment, runtime)
+            session_started = self.start_session_components(number, environment, runtime)
+        else:
+            session_started = False
+        if not rfb_is_ready or session_started or adopted:
+            self.apply_wallpaper(number, environment)
         websockify_process = self.websockify_processes.get(number)
         if (websockify_process is None or not self.process_alive(websockify_process)
                 or not novnc_ready(number)):

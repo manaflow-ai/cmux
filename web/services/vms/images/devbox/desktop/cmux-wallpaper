@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Paint the X root window for every cmux desktop session.
+#
+# The primary desktop (:1) and Cloud Displays (:2, :3, ...) are independent X
+# servers. Keep selection here so they all get the same deterministic wallpaper
+# collection and a failed image helper can never leave a black root window.
+set -u
+
+DISPLAY="${DISPLAY:-:1}"
+WALLPAPER_DIR="${CMUX_WALLPAPER_DIR:-/usr/share/backgrounds/cmux}"
+FALLBACK_COLOR="${CMUX_WALLPAPER_FALLBACK_COLOR:-#27304a}"
+
+# Display numbers are stable guest state, so a display gets the same image on
+# every client and after a supervisor restart. :1 intentionally keeps the
+# original CC0 mountain lake; new displays cycle through the collection.
+display_number="${DISPLAY#:}"
+display_number="${display_number%%.*}"
+case "$display_number" in
+  ''|*[!0-9]*) display_number=1 ;;
+esac
+
+wallpapers=(
+  "$WALLPAPER_DIR/wallpaper.jpg"
+  "$WALLPAPER_DIR/wallpaper-aurora.jpg"
+  "$WALLPAPER_DIR/wallpaper-desert.jpg"
+  "$WALLPAPER_DIR/wallpaper-ocean.jpg"
+  "$WALLPAPER_DIR/wallpaper-sunset.jpg"
+)
+available=()
+for wallpaper in "${wallpapers[@]}"; do
+  [ -r "$wallpaper" ] && available+=("$wallpaper")
+done
+
+if [ "${#available[@]}" -gt 0 ] && command -v feh >/dev/null 2>&1; then
+  index=$(( (display_number - 1) % ${#available[@]} ))
+  if feh --no-fehbg --bg-fill "${available[$index]}" >/dev/null 2>&1; then
+    exit 0
+  fi
+fi
+
+# xsetroot is part of the image's x11-xserver-utils dependency. This visible
+# color is a last-resort guard for missing/corrupt assets or a broken feh.
+if command -v xsetroot >/dev/null 2>&1 && xsetroot -solid "$FALLBACK_COLOR" >/dev/null 2>&1; then
+  exit 0
+fi
+
+# The caller treats this as a startup failure instead of presenting a black
+# display, so the supervisor can retry and surface an unavailable state.
+exit 1

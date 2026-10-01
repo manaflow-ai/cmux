@@ -120,6 +120,7 @@ describe("devbox desktop layer", () => {
 
   test("every shell file parses", async () => {
     expect((await runChild("bash", ["-n", path.join(devboxDesktopDir, "start-vnc.sh")])).status).toBe(0);
+    expect((await runChild("bash", ["-n", path.join(devboxDesktopDir, "cmux-wallpaper")])).status).toBe(0);
     expect((await runChild("sh", ["-n", path.join(devboxDesktopDir, "cmux-desktop-boot")])).status).toBe(0);
     expect((await runChild("sh", ["-n", path.join(devboxDesktopDir, "desktop-env.sh")])).status).toBe(0);
   });
@@ -324,7 +325,7 @@ describe("devbox desktop layer", () => {
     expect(driver).toContain("devboxDesktopOpenUrl(address)");
   });
 
-  test("desktop polish: pre-accepted Chrome, CC0 wallpaper, clipboard helper, no clock, dock order", () => {
+  test("desktop polish: pre-accepted Chrome, wallpaper collection, clipboard helper, no clock, dock order", () => {
     expect(read("google-chrome-cmux.desktop")).toContain("--no-first-run");
     for (const app of ["google-chrome-cmux.desktop", "thunar-cmux.desktop", "ghostty-cmux.desktop"]) {
       expect(read(app)).toMatch(/^Icon=\/etc\/cmux\/icons\/[a-z-]+\.png$/m);
@@ -334,6 +335,11 @@ describe("devbox desktop layer", () => {
       expect(freestyleBake).toContain(`/etc/cmux/icons/${icon}`);
     }
     expect(read("WALLPAPER.md")).toContain("CC0 1.0 Universal");
+    expect(read("WALLPAPER.md")).toContain("deterministic");
+    expect(read("cmux-wallpaper")).toContain("wallpaper-aurora.jpg");
+    expect(read("cmux-wallpaper")).toContain("xsetroot -solid");
+    expect(startVnc).toContain("/usr/local/bin/cmux-wallpaper");
+    expect(DEVBOX_DESKTOP_INSTALLS.some((install) => install.target.endsWith("/wallpaper-aurora.jpg"))).toBe(true);
     expect(startVnc).toContain("feh --no-fehbg --bg-fill /usr/share/backgrounds/cmux/wallpaper.jpg");
     expect(startVnc).toContain("vncconfig -nowin");
     const tint2 = read("tint2rc");

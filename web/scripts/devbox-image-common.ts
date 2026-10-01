@@ -196,6 +196,7 @@ export const DEVBOX_DESKTOP_FILES = [
   "WALLPAPER.md",
   "cmux-desktop-boot",
   "cmux-desktop.service",
+  "cmux-wallpaper",
   "desktop-env.sh",
   "ghostty-cmux.desktop",
   "google-chrome-cmux.desktop",
@@ -203,6 +204,10 @@ export const DEVBOX_DESKTOP_FILES = [
   "thunar-cmux.desktop",
   "tint2rc",
   "wallpaper.jpg",
+  "wallpaper-aurora.jpg",
+  "wallpaper-desert.jpg",
+  "wallpaper-ocean.jpg",
+  "wallpaper-sunset.jpg",
 ] as const;
 
 export type DevboxDesktopInstall = {
@@ -225,7 +230,12 @@ export const DEVBOX_DESKTOP_INSTALLS: readonly DevboxDesktopInstall[] = [
   { source: "desktop/ghostty-cmux.desktop", target: "/etc/cmux/apps/ghostty-cmux.desktop", mode: 0o644 },
   { source: "desktop/tint2rc", target: "/etc/cmux/tint2rc", mode: 0o644 },
   { source: "desktop/wallpaper.jpg", target: "/usr/share/backgrounds/cmux/wallpaper.jpg", mode: 0o644 },
+  { source: "desktop/wallpaper-aurora.jpg", target: "/usr/share/backgrounds/cmux/wallpaper-aurora.jpg", mode: 0o644 },
+  { source: "desktop/wallpaper-desert.jpg", target: "/usr/share/backgrounds/cmux/wallpaper-desert.jpg", mode: 0o644 },
+  { source: "desktop/wallpaper-ocean.jpg", target: "/usr/share/backgrounds/cmux/wallpaper-ocean.jpg", mode: 0o644 },
+  { source: "desktop/wallpaper-sunset.jpg", target: "/usr/share/backgrounds/cmux/wallpaper-sunset.jpg", mode: 0o644 },
   { source: "desktop/start-vnc.sh", target: "/usr/local/bin/start-vnc.sh", mode: 0o755 },
+  { source: "desktop/cmux-wallpaper", target: "/usr/local/bin/cmux-wallpaper", mode: 0o755 },
   { source: "desktop/cmux-desktop-boot", target: "/usr/local/bin/cmux-desktop-boot", mode: 0o755 },
   { source: "desktop/cmux-desktop.service", target: "/etc/systemd/system/cmux-desktop.service", mode: 0o644 },
   { source: "desktop/desktop-env.sh", target: "/etc/cmux/desktop-env.sh", mode: 0o644 },

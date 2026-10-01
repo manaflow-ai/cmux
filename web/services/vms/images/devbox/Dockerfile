@@ -207,12 +207,17 @@ COPY desktop/thunar-cmux.desktop /etc/cmux/apps/thunar-cmux.desktop
 COPY desktop/ghostty-cmux.desktop /etc/cmux/apps/ghostty-cmux.desktop
 COPY desktop/tint2rc /etc/cmux/tint2rc
 COPY desktop/wallpaper.jpg /usr/share/backgrounds/cmux/wallpaper.jpg
+COPY desktop/wallpaper-aurora.jpg /usr/share/backgrounds/cmux/wallpaper-aurora.jpg
+COPY desktop/wallpaper-desert.jpg /usr/share/backgrounds/cmux/wallpaper-desert.jpg
+COPY desktop/wallpaper-ocean.jpg /usr/share/backgrounds/cmux/wallpaper-ocean.jpg
+COPY desktop/wallpaper-sunset.jpg /usr/share/backgrounds/cmux/wallpaper-sunset.jpg
 COPY desktop/start-vnc.sh /usr/local/bin/start-vnc.sh
+COPY desktop/cmux-wallpaper /usr/local/bin/cmux-wallpaper
 COPY desktop/cmux-desktop-boot /usr/local/bin/cmux-desktop-boot
 COPY desktop/cmux-desktop.service /etc/systemd/system/cmux-desktop.service
 COPY desktop/desktop-env.sh /etc/cmux/desktop-env.sh
-RUN chmod 0755 /usr/local/bin/start-vnc.sh /usr/local/bin/cmux-desktop-boot \
-  && bash -n /usr/local/bin/start-vnc.sh && sh -n /usr/local/bin/cmux-desktop-boot && sh -n /etc/cmux/desktop-env.sh \
+RUN chmod 0755 /usr/local/bin/start-vnc.sh /usr/local/bin/cmux-wallpaper /usr/local/bin/cmux-desktop-boot \
+  && bash -n /usr/local/bin/start-vnc.sh /usr/local/bin/cmux-wallpaper && sh -n /usr/local/bin/cmux-desktop-boot && sh -n /etc/cmux/desktop-env.sh \
   && mkdir -p /etc/cmux/icons \
   && cp /opt/google/chrome/product_logo_128.png /etc/cmux/icons/google-chrome.png \
   && cp "$(find /usr/share/icons -name 'org.xfce.thunar.png' -path '*128*' | head -1)" /etc/cmux/icons/thunar.png \

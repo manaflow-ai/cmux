@@ -130,7 +130,9 @@ Ported from the retired Blaxel `sandbox/cmux-devbox` image, the same stack
 on every provider: TigerVNC serving an openbox session with the tint2 dock
 (Chrome, Files, Ghostty), Thunar, the CC0 mountain-lake wallpaper, the
 accessibility bus for computer-use, TigerVNC's clipboard helper, and noVNC
-on 6901. The contract (`web/services/vms/images/desktop.ts`;
+on 6901. The desktop layer includes a hermetic collection of original scenic
+wallpapers, selected deterministically per display so a display never starts
+with an unpainted black root. The contract (`web/services/vms/images/desktop.ts`;
 `vm-devbox-desktop.test.ts` pins it, the Mac app's Displays row, the CLI's
 `cloudVMDesktopPort` and the Freestyle driver's `openPort` depend on it):
 
@@ -142,7 +144,8 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
 - The session runs one D-Bus session bus (reused across supervisor passes),
   the accessibility bus (`at-spi-bus-launcher --launch-immediately`, so
   `cua-driver`'s `get_window_state` resolves window trees), openbox, feh
-  (wallpaper), tint2, `vncconfig -nowin` (clipboard between the noVNC pane
+  (`cmux-wallpaper` paints the collection, with a visible slate-color fallback
+  if an asset or `feh` is unavailable), tint2, `vncconfig -nowin` (clipboard between the noVNC pane
   and X apps), a resize watcher (noVNC remote resize re-fills the wallpaper
   and nudges the dock), and websockify.
 - It publishes `DISPLAY` and the accessibility bus (`AT_SPI_BUS_ADDRESS` for
