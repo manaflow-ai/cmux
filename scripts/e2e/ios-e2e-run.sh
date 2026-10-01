@@ -28,12 +28,19 @@ TAG=""
 SIM_UDID=""
 EVIDENCE_DIR=""
 BUNDLE_ID=""
+WORKSPACE_ID="${CMUX_E2E_WORKSPACE_ID:-}"
+SURFACE_ID="${CMUX_E2E_SURFACE_ID:-}"
 STEP_TIMEOUT=45
+BACKGROUND_SECONDS="${CMUX_E2E_BACKGROUND_SECONDS:-0}"
+VIDEO_PATH="${CMUX_E2E_VIDEO:-}"
+VIDEO_PID=""
 
 usage() {
   cat <<'EOF'
 Usage: scripts/e2e/ios-e2e-run.sh --tag <tag> --sim-udid <udid> --evidence-dir <dir>
-       [--bundle-id <id>] [--step-timeout <seconds>]
+       [--bundle-id <id>] [--workspace-id <id>] [--surface-id <id>]
+       [--step-timeout <seconds>] [--background-seconds <seconds>]
+       [--video <path>]
 EOF
 }
 
@@ -43,18 +50,50 @@ while [[ $# -gt 0 ]]; do
     --sim-udid) SIM_UDID="${2:-}"; shift 2 ;;
     --evidence-dir) EVIDENCE_DIR="${2:-}"; shift 2 ;;
     --bundle-id) BUNDLE_ID="${2:-}"; shift 2 ;;
+    --workspace-id) WORKSPACE_ID="${2:-}"; shift 2 ;;
+    --surface-id) SURFACE_ID="${2:-}"; shift 2 ;;
     --step-timeout) STEP_TIMEOUT="${2:-}"; shift 2 ;;
+    --background-seconds) BACKGROUND_SECONDS="${2:-}"; shift 2 ;;
+    --video) VIDEO_PATH="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument '$1'" >&2; usage >&2; exit 2 ;;
   esac
 done
 [[ -n "$TAG" && -n "$SIM_UDID" && -n "$EVIDENCE_DIR" ]] || { usage >&2; exit 2; }
+[[ -n "$WORKSPACE_ID" && -n "$SURFACE_ID" || -z "$WORKSPACE_ID" && -z "$SURFACE_ID" ]] || {
+  echo "error: workspace and surface IDs must be provided together" >&2
+  exit 2
+}
+[[ "$BACKGROUND_SECONDS" =~ ^[0-9]+$ ]] || { echo "error: background seconds must be a non-negative integer" >&2; exit 2; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SOCKET="/tmp/cmux-debug-${TAG}.sock"
 AXE="${CMUX_E2E_AXE:-axe}"
 mkdir -p "$EVIDENCE_DIR"
+
+cleanup() {
+  local status=$?
+  if [[ -n "$VIDEO_PID" ]]; then
+    kill -INT "$VIDEO_PID" >/dev/null 2>&1 || true
+    wait "$VIDEO_PID" >/dev/null 2>&1 || true
+  fi
+  exit "$status"
+}
+trap cleanup EXIT INT TERM
+
+monotonic_seconds() {
+  /usr/bin/python3 - <<'PY'
+import time
+print(f"{time.monotonic():.6f}")
+PY
+}
+
+if [[ -n "$VIDEO_PATH" ]]; then
+  mkdir -p "$(dirname "$VIDEO_PATH")"
+  xcrun simctl io "$SIM_UDID" recordVideo --codec=h264 "$VIDEO_PATH" >/dev/null 2>&1 &
+  VIDEO_PID=$!
+fi
 
 # --- evidence + assertion helpers -------------------------------------------
 
@@ -105,7 +144,13 @@ phone_text() {
 }
 
 mac_text() {
-  CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" read-screen 2>/dev/null || true
+  if [[ -n "$WORKSPACE_ID" ]]; then
+    CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" read-screen \
+      --workspace "$WORKSPACE_ID" --surface "$SURFACE_ID" --lines 40 \
+      2>/dev/null || true
+  else
+    CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" read-screen 2>/dev/null || true
+  fi
 }
 
 # wait_for <label> <fn> <needle>: bounded poll, never a bare sleep.
@@ -148,6 +193,123 @@ ensure_terminal_keyboard() {
   fi
 }
 
+# A preceding real-use workload can leave the phone on the workspace list.
+# Keep this driver self-contained by opening the first visible workspace before
+# trying to attach terminal input. The row identifier is part of the app's
+# accessibility contract, so this does not depend on screen coordinates or on
+# whichever workspace happened to be selected by an earlier workload.
+terminal_surface_visible() {
+  "$AXE" describe-ui --udid "$SIM_UDID" 2>/dev/null \
+    | grep -qF "MobileTerminalSurface"
+}
+
+ensure_terminal_surface() {
+  if [[ -z "$WORKSPACE_ID" ]]; then
+    terminal_surface_visible && return 0
+  elif terminal_surface_visible; then
+    # The real-use phase supplies a specific Codex workspace/surface. Always
+    # return to the list before selecting its row so a prior workload's
+    # visible terminal cannot satisfy this check or receive input instead.
+    "$AXE" tap --id MobileWorkspaceBackButton --udid "$SIM_UDID" \
+      --wait-timeout 15 --poll-interval 0.25 >/dev/null 2>&1 \
+      || fail "targeted workspace is already open but cannot return to the workspace list"
+    local list_deadline=$(( $(date +%s) + STEP_TIMEOUT ))
+    while (( $(date +%s) < list_deadline )); do
+      terminal_surface_visible || break
+      sleep 1
+    done
+    if terminal_surface_visible; then
+      fail "workspace list did not appear before selecting target workspace"
+    fi
+  fi
+
+  local row_id
+  if [[ -n "$WORKSPACE_ID" ]]; then
+    row_id="MobileWorkspaceRow-$WORKSPACE_ID"
+    local ui_dump
+    row_id=""
+    # The workload creates multiple workspaces, so the target can be below
+    # the initially attached rows. Scroll the actual list until the exact
+    # workspace suffix appears, preserving any U+001F Mac namespace for AXe.
+    for _ in {1..12}; do
+      ui_dump="$($AXE describe-ui --udid "$SIM_UDID" 2>/dev/null || true)"
+      if grep -qF "MobileWorkspaceRow-$WORKSPACE_ID" <<<"$ui_dump"; then
+        row_id="MobileWorkspaceRow-$WORKSPACE_ID"
+        break
+      fi
+      row_id="$(grep -oE 'MobileWorkspaceRow-[^"[:space:]]+' <<<"$ui_dump" \
+        | grep -F -- "$WORKSPACE_ID" | head -1 || true)"
+      [[ -n "$row_id" ]] && break
+      "$AXE" gesture scroll-up --udid "$SIM_UDID" >/dev/null 2>&1 || true
+      sleep 1
+    done
+    [[ -n "$row_id" ]] || fail "target workspace row is not visible: MobileWorkspaceRow-$WORKSPACE_ID"
+  else
+    row_id="$("$AXE" describe-ui --udid "$SIM_UDID" 2>/dev/null \
+      | grep -oE 'MobileWorkspaceRow-[A-Za-z0-9._:-]+' \
+      | head -1 || true)"
+  fi
+  [[ -n "$row_id" ]] || fail "workspace list is visible but no MobileWorkspaceRow was exposed"
+  echo "opening workspace row: $row_id"
+  "$AXE" tap --id "$row_id" --wait-timeout 15 --poll-interval 0.25 \
+    --udid "$SIM_UDID" >/dev/null
+
+  local deadline=$(( $(date +%s) + STEP_TIMEOUT ))
+  while (( $(date +%s) < deadline )); do
+    terminal_surface_visible && return 0
+    sleep 1
+  done
+  fail "workspace row opened but MobileTerminalSurface did not appear within ${STEP_TIMEOUT}s"
+}
+
+wait_for_app_ready_trace() {
+  local target_surface="$1"
+  local start_offset="${2:-0}"
+  local data_container
+  data_container="$(xcrun simctl get_app_container "$SIM_UDID" "$BUNDLE_ID" data 2>/dev/null || true)"
+  [[ -n "$data_container" ]] || return 1
+  local log_path="$data_container/Library/Application Support/cmux-debug.log"
+  local surface_prefix="${target_surface:0:8}"
+  surface_prefix="${surface_prefix,,}"
+  local deadline=$(( $(date +%s) + STEP_TIMEOUT ))
+  while (( $(date +%s) < deadline )); do
+    if [[ -f "$log_path" ]]; then
+      local elapsed
+      elapsed="$(/usr/bin/python3 - "$log_path" "$surface_prefix" "$start_offset" <<'PY_TRACE'
+import re
+import sys
+
+path, surface_prefix, start_offset = sys.argv[1:]
+scene = None
+try:
+    with open(path, "rb") as raw:
+        raw.seek(int(start_offset))
+        handle = (line.decode("utf-8", errors="replace") for line in raw)
+        for line in handle:
+            match = re.search(r"LAT scene\.active t=(\d+)", line)
+            if match:
+                scene = int(match.group(1))
+                continue
+            match = re.search(r"LAT rd\.present t=(\d+).*\bs=([0-9a-f]+)", line)
+            if match and scene is not None and match.group(2).lower() == surface_prefix:
+                rendered = int(match.group(1))
+                if rendered >= scene:
+                    print(f"{(rendered - scene) / 1_000_000:.6f}")
+                    break
+except OSError:
+    pass
+PY_TRACE
+      )"
+      if [[ "$elapsed" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        printf '%s\n' "$elapsed"
+        return 0
+      fi
+    fi
+    sleep 1
+  done
+  return 1
+}
+
 # The first key event after (re)attaching input is dropped by the simulator,
 # so every line leads with a sacrificial space (harmless to the shell).
 # Submit with the HID return key: the accessory return button renders a CR
@@ -187,6 +349,7 @@ input_ready() {
   done
   return 1
 }
+ensure_terminal_surface
 "$AXE" tap --id MobileTerminalSurface --udid "$SIM_UDID" >/dev/null 2>&1 || true
 sleep 1
 ensure_terminal_keyboard
@@ -279,10 +442,26 @@ step_done
 
 step "replay-after-reconnect"
 "$AXE" button home --udid "$SIM_UDID"
+BACKGROUND_STARTED="$(monotonic_seconds)"
+if (( BACKGROUND_SECONDS > 0 )); then
+  echo "== backgrounded for ${BACKGROUND_SECONDS}s"
+  sleep "$BACKGROUND_SECONDS"
+fi
+FOREGROUND_STARTED="$(monotonic_seconds)"
+TRACE_LOG_PATH=""
+TRACE_START_OFFSET=0
+DATA_CONTAINER="$(xcrun simctl get_app_container "$SIM_UDID" "$BUNDLE_ID" data 2>/dev/null || true)"
+if [[ -n "$DATA_CONTAINER" ]]; then
+  TRACE_LOG_PATH="$DATA_CONTAINER/Library/Application Support/cmux-debug.log"
+  if [[ -f "$TRACE_LOG_PATH" ]]; then
+    TRACE_START_OFFSET="$(wc -c < "$TRACE_LOG_PATH" | tr -d ' ')"
+  fi
+fi
 xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID" >/dev/null
 wait_phone "$MARKC"   # session replay re-renders the pre-background history
 # Relaunch resets first responder exactly like a cold boot; re-establish
 # input with the same tap + typed self-check used in preflight.
+ensure_terminal_surface
 "$AXE" tap --id MobileTerminalSurface --udid "$SIM_UDID" >/dev/null 2>&1 || true
 sleep 1
 ensure_terminal_keyboard
@@ -292,6 +471,32 @@ if ! input_ready; then
   sleep 1
   input_ready || fail "terminal input never recovered after relaunch"
 fi
+APP_FOREGROUND_SECONDS=""
+APP_FOREGROUND_SECONDS_JSON="null"
+if [[ -n "$SURFACE_ID" ]]; then
+  APP_FOREGROUND_SECONDS="$(wait_for_app_ready_trace "$SURFACE_ID" "$TRACE_START_OFFSET" || true)"
+  [[ "$APP_FOREGROUND_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]] || \
+    fail "app-side foreground trace did not reach target terminal frame"
+  APP_FOREGROUND_SECONDS_JSON="$APP_FOREGROUND_SECONDS"
+fi
+MARK_RESUME="E2ERESUME$(date +%s)"
+type_line "echo $MARK_RESUME"
+wait_mac_output "$MARK_RESUME"
+RESUME_SECONDS="$(/usr/bin/python3 - "$FOREGROUND_STARTED" <<'PY'
+import sys, time
+print(f"{time.monotonic() - float(sys.argv[1]):.6f}")
+PY
+)"
+printf '{"background_seconds":%s,"resume_to_mac_input_seconds":%s,"app_foreground_to_terminal_ready_seconds":%s,"background_started_monotonic":%s}\n' \
+  "$BACKGROUND_SECONDS" "$RESUME_SECONDS" "$APP_FOREGROUND_SECONDS_JSON" "$BACKGROUND_STARTED" > "$EVIDENCE_DIR/background.json"
+if (( BACKGROUND_SECONDS >= 120 )) && [[ -n "$APP_FOREGROUND_SECONDS" ]]; then
+  python3 - "$APP_FOREGROUND_SECONDS" <<'PY'
+import sys
+if float(sys.argv[1]) > 2.0:
+    raise SystemExit("app foreground-to-terminal exceeded 2 seconds: " + sys.argv[1])
+PY
+fi
+wait_phone "$MARK_RESUME"
 step_done
 
 # --- 6: input liveness after reconnect ------------------------------------------
