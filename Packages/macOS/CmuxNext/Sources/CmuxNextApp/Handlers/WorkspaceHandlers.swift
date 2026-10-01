@@ -28,9 +28,8 @@ enum WorkspaceHandlers {
         registry.bindUnavailable(["palette.openFolderInVSCodeInline"], ActionFailure.needsAppCapability("vscode-inline"))
         registry.bindUnavailable(["palette.openWorkspacePullRequests"], ActionFailure.needsAppCapability("github-integration"))
         registry.bindUnavailable(["palette.findWork"], ActionFailure.needsAppCapability("github-integration"))
-        for id: ActionID in ["reopenPreviousSession", "reopenClosedWorkspace"] {
-            registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("closed-history-v1"))
-        }
+        registry.bind("reopenClosedWorkspace", run: { _ in try reopenClosedWorkspace(context) })
+        registry.bindUnavailable(["reopenPreviousSession"], ActionFailure.needsDaemonCapability("closed-history-v1"))
         for id: ActionID in ["saveLayoutTemplate", "palette.layout.open", "manageLayouts"] {
             registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("layout-templates-v1"))
         }
