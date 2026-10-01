@@ -1,11 +1,44 @@
 import Foundation
 import Testing
+import CMUXMobileCore
 import CmuxMobilePairedMac
 @testable import CmuxMobileShell
 import CmuxMobileShellModel
 
 @MainActor
 struct MobileTaskComposerPickerPreferencesTests {
+    @Test(.timeLimit(.minutes(1))) func corruptedPickerPreferencesAreDroppedAndDiagnosed() async throws {
+        let suite = "MobileTaskComposerPickerPreferencesTests.corrupt.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let attachmentRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("picker-preferences-corrupt-\(UUID().uuidString)", isDirectory: true)
+        let log = DiagnosticLog(capacity: 8)
+        let (events, continuation) = AsyncStream<DiagnosticEvent>.makeStream()
+        log.setEventTap { continuation.yield($0) }
+        defer {
+            log.setEventTap(nil)
+            continuation.finish()
+        }
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { try? FileManager.default.removeItem(at: attachmentRoot) }
+        let store = UserDefaultsMobileTaskTemplateStore(
+            defaults: defaults,
+            diagnosticLog: log,
+            attachmentFilesRootDirectory: attachmentRoot
+        )
+        let pairingID = MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "nightly")
+        defaults.set(
+            Data("not-a-picker-payload".utf8),
+            forKey: "cmux.mobile.taskComposer.pickers.v1.\(pairingID)"
+        )
+
+        #expect(store.composerPickerPreferences(macPairingID: pairingID) == nil)
+        var iterator = events.makeAsyncIterator()
+        let event = await iterator.next()
+        #expect(event?.a == DiagnosticAppEventKind.templatePersistenceFailed.rawValue)
+        #expect(event?.b == DiagnosticFailureKind.protocolViolation.rawValue)
+    }
+
     @Test func remembersEveryPickerAcrossRelaunchAndKeepsMacInstancesSeparate() throws {
         let suite = "MobileTaskComposerPickerPreferencesTests.\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
