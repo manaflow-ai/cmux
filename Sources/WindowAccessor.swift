@@ -51,6 +51,9 @@ struct WindowAccessor: NSViewRepresentable {
         let handler = onWindow
         let shouldDedupeByWindow = dedupeByWindow
         let refreshID = refreshID
+        view.onWindowDetached = {
+            coordinator.reset()
+        }
         view.onWindow = { window in
             guard coordinator.shouldInvoke(
                 window: window,
@@ -66,6 +69,11 @@ extension WindowAccessor {
     final class Coordinator {
         private var lastWindowIdentifier: ObjectIdentifier?
         private var lastRefreshID: AnyHashable?
+
+        func reset() {
+            lastWindowIdentifier = nil
+            lastRefreshID = nil
+        }
 
         func shouldInvoke(
             window: NSWindow,
@@ -87,6 +95,7 @@ extension WindowAccessor {
 @MainActor
 final class WindowObservingView: NSView {
     var onWindow: (@MainActor (NSWindow) -> Void)?
+    var onWindowDetached: (@MainActor () -> Void)?
     /// Set only from AppKit's move callback, where the window identity is live.
     /// Keeping the identity avoids forming a weak reference while AppKit is
     /// tearing down an NSKVONotifying window.
@@ -100,7 +109,10 @@ final class WindowObservingView: NSView {
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
-        if let newWindow {
+        if newWindow == nil {
+            trackedWindowIdentifier = nil
+            onWindowDetached?()
+        } else if let newWindow {
             onWindow?(newWindow)
         }
     }
@@ -110,6 +122,8 @@ final class WindowObservingView: NSView {
         trackedWindowIdentifier = window.map { ObjectIdentifier($0) }
         if let window {
             onWindow?(window)
+        } else {
+            onWindowDetached?()
         }
     }
 }

@@ -1959,7 +1959,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var cachedContentSize: NSSize?
     private var lastObservedViewSize: NSSize = .zero
     private var lastAppliedLayoutSnapshot: TitlebarControlsLayoutSnapshot?
-    private weak var observedWindow: NSWindow?
+    private var observedWindowIdentifier: ObjectIdentifier?
     private var windowGeometryObservers: [NSObjectProtocol] = []
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
@@ -2118,9 +2118,10 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     @discardableResult
     private func updateObservedWindowIfNeeded() -> Bool {
         let currentWindow = view.window
-        guard currentWindow !== observedWindow else { return false }
+        let currentWindowIdentifier = currentWindow.map(ObjectIdentifier.init)
+        guard currentWindowIdentifier != observedWindowIdentifier else { return false }
         removeWindowGeometryObservers()
-        observedWindow = currentWindow
+        observedWindowIdentifier = currentWindowIdentifier
         guard let currentWindow else { return true }
         let center = NotificationCenter.default
         windowGeometryObservers = TitlebarWindowGeometryNotifications.names.map { name in

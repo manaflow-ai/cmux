@@ -28,14 +28,21 @@ extension FeedCoordinator {
 }
 
 extension AgentNotificationRegressionTests {
-    private func installDirectDeliveryBinding(_ fixture: Fixture, source: String) {
-        fixture.source.surfaceResumeBindingsByPanelId[fixture.panelId] = SurfaceResumeBindingSnapshot(
+    private func bindingSnapshot(source: String, checkpointId: String) -> SurfaceResumeBindingSnapshot {
+        SurfaceResumeBindingSnapshot(
             name: source,
             kind: source,
             command: "agent resume",
-            checkpointId: "session",
+            checkpointId: checkpointId,
             source: "agent-hook",
             updatedAt: 1
+        )
+    }
+
+    private func installDirectDeliveryBinding(_ fixture: Fixture, source: String) {
+        fixture.source.surfaceResumeBindingsByPanelId[fixture.panelId] = bindingSnapshot(
+            source: source,
+            checkpointId: "session"
         )
     }
 
@@ -81,8 +88,10 @@ extension AgentNotificationRegressionTests {
 
     private func semanticEvent(_ fixture: Fixture, source: String, sequence: Int64 = 1,
                                request: String = "approval", session: String = "session") -> AgentJournalEvent {
-        fixture.source.surfaceResumeBindingsByPanelId[fixture.panelId] = SurfaceResumeBindingSnapshot(
-            name: source, kind: source, command: "agent resume", checkpointId: session, source: "agent-hook", updatedAt: 1)
+        fixture.source.surfaceResumeBindingsByPanelId[fixture.panelId] = bindingSnapshot(
+            source: source,
+            checkpointId: session
+        )
         return AgentJournalEvent(sequence: sequence, committedAtMs: sequence,
             draft: AgentJournalEventDraft(kind: .approvalRequested, occurredAtMs: sequence,
                 source: source, agentKey: source == "claude" ? "claude_code" : source,

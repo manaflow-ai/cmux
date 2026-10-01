@@ -60,6 +60,10 @@ struct AgentNotificationRegressionTests {
         )
         configStore.loadAll()
 
+        let source = manager.addWorkspace(select: true)
+        let destination = manager.addWorkspace(select: false)
+        let panelId = try #require(source.focusedPanelId)
+
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }
         store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
@@ -74,9 +78,6 @@ struct AgentNotificationRegressionTests {
             tabManager: manager,
             cmuxConfigStore: configStore
         )
-        let source = manager.addWorkspace(select: true)
-        let destination = manager.addWorkspace(select: false)
-        let panelId = try #require(source.focusedPanelId)
 
         return Fixture(
             store: store,

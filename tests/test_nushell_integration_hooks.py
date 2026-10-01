@@ -38,6 +38,7 @@ CI can never silently skip.
 from __future__ import annotations
 
 import os
+import signal
 import shutil
 import socket
 import subprocess
@@ -321,9 +322,27 @@ def test_nushell_integration_background_sends_deliver() -> None:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            start_new_session=True,
         )
         delivered = collector.wait_for(expected_lines, timeout=5.0)
-        stdout, stderr = process.communicate(input="\n", timeout=30)
+        try:
+            stdout, stderr = process.communicate(input="\n", timeout=30)
+        except subprocess.TimeoutExpired:
+            # Nushell can leave spawned jobs holding the pipes open. Kill the
+            # whole process group so a timed-out test cannot leak shell work.
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                stdout, stderr = process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                stdout, stderr = process.communicate()
+            raise
         proc = subprocess.CompletedProcess(
             args=process.args,
             returncode=process.returncode,
