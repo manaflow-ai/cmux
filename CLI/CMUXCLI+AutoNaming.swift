@@ -324,12 +324,6 @@ struct TmuxCompatParsedArguments: Equatable, Sendable {
 }
 
 enum TmuxCompatArgumentParser {
-    struct ArgumentError: Error, LocalizedError, Equatable, Sendable {
-        let message: String
-
-        var errorDescription: String? { message }
-    }
-
     private struct ScanResult {
         var values: [String: String] = [:]
         var flags: Set<String> = []
@@ -406,8 +400,8 @@ enum TmuxCompatArgumentParser {
         )
     }
 
-    private static func invalid(_ message: String) -> ArgumentError {
-        ArgumentError(message: message)
+    private static func invalid(_ message: String) -> TmuxCompatArgumentError {
+        TmuxCompatArgumentError(message: message)
     }
 
     private static func scan(
