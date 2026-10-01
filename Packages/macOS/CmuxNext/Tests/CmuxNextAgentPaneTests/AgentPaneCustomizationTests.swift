@@ -19,7 +19,7 @@ import Testing
     /// Runs `customization`'s scripts, each on its own like
     /// `evaluateJavaScript`, against a stand-in page that records what
     /// reached its registry and bridge.
-    private func run(_ customization: AgentPaneCustomization) throws -> [String] {
+    private func run(_ customization: AgentPaneCustomization, times: Int = 1) throws -> [String] {
         let context = try #require(JSContext())
         context.evaluateScript("""
         var window = this;
@@ -27,8 +27,10 @@ import Testing
         window.cmuxAcpmuxRegistry = { register: function (kind) { calls.push("register:" + kind); } };
         window.cmuxAcpmuxBridge = { applyCustomization: function (value) { calls.push("apply:" + JSON.stringify(value)); } };
         """)
-        for script in customization.scripts() {
-            context.evaluateScript(script)
+        for _ in 0..<times {
+            for script in customization.scripts() {
+                context.evaluateScript(script)
+            }
         }
         return (context.objectForKeyedSubscript("calls").toArray() ?? []).compactMap { $0 as? String }
     }
@@ -73,6 +75,20 @@ import Testing
     @Test func scriptRunsRegistryBeforeApplyCustomization() throws {
         let customization = AgentPaneCustomization(themeCSS: "a {}", registryJS: registry)
         #expect(try run(customization) == ["register:message", #"apply:{"themeCSS":"a {}","layout":{}}"#])
+    }
+
+    /// The pane replays the customization on every load, handshake and file
+    /// change, so a `registry.js` with top-level declarations must run again
+    /// in the same page.
+    @Test func registryWithDeclarationsReplaysInTheSamePage() throws {
+        let declaring = """
+        const registry = window.cmuxAcpmuxRegistry;
+        class Row {}
+        registry.register("message");
+        """
+        let customization = AgentPaneCustomization(registryJS: declaring)
+        let apply = #"apply:{"themeCSS":"","layout":{}}"#
+        #expect(try run(customization, times: 2) == ["register:message", apply, "register:message", apply])
     }
 
     @Test func aBrokenRegistryStillAppliesTheTheme() throws {
