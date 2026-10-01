@@ -12,11 +12,23 @@ public struct CloudVMHTTPError: Error, CustomStringConvertible, Equatable, Senda
     public let displayText: String
 
     public init(status: Int, body: String, retryAfterHeader: String? = nil) {
-        let object = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any] ?? [:]
-        self.init(status: status, object: object, body: body, retryAfterHeader: retryAfterHeader)
+        let decoded = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any]
+        self.init(
+            status: status,
+            object: decoded ?? [:],
+            body: body,
+            bodyWasDecoded: decoded != nil,
+            retryAfterHeader: retryAfterHeader
+        )
     }
 
-    private init(status: Int, object: [String: Any], body: String, retryAfterHeader: String?) {
+    private init(
+        status: Int,
+        object: [String: Any],
+        body: String,
+        bodyWasDecoded: Bool,
+        retryAfterHeader: String?
+    ) {
         let ui = object["ui"] as? [String: Any]
         self.status = status
         self.code = cloudVMString(object["error"]) ?? "http_\(status)"
@@ -28,7 +40,9 @@ public struct CloudVMHTTPError: Error, CustomStringConvertible, Equatable, Senda
         self.phase = cloudVMString(object["phase"]) ?? cloudVMString(ui?["phase"])
         self.traceId = cloudVMString(object["traceId"])
             ?? cloudVMString(ui?["traceId"])
-        self.displayText = formattedCloudVMHTTPError(status: status, object: object)
+        self.displayText = bodyWasDecoded
+            ? formattedCloudVMHTTPError(status: status, object: object)
+            : formattedCloudVMHTTPError(status: status, body: body)
     }
 
     public var description: String { displayText }
