@@ -69,6 +69,7 @@ def check_runs() -> list[Mapping[str, Any]]:
 
 def main() -> int:
     skip = "false"
+    verdict = "unavailable"
     for attempt in range(POLL_COUNT):
         try:
             state = completed_state(check_runs())
@@ -78,15 +79,28 @@ def main() -> int:
         except (OSError, ValueError, urllib.error.HTTPError):
             state = None
         if state is not None:
-            skip = "true" if state == "success" else "false"
+            # The independent workflow is authoritative once it has settled.
+            # A failed check must be propagated by the caller rather than
+            # rerunning the same guard suite on a second runner. Keep the
+            # duplicate suite as a fallback only while the check is missing or
+            # still pending.
+            skip = "true"
+            verdict = state
             break
         if attempt < POLL_COUNT - 1:
             time.sleep(POLL_SECONDS)
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
         output.write("skip=%s\n" % skip)
+        output.write("state=%s\n" % verdict)
     print(
         "CI fast guards: %s"
-        % ("success; duplicate ci group skipped" if skip == "true" else "unavailable or failed; running ci group")
+        % (
+            "success; duplicate ci group skipped"
+            if verdict == "success"
+            else "failure; duplicate ci group skipped"
+            if verdict == "failure"
+            else "unavailable; running ci group"
+        )
     )
     return 0
 
