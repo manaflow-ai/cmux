@@ -22,6 +22,8 @@ public enum ControlSurfaceCloseResolution: Sendable, Equatable {
     /// The workspace has only one surface left (legacy `invalid_state` / "Cannot
     /// close the last surface").
     case lastSurface
+    /// The surface has a live foreground process and requires `force`.
+    case confirmationRequired(UUID)
     /// The close call failed (legacy `internal_error` / "Failed to close surface",
     /// `data: {"surface_id": …}`). Carries the surface id.
     case closeFailed(UUID)

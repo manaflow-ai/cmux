@@ -1,7 +1,39 @@
+import CMUXAgentLaunch
 import XCTest
 import Darwin
 
 final class OpenCodeHookRegressionTests: XCTestCase {
+    func testOpenCodePathOverridesFollowEnvironment() {
+        let environment = [
+            "HOME": "/tmp/home",
+            "XDG_CONFIG_HOME": "/tmp/xdg-config",
+            "XDG_DATA_HOME": "/tmp/xdg-data",
+            "OPENCODE_CONFIG_DIR": "~/custom-config",
+            "OPENCODE_DB": "~/custom.sqlite"
+        ]
+
+        XCTAssertEqual(OpenCodePaths(environment: environment).configDirectory.path, "/tmp/home/custom-config")
+        XCTAssertEqual(OpenCodePaths(environment: environment).databaseURL.path, "/tmp/home/custom.sqlite")
+    }
+
+    func testOpenCodePathResolutionUsesXDGLocations() {
+        let environment = [
+            "HOME": "/tmp/home",
+            "XDG_CONFIG_HOME": "~/xdg-config",
+            "XDG_DATA_HOME": "~/xdg-data"
+        ]
+
+        XCTAssertEqual(OpenCodePaths(environment: environment).configDirectory.path, "/tmp/home/xdg-config/opencode")
+        XCTAssertEqual(OpenCodePaths(environment: environment).databaseURL.path, "/tmp/home/xdg-data/opencode/opencode.db")
+    }
+
+    func testOpenCodePathResolutionKeepsLegacyDefaults() {
+        let environment = ["HOME": "/tmp/home"]
+
+        XCTAssertEqual(OpenCodePaths(environment: environment).configDirectory.path, "/tmp/home/.config/opencode")
+        XCTAssertEqual(OpenCodePaths(environment: environment).databaseURL.path, "/tmp/home/.local/share/opencode/opencode.db")
+    }
+
     private struct ProcessRunResult {
         let status: Int32
         let stdout: String
@@ -11,7 +43,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
 
     func testOpenCodeFeedPluginEmitsCompletionForBothIdleEventShapes() throws {
         let fileManager = FileManager.default
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let pluginURL = repoRoot.appendingPathComponent("Resources/opencode-plugin.js", isDirectory: false)

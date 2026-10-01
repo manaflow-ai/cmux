@@ -153,7 +153,9 @@ is not automatically a safely isolated test runtime. A plain `xcodebuild test` o
 your everyday desktop can launch/focus the app under test. UI tests also need a
 logged-in GUI session and any permissions or display setup their fixture requires.
 If that environment is unavailable, report the missing runtime check and ask a
-maintainer to run the exact selected test on your pushed revision.
+maintainer to run the exact selected test on your pushed revision. That is not a
+reason to hold back the pull request: CI runs the app-host suites your diff
+touches once it is open.
 
 ### Maintainer option: dispatch a selected test
 

@@ -53,21 +53,30 @@ struct CLIExplicitSurfaceRoutingTests {
             ["open-notification", "--id", "n", "--typo"],
             ["clear-notifications", "--workspace", "Work", "--typo"],
         ]
-
         for (index, arguments) in cases.enumerated() {
-            let execution = try runMockCommand(
-                arguments: arguments,
-                socketName: "notify-invalid-\(index)"
-            ) { line in
+            let execution = try runMockCommand(arguments: arguments, socketName: "notify-invalid-\(index)") { line in
                 Self.malformedRequestResponse(raw: line)
             }
-
             #expect(!execution.result.timedOut, Comment(rawValue: execution.result.stderr))
-            #expect(
-                execution.result.status != 0,
-                Comment(rawValue: execution.result.stderr + execution.result.stdout)
-            )
+            #expect(execution.result.status != 0, Comment(rawValue: execution.result.stderr + execution.result.stdout))
             #expect(try execution.state.requestObjects().isEmpty)
+        }
+    }
+
+    @Test func sendKeyCommandsRejectExtraArgumentsWithoutSocketRequest() throws {
+        let cases: [[String]] = [
+            ["send-key", "--surface", Self.targetSurfaceRef, "ctrl+c", "enter"],
+            ["send-key-panel", "--panel", Self.targetSurfaceRef, "ctrl+c", "enter"],
+        ]
+        for (index, arguments) in cases.enumerated() {
+            let execution = try runMockCommand(arguments: arguments, socketName: "key-arity-\(index)") { line in
+                Self.malformedRequestResponse(raw: line)
+            }
+            let requests = try execution.state.requestObjects()
+            #expect(requests.isEmpty, Comment(rawValue: String(describing: requests)))
+            #expect(!execution.result.timedOut, Comment(rawValue: execution.result.stderr))
+            #expect(execution.result.status != 0, Comment(rawValue: execution.result.stderr + execution.result.stdout))
+            #expect(execution.result.stderr.contains("unexpected arguments"), Comment(rawValue: execution.result.stderr))
         }
     }
 
@@ -279,7 +288,9 @@ struct CLIExplicitSurfaceRoutingTests {
             )
         }
 
-        let methods = try execution.state.requestObjects().compactMap { $0["method"] as? String }
+        let methods = try execution.state.requestObjects()
+            .compactMap { $0["method"] as? String }
+            .filter { $0 != "surface.input_state" }
         #expect(methods == [expectedMethod])
         #expect(!execution.result.timedOut, Comment(rawValue: execution.result.stderr))
         #expect(
@@ -552,6 +563,9 @@ struct CLIExplicitSurfaceRoutingTests {
                 ])
             case "surface.send_text", "surface.send_key":
                 return Self.v2Response(id: id, ok: true, result: ["surface_id": Self.targetSurfaceRef])
+            case "surface.input_state":
+                // The draft guard's probe before send and send-key.
+                return Self.v2Response(id: id, ok: true, result: ["state": "empty", "blocks_typing": false])
             default:
                 return Self.v2Response(
                     id: id,
@@ -573,7 +587,14 @@ struct CLIExplicitSurfaceRoutingTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
 
-        let requests = try state.requestObjects()
+        let allRequests = try state.requestObjects()
+        // The draft guard's probe must route to the same explicit surface.
+        for probe in allRequests where probe["method"] as? String == "surface.input_state" {
+            let probeParams = try #require(probe["params"] as? [String: Any])
+            #expect(probeParams["surface_id"] as? String == Self.targetSurfaceRef)
+            #expect(probeParams["workspace_id"] == nil)
+        }
+        let requests = allRequests.filter { $0["method"] as? String != "surface.input_state" }
         #expect(requests.compactMap { $0["method"] as? String } == [expectedMethod])
         let request = try #require(requests.first)
         let params = try #require(request["params"] as? [String: Any])

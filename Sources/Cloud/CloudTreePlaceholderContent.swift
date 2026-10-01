@@ -21,6 +21,13 @@ struct CloudTreePlaceholderContent: View {
                         weight: .regular,
                         tint: Color(nsColor: .secondaryLabelColor)
                     )
+                case .createMachine:
+                    CmuxSystemSymbolImage(
+                        systemName: "plus",
+                        pointSize: max(style.iconSize, 9),
+                        weight: .medium,
+                        tint: Color(nsColor: .secondaryLabelColor)
+                    )
                 case .dimmed:
                     CmuxSystemSymbolImage(
                         systemName: "moon.zzz",

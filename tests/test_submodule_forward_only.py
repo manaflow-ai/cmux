@@ -124,6 +124,18 @@ class SubmoduleForwardOnlyTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("diverged", result.stderr)
 
+    def test_shallow_clone_defers_forward_move_to_github(self) -> None:
+        # CI checks submodules out shallow, so a forward bump's shared history
+        # is missing locally and must not read as divergence.
+        b = self.commit_sub("base subject")
+        c = self.commit_sub("new subject")
+        git("config", "uploadpack.allowAnySHA1InWant", "true", cwd=self.subrepo)
+        shallow = self.root / "shallow"
+        git("clone", "-q", "--depth", "1", f"file://{self.subrepo}", str(shallow), cwd=self.root)
+        git("fetch", "-q", "--depth", "1", "origin", b, cwd=shallow)
+        self.assertEqual(git("rev-parse", "--is-shallow-repository", cwd=shallow), "true")
+        self.assertIsNone(submodule_forward_only.local_relation(str(shallow), b, c))
+
     def test_undecidable_ancestry_fails(self) -> None:
         b = self.commit_sub("unavailable subject")
         self.pointer(b)
@@ -133,6 +145,45 @@ class SubmoduleForwardOnlyTests(unittest.TestCase):
         result = self.run_guard(remove_submodule=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("could not determine ancestry", result.stderr)
+
+    def test_shallow_clone_gap_is_not_divergence(self) -> None:
+        # CI checks submodules out shallowly. When a forward bump spans more
+        # history than the clone holds, both commits exist locally but no
+        # ancestry connects them; the local check must defer to GitHub.
+        self.commit_sub("middle subject")
+        tip = self.commit_sub("tip subject")
+        shallow = self.root / "shallow"
+        git("-c", "protocol.file.allow=always", "clone", "-q", "--depth", "1",
+            f"file://{self.subrepo}", str(shallow), cwd=self.root)
+        git("fetch", "-q", "--depth", "1", "origin", self.a, cwd=shallow)
+        self.assertEqual(git("rev-parse", "--is-shallow-repository", cwd=shallow), "true")
+        self.assertIsNone(submodule_forward_only.local_relation(str(shallow), self.a, tip))
+
+    def shallow_clone(self, name: str, *extra: str) -> Path:
+        clone = self.root / name
+        git("-c", "protocol.file.allow=always", "clone", "-q", "--depth", "1",
+            f"file://{self.subrepo}", str(clone), cwd=self.root)
+        for sha in extra:
+            git("fetch", "-q", "--depth", "1", "origin", sha, cwd=clone)
+        self.assertEqual(git("rev-parse", "--is-shallow-repository", cwd=clone), "true")
+        return clone
+
+    def test_shallow_gap_is_decided_from_fetched_history_when_github_cannot(self) -> None:
+        # The GitHub compare fails whenever the Actions token is out of API
+        # quota. A forward bump whose old pin is deeper than the shallow
+        # clone must then be decided from fetched history, not fail as
+        # undecidable; a backward one must still read as backward.
+        self.commit_sub("middle subject")
+        tip = self.commit_sub("tip subject")
+        forward = self.shallow_clone("shallow-forward", self.a)
+        self.assertIsNone(submodule_forward_only.local_relation(str(forward), self.a, tip))
+        self.assertEqual(submodule_forward_only.deepened_relation(str(forward), self.a, tip), "forward")
+        backward = self.shallow_clone("shallow-backward", self.a)
+        self.assertEqual(submodule_forward_only.deepened_relation(str(backward), tip, self.a), "backward")
+
+    def test_deepening_leaves_a_complete_clone_to_the_local_check(self) -> None:
+        # Only a shallow clone lacks history; a complete one already had its answer.
+        self.assertIsNone(submodule_forward_only.deepened_relation(str(self.subrepo), self.a, self.a))
 
     def test_declared_rollback_passes(self) -> None:
         b = self.commit_sub("intentional rollback")
