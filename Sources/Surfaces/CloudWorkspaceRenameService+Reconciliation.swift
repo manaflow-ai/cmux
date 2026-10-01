@@ -125,6 +125,21 @@ extension CloudWorkspaceRenameService {
                   let tab = state.lookupIndex.tab(id: tabID) else { continue }
             let key = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)
             if let pending = catalog.pendingCloudRenameName(for: key), pending != (tab.name ?? "") { continue }
+            if resource.agent == nil,
+               tab.nameAuthority?.source == .auto,
+               let name = tab.name,
+               !name.isEmpty,
+               workspace.panelCustomTitleSources[projection.panelID] != .user {
+                clearStaleAutomaticTabName(
+                    workspace: workspace,
+                    panelID: projection.panelID,
+                    resource: resource,
+                    tabID: tabID,
+                    name: name,
+                    catalog: catalog
+                )
+                continue
+            }
             guard workspace.panelCustomTitles[projection.panelID] != tab.name else { continue }
             if workspace.panelCustomTitles[projection.panelID] == tab.name,
                workspace.panelCustomTitleSources[projection.panelID] == .user { continue }
@@ -133,5 +148,47 @@ extension CloudWorkspaceRenameService {
             _ = workspace.setPanelCustomTitle(panelId: projection.panelID, title: tab.name, source: .remote,
                                                propagateToRemoteTmux: false, propagateToCloud: false)
         }
+    }
+
+    /// Agent-generated daemon names are durable tab metadata, so an agent end
+    /// event cannot clear them through the local hook state alone. Once the
+    /// accepted graph has no agent for that terminal, remove only automatic
+    /// names and leave explicit user names untouched.
+    @MainActor
+    private func clearStaleAutomaticTabName(
+        workspace: Workspace,
+        panelID: UUID,
+        resource: SurfaceResource,
+        tabID: String,
+        name: String,
+        catalog: SurfaceCatalog
+    ) {
+        let key = CloudRenameCoordinator.Key.tab(machine: resource.machine, id: tabID)
+        guard catalog.pendingCloudRenameName(for: key) == nil,
+              catalog.provider(for: resource.machine) != nil else { return }
+        catalog.enqueueRemoteTabRename(
+            on: resource.machine,
+            id: tabID,
+            name: "",
+            expectedName: name
+        ) { [weak workspace] _ in
+            guard let workspace,
+                  workspace.panelCustomTitles[panelID] == nil,
+                  workspace.panelCustomTitleSources[panelID] == nil else { return }
+            _ = workspace.setPanelCustomTitle(
+                panelId: panelID,
+                title: name,
+                source: .remote,
+                propagateToRemoteTmux: false,
+                propagateToCloud: false
+            )
+        }
+        _ = workspace.setPanelCustomTitle(
+            panelId: panelID,
+            title: nil,
+            source: .remote,
+            propagateToRemoteTmux: false,
+            propagateToCloud: false
+        )
     }
 }

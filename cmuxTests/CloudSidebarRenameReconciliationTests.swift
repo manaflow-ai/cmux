@@ -76,6 +76,44 @@ struct CloudSidebarRenameReconciliationTests {
         try fixture.assertParity("Earlier task")
     }
 
+    @Test("A vanished agent clears its automatic tab title")
+    func vanishedAgentClearsAutomaticTitle() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.close() }
+        #expect(fixture.agentName("Finished task"))
+        try await fixture.drain()
+        fixture.install(try fixture.state(revision: 2, name: "Finished task", nameSource: "auto", includeAgent: true))
+        fixture.reconcile()
+        #expect(fixture.workspace.panelTitle(panelId: fixture.panelID) == "Finished task")
+
+        fixture.install(try fixture.state(revision: 3, name: "Finished task", nameSource: "auto", includeAgent: false))
+        fixture.reconcile()
+        try await fixture.drain()
+
+        #expect(fixture.workspace.panelCustomTitles[fixture.panelID] == nil)
+        #expect(fixture.workspace.panelCustomTitleSources[fixture.panelID] == nil)
+        #expect(fixture.provider.tabRenames == ["Finished task", ""])
+    }
+
+    @Test("A rejected stale-title clear restores the accepted automatic title")
+    func rejectedVanishedAgentClearRestoresTitle() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.close() }
+        #expect(fixture.agentName("Finished task"))
+        try await fixture.drain()
+        fixture.install(try fixture.state(revision: 2, name: "Finished task", nameSource: "auto", includeAgent: true))
+        fixture.reconcile()
+        fixture.provider.beforeMutation = { throw Rejected() }
+
+        fixture.install(try fixture.state(revision: 3, name: "Finished task", nameSource: "auto", includeAgent: false))
+        fixture.reconcile()
+        try await fixture.drain()
+
+        #expect(fixture.workspace.panelTitle(panelId: fixture.panelID) == "Finished task")
+        #expect(fixture.workspace.panelCustomTitleSources[fixture.panelID] == .remote)
+        #expect(fixture.provider.tabRenames == ["Finished task"])
+    }
+
     @Test("A rename rejected after a remote edit converges immediately to that accepted name")
     func failedRenameUsesNewerRemoteName() async throws {
         let fixture = try makeFixture()
