@@ -78,11 +78,16 @@ extension TabContentCache {
         return entry
     }
 
-    /// History wiring of a new page: a tab restored from its record (not
-    /// opened in this process) does not count its reload as a visit, and
-    /// typing `cmux://history` into its address bar shows the history page.
+    /// History wiring of a new page: a reload is not a visit, that is a page
+    /// for a tab its connection found already there (relaunch, daemon
+    /// restart) or a page this process made for the tab before (hibernation
+    /// wake, engine switch). A tab created later, by anyone, records its
+    /// first visit. Typing `cmux://history` into the address bar shows the
+    /// history page.
     func serveAppPages(_ entry: BrowserEntry, key: String) {
-        if let tab = tabModel(key), !browserTabs.openedSurfaces.contains(tab.surface) {
+        guard let services = pageRequests.services else { return }
+        let installedBefore = !services.history.installedPageKeys.insert(key).inserted
+        if let tab = tabModel(key), installedBefore || services.machines.daemon(forTab: tab).store.restoredTabIDs.contains(key) {
             entry.chrome.markRestored(tab.url.flatMap(URL.init(string:)))
         }
         entry.chrome.loadOverride = { [weak self] url in

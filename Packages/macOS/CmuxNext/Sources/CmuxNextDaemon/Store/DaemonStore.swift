@@ -149,7 +149,13 @@ public final class DaemonStore {
         guard !isLoaded else { return }
         applyTree(tree)
         isProvisional = true
+        // Launch snapshot tabs are restored tabs (pages made from them reload).
+        restoredTabIDs = currentTabIDs
         structureChanged()
+    }
+
+    private var currentTabIDs: Set<String> {
+        Set(workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
     }
 
     private func applyTree(_ tree: DaemonTree) {

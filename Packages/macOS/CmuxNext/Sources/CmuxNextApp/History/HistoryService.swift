@@ -14,6 +14,9 @@ final class HistoryService {
     var supportDirectory: URL?
     private var sinks: [BrowserProfileID: BrowserVisitSink] = [:]
     let agents: AgentHistory
+    /// Tabs this process made a page for (a later page for the same tab is
+    /// a reload, not a visit).
+    var installedPageKeys: Set<String> = []
     /// Called after an owner changed (open history pages refresh).
     var onChange: (() -> Void)?
 
