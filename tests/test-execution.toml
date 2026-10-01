@@ -11,6 +11,11 @@
 version = 1
 
 [[test]]
+path = "tests/test_cli_new_window_name.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_omp_auto_naming.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -502,6 +507,10 @@ path = "tests/test_ci_pr_runner_pool.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_simple_pool_picker.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pull_request_caches_are_read_only.py"
 lane = "linux-guard"
 
@@ -551,6 +560,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_run_sources.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_cli_contract_verb_guard.py"
 lane = "linux-guard"
 
 [[test]]
@@ -646,6 +659,14 @@ path = "tests/test_lint_feature_flags_scope.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_feature_flag_review_lead_time.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_feature_flag_review_drift_issue.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_lint_errno_in_test_assertions.py"
 lane = "linux-guard"
 
@@ -699,6 +720,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_review_fabric.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_e2e_backend_scripts.py"
 lane = "linux-guard"
 
 [[test]]
@@ -767,6 +792,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_parallel_artifact_transport.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_process_tree_reaping.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1227,14 +1256,6 @@ path = "tests/test_ci_admission_placement.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_catch_up_pr.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_auto_catch_up_select.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_run_guards.py"
 lane = "linux-guard"
 
@@ -1317,4 +1338,20 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_production_secrets_protected_env.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_submodule_forward_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_manual_dispatch_guard_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_manual_dispatch_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_guard_status.py"
 lane = "linux-guard"

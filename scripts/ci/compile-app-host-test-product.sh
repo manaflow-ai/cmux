@@ -54,6 +54,11 @@ CANONICAL_BUILD_ROOT="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
 # it, so it reaches only these builds. A build database written in one mode
 # reruns every task in the other, so the mode is part of the fingerprint.
 XCBUILD_FILE_SYSTEM_MODE=checksum-only
+# Keep compiler metadata independent of the producer's canonical root. Test
+# fixtures that need source files use cmuxTestSourceURL(), which resolves
+# #fileID against the matching runtime alias because Swift's #filePath literal
+# does not honor -file-prefix-map.
+FILE_PATH_ROOT=/private/tmp/cmux-test-source
 
 fingerprint() {
   local derived_data="$1"
@@ -65,7 +70,7 @@ fingerprint() {
     && [ "${derived_data%/*}" = "$CANONICAL_BUILD_ROOT" ] \
     && [ "${derived_data##*/}" != "" ]; then
     {
-      echo "canonical-v1"
+      echo "canonical-v2"
       xcodebuild -version
       printf 'derived-data=%s\n' "${derived_data##*/}"
       printf 'file-system=%s\n' "$XCBUILD_FILE_SYSTEM_MODE"
@@ -218,6 +223,37 @@ build() {
   if xcode_older_than 26 6; then
     cache_setting+=(CMUX_CI_COMPILATION_CACHE_cmux=NO)
   fi
+  # Owned minis carry the fleet-cas node installed by glaeda. Its settings
+  # select the node's fixed CAS and Unix socket; Blacksmith and unprovisioned
+  # runners simply keep the local CAS path above. The helper is probed once
+  # per build and is advisory, so a down node never refuses a CI job.
+  local -a fleet_cache_setting=()
+  local fleet_cas_root="${CMUX_FLEET_CAS_ROOT:-/Users/Shared/cmux-build-fleet/xcode}"
+  local fleet_cas_settings="${CMUX_FLEET_CAS_SETTINGS:-$fleet_cas_root/bin/fleet-cas-settings.sh}"
+  local fleet_cas_socket="${CMUX_FLEET_CAS_SOCKET:-$fleet_cas_root/fleet-cas.sock}"
+  if [ -x "$fleet_cas_settings" ] && [ -S "$fleet_cas_socket" ]; then
+    local fleet_settings=''
+    fleet_settings="$("$fleet_cas_settings" "$fleet_cas_socket" 2>/dev/null | head -n 8)" || fleet_settings=''
+    local fleet_plugin_ok=0
+    local fleet_remote_ok=0
+    while IFS= read -r setting; do
+      case "$setting" in
+        COMPILATION_CACHE_ENABLE_PLUGIN=YES) fleet_plugin_ok=1 ;;
+        COMPILATION_CACHE_REMOTE_SERVICE_PATH=/*) fleet_remote_ok=1 ;;
+        COMPILATION_CACHE_CAS_PATH=/*) ;;
+      esac
+    done <<< "$fleet_settings"
+    if [ "$fleet_plugin_ok" -eq 1 ] && [ "$fleet_remote_ok" -eq 1 ]; then
+      fleet_cache_setting+=("COMPILATION_CACHE_CAS_PATH=$fleet_cas_root/cas")
+      while IFS= read -r setting; do
+        case "$setting" in
+          COMPILATION_CACHE_ENABLE_PLUGIN=YES|COMPILATION_CACHE_REMOTE_SERVICE_PATH=/*)
+            fleet_cache_setting+=("$setting")
+            ;;
+        esac
+      done <<< "$fleet_settings"
+    fi
+  fi
   # xcodebuild runs under the resolve's fixed environment (see resolve()), but
   # the app's script phases still need the caller's: PATH for cargo, rustup,
   # go and zig (the diff sidecar, wireguard-go, bundled
@@ -254,6 +290,7 @@ build() {
       "${cache_setting[@]}" \
       "COMPILATION_CACHE_CAS_PATH=$cas_path" \
       "COMPILATION_CACHE_LIMIT_SIZE=$cache_limit_bytes" \
+      ${fleet_cache_setting[@]+"${fleet_cache_setting[@]}"} \
       ${module_cache_setting[@]+"${module_cache_setting[@]}"} \
       -showBuildTimingSummary \
       "${actions[$index]}" 2>&1 | tee "$derived_data/$scheme-build.log" | tee -a "$log"

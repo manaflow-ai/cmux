@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "adbfa89de5ea3e4ee601c468ebe23c608b9eb8532e62701776fa0d86a6831300";
+pub const ir_sha256 = "8ccbefc38b900aa140ca7b5d109b5e0f9b0f253901c4a77fe2f304f9059f9cf4";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -899,6 +899,11 @@ pub const ReadScrollbackResult = struct {
     total: u32,
 };
 
+pub const ReattachViewResult = struct {
+    participant: []const u8,
+    state: SizeState,
+};
+
 pub const RenderCursor = struct {
     blink: bool,
     color: wire.Nullable(ColorHex),
@@ -1315,6 +1320,7 @@ pub const SizeMode = enum {
 pub const SizeParticipant = struct {
     counts: bool,
     counts_override: wire.Nullable(bool),
+    device_id: wire.Nullable([]const u8),
     device_kind: SizeDeviceKind,
     device_name: wire.Nullable([]const u8),
     display_name: wire.Nullable([]const u8),
@@ -1380,6 +1386,7 @@ pub const SizeState = struct {
 };
 
 pub const SizingIdentity = struct {
+    device_id: wire.Field([]const u8) = .absent,
     device_kind: wire.Field([]const u8) = .absent,
     device_name: wire.Field([]const u8) = .absent,
     display_name: wire.Field([]const u8) = .absent,
@@ -3360,6 +3367,7 @@ pub fn detachAttachedView(client: anytype, request: DetachAttachedViewRequest) !
 pub const DetachClientRequest = struct {
     by: wire.Field(SizeDetachActor) = .absent,
     client: DetachClientTarget,
+    surface: wire.Field(Id) = .absent,
 };
 
 pub const DetachClientResult = EmptyResult;
@@ -3374,6 +3382,7 @@ pub fn detachClient(client: anytype, request: DetachClientRequest) !wire.Decoded
             .capability = null,
             .fields = &.{
                 .{ .name = "by", .since = 12, .capability = "shared-sizing-v1" },
+                .{ .name = "surface", .since = 12, .capability = "shared-sizing-v1" },
             },
         },
         request,
@@ -4779,6 +4788,24 @@ pub fn readScrollback(client: anytype, request: ReadScrollbackRequest) !wire.Dec
     );
 }
 
+pub const ReattachViewRequest = struct {
+    counts: wire.Field(bool) = .absent,
+    surface: Id,
+};
+
+pub fn reattachView(client: anytype, request: ReattachViewRequest) !wire.Decoded(ReattachViewResult) {
+    return client.callTyped(
+        ReattachViewResult,
+        .{
+            .name = "reattach-view",
+            .authority = "control",
+            .since = 12,
+            .capability = "sizing-view-detach-v1",
+        },
+        request,
+    );
+}
+
 pub const RegisterBrowserProviderRequest = struct {
     authentication: BrowserProviderAuthentication,
     bearer_token: wire.Field([]const u8) = .absent,
@@ -5399,6 +5426,7 @@ pub fn setCellPixels(client: anytype, request: SetCellPixelsRequest) !wire.Decod
 
 pub const SetClientInfoRequest = struct {
     capabilities: wire.Field([]const []const u8) = .absent,
+    device_id: wire.Field([]const u8) = .absent,
     device_kind: wire.Field([]const u8) = .absent,
     device_name: wire.Field([]const u8) = .absent,
     display_name: wire.Field([]const u8) = .absent,
@@ -5418,6 +5446,7 @@ pub fn setClientInfo(client: anytype, request: SetClientInfoRequest) !wire.Decod
             .since = 6,
             .capability = null,
             .fields = &.{
+                .{ .name = "device_id", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "device_kind", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "device_name", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "display_name", .since = 12, .capability = "shared-sizing-v1" },
@@ -6581,12 +6610,14 @@ pub const DetachedEvent = struct {
     by: ?SizeDetachActor = null,
     event: []const u8,
     reason: ?DetachReason = null,
+    scope: ?[]const u8 = null,
     surface: Id,
     view: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "by",
         "reason",
+        "scope",
         "view",
     };
 };
@@ -7449,7 +7480,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 187;
+pub const command_count: usize = 188;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -7563,6 +7594,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "put-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "read-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "read-scrollback", .authority = "control", .since = 7, .capability = null, .stream = null },
+    .{ .name = "reattach-view", .authority = "control", .since = 12, .capability = "sizing-view-detach-v1", .stream = null },
     .{ .name = "register-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "release-attached-view-size", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "release-surface-size", .authority = "control", .since = 7, .capability = null, .stream = null },

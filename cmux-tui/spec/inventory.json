@@ -229,6 +229,7 @@
       "put-session",
       "read-screen",
       "read-scrollback",
+      "reattach-view",
       "release-surface-size",
       "reload-config",
       "remove-screens-from-screen-group",

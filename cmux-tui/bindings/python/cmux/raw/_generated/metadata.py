@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'adbfa89de5ea3e4ee601c468ebe23c608b9eb8532e62701776fa0d86a6831300'
+IR_SHA256 = '8ccbefc38b900aa140ca7b5d109b5e0f9b0f253901c4a77fe2f304f9059f9cf4'
 
 
 @dataclass(frozen=True)
@@ -701,6 +701,7 @@ COMMANDS = {
         {
             'by': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'client': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
     ),
     'export-layout': CommandMetadata(
@@ -1539,6 +1540,18 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'reattach-view': CommandMetadata(
+        'reattach-view',
+        'control',
+        12,
+        'sizing-view-detach-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'counts': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
     'register-browser-provider': CommandMetadata(
         'register-browser-provider',
         'local-admin',
@@ -1917,6 +1930,7 @@ COMMANDS = {
         None,
         {
             'capabilities': CommandFieldMetadata(None, None),
+            'device_id': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'device_kind': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'device_name': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'display_name': CommandFieldMetadata(12, 'shared-sizing-v1'),

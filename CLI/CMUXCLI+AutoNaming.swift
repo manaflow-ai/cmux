@@ -149,6 +149,49 @@ struct AutoNamingEnvironmentPolicy: Sendable {
     /// can produce a title (cmux#9457).
     static let emptyMCPConfigJSON = #"{"mcpServers":{}}"#
 
+    /// OpenCode's `--pure` switch disables external plugins, but its default
+    /// agent still allows built-in tools. Deny every permission for the
+    /// summarizer so transcript text cannot trigger file, shell, MCP, or web
+    /// tools while the provider credentials remain available for the model
+    /// request itself.
+    static let openCodeDenyAllPermissionsJSON = #"{"*":"deny"}"#
+
+    /// A local agent rule is merged after OpenCode's global `agent.build`
+    /// rules, so a user-global allow cannot override the deny-all policy.
+    static let openCodeIsolationConfigJSON = #"{"agent":{"build":{"permission":{"*":"deny"}}}}"#
+
+    /// Returns the provider-capable environment for an isolated OpenCode pass.
+    /// User-selected config paths are removed so only cmux's temporary project
+    /// and the global provider discovery path remain visible.
+    func openCodeSummarizerEnvironment(from env: [String: String]) -> [String: String] {
+        let configOverrideKeys = [
+            "OPENCODE_CONFIG",
+            "OPENCODE_CONFIG_CONTENT",
+            "OPENCODE_CONFIG_DIR",
+            "OPENCODE_PROJECT_CONFIG"
+        ]
+        var selected = summarizerEnvironment(from: env).filter { key, _ in
+            !configOverrideKeys.contains(key)
+        }
+        selected["OPENCODE_DISABLE_PROJECT_CONFIG"] = "1"
+        selected["OPENCODE_CONFIG_CONTENT"] = Self.openCodeIsolationConfigJSON
+        selected["OPENCODE_PERMISSION"] = Self.openCodeDenyAllPermissionsJSON
+        selected["OPENCODE_PURE"] = "1"
+        return selected
+    }
+
+    /// Argument vector for the tool-disabled `opencode run` summarizer call.
+    static func openCodeSummarizerArguments(directory: String, promptPath: String) -> [String] {
+        [
+            "run",
+            "--pure",
+            "--format", "default",
+            "--dir", directory,
+            "--file", promptPath,
+            "Generate a 2-5 word title from the attached conversation excerpt. Output only the title."
+        ]
+    }
+
     /// Argument vector for the tool-disabled `claude -p` summarizer call.
     func claudeSummarizerArguments(from env: [String: String]) -> [String] {
         [
@@ -167,9 +210,11 @@ struct AutoNamingEnvironmentPolicy: Sendable {
 ///
 /// `--ignore-user-config` keeps tools, MCP servers, and rules out of the
 /// summarizer, but it also removes the user's model provider. Re-apply only
-/// the provider selection, its provider table, and the selected model.
+/// the provider selection, its non-secret provider settings, and the selected
+/// model. When the caller supplies a temporary `CODEX_HOME`, the provider
+/// credentials remain in its mode-restricted config file instead of argv.
 struct CodexAutoNamingArguments: Sendable {
-    static func build(configToml: String?) -> [String] {
+    static func build(configToml: String?, usesTemporaryConfig: Bool = false) -> [String] {
         var arguments = [
             "exec",
             "-c", "default_tools_enabled=false",
@@ -180,19 +225,27 @@ struct CodexAutoNamingArguments: Sendable {
             "-c", "shell_environment_policy.inherit=none",
             "--skip-git-repo-check",
             "--ephemeral",
-            "--ignore-user-config",
             "--ignore-rules",
             "--sandbox", "read-only"
         ]
+        if !usesTemporaryConfig {
+            arguments.insert("--ignore-user-config", at: arguments.firstIndex(of: "--ignore-rules")!)
+        }
         guard let configToml else { return arguments }
-        let overrides = providerOverrides(from: configToml)
+        let overrides = providerOverrides(
+            from: configToml,
+            usesTemporaryConfig: usesTemporaryConfig
+        )
         for override in overrides.reversed() {
             arguments.insert(contentsOf: ["-c", override], at: 1)
         }
         return arguments
     }
 
-    private static func providerOverrides(from toml: String) -> [String] {
+    private static func providerOverrides(
+        from toml: String,
+        usesTemporaryConfig: Bool
+    ) -> [String] {
         var model: String?
         var modelProvider: String?
         var providerEntries: [(section: String, key: String, value: String)] = []
@@ -221,8 +274,10 @@ struct CodexAutoNamingArguments: Sendable {
         }
         var result = ["model_provider=\(modelProvider)"]
         if let model { result.append("model=\(model)") }
+        guard !usesTemporaryConfig else { return result }
         result.append(contentsOf: providerEntries
             .filter { $0.section.hasPrefix("model_providers.\(providerName)") }
+            .filter { !isCredentialBearingKey($0.key) }
             .map {
                 let prefix = "model_providers.\(providerName)"
                 let nestedPath = String($0.section.dropFirst(prefix.count))
@@ -233,9 +288,176 @@ struct CodexAutoNamingArguments: Sendable {
         return result
     }
 
+    private static func isCredentialBearingKey(_ key: String) -> Bool {
+        let normalized = key.lowercased().replacingOccurrences(of: "-", with: "_")
+        return normalized.contains("token")
+            || normalized.contains("secret")
+            || normalized.contains("password")
+            || normalized.contains("credential")
+            || normalized.contains("auth")
+            || normalized.contains("api_key")
+            || normalized.contains("apikey")
+            || normalized.hasSuffix("_key")
+            || normalized == "key"
+    }
+
     private static func providerNameFromValue(_ value: String) -> String? {
         guard value.count >= 2, value.first == "\"", value.last == "\"" else { return nil }
         return String(value.dropFirst().dropLast())
+    }
+}
+
+/// Strict argument parsing for the small set of native tmux-compat commands
+/// that perform state-changing actions. The old handlers used `optionValue`
+/// and filtered unknown flags, which made a typo execute against the default
+/// target. Keep this parser pure so the accepted forms and rejection behavior
+/// stay testable without a socket or app process.
+struct TmuxCompatParsedArguments: Equatable, Sendable {
+    let workspace: String?
+    let surface: String?
+    let window: String?
+    let name: String?
+    let bracketed: Bool
+    let printOnly: Bool
+    let commandText: String?
+    let message: String?
+}
+
+enum TmuxCompatArgumentParser {
+    private struct ScanResult {
+        var values: [String: String] = [:]
+        var flags: Set<String> = []
+        var positional: [String] = []
+    }
+
+    static func parseClearHistory(_ args: [String]) throws -> TmuxCompatParsedArguments {
+        let result = try scan(
+            args,
+            command: "clear-history",
+            valueOptions: ["--workspace", "--surface", "--window"],
+            flagOptions: []
+        )
+        guard result.positional.isEmpty else {
+            throw CLIError(message: "clear-history: unexpected arguments: \(result.positional.joined(separator: " "))")
+        }
+        return make(result)
+    }
+
+    static func parsePasteBuffer(_ args: [String]) throws -> TmuxCompatParsedArguments {
+        let result = try scan(
+            args,
+            command: "paste-buffer",
+            valueOptions: ["--workspace", "--surface", "--window", "--name"],
+            flagOptions: ["--bracketed"]
+        )
+        guard result.positional.isEmpty else {
+            throw CLIError(message: "paste-buffer: unexpected arguments: \(result.positional.joined(separator: " "))")
+        }
+        return make(result)
+    }
+
+    static func parseRespawnPane(_ args: [String]) throws -> TmuxCompatParsedArguments {
+        let result = try scan(
+            args,
+            command: "respawn-pane",
+            valueOptions: ["--workspace", "--surface", "--window", "--command"],
+            flagOptions: [],
+            allowsPositional: true
+        )
+        if result.values["--command"] != nil, !result.positional.isEmpty {
+            throw CLIError(message: "respawn-pane: unexpected arguments: \(result.positional.joined(separator: " "))")
+        }
+        let command = result.values["--command"] ?? result.positional.joined(separator: " ")
+        return make(result, commandText: command.isEmpty ? nil : command)
+    }
+
+    static func parseDisplayMessage(_ args: [String]) throws -> TmuxCompatParsedArguments {
+        let result = try scan(
+            args,
+            command: "display-message",
+            valueOptions: [],
+            flagOptions: ["-p", "--print"],
+            allowsPositional: true
+        )
+        let message = result.positional.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        return make(result, message: message.isEmpty ? nil : message)
+    }
+
+    private static func make(
+        _ result: ScanResult,
+        commandText: String? = nil,
+        message: String? = nil
+    ) -> TmuxCompatParsedArguments {
+        TmuxCompatParsedArguments(
+            workspace: result.values["--workspace"],
+            surface: result.values["--surface"],
+            window: result.values["--window"],
+            name: result.values["--name"],
+            bracketed: result.flags.contains("--bracketed"),
+            printOnly: result.flags.contains("-p") || result.flags.contains("--print"),
+            commandText: commandText,
+            message: message
+        )
+    }
+
+    private static func scan(
+        _ args: [String],
+        command: String,
+        valueOptions: Set<String>,
+        flagOptions: Set<String>,
+        allowsPositional: Bool = false
+    ) throws -> ScanResult {
+        var result = ScanResult()
+        var index = 0
+        var terminated = false
+        while index < args.count {
+            let arg = args[index]
+            if terminated {
+                guard allowsPositional else {
+                    throw CLIError(message: "\(command): unexpected argument: \(arg)")
+                }
+                result.positional.append(arg)
+                index += 1
+                continue
+            }
+            if arg == "--" {
+                terminated = true
+                index += 1
+                continue
+            }
+            if let option = valueOptions.first(where: { arg == $0 || arg.hasPrefix("\($0)=") }) {
+                let value: String
+                if arg.hasPrefix("\(option)=") {
+                    value = String(arg.dropFirst(option.count + 1))
+                } else {
+                    guard index + 1 < args.count, args[index + 1] != "--", !args[index + 1].hasPrefix("-") else {
+                        throw CLIError(message: "\(command): \(option) requires a value")
+                    }
+                    value = args[index + 1]
+                    index += 1
+                }
+                guard !value.isEmpty else {
+                    throw CLIError(message: "\(command): \(option) requires a value")
+                }
+                result.values[option] = value
+                index += 1
+                continue
+            }
+            if flagOptions.contains(arg) {
+                result.flags.insert(arg)
+                index += 1
+                continue
+            }
+            if arg.hasPrefix("-") {
+                throw CLIError(message: "\(command): unknown option '\(arg)'")
+            }
+            guard allowsPositional else {
+                throw CLIError(message: "\(command): unexpected argument: \(arg)")
+            }
+            result.positional.append(arg)
+            index += 1
+        }
+        return result
     }
 }
 
@@ -367,12 +589,53 @@ struct AutoNamingEngine: Sendable {
             }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
-            // Codex injects framework context as user messages wrapped in
-            // angle-bracket tags; they describe the harness, not the topic.
-            if trimmed.hasPrefix("<"), trimmed.contains(">") { continue }
+            // Codex injects a small set of framework envelopes as user
+            // messages. Filter only those known wrappers; ordinary HTML-like
+            // conversation text is part of the user's topic.
+            if role == "user", isCodexInjectedContext(trimmed) { continue }
             messages.append(AutoNamingTranscriptMessage(role: role, text: trimmed))
         }
         return messages
+    }
+
+    private func isCodexInjectedContext(_ text: String) -> Bool {
+        if text.hasPrefix("# AGENTS.md instructions for "),
+           text.contains("\n<INSTRUCTIONS>") {
+            return true
+        }
+
+        let tagNames = [
+            "environment_context",
+            "user_instructions",
+            "subagent_notification",
+            "permissions",
+            "collaboration_mode",
+            "turn_aborted"
+        ]
+        return tagNames.contains { tagName in
+            let openPrefix = "<\(tagName)"
+            guard text.hasPrefix(openPrefix), text.count > openPrefix.count else {
+                return false
+            }
+            let openBoundary = text[text.index(text.startIndex, offsetBy: openPrefix.count)]
+            guard openBoundary == ">" || openBoundary.isWhitespace else {
+                return false
+            }
+
+            let closePrefix = "</\(tagName)"
+            guard let closeRange = text.range(of: closePrefix, options: .backwards),
+                  closeRange.upperBound < text.endIndex else {
+                return false
+            }
+            let closeBoundary = text[closeRange.upperBound]
+            guard closeBoundary == ">" || closeBoundary.isWhitespace,
+                  let closeEnd = text[closeRange.upperBound...].firstIndex(of: ">") else {
+                return false
+            }
+            let trailing = text[text.index(after: closeEnd)...]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return trailing.isEmpty
+        }
     }
 
     // MARK: - Transcript extraction (Grok chat_history JSONL)
@@ -540,7 +803,6 @@ struct AutoNamingEngine: Sendable {
         }
         return withoutMetadata.trimmingCharacters(in: .whitespacesAndNewlines)
     }
-
     private func taggedContent(named tag: String, in text: String) -> String? {
         let openTag = "<\(tag)>"
         let closeTag = "</\(tag)>"
@@ -551,7 +813,6 @@ struct AutoNamingEngine: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return body.isEmpty ? nil : body
     }
-
     private func removingTaggedContent(named tag: String, from text: String) -> String {
         let openTag = "<\(tag)>"
         let closeTag = "</\(tag)>"
@@ -563,7 +824,6 @@ struct AutoNamingEngine: Sendable {
         }
         return result
     }
-
     private func firstString(in object: [String: Any], keys: [String]) -> String? {
         for key in keys {
             guard let value = object[key] as? String else { continue }
@@ -572,7 +832,6 @@ struct AutoNamingEngine: Sendable {
         }
         return nil
     }
-
     private func firstText(in object: [String: Any], keys: [String]) -> String? {
         for key in keys {
             guard let text = firstTextValue(object[key]) else { continue }
@@ -580,7 +839,6 @@ struct AutoNamingEngine: Sendable {
         }
         return nil
     }
-
     private func firstTextValue(_ value: Any?) -> String? {
         if let string = value as? String {
             let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -597,7 +855,6 @@ struct AutoNamingEngine: Sendable {
         }
         return nil
     }
-
     private func firstTextBlock(_ value: Any) -> String? {
         if let string = value as? String {
             let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
