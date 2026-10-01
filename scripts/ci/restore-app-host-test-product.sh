@@ -110,22 +110,3 @@ if [ -n "${GITHUB_ENV:-}" ]; then
   echo "CMUX_CI_RUNTIME_SOURCE_ROOT=$CMUX_CI_RUNTIME_SOURCE_ROOT" >> "$GITHUB_ENV"
 fi
 scripts/ci/canonical-build-root.sh --runtime-source "$PWD"
-# Literal #filePath strings (cmuxCLITests, the CLI's dev-resource fallbacks)
-# still name the producer's canonical root: -file-prefix-map does not rewrite
-# them. A consumer that never compiled has no tree there, so alias this
-# checkout at that path when nothing is present. Never replace an existing
-# directory: on an owned Mac it may be a live compile's source tree.
-producer_derived="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("derived", ""))' \
-  "$CMUX_DERIVED_DATA_PATH/Build/Products/cmux-test-products.json" 2>/dev/null || true)"
-case "$producer_derived" in
-  /private/tmp/cmux-ci/derived-data-compile-admission \
-  | /private/tmp/cmux-ci-[0-9]/derived-data-compile-admission \
-  | /private/tmp/cmux-ci-[0-9][0-9]/derived-data-compile-admission)
-    producer_src="${producer_derived%/derived-data-compile-admission}/src"
-    # Absent, or a dangling alias left by a finished job: take it.
-    if [ ! -e "$producer_src" ]; then
-      mkdir -p "${producer_src%/src}"
-      ln -sfn "$PWD" "$producer_src"
-    fi
-    ;;
-esac
