@@ -65,6 +65,8 @@ struct MachineRowActions {
                 presentDeleteConfirmation(id: id, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
             },
             shutdown: { id in
+                // Freestyle's pause is the product's graceful shutdown: it stops compute
+                // billing while preserving memory for a fast, lossless restart.
                 onWillMutate(String(format: String(localized: "machines.operation.shutdown", defaultValue: "Shutting down %@…"), id))
                 if !launch(arguments: ["vm", "pause", id], onDidMutate: onDidMutate) { onDidMutate() }
             },
