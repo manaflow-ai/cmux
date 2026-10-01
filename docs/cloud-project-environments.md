@@ -66,7 +66,7 @@ Setup must be automatic on first contact and deterministic after.
   gates the install). A repo that ships `.cmux/cloud.json` never runs detection:
   what the file says is what happens, on every machine, for every teammate.
   The current slice accepts `setup` and `checks`; setup commands are wrapped in
-  a marker under `$HOME/.cache/cmux/setup/<lockfile-sha256>`, so every warm
+  a marker under `$HOME/.cache/cmux/setup/<remote-scope-sha256>`, so every warm
   machine runs the setup once per lockfile revision. The marker contains no
   credentials or command output. Checks are carried in the recipe for the next
   verification step and are surfaced in `vm dev --json`.

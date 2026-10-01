@@ -134,7 +134,7 @@ extension CMUXCLI {
         // killed owner cannot leave a stale directory that blocks future runs;
         // the marker is checked again after lock acquisition so a waiter never
         // replays a recipe that another owner completed while it was waiting.
-        return "mkdir -p \"\(root)\" && ( flock 9; if [ -f \"\(marker)\" ]; then :; else \(run) && : > \"\(marker)\"; fi ) 9>\"\(lock)\""
+        return "mkdir -p \"\(root)\" && ( flock 9 && if [ -f \"\(marker)\" ]; then :; else \(run) && : > \"\(marker)\"; fi ) 9>\"\(lock)\""
     }
 
     /// Framework → default dev port, decided from the script's words (what the author
