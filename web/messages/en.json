@@ -663,7 +663,8 @@
         "memberReadOnly": "Only team admins can change this plan.",
         "grantedBody": "Team access was granted to {team} by the cmux team. There is no subscription to manage.",
         "seatsUsed": "{members} of {seats} used",
-        "overSeat": "{team} has {members} members and {seats} paid seats. Seats follow the member count, so the subscription updates on its own."
+        "overSeat": "{team} has {members} members and {seats} paid seats. Seats follow the member count, so the subscription updates on its own.",
+        "addSeats": "Add seats"
       },
       "teamList": {
         "heading": "Billing scopes",
@@ -1329,6 +1330,8 @@
         "revoke": "Revoke",
         "linksTitle": "Invite links",
         "linksDescription": "A reusable link anyone can use to join as a member.",
+        "seatNudge": "{used} people are members or invited, but the plan has {seats} seats. Invitations still work; add {over, plural, one {# seat} other {# seats}} to cover everyone.",
+        "seatNudgeAction": "Manage seats",
         "actions": {
           "makeAdmin": "Make admin",
           "makeMember": "Make member",
@@ -3245,13 +3248,14 @@
         "automation": {
           "ampIntegration": "Turns the cmux hooks for Amp on or off. Turning them off leaves the bundled plugin installed but idle.",
           "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry.",
-          "agentAutoResume": "Send `continue` to a cmux-launched agent whose turn ended on a retryable upstream error (model at capacity, overloaded, or connection lost), with backoff. Turns waiting on a human are never resumed.",
           "workspaceAutoNaming": "Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short titles using each agent's own binary; manual renames always win.",
           "autoNamingAgent": "Which agent generates auto-names for every session. \"auto\" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks.",
+          "agentAutoResume": "Send `continue` to a cmux-launched agent whose turn ended on a retryable upstream error (model at capacity, overloaded, or connection lost), with backoff. Turns waiting on a human are never resumed.",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
+          "whatsNew": "How cmux shows what's new after an update. off shows nothing, quiet marks the sidebar help button with a dot until you open the recap, and sheet opens the recap once after the first launch of a new version. Help > What's New in cmux opens it any time.",
           "windowTitleTemplate": "Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "DEBUG-only display name used when opening new windows. An empty value uses the system default.",
           "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs.",
@@ -3320,6 +3324,7 @@
           "compactStatusIcons": "SF Symbol names that replace the compactAgentStatus glyph for each state, for example {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Unset states keep the built-in symbol, and a name that does not render falls back to it.",
           "notificationMessageLineLimit": "Maximum lines shown for the latest notification below each workspace title.",
           "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies.",
+          "showAgentUsage": "Append coding-agent usage to the Claude Code or Codex status entry: model and context window used, plus for Claude Code an estimated API cost (main thread and subagents) at published Anthropic list prices. The cost is an estimate, not your subscription bill; batch/priority tiers, partner pricing, fast mode and server-tool fees are not modelled.",
           "beta": {
             "conversations": {
               "enabled": "Show the unified Conversations view in the sidebar picker."
@@ -7016,22 +7021,6 @@
     "signedOutBody": "A command line application is waiting for you to sign in. Sign in with your cmux account to finish connecting this terminal. If you did not start this request, close this page.",
     "signInButton": "Sign in"
   },
-  "mobile": {
-    "agentFeed": {
-      "fullText": {
-        "seeMore": "See more"
-      },
-      "search": {
-        "placeholder": "Search Feed"
-      },
-      "openWorkspace": "Open workspace",
-      "openTab": "Open tab",
-      "openFailed": {
-        "title": "Couldn’t open event",
-        "message": "The event’s computer, workspace, or tab is no longer available."
-      }
-    }
-  },
   "MobileRelease106": {
     "title": "What's New in 1.0.6",
     "releaseLabel": "1.0.6 · September 2026",
@@ -7063,5 +7052,21 @@
     "invalidTitle": "This invitation is no longer valid",
     "invalidBody": "It expired, was revoked, or was already used. Ask a team admin for a new one.",
     "goToTeams": "Go to your teams"
+  },
+  "mobile": {
+    "agentFeed": {
+      "fullText": {
+        "seeMore": "See more"
+      },
+      "search": {
+        "placeholder": "Search Feed"
+      },
+      "openWorkspace": "Open workspace",
+      "openTab": "Open tab",
+      "openFailed": {
+        "title": "Couldn’t open event",
+        "message": "The event’s computer, workspace, or tab is no longer available."
+      }
+    }
   }
 }
