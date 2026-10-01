@@ -213,18 +213,6 @@ public struct AgentRestorePlanner: Sendable {
             }
         }
         guard !routedArguments.isEmpty else { return nil }
-        // Last, so launcher and wrapper routing never see the prompt. An argv that does not
-        // resume the session in the kind's own form keeps its plain resume.
-        if request.mode == .resumeAgent,
-           let prompt = normalized(request.continuationPrompt),
-           let checkpointID = normalized(request.checkpointID),
-           let prompted = AgentResumeContinuationPrompt(prompt: prompt).applying(
-               to: routedArguments,
-               kind: kind,
-               sessionID: checkpointID
-           ) {
-            routedArguments = prompted
-        }
 
         return AgentRestoreInvocation(
             arguments: routedArguments,
