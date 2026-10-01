@@ -306,8 +306,11 @@ import Testing
         #expect(orderedIndex.representativeID(for: "mac-a") == nightly.id)
         #expect(activeIndex.representativeID(for: nightly.id) == nightly.id)
         #expect(activeIndex.representativeID(for: stable.id) == stable.id)
-        #expect(activeIndex.filterMachineIDs(for: nightly.id) == ["mac-a"])
-        #expect(activeIndex.filterMachineIDs(for: stable.id) == ["mac-a"])
+        // Tagged pairings filter to their own build's rows; the bare device
+        // id stays device-level.
+        #expect(activeIndex.filterMachineIDs(for: nightly.id) == ["mac-a\u{1F}nightly"])
+        #expect(activeIndex.filterMachineIDs(for: stable.id) == ["mac-a\u{1F}stable"])
+        #expect(activeIndex.filterMachineIDs(for: "mac-a") == ["mac-a"])
     }
 
     @Test func composerMenuSelectsExactlyOnePairing() {

@@ -1,6 +1,8 @@
+import AppKit
 import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxMobileRPC
+import CmuxTerminal
 import Foundation
 @preconcurrency import Network
 import Testing
@@ -13,6 +15,63 @@ import Testing
 
 @MainActor
 extension MobileHostAuthorizationTests {
+    @Test("A Mac mirror receives a resized grid even when a render tick is coalesced globally", .timeLimit(.minutes(1)))
+    func macGridResizeSurvivesGlobalRenderUpdate() async throws {
+        let service = MobileHostService.shared
+        service.debugResetMobileLifecycleStateForTesting()
+        let observer = MobileTerminalRenderObserver.shared
+        observer.stop()
+        observer.start()
+        let fixture = TerminalPortalGeometryFixture()
+        defer {
+            observer.stop()
+            service.debugResetMobileLifecycleStateForTesting()
+            fixture.close()
+        }
+        fixture.bind()
+        try await fixture.requireCommit()
+        let before = try #require(fixture.surface.rawSizingSample())
+        let transport = RecordingMobileHostByteTransport()
+        let connectionID = UUID()
+        let session = MobileHostConnection(id: connectionID, transport: transport,
+            authorizeRequest: { _ in nil }, onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) }, onClose: { _ in })
+        let registry = MobileHostConnectionRegistry.shared
+        try #require(registry.insert(session, id: connectionID, authorization: .stackBearer, limit: 4))
+        await session.subscribe(streamID: "mac-resize", topics: ["terminal.updated", "device.terminal.grid"])
+        await drainMobileHostMainQueue()
+
+        fixture.anchor.setFrameSize(NSSize(width: 320, height: 200))
+        fixture.portal.synchronizeHostedViewForAnchor(fixture.anchor)
+        try await fixture.requireCommit()
+        let after = try #require(fixture.surface.rawSizingSample())
+        try #require(after.columns != before.columns || after.rows != before.rows)
+        // A global post-parser tick suppresses named terminal.updated frames.
+        // The Mac geometry channel must still deliver the settled dimensions.
+        NotificationCenter.default.post(name: .ghosttyDidTick, object: nil)
+        await drainMobileHostMainQueue()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        var found = false
+        repeat {
+            let buffers = await transport.waitForSentBufferCount(1)
+            for var buffer in buffers {
+                for data in try MobileSyncFrameCodec.decodeFrames(from: &buffer) {
+                    guard let message = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          message["topic"] as? String == "device.terminal.grid",
+                          let payload = message["payload"] as? [String: Any],
+                          payload["surface_id"] as? String == fixture.surface.id.uuidString,
+                          payload["columns"] as? Int == after.columns,
+                          payload["rows"] as? Int == after.rows else { continue }
+                    found = true
+                }
+            }
+            if !found { await Task.yield() }
+        } while !found && ContinuousClock.now < deadline
+        await session.close(reason: "Mac resize regression complete")
+        registry.remove(id: connectionID)
+        #expect(found, "The live Mac mirror must receive its new grid without reopening or requesting phone render grids")
+    }
+
     @Test func testMobileHostConnectionRunOwnsTransportUntilRemoteClose() async {
         let connectionID = UUID()
         let transport = GatedMobileHostByteTransport()
@@ -126,12 +185,27 @@ extension MobileHostAuthorizationTests {
     }
 
     @Test func testNewestUsableIrohConnectionSupersedesOlderOverlap() async throws {
+        // Readiness requires a nonempty workspace list. Own that workspace
+        // instead of depending on windows left behind by an earlier test.
+        let workspaceFixture = TerminalPortalTestWorkspace()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        workspaceFixture.bind(to: window)
+        defer {
+            workspaceFixture.tearDown()
+            window.close()
+        }
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
-        let registry = MobileHostConnectionRegistry.shared
-        for connection in registry.removeAll() {
-            await connection.close(reason: "test setup")
-        }
+        defer { service.debugResetMobileLifecycleStateForTesting() }
+        // Keep scripted sessions out of the live host registry. Settings
+        // notifications may legitimately stop the app host while this test awaits.
+        let registry = MobileHostConnectionRegistry()
 
         let first = ScriptedMobileHostByteTransport()
         let second = ScriptedMobileHostByteTransport()
@@ -140,10 +214,12 @@ extension MobileHostAuthorizationTests {
             await MobileHostService.acceptTransport(
                 first,
                 authorization: authorization,
+                registry: registry,
                 isCurrent: { true }
             )
         }
-        await waitForMobileHostConnectionCount(1)
+        defer { firstTask.cancel() }
+        await waitForMobileHostConnectionCount(1, in: registry)
         try await first.enqueue(Self.mobileHostStatusFrame(id: "first"))
         _ = await first.waitForSentBufferCount(1)
 
@@ -151,10 +227,12 @@ extension MobileHostAuthorizationTests {
             await MobileHostService.acceptTransport(
                 second,
                 authorization: authorization,
+                registry: registry,
                 isCurrent: { true }
             )
         }
-        await waitForMobileHostConnectionCount(2)
+        defer { secondTask.cancel() }
+        await waitForMobileHostConnectionCount(2, in: registry)
         try await first.enqueue(Self.mobileHostStatusFrame(id: "first-delayed"))
         _ = await first.waitForSentBufferCount(2)
         #expect(registry.count == 2)
@@ -166,13 +244,24 @@ extension MobileHostAuthorizationTests {
         #expect(await first.observedCloseCount() == 0)
 
         try await second.enqueue(Self.mobileHostWorkspaceListFrame(id: "second-workspaces"))
-        _ = await second.waitForSentBufferCount(2)
+        let workspaceResponses = await second.waitForSentBufferCount(2)
+        let workspaceResponse = try #require(workspaceResponses.last)
+        var workspaceResponseBuffer = workspaceResponse
+        let workspaceResponseFrames = try MobileSyncFrameCodec.decodeFrames(from: &workspaceResponseBuffer)
+        let workspaceResponseFrame = try #require(workspaceResponseFrames.first)
+        let workspaceResponseObject = try #require(
+            JSONSerialization.jsonObject(with: workspaceResponseFrame) as? [String: Any]
+        )
+        let workspaceResponsePayload = try #require(workspaceResponseObject["result"] as? [String: Any])
+        let listedWorkspaces = try #require(workspaceResponsePayload["workspaces"] as? [[String: Any]])
+        try #require(listedWorkspaces.contains { $0["id"] as? String == workspaceFixture.id.uuidString })
         #expect(registry.count == 2)
         #expect(await first.observedCloseCount() == 0)
 
         try await second.enqueue(Self.mobileHostTerminalSubscribeFrame(id: "second-events"))
         _ = await second.waitForSentBufferCount(3)
-        await waitForMobileHostConnectionCount(1)
+        await waitForMobileHostConnectionCount(1, in: registry)
+        try #require(registry.count == 1)
         await first.waitForCloseCount(1)
 
         #expect(registry.count == 1)
@@ -186,16 +275,14 @@ extension MobileHostAuthorizationTests {
         for connection in registry.removeAll() {
             await connection.close(reason: "test cleanup")
         }
-        service.debugResetMobileLifecycleStateForTesting()
     }
 
     @Test func testMobileHostTransportStaysOpenWhenIdleAfterAdmission() async throws {
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
-        let registry = MobileHostConnectionRegistry.shared
-        for connection in registry.removeAll() {
-            await connection.close(reason: "test setup")
-        }
+        // Keep scripted sessions out of the live host registry. Settings
+        // notifications may legitimately stop the app host while this test awaits.
+        let registry = MobileHostConnectionRegistry()
         defer {
             service.debugResetMobileLifecycleStateForTesting()
         }
@@ -206,10 +293,11 @@ extension MobileHostAuthorizationTests {
             await MobileHostService.acceptTransport(
                 persistentTransport,
                 authorization: authorization,
+                registry: registry,
                 isCurrent: { true }
             )
         }
-        await waitForMobileHostConnectionCount(1)
+        await waitForMobileHostConnectionCount(1, in: registry)
         try await persistentTransport.enqueue(Self.mobileHostStatusFrame(id: "persistent"))
         let sentAfterFirstStatus = await persistentTransport.waitForSentBufferCount(1).count
         // Exercise a subsequent request without a wall-clock sleep. If the
@@ -230,10 +318,9 @@ extension MobileHostAuthorizationTests {
     @Test func testIrohAdmissionCanWaitForFirstRPCAfterTransportHandshake() async throws {
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
-        let registry = MobileHostConnectionRegistry.shared
-        for connection in registry.removeAll() {
-            await connection.close(reason: "test setup")
-        }
+        // Keep scripted sessions out of the live host registry. Settings
+        // notifications may legitimately stop the app host while this test awaits.
+        let registry = MobileHostConnectionRegistry()
         defer {
             service.debugResetMobileLifecycleStateForTesting()
         }
@@ -244,11 +331,12 @@ extension MobileHostAuthorizationTests {
             await MobileHostService.acceptTransport(
                 transport,
                 authorization: authorization,
+                registry: registry,
                 firstFrameTimeoutNanoseconds: 0,
                 isCurrent: { true }
             )
         }
-        await waitForMobileHostConnectionCount(1)
+        await waitForMobileHostConnectionCount(1, in: registry)
 
         // An unadmitted legacy connection still expires while the admitted
         // Iroh peer waits for the client to create its first RPC owner.
@@ -257,6 +345,7 @@ extension MobileHostAuthorizationTests {
             await MobileHostService.acceptTransport(
                 expiringTransport,
                 authorization: .stackBearer,
+                registry: registry,
                 firstFrameTimeoutNanoseconds: 1_000_000,
                 isCurrent: { true }
             )
@@ -316,6 +405,9 @@ extension MobileHostAuthorizationTests {
         await transport.enqueue(try Self.mobileHostTerminalSubscribeFrame(id: "subscribe"))
         _ = await transport.waitForSentBufferCount(3)
 
+        // Readiness is recorded after the response write; a send-count waiter
+        // may resume before that actor continuation publishes the event.
+        await waitForRetainedUsableSessionEvent()
         let readyEvents = Self.retainedUsableSessionEvents()
         #expect(readyEvents.count == 1)
         let payload = readyEvents.first?["payload"] as? [String: Any]
@@ -463,15 +555,24 @@ extension MobileHostAuthorizationTests {
         }
     }
 
-    private func waitForMobileHostConnectionCount(_ expected: Int) async {
+    private func waitForRetainedUsableSessionEvent() async {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(2))
         while clock.now < deadline {
-            if MobileHostConnectionRegistry.shared.count == expected { return }
+            if !Self.retainedUsableSessionEvents().isEmpty { return }
+            await Task.yield()
+        }
+    }
+
+    private func waitForMobileHostConnectionCount(_ expected: Int, in registry: MobileHostConnectionRegistry) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            if registry.count == expected { return }
             await Task.yield()
         }
         Issue.record(
-            "Timed out waiting for \(expected) mobile host connections; observed \(MobileHostConnectionRegistry.shared.count)"
+            "Timed out waiting for \(expected) mobile host connections; observed \(registry.count)"
         )
     }
 
@@ -592,6 +693,11 @@ extension MobileHostAuthorizationTests {
                 return nil
             },
             onAuthorizedRequest: { request in
+                guard request.id as? String == "first" else { return }
+                // Ensure the second request has entered authorization before
+                // closing, otherwise task scheduling can close the actor before
+                // the second authorization publishes its start signal.
+                try? await secondAuthorizeStarted.wait()
                 await requestRecorder.record(request)
                 await sessionBox.close(reason: "test close after first batched frame")
                 firstRecorded.fulfill()

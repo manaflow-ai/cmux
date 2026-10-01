@@ -1,9 +1,39 @@
 import Testing
+import Darwin
 
 @Suite struct CLIChildEnvironmentTests {
     @Test
+    func immediateChildExitIsObservedWithoutAWaitWorker() {
+        let result = CLINotifyProcessIntegrationRegressionTests.runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "printf ready; printf diagnostic >&2; exit 0"],
+            environment: ["PATH": "/usr/bin:/bin"],
+            timeout: 2
+        )
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        #expect(result.stdout == "ready")
+        #expect(result.stderr == "diagnostic")
+    }
+
+    @Test
+    func runningChildIsTerminatedAtTheDeadline() {
+        let result = CLINotifyProcessIntegrationRegressionTests.runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "printf ready; exec /bin/sleep 30"],
+            environment: ["PATH": "/usr/bin:/bin"],
+            timeout: 0.5
+        )
+        #expect(result.timedOut)
+        #expect(result.status == SIGTERM || result.status == SIGKILL)
+        #expect(result.stdout == "ready")
+    }
+
+    @Test
     func scrubbedChildStillGetsItsOwnConfigurationRoots() {
-        let normalizer = CLIChildEnvironment(appHostEnvironment: ["CMUX_APP_HOST_ISOLATION_REQUIRED": "1"])
+        let normalizer = CLIChildEnvironment(
+            appHostEnvironment: ["HOME": "/tmp/app-host", "CFFIXED_USER_HOME": "/tmp/app-host"]
+        )
         let child = normalizer.normalizing([
             "HOME": "/tmp/cli-fixture",
             "CFFIXED_USER_HOME": "/tmp/shared-app-host",
@@ -15,6 +45,18 @@ import Testing
     }
 
     @Test
+    func anUnpinnedHostLeavesTheChildAlone() {
+        // A stray CFFIXED_USER_HOME that does not match HOME is a developer's
+        // machine, not an isolated lane: rewriting the child's roots there
+        // would move a real person's configuration.
+        let normalizer = CLIChildEnvironment(
+            appHostEnvironment: ["HOME": "/Users/dev", "CFFIXED_USER_HOME": "/tmp/stray"]
+        )
+        let child = ["HOME": "/tmp/cli-fixture", "CFFIXED_USER_HOME": "/tmp/explicit"]
+        #expect(normalizer.normalizing(child) == child)
+    }
+
+    @Test
     func localRunsPreserveExplicitConfigurationRoots() {
         let child = ["HOME": "/tmp/local", "CFFIXED_USER_HOME": "/tmp/explicit"]
         #expect(CLIChildEnvironment(appHostEnvironment: [:]).normalizing(child) == child)
@@ -22,7 +64,9 @@ import Testing
 
     @Test(arguments: ["", "  "])
     func missingChildHomeDoesNotInventAConfigurationRoot(home: String) {
-        let normalizer = CLIChildEnvironment(appHostEnvironment: ["CMUX_APP_HOST_ISOLATION_REQUIRED": "1"])
+        let normalizer = CLIChildEnvironment(
+            appHostEnvironment: ["HOME": "/tmp/app-host", "CFFIXED_USER_HOME": "/tmp/app-host"]
+        )
         let child = ["HOME": home, "CFFIXED_USER_HOME": "/tmp/app-host"]
         #expect(normalizer.normalizing(child) == child)
     }

@@ -34,7 +34,7 @@ class FakeResponse:
 
 requests = []
 
-def fake_urlopen(request):
+def fake_urlopen(request, timeout=None):
     requests.append((request.get_method(), request.full_url))
     if request.get_method() == "DELETE":
         return FakeResponse(b"")

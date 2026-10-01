@@ -9,7 +9,7 @@ enum CloudTreeDragRegistration {
     case projection(UUID, TabDragTransferRegistration, TabDragTransferRegistry)
 
     init?(node: CloudTreeNode, registry: TabDragTransferRegistry?) {
-        if node.canOrganize && !node.isDragSource {
+        if (node.canOrganize || node.canReorderMachine) && !node.isDragSource {
             self = .organization(UUID())
             return
         }

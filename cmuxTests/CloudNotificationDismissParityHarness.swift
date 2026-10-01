@@ -1,4 +1,6 @@
+import CmuxCloud
 import AppKit
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -53,6 +55,7 @@ final class CloudNotificationDismissParityHarness {
         let originalStore = appDelegate.notificationStore
         let originalFocus = AppFocusState.overrideIsFocused
         let originalObserver = store.readTargetObserver
+        let originalReadNotificationObserver = store.readNotificationObserver
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }
         store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
@@ -66,6 +69,7 @@ final class CloudNotificationDismissParityHarness {
             store.resetNotificationDeliveryHandlerForTesting()
             store.resetSuppressedNotificationFeedbackHandlerForTesting()
             store.readTargetObserver = originalObserver
+            store.readNotificationObserver = originalReadNotificationObserver
             appDelegate.tabManager = originalTabManager
             appDelegate.notificationStore = originalStore
             AppDelegate.shared = originalAppDelegate
@@ -173,6 +177,7 @@ final class CloudNotificationDismissParityHarness {
         )
         let delivery = CloudNotificationLocalDelivery(
             machineID: machine.rawValue,
+            origin: .cloudVM(machineID: machine.rawValue),
             store: { [store] in store },
             admit: { [hub, machine] in hub.admit($0, machineID: machine.rawValue) },
             machineName: { "Fixture" },

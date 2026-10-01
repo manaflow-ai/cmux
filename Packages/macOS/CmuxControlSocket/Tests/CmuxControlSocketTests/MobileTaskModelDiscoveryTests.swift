@@ -25,6 +25,21 @@ private actor MobileTaskModelDiscoveryProbe {
 
 @Suite("Mobile task model discovery cache")
 struct MobileTaskModelDiscoveryTests {
+    @Test func failedDiscoveryIsNotCachedBeforeTheNextAttempt() async {
+        let probe = FailedThenRecoveredTaskModelProbe()
+        let discovery = MobileTaskModelDiscovery(strategy: MobileTaskModelProviderStrategy(
+            homeDirectory: URL(fileURLWithPath: "/Users/tester"),
+            commandRunner: { command, _ in await probe.run(command) },
+            fileReader: { _ in nil }
+        ))
+        let failed = await discovery.models(for: .openCode)
+        let recovered = await discovery.models(for: .openCode)
+        #expect(failed.error == .queryFailed)
+        #expect(recovered.models.first?.id == "opencode/recovered")
+        #expect(recovered.error == nil)
+        #expect(await probe.requests == 2)
+    }
+
     @Test func cacheUsesInjectedClockAndExpiresAfterTenMinutes() async {
         let probe = MobileTaskModelDiscoveryProbe()
         let strategy = MobileTaskModelProviderStrategy(

@@ -437,6 +437,14 @@ pub(crate) fn public_terminal_snapshot(
         "running": durable.lifecycle == TerminalLifecycle::Running,
         "lifecycle": lifecycle,
     });
+    if let Some(surface) = surface
+        && let Ok(revision) = surface.terminal_stream_revision()
+    {
+        // This is a coalesced output revision, not the resource revision. It
+        // lets external observers skip a full screen read when the PTY did
+        // not change.
+        terminal["stream_revision"] = json!(revision.to_string());
+    }
     if let Some(cwd) = surface.and_then(crate::Surface::presented_directory) {
         terminal["cwd"] = json!(cwd);
     }
@@ -1094,7 +1102,9 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn cloud_cwd_live_osc7_reaches_snapshot_and_event_feed() {
-        let mux = Mux::new_for_test(
+        // `Mux::new_for_test` surfaces never run their command, so these OSC 7
+        // tests need the real local PTY runtime.
+        let mux = Mux::new(
             "cloud-cwd-osc",
             SurfaceOptions {
                 command: Some(vec![
@@ -1131,7 +1141,7 @@ mod tests {
         // A shell that reports a directory and later reports none (an empty
         // OSC 7, as when it leaves the host it described) must clear the
         // published cwd through the same incremental parser path.
-        let mux = Mux::new_for_test(
+        let mux = Mux::new(
             "cloud-cwd-osc-clear",
             SurfaceOptions {
                 command: Some(vec![

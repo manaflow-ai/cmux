@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import CmuxCloudMachines
 
@@ -21,8 +22,9 @@ struct MachineCreateRequest: Equatable {
     /// an optimistic terminal presentation. A fresh workspace gives explicit
     /// creates distinct idempotency scopes while a retry keeps the same scope.
     let reservedWorkspaceID: UUID?
-    /// Whether completion may select the created workspace. New Machine uses
-    /// background presentation, so this stays false and user navigation wins.
+    /// Whether completion may select the created workspace. Optimistic New
+    /// Machine presentation selects its reserved workspace immediately and
+    /// leaves this false so later network callbacks never steal focus.
     let selectsCreatedWorkspace: Bool
 
     init(

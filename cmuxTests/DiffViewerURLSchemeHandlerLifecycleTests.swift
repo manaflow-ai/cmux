@@ -135,6 +135,79 @@ struct DiffViewerURLSchemeHandlerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func streamRefreshesManifestWhenTypedSessionAddsPatch() async throws {
+        let token = UUID().uuidString.lowercased()
+        let trustedRoot = CmuxDiffViewerSessionPreparer.defaultTrustedRootURL
+        let fixtureRoot = trustedRoot
+            .appendingPathComponent("typed-session-refresh-\(UUID().uuidString)", isDirectory: true)
+        let pageURL = fixtureRoot.appendingPathComponent("viewer.html", isDirectory: false)
+        let patchURL = fixtureRoot.appendingPathComponent("diff-session-\(UUID().uuidString).patch", isDirectory: false)
+        let manifestURL = trustedRoot.appendingPathComponent(".manifest-\(token).json", isDirectory: false)
+        let leaseURL = trustedRoot.appendingPathComponent(".session-lease-\(token).lock", isDirectory: false)
+        let pagePath = "/viewer.html"
+        let patchPath = "/\(patchURL.lastPathComponent)"
+        let patch = "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+new\n"
+        try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
+        try Data("<!doctype html><title>viewer</title>".utf8).write(to: pageURL, options: .atomic)
+        try Data(patch.utf8).write(to: patchURL, options: .atomic)
+        defer {
+            try? FileManager.default.removeItem(at: leaseURL)
+            try? FileManager.default.removeItem(at: manifestURL)
+            try? FileManager.default.removeItem(at: fixtureRoot)
+        }
+
+        func manifestFiles(_ includePatch: Bool) -> [[String: String]] {
+            var files: [[String: String]] = [[
+                "request_path": pagePath,
+                "file_path": pageURL.path,
+                "mime_type": "text/html",
+            ]]
+            if includePatch {
+                files.append([
+                    "request_path": patchPath,
+                    "file_path": patchURL.path,
+                    "mime_type": "text/x-diff",
+                ])
+            }
+            return files
+        }
+
+        try JSONSerialization.data(withJSONObject: [
+            "token": token,
+            "files": manifestFiles(false),
+        ]).write(to: manifestURL, options: .atomic)
+
+        let handler = CmuxDiffViewerURLSchemeHandler()
+        try await handler.register(
+            token: token,
+            files: [
+                .init(requestPath: pagePath, fileURL: pageURL, mimeType: "text/html"),
+            ]
+        )
+        let patchViewerURL = try #require(URL(
+            string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)\(patchPath)"
+        ))
+        #expect(handler.registeredFile(for: patchViewerURL) == nil)
+
+        try JSONSerialization.data(withJSONObject: [
+            "token": token,
+            "files": manifestFiles(true),
+        ]).write(to: manifestURL, options: .atomic)
+
+        let schemeTask = DiffViewerRecordingSchemeTask(request: URLRequest(url: patchViewerURL))
+        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        handler.webView(webView, start: schemeTask)
+
+        var callbacks: [DiffViewerRecordingSchemeTask.Callback] = []
+        for await callback in schemeTask.callbacks {
+            callbacks.append(callback)
+        }
+        let body = callbacks.compactMap(\.data).reduce(into: Data()) { $0.append($1) }
+        #expect(callbacks.map(\.kind) == [.response, .data, .finish])
+        #expect(body == Data(patch.utf8))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func concurrentCompressedStreamsRemainCorrectAndMainThreadBound() async throws {
         let token = UUID().uuidString.lowercased()
         let rootURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
@@ -229,114 +302,116 @@ struct DiffViewerURLSchemeHandlerLifecycleTests {
 
     @Test(.timeLimit(.minutes(1)))
     func deferredBrowserNavigateRefreshesAStaleAllowlist() async throws {
-        let defaults = UserDefaults.standard
-        let browserDisabledKey = BrowserAvailabilitySettings.disabledKey
-        let previousBrowserDisabled = defaults.object(forKey: browserDisabledKey)
-        BrowserAvailabilitySettings.setDisabled(false)
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let defaults = UserDefaults.standard
+            let browserDisabledKey = BrowserAvailabilitySettings.disabledKey
+            let previousBrowserDisabled = defaults.object(forKey: browserDisabledKey)
+            BrowserAvailabilitySettings.setDisabled(false)
 
-        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        TerminalController.shared.setActiveTabManager(manager)
-        defer {
-            TerminalController.shared.setActiveTabManager(previousManager)
-            manager.tabs.forEach { $0.teardownAllPanels() }
-            if let previousBrowserDisabled {
-                defaults.set(previousBrowserDisabled, forKey: browserDisabledKey)
-            } else {
-                defaults.removeObject(forKey: browserDisabledKey)
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            TerminalController.shared.setActiveTabManager(manager)
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                if let previousBrowserDisabled {
+                    defaults.set(previousBrowserDisabled, forKey: browserDisabledKey)
+                } else {
+                    defaults.removeObject(forKey: browserDisabledKey)
+                }
+                NotificationCenter.default.post(
+                    name: BrowserAvailabilitySettings.didChangeNotification,
+                    object: nil
+                )
             }
-            NotificationCenter.default.post(
-                name: BrowserAvailabilitySettings.didChangeNotification,
-                object: nil
+
+            let workspace = try #require(manager.tabs.first)
+            let paneID = try #require(workspace.bonsplitController.allPaneIds.first)
+            let browserPanel = try #require(workspace.newBrowserSurface(
+                inPane: paneID,
+                focus: true,
+                creationPolicy: .restoration
+            ))
+
+            let token = UUID().uuidString.lowercased()
+            let trustedRoot = CmuxDiffViewerSessionPreparer.defaultTrustedRootURL
+            let fixtureRoot = trustedRoot
+                .appendingPathComponent("deferred-navigation-\(UUID().uuidString)", isDirectory: true)
+            let openingURL = fixtureRoot.appendingPathComponent("opening.html", isDirectory: false)
+            let completedURL = fixtureRoot.appendingPathComponent("completed.html", isDirectory: false)
+            let manifestURL = trustedRoot
+                .appendingPathComponent(".manifest-\(token).json", isDirectory: false)
+            let leaseURL = trustedRoot
+                .appendingPathComponent(".session-lease-\(token).lock", isDirectory: false)
+            try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
+            try "<!doctype html><title>opening</title>"
+                .write(to: openingURL, atomically: true, encoding: .utf8)
+            try "<!doctype html><title>completed</title>"
+                .write(to: completedURL, atomically: true, encoding: .utf8)
+            defer {
+                try? FileManager.default.removeItem(at: leaseURL)
+                try? FileManager.default.removeItem(at: manifestURL)
+                try? FileManager.default.removeItem(at: fixtureRoot)
+            }
+
+            let handler = CmuxDiffViewerURLSchemeHandler.shared
+            try await handler.register(
+                token: token,
+                files: [
+                    .init(
+                        requestPath: "/opening.html",
+                        fileURL: openingURL,
+                        mimeType: "text/html"
+                    ),
+                ]
             )
-        }
+            let completedViewerURL = try #require(URL(
+                string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/completed.html"
+            ))
+            #expect(handler.registeredFile(for: completedViewerURL) == nil)
 
-        let workspace = try #require(manager.tabs.first)
-        let paneID = try #require(workspace.bonsplitController.allPaneIds.first)
-        let browserPanel = try #require(workspace.newBrowserSurface(
-            inPane: paneID,
-            focus: true,
-            creationPolicy: .restoration
-        ))
-
-        let token = UUID().uuidString.lowercased()
-        let trustedRoot = CmuxDiffViewerSessionPreparer.defaultTrustedRootURL
-        let fixtureRoot = trustedRoot
-            .appendingPathComponent("deferred-navigation-\(UUID().uuidString)", isDirectory: true)
-        let openingURL = fixtureRoot.appendingPathComponent("opening.html", isDirectory: false)
-        let completedURL = fixtureRoot.appendingPathComponent("completed.html", isDirectory: false)
-        let manifestURL = trustedRoot
-            .appendingPathComponent(".manifest-\(token).json", isDirectory: false)
-        let leaseURL = trustedRoot
-            .appendingPathComponent(".session-lease-\(token).lock", isDirectory: false)
-        try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
-        try "<!doctype html><title>opening</title>"
-            .write(to: openingURL, atomically: true, encoding: .utf8)
-        try "<!doctype html><title>completed</title>"
-            .write(to: completedURL, atomically: true, encoding: .utf8)
-        defer {
-            try? FileManager.default.removeItem(at: leaseURL)
-            try? FileManager.default.removeItem(at: manifestURL)
-            try? FileManager.default.removeItem(at: fixtureRoot)
-        }
-
-        let handler = CmuxDiffViewerURLSchemeHandler.shared
-        try await handler.register(
-            token: token,
-            files: [
-                .init(
-                    requestPath: "/opening.html",
-                    fileURL: openingURL,
-                    mimeType: "text/html"
-                ),
+            let manifest: [String: Any] = [
+                "token": token,
+                "files": [
+                    [
+                        "request_path": "/opening.html",
+                        "file_path": openingURL.path,
+                        "mime_type": "text/html",
+                    ],
+                    [
+                        "request_path": "/completed.html",
+                        "file_path": completedURL.path,
+                        "mime_type": "text/html",
+                    ],
+                ],
             ]
-        )
-        let completedViewerURL = try #require(URL(
-            string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/completed.html"
-        ))
-        #expect(handler.registeredFile(for: completedViewerURL) == nil)
+            try JSONSerialization.data(withJSONObject: manifest)
+                .write(to: manifestURL, options: .atomic)
 
-        let manifest: [String: Any] = [
-            "token": token,
-            "files": [
-                [
-                    "request_path": "/opening.html",
-                    "file_path": openingURL.path,
-                    "mime_type": "text/html",
+            let request: [String: Any] = [
+                "id": "deferred-navigation",
+                "method": "browser.navigate",
+                "params": [
+                    "surface_id": browserPanel.id.uuidString,
+                    "url": completedViewerURL.absoluteString,
                 ],
-                [
-                    "request_path": "/completed.html",
-                    "file_path": completedURL.path,
-                    "mime_type": "text/html",
-                ],
-            ],
-        ]
-        try JSONSerialization.data(withJSONObject: manifest)
-            .write(to: manifestURL, options: .atomic)
-
-        let request: [String: Any] = [
-            "id": "deferred-navigation",
-            "method": "browser.navigate",
-            "params": [
-                "surface_id": browserPanel.id.uuidString,
-                "url": completedViewerURL.absoluteString,
-            ],
-        ]
-        let requestData = try JSONSerialization.data(withJSONObject: request)
-        let requestLine = try #require(String(data: requestData, encoding: .utf8))
-        let controller = TerminalController.shared
-        let rawResponse = await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(returning: controller.handleSocketLine(requestLine))
+            ]
+            let requestData = try JSONSerialization.data(withJSONObject: request)
+            let requestLine = try #require(String(data: requestData, encoding: .utf8))
+            let controller = TerminalController.shared
+            let rawResponse = await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    continuation.resume(returning: controller.handleSocketLine(requestLine))
+                }
             }
-        }
-        let responseData = try #require(rawResponse.data(using: .utf8))
-        let response = try #require(
-            JSONSerialization.jsonObject(with: responseData) as? [String: Any]
-        )
+            let responseData = try #require(rawResponse.data(using: .utf8))
+            let response = try #require(
+                JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+            )
 
-        #expect(response["ok"] as? Bool == true)
-        #expect(handler.registeredFile(for: completedViewerURL) != nil)
+            #expect(response["ok"] as? Bool == true)
+            #expect(handler.registeredFile(for: completedViewerURL) != nil)
+        }
     }
 
     private func makeFixture() async throws -> (

@@ -28,8 +28,8 @@ public struct StackAuthClient: AuthClient {
     ///
     /// - Parameters:
     ///   - config: The resolved auth configuration (project id + publishable key).
-    ///   - tokenStore: Where Stack persists tokens. Pass `.memory` for the
-    ///     simulator DEBUG flow and `.keychain` for real devices/release.
+    ///   - tokenStore: Where Stack persists tokens. App composition selects
+    ///     a store scoped to the installed app and authentication environment.
     ///   - oauthBrowserSessionPrivacy: Whether OAuth may reuse Safari cookies.
     ///   - baseURL: Stack API origin. Defaults to Stack's production API.
     ///   - noAutomaticPrefetch: Disables Stack project prefetch when the host
@@ -56,6 +56,20 @@ public struct StackAuthClient: AuthClient {
 
     public func accessToken() async -> String? {
         await stack.getAccessToken()
+    }
+
+    /// Resolves access with typed cancellation/deadline failures when supported.
+    /// - Parameter forceRefresh: Bypasses the cached token after server rejection.
+    /// - Returns: A usable access token, or `nil` when unavailable.
+    /// - Throws: Cancellation or a classified transient refresh failure.
+    public func resolvedAccessToken(forceRefresh: Bool) async throws -> String? {
+        let pair = await stack.resolvedTokenPair(forceRefresh: forceRefresh)
+        try Task.checkCancellation()
+        switch pair.refreshFailure {
+        case .cancelled, .sessionChanged: throw CancellationError()
+        case .timedOut: throw AuthError.timedOut
+        case nil: return pair.accessToken
+        }
     }
 
     public func refreshToken() async -> String? {

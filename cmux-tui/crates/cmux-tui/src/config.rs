@@ -45,6 +45,14 @@
 //!       "cwd": "/optional"
 //!     }
 //!   },
+//!   "agents": {
+//!     "plugin": {
+//!       "id": "example_agent_screen_detection",
+//!       "command": ["/path/to/agent-plugin"],
+//!       "cwd": "/optional",
+//!       "revision": "sha256-..."
+//!     }
+//!   },
 //!   "machine_sidebar": {
 //!     "enabled": false,
 //!     "width": 22,
@@ -129,7 +137,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::OpenOptions;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::ops::Deref;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
@@ -148,6 +156,10 @@ use cmux_tui_core::{CursorShape, DefaultColors, Rgb};
 use cmux_tui_core::{DEFAULT_SCROLLBACK_LIMIT_BYTES, SurfaceOptions};
 
 const MAX_SCROLLBACK_LIMIT_BYTES: usize = 1_000_000_000;
+/// Bound every JSON config read before parsing it into a dynamic value.
+/// Normal hand-written configs are far smaller, while a damaged or hostile
+/// file must not be allowed to consume unbounded TUI memory.
+pub(crate) const CONFIG_FILE_MAX_BYTES: usize = 4 * 1024 * 1024;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::buffer::CellWidth;
 use ratatui::style::Color;
@@ -178,6 +190,8 @@ struct RawConfig {
     tabs: RawTabs,
     #[serde(default)]
     sidebar: RawSidebar,
+    #[serde(default)]
+    agents: RawAgents,
     #[serde(default)]
     machine_sidebar: RawMachineSidebar,
     #[serde(default)]
@@ -622,6 +636,22 @@ struct RawSidebarPlugin {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawAgents {
+    /// Optional background process that reports generic agent journal events.
+    plugin: Option<RawAgentPlugin>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawAgentPlugin {
+    id: Option<String>,
+    command: Option<Vec<String>>,
+    cwd: Option<String>,
+    revision: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawMachineSidebar {
     enabled: Option<bool>,
     width: Option<u16>,
@@ -1028,6 +1058,13 @@ pub struct Sidebar {
     pub rail_glyph: String,
     /// Workspace row label template with `{index}` and `{name}`.
     pub workspace_label: String,
+}
+
+/// Background agent integrations. The process is optional and runs outside
+/// the core detector. Its events enter through the journal producer API.
+#[derive(Debug, Clone, Default)]
+pub struct Agents {
+    pub plugin: Option<cmux_tui_core::JournalPluginOptions>,
 }
 
 impl Default for Sidebar {
@@ -3056,6 +3093,7 @@ pub struct Config {
     pub chrome: ChromeMode,
     pub tabs: Tabs,
     pub sidebar: Sidebar,
+    pub agents: Agents,
     pub machine_sidebar: MachineSidebar,
     pub machine_provider: MachineProviderConfig,
     pub machines: Vec<MachineConfig>,
@@ -3308,6 +3346,14 @@ pub struct SidebarPluginConfig {
     pub cwd: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentPluginConfig {
+    pub id: String,
+    pub command: Vec<String>,
+    pub cwd: Option<String>,
+    pub revision: Option<String>,
+}
+
 /// Load the config: defaults, overlaid with the user's Ghostty selection
 /// colors, overlaid with `cmux-tui.json` or legacy `mux.json`.
 pub fn load() -> Config {
@@ -3445,13 +3491,11 @@ pub fn load() -> Config {
         }
     }
     if let Some(plugin) = raw.sidebar.plugin {
-        let command = plugin
-            .command
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|arg| !arg.is_empty())
-            .collect::<Vec<_>>();
-        if command.is_empty() {
+        // Preserve every argument after argv[0]. Empty arguments are valid
+        // process arguments, and filtering them would silently change the
+        // command a user configured. Only the executable slot is required.
+        let command = plugin.command.unwrap_or_default();
+        if command.first().is_none_or(|arg| arg.trim().is_empty()) {
             crate::client_log::stderr_log!(
                 "config",
                 "cmux-tui: ignoring sidebar.plugin with empty command"
@@ -3461,6 +3505,39 @@ pub fn load() -> Config {
                 command,
                 cwd: plugin.cwd.filter(|cwd| !cwd.trim().is_empty()),
             });
+        }
+    }
+    if let Some(plugin) = raw.agents.plugin {
+        if let Some(id) = plugin.id {
+            // Do not filter later argv entries. An empty value can be meaningful
+            // to a plugin, while an empty executable must still disable config.
+            let command = plugin.command.unwrap_or_default();
+            if command.first().is_none_or(|arg| arg.trim().is_empty()) {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring agents.plugin with empty command"
+                );
+            } else {
+                let options = cmux_tui_core::JournalPluginOptions {
+                    id,
+                    command,
+                    cwd: plugin.cwd.filter(|cwd| !cwd.trim().is_empty()),
+                    revision: plugin.revision.filter(|revision| !revision.trim().is_empty()),
+                };
+                if let Err(error) = options.validate() {
+                    crate::client_log::stderr_log!(
+                        "config",
+                        "cmux-tui: ignoring invalid agents.plugin: {error}"
+                    );
+                } else {
+                    config.agents.plugin = Some(options);
+                }
+            }
+        } else {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring agents.plugin without an explicit id"
+            );
         }
     }
     if let Some(enabled) = raw.machine_sidebar.enabled {
@@ -4027,7 +4104,7 @@ fn agent_in_title(tabs: &Tabs, title: &str) -> Option<String> {
 
 fn load_raw_config() -> RawConfig {
     let Some(path) = platform::config_path() else { return RawConfig::default() };
-    let Ok(text) = std::fs::read_to_string(&path) else { return RawConfig::default() };
+    let Ok(text) = read_config_text(&path) else { return RawConfig::default() };
     let value: Value = match serde_json::from_str(&text) {
         Ok(value) => value,
         Err(e) => {
@@ -4052,6 +4129,7 @@ fn load_raw_config() -> RawConfig {
         "theme",
         "tabs",
         "sidebar",
+        "agents",
         "machine_sidebar",
         "machine_provider",
         "machines",
@@ -4092,6 +4170,7 @@ fn load_raw_config() -> RawConfig {
     section!(theme, "theme");
     section!(tabs, "tabs");
     section!(sidebar, "sidebar");
+    section!(agents, "agents");
     section!(machine_sidebar, "machine_sidebar");
     section!(machine_provider, "machine_provider");
     section!(machines, "machines");
@@ -4119,6 +4198,27 @@ fn config_diagnostic(error: &serde_json::Error) -> String {
 
 pub fn config_path() -> anyhow::Result<PathBuf> {
     platform::config_path().ok_or_else(|| anyhow::anyhow!("could not resolve mux config path"))
+}
+
+/// Read a UTF-8 file with an explicit byte bound. The extra byte distinguishes
+/// an exact-size file from one that exceeds the limit without allocating an
+/// unbounded buffer.
+pub(crate) fn read_bounded_utf8_file(path: &Path, max_bytes: usize) -> io::Result<String> {
+    let file = std::fs::File::open(path)?;
+    let mut text = String::new();
+    file.take(u64::try_from(max_bytes).unwrap_or(u64::MAX).saturating_add(1))
+        .read_to_string(&mut text)?;
+    if text.len() > max_bytes {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("file exceeds {max_bytes}-byte limit"),
+        ));
+    }
+    Ok(text)
+}
+
+pub(crate) fn read_config_text(path: &Path) -> io::Result<String> {
+    read_bounded_utf8_file(path, CONFIG_FILE_MAX_BYTES)
 }
 
 /// The result of replacing the config file. A committed replacement is a
@@ -4187,12 +4287,58 @@ pub(crate) fn write_sidebar_plugin_at_path(
     write_config_value_atomic(path, &root)
 }
 
+/// Writes the userland agent plugin selection to the configured path.
+pub(crate) fn write_agent_plugin(
+    plugin: Option<&AgentPluginConfig>,
+) -> anyhow::Result<ConfigWriteOutcome> {
+    let path = config_path()?;
+    write_agent_plugin_at_path(&path, plugin)
+}
+
+pub(crate) fn write_agent_plugin_at_path(
+    path: &Path,
+    plugin: Option<&AgentPluginConfig>,
+) -> anyhow::Result<ConfigWriteOutcome> {
+    let mut root = read_config_value(path)?;
+    let Some(root_object) = root.as_object_mut() else {
+        anyhow::bail!("{} must contain a JSON object", path.display());
+    };
+    match plugin {
+        Some(plugin) => {
+            let agents = root_object.entry("agents").or_insert_with(|| json!({}));
+            if !agents.is_object() {
+                *agents = json!({});
+            }
+            let agents_object = agents.as_object_mut().expect("agents was just made an object");
+            let mut plugin_value = json!({
+                "id": &plugin.id,
+                "command": &plugin.command,
+            });
+            if let Some(cwd) = &plugin.cwd {
+                plugin_value["cwd"] = json!(cwd);
+            }
+            if let Some(revision) = &plugin.revision {
+                plugin_value["revision"] = json!(revision);
+            }
+            agents_object.insert("plugin".to_string(), plugin_value);
+        }
+        None => {
+            if let Some(agents) = root_object.get_mut("agents")
+                && let Some(agents_object) = agents.as_object_mut()
+            {
+                agents_object.remove("plugin");
+            }
+        }
+    }
+    write_config_value_atomic(path, &root)
+}
+
 fn read_config_value(path: &Path) -> anyhow::Result<Value> {
-    match std::fs::read_to_string(path) {
+    match read_config_text(path) {
         Ok(text) if text.trim().is_empty() => Ok(json!({})),
         Ok(text) => serde_json::from_str(&text)
             .map_err(|err| anyhow::anyhow!("failed to parse {}: {err}", path.display())),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(json!({})),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(json!({})),
         Err(err) => Err(anyhow::anyhow!("failed to read {}: {err}", path.display())),
     }
 }
@@ -4257,7 +4403,7 @@ fn write_config_value_atomic_with_sync_and_staging(
                 staged = Some((tmp_path, file));
                 break;
             }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error.into()),
         }
     }
@@ -4306,7 +4452,7 @@ fn ensure_config_parent_directory(parent: &Path) -> anyhow::Result<Vec<PathBuf>>
         }
         match std::fs::create_dir(&current) {
             Ok(()) => created_directories.push(current.clone()),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                 if !std::fs::metadata(&current)?.is_dir() {
                     anyhow::bail!(
                         "config parent component {} is not a directory",
@@ -5935,7 +6081,7 @@ mod tests {
                     .join(format!("cmux-tui-config-{label}-{}-{sequence}", std::process::id()));
                 match std::fs::create_dir(&path) {
                     Ok(()) => return Self { path },
-                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
                     Err(error) => panic!("create config test directory failed: {error}"),
                 }
             }
@@ -7378,18 +7524,14 @@ mod tests {
             let descriptor = unsafe { libc::kqueue() };
             #[cfg(target_os = "linux")]
             if descriptor < 0 {
-                let error = std::io::Error::last_os_error();
+                let error = io::Error::last_os_error();
                 if matches!(error.raw_os_error(), Some(libc::ENOSYS) | Some(libc::EPERM)) {
                     return None;
                 }
                 panic!("observe helper child {pid}: {error}");
             }
             #[cfg(target_vendor = "apple")]
-            assert!(
-                descriptor >= 0,
-                "observe helper child {pid}: {}",
-                std::io::Error::last_os_error()
-            );
+            assert!(descriptor >= 0, "observe helper child {pid}: {}", io::Error::last_os_error());
             // SAFETY: pidfd_open and kqueue return a new owned descriptor.
             let descriptor =
                 unsafe { std::os::fd::OwnedFd::from_raw_fd(descriptor as libc::c_int) };
@@ -7419,7 +7561,7 @@ mod tests {
                 assert!(
                     registered >= 0,
                     "register helper child {pid} exit: {}",
-                    std::io::Error::last_os_error()
+                    io::Error::last_os_error()
                 );
             }
 
@@ -7578,7 +7720,7 @@ mod tests {
             command.arg("5").process_group(0);
             let mut child = command.spawn().unwrap();
             println!("{READY_MARKER}{}", child.id());
-            std::io::stdout().flush().unwrap();
+            io::stdout().flush().unwrap();
             let _ = child.wait();
             return;
         }
@@ -7640,7 +7782,7 @@ mod tests {
         if unsafe { libc::kill(pid, 0) } == 0 {
             return true;
         }
-        std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+        io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -7666,8 +7808,7 @@ mod tests {
         }
         assert!(output.len() > 4 * 1024);
 
-        let reader =
-            read_ghostty_helper_output_async(std::io::Cursor::new(output.clone())).unwrap();
+        let reader = read_ghostty_helper_output_async(io::Cursor::new(output.clone())).unwrap();
 
         assert_eq!(reader.wait(), Some(output));
     }
@@ -7676,7 +7817,7 @@ mod tests {
     fn ghostty_config_helper_output_reader_enforces_byte_limit() {
         let output = "x".repeat(GHOSTTY_HELPER_OUTPUT_MAX_BYTES as usize + 1);
 
-        let reader = read_ghostty_helper_output_async(std::io::Cursor::new(output)).unwrap();
+        let reader = read_ghostty_helper_output_async(io::Cursor::new(output)).unwrap();
 
         assert_eq!(reader.wait(), None);
     }
@@ -8107,6 +8248,31 @@ mod tests {
     }
 
     #[test]
+    fn agent_plugin_requires_an_explicit_namespace_id() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_cmux_tui_config = std::env::var_os("CMUX_TUI_CONFIG");
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let directory = TestDirectory::new("agent-plugin-id-required");
+        let path = directory.path.join("mux.json");
+        std::fs::write(&path, r#"{"agents":{"plugin":{"command":["/tmp/agent-plugin"]}}}"#)
+            .unwrap();
+        // SAFETY: environment mutation is serialized by CONFIG_ENV_LOCK.
+        unsafe {
+            std::env::remove_var("CMUX_TUI_CONFIG");
+            std::env::set_var("CMUX_MUX_CONFIG", &path);
+        }
+
+        let config = load();
+
+        restore_env_var("CMUX_TUI_CONFIG", old_cmux_tui_config);
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        assert!(
+            config.agents.plugin.is_none(),
+            "a userland plugin without an explicit producer id must be ignored",
+        );
+    }
+
+    #[test]
     fn zero_static_ssh_port_falls_back_to_the_ssh_default() {
         assert_eq!(normalize_ssh_machine_port("mini", Some(0)), None);
         assert_eq!(normalize_ssh_machine_port("mini", Some(22)), Some(22));
@@ -8210,6 +8376,14 @@ mod tests {
                     "plugin": {
                         "command": ["/tmp/sidebar-plugin", "--mode", "test"],
                         "cwd": "/tmp"
+                    }
+                },
+                "agents": {
+                    "plugin": {
+                        "id": "screen-detector",
+                        "command": ["/tmp/agent-plugin", "", "--mode", "test"],
+                        "cwd": "/tmp",
+                        "revision": "sha256-test"
                     }
                 },
                 "machine_sidebar": {
@@ -8338,6 +8512,15 @@ mod tests {
         let plugin = config.sidebar.plugin.as_ref().expect("sidebar plugin config");
         assert_eq!(plugin.command, vec!["/tmp/sidebar-plugin", "--mode", "test"]);
         assert_eq!(plugin.cwd.as_deref(), Some("/tmp"));
+        let agent_plugin = config.agents.plugin.as_ref().expect("agent plugin config");
+        assert_eq!(agent_plugin.id, "screen-detector");
+        assert_eq!(
+            agent_plugin.command,
+            vec!["/tmp/agent-plugin", "", "--mode", "test"],
+            "empty arguments after argv[0] must remain part of the command"
+        );
+        assert_eq!(agent_plugin.cwd.as_deref(), Some("/tmp"));
+        assert_eq!(agent_plugin.revision.as_deref(), Some("sha256-test"));
         assert_eq!(config.scrollbar.position, ScrollbarPosition::Border);
         assert_eq!(config.theme.border_style, BorderStyle::Rounded);
         assert_eq!(config.pane.padding, MAX_PANE_PADDING, "padding clamps to the maximum");

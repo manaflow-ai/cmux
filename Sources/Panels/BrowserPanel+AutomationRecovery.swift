@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxBrowser
 import WebKit
@@ -39,6 +40,65 @@ extension BrowserPanel {
             contentWorld: BrowserSameDocumentNavigationMessageHandler.contentWorld,
             name: BrowserSameDocumentNavigationMessageHandler.name
         )
+    }
+
+    func setupDocumentReadyMessageHandler(for webView: WKWebView) {
+        let observedWebViewInstanceID = webViewInstanceID
+        let handler = BrowserDocumentReadyMessageHandler(
+            webView: webView,
+            onDocumentReady: { [weak self, weak webView] in
+                guard let self, let webView,
+                      self.webView === webView,
+                      self.webViewInstanceID == observedWebViewInstanceID else {
+                    return
+                }
+                self.automationDocumentReadiness.didSignalDocumentReady(
+                    instanceID: observedWebViewInstanceID
+                )
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.documentReadyBridge panel=\(self.id.uuidString.prefix(5)) " +
+                    "instance=\(observedWebViewInstanceID.uuidString.prefix(6))"
+                )
+#endif
+            }
+        )
+        documentReadyMessageHandler = handler
+        let userContentController = webView.configuration.userContentController
+        userContentController.removeScriptMessageHandler(
+            forName: BrowserDocumentReadyMessageHandler.name,
+            contentWorld: BrowserDocumentReadyMessageHandler.contentWorld
+        )
+        userContentController.add(
+            handler,
+            contentWorld: BrowserDocumentReadyMessageHandler.contentWorld,
+            name: BrowserDocumentReadyMessageHandler.name
+        )
+    }
+
+    func tearDownDocumentReadyMessageHandler(from webView: WKWebView) {
+        webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: BrowserDocumentReadyMessageHandler.name,
+            contentWorld: BrowserDocumentReadyMessageHandler.contentWorld
+        )
+        documentReadyMessageHandler = nil
+    }
+
+    /// Returns lifecycle-only state for diagnosing automation readiness failures.
+    ///
+    /// The payload deliberately excludes document contents, cookies, and page JavaScript values.
+    func browserAutomationReadinessPayload() -> [String: Any] {
+        let snapshot = automationDocumentReadiness.snapshot
+        return [
+            "ready": snapshot.isReady,
+            "signal": snapshot.signal?.rawValue ?? "none",
+            "document_ready_bridge_registered": documentReadyMessageHandler != nil,
+            "navigation_delegate_registered": webView.navigationDelegate != nil,
+            "history_item_present": webView.backForwardList.currentItem != nil,
+            "is_loading": webView.isLoading,
+            "estimated_progress": webView.estimatedProgress,
+            "web_content_terminated": webContentState.isTerminated
+        ]
     }
 
     func beginAutomationNavigation(
@@ -155,6 +215,9 @@ extension BrowserPanel {
                 source: RemoteLoopbackRuntimeBridge.scriptSource(aliasHost: host, preservesSubdomains: false),
                 injectionTime: .atDocumentStart, forMainFrameOnly: false
             ))
+            if let endpoint = cloudAccess.model?.browserProxy {
+                CloudBrowserRouting.installWebSocketBridge(endpoint: endpoint, address: host, on: replacement)
+            }
         }
         return replacement
     }
@@ -163,6 +226,20 @@ extension BrowserPanel {
         !isClosingWebViewLifecycle &&
             activeInteractiveBrowserPromptIDs.isEmpty &&
             activeVisualAutomationCaptureCount == 0
+    }
+
+    /// The web view a browser automation command should drive. A pane whose WebContent process
+    /// died while hidden becomes a discarded pane first, as showing it would, so the command
+    /// captures the web view its document-readiness wait restores rather than a dead one only a
+    /// reveal could replace. The command also counts as use of the pane, so hidden-pane discards
+    /// do not unload a page an agent is driving.
+    func webViewForAutomationCommand(now: Date = Date()) -> WKWebView {
+        webViewLastAutomationCommandAt = now
+        discardWebViewTerminatedWhileHidden(now: now)
+        if !isWebViewVisibleInUI {
+            reevaluateHiddenWebViewDiscardScheduling(reason: "automation_command")
+        }
+        return webView
     }
 
     func waitForAutomationDocumentCommit(

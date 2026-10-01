@@ -26,6 +26,9 @@ __attribute__((constructor)) static void installTripwire(void) {
     @autoreleasepool {
         Method method = class_getInstanceMethod([NSHost class], @selector(name));
         method_setImplementation(method, (IMP)resolverTripwire);
+        // Guard both APIs independently; Foundation's delegation can differ by OS.
+        Method processInfoMethod = class_getInstanceMethod([NSProcessInfo class], @selector(hostName));
+        method_setImplementation(processInfoMethod, (IMP)resolverTripwire);
         const char note[] = "CMUX_TEST_HOSTNAME_TRIPWIRE_INSTALLED\n";
         write(STDERR_FILENO, note, sizeof(note) - 1);
     }

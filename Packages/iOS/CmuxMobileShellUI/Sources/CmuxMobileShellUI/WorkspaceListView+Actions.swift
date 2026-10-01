@@ -1,3 +1,5 @@
+import CMUXMobileCore
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -7,11 +9,16 @@ extension WorkspaceListView {
         WorkspaceListNewWorkspaceMenu(
             value: WorkspaceListNewWorkspaceMenuValue(
                 canCreate: canCreateWorkspaceForMacSelection,
-                canCreateGroup: createWorkspaceGroup != nil
+                canCreateGroup: createWorkspaceGroup != nil,
+                computerTargets: createWorkspaceOnComputer == nil ? [] : newWorkspaceComputerTargets,
+                sshKinds: createSSHWorkspace == nil ? [] : sshNewWorkspaceKinds,
+                sshTargetHostID: createSSHWorkspace == nil ? nil : sshCreateHostID
             ),
             actions: WorkspaceListNewWorkspaceMenuActions(
                 createWorkspace: createWorkspace,
-                createWorkspaceGroup: createWorkspaceGroup
+                createWorkspaceGroup: createWorkspaceGroup,
+                createWorkspaceOnComputer: createWorkspaceOnComputer,
+                createSSHWorkspace: createSSHWorkspace
             )
         )
     }
@@ -26,7 +33,11 @@ extension WorkspaceListView {
     }
 
     @discardableResult
+    @MainActor
     func selectWorkspaceFromList(_ id: CmuxMobileShellModel.MobileWorkspacePreview.ID) -> Task<Void, Never>? {
+        #if os(iOS) && DEBUG
+        releaseGateUIProbe?.record(.workspaceSelectionTapped)
+        #endif
         invalidateDeferredWorkspaceSelection()
         let selectionGeneration = deferredWorkspaceSelectionGeneration
         guard let cancelTask = prepareWorkspaceSelectionFromList() else {
@@ -51,8 +62,23 @@ extension WorkspaceListView {
             return nil
         }
         return { workspaceID in
+            guard let confirmation = workspaceCloseConfirmation(for: workspaceID) else {
+                closeWorkspace?(workspaceID)
+                return
+            }
+            workspacePendingCloseConfirmation = confirmation
             workspacePendingCloseID = workspaceID
         }
+    }
+
+    /// What closing `workspaceID` asks first (the store's one rule for every
+    /// close entrypoint); `nil` closes at once. Previews without a store keep
+    /// the Mac question.
+    func workspaceCloseConfirmation(
+        for workspaceID: CmuxMobileShellModel.MobileWorkspacePreview.ID
+    ) -> MobileWorkspaceCloseConfirmation? {
+        guard let store else { return .macWorkspace }
+        return store.workspaceCloseConfirmation(id: workspaceID)
     }
 
     #if os(iOS)

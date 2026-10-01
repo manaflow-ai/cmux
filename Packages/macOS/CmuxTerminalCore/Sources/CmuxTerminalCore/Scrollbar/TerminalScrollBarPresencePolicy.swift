@@ -12,8 +12,13 @@
 ///
 /// An overlay scroller reserves nothing, so it stays hidden while nothing can
 /// scroll and never sits on top of the rightmost column of a full-screen app.
-public enum TerminalScrollBarPresencePolicy {
-    /// Returns whether the scroller is present.
+public struct TerminalScrollBarPresencePolicy: Sendable {
+    private let allowedBySettings: Bool
+    private let scrollerStyle: TerminalScrollerStyle
+    private let hasScrollback: Bool?
+    private let hasManualMirrorOverflow: Bool
+
+    /// Creates a snapshot of the scrollbar layout inputs.
     ///
     /// - Parameters:
     ///   - allowedBySettings: Whether the Ghostty `scrollbar` config and the
@@ -21,11 +26,22 @@ public enum TerminalScrollBarPresencePolicy {
     ///   - scrollerStyle: How the host's scroller participates in layout.
     ///   - hasScrollback: Whether the surface has rows above its viewport, or
     ///     nil while the runtime has not published its first scrollbar state.
-    public static func isPresent(
+    ///   - hasManualMirrorOverflow: Whether a source Mac grid is taller than
+    ///     the local mirror pane and therefore needs local scrolling.
+    public init(
         allowedBySettings: Bool,
         scrollerStyle: TerminalScrollerStyle,
-        hasScrollback: Bool?
-    ) -> Bool {
+        hasScrollback: Bool?,
+        hasManualMirrorOverflow: Bool = false
+    ) {
+        self.allowedBySettings = allowedBySettings
+        self.scrollerStyle = scrollerStyle
+        self.hasScrollback = hasScrollback
+        self.hasManualMirrorOverflow = hasManualMirrorOverflow
+    }
+
+    /// Whether the snapshot requires a scroller.
+    public var isPresent: Bool {
         guard allowedBySettings else { return false }
         // A legacy scroller is part of the layout; keep it so the grid width
         // is the same with and without history.
@@ -33,6 +49,6 @@ public enum TerminalScrollBarPresencePolicy {
         // The runtime reports scrollback asynchronously. Until the first
         // packet arrives, keep the scroller so restored or reattached
         // surfaces with existing scrollback do not appear broken.
-        return hasScrollback ?? true
+        return hasScrollback == true || hasManualMirrorOverflow || hasScrollback == nil
     }
 }

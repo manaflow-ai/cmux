@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 
 /// Errors surfaced by a Cloud machine provider. Preview credentials never enter error text.
@@ -18,6 +19,7 @@ extension CmuxTuiSurfaceProvider {
         case invalidSnapshot(String)
         case snapshotOnly(String)
         case stateUnavailable(String)
+        case tabStateUnavailable(String)
         case invalidPreviewURL
         /// No user-space WireGuard hub in this build (no bundled cmux-tui client).
         case hubUnavailable
@@ -90,6 +92,14 @@ extension CmuxTuiSurfaceProvider {
                     format: String(
                         localized: "cloudTree.error.renameTerminalUnavailable",
                         defaultValue: "The current state for %@ is unavailable. Refresh and retry before renaming."
+                    ),
+                    id
+                )
+            case .tabStateUnavailable(let id):
+                return String(
+                    format: String(
+                        localized: "cloudTree.error.renameTabUnavailable",
+                        defaultValue: "The current state for tab %@ is unavailable. Refresh and retry before renaming."
                     ),
                     id
                 )

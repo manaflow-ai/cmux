@@ -26,6 +26,7 @@ extension View {
         ids: [UUID],
         workspaces: [Workspace],
         debouncedInterval: DispatchQueue.SchedulerTimeType.Stride,
+        deliverInitialValue: Bool = true,
         onChange: @MainActor @escaping (UUID) -> Void
     ) -> some View {
         task(id: ids) { @MainActor in
@@ -44,20 +45,29 @@ extension View {
                         .debounce(for: debouncedInterval, scheduler: DispatchQueue.main)
                         .values
                     group.addTask { @MainActor in
+                        var first = true
                         for await _ in cloudChanges {
                             if Task.isCancelled { break }
+                            if first && !deliverInitialValue { first = false; continue }
+                            first = false
                             onChange(id)
                         }
                     }
                     group.addTask { @MainActor in
+                        var first = true
                         for await _ in immediateChanges {
                             if Task.isCancelled { break }
+                            if first && !deliverInitialValue { first = false; continue }
+                            first = false
                             onChange(id)
                         }
                     }
                     group.addTask { @MainActor in
+                        var first = true
                         for await _ in debouncedChanges {
                             if Task.isCancelled { break }
+                            if first && !deliverInitialValue { first = false; continue }
+                            first = false
                             onChange(id)
                         }
                     }
@@ -216,6 +226,7 @@ private struct SidebarObservationState: Equatable {
     let gitBranch: SidebarGitBranchState?
     let panelGitBranches: [UUID: SidebarGitBranchState]
     let pullRequest: SidebarPullRequestState?
+    let manualPullRequest: SidebarPullRequestState?
     let panelPullRequests: [UUID: SidebarPullRequestState]
     let remoteConfiguration: WorkspaceRemoteConfiguration?
     let remoteConnectionState: WorkspaceRemoteConnectionState
@@ -359,6 +370,7 @@ extension Workspace {
                     gitBranch: gitFields.0,
                     panelGitBranches: gitFields.1,
                     pullRequest: gitFields.2,
+                    manualPullRequest: sidebarMetadata.manualPullRequest,
                     panelPullRequests: gitFields.3,
                     remoteConfiguration: remoteFields.0,
                     remoteConnectionState: remoteFields.1,
