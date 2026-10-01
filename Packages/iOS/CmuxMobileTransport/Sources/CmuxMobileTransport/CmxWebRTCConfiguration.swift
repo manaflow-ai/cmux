@@ -84,9 +84,9 @@ public struct CmxWebRTCConfiguration: Equatable, Sendable {
     /// Builds configuration from an injected environment and optional defaults.
     ///
     /// `CMUX_WEBRTC_ICE_SERVERS_JSON` accepts either an array of server objects
-    /// or Cloudflare's response shape, `{ "iceServers": [...] }`. The value is
-    /// intentionally read at construction time so credentials never become a
-    /// process-wide mutable setting.
+    /// or Cloudflare's response shape, `{ "iceServers": { ... } }`. The value
+    /// is intentionally read at construction time so credentials never become
+    /// a process-wide mutable setting.
     ///
     /// - Parameters:
     ///   - environment: Environment values supplied by the composition root.
@@ -128,10 +128,17 @@ public struct CmxWebRTCConfiguration: Equatable, Sendable {
         if let servers = try? JSONDecoder().decode([CmxWebRTCICEServer].self, from: data) {
             return servers
         }
-        struct CloudflareResponse: Decodable {
+        struct CloudflareArrayResponse: Decodable {
             let iceServers: [CmxWebRTCICEServer]
         }
-        return (try? JSONDecoder().decode(CloudflareResponse.self, from: data))?.iceServers
+        if let response = try? JSONDecoder().decode(CloudflareArrayResponse.self, from: data) {
+            return response.iceServers
+        }
+        struct CloudflareObjectResponse: Decodable {
+            let iceServers: CmxWebRTCICEServer
+        }
+        return (try? JSONDecoder().decode(CloudflareObjectResponse.self, from: data))
+            .map { [$0.iceServers] }
     }
 
     private static func boolean(_ value: String?) -> Bool {
