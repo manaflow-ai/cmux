@@ -20,14 +20,6 @@ struct BrowserWebAuthnCredentialDescriptor: Decodable {
 
 extension BrowserWebAuthnCredentialDescriptor {
     func validateNativeRequestShape() throws {
-        try type.validateWebAuthnString(maxUTF8Bytes: BrowserWebAuthnRequestParser.maximumShortStringUTF8Bytes)
         try id.validateByteCount(BrowserWebAuthnRequestParser.credentialIDByteRange)
-        let credentialTransports = transports ?? []
-        guard credentialTransports.count <= BrowserWebAuthnRequestParser.maximumCredentialTransports else {
-            throw BrowserWebAuthnBridgeError.type("Malformed browser passkey request.")
-        }
-        for transport in credentialTransports {
-            try Optional(transport).validateWebAuthnString(maxUTF8Bytes: BrowserWebAuthnRequestParser.maximumShortStringUTF8Bytes)
-        }
     }
 }

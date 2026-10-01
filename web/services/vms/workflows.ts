@@ -96,6 +96,7 @@ import { getGoVmUsage, GO_INCLUDED_VM_HOURS } from "./goUsage";
 import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
 import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
+import { detachNetworkTunnels } from "./teamNetworkAccess";
 import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
@@ -103,9 +104,10 @@ import {
   VM_CREATE_ABANDONED_AFTER_MS,
   VM_PREVIEW_LEASE_RETENTION_MS,
 } from "./operationTimeouts";
-import { withVmProductAnalytics } from "./productAnalytics";
+import { withVmProductAnalytics, type VmDestroySource } from "./productAnalytics";
 import {
   CREATE_CLEANUP_PROVIDER_VM_ID_KEY,
+  OBSERVED_DESTROY_CLEANUP_METADATA_KEY,
   PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE,
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
   VmRepository,
@@ -120,6 +122,9 @@ import {
   type CloudVmLeaseKind,
   type CloudVmRow,
   type VmRepositoryShape,
+  type VmObservedDestroyCleanup,
+  type VmObservedDestroyCleanupCandidate,
+  type VmObservedDestroyCleanupStep,
   type VmResizeReservation,
   type VmUsageEventInput,
 } from "./repository";
@@ -140,13 +145,14 @@ export {
   networkSlugForUser,
   networkSlugForTeam,
   readVmTunnel,
+  reapStaleVmTunnels,
   renameVmAccessGrant,
   resolveOwnerNetwork,
   revokeVmAccessGrant,
   revokeVmTunnel,
   tunnelSlugForDevice,
 } from "./privateNetwork";
-export type { VmTunnelDescriptor } from "./privateNetwork";
+export type { VmTunnelDescriptor, VmTunnelReapResult } from "./privateNetwork";
 export { reapVmResources } from "./reaper";
 export type {
   VmReaperOptions,
@@ -167,6 +173,20 @@ export type VmEntry = {
   readonly displayName: string | null;
   /** Generated three-word name (services/vms/vmNaming.ts); null on rows older than the column. */
   readonly slug: string | null;
+  /**
+   * The account that made the machine. A team's list is scoped by owner team,
+   * not by member, so without this a shared account is a pile of generated
+   * names with no way to tell whose is whose. It is an opaque id; the name to
+   * show for it comes from `services/vms/creators.ts`. Never null:
+   * `cloud_vms.user_id` is NOT NULL and has been there since the table was
+   * created (20260425062520_keen_kronos).
+   */
+  readonly createdByUserId: string;
+  /**
+   * The team that owns the machine, or the creator's own id for a personal
+   * machine. Creator names resolve only for current members of this team.
+   */
+  readonly ownerTeamId: string;
   /** The machine's address on its owner's private network, when it has one. */
   readonly addressIpv4: string | null;
   readonly addressIpv6: string | null;
@@ -234,6 +254,8 @@ const CREATE_CLEANUP_LEASE_MS = 60 * 1000;
 const CREATE_CLEANUP_BACKOFF_BASE_MS = 5 * 1000;
 const CREATE_CLEANUP_BACKOFF_MAX_MS = 15 * 60 * 1000;
 const CREATE_CLEANUP_BATCH_LIMIT = 20;
+const OBSERVED_DESTROY_CLEANUP_BATCH_LIMIT = 20;
+const OBSERVED_DESTROY_CLEANUP_TIMEOUT = "15 seconds";
 const ABANDONED_CREATE_BATCH_LIMIT = 20;
 const ABANDONED_CREATE_CONCURRENCY = 4;
 const LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT = 50;
@@ -336,6 +358,8 @@ export function getVm(input: {
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
+  /** Revokes coderouter tokens when this read is what finds the machine gone. */
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -353,12 +377,13 @@ export function getVm(input: {
       ),
     );
     if (providerStatus !== "creating") {
-      const dbStatus = observedDbStatus(vm, providerStatus);
+      const dbStatus = observedDbStatus(providerStatus);
       if (dbStatus !== vm.status) {
-        const didUpdate = yield* repo.markProviderObservedStatus({
-          id: vm.id,
+        const didUpdate = yield* applyObservedProviderStatus(repo, providers, vm, {
           providerVmId,
-          status: dbStatus,
+          providerStatus,
+          usageEventSource: "provider_status_read",
+          modelPlane: input.modelPlane,
         });
         if (didUpdate) return vmEntryFromRow({ ...vm, status: dbStatus, updatedAt: new Date() });
       }
@@ -402,6 +427,9 @@ export function renameVm(input: {
  * Detach tunnels from team networks their owner no longer belongs to. Freestyle
  * is the record of both the team networks (found by slug) and their attached
  * tunnels; candidate teams come from the live machines billed to them.
+ *
+ * This is the backstop. The Stack webhook (`app/api/webhooks/stack`) detaches
+ * a removed member at once; this pass catches missed or failed deliveries.
  */
 function reconcileTeamTunnelAttachments(
   repo: VmRepositoryShape,
@@ -419,15 +447,15 @@ function reconcileTeamTunnelAttachments(
       const membersResult = yield* listTeamMemberIdsWithTimeout(directory, owner.teamId, timeoutMs);
       if ("error" in membersResult) return;
       const members = membersResult.memberIds ? new Set(membersResult.memberIds) : null;
-      const tunnelIds = yield* providers.listNetworkTunnelIds!(owner.provider, network.id);
-      const rows = yield* repo.findTunnelsByProviderTunnelIds!(owner.provider, tunnelIds);
-      for (const row of rows) {
-        // Tunnels with no row are skipped: the provider account can hold
-        // tunnels another environment issued.
-        const remove = members === null || row.revokedAt !== null || !members.has(row.userId);
-        if (!remove) continue;
-        yield* providers.detachTunnelNetwork!(owner.provider, row.providerTunnelId, network.id).pipe(Effect.catchAll(() => Effect.void));
-      }
+      // Tunnels with no row are skipped inside detachNetworkTunnels; failed
+      // detaches are retried by the next run.
+      yield* detachNetworkTunnels({
+        repo: { findTunnelsByProviderTunnelIds: repo.findTunnelsByProviderTunnelIds! },
+        providers: { listNetworkTunnelIds: providers.listNetworkTunnelIds!, detachTunnelNetwork: providers.detachTunnelNetwork! },
+        provider: owner.provider,
+        networkId: network.id,
+        select: (row) => members === null || row.revokedAt !== null || !members.has(row.userId),
+      });
     }).pipe(Effect.catchAll(() => Effect.void));
   return Effect.gen(function* () {
     const startedAt = now();
@@ -488,6 +516,12 @@ export function reconcileVmProviderStatuses(input: {
       // the five-minute cron budget while leaving time for status probes.
       limit: Math.min(boundedVmStatusReconcileLimit(input.limit), CREATE_CLEANUP_BATCH_LIMIT),
     });
+    yield* reconcileObservedDestroyCleanups(
+      repo,
+      providers,
+      input.modelPlane,
+      boundedVmStatusReconcileLimit(input.limit),
+    );
     const getStatus = providers.getStatus;
     if (!getStatus) {
       return {
@@ -504,7 +538,7 @@ export function reconcileVmProviderStatuses(input: {
     });
     const outcomes = yield* Effect.forEach(
       candidates,
-      (vm) => reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_cron", input.modelPlane),
+      (vm) => reconcileObservedProviderStatus(repo, providers, getStatus, vm, "provider_status_cron", input.modelPlane),
       { concurrency: 10 },
     );
     // Network heal moved here from the create path: re-create the members
@@ -702,6 +736,126 @@ export function machineOwnedHomeVolume(
   if (homeVolume === sharedName) return null;
   if (metadata["homeVolumePerMachine"] === true) return homeVolume;
   return providerVmId && homeVolume === `${sharedName}-${providerVmId}` ? homeVolume : null;
+}
+
+type PendingObservedDestroyCleanup = {
+  readonly modelPlane?: true;
+  readonly homeVolume?: string;
+};
+
+function observedDestroyCleanupFromMetadata(
+  metadata: Readonly<Record<string, unknown>> | null,
+): PendingObservedDestroyCleanup | null {
+  const raw = metadata?.[OBSERVED_DESTROY_CLEANUP_METADATA_KEY];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const marker = raw as Record<string, unknown>;
+  const modelPlane = marker.modelPlane === true ? true : undefined;
+  const homeVolume = marker.homeVolume;
+  const normalizedHomeVolume = typeof homeVolume === "string" && homeVolume.length > 0
+    ? homeVolume
+    : undefined;
+  if (!modelPlane && !normalizedHomeVolume) return null;
+  return {
+    ...(modelPlane ? { modelPlane } : {}),
+    ...(normalizedHomeVolume ? { homeVolume: normalizedHomeVolume } : {}),
+  };
+}
+
+function completeObservedDestroyCleanupStep(
+  repo: VmRepositoryShape,
+  vmId: string,
+  step: VmObservedDestroyCleanupStep,
+): Effect.Effect<void, never> {
+  const complete = repo.completeObservedDestroyCleanup;
+  if (!complete) return Effect.void;
+  return complete({ id: vmId, step }).pipe(
+    Effect.asVoid,
+    Effect.catchAll((err) =>
+      Effect.sync(() => {
+        console.error(`[vm] could not acknowledge observed-destroy ${step} cleanup for ${vmId}`, errorMessage(err));
+      })
+    ),
+  );
+}
+
+function deferObservedDestroyCleanupStep(
+  repo: VmRepositoryShape,
+  vmId: string,
+  step: VmObservedDestroyCleanupStep,
+): Effect.Effect<void, never> {
+  const defer = repo.deferObservedDestroyCleanup;
+  if (!defer) return Effect.void;
+  return defer({ id: vmId, step }).pipe(
+    Effect.asVoid,
+    Effect.catchAll(() => Effect.void),
+  );
+}
+
+/**
+ * Drain transactionally-recorded cleanup after a provider-observed destroy.
+ * Both side effects are idempotent, so a crash after the side effect but
+ * before its acknowledgement is safe: the terminal-row reconciler repeats it.
+ */
+function drainObservedDestroyCleanup(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  modelPlane: VmModelPlaneRevoker | undefined,
+  vm: VmObservedDestroyCleanupCandidate,
+  cleanup: PendingObservedDestroyCleanup,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    if (cleanup.modelPlane) {
+      const revoked = modelPlane
+        ? yield* attemptModelPlaneRevoke(modelPlane, vm.id)
+        : false;
+      if (revoked) yield* completeObservedDestroyCleanupStep(repo, vm.id, "modelPlane");
+      else yield* deferObservedDestroyCleanupStep(repo, vm.id, "modelPlane");
+    }
+    if (cleanup.homeVolume && providers.deleteHomeVolume) {
+      const deleted = yield* providers.deleteHomeVolume(vm.provider, cleanup.homeVolume).pipe(
+        Effect.timeoutFail({
+          duration: OBSERVED_DESTROY_CLEANUP_TIMEOUT,
+          onTimeout: () => new Error("observed-destroy volume cleanup deadline"),
+        }),
+        Effect.as(true),
+        Effect.catchAll((err) => isProviderDeletionConfirmed(err)
+          ? Effect.succeed(true)
+          : Effect.sync(() => {
+            console.error(
+              `[vm] observed-destroy home volume cleanup failed for ${vm.id} (${cleanup.homeVolume})`,
+              errorMessage(err.cause),
+            );
+            return false;
+          })
+        ),
+      );
+      if (deleted) yield* completeObservedDestroyCleanupStep(repo, vm.id, "homeVolume");
+      else yield* deferObservedDestroyCleanupStep(repo, vm.id, "homeVolume");
+    } else if (cleanup.homeVolume) {
+      yield* deferObservedDestroyCleanupStep(repo, vm.id, "homeVolume");
+    }
+  });
+}
+
+function reconcileObservedDestroyCleanups(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  modelPlane: VmModelPlaneRevoker | undefined,
+  limit: number,
+): Effect.Effect<void, never> {
+  const listCandidates = repo.observedDestroyCleanupCandidates;
+  if (!listCandidates) return Effect.void;
+  return Effect.gen(function* () {
+    const candidates = yield* listCandidates({
+      limit: Math.min(limit, OBSERVED_DESTROY_CLEANUP_BATCH_LIMIT),
+    }).pipe(Effect.catchAll(() => Effect.succeed([] as VmObservedDestroyCleanupCandidate[])));
+    yield* Effect.forEach(candidates, (vm) => {
+      const cleanup = observedDestroyCleanupFromMetadata(vm.providerMetadata);
+      return cleanup
+        ? drainObservedDestroyCleanup(repo, providers, modelPlane, vm, cleanup)
+        : Effect.void;
+    }, { concurrency: 4, discard: true });
+  });
 }
 
 /**
@@ -1109,23 +1263,32 @@ function provisionModelPlane(
 }
 
 /**
- * Best-effort token revocation for a machine that is gone or never came up.
- * A failed revoke is logged, never fails the caller: the token stays bound to
- * a VM id no edge will ever inject again, so it is unusable anyway.
+ * Best-effort token revocation for create rollback paths. Terminal destroy
+ * transitions use attemptModelPlaneRevoke plus the durable cleanup marker
+ * instead, so a failure there remains retryable.
  */
 function revokeModelPlane(
   modelPlane: VmModelPlaneRevoker | undefined,
   cloudVmId: string,
 ): Effect.Effect<void> {
   if (!modelPlane) return Effect.void;
+  return attemptModelPlaneRevoke(modelPlane, cloudVmId).pipe(Effect.asVoid);
+}
+
+function attemptModelPlaneRevoke(
+  modelPlane: VmModelPlaneRevoker,
+  cloudVmId: string,
+): Effect.Effect<boolean, never> {
   return Effect.tryPromise(() => modelPlane.revoke(cloudVmId)).pipe(
     Effect.timeoutFail({
       duration: MODEL_PLANE_REVOKE_TIMEOUT,
       onTimeout: () => new Error("model-plane revoke deadline"),
     }),
+    Effect.as(true),
     Effect.catchAll((err) =>
       Effect.sync(() => {
         console.error(`[vm] model-plane revoke failed for ${cloudVmId}`, errorMessage(err));
+        return false;
       })
     ),
   );
@@ -1265,6 +1428,7 @@ function finishBaseCreate(
     const creditReservation = yield* reserveCreateCredit(billing, repo, {
       ...input,
       idempotencyKey,
+      baseGeneration: { baseId: create.base.id, generation: create.generation.generation },
     }, create.vm);
     yield* recordCreateRequestedEvents(repo, {
       ...input,
@@ -1283,6 +1447,35 @@ function finishBaseCreate(
       resolveOwnerNetwork({ userId: input.userId, provider: input.provider, billingTeamId: input.billingTeamId, teamDirectory: input.teamDirectory }).pipe(
         Effect.provideService(VmRepository, repo),
         Effect.provideService(VmProviderGateway, providers),
+      ),
+    ).pipe(
+      // Unlike createVm, this runs after the credit is reserved, so the
+      // reservation has to go back. resolveOwnerNetwork resolves a shared
+      // network rather than creating one, so there is nothing to unwind there,
+      // but the base and its generation exist by now and markBaseCreateFailed
+      // is the mark on this path that releases them: the ad-hoc markCreateFailed
+      // does not call restoreBaseAfterCreateFailure.
+      Effect.tapError((err) =>
+        Effect.all([
+          refundCredit(billing, repo, create.vm, creditReservation),
+          recordCreateFailureAfterMark(repo, repo.markBaseCreateFailed({
+            baseId: create.base.id,
+            generation: create.generation.generation,
+            vmId: create.vm.id,
+            userId: input.userId,
+            code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+            message: errorMessage(err),
+          }), {
+            userId: input.userId,
+            billingTeamId: input.billingTeamId,
+            billingPlanId: input.billingPlanId,
+            vmId: create.vm.id,
+            eventType: "vm.base.create.failed",
+            provider: input.provider,
+            imageId: input.image,
+            metadata: { operation: "resolve_network", message: errorMessage(err) },
+          }),
+        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void)),
       ),
     );
 
@@ -1432,7 +1625,11 @@ function finishBaseCreate(
 function reopenBaseIfProviderDeleted(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
-  input: Parameters<VmRepositoryShape["beginBaseOpen"]>[0] & { readonly timing?: VmTimingSink; readonly imageSize?: CreateOptions["imageSize"] },
+  input: Parameters<VmRepositoryShape["beginBaseOpen"]>[0] & {
+    readonly timing?: VmTimingSink;
+    readonly imageSize?: CreateOptions["imageSize"];
+    readonly modelPlane?: VmModelPlaneRevoker;
+  },
   create: Extract<BeginBaseCreateResult, { readonly kind: "existing" }>,
   existing: CloudVmRow,
   providerVmId: string,
@@ -1444,29 +1641,29 @@ function reopenBaseIfProviderDeleted(
     Effect.catchAll((err) =>
       isProviderNotFoundError(err)
         ? Effect.gen(function* () {
-          const markedDestroyed = yield* repo.markProviderObservedStatus({
-            id: existing.id,
+          // forceStatus, the one caller that overrides the mapping. Everywhere
+          // else a missing provider machine follows the shared observation
+          // mapping. Here the override makes the Base generation's terminal
+          // requirement explicit: beginBaseOpen below only allocates a
+          // replacement once this row can no longer be opened.
+          //
+          // The home volume is not lost by this. beginBaseOpen retains the old
+          // generation rather than deleting it, which is the same place a
+          // normal reset leaves it.
+          const markedDestroyed = yield* applyObservedProviderStatus(repo, providers, existing, {
             providerVmId,
-            status: "destroyed",
+            providerStatus: "destroyed",
+            forceStatus: "destroyed",
+            usageEventSource: "base_open_provider_missing",
+            modelPlane: input.modelPlane,
+            usageEventMetadata: {
+              baseName: input.baseName ?? "base",
+              generation: create.generation.generation,
+            },
           });
           if (!markedDestroyed) {
             return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
           }
-          yield* repo.recordUsageEvent({
-            userId: existing.userId,
-            billingTeamId: existing.billingTeamId,
-            billingPlanId: existing.billingPlanId,
-            vmId: existing.id,
-            eventType: "vm.destroyed",
-            provider: existing.provider,
-            imageId: existing.imageId,
-            vmCreatedAt: existing.createdAt,
-            metadata: {
-              source: "base_open_provider_missing",
-              baseName: input.baseName ?? "base",
-              generation: create.generation.generation,
-            },
-          }).pipe(Effect.catchAll(() => Effect.void));
           return yield* measureVmEffect(
             input.timing,
             "begin_base_open",
@@ -1713,6 +1910,7 @@ export function resumeVm(input: {
   readonly providerVmId: string;
   readonly maxActiveVms?: number | null;
   readonly callerPlanId?: string | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -1732,7 +1930,7 @@ export function resumeVm(input: {
       vm,
       providerVmId,
       "user",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms },
+      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, modelPlane: input.modelPlane },
     );
     return { id: providerVmId, status: "running" } satisfies VmPauseResumeResult;
   });
@@ -2008,7 +2206,7 @@ export function forkVm(input: {
       source,
       input.providerVmId,
       "fork",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms },
+      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, modelPlane: input.modelPlane },
     );
 
     // A native fork has no way to accept the new row's edge rules. Use the
@@ -2618,7 +2816,7 @@ function refreshActiveLimitProviderStatuses(
       // full cron interval. Candidates are `running` rows only, so the
       // gateway's "running" fallback for a driver without getStatus is a
       // harmless no-op rather than a wrong transition.
-      return reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_refresh", input.modelPlane).pipe(
+      return reconcileObservedProviderStatus(repo, providers, getStatus, vm, "provider_status_refresh", input.modelPlane).pipe(
         Effect.asVoid,
       );
     }, { concurrency: 10, discard: true });
@@ -2629,27 +2827,84 @@ function dbStatusFromProviderStatus(status: "running" | "paused" | "destroyed"):
   return status;
 }
 
-// A provider 404 on a machine with a persistent home volume means the compute is gone but
-// the machine is still resurrectable on the next attach — it is asleep, not destroyed.
-// Only machines without a durable home actually die with their sandbox.
 function observedDbStatus(
-  vm: Pick<CloudVmRow, "providerMetadata">,
   providerStatus: "running" | "paused" | "destroyed",
 ): CloudVmStatus {
-  if (providerStatus === "destroyed") {
-    const homeVolume = vm.providerMetadata?.["homeVolume"];
-    if (typeof homeVolume === "string" && homeVolume.length > 0) return "paused";
-  }
   return dbStatusFromProviderStatus(providerStatus);
+}
+
+/**
+ * The one place an observed provider status becomes the row's status. A write
+ * that lands on `destroyed` atomically records the ledger row plus an external
+ * cleanup outbox. The normal lookup and status-reconcile queries exclude the
+ * terminal row, but the cleanup reconciler keeps retrying credential revoke
+ * and any exclusively-owned volume deletion until each is acknowledged.
+ *
+ * The status is derived here rather than taken from the caller, so every
+ * entrypoint agrees about what the provider observed. A provider-reported
+ * pause remains recoverable. Missing or destroyed compute is terminal even
+ * when a detached home volume remains; there is no workflow that can attach
+ * that volume to a replacement machine, so keeping the row live would strand
+ * quota and credentials indefinitely.
+ */
+function applyObservedProviderStatus(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  input: {
+    readonly providerVmId: string;
+    readonly providerStatus: "running" | "paused" | "destroyed";
+    readonly usageEventSource: VmDestroySource;
+    readonly modelPlane?: VmModelPlaneRevoker;
+    readonly usageEventMetadata?: Record<string, string | number | boolean | null>;
+    readonly forceStatus?: CloudVmStatus;
+  },
+): Effect.Effect<boolean, VmDatabaseError> {
+  return Effect.gen(function* () {
+    const status = input.forceStatus ?? observedDbStatus(input.providerStatus);
+    const usageEvent: VmUsageEventInput | undefined = status === "destroyed"
+      ? {
+        userId: vm.userId,
+        billingTeamId: vm.billingTeamId,
+        billingPlanId: vm.billingPlanId,
+        vmId: vm.id,
+        eventType: "vm.destroyed",
+        provider: vm.provider,
+        imageId: vm.imageId,
+        vmCreatedAt: vm.createdAt,
+        metadata: { source: input.usageEventSource, ...input.usageEventMetadata },
+      }
+      : undefined;
+    const homeVolume = status === "destroyed"
+      ? machineOwnedHomeVolume(vm, input.providerVmId)
+      : null;
+    const cleanup: VmObservedDestroyCleanup | undefined = status === "destroyed"
+      ? {
+        modelPlane: true,
+        ...(homeVolume ? { homeVolume } : {}),
+      }
+      : undefined;
+    const didUpdate = yield* repo.markProviderObservedStatus({
+      id: vm.id,
+      providerVmId: input.providerVmId,
+      status,
+      ...(usageEvent ? { usageEvent } : {}),
+      ...(cleanup ? { cleanup } : {}),
+    });
+    if (!didUpdate || status !== "destroyed" || !cleanup) return didUpdate;
+    yield* drainObservedDestroyCleanup(repo, providers, input.modelPlane, vm, cleanup);
+    return true;
+  });
 }
 
 type ProviderStatusReconcileOutcome = "updated" | "destroyed" | "unchanged" | "skipped";
 
 function reconcileObservedProviderStatus(
   repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
   getStatus: NonNullable<VmProviderGatewayShape["getStatus"]>,
   vm: CloudVmRow,
-  usageEventSource: string,
+  usageEventSource: VmDestroySource,
   modelPlane?: VmModelPlaneRevoker,
 ): Effect.Effect<ProviderStatusReconcileOutcome, never> {
   return Effect.gen(function* () {
@@ -2663,30 +2918,16 @@ function reconcileObservedProviderStatus(
       ),
     );
     if (!providerStatus || providerStatus === "creating") return "skipped" as const;
-    const dbStatus = observedDbStatus(vm, providerStatus);
+    const dbStatus = observedDbStatus(providerStatus);
     if (dbStatus === vm.status) return "unchanged" as const;
-    const didUpdate = yield* repo.markProviderObservedStatus({
-      id: vm.id,
+    const didUpdate = yield* applyObservedProviderStatus(repo, providers, vm, {
       providerVmId,
-      status: dbStatus,
+      providerStatus,
+      usageEventSource,
+      modelPlane,
     }).pipe(Effect.catchAll(() => Effect.succeed(false)));
     if (!didUpdate) return "skipped" as const;
-    if (dbStatus === "destroyed") {
-      yield* revokeModelPlane(modelPlane, vm.id);
-      yield* repo.recordUsageEvent({
-        userId: vm.userId,
-        billingTeamId: vm.billingTeamId,
-        billingPlanId: vm.billingPlanId,
-        vmId: vm.id,
-        eventType: "vm.destroyed",
-        provider: vm.provider,
-        imageId: vm.imageId,
-        vmCreatedAt: vm.createdAt,
-        metadata: { source: usageEventSource },
-      }).pipe(Effect.catchAll(() => Effect.void));
-      return "destroyed" as const;
-    }
-    return "updated" as const;
+    return dbStatus === "destroyed" ? "destroyed" as const : "updated" as const;
   });
 }
 
@@ -2703,6 +2944,8 @@ type VmResumeSource = "exec" | "attach" | "ssh" | "scp" | "fork" | "open_port" |
 type ResumePreflightOptions = {
   /** Resolved billing-scope allowance; null is unlimited, undefined uses the plan default. */
   readonly maxActiveVms?: number | null;
+  /** Revokes coderouter tokens if the provider reports that compute is gone. */
+  readonly modelPlane?: VmModelPlaneRevoker;
   /**
    * Probe the provider even when Postgres still says `running`. Providers may
    * pause a VM independently (for example after an idle timeout), so an
@@ -2910,12 +3153,17 @@ function preflightResumeIfSuspended(
     if (status === "destroyed") {
       // A live provider read is authoritative for an access operation. Do not
       // mint an endpoint (or start a fork) against an id that Freestyle has
-      // already removed; mark the row so the next fleet refresh drops it and
-      // return the same not-found contract as ownership checks.
-      yield* repo.markProviderObservedStatus({
-        id: vm.id,
+      // already removed; record what the probe saw and return the same
+      // not-found contract as ownership checks.
+      //
+      // A detached home volume does not make missing compute resumable: no
+      // workflow can create replacement compute around it. Retire the row so
+      // it stops consuming quota, and revoke its model-plane credentials.
+      yield* applyObservedProviderStatus(repo, providers, vm, {
         providerVmId,
-        status: "destroyed",
+        providerStatus: "destroyed",
+        usageEventSource: "provider_status_access",
+        modelPlane: options.modelPlane,
       }).pipe(Effect.catchAll(() => Effect.succeed(false)));
       return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
     }
@@ -3090,7 +3338,9 @@ export function destroyVm(input: {
       }),
     );
     const destroyedProviderVmId = vm.providerVmId ?? input.providerVmId;
-    yield* revokeModelPlane(input.modelPlane, vm.id);
+    const modelPlaneRevoked = input.modelPlane
+      ? yield* attemptModelPlaneRevoke(input.modelPlane, vm.id)
+      : true;
     // This callback is advisory progress reporting. A failure must not skip
     // the mandatory volume cleanup or DB finalization now that the provider
     // machine is gone. Keep the failure observable in the usage ledger, but
@@ -3148,7 +3398,13 @@ export function destroyVm(input: {
     // The provider-side machine is gone at this point, so a lost DB write would
     // leave a ghost row counting against the active-VM limit. Retry the write;
     // the provider-status reconciler is the backstop if it still fails.
-    yield* repo.markDestroyed(vm.id).pipe(Effect.retry({ times: 2 }));
+    const pendingHomeVolume = homeVolume && !homeVolumeDeleted ? homeVolume : undefined;
+    const cleanup: VmObservedDestroyCleanup | undefined = !modelPlaneRevoked
+      ? { modelPlane: true, ...(pendingHomeVolume ? { homeVolume: pendingHomeVolume } : {}) }
+      : pendingHomeVolume
+        ? { homeVolume: pendingHomeVolume }
+        : undefined;
+    yield* repo.markDestroyed(vm.id, cleanup).pipe(Effect.retry({ times: 2 }));
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
@@ -3283,6 +3539,7 @@ export function execVm(input: {
   readonly timeoutMs: number;
   /** Caller's CURRENT billing plan; used for the free access window. */
   readonly callerPlanId?: string | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -3294,7 +3551,7 @@ export function execVm(input: {
       vm,
       input.providerVmId,
       "exec",
-      { maxActiveVms: input.maxActiveVms },
+      { maxActiveVms: input.maxActiveVms, modelPlane: input.modelPlane },
     );
     const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
       timeoutMs: input.timeoutMs,
@@ -3319,6 +3576,7 @@ export function getVmStats(input: {
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }): VmWorkflowProgram<VMStats> {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -3360,10 +3618,11 @@ export function getVmStats(input: {
       Effect.catchAll((error) => {
         if (!isProviderNotFoundError(error)) return Effect.fail(error);
         return Effect.gen(function* () {
-          yield* repo.markProviderObservedStatus({
-            id: vm.id,
+          yield* applyObservedProviderStatus(repo, providers, vm, {
             providerVmId: input.providerVmId,
-            status: "destroyed",
+            providerStatus: "destroyed",
+            usageEventSource: "provider_status_stats",
+            modelPlane: input.modelPlane,
           }).pipe(Effect.catchAll(() => Effect.succeed(false)));
           return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
         });
@@ -3384,6 +3643,7 @@ export function resizeVm(input: {
   readonly billingPlanId?: string | null;
   /** Current machine-count allowance, also used when resuming a paused VM. */
   readonly maxActiveVms?: number | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }): VmWorkflowProgram<VMStats> {
   // oxlint-disable-next-line complexity -- Resize orchestration must keep reservation, provider, rollback, and confirmation order explicit.
   return Effect.gen(function* () {
@@ -3412,6 +3672,7 @@ export function resizeVm(input: {
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "resize", {
       forceProviderProbe: true,
       maxActiveVms: input.maxActiveVms,
+      modelPlane: input.modelPlane,
     });
     const current = yield* providers.getStats(vm.provider, input.providerVmId);
     for (const [resource, requested, previous, max] of [
@@ -3652,6 +3913,7 @@ export function openVmPort(input: {
   readonly port: number;
   /** Caller's CURRENT billing plan; used for the free access window. */
   readonly callerPlanId?: string | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -3675,7 +3937,7 @@ export function openVmPort(input: {
       vm,
       input.providerVmId,
       "open_port",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms },
+      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, modelPlane: input.modelPlane },
     );
     const endpoint = yield* providers.openPort(vm.provider, input.providerVmId, input.port);
     // Keep the preview token in the same revocation ledger as terminal/RPC
@@ -3729,6 +3991,7 @@ export function openVmCmuxRemote(input: {
   readonly clientCapabilities?: readonly string[];
   /** Caller's CURRENT billing plan; the free access window applies to cmux-tui attaches too. */
   readonly callerPlanId?: string | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -3758,7 +4021,7 @@ export function openVmCmuxRemote(input: {
       vm,
       input.providerVmId,
       "attach",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms },
+      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, modelPlane: input.modelPlane },
     );
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
@@ -3893,6 +4156,7 @@ type OpenAttachEndpointInput = {
   readonly sessionTitle?: string | null;
   /** Caller's CURRENT billing plan; used for the free access window. */
   readonly callerPlanId?: string | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 };
 
 export function openAttachEndpoint(input: OpenAttachEndpointInput) {
@@ -3910,6 +4174,7 @@ export function prepareScpEndpoint(input: {
   readonly providerVmId: string;
   readonly callerPlanId?: string | null;
   readonly maxActiveVms?: number | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -3918,7 +4183,7 @@ export function prepareScpEndpoint(input: {
     if (!providers.prepareSCP) return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "prepareSCP" }));
     if (vm.status === "destroyed") return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "scp", {
-      forceProviderProbe: true, maxActiveVms: input.maxActiveVms,
+      forceProviderProbe: true, maxActiveVms: input.maxActiveVms, modelPlane: input.modelPlane,
     });
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
@@ -3955,6 +4220,7 @@ export function openVmSession(input: {
   readonly title?: string | null;
   /** Caller's CURRENT billing plan; used for the free access window. */
   readonly callerPlanId?: string | null;
+  readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   const sessionId = input.sessionId?.trim() || `session-${randomUUID()}`;
   const attachmentId = input.attachmentId?.trim() || `attach-${randomUUID()}`;
@@ -3965,6 +4231,7 @@ export function openVmSession(input: {
     providerVmId: input.providerVmId,
     callerPlanId: input.callerPlanId,
     maxActiveVms: input.maxActiveVms,
+    modelPlane: input.modelPlane,
     sessionTitle: input.title,
     options: {
       requireDaemon: true,
@@ -4013,7 +4280,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
       vm,
       input.providerVmId,
       "attach",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms },
+      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, modelPlane: input.modelPlane },
     );
     // Once preflight records the VM as running, that state is externally
     // visible to concurrent attach/SSH requests. Later cleanup failures must
@@ -4279,9 +4546,44 @@ function reserveCreateCredit(
     readonly imageVersion?: string | null;
     readonly idempotencyKey?: string;
     readonly timing?: VmTimingSink;
+    /**
+     * Set by the Base flow. createVm and forkVm own a plain row, so failing it
+     * is the whole rollback. A Base row is also claimed by a base and a
+     * generation, and markBaseCreateFailed is the mark on this path that
+     * releases those; marking it with the ad-hoc path leaves the base
+     * "resetting" and its generation "creating". (markCreateAbandoned and
+     * resolveCreateCleanup also call restoreBaseAfterCreateFailure, but neither
+     * is reachable from here once the row carries a failure code.)
+     *
+     * Reset then 409s forever, because beginBaseReset refuses to start while an
+     * operation is in flight. Open does not: it has no such guard and the
+     * ad-hoc-failed row is not the active one, so it quietly allocates a new
+     * generation on a new provider machine and orphans the working one as
+     * retained. That still counts against maxActiveVms, so a user at their
+     * machine limit is stuck until they delete one by hand.
+     *
+     * The abandonment sweeper cannot recover either shape, because it matches
+     * only provisioning rows with no failure code, and the ad-hoc mark sets
+     * both.
+     */
+    readonly baseGeneration?: {
+      readonly baseId: string;
+      readonly generation: number;
+    };
   },
   vm: CloudVmRow,
 ) {
+  const markCreateFailed = (code: string, message: string) =>
+    input.baseGeneration
+      ? repo.markBaseCreateFailed({
+        baseId: input.baseGeneration.baseId,
+        generation: input.baseGeneration.generation,
+        vmId: vm.id,
+        userId: input.userId,
+        code,
+        message,
+      })
+      : repo.markCreateFailed({ id: vm.id, code, message });
   return measureVmEffect(
     input.timing,
     "billing",
@@ -4318,13 +4620,12 @@ function reserveCreateCredit(
       }).pipe(
         Effect.tapError((err) =>
           Effect.all([
-            recordCreateFailureAfterMark(repo, repo.markCreateFailed({
-              id: vm.id,
-              code: isVmCreateCreditsInsufficientError(err)
+            recordCreateFailureAfterMark(repo, markCreateFailed(
+              isVmCreateCreditsInsufficientError(err)
                 ? "billing_credits_insufficient"
                 : "billing_reserve_failed",
-              message: errorMessage(err),
-            }), {
+              errorMessage(err),
+            ), {
               userId: input.userId,
               billingTeamId: input.billingTeamId,
               billingPlanId: input.billingPlanId,
@@ -4623,6 +4924,8 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     createdAt: row.createdAt.getTime(),
     displayName: row.displayName ?? null,
     slug: row.slug ?? null,
+    createdByUserId: row.userId,
+    ownerTeamId: row.ownerTeamId,
     addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
     addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
     cmuxTuiContract: typeof metadata["cmuxTuiContract"] === "string" ? metadata["cmuxTuiContract"] : null,

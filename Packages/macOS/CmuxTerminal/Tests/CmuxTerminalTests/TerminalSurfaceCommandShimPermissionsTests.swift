@@ -79,7 +79,7 @@ struct TerminalSurfaceCommandShimPermissionsTests {
             TerminalSurface.installAgentCommandShimsIfPossible(
                 wrapperDirectoryURL: wrapperDirectory,
                 surfaceId: surfaceId,
-                temporaryDirectory: temporaryDirectory,
+                rootDirectory: temporaryDirectory,
                 fileManager: fileManager
             )
         )
@@ -92,6 +92,29 @@ struct TerminalSurfaceCommandShimPermissionsTests {
             let permissions = try #require(attributes[.posixPermissions] as? NSNumber)
             #expect(permissions.uint16Value == 0o700)
         }
+    }
+
+    @Test("Install skips a shim path under a non-sticky shared ancestor")
+    func installSkipsNonStickySharedAncestor() throws {
+        let fileManager = FileManager.default
+        let root = URL.temporaryDirectory.appending(
+            path: "TerminalSurfaceCommandShimSharedAncestorTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        let temporaryDirectory = root.appending(path: "tmp", directoryHint: .isDirectory)
+        let wrapperDirectory = try makeClaudeWrapperDirectory(in: root)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try fileManager.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        try fileManager.setAttributes([.posixPermissions: 0o777], ofItemAtPath: temporaryDirectory.path)
+
+        let shims = TerminalSurface.installAgentCommandShimsIfPossible(
+            wrapperDirectoryURL: wrapperDirectory,
+            surfaceId: UUID(),
+            rootDirectory: temporaryDirectory,
+            fileManager: fileManager
+        )
+        #expect(shims == nil)
     }
 
     @Test("Install skips a symlinked shim parent")
@@ -119,7 +142,7 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         let shims = TerminalSurface.installAgentCommandShimsIfPossible(
             wrapperDirectoryURL: wrapperDirectory,
             surfaceId: UUID(),
-            temporaryDirectory: temporaryDirectory,
+            rootDirectory: temporaryDirectory,
             fileManager: fileManager
         )
         #expect(shims == nil)
@@ -155,7 +178,7 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         let shims = TerminalSurface.installAgentCommandShimsIfPossible(
             wrapperDirectoryURL: wrapperDirectory,
             surfaceId: surfaceId,
-            temporaryDirectory: temporaryDirectory,
+            rootDirectory: temporaryDirectory,
             fileManager: fileManager
         )
         #expect(shims == nil)
@@ -185,7 +208,7 @@ struct TerminalSurfaceCommandShimPermissionsTests {
             TerminalSurface.installAgentCommandShimsIfPossible(
                 wrapperDirectoryURL: wrapperDirectory,
                 surfaceId: UUID(),
-                temporaryDirectory: temporaryDirectory,
+                rootDirectory: temporaryDirectory,
                 fileManager: fileManager
             )
         )
@@ -196,7 +219,7 @@ struct TerminalSurfaceCommandShimPermissionsTests {
             TerminalSurface.installAgentCommandShimsIfPossible(
                 wrapperDirectoryURL: wrapperDirectory,
                 surfaceId: UUID(),
-                temporaryDirectory: temporaryDirectory,
+                rootDirectory: temporaryDirectory,
                 enabledCommands: [.codex],
                 fileManager: fileManager
             )
@@ -235,7 +258,7 @@ struct TerminalSurfaceCommandShimPermissionsTests {
             TerminalSurface.installAgentCommandShimsIfPossible(
                 wrapperDirectoryURL: wrapperDirectory,
                 surfaceId: UUID(),
-                temporaryDirectory: temporaryDirectory,
+                rootDirectory: temporaryDirectory,
                 fileManager: fileManager
             )
         )
@@ -322,7 +345,7 @@ struct TerminalSurfaceCommandShimPermissionsTests {
             TerminalSurface.installAgentCommandShimsIfPossible(
                 wrapperDirectoryURL: wrapperDirectory,
                 surfaceId: UUID(),
-                temporaryDirectory: temporaryDirectory,
+                rootDirectory: temporaryDirectory,
                 hermesProfileAliasDirectoryURL: aliasDirectory,
                 fileManager: fileManager
             )
@@ -396,7 +419,7 @@ struct TerminalSurfaceCommandShimPermissionsTests {
             await TerminalSurface.installAgentCommandShimsIfPossible(
                 wrapperDirectoryURL: wrapperDirectory,
                 surfaceId: UUID(),
-                temporaryDirectory: temporaryDirectory,
+                rootDirectory: temporaryDirectory,
                 hermesProfileAliasCatalog: catalog,
                 fileManager: setupFileManager
             )
@@ -415,7 +438,7 @@ struct TerminalSurfaceCommandShimPermissionsTests {
             await TerminalSurface.installAgentCommandShimsIfPossible(
                 wrapperDirectoryURL: wrapperDirectory,
                 surfaceId: UUID(),
-                temporaryDirectory: temporaryDirectory,
+                rootDirectory: temporaryDirectory,
                 hermesProfileAliasCatalog: catalog,
                 fileManager: setupFileManager
             )
@@ -454,7 +477,7 @@ struct TerminalSurfaceCommandShimPermissionsTests {
             await TerminalSurface.installAgentCommandShimsIfPossible(
                 wrapperDirectoryURL: wrapperDirectory,
                 surfaceId: UUID(),
-                temporaryDirectory: temporaryDirectory,
+                rootDirectory: temporaryDirectory,
                 hermesProfileAliasCatalog: catalog,
                 fileManager: setupFileManager
             )

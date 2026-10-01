@@ -63,25 +63,61 @@ verify_ipa_aps_environment_production() {
     rm -rf "$workdir"
     return 1
   fi
-  while IFS= read -r -d '' extension_app; do
-    extension_ent="$workdir/$(basename "$extension_app").entitlements.plist"
-    if ! codesign --verify --strict --verbose=2 "$extension_app" >&2 ||
-      ! codesign -d --entitlements :- --xml "$extension_app" > "$extension_ent" 2>/dev/null; then
-      echo "error: signed notification extension failed code-signature verification: $extension_app" >&2
-      rm -rf "$workdir"
-      return 1
-    fi
-    extension_bundle_id="$("$PLISTBUDDY" -c 'Print :CFBundleIdentifier' "$extension_app/Info.plist" 2>/dev/null || true)"
-    extension_app_id="$("$PLISTBUDDY" -c 'Print :application-identifier' "$extension_ent" 2>/dev/null || true)"
-    extension_team_id="$("$PLISTBUDDY" -c 'Print :com.apple.developer.team-identifier' "$extension_ent" 2>/dev/null || true)"
-    expected_extension_app_id="$DEVELOPMENT_TEAM.$extension_bundle_id"
-    if [[ "$extension_app_id" != "$expected_extension_app_id" || "$extension_team_id" != "$DEVELOPMENT_TEAM" ]]; then
-      echo "error: signed notification extension identity is invalid (application-identifier='${extension_app_id:-<absent>}', expected='$expected_extension_app_id', team='${extension_team_id:-<absent>}'): $extension_app" >&2
-      plutil -p "$extension_ent" >&2 || true
-      rm -rf "$workdir"
-      return 1
-    fi
-  done < <(find "$app/PlugIns" -maxdepth 1 -type d -name '*.appex' -print0 2>/dev/null)
+  # CloudVPN.appex is a system-network extension with a different signing
+  # contract. Only the notification service extension uses the host app's
+  # notification-style application-identifier/team entitlements checked here.
+  local extension_app="$app/PlugIns/NotificationService.appex"
+  if [[ ! -d "$extension_app" ]]; then
+    echo "error: signed IPA is missing NotificationService.appex: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  extension_ent="$workdir/NotificationService.appex.entitlements.plist"
+  if ! codesign --verify --strict --verbose=2 "$extension_app" >&2 ||
+    ! codesign -d --entitlements :- --xml "$extension_app" > "$extension_ent" 2>/dev/null; then
+    echo "error: signed notification extension failed code-signature verification: $extension_app" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  extension_bundle_id="$($PLISTBUDDY -c 'Print :CFBundleIdentifier' "$extension_app/Info.plist" 2>/dev/null || true)"
+  extension_app_id="$($PLISTBUDDY -c 'Print :application-identifier' "$extension_ent" 2>/dev/null || true)"
+  extension_team_id="$($PLISTBUDDY -c 'Print :com.apple.developer.team-identifier' "$extension_ent" 2>/dev/null || true)"
+  expected_extension_app_id="$DEVELOPMENT_TEAM.$extension_bundle_id"
+  if [[ "$extension_app_id" != "$expected_extension_app_id" || "$extension_team_id" != "$DEVELOPMENT_TEAM" ]]; then
+    echo "error: signed notification extension identity is invalid (application-identifier='${extension_app_id:-<absent>}', expected='$expected_extension_app_id', team='${extension_team_id:-<absent>}'): $extension_app" >&2
+    plutil -p "$extension_ent" >&2 || true
+    rm -rf "$workdir"
+    return 1
+  fi
+  rm -rf "$workdir"
+  return 0
+}
+
+verify_ipa_app_store_main_entitlements() {
+  local ipa="$1"
+  local workdir app ent
+  workdir="$(mktemp -d)"
+  if ! ( cd "$workdir" && unzip -q "$ipa" ); then
+    echo "error: could not unzip IPA to verify App Store entitlements: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  app="$(find "$workdir/Payload" -type d -name '*.app' -prune -print 2>/dev/null | head -n 1)"
+  if [[ -z "$app" || ! -d "$app" ]]; then
+    echo "error: IPA has no Payload/*.app to verify App Store entitlements: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  ent="$workdir/signed-entitlements.plist"
+  if ! codesign -d --entitlements :- --xml "$app" > "$ent" 2>/dev/null; then
+    echo "error: could not read signed App Store entitlements: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  if ! python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" --check "$ent"; then
+    rm -rf "$workdir"
+    return 1
+  fi
   rm -rf "$workdir"
   return 0
 }
@@ -1502,6 +1538,13 @@ PY
   plutil -replace keychain-access-groups \
     -json "[\"$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER\"]" \
     "$MERGED_ENTITLEMENTS"
+  if [[ "$LANE" == "appstore" ]]; then
+    # The production profile also carries the newer hotspot-provider value,
+    # which Apple rejects for this app's current iOS package. Remove only that
+    # value; packet-tunnel-provider and Personal VPN allow-vpn remain available
+    # for the upcoming VPN feature.
+    python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" "$MERGED_ENTITLEMENTS"
+  fi
   plutil -lint "$MERGED_ENTITLEMENTS" >/dev/null
 
   # The archive is built unsigned, so $(AppIdentifierPrefix) in Info.plist
@@ -1618,6 +1661,11 @@ if [[ "$LANE" == "appstore" ]]; then
     exit 1
   fi
   echo "App Store IPA verified to omit external purchase/enrollment links: $IPA_PATH"
+  if ! verify_ipa_app_store_main_entitlements "$IPA_PATH"; then
+    echo "error: App Store IPA contains unsupported iOS main-app entitlements; refusing to upload" >&2
+    exit 1
+  fi
+  echo "App Store IPA verified to omit unsupported iOS main-app entitlements: $IPA_PATH"
 fi
 
 if [[ "$EXPORT_ONLY" -eq 1 ]]; then

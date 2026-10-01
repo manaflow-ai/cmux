@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxFoundation
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -247,7 +248,9 @@ final class LocalSurfaceProvider: SurfaceProvider {
             initialCommand: initialCommand,
             workingDirectory: cwd,
             at: .workspace(id: workspace.id, placement: .split),
-            focus: true
+            // The pane is a staging spot: `surface.new_terminal` then projects it to its
+            // destination with the request's focus, so creating it must not take focus.
+            focus: false
         )
         let id = Self.resourceID(forTerminalPanel: made.panelID)
         if var resource = catalog.resources[id] {
@@ -262,7 +265,7 @@ final class LocalSurfaceProvider: SurfaceProvider {
 
     static func shellQuote(_ value: String) -> String {
         if value.isEmpty { return "''" }
-        if value.range(of: "^[A-Za-z0-9_./:=@%+-]+$", options: .regularExpression) != nil { return value }
+        if value.isPOSIXShellBareWord(punctuation: "_./:=@%+-") { return value }
         return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

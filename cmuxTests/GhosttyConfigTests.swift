@@ -2405,7 +2405,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
         XCTAssertNil(panel.webView.url)
 
-        panel.setRemoteProxyEndpoint(BrowserProxyEndpoint(host: "127.0.0.1", port: 9876))
+        panel.setRemoteProxyEndpoint(BrowserProxyEndpoint(host: "127.0.0.1", port: 9876, credential: .random()))
 
         let deadline = Date().addingTimeInterval(1.0)
         while panel.webView.url == nil, RunLoop.main.run(mode: .default, before: deadline), Date() < deadline {}
@@ -2427,7 +2427,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
         XCTAssertNil(panel.webView.url)
 
-        panel.setRemoteProxyEndpoint(BrowserProxyEndpoint(host: "127.0.0.1", port: 9876))
+        panel.setRemoteProxyEndpoint(BrowserProxyEndpoint(host: "127.0.0.1", port: 9876, credential: .random()))
 
         let deadline = Date().addingTimeInterval(1.0)
         while panel.webView.url == nil, RunLoop.main.run(mode: .default, before: deadline), Date() < deadline {}
@@ -2501,7 +2501,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
         XCTAssertNil(panel.webView.url)
 
-        panel.setRemoteProxyEndpoint(BrowserProxyEndpoint(host: "127.0.0.1", port: 9876))
+        panel.setRemoteProxyEndpoint(BrowserProxyEndpoint(host: "127.0.0.1", port: 9876, credential: .random()))
 
         let deadline = Date().addingTimeInterval(1.0)
         while panel.webView.url == nil, RunLoop.main.run(mode: .default, before: deadline), Date() < deadline {}
@@ -5060,7 +5060,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             )
         }
 
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let cmuxZdotdir = repoRoot.appendingPathComponent("Resources/shell-integration")
@@ -5162,7 +5162,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             )
         }
 
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let cmuxZdotdir = repoRoot.appendingPathComponent("Resources/shell-integration")
@@ -5293,7 +5293,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let integrationPath = repoRoot.appendingPathComponent("Resources/shell-integration/cmux-bash-integration.bash")

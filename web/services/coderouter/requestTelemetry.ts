@@ -274,6 +274,8 @@ export function recordCoderouterOutcome(outcome: CoderouterOutcome): void {
       "cmux.coderouter.agent": outcome.agent,
       "cmux.coderouter.attempts": outcome.attempts,
       "cmux.coderouter.refresh_retries": outcome.refreshRetries,
+      "cmux.coderouter.held_ms": outcome.heldMs,
+      "cmux.coderouter.hold_count": outcome.holdCount,
       "cmux.coderouter.upstream_kind": outcome.upstreamKind,
       "cmux.coderouter.response_streamed": outcome.responseStreamed,
     });
@@ -431,6 +433,8 @@ function coderouterTraceProperties(
     ...(shouldEmitException ? { $ai_error: `${outcome.outcome}/${outcome.failureStage}` } : {}),
     coderouter_attempts: outcome.attempts ?? 0,
     coderouter_refresh_retries: outcome.refreshRetries ?? 0,
+    coderouter_held_ms: outcome.heldMs ?? 0,
+    coderouter_hold_count: outcome.holdCount ?? 0,
     coderouter_response_streamed: outcome.responseStreamed === true,
     ...(outcome.upstreamKind ? { upstream_kind: outcome.upstreamKind } : {}),
     ...(outcome.upstreamAccountId ? { upstream_account_id: outcome.upstreamAccountId } : {}),
@@ -823,6 +827,8 @@ function recordRouteCrash(
       attemptCount: outcome.attempts ?? 0,
       refreshRetryCount: outcome.refreshRetries ?? 0,
       durationMs,
+      heldMs: outcome.heldMs,
+      holdCount: outcome.holdCount,
       responseStreamed: false,
     });
   } catch {

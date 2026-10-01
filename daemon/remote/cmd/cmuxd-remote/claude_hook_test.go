@@ -173,7 +173,7 @@ func TestClaudeArgsWithRelayHooksMergesLauncherSettings(t *testing.T) {
 	if !strings.Contains(string(data), `'/home/leo/.cmux/bin/cmux' claude-hook session-start`) {
 		t.Fatalf("cmux session-start hook missing: %s", data)
 	}
-	for _, event := range []string{"SessionStart", "UserPromptSubmit", "Notification", "SessionEnd", "PreToolUse"} {
+	for _, event := range []string{"SessionStart", "UserPromptSubmit", "StopFailure", "Notification", "SessionEnd", "PreToolUse"} {
 		if _, ok := hooks[event]; !ok {
 			t.Fatalf("hook event %s missing", event)
 		}
@@ -328,6 +328,36 @@ func TestWriteClaudeSettingsFileRestoresPrivateModes(t *testing.T) {
 		if err != nil || info.Mode().Perm() != want {
 			t.Fatalf("%s mode = %v, want %v (%v)", target, info.Mode().Perm(), want, err)
 		}
+	}
+}
+
+// TestWriteClaudeSettingsFileRefusesSymlinkedDirectory checks a symlink at the cache path is not followed.
+func TestWriteClaudeSettingsFileRefusesSymlinkedDirectory(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(target, "stale.json")
+	if err := os.WriteFile(stale, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-claudeSettingsRetention - time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "settings")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeClaudeSettingsFile(link, []byte(`{"hooks":{}}`)); err == nil {
+		t.Fatal("settings were written through a symlinked cache directory")
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatalf("a file behind the symlink was pruned: %v", err)
+	}
+	if info, err := os.Stat(target); err != nil || info.Mode().Perm() != 0o755 {
+		t.Fatalf("the symlink target's mode changed: %v", err)
 	}
 }
 
