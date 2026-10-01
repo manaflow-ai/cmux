@@ -378,6 +378,12 @@ extension GhosttySurfaceScrollView {
     }
 
     func terminalSurfaceDidAcceptExplicitInput() {
+        // Following panes already track the live bottom. Avoid touching the
+        // runtime on the typing hot path unless review mode needs reconciling.
+        guard scrollbackViewportIntent.isReviewingScrollback
+                || scrollbackViewportIntent.isAwaitingExplicitScrollbarSync else {
+            return
+        }
         guard let geometry = surfaceView.authoritativeScrollbarGeometry() else { return }
         let nextIntent = scrollbackViewportIntent.resolvingAcceptedExplicitInput(
             isAtBottom: geometry.scrollbar.isAtBottom
