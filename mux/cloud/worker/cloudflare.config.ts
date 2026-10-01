@@ -20,6 +20,10 @@ const worker = defineWorker({
     ASSETS: bindings.assets(),
     CODEROUTER_API_KEY: bindings.secret(),
     MUX_DEV_AUTH: bindings.secret(),
+    // cmux development Stack project (cmuxterm-dev). Switching to the production
+    // project needs OAuth redirect domains added there; see DESIGN.md.
+    MUX_STACK_PROJECT_ID: bindings.text("454ecd03-1db2-4050-845e-4ce5b0cd9895"),
+    MUX_STACK_PUBLISHABLE_CLIENT_KEY: bindings.secret(),
   },
 });
 

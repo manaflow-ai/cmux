@@ -6,3 +6,10 @@ export const viewerQuery = (source: ChatSource) =>
 
 export const conversationsQuery = (source: ChatSource) =>
   queryOptions({ queryKey: ["conversations"], queryFn: () => source.listConversations() });
+
+export const machinesQuery = (source: ChatSource) =>
+  queryOptions({
+    queryKey: ["machines"],
+    queryFn: () => source.listMachines(),
+    refetchInterval: 10_000,
+  });

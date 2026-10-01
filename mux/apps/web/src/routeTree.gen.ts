@@ -9,68 +9,109 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as CConversationIdRouteImport } from './routes/c.$conversationId'
+import { Route as AppRouteImport } from './routes/_app'
+import { Route as SignInRouteImport } from './routes/sign-in'
+import { Route as AppIndexRouteImport } from './routes/_app.index'
+import { Route as AppCConversationIdRouteImport } from './routes/_app.c.$conversationId'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
-const CConversationIdRoute = CConversationIdRouteImport.update({
+const SignInRoute = SignInRouteImport.update({
+  id: '/sign-in',
+  path: '/sign-in',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppIndexRoute = AppIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCConversationIdRoute = AppCConversationIdRouteImport.update({
   id: '/c/$conversationId',
   path: '/c/$conversationId',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => AppRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/c/$conversationId': typeof CConversationIdRoute
+  '/': typeof AppIndexRoute
+  '/sign-in': typeof SignInRoute
+  '/c/$conversationId': typeof AppCConversationIdRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/c/$conversationId': typeof CConversationIdRoute
+  '/sign-in': typeof SignInRoute
+  '/': typeof AppIndexRoute
+  '/c/$conversationId': typeof AppCConversationIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/c/$conversationId': typeof CConversationIdRoute
+  '/_app': typeof AppRouteWithChildren
+  '/sign-in': typeof SignInRoute
+  '/_app/': typeof AppIndexRoute
+  '/_app/c/$conversationId': typeof AppCConversationIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/c/$conversationId'
+  fullPaths: '/' | '/sign-in' | '/c/$conversationId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/c/$conversationId'
-  id: '__root__' | '/' | '/c/$conversationId'
+  to: '/sign-in' | '/' | '/c/$conversationId'
+  id: '__root__' | '/_app' | '/sign-in' | '/_app/' | '/_app/c/$conversationId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  CConversationIdRoute: typeof CConversationIdRoute
+  AppRoute: typeof AppRouteWithChildren
+  SignInRoute: typeof SignInRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
+    '/_app': {
+      id: '/_app'
+      path: ''
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+      preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/c/$conversationId': {
-      id: '/c/$conversationId'
+    '/sign-in': {
+      id: '/sign-in'
+      path: '/sign-in'
+      fullPath: '/sign-in'
+      preLoaderRoute: typeof SignInRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app/': {
+      id: '/_app/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/c/$conversationId': {
+      id: '/_app/c/$conversationId'
       path: '/c/$conversationId'
       fullPath: '/c/$conversationId'
-      preLoaderRoute: typeof CConversationIdRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof AppCConversationIdRouteImport
+      parentRoute: typeof AppRoute
     }
   }
 }
 
+interface AppRouteChildren {
+  AppIndexRoute: typeof AppIndexRoute
+  AppCConversationIdRoute: typeof AppCConversationIdRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppIndexRoute: AppIndexRoute,
+  AppCConversationIdRoute: AppCConversationIdRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  CConversationIdRoute: CConversationIdRoute,
+  AppRoute: AppRouteWithChildren,
+  SignInRoute: SignInRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -192,3 +192,100 @@ body {
     max-height: 30dvh;
   }
 }
+.list {
+  display: flex;
+  flex-direction: column;
+}
+.rows {
+  flex: 1;
+  overflow-y: auto;
+}
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+.link-button {
+  background: none;
+  border: none;
+  color: var(--outgoing);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 0;
+}
+.list-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+}
+.machines {
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.machines-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.machine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.dot.online {
+  background: #30d158;
+}
+.command code {
+  display: block;
+  font-size: 11px;
+  word-break: break-all;
+  background: var(--field);
+  padding: 6px;
+  border-radius: 6px;
+  margin: 4px 0;
+}
+.sign-in {
+  max-width: 320px;
+  margin: 18vh auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 16px;
+}
+.sign-in h1 {
+  margin: 0;
+}
+.sign-in input {
+  font: inherit;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--field);
+  color: inherit;
+}
+.sign-in button {
+  font: inherit;
+  padding: 9px;
+  border-radius: 10px;
+  border: none;
+  background: var(--outgoing);
+  color: #fff;
+  cursor: pointer;
+}
+.error {
+  color: #ff453a;
+  font-size: 13px;
+  margin: 0;
+}

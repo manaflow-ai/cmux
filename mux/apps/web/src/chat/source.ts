@@ -16,12 +16,24 @@ export interface ChatSource {
   viewer(): Promise<Viewer>;
   listConversations(): Promise<ConversationSummary[]>;
   createConversation(request: CreateConversationRequest): Promise<Conversation>;
+  /** Machines whose link is registered, with online state. */
+  listMachines(): Promise<MachineSummary[]>;
+  /** A new token for `mux-link login`. */
+  mintLinkToken(): Promise<string>;
   /** Opens a live channel; frames arrive on `onFrame` until `close`. */
   connect(
     conversationId: ID,
     onFrame: (frame: ServerFrame) => void,
     onClose: () => void,
   ): ChatChannel;
+}
+
+export interface MachineSummary {
+  id: ID;
+  name: string;
+  os: string;
+  online: boolean;
+  lastSeen: string;
 }
 
 export interface ChatChannel {

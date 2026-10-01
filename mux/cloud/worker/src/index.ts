@@ -33,6 +33,15 @@ export default {
       return account(env, parsed.accountId).fetch(new Request(request, { headers }));
     }
 
+    // Public: what the web app needs to sign in.
+    if (url.pathname === "/api/auth/config") {
+      return json({
+        stackProjectId: env.MUX_STACK_PROJECT_ID ?? null,
+        stackPublishableClientKey: env.MUX_STACK_PUBLISHABLE_CLIENT_KEY ?? null,
+        devAuth: env.MUX_DEV_AUTH === "1",
+      });
+    }
+
     const viewer = await authenticate(request, env);
     if (!viewer) return json({ error: "unauthorized" }, 401);
     const home = account(env, viewer.id);

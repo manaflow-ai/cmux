@@ -4,7 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from "react";
 import { viewerQuery } from "../chat/queries.ts";
 
-export const Route = createFileRoute("/c/$conversationId")({
+export const Route = createFileRoute("/_app/c/$conversationId")({
   component: Thread,
 });
 
