@@ -27,6 +27,22 @@
 #import <unistd.h>
 
 static int CmuxAppHostReceiptFD = -1;
+static NSMutableArray<NSWindow *> *CmuxRetainedTestWindows;
+
+static void CmuxRetainTestWindow(NSWindow *window) {
+    // Window-zombie regressions intentionally verify that ordinary AppKit
+    // windows can be released. Retain only the synthetic close-routing class
+    // whose weak identity is exercised after a non-destructive close.
+    if (![NSStringFromClass(window.class) containsString:@"NonDestructiveCloseWindow"]) {
+        return;
+    }
+    @synchronized ([NSWindow class]) {
+        if (CmuxRetainedTestWindows == nil) {
+            CmuxRetainedTestWindows = [NSMutableArray array];
+        }
+        [CmuxRetainedTestWindows addObject:window];
+    }
+}
 
 __attribute__((noreturn)) static void CmuxFailAppHostProcessReceipt(NSString *reason) {
     fprintf(stderr, "FAIL: app-host process receipt: %s\n", reason.UTF8String);
@@ -147,6 +163,7 @@ static void CmuxSwizzleWindowInitializer(SEL selector) {
             NSWindow *window = ((Init)original)(self, selector, rect, style, backing, defer, screen);
             window.releasedWhenClosed = NO;
             window.animationBehavior = NSWindowAnimationBehaviorNone;
+            CmuxRetainTestWindow(window);
             return window;
         };
     } else {
@@ -157,6 +174,7 @@ static void CmuxSwizzleWindowInitializer(SEL selector) {
             NSWindow *window = ((Init)original)(self, selector, rect, style, backing, defer);
             window.releasedWhenClosed = NO;
             window.animationBehavior = NSWindowAnimationBehaviorNone;
+            CmuxRetainTestWindow(window);
             return window;
         };
     }

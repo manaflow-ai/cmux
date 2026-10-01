@@ -27,10 +27,8 @@ extension Workspace {
 private final class NonDestructiveCloseWindow: NSWindow {
     private(set) var closeCallCount = 0
 
-    override func close() {
-        closeCallCount += 1
-        orderOut(nil)
-    }
+    override func close() { isReleasedWhenClosed = false; closeCallCount += 1; orderOut(nil) }
+    override func performClose(_ sender: Any?) { if delegate?.windowShouldClose?(self) != false { close() } }
 }
 
 private final class VetoingWindowCloseDelegate: NSObject, NSWindowDelegate {
@@ -1601,6 +1599,7 @@ struct GhostMainWindowContextLifecycleTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
         return window
     }
@@ -2285,6 +2284,7 @@ struct FinalCloseRoutingRegressionTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
         return window
     }
@@ -2695,6 +2695,7 @@ struct MainWindowKeyObservationOwnershipTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
         return window
     }
