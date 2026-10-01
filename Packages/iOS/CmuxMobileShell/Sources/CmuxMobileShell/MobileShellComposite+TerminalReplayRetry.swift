@@ -18,6 +18,7 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux(
                 "CMUX_REPLAY retry_exhausted surface=\(surfaceID) attempts=\(retryCount)"
             )
+            recordTerminalSurfaceGaveUp(surfaceID: surfaceID, trigger: .retryExhausted)
             return false
         }
         terminalReplayFailureRetryCountsBySurfaceID[surfaceID] = retryCount + 1
@@ -32,6 +33,7 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux(
                 "CMUX_REPLAY retry_exhausted_after_drop source=\(source) surface=\(surfaceID)"
             )
+            recordTerminalSurfaceGaveUp(surfaceID: surfaceID, trigger: .retryExhausted)
             // Same fail-open invariant as failOpenTerminalReplayBarrier: once
             // retry budget is exhausted, the pending-input gate must not keep
             // live output suppressed forever.
@@ -101,6 +103,7 @@ extension MobileShellComposite {
         resetRetryBudget: Bool = true
     ) {
         MobileDebugLog.anchormux("CMUX_REPLAY pending_input_fail_open surface=\(surfaceID) reason=\(reason)")
+        recordTerminalSurfaceGaveUp(surfaceID: surfaceID, trigger: .barrierFailedOpen)
         cancelTerminalInputAckResubscribeRetry(surfaceID: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)

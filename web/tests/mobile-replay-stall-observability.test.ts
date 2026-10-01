@@ -25,6 +25,10 @@ describe("terminal replay stall telemetry", () => {
       barrier_active: true,
       replay_attempt: 1,
       app_foreground: true,
+      replay_in_flight: false,
+      retry_exhausted: true,
+      connected: true,
+      terminal_event_age_s: 8,
       ...properties,
     },
   });
@@ -66,6 +70,44 @@ describe("terminal replay stall telemetry", () => {
       stall({ outcome: "success", terminal_phase: "hostCaptureFinished" }),
     );
     expect(parsed?.terminalPhase).toBe("hostCaptureFinished");
+  });
+
+  test("accepts a blank surface that nothing is repairing", () => {
+    const blank = parseMobileNetworkOutcome(
+      stall({ operation: "blankSurface", replay_trigger: "retryExhausted" }),
+    );
+    expect(blank?.operation).toBe("blankSurface");
+    expect(blank?.replayTrigger).toBe("retryExhausted");
+    expect(blank?.surfaceBlank).toBe(true);
+    expect(
+      parseMobileNetworkOutcome(stall({ replay_trigger: "barrierFailedOpen" }))?.replayTrigger,
+    ).toBe("barrierFailedOpen");
+  });
+
+  test("separates a dead lane from a surface that stopped asking", () => {
+    // Lane alive, nothing asking: the surface gave up.
+    const gaveUp = parseMobileNetworkOutcome(
+      stall({ operation: "blankSurface", terminal_event_age_s: 1, connected: true }),
+    );
+    expect(gaveUp?.terminalEventAgeS).toBe(1);
+    expect(gaveUp?.retryExhausted).toBe(true);
+    expect(gaveUp?.replayInFlight).toBe(false);
+    expect(gaveUp?.connected).toBe(true);
+
+    // Lane silent for minutes: the transport is the problem.
+    const deadLane = parseMobileNetworkOutcome(stall({ terminal_event_age_s: 256 }));
+    expect(deadLane?.terminalEventAgeS).toBe(256);
+
+    // A lane that never delivered omits the age rather than reporting zero.
+    const never = parseMobileNetworkOutcome(stall({ terminal_event_age_s: undefined }));
+    expect(never).not.toBeNull();
+    expect(never?.terminalEventAgeS).toBeUndefined();
+  });
+
+  test("rejects malformed repair-state fields", () => {
+    expect(parseMobileNetworkOutcome(stall({ connected: "yes" }))).toBeNull();
+    expect(parseMobileNetworkOutcome(stall({ retry_exhausted: 1 }))).toBeNull();
+    expect(parseMobileNetworkOutcome(stall({ terminal_event_age_s: -1 }))).toBeNull();
   });
 
   test("still requires trace id and operation on every terminal trace", () => {

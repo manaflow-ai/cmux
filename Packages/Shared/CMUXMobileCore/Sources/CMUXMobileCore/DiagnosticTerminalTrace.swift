@@ -5,6 +5,13 @@ public enum DiagnosticTerminalTraceOperation: Int, Sendable, Codable, CaseIterab
     case replay = 1
     case artifactScan = 2
     case artifactList = 3
+    /// A mounted surface that is blank with nothing working to fill it.
+    ///
+    /// Not a request/response like the others. It opens when a surface has no
+    /// content, no replay in flight and no barrier, and closes when something
+    /// finally paints it, so its duration is how long the user stared at an
+    /// empty terminal that nobody was repairing.
+    case blankSurface = 4
 }
 
 /// A phase in one terminal operation.
