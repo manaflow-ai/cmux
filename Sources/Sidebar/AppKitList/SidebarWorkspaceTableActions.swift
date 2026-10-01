@@ -75,6 +75,9 @@ struct SidebarWorkspaceTableActions {
     let workspaceIdForDrag: ((SidebarWorkspaceRenderItemID, UUID) -> UUID)?
     /// Native source ownership, when this bundle supports tokenized completion.
     let nativeWorkspaceDragLifecycle: NativeWorkspaceDragLifecycle?
+    /// Optional pane-projection capability exported alongside the reorder payload.
+    /// Kept optional for lightweight/test action bundles that do not own catalog state.
+    var surfaceResourceGroupForWorkspace: ((UUID) -> SurfaceResourceGroup?)?
 
     init(
         attachScrollView: @escaping (NSScrollView) -> Void,
@@ -100,7 +103,8 @@ struct SidebarWorkspaceTableActions {
         setBonsplitDropTargetCollectionActive: @escaping (Bool) -> Void,
         setBonsplitDropIndicator: @escaping (SidebarDropIndicator?) -> Void,
         workspaceIdForDrag: ((SidebarWorkspaceRenderItemID, UUID) -> UUID)? = nil,
-        nativeWorkspaceDragLifecycle: NativeWorkspaceDragLifecycle? = nil
+        nativeWorkspaceDragLifecycle: NativeWorkspaceDragLifecycle? = nil,
+        surfaceResourceGroupForWorkspace: ((UUID) -> SurfaceResourceGroup?)? = nil
     ) {
         self.attachScrollView = attachScrollView
         self.closeWorkspace = closeWorkspace
@@ -126,5 +130,6 @@ struct SidebarWorkspaceTableActions {
         self.setBonsplitDropIndicator = setBonsplitDropIndicator
         self.workspaceIdForDrag = workspaceIdForDrag
         self.nativeWorkspaceDragLifecycle = nativeWorkspaceDragLifecycle
+        self.surfaceResourceGroupForWorkspace = surfaceResourceGroupForWorkspace
     }
 }

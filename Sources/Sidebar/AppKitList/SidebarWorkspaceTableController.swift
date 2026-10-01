@@ -1207,7 +1207,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             sessionId: pendingWorkspaceDragSessionId,
             sourceView: tableView,
             controller: self,
-            provisionalToken: workspaceDragWriterOwnership.makeToken()
+            provisionalToken: workspaceDragWriterOwnership.makeToken(),
+            surfaceResourceGroup: rowConfiguration.isGroupHeader ? nil
+                : actions.surfaceResourceGroupForWorkspace?(workspaceId),
+            transferRegistry: AppDelegate.shared?.tabDragTransferRegistry
         )
         pendingWorkspaceDragActions = actions
         // Keep the latest writer identity even while an older native session is

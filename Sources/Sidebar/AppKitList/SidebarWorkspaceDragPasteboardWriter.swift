@@ -1,5 +1,7 @@
 import AppKit
 import CmuxSidebar
+import CmuxSurfaceCatalogModel
+import Bonsplit
 import Foundation
 
 /// Keeps a table drag's source graph alive while AppKit materializes its native session.
@@ -18,6 +20,10 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
     let provisionalToken: ProvisionalDragWriterOwnership.Token
     private var workspaceId: UUID
     private var sessionId: UUID?
+    private let surfaceResourceGroup: SurfaceResourceGroup?
+    private let transferRegistry: TabDragTransferRegistry?
+    private var surfaceResourceDragID: UUID?
+    private var surfaceTransferRegistration: TabDragTransferRegistration?
 
     // These are intentionally strong. AppKit retains the writer while it
     // builds (and, if successful, runs) the native session, so the source table
@@ -33,14 +39,19 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
         sessionId: UUID?,
         sourceView: NSView,
         controller: SidebarWorkspaceTableController,
-        provisionalToken: ProvisionalDragWriterOwnership.Token
+        provisionalToken: ProvisionalDragWriterOwnership.Token,
+        surfaceResourceGroup: SurfaceResourceGroup? = nil,
+        transferRegistry: TabDragTransferRegistry? = nil
     ) {
         self.workspaceId = workspaceId
         self.sessionId = sessionId
         self.sourceView = sourceView
         self.controller = controller
         self.provisionalToken = provisionalToken
+        self.surfaceResourceGroup = surfaceResourceGroup
+        self.transferRegistry = transferRegistry
         super.init()
+        registerSurfaceProjection()
         materializePayload()
     }
 
@@ -54,7 +65,12 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
 
     override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
         _ = pasteboard
-        return [Self.pasteboardType]
+        var result = [Self.pasteboardType]
+        if surfaceTransferRegistration != nil {
+            result.append(TabDragTransferRegistry.pasteboardType)
+            result.append(DragOverlayRoutingPolicy.surfaceResourceTransferType)
+        }
+        return result
     }
 
     /// Records the native generation associated with this writer request.
@@ -148,6 +164,14 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
         controller = nil
         actions = nil
         provisionalSession = nil
+        if let registration = surfaceTransferRegistration {
+            transferRegistry?.end(registration)
+            surfaceTransferRegistration = nil
+        }
+        if let surfaceResourceDragID {
+            SurfaceResourceDragRegistry.shared.discard(id: surfaceResourceDragID)
+            self.surfaceResourceDragID = nil
+        }
         previousTableDelegate = nil
     }
 
@@ -231,5 +255,31 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
             payloadValue,
             forType: Self.pasteboardType
         )
+        guard let item = surfaceTransferRegistration?.pasteboardItem else { return }
+        for type in item.types {
+            if let string = item.string(forType: type) {
+                _ = setString(string, forType: type)
+            } else if let data = item.data(forType: type) {
+                _ = setData(data, forType: type)
+            }
+        }
+    }
+
+    private func registerSurfaceProjection() {
+        guard let group = surfaceResourceGroup,
+              group.supportsNonDestructivePaneProjection,
+              let transferRegistry,
+              let lead = group.resources.first else { return }
+        let id = SurfaceResourceDragRegistry.shared.register(group)
+        guard let registration = SurfaceResourceDragPayload(
+            group: group,
+            leadKind: lead.kind,
+            dragID: id
+        ).register(with: transferRegistry) else {
+            SurfaceResourceDragRegistry.shared.discard(id: id)
+            return
+        }
+        surfaceResourceDragID = id
+        surfaceTransferRegistration = registration
     }
 }

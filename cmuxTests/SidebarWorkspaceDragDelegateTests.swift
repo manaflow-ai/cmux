@@ -1,4 +1,6 @@
 import AppKit
+import Bonsplit
+import CmuxSurfaceCatalogModel
 import Testing
 
 #if canImport(cmux_DEV)
@@ -95,6 +97,113 @@ struct SidebarWorkspaceDragDelegateTests {
         withExtendedLifetime(writer) {
             #expect(sourceTable == nil)
         }
+    }
+
+    @Test
+    func workspaceWriterExportsLiveSurfaceGroupAlongsideReorderPayload() throws {
+        let registry = TabDragTransferRegistry()
+        let group = SurfaceResourceGroup(
+            title: "workspace",
+            placements: [SurfaceResourcePlacement(resource: SurfaceResourceID(
+                machine: .cloud("test-machine"),
+                kind: .terminal,
+                key: UUID().uuidString
+            ))]
+        )
+        let controller = SidebarWorkspaceTableController()
+        let table = SidebarWorkspaceTableViewImpl()
+        table.delegate = controller
+        let writer = SidebarWorkspaceDragPasteboardWriter(
+            workspaceId: UUID(),
+            sessionId: nil,
+            sourceView: table,
+            controller: controller,
+            provisionalToken: ProvisionalDragWriterOwnershipToken(onDeallocated: { _ in }),
+            surfaceResourceGroup: group,
+            transferRegistry: registry
+        )
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("workspace-surface-\(UUID())"))
+        defer {
+            writer.releaseSourceGraph()
+            pasteboard.clearContents()
+        }
+
+        #expect(pasteboard.writeObjects([writer]))
+        #expect(pasteboard.types?.contains(TabDragTransferRegistry.pasteboardType) == true)
+        #expect(pasteboard.types?.contains(DragOverlayRoutingPolicy.surfaceResourceTransferType) == true)
+        let transfer = try #require(registry.resolve(from: pasteboard))
+        #expect(SurfaceResourceDragRegistry.shared.group(id: transfer.tab.id.uuid) == group)
+
+        writer.releaseSourceGraph()
+        #expect(registry.resolve(from: pasteboard) == nil)
+        #expect(SurfaceResourceDragRegistry.shared.group(id: transfer.tab.id.uuid) == nil)
+    }
+
+    @Test
+    func localWorkspaceGroupDoesNotRegisterPaneProjection() {
+        let local = SurfaceResourceGroup(
+            title: "local",
+            resources: [SurfaceResourceID(machine: .local, kind: .terminal, key: UUID().uuidString)],
+            representsWorkspace: true
+        )
+        #expect(!local.supportsNonDestructivePaneProjection)
+
+        let remote = SurfaceResourceGroup(
+            title: "remote",
+            resources: [SurfaceResourceID(machine: .cloud("test-machine"), kind: .terminal, key: "term-1")]
+        )
+        #expect(remote.supportsNonDestructivePaneProjection)
+    }
+
+    @Test
+    func localWorkspaceWriterPublishesOnlySidebarReorderPayload() {
+        let registry = TabDragTransferRegistry()
+        let table = SidebarWorkspaceTableViewImpl()
+        let controller = SidebarWorkspaceTableController()
+        let group = SurfaceResourceGroup(
+            title: "local",
+            resources: [SurfaceResourceID(machine: .local, kind: .terminal, key: UUID().uuidString)],
+            representsWorkspace: true
+        )
+        let writer = SidebarWorkspaceDragPasteboardWriter(
+            workspaceId: UUID(),
+            sessionId: nil,
+            sourceView: table,
+            controller: controller,
+            provisionalToken: ProvisionalDragWriterOwnershipToken(onDeallocated: { _ in }),
+            surfaceResourceGroup: group,
+            transferRegistry: registry
+        )
+        let types = writer.writableTypes(
+            for: NSPasteboard(name: NSPasteboard.Name("local-only-\(UUID())"))
+        )
+        #expect(!types.contains(TabDragTransferRegistry.pasteboardType))
+        writer.releaseSourceGraph()
+    }
+
+    @Test
+    func sidebarReorderTypeSuppressesPaneDropRouting() throws {
+        let registry = TabDragTransferRegistry()
+        let registration = try #require(
+            registry.register(
+                TabDragTransfer(
+                    tab: Bonsplit.Tab(title: "workspace"),
+                    sourcePaneId: Bonsplit.PaneID()
+                )
+            )
+        )
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("mixed-sidebar-\(UUID())"))
+        defer {
+            registry.end(registration)
+            pasteboard.clearContents()
+        }
+        #expect(registration.write(to: pasteboard))
+        #expect(
+            pasteboard.setString("workspace", forType: DragOverlayRoutingPolicy.sidebarTabReorderType)
+        )
+        #expect(
+            BonsplitTabDragPayload.transfer(from: pasteboard, registry: registry) == nil
+        )
     }
 
     private func makeWriter(

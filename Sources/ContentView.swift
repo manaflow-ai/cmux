@@ -20,6 +20,7 @@ import CmuxExtensionSidebarExamples
 import CmuxSettingsUI
 import CmuxSidebar
 import CmuxSidebarRemoteRender
+import CmuxSurfaceCatalogModel
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
 import CmuxUpdater
@@ -12466,6 +12467,32 @@ struct VerticalTabsSidebar: View, Equatable {
                 }
             )
         }
+        actions.surfaceResourceGroupForWorkspace = { [weak tabManager] workspaceID in
+            guard let workspace = tabManager?.tabs.first(where: { $0.id == workspaceID }) else { return nil }
+            let catalog = SurfaceCatalog.shared
+            // Capture panel order and exact remote placement from this workspace,
+            // rather than exporting the whole remote workspace it happens to mirror.
+            let placements = workspace.sidebarOrderedPanelIds().compactMap { panelID -> SurfaceResourcePlacement? in
+                guard let projection = catalog.projection(forPanel: panelID),
+                      catalog.resources[projection.resource] != nil else { return nil }
+                return SurfaceResourcePlacement(
+                    resource: projection.resource,
+                    remoteWorkspaceID: projection.remoteWorkspaceID,
+                    remoteTabID: projection.remoteTabID
+                )
+            }
+            guard !placements.isEmpty else {
+                // Local providers can only move an existing pane when they
+                // materialize it. Do not turn a local workspace row into a
+                // destructive pane-transfer drag; it remains reorder-only.
+                return nil
+            }
+            return SurfaceResourceGroup(
+                title: workspace.title,
+                placements: placements,
+                representsWorkspace: true
+            )
+        }
         return actions
     }
 
@@ -17179,7 +17206,10 @@ enum BonsplitTabDragPayload {
         from pasteboard: NSPasteboard,
         registry: TabDragTransferRegistry? = nil
     ) -> Transfer? {
-        guard !DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboard.types) else {
+        // A workspace row exports both reorder and pane capabilities. Sidebar
+        // destinations must continue to choose its workspace reorder payload.
+        guard !DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboard.types),
+              !DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboard.types) else {
             return nil
         }
         return liveTransfer(from: pasteboard, registry: registry).map(Transfer.init)
