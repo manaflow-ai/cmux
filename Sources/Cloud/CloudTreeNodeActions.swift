@@ -520,7 +520,25 @@ struct CloudTreeNodeActions {
             Self.copyToPasteboard(url)
             guard inNewWorkspace else { return }
             let group = SurfaceResourceGroup(title: resource.title, resources: [resource.id])
-            actions.openGroupAsWorkspace(resource.machine, group, nil)
+            let currentWorkspace = selectedWorkspaceID()
+            run(openingLabel(resource.machine)) { catalog in
+                let opened = try await catalog.projectGroupAsNewLocalWorkspace(
+                    group,
+                    title: Self.localWorkspaceTitle(hostName: machineName(resource.machine), group: group),
+                    focus: false,
+                    host: .appOptimistic,
+                    layout: nil
+                )
+                catalog.bindCloudWorkspace(
+                    localWorkspaceID: opened.workspaceID,
+                    machine: resource.machine,
+                    remoteWorkspaceID: group.remoteWorkspaceID,
+                    generatedTitle: Self.localWorkspaceTitle(hostName: machineName(resource.machine), group: group)
+                )
+                if let currentWorkspace {
+                    await MainActor.run { selectLocalWorkspace(currentWorkspace) }
+                }
+            }
         }
         actions.openWorkspace = { machine, workspace, group in
             let host = workspaceCreationHost() ?? selectedWorkspaceID()
