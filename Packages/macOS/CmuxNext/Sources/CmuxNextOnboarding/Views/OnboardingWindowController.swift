@@ -1,20 +1,18 @@
 public import AppKit
 public import CmuxNextDesign
 
-/// The onboarding window: a compact, flat window in the theme's background
-/// with only a close button. Return continues, Escape skips the rest,
+/// The onboarding window: one Liquid Glass surface (opaque theme background
+/// under Reduce Transparency) with only a close button. Return continues, Escape skips the rest,
 /// Command-[ goes back. Closing it by any means ends the flow as skipped
 /// unless the last step finished it.
 public final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
     public let model: OnboardingModel
     /// Called once when the window has closed.
     public var onClose: (() -> Void)?
-    private var shownDensity: Density
-    private var densityLoop: RenderLoop?
+    private var tintLoop: RenderLoop?
 
     public init(model: OnboardingModel) {
         self.model = model
-        shownDensity = DesignSettings.shared.density
         let window = OnboardingWindow(
             contentRect: NSRect(origin: .zero, size: OnboardingMetrics.windowSize),
             styleMask: [.titled, .closable, .fullSizeContentView],
@@ -27,7 +25,6 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         window.isReleasedWhenClosed = false
         window.standardWindowButton(.miniaturizeButton)?.isHidden = true
         window.standardWindowButton(.zoomButton)?.isHidden = true
-        window.backgroundColor = Palette.windowBackground
         window.animationBehavior = .alertPanel
         // A fixed size: content never grows the window.
         window.contentMinSize = OnboardingMetrics.windowSize
@@ -36,7 +33,28 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         ThemeStore.shared.adopt(window)
         super.init(window: window)
         window.delegate = self
-        window.contentView = OnboardingRootView(model: model)
+        let root = OnboardingRootView(model: model)
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
+            // Reduce Transparency: the same layout on an opaque theme background.
+            window.backgroundColor = Palette.windowBackground
+            window.contentView = root
+        } else {
+            // One real Liquid Glass surface for the whole window.
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            let glass = Glass.makePanel(content: root, cornerRadius: 0)
+            glass.translatesAutoresizingMaskIntoConstraints = true
+            glass.autoresizingMask = [.width, .height]
+            window.contentView = glass
+            // The content carries the theme background at partial alpha over
+            // the glass, so a light theme reads light over any desktop (also
+            // in an inactive window, where the glass tint is not drawn).
+            root.wantsLayer = true
+            tintLoop = RenderLoop { [weak root] in
+                _ = ThemeStore.shared.input
+                root?.layer?.backgroundColor = Palette.windowBackground.withAlphaComponent(Self.glassTintAlpha).cgColor
+            }
+        }
         window.onKey = { [weak model] key in
             switch key {
             case .next: model?.next()
@@ -45,26 +63,14 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
             }
         }
         model.onEnd = { [weak self] _ in self?.window?.close() }
-        densityLoop = RenderLoop { [weak self] in self?.densityDidChange(DesignSettings.shared.density) }
-    }
-
-    /// Density changes every metric and font: rebuild the content at the
-    /// new sizes and resize the window around its center.
-    private func densityDidChange(_ density: Density) {
-        guard density != shownDensity, let window else { return }
-        shownDensity = density
-        let size = OnboardingMetrics.windowSize
-        let old = window.frame
-        let content = window.frameRect(forContentRect: NSRect(origin: .zero, size: size)).size
-        let frame = NSRect(x: old.midX - content.width / 2, y: old.maxY - content.height, width: content.width, height: content.height)
-        window.contentMinSize = size
-        window.contentMaxSize = size
-        window.contentView = OnboardingRootView(model: model)
-        Motion.animateTimed(.move) { window.animator().setFrame(frame, display: true) }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// How much of the theme background the glass carries (the rest is the
+    /// blurred desktop).
+    static let glassTintAlpha: CGFloat = 0.7
 
     /// Shows the window (placement and no-activate rules: `WindowPlacement`).
     public func present() {
