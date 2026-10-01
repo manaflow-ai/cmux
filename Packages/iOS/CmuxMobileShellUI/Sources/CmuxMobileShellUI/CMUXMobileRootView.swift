@@ -160,6 +160,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var conversationLabURL: URL? {
+        #if os(iOS) && DEBUG
+        return UITestConfig.conversationLabURL.flatMap(URL.init(string:))
+        #else
+        return nil
+        #endif
+    }
+
     private var shouldShowChangesPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.changesPreviewMode != nil
@@ -559,7 +567,12 @@ struct CMUXMobileRootView: View {
 
     @ViewBuilder
     private var standardRootContent: some View {
-        if shouldShowPushReadinessPreview {
+        if let conversationLabURL {
+            #if os(iOS) && DEBUG
+            ConversationLabView(endpoint: conversationLabURL)
+                .ignoresSafeArea()
+            #endif
+        } else if shouldShowPushReadinessPreview {
             pushReadinessPreview
         } else if shouldShowChangesPreview {
             changesPreview
