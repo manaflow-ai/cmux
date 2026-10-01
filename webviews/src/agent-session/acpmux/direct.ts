@@ -151,21 +151,7 @@ export class AcpmuxDirectClient {
       this.catalog = normalizeCatalog(harnesses);
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
         this.selectedSessionId = this.sessions[0]?.sessionId;
-        this.events = [];
-        this.rows.clear();
-        this.firstSeq = undefined;
-        this.lastSeq = 0;
-        this.summary = undefined;
-        this.queue = [];
-        this.turnOpen = false;
-        this.streamingAssistant = undefined;
-        this.streamingAssistantMessageId = undefined;
-        this.streamingActivity = undefined;
-        this.optimisticPromptRows.clear();
-        this.optimisticPromptTexts.clear();
-        this.supersededMessageIds.clear();
-        this.messageRows.clear();
-        this.pendingPermission = undefined;
+        this.resetSessionState();
       }
       this.selectedSessionId = initialSession(this.selectedSessionId, this.sessions, this.host.newSession);
       if (this.selectedSessionId) await this.attach(this.selectedSessionId);
@@ -178,6 +164,25 @@ export class AcpmuxDirectClient {
     } finally {
       this.opening = false;
     }
+  }
+
+  /** Drops everything that belongs to the previously selected session, before another one attaches. */
+  private resetSessionState(): void {
+    this.events = [];
+    this.rows.clear();
+    this.firstSeq = undefined;
+    this.lastSeq = 0;
+    this.summary = undefined;
+    this.queue = [];
+    this.turnOpen = false;
+    this.streamingAssistant = undefined;
+    this.streamingAssistantMessageId = undefined;
+    this.streamingActivity = undefined;
+    this.optimisticPromptRows.clear();
+    this.optimisticPromptTexts.clear();
+    this.supersededMessageIds.clear();
+    this.messageRows.clear();
+    this.pendingPermission = undefined;
   }
 
   private scheduleReconnect(): void {
@@ -244,21 +249,7 @@ export class AcpmuxDirectClient {
       if (session.sessionId === this.selectedSessionId) {
         this.selectedSessionId = this.sessions[0]?.sessionId;
         const generation = ++this.selectionGeneration;
-        this.events = [];
-        this.rows.clear();
-        this.firstSeq = undefined;
-        this.lastSeq = 0;
-        this.summary = undefined;
-        this.queue = [];
-        this.turnOpen = false;
-        this.streamingAssistant = undefined;
-        this.streamingAssistantMessageId = undefined;
-        this.streamingActivity = undefined;
-        this.optimisticPromptRows.clear();
-        this.optimisticPromptTexts.clear();
-        this.supersededMessageIds.clear();
-        this.messageRows.clear();
-        this.pendingPermission = undefined;
+        this.resetSessionState();
         this.emit("session purged");
         if (this.selectedSessionId) void this.attach(this.selectedSessionId, undefined, generation).catch(() => undefined);
       } else {
@@ -378,14 +369,7 @@ export class AcpmuxDirectClient {
     const previousSessionId = this.selectedSessionId;
     const generation = ++this.selectionGeneration;
     this.selectedSessionId = sessionId;
-    this.events = [];
-    this.rows.clear();
-    this.firstSeq = undefined;
-    this.lastSeq = 0;
-    this.turnOpen = false;
-    this.streamingAssistant = undefined;
-    this.streamingActivity = undefined;
-    this.pendingPermission = undefined;
+    this.resetSessionState();
     if (previousSessionId) await this.request("_acpmux/detach", { sessionId: previousSessionId });
     await this.attach(sessionId, undefined, generation);
     return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
