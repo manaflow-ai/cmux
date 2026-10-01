@@ -2745,11 +2745,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             #"{"type":"turn_context","payload":{"turn_id":"old-turn"}}"#,
             #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-turn"}}"#,
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
-        let launchEnvironment = codexLaunchEnvironment(
-            context: context,
-            sessionId: sessionId,
-            observedHookPID: "2"
-        )
+        var launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        launchEnvironment["CMUX_CODEX_HOOK_PID"] = "2"
         startAgentHookMockServerAccepting(context: context)
 
         let oldPrompt = runCodexHook(
