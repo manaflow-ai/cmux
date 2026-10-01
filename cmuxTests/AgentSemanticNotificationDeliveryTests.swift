@@ -28,10 +28,22 @@ extension FeedCoordinator {
 }
 
 extension AgentNotificationRegressionTests {
+    private func installDirectDeliveryBinding(_ fixture: Fixture, source: String) {
+        fixture.source.surfaceResumeBindingsByPanelId[fixture.panelId] = SurfaceResumeBindingSnapshot(
+            name: source,
+            kind: source,
+            command: "agent resume",
+            checkpointId: "session",
+            source: "agent-hook",
+            updatedAt: 1
+        )
+    }
+
     @Test(arguments: ["claude", "codex"])
     func answeringAnUncorrelatedAgentPromptClearsItsRing(source: String) throws {
         let fixture = try makeFixture()
         defer { fixture.restore() }
+        installDirectDeliveryBinding(fixture, source: source)
 
         #expect(
             AgentNotificationDelivery().enqueue(
@@ -168,6 +180,7 @@ extension AgentNotificationRegressionTests {
     @Test func terminalInputClearsCodexPromptRingAndWorkspaceCount() throws {
         let fixture = try makeFixture()
         defer { fixture.restore() }
+        installDirectDeliveryBinding(fixture, source: "codex")
         #expect(AgentNotificationDelivery().enqueue(
             workspaceID: fixture.source.id,
             surfaceID: fixture.panelId,
