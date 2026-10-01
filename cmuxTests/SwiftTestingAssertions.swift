@@ -9,7 +9,9 @@ struct SwiftTestingAssertions {
     /// Resolves a test source file from its module-relative identity.
     static func sourceURL(_ file: StaticString = #fileID) -> URL {
         let sourceRoot: URL
-        if let runtimeRoot = ProcessInfo.processInfo.environment["CMUX_CI_RUNTIME_SOURCE_ROOT"],
+        let environment = ProcessInfo.processInfo.environment
+        if let runtimeRoot = environment["CMUX_CI_RUNTIME_SOURCE_ROOT"]
+            ?? environment["TEST_RUNNER_CMUX_CI_RUNTIME_SOURCE_ROOT"],
            !runtimeRoot.isEmpty {
             sourceRoot = URL(fileURLWithPath: runtimeRoot, isDirectory: true)
                 .appendingPathComponent("src", isDirectory: true)

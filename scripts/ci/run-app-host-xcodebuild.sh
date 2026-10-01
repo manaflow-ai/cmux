@@ -93,6 +93,14 @@ fi
 if [ -n "${GITHUB_ACTIONS:-}" ]; then
   app_host_test_runner_environment+=("TEST_RUNNER_GITHUB_ACTIONS=$GITHUB_ACTIONS")
 fi
+# Source-backed tests resolve #fileID through the stable runtime alias created
+# by restore-app-host-test-product.sh. Xcode only forwards TEST_RUNNER_ values
+# to the test host, so carry this path through the same channel.
+if [ -n "${CMUX_CI_RUNTIME_SOURCE_ROOT:-}" ]; then
+  app_host_test_runner_environment+=(
+    "TEST_RUNNER_CMUX_CI_RUNTIME_SOURCE_ROOT=$CMUX_CI_RUNTIME_SOURCE_ROOT"
+  )
+fi
 # Focused app-host suites invoke Node/Bun-backed helpers from the test process.
 # Xcode does not inherit these driver variables, so carry them through the
 # TEST_RUNNER_ channel when the caller supplied them.
