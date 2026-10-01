@@ -810,12 +810,18 @@ async function resolveStackTeamMembership(
     };
   }
   const requestedTeamId = normalizedOptionalString(options.requestedTeamId);
+  // Stack may return only the selected team's ID. Resolve its details before
+  // choosing billing, or paid members inherit the user's free plan instead.
+  const selectedTeamNeedsDetails = !!selectedTeam && selectedTeam.clientReadOnlyMetadata === undefined;
+  const teamIdToLookup = requestedTeamId && requestedTeamId !== selectedTeam?.id
+    ? requestedTeamId
+    : selectedTeamNeedsDetails ? selectedTeam.id : null;
   // Full pagination is reserved for the explicit team-picker route. Other
   // callers resolve one requested team with Stack's exact-ID search so shared
   // VM authentication never inherits an unbounded multi-page dependency.
   const needsListedTeams = options.forceCompleteTeamList === true ||
     !selectedTeam ||
-    (!!requestedTeamId && requestedTeamId !== selectedTeam.id);
+    !!teamIdToLookup;
   // Whether the branch taken below enumerates every team the user belongs to.
   // Only that case may be stored as an identity snapshot.
   const completeTeamList = options.subrouterAuthorizationSignal === undefined
@@ -827,17 +833,20 @@ async function resolveStackTeamMembership(
       : []
     : options.listAllTeams === true
     ? await listAllStackTeams(user, options.subrouterAuthorizationSignal)
-    : requestedTeamId && requestedTeamId !== selectedTeam?.id
+    : teamIdToLookup
     ? await findStackTeam(
       user,
-      requestedTeamId,
+      teamIdToLookup,
       options.subrouterAuthorizationSignal,
     )
     : [];
   const listedTeams = listedTeamRaw
     .map(billingTeamFromUnknown)
     .filter((team): team is BillingTeamLike => !!team);
-  return { selectedTeam, listedTeams, completeTeamList };
+  const resolvedSelectedTeam = selectedTeamNeedsDetails
+    ? listedTeams.find((team) => team.id === selectedTeam.id) ?? selectedTeam
+    : selectedTeam;
+  return { selectedTeam: resolvedSelectedTeam, listedTeams, completeTeamList };
 }
 
 async function authedUserFromStackUser(
