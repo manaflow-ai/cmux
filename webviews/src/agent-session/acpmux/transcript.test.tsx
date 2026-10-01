@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import type { AcpmuxRow } from "./model";
+import { layoutConversation, type AcpmuxRow } from "./model";
 
 // A silent console: jsdom has no canvas, so text measurement logs and falls back to row estimates.
 const dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
@@ -144,6 +144,37 @@ describe("acpmux transcript accessibility", () => {
       // Older history still in acpmux: the conversation's size is unknown.
       await act(async () => root.render(createElement(VirtualTranscript, { rows: conversation, onToggleActivity: () => {}, expanded: new Set<string>(), canLoadOlder: true })));
       for (const article of dom.window.document.querySelectorAll(".acpmux-row")) expect(article.getAttribute("aria-setsize")).toBe("-1");
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
+  /// A blank line inside a user message rendered as an empty paragraph of two newlines, which a
+  /// pre-wrap bubble drew as two extra lines the layout never counted.
+  test("a blank line between paragraphs renders no paragraph of its own", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: [{ id: "u", version: 1, at: 0, kind: "user", text: "first\n\nsecond" }], onToggleActivity: () => {}, expanded: new Set<string>() })));
+      const paragraphs = [...dom.window.document.querySelectorAll(".acpmux-markdown > p")].map((node) => node.textContent);
+      expect(paragraphs).toEqual(["first", "second"]);
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
+  /// Rows are at most 760px wide (styles.css), but a wide pane laid them out at its whole width, so
+  /// long messages wrapped onto more lines than their rows had room for.
+  test("a wide pane lays rows out at the row's capped width", async () => {
+    const restore = fakeViewport({ width: 1200, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const long: AcpmuxRow = { id: "long", version: 1, at: 0, kind: "assistant", text: "word ".repeat(120).trim() };
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: [long, { id: "next", version: 1, at: 1, kind: "assistant", text: "next" }], onToggleActivity: () => {}, expanded: new Set<string>() })));
+      const next = dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")[1]!;
+      expect(next.style.transform).toBe(`translateY(${layoutConversation([long], 760).heights[0]}px)`);
     } finally {
       await act(async () => root.unmount());
       restore();
