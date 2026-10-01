@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 
 /// The overlay plane: pane rings and dims follow their hosts' displayed
 /// frames, and the rects of overlays that take the mouse are reported.
@@ -93,6 +94,11 @@ extension LayoutRootView {
                     convert(ring, to: nil), host.convert(host.roundedRect, to: nil))
         }
     }
+
+    /// The drop highlight's material (`debug.layers`), and a pin for it
+    /// (`debug.drop_highlight`; nil follows this Mac).
+    public var dropHighlightMaterial: OverlayMaterial { highlight.surface.material }
+    public func pinDropHighlightMaterial(_ material: OverlayMaterial?) { highlight.surface.materialOverride = material }
 
     /// The drop highlight's frame in window coordinates while it shows.
     public var dropHighlightFrameInWindow: CGRect? {
