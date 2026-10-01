@@ -40,9 +40,12 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
     private func prepare(for request: AgentPaneRequest) -> AgentPaneModel? {
         guard let view else { return nil }
         // The page installs its bridge and registry before asking for the
-        // handshake, which can be after didFinish; replay the customization
-        // so registry.js finds them.
-        if request == .ready { view.replayCustomization() }
+        // handshake, which can be after didFinish, where the theme and
+        // customization were first pushed; push them again so they land.
+        if request == .ready {
+            view.applyTheme()
+            view.replayCustomization()
+        }
         return view.model
     }
 }
