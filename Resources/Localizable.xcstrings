@@ -115600,6 +115600,65 @@
         }
       }
     },
+    "cli.vm.run.createMissingMachineID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm run: create returned no machine id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm run: 作成結果にマシン ID がありません"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm run: Beim Erstellen wurde keine Maschinen-ID zurückgegeben"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm run : la création n'a renvoyé aucun identifiant de machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm run: لم يُرجع الإنشاء معرّف جهاز"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm run: la creación no devolvió ningún ID de máquina"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm run: 创建未返回机器 ID"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm run：建立未回傳機器 ID"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm run: 생성 결과에 머신 ID가 없습니다"
+          }
+        }
+      }
+    },
     "cli.vm.run.poolRecordFailed": {
       "extractionState": "manual",
       "localizations": {
