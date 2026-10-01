@@ -40,6 +40,14 @@ import Testing
         #expect(scope.barrier(machine: DaemonCommandScope.localMachine) == 7)
     }
 
+    /// `openBrowser` reports the tab it opened in `action.run`'s `created`
+    /// (`cmux browser page new-tab`); before, an app browser tab was not listed.
+    @Test func aNewAppBrowserTabIsReportedAsCreated() {
+        let request = NewFrontendBrowserTabRequest(url: "https://cmux.com", engine: .webkit)
+        let response = NewFrontendBrowserTabRequest.Response(surface: SurfaceID(rawValue: 12), tabResourceID: nil, contentResourceID: nil)
+        #expect(request.createdObjects(inAny: response) == [DaemonCreatedObject(.tab, "12")])
+    }
+
     @Test func windowRecordsKeepTheFocusedPane() throws {
         var record = WindowRecord(id: "w", selectedTabs: ["pane_1": "tab_1"])
         record.focusedPane = "pane_1"

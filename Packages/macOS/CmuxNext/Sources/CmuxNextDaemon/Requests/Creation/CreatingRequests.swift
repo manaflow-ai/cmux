@@ -14,6 +14,10 @@ extension NewTabRequest: DaemonCreatingRequest {
     public func createdObjects(in response: SurfaceCreated) -> [DaemonCreatedObject] { response.createdObjects }
 }
 
+extension NewFrontendBrowserTabRequest: DaemonCreatingRequest {
+    public func createdObjects(in response: Response) -> [DaemonCreatedObject] { [DaemonCreatedObject(.tab, response.surface.description)] }
+}
+
 extension NewScreenRequest: DaemonCreatingRequest {
     public func createdObjects(in response: SurfaceCreated) -> [DaemonCreatedObject] { response.createdObjects }
 }

@@ -941,6 +941,17 @@ USAGE
   cmux browser <selector> key|text [OPTIONS]
   cmux browser <selector> mouse|wheel --pointer-frame-seq <decimal> [OPTIONS]
   cmux browser <selector> attach|close [OPTIONS]
+
+App browser tabs (the cmux app; `page` is the focused tab):
+  cmux browser <tab_id|page> navigate <url>|back|forward|reload|state
+  cmux browser <tab_id|page> eval <script>|snapshot [OPTIONS]
+  cmux browser <tab_id|page> click|focus|text|value <selector>
+  cmux browser <tab_id|page> fill|type <selector> <text>
+  cmux browser <tab_id|page> tabs [--all]
+  cmux browser <tab_id|page> new-tab [<url>]|select|close [--no-wait]
+
+tabs lists the browser tabs of the tab's workspace (`page`: the focused
+workspace). new-tab opens a browser tab in the same pane.
 ";
 
 const NOTIFICATION_HELP: &str = "\

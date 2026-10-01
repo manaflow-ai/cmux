@@ -1286,7 +1286,7 @@ static ENGLISH: Catalog = Catalog {
         closed: "the cmux app closed the connection without an answer",
         invalid_response: "the cmux app sent an answer this cmux cannot read",
         acp_open_usage: "usage: cmux acp open SESSION [--pane PANE]",
-        browser_page_usage: "usage: cmux browser <tab_…|page> navigate URL | back | forward | reload | state | eval SCRIPT | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value SELECTOR | fill|type SELECTOR TEXT",
+        browser_page_usage: "usage: cmux browser <tab_…|page> navigate URL | back | forward | reload | state | eval SCRIPT | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value SELECTOR | fill|type SELECTOR TEXT | tabs [--all] | new-tab [URL] | select | close [--no-wait]",
         root_scopes: "APP SCOPES (the cmux app)\n  app           ping, identify, capabilities, and app actions (`cmux app new-window`)\n  window        List the app's windows\n  action        List, describe, and run registered actions\n  settings      Read and change cmux.json settings\n  events        Stream app events as JSON lines\n  <noun> <verb> Any action by its CLI name (`cmux action list`)\n  --app-socket <path>  Connect to an exact app control socket\n",
     },
     agent_wrapper: AgentWrapperMessages {
@@ -2036,7 +2036,7 @@ static JAPANESE: Catalog = Catalog {
         closed: "cmux アプリが応答せずに接続を閉じました",
         invalid_response: "cmux アプリの応答を読み取れません",
         acp_open_usage: "使い方: cmux acp open セッション [--pane ペイン]",
-        browser_page_usage: "使い方: cmux browser <tab_…|page> navigate URL | back | forward | reload | state | eval スクリプト | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value セレクタ | fill|type セレクタ テキスト",
+        browser_page_usage: "使い方: cmux browser <tab_…|page> navigate URL | back | forward | reload | state | eval スクリプト | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value セレクタ | fill|type セレクタ テキスト | tabs [--all] | new-tab [URL] | select | close [--no-wait]",
         root_scopes: "アプリのスコープ (cmux アプリ)\n  app           ping、identify、capabilities とアプリのアクション (`cmux app new-window`)\n  window        アプリのウィンドウ一覧\n  action        登録済みアクションの一覧、説明、実行\n  settings      cmux.json の設定の読み取りと変更\n  events        アプリのイベントを JSON 行で表示\n  <名詞> <動詞> CLI 名で任意のアクションを実行 (`cmux action list`)\n  --app-socket <パス>  指定したアプリ制御ソケットに接続\n",
     },
     agent_wrapper: AgentWrapperMessages {

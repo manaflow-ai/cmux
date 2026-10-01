@@ -163,6 +163,7 @@ fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
         params.insert("tab".into(), json!(target));
     }
     let words: Vec<&String> = rest.iter().filter(|arg| !arg.starts_with("--")).collect();
+    let mut timeout = READ_TIMEOUT;
     let method = match (verb.as_str(), words.as_slice()) {
         ("navigate" | "goto" | "open", [url]) => {
             params.insert("url".into(), json!(url));
@@ -204,17 +205,38 @@ fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
             params.insert("text".into(), json!(text));
             if verb == "fill" { "browser.page.fill" } else { "browser.page.type" }
         }
+        ("tabs", []) => {
+            if Options::parse(rest, &[], &["all"])?.flag("all") {
+                params.insert("all".into(), json!(true));
+            }
+            "browser.page.tabs"
+        }
+        // These run the app's tab actions and wait for them unless `--no-wait`,
+        // as `action run` does.
+        ("new-tab", [] | [_]) | ("select" | "switch" | "close", []) => {
+            if let [url] = words.as_slice() {
+                params.insert("url".into(), json!(url));
+            }
+            let flags: Vec<String> =
+                rest.iter().filter(|arg| arg.starts_with("--")).cloned().collect();
+            if Options::parse(&flags, &[], &["wait", "no-wait"])?.flag("no-wait") {
+                params.insert("wait".into(), json!(false));
+            } else {
+                timeout = WAITING_RUN_TIMEOUT;
+            }
+            match verb.as_str() {
+                "new-tab" => "browser.page.new_tab",
+                "close" => "browser.page.close",
+                _ => "browser.page.select",
+            }
+        }
         _ => return Err(usage()),
     };
-    if verb != "snapshot" && words.len() != rest.len() {
+    let flagged = ["snapshot", "tabs", "new-tab", "select", "switch", "close"];
+    if !flagged.contains(&verb.as_str()) && words.len() != rest.len() {
         return Err(usage());
     }
-    Ok(AppCommand::Call {
-        method,
-        params: Value::Object(params),
-        timeout: READ_TIMEOUT,
-        pick: None,
-    })
+    Ok(AppCommand::Call { method, params: Value::Object(params), timeout, pick: None })
 }
 
 /// `action.run` for an action id or CLI name: `--target ID`, `--no-wait`
@@ -340,7 +362,9 @@ fn call(global: &GlobalArgs, mut stream: UnixStream, command: AppCommand) -> Ran
         }
     };
     let cli_name = params.get("cli") == Some(&Value::Bool(true));
-    let key = if method == "action.run" {
+    // Runs that may create or close something carry a key, so a retry is not a second run.
+    let keyed = ["action.run", "browser.page.new_tab", "browser.page.select", "browser.page.close"];
+    let key = if keyed.contains(&method) {
         match global.idempotency_key.clone().map(Ok).unwrap_or_else(|| {
             super::command::random_prefixed("mutation").map_err(|error| error.to_string())
         }) {
@@ -723,6 +747,20 @@ mod tests {
     }
 
     #[test]
+    fn browser_tab_runs_carry_an_idempotency_key() {
+        let response =
+            json!({ "id": 1, "ok": true, "result": { "ran": true, "created": ["tab_02cd"] } });
+        let (socket, app) = fake_app(vec![response]);
+        let command =
+            parse(&args(&["browser", "page", "new-tab", "https://cmux.com"])).unwrap().unwrap();
+        assert_eq!(run(&global_for(&socket), command), 0);
+        let connections = app.join().unwrap();
+        let [request] = connections[0].as_slice() else { panic!("{connections:?}") };
+        assert_eq!(request["method"], "browser.page.new_tab");
+        assert!(request["params"]["idempotency_key"].as_str().is_some_and(|key| !key.is_empty()));
+    }
+
+    #[test]
     fn a_busy_run_that_never_started_is_resent_with_the_same_key() {
         let busy = json!({ "id": 1, "ok": false, "error": { "code": "busy", "data": { "state": "not_run", "retry_after_ms": 1 } } });
         let ran = json!({ "id": 1, "ok": true, "result": { "ran": true } });
@@ -813,6 +851,47 @@ mod tests {
             None
         );
         assert!(parse(&args(&["browser", "page", "fill", "#q"])).is_err());
+    }
+
+    #[test]
+    fn browser_tab_verbs_list_open_select_and_close_app_tabs() {
+        let (method, params) =
+            call(parse(&args(&["browser", "page", "tabs", "--all"])).unwrap().unwrap());
+        assert_eq!(method, "browser.page.tabs");
+        assert_eq!(params, json!({ "all": true }));
+        let command =
+            parse(&args(&["browser", "tab_01ab", "new-tab", "https://cmux.com"])).unwrap().unwrap();
+        let AppCommand::Call { timeout, .. } = &command else { panic!("expected a call") };
+        assert_eq!(*timeout, WAITING_RUN_TIMEOUT);
+        assert_eq!(
+            call(command),
+            ("browser.page.new_tab", json!({ "tab": "tab_01ab", "url": "https://cmux.com" }))
+        );
+        assert_eq!(
+            call(parse(&args(&["browser", "page", "new-tab"])).unwrap().unwrap()),
+            ("browser.page.new_tab", json!({}))
+        );
+        for verb in ["select", "switch"] {
+            assert_eq!(
+                call(parse(&args(&["browser", "tab_01ab", verb])).unwrap().unwrap()),
+                ("browser.page.select", json!({ "tab": "tab_01ab" }))
+            );
+        }
+        assert_eq!(
+            call(parse(&args(&["browser", "tab_01ab", "close"])).unwrap().unwrap()),
+            ("browser.page.close", json!({ "tab": "tab_01ab" }))
+        );
+        assert!(parse(&args(&["browser", "page", "close", "tab_02"])).is_err());
+        assert!(parse(&args(&["browser", "page", "tabs", "--bogus"])).is_err());
+        let command =
+            parse(&args(&["browser", "tab_01ab", "close", "--no-wait"])).unwrap().unwrap();
+        let AppCommand::Call { timeout, .. } = &command else { panic!("expected a call") };
+        assert_eq!(*timeout, READ_TIMEOUT);
+        assert_eq!(
+            call(command),
+            ("browser.page.close", json!({ "tab": "tab_01ab", "wait": false }))
+        );
+        assert!(parse(&args(&["browser", "tab_01ab", "select", "--all"])).is_err());
     }
 
     #[test]
