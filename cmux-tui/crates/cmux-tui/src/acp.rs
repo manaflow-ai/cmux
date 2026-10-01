@@ -62,6 +62,16 @@ fn open_command(args: &[String], exe: &str) -> Result<Vec<String>, String> {
         .collect())
 }
 
+/// Point the linked acpmux at the home `cmux acp` uses, for code that talks
+/// to the acpmux daemon without going through `cmux acp` (agent messages).
+pub(crate) fn configure_home() {
+    let home = std::env::var("HOME").ok().map(PathBuf::from);
+    let tag = std::env::var("CMUX_TAG").ok();
+    if let Some(home) = home.and_then(|home| tagged_home(tag.as_deref(), &home)) {
+        acpmux::config::set_home_override(home);
+    }
+}
+
 /// The binary started as `acpmux`.
 pub(crate) fn run_standalone(args: Vec<OsString>) -> i32 {
     finish(entry::main(args, Invocation::default()))

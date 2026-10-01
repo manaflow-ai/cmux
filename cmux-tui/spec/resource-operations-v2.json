@@ -2567,6 +2567,197 @@
       },
       "extra": false
     },
+    "AgentMessageState": {
+      "kind": "enum",
+      "values": [
+        "queued",
+        "delivered",
+        "acknowledged",
+        "failed"
+      ]
+    },
+    "AgentMessageDelivery": {
+      "kind": "object",
+      "fields": {
+        "recipient": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 256
+          }
+        },
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "AgentMessageState"
+          }
+        },
+        "attempts": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "updated_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "via": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The delivery path that last moved this state, for example acp.prompt or codex.prompt-submit."
+        },
+        "error": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
+    "AgentMessageSnapshot": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "session_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "session"
+          }
+        },
+        "thread_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "message",
+              "reply"
+            ]
+          }
+        },
+        "sender": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 256
+          }
+        },
+        "sender_name": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Caller-supplied and untrusted."
+        },
+        "recipients": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "min_items": 1,
+            "max_items": 64
+          }
+        },
+        "body": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 32768
+          }
+        },
+        "created_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "in_reply_to": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "references": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "description": "Ancestor message ids, oldest first."
+        },
+        "deliveries": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "AgentMessageDelivery"
+            }
+          },
+          "description": "One receipt per recipient, in recipient order."
+        }
+      },
+      "extra": false
+    },
     "AgentSnapshot": {
       "kind": "object",
       "fields": {
@@ -7083,6 +7274,311 @@
       },
       "errors": [
         "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "agent.message.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "agent",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "recipient": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "Only messages addressed to this recipient. A terminal agent is addressed by its terminal id (term_...), an acpmux session by acp:<session id>."
+          },
+          "sender": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            }
+          },
+          "thread_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "state": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "AgentMessageState"
+            },
+            "description": "Only messages with a delivery in this state; with recipient, that recipient's delivery."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "description": "Newest messages, or oldest with oldest_first; defaults to 50."
+          },
+          "oldest_first": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Return the oldest matching messages first, the order a delivery path sends them in."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "AgentMessageSnapshot"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "agent.message.mark": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "agent",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "ids": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 128
+              },
+              "min_items": 1,
+              "max_items": 1000
+            }
+          },
+          "recipient": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            }
+          },
+          "state": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "delivered",
+                "acknowledged",
+                "failed"
+              ]
+            }
+          },
+          "via": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            }
+          },
+          "error": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1024
+            },
+            "description": "Why a failed delivery failed."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A delivery moves forward only: queued, delivered, acknowledged. A queued or failed delivery may fail (again) or be delivered; acknowledging skips delivered when a person reads a queued message.",
+          "Marking a delivery with the state it already has changes nothing."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "AgentMessageSnapshot"
+            }
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "agent.message.send": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "agent",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "recipients": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 256
+              },
+              "min_items": 1,
+              "max_items": 64
+            },
+            "description": "A terminal agent is addressed by its terminal id (term_...), an acpmux session by acp:<session id>. Required unless in_reply_to is given; a reply without recipients goes to the parent's sender."
+          },
+          "body": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 32768
+            }
+          },
+          "sender": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The sender's address, as the caller asserts it; it is not verified. Defaults to cli."
+          },
+          "sender_name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "Caller-supplied and untrusted."
+          },
+          "thread_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Defaults to the parent's thread for a reply, else the new message's id."
+          },
+          "in_reply_to": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The body is text: newlines and tabs are the only control characters allowed.",
+          "Every recipient starts queued. Messages survive a daemon restart; messages beyond the newest 2000 are pruned once no recipient is still queued."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AgentMessageSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",

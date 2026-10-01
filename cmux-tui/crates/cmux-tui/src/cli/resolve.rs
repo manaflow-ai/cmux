@@ -143,14 +143,28 @@ fn read(
     operation: ResourceOperation,
     params: Map<String, Value>,
 ) -> Result<Value, Failure> {
+    call(reader, operation, params, None)
+}
+
+/// One request on the connection; returns its result. A mutation carries
+/// `idempotency_key`.
+pub(super) fn call(
+    reader: &mut Reader,
+    operation: ResourceOperation,
+    params: Map<String, Value>,
+    idempotency_key: Option<&str>,
+) -> Result<Value, Failure> {
     let id = random_request_id().map_err(|error| Failure::Transport(format!("cmux: {error}")))?;
-    let request = json!({
+    let mut request = json!({
         "protocol": PROTOCOL,
         "type": "request",
         "id": id,
         "operation": operation.wire_name(),
         "params": params,
     });
+    if let Some(key) = idempotency_key {
+        request["idempotency_key"] = Value::String(key.to_owned());
+    }
     let mut encoded = serde_json::to_vec(&request).expect("JSON values serialize");
     encoded.push(b'\n');
     reader
@@ -179,8 +193,9 @@ fn read(
         }
         let error = response.error.map(|error| serde_json::to_value(error).unwrap_or_default());
         return Err(Failure::Resource(
-            error
-                .unwrap_or_else(|| json!({"code": "operation.failed", "message": "lookup failed"})),
+            error.unwrap_or_else(
+                || json!({"code": "operation.failed", "message": "request failed"}),
+            ),
         ));
     }
 }

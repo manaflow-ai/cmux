@@ -94,6 +94,7 @@ pub(super) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
          );",
     )?;
     super::closed_history_store::create_closed_history_schema(transaction)?;
+    super::agent_message_store::create_agent_message_schema(transaction)?;
     Ok(())
 }
 

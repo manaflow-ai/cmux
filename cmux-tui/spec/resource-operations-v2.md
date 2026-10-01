@@ -28,7 +28,7 @@ correlation, and idempotency metadata.
 
 | Target | Count | Operations |
 | --- | ---: | --- |
-| `agent` | 2 | `agent.list`, `agent.report` |
+| `agent` | 5 | `agent.list`, `agent.message.list`, `agent.message.mark`, `agent.message.send`, `agent.report` |
 | `browser` | 15 | `browser.activate`, `browser.attach`, `browser.back`, `browser.close`, `browser.forward`, `browser.get`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.list`, `browser.navigate`, `browser.reload`, `browser.viewer.release`, `browser.viewer.resize` |
 | `client` | 7 | `client.cell_pixels.set`, `client.detach`, `client.get`, `client.list`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set` |
 | `closed` | 2 | `closed.list`, `closed.reopen` |
