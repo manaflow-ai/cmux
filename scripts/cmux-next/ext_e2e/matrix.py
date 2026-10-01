@@ -7,7 +7,6 @@ import os
 INTENTIONAL = {
     ("identity", "getAuthToken"): ("no Google sign-in in cmux; the web OAuth fallback (fork API 13) needs a real "
                                    "oauth2.client_id that Google accepts, and the fixture's is not one"),
-    ("omnibox", "onInputEntered"): "the cmux omnibar has no extension keyword mode",
 }
 
 ORDER = {"pass": 0, "pending": 1, "unverified": 2, "unsupported": 3, "error": 4, "fail": 5, "missing": 6}

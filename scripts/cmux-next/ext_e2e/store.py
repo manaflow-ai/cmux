@@ -187,11 +187,19 @@ class StoreRun:
             return
         prefix = f"chrome-extension://{entry['id']}/"
         before = {t.get("id") for t in cdp.targets(app.cdp_port)}
-        app.call("debug.extensions.click", {"extension": entry["id"]})
+        clicked = app.call("debug.extensions.click", {"extension": entry["id"]}).get("result")
         target = cdp.wait_target(app.cdp_port, lambda t: t.get("id") not in before and t.get("type") == "page"
                                  and t.get("url", "").startswith(prefix), 8)
         if not target:
-            self.row(entry, "popup", "fail", "toolbar click opened no popup")
+            # Say what the first click did, then click once more: a popup on
+            # the second click means the first one was lost.
+            first = {"click": clicked, "popup": app.call("debug.extensions.popup").get("result"),
+                     "tabs": [t.get("url") for t in (app.call("debug.cef").get("result") or {}).get("devtools") or []]}
+            app.call("debug.extensions.click", {"extension": entry["id"]})
+            second = cdp.wait_target(app.cdp_port, lambda t: t.get("id") not in before and t.get("type") == "page"
+                                     and t.get("url", "").startswith(prefix), 8)
+            self.row(entry, "popup", "fail", f"toolbar click opened no popup; first click {first}; "
+                     f"second click {'opened it' if second else 'opened none'}")
             return
         session = cdp.Session(target["webSocketDebuggerUrl"])
         try:
