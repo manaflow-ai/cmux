@@ -25,8 +25,9 @@ pub fn home() -> PathBuf {
 }
 
 /// Unix socket path. macOS limits socket paths to about 100 bytes, so a
-/// long home directory falls back to a short per-user path under /tmp that
-/// is derived from the home path, so daemon and clients agree.
+/// long home directory falls back to a short path in a private per-user
+/// directory under /tmp, derived from the home path so daemon and clients
+/// agree.
 pub fn socket_path() -> PathBuf {
     if let Ok(v) = std::env::var("ACPMUX_SOCKET") {
         return PathBuf::from(v);
@@ -41,7 +42,24 @@ pub fn socket_path() -> PathBuf {
         hash = hash.wrapping_mul(0x0100_0000_01b3);
     }
     let uid = unsafe { libc::getuid() };
-    PathBuf::from(format!("/tmp/acpmux-{uid}-{hash:016x}.sock"))
+    let dir = PathBuf::from(format!("/tmp/acpmux-{uid}"));
+    if private_dir(&dir, uid) {
+        return dir.join(format!("{hash:016x}.sock"));
+    }
+    // Another user owns or can write the shared directory: never trust a
+    // socket there. The long path fails to bind with a clear error instead.
+    preferred
+}
+
+/// Create `dir` mode 0700 if missing; true only when it is a real directory
+/// owned by `uid` that nobody else can enter.
+fn private_dir(dir: &Path, uid: u32) -> bool {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    let _ = std::fs::DirBuilder::new().mode(0o700).create(dir);
+    match std::fs::symlink_metadata(dir) {
+        Ok(m) => m.is_dir() && m.uid() == uid && m.mode() & 0o077 == 0,
+        Err(_) => false,
+    }
 }
 
 /// How acpmux talks to the agent process.
@@ -413,9 +431,14 @@ pub struct Config {
     /// `defaultHarness` was filled in at load, not written by the user.
     #[serde(skip)]
     pub auto_default: bool,
-    /// `defaults.claude.prefer` was filled in by discovery, not the user.
+    /// The `defaults.claude.prefer` list discovery filled in, not the user.
+    /// `save` drops it only while it is still unchanged.
     #[serde(skip)]
-    pub auto_prefer: bool,
+    pub auto_prefer: Option<Vec<String>>,
+    /// The dashboard listener could not bind this run, so `websocket` is
+    /// not being served. Kept apart so a save does not drop the address.
+    #[serde(skip)]
+    pub web_unbound: bool,
     /// Profiles whose launcher failed its start-up check, with the reason.
     /// They stay configured (sessions on them keep their history) but no
     /// family preference or fallback routes new work to them.
@@ -447,11 +470,13 @@ impl Config {
         if let Some(members) = fams.get(head) {
             if let Some(d) = self.defaults.get(head) {
                 // An unavailable profile is skipped; the next preference serves.
-                if let Some(p) = d
-                    .prefer
-                    .iter()
-                    .find(|p| self.harnesses.contains_key(*p) && !self.unavailable.contains_key(*p))
-                {
+                // Only the family's own profiles count; a stray name never
+                // routes the family to another family's profile.
+                if let Some(p) = d.prefer.iter().find(|p| {
+                    members.contains(*p)
+                        && self.harnesses.contains_key(*p)
+                        && !self.unavailable.contains_key(*p)
+                }) {
                     return Ok(p.clone());
                 }
             }
@@ -562,7 +587,7 @@ impl Config {
                         .filter(|n| has_direct || **n != "claude")
                         .map(|n| n.to_string())
                         .collect();
-                    cfg.auto_prefer = true;
+                    cfg.auto_prefer = Some(entry.prefer.clone());
                 }
             }
         }
@@ -594,8 +619,9 @@ impl Config {
         if self.auto_default {
             on_disk.default_harness = None;
         }
-        if self.auto_prefer
+        if let Some(generated) = &self.auto_prefer
             && let Some(d) = on_disk.defaults.get_mut("claude")
+            && d.prefer == *generated
         {
             d.prefer.clear();
             if d.is_empty() {
@@ -607,6 +633,11 @@ impl Config {
 
     pub fn profile(&self, name: &str) -> Option<&HarnessProfile> {
         self.harnesses.get(name)
+    }
+
+    /// The web listener this daemon actually serves, if any.
+    pub fn web_listener(&self) -> Option<&WebSocketConfig> {
+        self.websocket.as_ref().filter(|_| !self.web_unbound)
     }
 }
 
@@ -801,7 +832,19 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
-    std::fs::write(&tmp, bytes).with_context(|| format!("write {}", tmp.display()))?;
+    // Owner-only from creation: these files hold tokens and session data.
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)
+            .with_context(|| format!("write {}", tmp.display()))?;
+        f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
+    }
     std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
     Ok(())
 }
@@ -919,6 +962,9 @@ mod tests {
             SessionDefaults { effort: Some("max".into()), ..Default::default() },
         );
         assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude-sr");
+        // A preference outside the family is ignored.
+        cfg.defaults.get_mut("claude").unwrap().prefer = vec!["codex".into(), "claude-sr".into()];
+        assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude-sr");
         // Defaults chain: family, then the profile entry, then inline profile fields.
         cfg.harnesses.get_mut("claude-sr").unwrap().policy = Some(PermissionPolicy::Ask);
         let d = cfg.defaults_for("claude-sr");
@@ -981,6 +1027,18 @@ mod tests {
         assert!(v.get("defaultHarness").map(|d| d.is_null()).unwrap_or(true), "{text}");
         assert_eq!(v["defaults"]["claude"]["model"], "m");
         assert!(!text.contains("composerMaxRows"), "{text}");
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(dir.join("config.json")).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        // A generated prefer list is left out; one the user changed is kept.
+        cfg.auto_prefer = Some(vec!["claude-sr".into(), "claude".into()]);
+        cfg.defaults.get_mut("claude").unwrap().prefer = vec!["claude".into()];
+        cfg.save().unwrap();
+        let text = std::fs::read_to_string(dir.join("config.json")).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["defaults"]["claude"]["prefer"][0], "claude", "{text}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

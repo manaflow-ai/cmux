@@ -62,9 +62,12 @@ impl Client {
                         other => {
                             // Whoever holds the current receiver gets it; a
                             // dropped receiver just loses notifications and
-                            // never kills the connection.
+                            // never kills the connection. A full queue drops
+                            // the notification rather than stall responses.
                             let tx = notif_tx.lock().await.clone();
-                            let _ = tx.send(other).await;
+                            if let Err(mpsc::error::TrySendError::Full(_)) = tx.try_send(other) {
+                                tracing::debug!("notification queue full; dropping a notification");
+                            }
                         }
                     }
                 }
@@ -130,16 +133,22 @@ impl Client {
 
     pub async fn request(&self, m: &str, params: Value) -> Result<Value> {
         let context = format!("sending {m}");
-        if self.closed.load(Ordering::SeqCst) {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let key = Value::from(id).to_string();
+        let (tx, rx) = oneshot::channel();
+        {
+            // Check and register under the lock the reader drains with after
+            // it marks the connection closed, so no request slips between.
+            let mut pending = self.pending.lock().await;
+            if self.closed.load(Ordering::SeqCst) {
+                return Err(self.closed(&context));
+            }
+            pending.insert(key.clone(), tx);
+        }
+        if self.out.send(Message::request(id, m, params).to_line()).await.is_err() {
+            self.pending.lock().await.remove(&key);
             return Err(self.closed(&context));
         }
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        let (tx, rx) = oneshot::channel();
-        self.pending.lock().await.insert(Value::from(id).to_string(), tx);
-        self.out
-            .send(Message::request(id, m, params).to_line())
-            .await
-            .map_err(|_| self.closed(&context))?;
         match rx.await {
             Ok(Ok(v)) => Ok(v),
             Ok(Err(e)) if e.message == "daemon connection closed" => {

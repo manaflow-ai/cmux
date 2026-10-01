@@ -74,7 +74,9 @@ pub async fn listen_unix(hub: Arc<Hub>, path: PathBuf) -> Result<()> {
 /// Bind the daemon socket (mode 0600), refusing to steal a live one.
 pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+        // Owner-only when created here, like the /tmp fallback directory.
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
     }
     if path.exists() {
         // Refuse to steal a live socket.

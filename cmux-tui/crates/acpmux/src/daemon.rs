@@ -24,6 +24,12 @@ pub struct DaemonOptions {
 pub const SHUTDOWN_BUDGET: Duration = Duration::from_secs(5);
 
 pub async fn run(opts: DaemonOptions) -> Result<()> {
+    // The CLI restores default SIGPIPE so `acpmux ls | head` ends quietly. A
+    // daemon must not die when its launcher or a client goes away mid-write:
+    // a closed pipe is an ordinary write error here.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+    }
     // Processes started before readiness (the login shell probe, agents)
     // must not hold the readiness pipe open.
     if let Some(fd) = opts.ready_fd.filter(|fd| *fd > 2) {
@@ -83,6 +89,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             Ok(l) => Some((l, token.clone())),
             Err(e) if !explicit_listen => {
                 tracing::warn!("dashboard disabled: {e:#}");
+                // Report no web listener; the saved address stays in the file.
+                config.web_unbound = true;
                 None
             }
             Err(e) => {
@@ -109,7 +117,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         "pid": std::process::id(),
         "socket": socket_path(),
         "listen": bound,
-        "webUrl": hub.config.read().await.websocket.as_ref().map(crate::hub::web_url),
+        "webUrl": hub.config.read().await.web_listener().map(crate::hub::web_url),
     });
     tracing::info!("acpmux ready {ready}");
     if let Some(fd) = opts.ready_fd {
@@ -213,30 +221,35 @@ pub fn set_daemon_prefix(prefix: Vec<std::ffi::OsString>) {
 const START_BUDGET: Duration = Duration::from_secs(8);
 
 /// Wait until no daemon holds this home's lock (the running one exited),
-/// at most `SHUTDOWN_BUDGET` plus a margin. The kernel wakes the blocked
-/// `flock` when the lock is released. True when it was released.
+/// at most `SHUTDOWN_BUDGET` plus a margin. True when it was released.
 pub async fn wait_for_exit() -> bool {
     wait_for_lock_release(home().join("daemon.lock"), SHUTDOWN_BUDGET + Duration::from_secs(2))
         .await
 }
 
+/// Polls a non-blocking `flock`, so the deadline always ends the wait: a
+/// blocking `flock` on a worker thread would outlive the timeout and hold
+/// up runtime teardown.
 async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
-    let wait = tokio::task::spawn_blocking(move || {
-        use std::os::unix::io::AsRawFd;
-        let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&lock) else {
+    use std::os::unix::io::AsRawFd;
+    let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&lock) else {
+        return true;
+    };
+    let deadline = tokio::time::Instant::now() + budget;
+    loop {
+        // SAFETY: flock on a descriptor this function owns.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
             return true;
-        };
-        loop {
-            // SAFETY: flock on a descriptor this closure owns.
-            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
-                return true;
-            }
-            if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
-                return false;
-            }
         }
-    });
-    matches!(tokio::time::timeout(budget, wait).await, Ok(Ok(true)))
+        let kind = std::io::Error::last_os_error().kind();
+        if kind != std::io::ErrorKind::WouldBlock && kind != std::io::ErrorKind::Interrupted {
+            return false;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
 
 /// Connect to the daemon, starting one if needed.
@@ -267,17 +280,20 @@ pub async fn connect_stream() -> Result<tokio::net::UnixStream> {
 /// readiness line (empty when it exited first).
 async fn start_daemon() -> Result<String> {
     let path = socket_path();
-    let ready = spawn_detached()?;
+    // Async pipe I/O, so the timeout cancels the read; a blocking read on a
+    // worker thread would keep runtime teardown waiting on a hung daemon.
+    let ready = tokio::net::unix::pipe::Receiver::from_file(spawn_detached()?)
+        .context("wait for acpmux daemon")?;
     // The daemon writes one line to the pipe once its socket is bound, or
     // the pipe reaches end of file when it exits first (another daemon won
     // the lock, bad config). Either way the caller connects once afterwards.
-    let wait = tokio::task::spawn_blocking(move || {
-        use std::io::BufRead;
+    let wait = async move {
+        use tokio::io::AsyncBufReadExt;
         let mut line = String::new();
-        std::io::BufReader::new(ready).read_line(&mut line).map(|_| line)
-    });
+        tokio::io::BufReader::new(ready).read_line(&mut line).await.map(|_| line)
+    };
     match tokio::time::timeout(START_BUDGET, wait).await {
-        Ok(joined) => Ok(joined.context("wait for acpmux daemon")?.unwrap_or_default()),
+        Ok(read) => Ok(read.unwrap_or_default()),
         Err(_) => Err(anyhow!(
             "daemon did not come up at {} within {START_BUDGET:?}; see {}",
             path.display(),
