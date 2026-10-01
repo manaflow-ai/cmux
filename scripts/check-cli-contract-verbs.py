@@ -681,6 +681,13 @@ def parse_command_table_cells(path):
     return cells
 
 
+def canonical_vm_command(command):
+    """Normalize the user-facing `cloud` alias to the `vm` command family."""
+    if command == "cloud" or command.startswith("cloud "):
+        return "vm" + command[len("cloud"):]
+    return command
+
+
 def parse_detailed_usage_options(path):
     """Returns options from the detailed VM help examples in the contract."""
     usage = re.compile(r"^- `cmux (vm|cloud) ([^` ]+) --help` -> `Usage: ([^`]+)`")
@@ -690,7 +697,7 @@ def parse_detailed_usage_options(path):
             match = usage.match(line)
             if match is None:
                 continue
-            command = "{0} {1}".format(match.group(1), match.group(2))
+            command = canonical_vm_command("{0} {1}".format(match.group(1), match.group(2)))
             options.setdefault(command, set()).update(
                 re.findall(r"--[A-Za-z0-9-]+", match.group(3))
             )
@@ -704,9 +711,17 @@ def check_documented_options(path):
     for command, expected in parse_detailed_usage_options(path).items():
         candidates = [
             cell for cell in cells
-            if re.search(r"`{0}(?:\s|`)".format(re.escape(command)), cell)
+            if re.search(
+                r"`{0}(?:\s|`)".format(re.escape(command)),
+                cell.replace("`cloud ", "`vm "),
+            )
         ]
         if not candidates:
+            omissions.extend(
+                "{0} help advertises {1}, but the contract has no command row"
+                .format(command, option)
+                for option in sorted(expected)
+            )
             continue
         documented = set()
         for cell in candidates:
