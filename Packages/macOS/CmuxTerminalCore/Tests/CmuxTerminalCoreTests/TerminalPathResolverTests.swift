@@ -206,6 +206,19 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(reference.column == 5)
     }
 
+    @Test func resolvesRelativePathWithGitHubLineFragment() throws {
+        let existingFile = "/Users/dev/project/src/main.swift"
+        let reference = try #require(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFileReference(
+                "src/main.swift#L42",
+                cwd: "/Users/dev/project"
+            )
+        )
+        #expect(reference.path == existingFile)
+        #expect(reference.line == 42)
+        #expect(reference.column == nil)
+    }
+
     @Test func resolvesLocalFileURL() throws {
         let existingFile = "/Users/dev/project/src/main.swift"
         let reference = try #require(
