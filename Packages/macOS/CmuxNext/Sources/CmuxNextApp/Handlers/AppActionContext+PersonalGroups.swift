@@ -15,7 +15,7 @@ extension AppActionContext {
         let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap { $0 }.first { $0.kind == .workspaceGroup }
         if let explicit {
             guard let group = personal.group(WorkspaceGroupID(rawValue: explicit.id)) else {
-                throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceGroup(explicit.id))
+                throw ActionFailure.notFound(RefusalStrings.noWorkspaceGroup(explicit.id))
             }
             return group
         }

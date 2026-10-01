@@ -51,7 +51,7 @@ extension AppActionContext {
             return active
         }
         guard let controller = services.windows.controllers.first(where: { $0.state.id == ref.id }) else {
-            throw ActionFailure.invalidTarget(RefusalStrings.noWindow(ref.id))
+            throw ActionFailure.notFound(RefusalStrings.noWindow(ref.id))
         }
         return controller
     }
