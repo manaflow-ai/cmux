@@ -38,6 +38,12 @@ struct NWConnectionAsyncTests {
         let client = NWConnection(host: "127.0.0.1", port: .init(rawValue: port)!, using: .tcp)
         defer { client.cancel() }
         try await client.startAndWaitUntilReady(queue: queue)
+        let connectionCancelled = CloudLinkFirstValue<Bool>()
+        client.stateUpdateHandler = { state in
+            if case .cancelled = state {
+                connectionCancelled.resolve(true)
+            }
+        }
 
         let finished = CloudLinkFirstValue<Bool>()
         let receive = Task {
@@ -63,7 +69,18 @@ struct NWConnectionAsyncTests {
             client.cancel()
             _ = await finished.result
         }
+        let underlyingConnectionCancelled = await withTaskGroup(of: Bool?.self) { group in
+            group.addTask { await connectionCancelled.result }
+            group.addTask {
+                try? await Task.sleep(for: .milliseconds(300))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first ?? false
+        }
         #expect(completed)
+        #expect(underlyingConnectionCancelled)
         _ = await receive.result
     }
 }
