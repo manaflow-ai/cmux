@@ -157,7 +157,7 @@ public final class ControlRouter: Sendable {
                     // Same bound as a v2 request (architecture.md 5a).
                     let reply: String?
                     do {
-                        reply = try await ControlDeadline.run(method: "v1 \(trimmed.split(separator: " ").first ?? "")",
+                        reply = try await ControlDeadline.shared.run(method: "v1 \(trimmed.split(separator: " ").first ?? "")",
                                                               deadline: .now + configuration.requestDeadline) { await handler(trimmed) }
                     } catch let error as ControlError {
                         return "ERROR: \(error.message)"
@@ -212,7 +212,7 @@ public final class ControlRouter: Sendable {
         case .snapshot(let body):
             return try body(call)
         case .async(let body):
-            return try await ControlDeadline.run(method: call.method, deadline: call.deadline,
+            return try await ControlDeadline.shared.run(method: call.method, deadline: call.deadline,
                                                  startsTerminal: call.startsTerminal) { try await body(call) }
         case .mainActor(let body):
             let reply = try await queue.run(connection: call.connection, method: call.method, deadline: call.deadline) {
@@ -222,7 +222,7 @@ public final class ControlRouter: Sendable {
             case .value(let value):
                 return value
             case .followUp(let work):
-                return try await ControlDeadline.run(method: call.method, deadline: call.deadline,
+                return try await ControlDeadline.shared.run(method: call.method, deadline: call.deadline,
                                                      startsTerminal: call.startsTerminal, work)
             }
         }

@@ -38,7 +38,7 @@ enum WorkspaceStructureHandlers {
         guard let daemon = context.services.machines.daemon(forWorkspace: workspace.id) else {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
         }
-        let withBrowsers = browsers && daemon.supports(DaemonCapabilities.frontendBrowserTabs)
+        let withBrowsers = browsers && daemon.supports(DaemonCapabilities.shared.frontendBrowserTabs)
         var blueprint = WorkspaceBlueprint(workspace)
         if !withBrowsers { blueprint = blueprint.withoutBrowserTabs(fallbackDirectory: WorkspaceVerbHandlers.directory(of: workspace, context)) }
         let windows = context.services.windows!
@@ -49,7 +49,7 @@ enum WorkspaceStructureHandlers {
             if case .open(let choice) = tabs.resolve(requested: nil) { return choice.engine }
             return .webkit
         } ?? .webkit
-        let metadata = daemon.supports(DaemonCapabilities.workspaceMetadata)
+        let metadata = daemon.supports(DaemonCapabilities.shared.workspaceMetadata)
         context.services.registry.track(Task {
             do {
                 let id = try await windows.createWorkspace(spawn, on: daemon, into: target)
@@ -81,8 +81,8 @@ enum WorkspaceStructureHandlers {
         guard let daemon = context.services.machines.daemon(forWorkspace: workspace.id) else {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
         }
-        guard daemon.supports(DaemonCapabilities.workspaceMetadata) else {
-            throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.workspaceMetadata))
+        guard daemon.supports(DaemonCapabilities.shared.workspaceMetadata) else {
+            throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.workspaceMetadata))
         }
         daemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, icon: update) }
     }

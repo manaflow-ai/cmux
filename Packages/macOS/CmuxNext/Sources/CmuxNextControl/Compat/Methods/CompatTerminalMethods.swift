@@ -80,7 +80,7 @@ enum CompatTerminalMethods {
             let (connection, resource) = try await remoteTerminal(surface, service: call.service)
             text = try await CompatDeadline.run("terminal.screen.read") { try await connection.readTerminalScreen(resource).text }
         } else {
-            text = try await call.service.daemon("read-screen", session: surface.sessionID, mutates: false) { try await $0.request(CompatReadScreenRequest(surface: handle)).text }
+            text = try await call.service.daemon("read-screen", session: surface.sessionID, mutates: false) { try await $0.request(ReadScreenRequest(surface: handle)).text }
         }
         if scrollback, !surface.isRemoteTerminal {
             let history = try await readHistory(handle, session: surface.sessionID, lastLines: lines, service: call.service)
@@ -98,13 +98,13 @@ enum CompatTerminalMethods {
     }
 
     static func readHistory(_ handle: SurfaceID, session: String?, lastLines: Int?, service: CompatService) async throws -> String {
-        let probe = try await service.daemon("read-scrollback", session: session, mutates: false) { try await $0.request(CompatReadScrollbackRequest(surface: handle, start: 0, count: 0)) }
+        let probe = try await service.daemon("read-scrollback", session: session, mutates: false) { try await $0.request(ReadScrollbackRequest(surface: handle, start: 0, count: 0)) }
         let total = probe.total
         guard total > 0 else { return "" }
         let wanted = min(total, UInt32(min(lastLines ?? Int(UInt16.max), Int(UInt16.max))))
         let start = total - wanted
         let page = try await service.daemon("read-scrollback", session: session, mutates: false) {
-            try await $0.request(CompatReadScrollbackRequest(surface: handle, start: start, count: wanted))
+            try await $0.request(ReadScrollbackRequest(surface: handle, start: start, count: wanted))
         }
         return page.text
     }

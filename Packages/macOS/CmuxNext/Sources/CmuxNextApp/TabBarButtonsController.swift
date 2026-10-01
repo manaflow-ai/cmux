@@ -40,7 +40,7 @@ final class TabBarButtonsController {
         // Shortcut rebinds change tooltips.
         let registry = registry
         tasks.append(Task { [weak self] in
-            for await _ in Observations({ registry.shortcutOverrides.count + registry.actions.count }) {
+            for await _ in Observations({ [registry.shortcutOverrides.count, registry.chordOverrides.count, registry.actions.count] }) {
                 self?.refresh()
             }
         })

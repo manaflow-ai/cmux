@@ -11,7 +11,7 @@ enum RoomHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let local: @MainActor () -> DaemonService? = { context.services.machines.local }
         func bind(_ id: ActionID, _ run: @escaping @MainActor (ActionInvocation) throws -> Void) {
-            registry.bind(id, requires: DaemonCapabilities.profiles, daemon: local(), run: { invocation in
+            registry.bind(id, requires: DaemonCapabilities.shared.profiles, daemon: local(), run: { invocation in
                 try context.requireRooms()
                 try run(invocation)
             })

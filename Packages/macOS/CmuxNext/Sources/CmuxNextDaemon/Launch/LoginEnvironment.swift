@@ -10,13 +10,14 @@ import os
 /// daemon with its allowlisted subset, and sends the same subset as
 /// per-terminal `env` (`terminal-env-v1`). See `TerminalEnvironment` for why
 /// the full login env never leaves the app.
-public enum LoginEnvironment {
+public struct LoginEnvironment: Sendable {
+    public static let shared = Self()
     /// Printed before `env -0` so rc-file chatter on stdout is skipped.
-    static let marker = "__CMUX_NEXT_LOGIN_ENV__"
+    let marker = "__CMUX_NEXT_LOGIN_ENV__"
 
     /// Identity and terminal-session variables that must not leak from the
     /// capturing shell or the app into the daemon and its shells.
-    public static let excludedKeys: Set<String> = [
+    public let excludedKeys: Set<String> = [
         "_", "PWD", "OLDPWD", "SHLVL",
         "TERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "TERM_SESSION_ID", "COLORTERM",
         "XPC_SERVICE_NAME", "XPC_FLAGS", "__CFBundleIdentifier",
@@ -27,7 +28,7 @@ public enum LoginEnvironment {
     ]
 
     /// Captures the login env, or returns nil on failure or timeout.
-    public static func capture(
+    public func capture(
         shell: String? = nil,
         base: [String: String] = ProcessInfo.processInfo.environment,
         timeout: Duration = .seconds(5),
@@ -61,7 +62,7 @@ public enum LoginEnvironment {
     }
 
     /// Parses `<noise>\n<marker>\n` followed by NUL-separated `KEY=value`.
-    static func parse(_ output: Data) -> [String: String]? {
+    func parse(_ output: Data) -> [String: String]? {
         let markerLine = Data("\n\(marker)\n".utf8)
         guard let range = output.range(of: markerLine) else { return nil }
         var env: [String: String] = [:]
@@ -75,16 +76,16 @@ public enum LoginEnvironment {
 
     /// Environment for `server ensure`: the allowlisted login env (or app env
     /// when capture failed), the app's process identity keys, and
-    /// `overrides`. Same as `TerminalEnvironment.daemon(login:base:overrides:)`.
-    public static func daemonEnvironment(
+    /// `overrides`. Same as `TerminalEnvironment.instance.daemon(login:base:overrides:)`.
+    public func daemonEnvironment(
         login: [String: String]?,
         base: [String: String],
         overrides: [String: String]
     ) -> [String: String] {
-        TerminalEnvironment.daemon(login: login, base: base, overrides: overrides)
+        TerminalEnvironment.instance.daemon(login: login, base: base, overrides: overrides)
     }
 
-    private static func userShell() -> String? {
+    private func userShell() -> String? {
         guard let entry = getpwuid(getuid()), let shell = entry.pointee.pw_shell else { return nil }
         let path = String(cString: shell)
         return path.isEmpty ? nil : path

@@ -49,21 +49,3 @@ Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateTiming.swift:UpdateTiming
 
 # feat-cmux-next: CmuxNext offenders that predate this rule gating the branch
 # (it first ran on feat-cmux-next PRs in #16206, 2026-10-01). Same rule: shrink only.
-Packages/macOS/CmuxNext/Sources/CmuxNextActions/ContextMenuCatalog.swift:ContextMenuCatalog
-Packages/macOS/CmuxNext/Sources/CmuxNextActions/ShortcutEditEnvironment.swift:SystemReservedShortcuts
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/CmuxNextApp.swift:CmuxNextApp
-Packages/macOS/CmuxNext/Sources/CmuxNextBridge/LayoutMapping.swift:LayoutMapping
-Packages/macOS/CmuxNext/Sources/CmuxNextBridge/ScreenBarMapping.swift:ScreenBarMapping
-Packages/macOS/CmuxNext/Sources/CmuxNextBridge/SidebarMapping.swift:SidebarMapping
-Packages/macOS/CmuxNext/Sources/CmuxNextBridge/TabItemMapping.swift:TabItemMapping
-Packages/macOS/CmuxNext/Sources/CmuxNextBridge/WorkspaceOrdering.swift:WorkspaceOrdering
-Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Tunnel/CloudTunnelEnrollment.swift:WireGuardConfig
-Packages/macOS/CmuxNext/Sources/CmuxNextControl/Concurrency/ControlDeadline.swift:ControlDeadline
-Packages/macOS/CmuxNext/Sources/CmuxNextControl/Concurrency/ControlSessionInfo.swift:ControlSessionNaming
-Packages/macOS/CmuxNext/Sources/CmuxNextControl/ControlSocketPath.swift:ControlSocketPath
-Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift:DaemonCapabilities
-Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonStartup.swift:DaemonStartup
-Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonLaunchTimings.swift:DaemonLaunchTimings
-Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LoginEnvironment.swift:LoginEnvironment
-Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/TerminalEnvironment.swift:TerminalEnvironment
-Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Resource/SessionJournalRead.swift:SessionJournalRead

@@ -32,7 +32,7 @@ import Testing
 
     @Test func barMenusReferenceKnownActions() {
         for context in [ActionMenuContext.bookmark, .bookmarksBar] {
-            let ids = ContextMenuCatalog.referencedIDs(ContextMenuCatalog.entries(for: context))
+            let ids = ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: context))
             #expect(!ids.isEmpty)
             for id in ids { #expect(catalog[id] != nil, "\(context): \(id)") }
         }

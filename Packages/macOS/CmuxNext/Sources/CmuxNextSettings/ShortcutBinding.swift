@@ -28,8 +28,8 @@ public enum ShortcutBinding: Sendable, Hashable {
     /// `unbound`, `disabled`, or the recorder's empty-key object).
     case unbound
     case stroke(ShortcutStrokeSpec)
-    /// A two-stroke chord (`["ctrl+b", "c"]`). The cmux-next registry cannot
-    /// dispatch chords yet, so the loader reports these instead of applying.
+    /// A two-stroke chord (`["ctrl+b", "c"]`); the first key needs Command
+    /// or Control.
     case chord(ShortcutStrokeSpec, ShortcutStrokeSpec)
 }
 

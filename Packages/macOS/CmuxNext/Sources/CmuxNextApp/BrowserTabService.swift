@@ -60,7 +60,7 @@ final class BrowserTabService {
         tabModel = { [weak daemon] id in
             daemon?.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.id == id }
         }
-        isAvailable = { [weak daemon] in daemon?.supports(DaemonCapabilities.frontendBrowserTabs) ?? false }
+        isAvailable = { [weak daemon] in daemon?.supports(DaemonCapabilities.shared.frontendBrowserTabs) ?? false }
         cefUnavailable = { [weak cef] in
             // `?? .notBundled` on the optional chain would turn "available" (nil) into notBundled.
             guard let cef else { return .notBundled }

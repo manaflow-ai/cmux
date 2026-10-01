@@ -42,7 +42,7 @@ import Testing
 
     @Test func contextMenusOfferTheProfileActionsOfTheirObject() {
         func ids(_ context: ActionMenuContext) -> Set<ActionID> {
-            Set(ContextMenuCatalog.referencedIDs(ContextMenuCatalog.entries(for: context)))
+            Set(ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: context)))
         }
         #expect(ids(.tab).isSuperset(of: ["browserProfile.moveTab", "browserProfile.duplicateTab"]))
         #expect(ids(.newTab).contains("browserProfile.newTab"))

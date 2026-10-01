@@ -45,7 +45,7 @@ final class AccountsService: AccountsServices {
             return DetectionEnvironment(home: fixtureHome, environment: ProcessInfo.processInfo.environment, files: LiveFileReader(),
                                         keychain: NoKeychain(), servers: HTTPServerProbe(), savedKeys: saved)
         }
-        if loginEnvironment == nil { loginEnvironment = await LoginEnvironment.capture() ?? ProcessInfo.processInfo.environment }
+        if loginEnvironment == nil { loginEnvironment = await LoginEnvironment.shared.capture() ?? ProcessInfo.processInfo.environment }
         return DetectionEnvironment(home: FileManager.default.homeDirectoryForCurrentUser, environment: loginEnvironment ?? [:],
                                     files: LiveFileReader(), keychain: SystemKeychainProbe(), servers: HTTPServerProbe(), savedKeys: saved)
     }

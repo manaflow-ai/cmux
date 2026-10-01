@@ -60,7 +60,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
         case .contextMenu(let request):
             let target = ActionTargetRef(kind: .tab, id: key)
             let host = services.registry.makeContextMenu(for: .browserPage, target: target,
-                                                         entries: ContextMenuCatalog.browserPageAfterEngineMenu,
+                                                         entries: ContextMenuCatalog.shared.browserPageAfterEngineMenu,
                                                          implied: .browserFocused)
             let extra = BrowserProfileLinkMenu.items(for: request.target.linkURL, target: ActionTargetRef(kind: .pane, id: pane.id),
                                                      services: services) + host.items

@@ -53,10 +53,10 @@ public struct SetPersonalTerminalRequest: DaemonRequest {
 
 extension DaemonConnection {
     /// Whether this daemon stores per-terminal themes.
-    public var supportsPersonalTerminals: Bool { identity?.supports(DaemonCapabilities.personalTerminals) == true }
+    public var supportsPersonalTerminals: Bool { identity?.supports(DaemonCapabilities.shared.personalTerminals) == true }
 
     public func setPersonalTerminal(_ request: SetPersonalTerminalRequest) async throws {
-        guard supportsPersonalTerminals else { throw DaemonError.missingCapabilities([DaemonCapabilities.personalTerminals]) }
+        guard supportsPersonalTerminals else { throw DaemonError.missingCapabilities([DaemonCapabilities.shared.personalTerminals]) }
         _ = try await self.request(request)
     }
 }

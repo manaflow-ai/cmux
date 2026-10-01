@@ -39,6 +39,12 @@ public final class ActionRegistry {
         didSet { shortcutIndex = nil }
     }
 
+    /// User chords (`["ctrl+b", "c"]` in cmux.json); an action with one has
+    /// no single-key shortcut.
+    public internal(set) var chordOverrides: [ActionID: ShortcutChord] = [:] {
+        didSet { shortcutIndex = nil }
+    }
+
     /// User key-routing tiers (`cmux.json` `shortcuts.tiers`), see
     /// `ActionKeyTier`.
     public internal(set) var keyTierOverrides: [ActionID: ActionKeyTier] = [:]
@@ -356,7 +362,7 @@ public final class ActionRegistry {
         return perform(resolved.id)
     }
 
-    private func bestCandidate(_ ids: [ActionID]) -> ActionID? {
+    func bestCandidate(_ ids: [ActionID]) -> ActionID? {
         var best: (id: ActionID, specificity: Int)?
         for id in ids where canPerform(id) {
             let specificity = descriptor(for: id)?.requires.rawValue.nonzeroBitCount ?? 0

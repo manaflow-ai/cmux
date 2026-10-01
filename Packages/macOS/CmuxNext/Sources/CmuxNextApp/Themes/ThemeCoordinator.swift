@@ -68,7 +68,7 @@ final class ThemeCoordinator {
             for await _ in Observations({ () -> [String?] in
                 store.profiles.map(\.theme) + store.personal.workspaces.map(\.theme)
                     + [String(describing: store.personal.terminalThemes), String(describing: terminalThemes.themes),
-                       String(store.identity?.supports(DaemonCapabilities.personalTerminals) ?? false)]
+                       String(store.identity?.supports(DaemonCapabilities.shared.personalTerminals) ?? false)]
             }) {
                 self?.migrateTerminalThemes()
                 self?.apply()

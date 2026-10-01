@@ -10,7 +10,7 @@ import Testing
 /// updated in place (its link socket stays), the app must connect without a
 /// relaunch.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct RemoteMachineCompatTests {
-    nonisolated static let required = DaemonCapabilities.required
+    nonisolated static let required = DaemonCapabilities.shared.required
 
     /// identify/set-client-info/subscribe/list-workspaces for a daemon with
     /// `capabilities()`.
@@ -69,8 +69,8 @@ import Testing
         // Home-only personal state does not make a remote machine limited;
         // workspace groups remain machine capabilities until the local
         // MachineRegistry has a profiles-backed home store.
-        let homeOnly = Set(DaemonCapabilities.homeOnly)
-        #expect(service.compatibility?.missingOptional == DaemonCapabilities.optional.filter { !homeOnly.contains($0) })
+        let homeOnly = Set(DaemonCapabilities.shared.homeOnly)
+        #expect(service.compatibility?.missingOptional == DaemonCapabilities.shared.optional.filter { !homeOnly.contains($0) })
         #expect(SidebarBridge.machine(for: service, name: "vm", kind: .cloud).status == .updateAvailable)
         #expect(SidebarBridge.machine(for: service, name: "vm", kind: .local).status == .connected)
     }

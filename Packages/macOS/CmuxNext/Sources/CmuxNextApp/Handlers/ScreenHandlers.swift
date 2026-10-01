@@ -30,11 +30,11 @@ enum ScreenHandlers {
             let spec = ScreenSpec(name: invocation["name"]?.stringValue.flatMap(nonEmpty), color: color,
                                   icon: invocation["icon"]?.stringValue.flatMap(nonEmpty))
             let cwd = invocation["cwd"]?.stringValue.flatMap(nonEmpty).map { ($0 as NSString).expandingTildeInPath }
-            if !spec.isEmpty || cwd != nil, !ctx.require(DaemonCapabilities.screenMetadata, on: content.daemon) { return }
+            if !spec.isEmpty || cwd != nil, !ctx.require(DaemonCapabilities.shared.screenMetadata, on: content.daemon) { return }
             ScreenCommands.create(in: content.workspace, daemon: content.daemon, content: content, spec: spec, cwd: cwd)
         })
         registry.bind("screen.duplicate", invoke: { invocation in
-            guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.screenMetadata, on: ref.daemon) else { return }
+            guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.shared.screenMetadata, on: ref.daemon) else { return }
             ScreenCommands.duplicate(ref)
         })
         registry.bind("screen.close", invoke: { invocation in
@@ -68,7 +68,7 @@ enum ScreenHandlers {
         guard let workspace = ctx.services.workspace(id: record.workspaceID) else { return false }
         let daemon = ctx.services.machines.daemons.first { $0.store.workspaces.contains { $0 === workspace } } ?? ctx.services.activeDaemon
         let content = ctx.window(showing: workspace.id).flatMap(\.content)
-        let spec = daemon.supports(DaemonCapabilities.screenMetadata) ? record.spec : ScreenSpec()
+        let spec = daemon.supports(DaemonCapabilities.shared.screenMetadata) ? record.spec : ScreenSpec()
         ScreenCommands.create(in: workspace, daemon: daemon, content: content, spec: spec, cwd: record.cwd)
         return true
     }
@@ -101,14 +101,14 @@ enum ScreenHandlers {
     private static func bindMoves(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         for (id, offset) in [("screen.moveLeft", -1), ("screen.moveRight", 1)] as [(ActionID, Int)] {
             registry.bind(id, invoke: { invocation in
-                guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.screenMetadata, on: ref.daemon) else { return }
+                guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.shared.screenMetadata, on: ref.daemon) else { return }
                 let target = ref.index + offset
                 guard ref.workspace.screens.indices.contains(target) else { return ctx.refuse(ScreenStrings.screenAtEdge) }
                 ScreenCommands.move(ref.screen, to: target, daemon: ref.daemon)
             })
         }
         registry.bind("screen.moveToWorkspace", invoke: { invocation in
-            guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.screenMetadata, on: ref.daemon) else { return }
+            guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.shared.screenMetadata, on: ref.daemon) else { return }
             guard let id = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue,
                   let target = ctx.services.workspace(id: id) ?? ctx.refuse(RefusalStrings.noWorkspace(invocation["workspace"]?.stringValue ?? "")) else { return }
             guard target !== ref.workspace else { return ctx.refuse(ScreenStrings.sameWorkspace) }
@@ -116,7 +116,7 @@ enum ScreenHandlers {
         })
         for (id, newWindow) in [("screen.moveToNewWorkspace", false), ("screen.moveToNewWindow", true)] as [(ActionID, Bool)] {
             registry.bind(id, invoke: { invocation in
-                guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.screenMetadata, on: ref.daemon) else { return }
+                guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.shared.screenMetadata, on: ref.daemon) else { return }
                 ScreenCommands.moveToNewWorkspace(ref.screen, daemon: ref.daemon, services: ctx.services, newWindow: newWindow)
             })
         }

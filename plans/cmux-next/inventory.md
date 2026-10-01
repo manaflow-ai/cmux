@@ -24,7 +24,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | toggleFullScreen | Toggle Full Screen | ⌃⌘F | PKM | KSS:91, CV:7644, cmuxApp:1215 |
 | quit | Quit cmux | ⌘Q | KM | KSS:92, cmuxApp:565 |
 | showHideAllWindows | Show/Hide All Windows (global) | ⌃⌥⌘. | K | KSS:87 |
-| globalSearch | Search All Windows… | ⌥⌘F | KM | KSS:88, MenuBarExtraController:28 |
+| globalSearch | Search All Windows… | ⌥⌘F | PKM | KSS:88, MenuBarExtraController:28 |
 | commandPalette | Command Palette… | ⇧⌘P | KM | KSS:103, cmuxApp:956 |
 | commandPaletteNext / Previous | Palette: Next / Previous | ⌃N / ⌃P | K | KSS:104-105 |
 | goToWorkspace | Go to Workspace… | ⌘P | KM | KSS:102, cmuxApp:951 |
@@ -215,7 +215,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 |---|---|---|---|---|
 | newCloudWorkspace | New Cloud Workspace | ⇧⌘Y | KMC | KSS:97 |
 | newCloudMachine | New Cloud Machine… | ⌘Y | PKMC | KSS:98 |
-| palette.cloud.{fork,snapshot,restore,promoteTemplate,status,ports,tools,handoff} | Cloud VM ops (8) | — | P | ContentView+AuthCommandPalette:83-90. cmux-next: tools runs the `cmux vm tools` probe through `POST /api/vm/{id}/exec` |
+| palette.cloud.{fork,snapshot,restore,promoteTemplate,status,ports,tools,handoff} | Cloud VM ops (8) | — | P | ContentView+AuthCommandPalette:83-90. cmux-next: tools runs the `cmux vm tools` probe through `POST /api/vm/{id}/exec`; handoff shows the live status and the `cmux cloud open-machine` / `machine-tools` commands for the machine |
 | (cloud tree) | New Terminal, Open, Rename, Kill, Copy Link/Port/ID, Resize ▸ (25) | — | C | CloudTreeOutlineView:624, CloudTreeResizeMenu |
 | cloudDiagnostics | Cloud Diagnostics… | — | M | CmuxHelpCommands:14 |
 | openTeamPicker | Team Picker | ⌥⇧⌘T | PK | KSS:85 |
