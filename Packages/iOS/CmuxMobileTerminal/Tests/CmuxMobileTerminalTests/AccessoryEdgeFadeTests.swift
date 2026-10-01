@@ -59,9 +59,11 @@ struct AccessoryEdgeFadeTests {
         #expect(scrollView.decelerationRate == .normal)
     }
 
+    @MainActor
     @Test("shortcut row defers layout correction during an active gesture")
     func defersOffsetCorrectionDuringGesture() {
-        let decision = TerminalInputTextView.accessoryOffsetDecision(
+        let input = TerminalInputTextView()
+        let decision = input.accessoryOffsetDecision(
             geometryChanged: true,
             interactionActive: true,
             previousOffset: 100,
@@ -75,9 +77,11 @@ struct AccessoryEdgeFadeTests {
         #expect(decision == .deferUntilScrollEnds)
     }
 
+    @MainActor
     @Test("shortcut row clamps stale overscroll after the gesture ends")
     func clampsStaleOverscrollAfterGesture() {
-        let decision = TerminalInputTextView.accessoryOffsetDecision(
+        let input = TerminalInputTextView()
+        let decision = input.accessoryOffsetDecision(
             geometryChanged: true,
             interactionActive: false,
             previousOffset: 100,
@@ -92,9 +96,11 @@ struct AccessoryEdgeFadeTests {
         #expect(decision == .set(120))
     }
 
+    @MainActor
     @Test("shortcut row keeps the trailing edge through a resting resize")
     func keepsTrailingEdgeThroughResize() {
-        let decision = TerminalInputTextView.accessoryOffsetDecision(
+        let input = TerminalInputTextView()
+        let decision = input.accessoryOffsetDecision(
             geometryChanged: true,
             interactionActive: false,
             previousOffset: 100,

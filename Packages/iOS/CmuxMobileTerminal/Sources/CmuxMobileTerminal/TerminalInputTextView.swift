@@ -79,16 +79,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     private weak var accessoryArrowNub: TerminalArrowNubView?
     private var accessoryOffsetNeedsReconciliation = false
 
-    enum AccessoryOffsetDecision: Equatable {
-        case deferUntilScrollEnds
-        case leaveUnchanged
-        case set(CGFloat)
-    }
-
     /// Decides how the shortcut-row offset should react to a layout change.
     /// UIKit owns the offset during a drag, deceleration, or edge bounce. A
     /// deferred layout change clamps stale bounds after that interaction ends.
-    nonisolated static func accessoryOffsetDecision(
+    func accessoryOffsetDecision(
         geometryChanged: Bool,
         interactionActive: Bool,
         previousOffset: CGFloat,
@@ -676,7 +670,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
                 || scrollView.isDragging
                 || scrollView.isDecelerating
             guard geometryChanged || accessoryOffsetNeedsReconciliation else { return }
-            let decision = Self.accessoryOffsetDecision(
+            let decision = accessoryOffsetDecision(
                 geometryChanged: true,
                 interactionActive: interactionActive,
                 previousOffset: previousOffset,
@@ -718,7 +712,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
                 - scrollView.bounds.width
                 + scrollView.adjustedContentInset.right
         )
-        let decision = Self.accessoryOffsetDecision(
+        let decision = accessoryOffsetDecision(
             geometryChanged: true,
             interactionActive: false,
             previousOffset: scrollView.contentOffset.x,
