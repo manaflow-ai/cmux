@@ -1082,14 +1082,14 @@ public struct CmuxTuiSnapshotParser: Sendable {
         let incomingID = nonEmptyString(change["id"]) ?? nonEmptyString(value["id"])
         let targetIndex = incomingID.flatMap { id in state.agents.firstIndex { $0.id == id } }
             ?? state.agents.firstIndex { $0.terminalID == terminalID }
-        if targetIndex == nil,
+        if targetIndex == nil, incomingID != nil,
            state.agents.contains(where: { $0.id == nil }) {
             // An explicit id cannot safely claim an unrelated legacy id-less row.
             return false
         }
         if let targetIndex {
             let old = state.agents[targetIndex]
-            if decoded.id == nil, let incomingID { decoded.id = incomingID }
+            if decoded.id == nil { decoded.id = incomingID ?? old.id }
             state.agents[targetIndex] = decoded
             state.lookupIndex.removeAgent(old)
         } else {
