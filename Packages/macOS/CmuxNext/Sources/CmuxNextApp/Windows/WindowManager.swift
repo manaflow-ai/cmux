@@ -71,6 +71,9 @@ final class WindowManager {
     var onFirstWindow: ((WindowController) -> Void)?
     /// A window installed workspace content (links opened at launch wait for it).
     var onContentDidAppear: ((WindowController) -> Void)?
+    /// One-shot work for a window's next shown workspace, by window id: an
+    /// action on a workspace a reveal is still mounting.
+    private var contentWaiters: [String: [() -> Void]] = [:]
     /// The incognito session's off-the-record browser profile while any
     /// incognito window is open (`WindowManager+Incognito`).
     var incognitoSession: BrowserProfileID?
@@ -260,8 +263,16 @@ final class WindowManager {
 
     /// The window installed its first workspace content: a window kept off
     /// screen for it is ordered in now.
+    /// Runs `body` once `controller` next shows a workspace.
+    func afterNextContent(in controller: WindowController, _ body: @escaping () -> Void) {
+        contentWaiters[controller.state.id, default: []].append(body)
+    }
+
     func contentDidAppear(_ controller: WindowController) {
-        defer { onContentDidAppear?(controller) }
+        defer {
+            onContentDidAppear?(controller)
+            for body in contentWaiters.removeValue(forKey: controller.state.id) ?? [] { body() }
+        }
         guard let front = awaitingContent.removeValue(forKey: controller.state.id) else { return }
         present(controller)
         if front { bringToFront(controller) }

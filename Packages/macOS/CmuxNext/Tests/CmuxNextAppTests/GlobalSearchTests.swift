@@ -40,10 +40,21 @@ struct GlobalSearchTests {
                                                     words: ["hit"], limit: 3) { text[$0.tabID] ?? [] }
         #expect(found.matches.map(\.tabID) == ["a", "c"])
         #expect(found.matches.map(\.lines) == [["y hit", "x hit"], ["v hit"]])
-        #expect(found.limited)
+        #expect(found.limited && found.unreadable == 0)
 
         let all = await TerminalTextSearch.search([Self.target("a")], words: ["hit"], limit: 3) { text[$0.tabID] ?? [] }
         #expect(!all.limited)
+    }
+
+    /// More terminals than read at once all get read, in order; one that
+    /// does not answer is counted, not shown as "no matches".
+    @Test func everyTerminalIsReadAndUnreadOnesAreCounted() async {
+        let ids = (0..<20).map { "t\($0)" }
+        let found = await TerminalTextSearch.search(ids.map(Self.target), words: ["hit"]) { target in
+            target.tabID == "t7" ? nil : ["\(target.tabID) hit"]
+        }
+        #expect(found.matches.map(\.tabID) == ids.filter { $0 != "t7" })
+        #expect(found.unreadable == 1)
     }
 
     @Test func theFindNeedleIsTheFirstWordAsTheLineSpellsIt() {
@@ -51,10 +62,11 @@ struct GlobalSearchTests {
         #expect(GlobalSearchPage.needle(in: "x", words: []) == "")
     }
 
-    @Test @MainActor func noMatchesShowsANotice() {
-        let rows = GlobalSearchPage.items(for: [], limited: false, words: ["x"], terminals: []) { _, _ in }
-        #expect(rows.map(\.title) == [GlobalSearchStrings.noMatches])
-        #expect(rows.first?.isEnabled == false)
+    @Test @MainActor func noMatchesAndUnreadTerminalsShowNotices() {
+        let results = TerminalTextSearch.Results(unreadable: 2)
+        let rows = GlobalSearchPage.items(for: results, words: ["x"], terminals: []) { _, _ in }
+        #expect(rows.map(\.title) == [GlobalSearchStrings.noMatches, GlobalSearchStrings.unreadable(2)])
+        #expect(rows.allSatisfy { !$0.isEnabled })
     }
 
     @Test @MainActor func theActionIsBoundAndAsksForText() {

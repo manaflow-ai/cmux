@@ -20,25 +20,26 @@ enum GlobalSearchPage {
         let words = TerminalTextSearch.words(query)
         let targets = terminals.map(\.target)
         let provider = AsyncPaletteProvider(id: "globalSearch.results") {
-            let found = await TerminalTextSearch.search(targets, words: words)
-            return items(for: found.matches, limited: found.limited, words: words, terminals: terminals, reveal: reveal)
+            items(for: await TerminalTextSearch.search(targets, words: words), words: words, terminals: terminals, reveal: reveal)
         }
         return PalettePageSpec(id: "globalSearch.results", title: query, placeholder: GlobalSearchStrings.placeholder,
                                symbol: "magnifyingglass", providers: [provider])
     }
 
-    static func items(for matches: [(tabID: String, lines: [String])], limited: Bool, words: [String],
+    static func items(for results: TerminalTextSearch.Results, words: [String],
                       terminals: [Terminal], reveal: @escaping Reveal) -> [PaletteItem] {
         let byTab = Dictionary(terminals.map { ($0.target.tabID, $0) }, uniquingKeysWith: { first, _ in first })
         var rows: [PaletteItem] = []
-        for (tabID, lines) in matches {
+        for (tabID, lines) in results.matches {
             guard let terminal = byTab[tabID] else { continue }
             for (index, line) in lines.enumerated() {
                 rows.append(item(line, index: index, words: words, in: terminal, reveal: reveal))
             }
         }
-        if rows.isEmpty { return [notice(GlobalSearchStrings.noMatches)] }
-        return limited ? rows + [notice(GlobalSearchStrings.limited(TerminalTextSearch.limit))] : rows
+        if rows.isEmpty { rows.append(notice(GlobalSearchStrings.noMatches, id: "none")) }
+        if results.limited { rows.append(notice(GlobalSearchStrings.limited(TerminalTextSearch.limit), id: "limited")) }
+        if results.unreadable > 0 { rows.append(notice(GlobalSearchStrings.unreadable(results.unreadable), id: "unreadable")) }
+        return rows
     }
 
     /// The word Find highlights: the first query word, as typed in the line.
@@ -65,8 +66,8 @@ enum GlobalSearchPage {
             ])
     }
 
-    private static func notice(_ text: String) -> PaletteItem {
-        PaletteItem(id: "globalSearch.notice", title: text, symbol: "info.circle", isEnabled: false, primary:
+    private static func notice(_ text: String, id: String) -> PaletteItem {
+        PaletteItem(id: "globalSearch.notice.\(id)", title: text, symbol: "info.circle", isEnabled: false, primary:
             PaletteCommand(id: "none", title: text, effect: .performKeepingOpen {}), rankBias: -1_000)
     }
 }
@@ -83,5 +84,8 @@ enum GlobalSearchStrings {
     static var noTerminals: String { text("globalSearch.noTerminals", "No terminals to search") }
     static func limited(_ count: Int) -> String {
         String(format: text("globalSearch.limited", "First %lld matches"), count)
+    }
+    static func unreadable(_ count: Int) -> String {
+        String(format: text("globalSearch.unreadable", "Terminals not read: %lld"), count)
     }
 }

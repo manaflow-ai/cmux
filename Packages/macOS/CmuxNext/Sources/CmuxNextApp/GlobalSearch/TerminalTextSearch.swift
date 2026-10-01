@@ -7,7 +7,7 @@ import Foundation
 /// word of the query, ignoring case, as the old app's search matched words.
 nonisolated enum TerminalTextSearch {
     /// One terminal to read.
-    struct Target: Sendable {
+    nonisolated struct Target: Sendable {
         let tabID: String
         let surface: SurfaceID
         let connection: DaemonConnection
@@ -19,8 +19,18 @@ nonisolated enum TerminalTextSearch {
     static let limit = 200
     /// Matches shown per terminal, so one noisy log cannot fill the page.
     static let perTerminal = 20
-    /// Per request; a busy or unreachable daemon drops its terminals.
+    /// Per request; a busy or unreachable daemon's terminals count as unread.
     static let timeout: Duration = .seconds(2)
+    /// Terminals read at once, so a search does not flood the connections
+    /// that also carry typing and output.
+    static let concurrentReads = 8
+
+    nonisolated struct Results: Sendable {
+        var matches: [(tabID: String, lines: [String])] = []
+        var limited = false
+        /// Terminals whose text could not be read.
+        var unreadable = 0
+    }
 
     static func words(_ query: String) -> [String] {
         query.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
@@ -44,36 +54,45 @@ nonisolated enum TerminalTextSearch {
     }
 
     /// Matches per target, in target order, at most `limit` in all.
-    /// `read` gives a terminal's lines, oldest first.
+    /// `read` gives a terminal's lines, oldest first, or nil when it could
+    /// not be read.
     @concurrent static func search(
         _ targets: [Target], words: [String], limit: Int = limit,
-        read: @escaping @Sendable (Target) async -> [String] = lines(of:)
-    ) async -> (matches: [(tabID: String, lines: [String])], limited: Bool) {
-        let found = await withTaskGroup(of: (Int, [String]).self) { group in
-            for (index, target) in targets.enumerated() {
-                group.addTask { (index, matches(in: await read(target), words: words)) }
+        read: @escaping @Sendable (Target) async -> [String]? = lines(of:)
+    ) async -> Results {
+        let found = await withTaskGroup(of: (Int, [String]?).self) { group in
+            var found = [[String]?](repeating: nil, count: targets.count)
+            var queue = targets.enumerated().makeIterator()
+            for _ in 0..<concurrentReads {
+                guard let next = queue.next() else { break }
+                group.addTask { (next.offset, await read(next.element).map { matches(in: $0, words: words) }) }
             }
-            var found = [[String]](repeating: [], count: targets.count)
-            for await (index, lines) in group { found[index] = lines }
+            for await (index, lines) in group {
+                found[index] = lines
+                if let next = queue.next() {
+                    group.addTask { (next.offset, await read(next.element).map { matches(in: $0, words: words) }) }
+                }
+            }
             return found
         }
+        var results = Results(unreadable: found.count(where: { $0 == nil }))
         var remaining = limit
-        var result: [(tabID: String, lines: [String])] = []
-        var limited = false
-        for (target, lines) in zip(targets, found) where !lines.isEmpty {
+        for (target, lines) in zip(targets, found) {
+            guard let lines, !lines.isEmpty else { continue }
             guard remaining > 0 else {
-                limited = true
+                results.limited = true
                 break
             }
-            if lines.count > remaining { limited = true }
-            result.append((target.tabID, Array(lines.prefix(remaining))))
+            if lines.count > remaining { results.limited = true }
+            results.matches.append((target.tabID, Array(lines.prefix(remaining))))
             remaining -= min(lines.count, remaining)
         }
-        return (result, limited)
+        return results
     }
 
-    /// The last `historyRows` history rows, then the screen.
-    static func lines(of target: Target) async -> [String] {
+    /// The last `historyRows` history rows, then the screen; nil when the
+    /// daemon did not answer.
+    static func lines(of target: Target) async -> [String]? {
         let connection = target.connection, surface = target.surface
         var lines: [String] = []
         if let total = try? await connection.request(ReadScrollbackRequest(surface: surface, start: 0, count: 0), timeout: timeout).total,
@@ -83,9 +102,7 @@ nonisolated enum TerminalTextSearch {
                                                      timeout: timeout)
             lines = page?.lines ?? []
         }
-        if let screen = try? await connection.request(ReadScreenRequest(surface: surface), timeout: timeout) {
-            lines += screen.text.components(separatedBy: "\n")
-        }
-        return lines
+        guard let screen = try? await connection.request(ReadScreenRequest(surface: surface), timeout: timeout) else { return nil }
+        return lines + screen.text.components(separatedBy: "\n")
     }
 }
