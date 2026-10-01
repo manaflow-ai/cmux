@@ -36,7 +36,7 @@ public struct ControlSessionInfo: Sendable, Hashable {
 
 /// Unique session qualifiers (data-model.md 1.3): a session's name when no
 /// other session shares it, else its name plus a `registry_id` prefix.
-public struct ControlSessionNaming {
+public struct ControlSessionNaming: Sendable {
     public static let shared = Self()
     public struct Candidate: Sendable, Hashable {
         public var id: String

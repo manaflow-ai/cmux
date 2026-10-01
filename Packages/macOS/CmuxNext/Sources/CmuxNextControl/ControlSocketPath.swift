@@ -15,7 +15,7 @@ public import Foundation
 /// (`CMUX_SOCKET_PATH`, `CMUX_TAG`, `CMUX_BUNDLE_ID` from a shell inside
 /// another cmux) never reaches this function; see ``LaunchIdentity``.
 /// Tags are sanitized the same way (`[^a-z0-9]+` -> `-`).
-public struct ControlSocketPath {
+public struct ControlSocketPath: Sendable {
     public static let shared = Self()
     public let debugBundleID = "com.cmuxterm.app.debug"
     let channelBundleIDs = [

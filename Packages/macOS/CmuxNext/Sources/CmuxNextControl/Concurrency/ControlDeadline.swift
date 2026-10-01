@@ -6,7 +6,7 @@ import Synchronization
 /// continuation parked on another process's reply), turning a deadline into
 /// a hang. Here the first of {result, deadline} resumes the caller; the
 /// other side is cancelled and its eventual result dropped.
-public struct ControlDeadline {
+public struct ControlDeadline: Sendable {
     public static let shared = Self()
     public func run<T: Sendable>(
         method: String,
