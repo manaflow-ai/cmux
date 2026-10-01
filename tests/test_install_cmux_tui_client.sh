@@ -82,7 +82,7 @@ cat > "$SERVE/manifest.json" <<JSON
 JSON
 cat > "$FAKEBIN/curl" <<SH
 #!/bin/bash
-url=""; out=""
+url=""; out=""; args="\$*"
 while [ \$# -gt 0 ]; do
   case "\$1" in
     -o) out="\$2"; shift ;;
@@ -91,6 +91,7 @@ while [ \$# -gt 0 ]; do
   shift
 done
 printf 'curl %s\n' "\$url" >> "$EVENTS"
+if [[ -n "\${FAKE_CURL_ARGS_LOG:-}" ]]; then printf '%s\n' "\$args" >> "\$FAKE_CURL_ARGS_LOG"; fi
 cp "$SERVE/\$(basename "\$url")" "\$out"
 SH
 cat > "$FAKEBIN/gh" <<SH
@@ -128,6 +129,8 @@ install_remote() { # <app> [installer options]
     --manifest-url "https://files.example.test/cmux-tui/$COMMIT/manifest.json" "$@"
 }
 
+export FAKE_CURL_ARGS_LOG="$TEST_DIR/curl-args.log"
+: > "$FAKE_CURL_ARGS_LOG"
 ATTESTED_APP="$TEST_DIR/Attested.app"
 install_remote "$ATTESTED_APP" --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" \
   --require-capability wireguard-hub > "$TEST_DIR/attested.log" 2>&1
@@ -138,6 +141,14 @@ grep -q "^gh attestation verify .*manifest.* --repo manaflow-ai/cmux --signer-wo
 [ "$(sed -n '2p' "$EVENTS" | cut -d' ' -f1-3)" = "gh attestation verify" ]
 [ "$(sed -n '3p' "$EVENTS")" = "curl https://files.example.test/cmux-tui/$COMMIT/cmux-tui-aarch64-apple-darwin" ]
 echo "PASS: attested manifest is verified before slices are downloaded"
+# Manifest downloads are never resumed, while binary slices use range resumes
+# and inherit the total per-download deadline.
+grep -q -- '--max-time 600' "$FAKE_CURL_ARGS_LOG"
+grep -q -- '--continue-at -' "$FAKE_CURL_ARGS_LOG"
+manifest_args="$(sed -n '1p' "$FAKE_CURL_ARGS_LOG")"
+[[ "$manifest_args" != *'--continue-at -'* ]]
+echo "PASS: manifest is atomic and slices are resumable within a bounded budget"
+
 
 UNATTESTED_APP="$TEST_DIR/Unattested.app"
 if FAKE_GH_EXIT=1 install_remote "$UNATTESTED_APP" --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" \
