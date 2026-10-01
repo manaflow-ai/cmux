@@ -32,6 +32,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// unrelated invalidation — historically an app deactivate/reactivate
     /// (issue #9690).
     var onDeferredRowClickAwaitingApply: (() -> Void)?
+    private var selectionSource: SidebarWorkspaceSelectionSource?
     private var hoveredRowId: SidebarWorkspaceRenderItemID?
     private var contextMenuRowId: SidebarWorkspaceRenderItemID?
     private var workspaceIds: [UUID] = []
@@ -201,6 +202,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             detachController(from: abandonedSourceTable)
         }
     }
+    /// Binds the committed selection that row highlights derive from.
+    func bindSelection(_ source: SidebarWorkspaceSelectionSource) {
+        selectionSource = source
+    }
+
     func makeContainerView() -> SidebarWorkspaceTableContainerView {
         let container = SidebarWorkspaceTableContainerView()
         containerView = container
