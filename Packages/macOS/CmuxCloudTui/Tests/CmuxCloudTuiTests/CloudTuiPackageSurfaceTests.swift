@@ -42,11 +42,25 @@ import CmuxCloudTui
 
     /// The package policy preserves old identify-capability fallbacks while
     /// rejecting modern daemons that cannot frame incomplete VT sequences.
-    @Test func staleReplayCapabilityPolicyKeepsLegacyPeersCompatible() {
-        #expect(CloudTuiManualReplayCapabilities.isStaleReplayDaemon(capabilities: ["view-attachment-lease-v1"]))
-        #expect(!CloudTuiManualReplayCapabilities.isStaleReplayDaemon(capabilities: []))
-        #expect(!CloudTuiManualReplayCapabilities.isStaleReplayDaemon(capabilities: [
-            "view-attachment-lease-v1", "terminal-pending-sequence-v1",
-        ]))
+    @Test func staleReplayCapabilityPolicyKeepsLegacyPeersCompatible() throws {
+        let commands = CloudTuiManualIOCommand()
+        let current = try #require(commands.setClientInfo(name: "test", kind: "native")["capabilities"] as? [String])
+        #expect(!commands.isStaleReplayDaemon(capabilities: current))
+        #expect(commands.isStaleReplayDaemon(capabilities: current.filter {
+            $0 != CloudTuiManualIOCommand.terminalPendingSequenceCapability
+        }))
+        #expect(!commands.isStaleReplayDaemon(capabilities: []))
+        #expect(!commands.isStaleReplayDaemon(capabilities: ["future-unknown-feature"]))
+        for capability in [
+            CloudTuiManualIOCommand.viewAttachmentLeaseCapability,
+            CloudTuiManualIOCommand.viewAttachmentDetachCapability,
+            CloudTuiManualIOCommand.sharedSizingCapability,
+            CloudTuiManualIOCommand.sizingViewDetachCapability,
+        ] {
+            #expect(commands.isStaleReplayDaemon(capabilities: [capability]))
+            #expect(!commands.isStaleReplayDaemon(capabilities: [
+                capability, CloudTuiManualIOCommand.terminalPendingSequenceCapability,
+            ]))
+        }
     }
 }

@@ -18,17 +18,6 @@ import Testing
     private static let terminalID = "term_41fb0b7fe0f204d428acf9db124023f4"
     private static let socketPath = "/tmp/cmux-12362-fixture.sock"
 
-    /// Modern capability claims without pending-sequence framing must stop
-    /// automatic recovery, while legacy and current peers remain eligible.
-    @Test
-    func staleReplayDaemonRequiresExplicitRecovery() {
-        #expect(CloudTuiManualReplayCapabilities.isStaleReplayDaemon(capabilities: ["view-attachment-lease-v1"]))
-        #expect(!CloudTuiManualReplayCapabilities.isStaleReplayDaemon(capabilities: []))
-        #expect(!CloudTuiManualReplayCapabilities.isStaleReplayDaemon(capabilities: [
-            "view-attachment-lease-v1", "terminal-pending-sequence-v1",
-        ]))
-    }
-
     /// Resolver and session logs can be joined without exposing terminal data.
     /// The correlation value is caller supplied so a materialization can carry
     /// one id from identity resolution through native presentation.

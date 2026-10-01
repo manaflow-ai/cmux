@@ -2834,7 +2834,7 @@
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "denne Cloud-maskinen kjører en eldre terminalkjøring; oppgrader den og prøv igjen"
+            "value": "denne Cloud-maskinen kjører en eldre terminalruntime; oppgrader den og prøv igjen"
           }
         },
         "pl": {

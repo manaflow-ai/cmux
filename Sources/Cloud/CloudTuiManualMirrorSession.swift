@@ -847,7 +847,7 @@ final class CloudTuiManualMirrorSession {
                 return
             }
             serverCapabilities = Set(capabilities)
-            if CloudTuiManualReplayCapabilities.isStaleReplayDaemon(capabilities: capabilities) {
+            if commandBuilder.isStaleReplayDaemon(capabilities: capabilities) {
                 // This daemon can attach, but it cannot preserve incomplete VT
                 // sequences across replay boundaries. Retrying the same VM
                 // forever only recreates the garbled pane, so leave the pane
