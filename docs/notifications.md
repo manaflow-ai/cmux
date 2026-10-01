@@ -371,7 +371,7 @@ was down arrives on reconnect, and a daemon restart does not lose it.
 
 Inside a machine, `cmux notify` takes the same flags as the local command
 (`--title`, `--subtitle`, `--body`, `--clear`, `--surface`, `--workspace`,
-`--json`) and posts to the machine's own ledger, so scripts and hooks written
+`--desktop`, `--json`) and posts to the machine's own ledger, so scripts and hooks written
 for a local terminal work unchanged. `--reply` is not available there.
 
 Read state is per client. Each row carries `read_by`, the client ids that
