@@ -36,8 +36,8 @@ enum DebugExtensions {
         }
     }
 
-    static func menu(_ params: [String: JSONValue]) -> JSONValue {
-        guard let menu = BrowserContextMenuBuilder.presentedMenu else { return .object(["open": .bool(false)]) }
+    static func menu(_ params: [String: JSONValue], presenter: BrowserContextMenuBuilder?) -> JSONValue {
+        guard let menu = presenter?.presentedMenu else { return .object(["open": .bool(false)]) }
         let titles = menu.items.map { $0.isSeparatorItem ? "-" : $0.title }
         if let choose = params["choose"]?.stringValue, let index = menu.items.firstIndex(where: { $0.title == choose }) {
             menu.cancelTracking()

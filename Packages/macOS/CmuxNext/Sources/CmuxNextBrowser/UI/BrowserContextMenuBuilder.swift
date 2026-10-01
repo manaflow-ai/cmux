@@ -2,13 +2,19 @@ public import AppKit
 
 /// Turns an engine's context menu model into an `NSMenu` and shows it. The
 /// host may append its own items (cmux actions) after the engine's.
-public enum BrowserContextMenuBuilder {
+public final class BrowserContextMenuBuilder {
+    /// The process-wide presenter used by default browser hosts and diagnostics.
+    public static let shared = BrowserContextMenuBuilder()
+
+    /// Creates a presenter whose open menu can be inspected by its host.
+    public init() {}
+
     /// The page menu while it is open (diagnostics: `debug.menu`).
-    public private(set) static weak var presentedMenu: NSMenu?
+    public private(set) weak var presentedMenu: NSMenu?
 
     /// Menu items for `request.items`; choosing one completes the request
     /// with its id.
-    public static func items(for request: BrowserContextMenuRequest) -> [NSMenuItem] {
+    public func items(for request: BrowserContextMenuRequest) -> [NSMenuItem] {
         request.items.map { item(for: $0, request: request) }
     }
 
@@ -18,20 +24,20 @@ public enum BrowserContextMenuBuilder {
     /// pump pass), and a menu's tracking loop there would stop all of
     /// Chromium while the menu is open. The request completes when the menu
     /// closes (nil when nothing was chosen).
-    public static func present(_ request: BrowserContextMenuRequest, in view: NSView, extra: [NSMenuItem] = []) {
+    public func present(_ request: BrowserContextMenuRequest, in view: NSView, extra: [NSMenuItem] = []) {
         // A background tab's view is in no window; AppKit cannot anchor a
         // menu there (it raises). Dismiss the request instead.
         guard view.window != nil else { return request.complete(nil) }
         CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak view] in
             MainActor.assumeIsolated {
                 guard let view, view.window != nil else { return request.complete(nil) }
-                show(request, in: view, extra: extra)
+                self.show(request, in: view, extra: extra)
             }
         }
         CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 
-    private static func show(_ request: BrowserContextMenuRequest, in view: NSView, extra: [NSMenuItem]) {
+    private func show(_ request: BrowserContextMenuRequest, in view: NSView, extra: [NSMenuItem]) {
         let menu = NSMenu()
         menu.autoenablesItems = false
         for item in items(for: request) { menu.addItem(item) }
@@ -48,7 +54,7 @@ public enum BrowserContextMenuBuilder {
         request.complete(nil)
     }
 
-    private static func item(for model: BrowserContextMenuItem, request: BrowserContextMenuRequest) -> NSMenuItem {
+    private func item(for model: BrowserContextMenuItem, request: BrowserContextMenuRequest) -> NSMenuItem {
         if model.kind == .separator { return .separator() }
         let item = NSMenuItem(title: model.title, action: nil, keyEquivalent: "")
         item.isEnabled = model.isEnabled
