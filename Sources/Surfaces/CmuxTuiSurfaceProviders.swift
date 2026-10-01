@@ -23,7 +23,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     var hasLostAccess = false
     let machineID: String
     var machine: SurfaceMachineID { summary.machine }
-    private(set) var info: SurfaceMachineInfo
+    var info: SurfaceMachineInfo
     var summary: RemoteTuiMachine
     /// This machine's notification sync: VM rows in, local notifications and
     /// `notification.ack` round trips out. Fed after every accepted state.
