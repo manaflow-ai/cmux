@@ -281,7 +281,7 @@ final class WindowOverlayLayer {
     /// Every Chromium page of this window re-applies geometry, clip and
     /// occlusion (`CEFHostView` posts the fork's geometry notification).
     private func requestPageUpdate() {
-        NotificationCenter.default.post(name: BrowserChildWindowPages.needsUpdate, object: window)
+        NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
     }
 
     // MARK: Diagnostics

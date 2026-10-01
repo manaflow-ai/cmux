@@ -34,7 +34,7 @@ final class ExtensionMenuRouter: ExtensionMenuHandling {
     func title(for operation: ExtensionMenuOperation) -> String {
         // The menu row already names the extension: short verbs read better
         // than the palette's full titles.
-        ExtensionsMenu.defaultTitle(operation)
+        ExtensionsMenu().defaultTitle(operation)
     }
 
     func perform(_ operation: ExtensionMenuOperation, extensionID: String?) {

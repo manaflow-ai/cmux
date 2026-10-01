@@ -16,12 +16,12 @@ final class PageGoneView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        setAccessibilityIdentifier(BrowserChromeView.Identifier.pageGone)
+        setAccessibilityIdentifier(BrowserChromeView.pageGoneIdentifier)
         symbol.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: nil)
         messageLabel.alignment = .center
         codeLabel.isSelectable = true
         let reload = ChromeTextButton(title: Strings.pageGoneReload, prominent: true, action: #selector(reload), target: self)
-        reload.setAccessibilityIdentifier(BrowserChromeView.Identifier.pageGoneReload)
+        reload.setAccessibilityIdentifier(BrowserChromeView.pageGoneReloadIdentifier)
         let stack = NSStackView(views: [symbol, titleLabel, messageLabel, reload, codeLabel])
         stack.orientation = .vertical
         stack.translatesAutoresizingMaskIntoConstraints = false
