@@ -56,10 +56,9 @@ import Testing
         sample.topology.daemonSequence = 12
         router.snapshots.publish { $0 = sample }
         service.writes.raise(to: 12)
-        let started = ContinuousClock.now
         _ = try await router.handle(ControlRequest(method: "system.identify")).get()
+        #expect(!router.snapshots.hasWaiters)
         _ = try await router.handle(ControlRequest(method: "workspace.list")).get()
-        #expect(ContinuousClock.now - started < .milliseconds(200))
         #expect(!router.snapshots.hasWaiters)
     }
 
