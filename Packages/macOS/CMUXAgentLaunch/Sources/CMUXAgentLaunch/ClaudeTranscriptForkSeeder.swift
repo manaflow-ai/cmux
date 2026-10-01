@@ -21,11 +21,12 @@ public struct ClaudeTranscriptForkSeedRequest: Sendable {
 }
 
 /// Copies Claude's transcript and sidecar into a destination project before a fork launches.
-public enum ClaudeTranscriptForkSeeder {
+public struct ClaudeTranscriptForkSeeder: Sendable {
+    public init() {}
     /// Performs discovery and copying off the caller's executor, and repairs a missing sidecar on retry.
-    public static func seed(_ request: ClaudeTranscriptForkSeedRequest) async throws {
+    public func seed(_ request: ClaudeTranscriptForkSeedRequest) async throws {
         try await Task.detached(priority: .userInitiated) {
-            try seedSynchronously(request)
+            try Self.seedSynchronously(request)
         }.value
     }
 

@@ -34,7 +34,7 @@ struct ClaudeTranscriptForkSeederTests {
             targetWorkingDirectory: destination.path,
             configDirectory: config.path
         )
-        try await ClaudeTranscriptForkSeeder.seed(request)
+        try await ClaudeTranscriptForkSeeder().seed(request)
         let targetProject = config.appendingPathComponent("projects").appendingPathComponent(encodedDestination)
         let targetTranscript = targetProject.appendingPathComponent("\(sessionID).jsonl")
         let targetSidecarFile = targetProject.appendingPathComponent(sessionID).appendingPathComponent("state.json")
@@ -46,7 +46,7 @@ struct ClaudeTranscriptForkSeederTests {
         #expect(copiedSidecar == sourceSidecarData)
 
         try FileManager.default.removeItem(at: targetProject.appendingPathComponent(sessionID))
-        try await ClaudeTranscriptForkSeeder.seed(request)
+        try await ClaudeTranscriptForkSeeder().seed(request)
         #expect(FileManager.default.fileExists(atPath: targetSidecarFile.path))
     }
 }

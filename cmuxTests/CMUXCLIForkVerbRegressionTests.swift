@@ -39,7 +39,7 @@ struct CMUXCLIForkVerbRegressionTests {
         let targetProject = config.appendingPathComponent("projects").appendingPathComponent(
             destination.path.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
         )
-        try await ClaudeTranscriptForkSeeder.seed(ClaudeTranscriptForkSeedRequest(
+        try await ClaudeTranscriptForkSeeder().seed(ClaudeTranscriptForkSeedRequest(
             sessionID: sessionID,
             sourceWorkingDirectory: source.path,
             targetWorkingDirectory: destination.path,

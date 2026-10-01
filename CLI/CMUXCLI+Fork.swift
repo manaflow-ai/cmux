@@ -316,7 +316,7 @@ extension CMUXCLI {
             configDirectory: configRoot
         )
         do {
-            try await ClaudeTranscriptForkSeeder.seed(request)
+            try await ClaudeTranscriptForkSeeder().seed(request)
         } catch {
             throw loggedForkError(
                 .providerSetupFailed,
