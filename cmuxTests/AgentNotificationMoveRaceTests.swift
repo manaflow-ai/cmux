@@ -60,7 +60,6 @@ struct AgentNotificationRegressionTests {
         AppDelegate.shared = appDelegate
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
-        TerminalController.shared.setActiveTabManager(manager)
         AppFocusState.overrideIsFocused = false
         NotificationsCatalogSection().agentPermissionPrompt.set(true, in: .standard)
 
@@ -68,6 +67,7 @@ struct AgentNotificationRegressionTests {
             tabManager: manager,
             cmuxConfigStore: configStore
         )
+        TerminalController.shared.setActiveTabManager(manager)
         let source = manager.addWorkspace(select: true)
         let destination = manager.addWorkspace(select: false)
         let panelId = try #require(source.focusedPanelId)
