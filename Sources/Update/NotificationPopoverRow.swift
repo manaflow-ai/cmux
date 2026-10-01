@@ -96,9 +96,10 @@ struct NotificationPopoverRow: View, Equatable {
     }
 
     private var rowContent: some View {
-        HStack(spacing: 0) {
+        let accentColor = cmuxAccent.color
+        return HStack(spacing: 0) {
             Rectangle()
-                .fill(notification.isRead ? Color.clear : cmuxAccent.color)
+                .fill(notification.isRead ? Color.clear : accentColor)
                 .frame(width: 2.5)
                 .padding(.vertical, 6)
 
