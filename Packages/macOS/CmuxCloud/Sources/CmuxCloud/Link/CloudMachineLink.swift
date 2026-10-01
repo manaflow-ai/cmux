@@ -240,7 +240,7 @@ public actor CloudMachineLink {
         }
         self.process = process
         self.processExit = processExit
-        let stderrDrain = drainStderr(stderr.fileHandleForReading)
+        let stderrDrain = drainStderr(stderr.fileHandleForReading, attemptID: linkAttemptID)
         self.stderrDrain = stderrDrain
 
         // The first connection-snapshot line names the socket; later lines only update
@@ -631,16 +631,17 @@ public actor CloudMachineLink {
         eventsRecoveryPhase = .healthy
     }
 
-    private func drainStderr(_ handle: FileHandle) -> Task<Void, Never> {
+    private func drainStderr(_ handle: FileHandle, attemptID: UUID) -> Task<Void, Never> {
         let lines = CloudLinkPipe.lines(from: handle)
-        return Task.detached { [weak self] in
+        return Task.detached { [weak self, attemptID] in
             for await line in lines {
-                await self?.recordStderr(line)
+                await self?.recordStderr(line, attemptID: attemptID)
             }
         }
     }
 
-    private func recordStderr(_ line: String) {
+    private func recordStderr(_ line: String, attemptID: UUID) {
+        guard self.linkAttemptID == attemptID else { return }
         stderrTail.append(line)
         if stderrTail.count > 20 { stderrTail.removeFirst(stderrTail.count - 20) }
     }

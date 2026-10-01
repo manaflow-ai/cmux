@@ -1,5 +1,6 @@
 @testable import CmuxCloud
 import CmuxCloudTui
+import Darwin
 import Foundation
 import Testing
 
@@ -47,11 +48,14 @@ struct CloudMachineLinkExitDiagnosticsTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let client = root.appendingPathComponent("fake-cmux-tui")
+        let releaseGate = root.appendingPathComponent("release-gate")
+        #expect(mkfifo(releaseGate.path, 0o600) == 0)
+        let quotedGate = "'" + releaseGate.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
         try """
         #!/bin/sh
         printf '%s\n' '{"event":"connection-snapshot","local_socket":"/tmp/cmux-link-connected-exit-test-\(UUID().uuidString.lowercased()).sock"}'
-        (sleep 0.2; echo 'cmux-tui: late route refused' >&2) &
-        sleep 0.05
+        read release < \(quotedGate)
+        (sleep 0.1; echo 'cmux-tui: late route refused' >&2) &
         exit 2
         """.write(to: client, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
@@ -63,7 +67,12 @@ struct CloudMachineLinkExitDiagnosticsTests {
             Issue.record("the socket line should let connect return before the client exits: \(error)")
             return
         }
-        for _ in 0..<100 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        let release = try FileHandle(forWritingTo: releaseGate)
+        try release.write(contentsOf: Data("release\n".utf8))
+        try release.close()
+        while clock.now < deadline {
             if let error = await link.lastError, error.contains("late route refused") { break }
             try await Task.sleep(for: .milliseconds(20))
         }
@@ -107,6 +116,48 @@ struct CloudMachineLinkExitDiagnosticsTests {
         } catch CloudMachineLink.LinkError.exited(_, let output) {
             #expect(output.contains("second route refused"))
             #expect(!output.contains("first route refused"), "a retry must not report stale stderr: \(output)")
+        } catch {
+            Issue.record("expected retry LinkError.exited, got \(error)")
+        }
+    }
+
+    @Test("A retry ignores stderr arriving from the previous link")
+    func retryIgnoresLateStderrFromPreviousAttempt() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-link-late-retry-stderr-\(UUID().uuidString.lowercased())", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let client = root.appendingPathComponent("fake-cmux-tui")
+        let marker = root.appendingPathComponent("attempt")
+        try """
+        #!/bin/sh
+        if [ ! -e '\(marker.path)' ]; then
+            touch '\(marker.path)'
+            printf '%s\\n' '{"event":"connection-snapshot","local_socket":"/tmp/cmux-link-late-retry.sock"}'
+            (sleep 0.2; echo 'cmux-tui: first late route refused' >&2) &
+            sleep 0.05
+            exit 2
+        fi
+        echo 'cmux-tui: second route refused' >&2
+        exit 2
+        """.write(to: client, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
+        let link = CloudMachineLink(machineID: "test-machine", clientURL: client, paths: CloudTuiClientPaths(home: root))
+
+        _ = try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main", carrier: true)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while await link.state == .connected, clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(await link.state == .error)
+
+        do {
+            _ = try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main", carrier: true)
+            Issue.record("the retry client must fail before naming its socket")
+        } catch CloudMachineLink.LinkError.exited(_, let output) {
+            #expect(output.contains("second route refused"))
+            #expect(!output.contains("first late route refused"), "late stderr from the old link leaked into the retry: \(output)")
         } catch {
             Issue.record("expected retry LinkError.exited, got \(error)")
         }
