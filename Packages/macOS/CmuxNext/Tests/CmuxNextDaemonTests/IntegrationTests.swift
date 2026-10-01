@@ -175,11 +175,18 @@ struct IntegrationTests {
         let loginPath = try #require(login["PATH"])
         try #require(loginPath != finder["PATH"], "login PATH equals launchd PATH; nothing to verify on this machine")
         let environment = LoginEnvironment.shared.daemonEnvironment(login: login, base: finder, overrides: [:])
+        // The default provider uses the process-lifetime cache, whose base is
+        // the test runner rather than this synthetic Finder launch. Keep the
+        // daemon and per-terminal environments on the same captured login env.
+        let terminalEnvironment = TerminalEnvironment.instance.terminal(login: login, base: finder)
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
             environment: { environment })
         let ensured = try await launcher.ensure()
-        let connection = DaemonConnection(endpointProvider: launcher.endpointProvider)
+        let connection = DaemonConnection(
+            configuration: .init(terminalEnvironment: { terminalEnvironment }),
+            endpointProvider: launcher.endpointProvider
+        )
         do {
             let identity = try await connection.start()
             let workspace = try await connection.createWorkspace(name: "path")
@@ -209,7 +216,10 @@ struct IntegrationTests {
             let entries = Set((seen ?? "").split(separator: ":").map(String.init))
             let missing = loginPath.split(separator: ":").map(String.init).filter { !entries.contains($0) }
             #expect(seen != nil)
-            #expect(missing.isEmpty, "missing from terminal PATH: \(missing)")
+            #expect(
+                missing.isEmpty,
+                "missing from terminal PATH: \(missing); expected login PATH: \(loginPath); observed: \(seen ?? "<none>")"
+            )
         } catch {
             await BranchDaemonHarness.shutDown(connection)
             throw error
