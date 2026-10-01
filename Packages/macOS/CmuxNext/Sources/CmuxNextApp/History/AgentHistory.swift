@@ -1,6 +1,7 @@
 import CmuxNextDaemon
 import CmuxNextHistory
 import Foundation
+import Observation
 import os
 
 /// Agent sessions from each connected machine's session journal
@@ -12,16 +13,26 @@ final class AgentHistory {
     private var folds: [String: AgentSessionFold] = [:]
     private var generations: [String: String] = [:]
     private var refreshing: Task<Void, Never>?
-    /// Hidden by Clear History (the journal is append-only): sessions whose
-    /// last activity falls in a cleared range, and single sessions. In
-    /// memory for this app run.
-    private var hiddenRanges: [ClosedRange<Date>] = []
-    private var hiddenSessions: Set<String> = []
+    /// Hidden by Clear History or Remove from History (the journal is
+    /// append-only), kept in the home session's projection `history.hidden`.
+    private(set) var hidden = HiddenHistory()
+    private var hiddenRevision: UInt64?
+    private var hiddenLoaded = false
+    private var observation: Task<Void, Never>?
+    static let hiddenSubject = "history.hidden"
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "history")
 
     init(services: AppServices) {
         self.services = services
+        let store = services.daemon.store
+        observation = Task { [weak self] in
+            for await connected in Observations({ if case .connected = store.connectionState { true } else { false } }) where connected {
+                self?.loadHidden()
+            }
+        }
     }
+
+    deinit { observation?.cancel() }
 
     /// Reads new agent records from every connected machine that serves the
     /// session journal. Concurrent calls share one read.
@@ -66,9 +77,7 @@ final class AgentHistory {
     /// Every known session, newest activity first, minus hidden ones.
     var sessions: [AgentSession] {
         folds.values.flatMap(\.ordered)
-            .filter { session in
-                !hiddenSessions.contains(session.qualifiedID) && !hiddenRanges.contains { $0.contains(session.lastActivityAt) }
-            }
+            .filter { !hidden.hides($0.qualifiedID, activeAt: $0.lastActivityAt) }
             .sorted { $0.lastActivityAt > $1.lastActivityAt }
     }
 
@@ -88,10 +97,55 @@ final class AgentHistory {
     }
 
     func hide(since: Date?) {
-        hiddenRanges.append((since ?? .distantPast)...Date())
+        hidden.hide(since: since, now: Date())
+        saveHidden()
     }
 
     func hide(_ session: AgentSession) {
-        hiddenSessions.insert(session.qualifiedID)
+        hidden.hide(entry: session.qualifiedID)
+        saveHidden()
+    }
+
+    // MARK: Persistence (home session projection)
+
+    private func loadHidden() {
+        guard !hiddenLoaded else { return }
+        services.daemon.send("history-hidden-load") { [weak self] connection in
+            let projection = try await connection.frontendProjection(subject: Self.hiddenSubject)
+            let stored = projection.schemaVersion == HiddenHistory.schemaVersion && projection.projection != .null
+                ? try? JSONDecoder().decode(HiddenHistory.self, from: JSONEncoder().encode(projection.projection)) : nil
+            await MainActor.run {
+                guard let self else { return }
+                self.hiddenLoaded = true
+                self.hiddenRevision = projection.projectionRevision
+                // Hides made before the load are kept.
+                if let stored { self.hidden = stored.merged(with: self.hidden) }
+            }
+        }
+    }
+
+    private func saveHidden() {
+        let document = hidden
+        let revision = hiddenRevision
+        services.daemon.send("history-hidden-save") { [weak self] connection in
+            let value = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(document))
+            do {
+                let stored = try await connection.putFrontendProjection(subject: Self.hiddenSubject, schemaVersion: HiddenHistory.schemaVersion,
+                                                                        projection: value, expectedRevision: revision)
+                await MainActor.run { self?.hiddenRevision = stored.projectionRevision }
+            } catch DaemonError.command(_, let message, _) where message.contains("revision conflict") {
+                // Another writer: merge both documents, so no clear is lost.
+                let current = try await connection.frontendProjection(subject: Self.hiddenSubject)
+                let theirs = (try? JSONDecoder().decode(HiddenHistory.self, from: JSONEncoder().encode(current.projection))) ?? HiddenHistory()
+                let merged = theirs.merged(with: document)
+                let mergedValue = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(merged))
+                let stored = try await connection.putFrontendProjection(subject: Self.hiddenSubject, schemaVersion: HiddenHistory.schemaVersion,
+                                                                        projection: mergedValue, expectedRevision: current.projectionRevision)
+                await MainActor.run {
+                    self?.hidden = merged
+                    self?.hiddenRevision = stored.projectionRevision
+                }
+            }
+        }
     }
 }
