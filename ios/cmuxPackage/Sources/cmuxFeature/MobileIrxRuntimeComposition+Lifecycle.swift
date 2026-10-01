@@ -97,13 +97,16 @@ extension MobileIrxRuntimeComposition {
                           await self.epoch == expectedEpoch,
                           await auth.cachedTeamIdentity == cachedIdentity else { return }
                     do {
-                        _ = try await supervisor.readyEndpoint(credentials: credentials)
+                        try await Self.readyEndpointWithTimeout(
+                            supervisor: supervisor,
+                            credentials: credentials
+                        )
                         guard await self.epoch == expectedEpoch,
                               await auth.cachedTeamIdentity == cachedIdentity else { return }
                         await self.recordEndpointReady(cached: true)
                     } catch {
-                        // Authoritative provisioning retries through the same
-                        // supervisor after Stack validation completes.
+                        guard await self.epoch == expectedEpoch else { return }
+                        await self.endpointWarmupFailed(epoch: expectedEpoch)
                     }
                 }
             }
@@ -215,10 +218,15 @@ extension MobileIrxRuntimeComposition {
                 endpointWarmupTask = Task { [weak self] in
                     guard let self else { return }
                     do {
-                        _ = try await supervisor.readyEndpoint(credentials: credentials)
+                        try await Self.readyEndpointWithTimeout(
+                            supervisor: supervisor,
+                            credentials: credentials
+                        )
                         try await self.assertScope(scope, epoch: currentEpoch)
                         await self.recordEndpointReady(cached: true)
-                    } catch { /* The next dial/credential update retries through the same supervisor. */ }
+                    } catch {
+                        await self.endpointWarmupFailed(epoch: currentEpoch)
+                    }
                 }
             }
         }
@@ -342,6 +350,32 @@ extension MobileIrxRuntimeComposition {
         cache.relayCredentials.map { IrxRelayCredential(relayURL: $0.relayURL, token: $0.token,
             expiresAt: Date(timeIntervalSince1970: Double($0.expiresAt)),
             refreshAfter: Date(timeIntervalSince1970: Double($0.refreshAfter))) }
+    }
+
+    private static func readyEndpointWithTimeout(
+        supervisor: IrxEndpointSupervisor,
+        credentials: [IrxRelayCredential]
+    ) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                _ = try await supervisor.readyEndpoint(credentials: credentials)
+            }
+            group.addTask {
+                try await Task.sleep(for: .seconds(30))
+                throw CompositionError.endpointWarmupTimedOut
+            }
+            defer { group.cancelAll() }
+            try await group.next()!
+        }
+    }
+
+    func endpointWarmupFailed(epoch expectedEpoch: UInt64) {
+        guard endpointWarmupEpoch == expectedEpoch else { return }
+        endpointWarmupTask = nil
+        endpointWarmupEpoch = nil
+        lastFailure = "The connection service could not start. It will retry."
+        journal.record("v2-lifecycle", "cached-warm-timeout")
+        publish()
     }
 
     func recordEndpointReady(cached: Bool) {

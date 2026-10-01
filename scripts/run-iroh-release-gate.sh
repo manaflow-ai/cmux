@@ -417,12 +417,12 @@ capture_ios_release_gate_diagnostics() {
   local prefix="$1"
   local label="${2:-success}"
   [[ -n "$SIMULATOR_ID" ]] || return 0
-  local support_root=""
-  if [[ -n "$DATA_CONTAINER" && -d "$DATA_CONTAINER/Library/Application Support" ]]; then
-    support_root="$DATA_CONTAINER/Library/Application Support"
-  else
-    support_root="$(xcrun simctl get_app_container "$SIMULATOR_ID" "$IOS_BUNDLE_ID" data 2>/dev/null)/Library/Application Support"
+  local data_container="${DATA_CONTAINER:-}"
+  if [[ -z "$data_container" ]]; then
+    data_container="$(xcrun simctl get_app_container "$SIMULATOR_ID" "$IOS_BUNDLE_ID" data 2>/dev/null || true)"
   fi
+  [[ -n "$data_container" && -d "$data_container/Library/Application Support" ]] || return 0
+  local support_root="$data_container/Library/Application Support"
   if [[ -d "$support_root" ]]; then
     local index=0
     while IFS= read -r source; do

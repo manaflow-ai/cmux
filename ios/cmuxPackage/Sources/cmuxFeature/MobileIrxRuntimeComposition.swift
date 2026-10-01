@@ -18,7 +18,8 @@ public actor MobileIrxRuntimeComposition {
     }
 
     public enum CompositionError: Error, Sendable {
-        case notSignedIn, unsupportedRoute, peerNotDiscovered, directDialUnavailable, scopeChanged
+        case notSignedIn, unsupportedRoute, peerNotDiscovered, directDialUnavailable, scopeChanged,
+             endpointWarmupTimedOut
     }
     enum DialIntent: Equatable, Sendable {
         case automatic
