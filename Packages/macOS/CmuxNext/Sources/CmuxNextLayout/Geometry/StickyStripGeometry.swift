@@ -25,7 +25,6 @@ public nonisolated enum StickyStripGeometry {
     /// edge; any other sticky column scrolls. S2. A screen whose columns
     /// would all be sticky shows them all in the strip.
     public static func partition(_ columns: [LayoutColumn]) -> (left: LayoutColumn?, right: LayoutColumn?, scrolling: [LayoutColumn]) {
-        return (nil, nil, columns)
         var left: LayoutColumn?
         var right: LayoutColumn?
         var scrolling: [LayoutColumn] = []

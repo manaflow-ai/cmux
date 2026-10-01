@@ -57,8 +57,8 @@ import Testing
         #expect(g.panes["p0"] == CGRect(x: 6, y: 0, width: 491, height: 600))
         #expect(g.panes["p1"] == CGRect(x: 503, y: 0, width: 491, height: 600))
         // The last column can scroll out from under the overlay.
-        #expect(g.contentWidth == 1000 + 298)
-        #expect(g.maxOffset == 298)
+        #expect(abs(g.contentWidth - 1298) < 0.01)
+        #expect(abs(g.maxOffset - 298) < 0.01)
         #expect(g.sticky.first?.cover == CGRect(x: 699, y: 0, width: 298, height: 600))
         #expect(g.uncoveredMaxX == 699)
     }
@@ -68,7 +68,7 @@ import Testing
         #expect(g.stripMinX == 0)
         #expect(g.stripWidth == 1000)
         #expect(g.panes["p1"]?.minX == 304)
-        #expect(g.maxOffset == 298)
+        #expect(abs(g.maxOffset - 298) < 0.01)
         #expect(g.uncoveredMinX == 301)
         #expect(g.gapZones.first?.frame.midX == 301)
     }

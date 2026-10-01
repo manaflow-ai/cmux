@@ -83,7 +83,7 @@ public nonisolated enum ScreenLayout: Hashable, Sendable {
             return x.hasSameShape(as: y)
         case let (.columns(x), .columns(y)):
             return x.count == y.count && zip(x, y).allSatisfy {
-                $0.id == $1.id && $0.root.hasSameShape(as: $1.root)
+                $0.id == $1.id && $0.sticky == $1.sticky && $0.root.hasSameShape(as: $1.root)
             }
         default:
             return false
@@ -103,7 +103,6 @@ public nonisolated enum ScreenLayout: Hashable, Sendable {
     /// A copy with `column` made sticky (or scrolling for nil), keeping the
     /// daemon's rules: another column on the same edge scrolls again.
     public func settingSticky(_ sticky: StickyColumn?, for column: ColumnID) -> ScreenLayout {
-        return self
         guard case let .columns(columns) = self else { return self }
         return .columns(columns.map { entry in
             var entry = entry

@@ -42,7 +42,6 @@ public nonisolated enum DropZoneGeometry {
     /// strip pane hidden under it. The strip resolves as `target(at:)`.
     public static func target(atView point: CGPoint, offset: CGFloat, screen: ScreenID, geometry: ScreenGeometry,
                               style: LayoutStyle) -> DropTarget? {
-        return nil
         if let cover = geometry.sticky.first(where: { $0.cover.contains(point) }) {
             let pane = geometry.panes.filter { geometry.fixedPanes.contains($0.key) && cover.frame.contains($0.value) }
                 .sorted { $0.key < $1.key }.first { $0.value.contains(point) }
@@ -60,7 +59,6 @@ public nonisolated enum DropZoneGeometry {
 
     /// `highlightRect(for:)` in view coordinates with the strip at `offset`.
     public static func highlightRectInView(for target: DropTarget, offset: CGFloat, geometry: ScreenGeometry, style: LayoutStyle) -> CGRect? {
-        return nil
         guard let rect = highlightRect(for: target, geometry: geometry, style: style) else { return nil }
         if case let .pane(pane, _) = target, !geometry.scrolls(pane: pane) { return rect }
         return rect.offsetBy(dx: geometry.viewShift(offset: offset), dy: 0)

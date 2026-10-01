@@ -10,7 +10,6 @@ public nonisolated enum StripScrollbarGeometry {
     /// end instead of moving it off the track.
     public static func thumb(track: CGRect, offset: CGFloat, contentWidth: CGFloat, viewportWidth: CGFloat,
                              minimumThumbWidth: CGFloat) -> CGRect? {
-        return nil
         let maxOffset = ColumnStripGeometry.maxOffset(contentWidth: contentWidth, viewportWidth: viewportWidth)
         guard maxOffset > 0.5, track.width > 0, contentWidth > 0 else { return nil }
         let minimum = min(minimumThumbWidth, track.width)
@@ -30,7 +29,6 @@ public nonisolated enum StripScrollbarGeometry {
     /// B2. The offset that puts the thumb's leading edge at `thumbMinX`
     /// (a thumb drag), clamped to the strip.
     public static func offset(forThumbMinX thumbMinX: CGFloat, thumbWidth: CGFloat, track: CGRect, maxOffset: CGFloat) -> CGFloat {
-        return 0
         let travel = track.width - thumbWidth
         guard travel > 0, maxOffset > 0 else { return 0 }
         let fraction = min(max((thumbMinX - track.minX) / travel, 0), 1)
@@ -43,7 +41,6 @@ public nonisolated enum StripScrollbarGeometry {
     /// click on the thumb.
     public static func pageTarget(clickX: CGFloat, thumb: CGRect, offset: CGFloat, viewportWidth: CGFloat,
                                   snaps: [CGFloat]) -> CGFloat? {
-        return nil
         guard clickX < thumb.minX || clickX > thumb.maxX, let lowest = snaps.first, let highest = snaps.last else { return nil }
         let direction: CGFloat = clickX < thumb.minX ? -1 : 1
         let page = min(max(offset + direction * viewportWidth, lowest), highest)
