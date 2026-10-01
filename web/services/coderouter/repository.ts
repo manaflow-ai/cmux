@@ -136,6 +136,16 @@ export async function issueVmAuthorizationToken(
   stackUserId: string,
   vmId: string,
 ): Promise<{ token: string; expiresAt: Date }> {
+  // The VM row is the durable ownership authority. Do not let a stale
+  // selected-team value from the request mint a token for another team.
+  const [vm] = await cloudDb()
+    .select({ ownerTeamId: cloudVms.ownerTeamId })
+    .from(cloudVms)
+    .where(eq(cloudVms.id, vmId))
+    .limit(1);
+  if (!vm || vm.ownerTeamId !== teamId) {
+    throw new Error("VM owner team does not match CodeRouter team");
+  }
   const expiresAt = new Date(Date.now() + ROUTE_TOKEN_LIFETIME_MS);
   const token = await signVmAuthorization({
     vmId,
