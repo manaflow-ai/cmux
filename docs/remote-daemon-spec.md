@@ -64,7 +64,7 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 - `DONE` session snapshots persist the relay port for persistent SSH PTYs and mint fresh relay credentials on restore, so a reattached remote shell can keep using its existing `CMUX_SOCKET_PATH=127.0.0.1:<relay_port>` after app relaunch.
 - `DONE` relay startup writes `~/.cmux/relay/<relay_port>.daemon_path`; remote `cmux` wrapper uses this to select the right daemon binary per session, including mixed local cmux versions.
 - `DONE` relay startup writes `~/.cmux/relay/<relay_port>.auth` with a relay ID and token; the local relay requires HMAC-SHA256 challenge-response before forwarding any command to the real local socket.
-- `DONE` relay authorization (GHSA-9vmv-3hjw-j28c): deny-by-default method and closed parameter schemas before forwarding; request HMAC bound to the workspace and active SSH controller generation; live ownership and connection-generation revalidation at dispatch and terminal target resolution. Local creation/respawn, local startup overrides, global listing/navigation, and irrelevant routing selectors are denied. See `daemon/remote/README.md` for the current allowlist contract and the separately authenticated persistent-SSH resume metadata exception. Sessions have a 16-connection cap, 10-second handshake deadlines, a 30-second lifetime, bounded responses, and cancellation of outstanding local-socket I/O.
+- `DONE` relay authorization (GHSA-9vmv-3hjw-j28c): deny-by-default method and closed parameter schemas before forwarding; request HMAC bound to the workspace and active SSH controller generation; live ownership and connection-generation revalidation at dispatch and terminal target resolution. Local creation/respawn, local startup overrides, global listing/navigation, and irrelevant routing selectors are denied. See `daemon/remote/README.md` for the current allowlist contract; resume bindings are not relay methods, and command-bearing parameters have no exceptions. Sessions have a 16-connection cap, 10-second handshake deadlines, a 30-second lifetime, bounded responses, and cancellation of outstanding local-socket I/O.
 - `DONE` SSH agent forwarding is opt-in. `cmux ssh` preserves its live `SSH_AUTH_SOCK` for app-launched OpenSSH transports so `ForwardAgent yes` from ssh_config works normally, and accepts `-A` / `--forward-agent` or `-a` / `--no-forward-agent` for explicit forwarding control.
 - `DONE` ephemeral port range (49152-65535) filtered from probe results to exclude relay ports from other workspaces.
 - `DONE` multi-workspace port conflict detection uses TCP connect check (`isLoopbackPortReachable`) so ports already forwarded by another workspace are silently skipped instead of flagged as conflicts.
@@ -90,13 +90,14 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 ### 4.1 Browser Networking Path
 1. `DONE` one local proxy endpoint is created per SSH transport/session key (not per detected port).
 2. `DONE` endpoint is provided by a local broker that supports SOCKS5 + HTTP CONNECT and tunnels via daemon stream RPC.
+   Each tunnel start mints a random credential; SOCKS5 requires it through username/password authentication (RFC 1929) and HTTP CONNECT through `Proxy-Authorization: Basic`. Only the embedded browser receives it, so `workspace.remote.status` reports the endpoint without it.
 3. `DONE` browser panels in remote workspaces are auto-wired to the workspace proxy endpoint.
 4. `DONE` browser panels in local workspaces are not force-proxied.
 5. `DONE` identical SSH transports share one endpoint via a transport-scoped broker.
 
 ### 4.2 WKWebView Wiring
 1. `DONE` use workspace-scoped `WKWebsiteDataStore(forIdentifier:)`.
-2. `DONE` apply workspace/browser scoped `proxyConfigurations`.
+2. `DONE` apply workspace/browser scoped `proxyConfigurations`, each carrying the tunnel credential.
 3. `DONE` prefer SOCKS5 proxy config.
 4. `DONE` keep HTTP CONNECT proxy config as fallback.
 5. `DONE` re-apply proxy config on reconnect/state updates.

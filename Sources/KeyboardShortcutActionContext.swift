@@ -15,6 +15,9 @@ extension KeyboardShortcutSettings.Action {
              .diffViewerOpenFileSearch,
              .diffViewerNextFile,
              .diffViewerPreviousFile,
+             .diffViewerNextHunk,
+             .diffViewerPreviousHunk,
+             .diffViewerToggleViewed,
              .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias:
             return true
@@ -35,7 +38,10 @@ extension KeyboardShortcutSettings.Action {
              .diffViewerScrollToTop,
              .diffViewerOpenFileSearch,
              .diffViewerNextFile,
-             .diffViewerPreviousFile:
+             .diffViewerPreviousFile,
+             .diffViewerNextHunk,
+             .diffViewerPreviousHunk,
+             .diffViewerToggleViewed:
             return true
         default:
             return false
@@ -247,7 +253,8 @@ extension KeyboardShortcutSettings.Action {
              .diffViewerScrollDownEmacs, .diffViewerScrollUpEmacs, .diffViewerScrollToBottom,
              .diffViewerScrollToTop:
             return .viewerPanel
-        case .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile:
+        case .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile,
+             .diffViewerNextHunk, .diffViewerPreviousHunk, .diffViewerToggleViewed:
             return .browserPanel
         case .commandPaletteNext, .commandPalettePrevious:
             return .commandPaletteVisible
@@ -255,7 +262,7 @@ extension KeyboardShortcutSettings.Action {
              .switchRightSidebarToFeed, .switchRightSidebarToDock, .switchRightSidebarToMachines, .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias:
             return .rightSidebarFocus
-        case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .clearScreenKeepScrollback:
+        case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .pasteLastScreenshot, .sizeTerminalToMyWindow, .clearScreenKeepScrollback:
             return .nonBrowserPanel
         case .focusHistoryBack, .focusHistoryForward:
             return .outsideBrowserPanel

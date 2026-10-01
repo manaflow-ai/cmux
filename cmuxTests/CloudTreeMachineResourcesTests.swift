@@ -419,7 +419,7 @@ struct CloudTreeMachineResourcesTests {
         }
     }
 
-    @Test @MainActor func terminalAndResourceDefaultsAreCollapsedButExplicitChoicesWin() throws {
+    @Test @MainActor func portTerminalAndResourceDefaultsAreCollapsedButExplicitChoicesWin() throws {
         let snapshot = machine()
         let info = SurfaceMachineInfo(
             id: .cloud(snapshot.id), name: snapshot.displayName, status: "running", image: snapshot.image,
@@ -432,12 +432,15 @@ struct CloudTreeMachineResourcesTests {
         )
         let machineNode = try #require(nodes.first)
         let workspaces = try #require(machineNode.children.first)
+        let ports = try #require(machineNode.children.first { node in
+            if case .portsGroup = node.kind { true } else { false }
+        })
         let terminals = try #require(machineNode.children.dropFirst(3).first)
         let resources = try #require(machineNode.children.last)
         let defaults = UserDefaults(suiteName: "CloudTreeResources-\(UUID().uuidString)")!
         let store = CloudTreeExpansionStore(defaults: defaults)
         #expect(store.isExpanded(workspaces))
-        #expect(store.isExpanded(machineNode.children[1]))
+        #expect(!store.isExpanded(ports))
         #expect(!store.isExpanded(terminals))
         #expect(!store.isExpanded(resources))
         store.setExpanded(true, node: resources)

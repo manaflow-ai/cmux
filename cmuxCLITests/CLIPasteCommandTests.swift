@@ -215,12 +215,26 @@ struct CLIPasteCommandTests {
         #expect(pasted.result.stderr.isEmpty, Comment(rawValue: pasted.result.stderr))
     }
 
-    @Test func sendPasteHintThresholdNeedsMoreThanTheLimitAndALineBreak() {
-        let limit = CMUXCLI.sendPasteHintMinimumUTF8Bytes
-        #expect(CMUXCLI.sendTextWarrantsPasteHint(String(repeating: "a", count: limit - 1) + "\n") == false)
-        #expect(CMUXCLI.sendTextWarrantsPasteHint(String(repeating: "a", count: limit) + "\n"))
-        #expect(CMUXCLI.sendTextWarrantsPasteHint(String(repeating: "a", count: limit) + "\r"))
-        #expect(CMUXCLI.sendTextWarrantsPasteHint(String(repeating: "a", count: limit + 1)) == false)
+    /// The hint needs more than 4096 UTF-8 bytes (after `\n`-style escapes
+    /// are rewritten) and a line break. The CLI target is not linked into
+    /// this bundle, so the boundary is checked through the binary.
+    @Test func sendPasteHintThresholdNeedsMoreThanTheLimitAndALineBreak() throws {
+        let limit = 4096
+        for (text, expectsHint) in [
+            (String(repeating: "a", count: limit - 1) + "\n", false),
+            (String(repeating: "a", count: limit) + "\n", true),
+            (String(repeating: "a", count: limit) + "\\r", true),
+            (String(repeating: "a", count: limit + 1), false),
+        ] {
+            let run = try runCLI(arguments: ["send", "--surface", Self.targetSurfaceRef, "--", text])
+
+            #expect(run.result.status == 0, Comment(rawValue: run.result.stderr + run.result.stdout))
+            #expect(run.requests.last?["method"] as? String == "surface.send_text")
+            #expect(
+                run.result.stderr.contains("cmux send --paste") == expectsHint,
+                Comment(rawValue: "\(text.utf8.count) bytes: \(run.result.stderr)")
+            )
+        }
     }
 
     // MARK: - Harness

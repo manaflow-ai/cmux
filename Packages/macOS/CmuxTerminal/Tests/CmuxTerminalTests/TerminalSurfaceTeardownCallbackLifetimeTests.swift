@@ -2,7 +2,7 @@ import AppKit
 import CmuxTerminalCore
 import Foundation
 import GhosttyKit
-import GhosttyRuntimeTestStubs
+import CmuxTerminalGhosttyRuntimeTestStubs
 import Testing
 @testable import CmuxTerminal
 
@@ -180,6 +180,15 @@ import Testing
 
         #expect(paneHost.runtimeReleaseCount == 1)
         #expect(await recorder.waitForEventCount(1), "timed out waiting for native free")
+    }
+
+    @Test func teardownWithoutRuntimeDoesNotNotifyPaneHost() throws {
+        let surface = makeSurface()
+        let paneHost = try #require(surface.paneHost as? FakeTerminalSurfacePaneHost)
+
+        surface.teardownSurface()
+
+        #expect(paneHost.runtimeReleaseCount == 0)
     }
 
     @Test func agentHibernationNotifiesPaneHostOfRuntimeRelease() async throws {
@@ -395,7 +404,7 @@ import Testing
                 runtimeTeardown: runtimeTeardown,
                 restoreSpawnScheduler: TerminalSurfaceRestoreSpawnScheduler(interSpawnDelay: .zero),
                 runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
-                    agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
+                    agentCommandShimRootDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
                     installAgentCommandShims: { _, _, _ in nil },
                     isExecutableFile: { _ in false }
                 ),

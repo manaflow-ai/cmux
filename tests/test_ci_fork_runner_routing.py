@@ -101,7 +101,9 @@ FORK_PULL_REQUEST_LABEL = re.compile(
 # Nothing keeps them hosted except their current values, so they are gated too.
 # Context names are case-insensitive, and `vars['X']` reads the same value as
 # `vars.X`; _refs normalizes the index form before matching.
-OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER)"
+# CI_SIDE_LANE_RUNNER and CI_LIGHT_LANE_RUNNER name owned side labels outright
+# (runner_label_policy.side_lane_reason), so every read of them is gated too.
+OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_LIGHT_LANE_RUNNER)"
 OWNED_RUNNER_VARIABLE = re.compile(
     rf"\bvars(?:\.{OWNED_RUNNER_NAME}\b|\[\s*'{OWNED_RUNNER_NAME}'\s*\])", re.IGNORECASE
 )
@@ -118,6 +120,10 @@ FORK_GATE_EXEMPT = {
         "pr_runner_pool.py's input: it compares the lane with its default and "
         "ignores it for a fork head, and every runs-on reading its output takes "
         "the fork branch first"
+    ),
+    ("ci.yml", "MACOS_RUNNER_PR: ${{ vars.MACOS_RUNNER_PR }}"): (
+        "pr_runner_pool.py's input: it ignores the default for an untrusted fork head, "
+        "and every runs-on reading its output gates the selected label"
     ),
     ("test-ios.yml", "RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}"): (
         "ios_runner_pool.py's input: for a fork head (--fork) the picker returns "
@@ -321,19 +327,49 @@ def _blacksmith_pick(node: tuple) -> bool:
     )
 
 
+def _trusted_fork_exclusion(node: tuple) -> bool:
+    # The trusted allowlist is the one intentional exception to the hosted
+    # fork branch. Every other fork must take the Blacksmith branch first.
+    return (
+        node[0] == "not"
+        and node[1][0] == "call"
+        and node[1][1] == "contains"
+        and len(node[1][2]) == 2
+        and node[1][2][0][0] == "call"
+        and node[1][2][0][1] == "fromJSON"
+        and _refs(node[1][2][0][2][0])
+        and _refs(node[1][2][0][2][0])[0].endswith("owned_head_repos")
+        and _refs(node[1][2][1]) == ["github.event.pull_request.head.repo.full_name"]
+    )
+
+
 def _is_fork_pull_request_branch(node: tuple) -> bool:
     if node[0] == "and" and node[1] and _blacksmith_pick(node[1][-1]):
         conditions = node[1][:-1]
         keys = [_condition_key(condition) for condition in conditions]
-        return None not in keys and set(keys) == FORK_PULL_REQUEST_CONDITIONS
+        if None not in keys and set(keys) == FORK_PULL_REQUEST_CONDITIONS:
+            return True
+        return (
+            None not in keys[:2]
+            and set(keys[:2]) == FORK_PULL_REQUEST_CONDITIONS
+            and len(conditions) == 3
+            and _trusted_fork_exclusion(conditions[2])
+        )
     guarded = _guarded_literal(node)
     if not guarded:
         return False
     conditions, label = guarded
     keys = [_condition_key(condition) for condition in conditions]
-    if None in keys:
-        return False
-    if not (set(keys) == FORK_PULL_REQUEST_CONDITIONS or keys == [PULL_REQUEST_CONDITION]):
+    if None not in keys and set(keys) == FORK_PULL_REQUEST_CONDITIONS:
+        return bool(FORK_PULL_REQUEST_LABEL.fullmatch(label))
+    if (
+        len(conditions) == 3
+        and None not in keys[:2]
+        and set(keys[:2]) == FORK_PULL_REQUEST_CONDITIONS
+        and _trusted_fork_exclusion(conditions[2])
+    ):
+        return bool(FORK_PULL_REQUEST_LABEL.fullmatch(label))
+    if None in keys or keys != [PULL_REQUEST_CONDITION]:
         return False
     return bool(FORK_PULL_REQUEST_LABEL.fullmatch(label))
 
@@ -771,6 +807,8 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         CMUX_CI_XCODE_APP_PR would fail at Xcode selection.
         """
         same_repository = "github.event.pull_request.head.repo.full_name == github.repository"
+        trusted_repository = "contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)"
+        trusted_input = "contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
         checked = 0
         failures = []
         for path in fork_exercised_workflows():
@@ -778,7 +816,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 if line.lstrip().startswith("#") or not re.search(r"vars\.CMUX_(?:CI|CI_HELPER)_XCODE_APP_PR\b", line):
                     continue
                 checked += 1
-                if same_repository not in line:
+                if not any(clause in line for clause in (same_repository, trusted_repository, trusted_input)):
                     failures.append(f"{path.name}:{number}: {line.strip()}")
         self.assertEqual(failures, [])
         self.assertGreater(checked, 0)

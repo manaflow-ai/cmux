@@ -3,6 +3,7 @@ import Foundation
 import Testing
 
 @testable import CmuxControlSocket
+import CmuxFoundation
 
 /// A one-shot result holder for handing a background thread's outcome back to
 /// the test thread. Safe because every read is ordered after a
@@ -168,6 +169,38 @@ private final class ResultBox: @unchecked Sendable {
         )
 
         #expect(result?.response == nil)
+        #expect(handled.wait(timeout: .now() + 1.0) == .success)
+        #expect(commandReceived.value == false)
+    }
+
+    @Test func probeCommandSendsNothingToAServerRunningAsAnotherUser() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+
+        let commandReceived = ResultBox()
+        let handled = UnixSocketFixture.acceptSingleClient(on: listenerFD) { clientFD in
+            var buffer = [UInt8](repeating: 0, count: 256)
+            let received = Darwin.read(clientFD, &buffer, buffer.count) > 0
+            commandReceived.value = received
+            // A refusing probe has already closed; writing would raise SIGPIPE.
+            guard received else { return }
+            _ = "PONG\n".withCString { ptr in
+                write(clientFD, ptr, strlen(ptr))
+            }
+        }
+
+        // No second local account exists in tests, so expect a user ID the
+        // real peer cannot have; the probe must treat the peer as foreign.
+        let foreignServerTransport = SocketTransport(
+            serverPeerCheck: UnixSocketPeerCheck(expectedUserID: geteuid() &+ 1)
+        )
+        let response = foreignServerTransport.probeCommand("auth secret", at: path, timeout: 0.5)
+
+        #expect(response == nil)
         #expect(handled.wait(timeout: .now() + 1.0) == .success)
         #expect(commandReceived.value == false)
     }
