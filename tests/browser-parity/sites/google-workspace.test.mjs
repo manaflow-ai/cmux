@@ -19,8 +19,14 @@ test("googleAccounts.list: signed-in accounts with their uid, from ListAccounts"
 
 test("googleDocs.read: Markdown by default, title from the export's file name", async () => {
   const r = await s.value('sites.googleDocs.read("https://docs.google.com/document/d/DOC1/edit")');
-  assert.deepEqual(r, { title: "Design Notes", text: "# Design Notes\n\nThe **plan**, in brief.\n" });
+  assert.deepEqual(r, { title: "Design Notes", text: "# Design Notes\n\nThe **plan**, in brief.\n\n![][image1]\n" });
   assert.equal((await s.value('sites.googleDocs.read("https://docs.google.com/document/d/DOC1/edit", { format: "txt" })')).text, "Design Notes\n\nThe plan, in brief.\n");
+});
+
+test("googleDocs.read drops inline image data (Google's Markdown export embeds images as data: definitions)", async () => {
+  const r = await s.value('sites.googleDocs.read("https://docs.google.com/document/d/DOC1/edit")');
+  assert.ok(!r.text.includes("data:image"), "no image data");
+  assert.ok(r.text.length < 200);
 });
 
 test("googleDocs: the account comes from /u/N/ in the URL or { uid }; a wrong account is a clear 403", async () => {
@@ -62,7 +68,7 @@ test("googleSlides.read and export; googleDrive.download and export by Drive URL
   assert.deepEqual([file.title, file.contentType, fs.readFileSync(file.path, "utf8")], ["report", "application/pdf", "%PDF-1.4 report"]);
   assert.match(file.path, /report-\d+\.pdf$/);
   const viaDrive = await s.value('sites.googleDrive.export({ id: "DOC1", kind: "document" }, { format: "md" })');
-  assert.equal(fs.readFileSync(viaDrive.path, "utf8"), "# Design Notes\n\nThe **plan**, in brief.\n");
+  assert.match(fs.readFileSync(viaDrive.path, "utf8"), /^# Design Notes\n\nThe \*\*plan\*\*, in brief\.\n/);
 });
 
 test("googleDrive.recent lists the Recent view's files with ids and names", async () => {

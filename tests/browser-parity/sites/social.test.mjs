@@ -19,7 +19,7 @@ test("linkedin.search and feed read result cards", async () => {
   const people = await s.value('sites.linkedin.search("admiral")');
   assert.deepEqual(people.map((p) => [p.name, p.url, p.summary[0]]), [["Grace Hopper", "https://www.linkedin.com/in/grace-hopper/", "Rear Admiral"], ["Alan Turing", "https://www.linkedin.com/in/alan-t/", "Mathematician"]]);
   const feed = await s.value("sites.linkedin.feed({ limit: 2 })");
-  assert.deepEqual(feed.map((f) => [f.urn, f.author, f.text]), [["urn:li:activity:1", "Grace Hopper", "Compilers are fun."], ["urn:li:activity:2", "Alan Turing", "Can machines think?"]]);
+  assert.deepEqual(feed.map((f) => [f.id, f.author, f.authorUrl, f.text]), [["ck-post-1", "Grace Hopper", "https://www.linkedin.com/in/grace-hopper/", "Compilers are fun."], ["ck-post-2", "Alan Turing", "https://www.linkedin.com/in/alan-t/", "Can machines think?"]]);
 });
 
 test("linkedin.post: draft, then the confirmed draft posts through the share composer", async () => {

@@ -26,12 +26,14 @@ export const COOKIES = [
   { name: "SID", value: SECRETS.googleSID, domain: ".google.com", path: "/", secure: true, httpOnly: true },
   { name: "SID", value: SECRETS.googleSID, domain: ".youtube.com", path: "/", secure: true, httpOnly: true },
   { name: "d", value: SECRETS.slackCookie, domain: ".slack.com", path: "/", secure: true, httpOnly: true },
-  { name: "token_v2", value: SECRETS.notionToken, domain: ".notion.so", path: "/", secure: true, httpOnly: true },
+  // Notion's app and its session moved to app.notion.com.
+  { name: "token_v2", value: SECRETS.notionToken, domain: ".app.notion.com", path: "/", secure: true, httpOnly: true },
   { name: "JSESSIONID", value: `"${SECRETS.linkedinJsession}"`, domain: ".linkedin.com", path: "/", secure: true },
   { name: "li_at", value: "li-at-secret", domain: ".linkedin.com", path: "/", secure: true, httpOnly: true },
   { name: "user_session", value: SECRETS.githubSession, domain: "github.com", path: "/", secure: true, httpOnly: true },
   { name: "session", value: SECRETS.linearSession, domain: ".linear.app", path: "/", secure: true, httpOnly: true, sameSite: "None" },
   { name: "tenant.session.token", value: SECRETS.jiraSession, domain: "acme.atlassian.net", path: "/", secure: true, httpOnly: true },
+  { name: "cloud.session.token", value: "atl-session-secret", domain: ".atlassian.com", path: "/", secure: true, httpOnly: true },
   { name: "auth_token", value: SECRETS.xSession, domain: ".x.com", path: "/", secure: true, httpOnly: true },
 ];
 
@@ -71,7 +73,7 @@ function accounts(req, url) {
 }
 
 const DOCS = {
-  DOC1: { title: "Design Notes", uid: 0, md: "# Design Notes\n\nThe **plan**, in brief.\n", txt: "Design Notes\n\nThe plan, in brief.\n" },
+  DOC1: { title: "Design Notes", uid: 0, md: "# Design Notes\n\nThe **plan**, in brief.\n", mdWithImages: `# Design Notes\n\nThe **plan**, in brief.\n\n![][image1]\n\n[image1]: <data:image/png;base64,${"A".repeat(4000)}>\n`, txt: "Design Notes\n\nThe plan, in brief.\n" },
   DOCWORK: { title: "Work Plan", uid: 1, md: "# Work Plan\n\nOnly the work account sees this.\n" },
 };
 const SHEETS = {
@@ -96,7 +98,7 @@ function docs(req, url) {
     const d = DOCS[id];
     if (!d) return { status: 404, html: html("Not found") };
     if (d.uid !== uid) return { status: 403, html: html("You need access") };
-    if (format === "md") return attach(`${d.title}.md`, "text/markdown; charset=utf-8", d.md);
+    if (format === "md") return attach(`${d.title}.md`, "text/markdown; charset=utf-8", d.mdWithImages || d.md);
     if (format === "txt") return attach(`${d.title}.txt`, "text/plain; charset=utf-8", d.txt || d.md);
     if (format === "html") return attach(`${d.title}.html`, "text/html; charset=utf-8", `<html><body><h1>${d.title}</h1></body></html>`);
     if (format === "pdf") return attach(`${d.title}.pdf`, "application/pdf", "%PDF-1.4 mock " + d.title);
@@ -125,7 +127,7 @@ function docs(req, url) {
 function drive(req, url) {
   if (!signedInGoogle(req)) return { redirect: GOOGLE_LOGIN + encodeURIComponent(url.href) };
   if (/^\/drive\/u\/\d+\/recent$/.test(url.pathname)) {
-    const row = (id, name, type) => `<div role="row" data-id="${id}" aria-label="${esc(name)} ${type}"><div role="gridcell"><div data-tooltip="${esc(type)}"></div><div class="name">${esc(name)}</div></div><div role="gridcell">Sep 29, 2026</div></div>`;
+    const row = (id, name, type) => `<div role="row" data-id="${id}"><div role="gridcell"><div data-tooltip="${esc(name)} ${type}"><span>${esc(name)}</span></div></div><div role="gridcell">Sep 29, 2026</div></div>`;
     return { html: html(`<div role="main"><div role="grid">${row("1AbCdEfGhIjKlMnOpQrStUvWxYz012345", "Design Notes", "Google Docs")}${row("1ZyXwVuTsRqPoNmLkJiHgFeDcBa987654", "Budget 2026", "Google Sheets")}</div></div>`, "Recent - Google Drive") };
   }
   return { status: 404, html: html("Not found") };
@@ -381,7 +383,9 @@ export const SLACK_SEED = { teams: SLACK_TEAMS, lastActiveTeamId: "T01ACME" };
 
 function slackApp(req, url) {
   if (url.pathname === "/robots.txt") return { status: 200, headers: { "content-type": "text/plain" }, body: "User-agent: *\n" };
-  if (url.pathname === "/__seed") return { html: html(`<script>localStorage.setItem("localConfig_v2", ${JSON.stringify(JSON.stringify(SLACK_SEED))});</script>seeded`) };
+  // The web client writes its workspace config when it boots (/client), not
+  // on the landing page; a fresh profile has none until then.
+  if (url.pathname === "/client" || url.pathname.startsWith("/client/")) return { html: html(`<div id="app">loading</div><script>setTimeout(() => localStorage.setItem("localConfig_v2", ${JSON.stringify(JSON.stringify(SLACK_SEED))}), 300);</script>`, "Slack") };
   return { status: 404, text: "" };
 }
 
@@ -514,7 +518,10 @@ function linkedin(req, url, body, state) {
           document.querySelector("button").addEventListener("click", async () => { await fetch("/__mock/post", { method: "POST", body: JSON.stringify({ text: document.querySelector('[role="textbox"]').innerText }) }); document.querySelector('[role="dialog"]').remove(); });
         </script>`, "Feed | LinkedIn"),
       };
-    return { html: html(`<main><div data-urn="urn:li:activity:1"><div>Grace Hopper</div><div class="update-components-text">Compilers are fun.</div></div><div data-urn="urn:li:activity:2"><div>Alan Turing</div><div class="update-components-text">Can machines think?</div></div></main>`, "Feed | LinkedIn") };
+    // The 2026 feed: posts are list items with a componentkey and an
+    // expandable text box; no activity URNs in the markup.
+    const post = (key, slug, name, text) => `<div role="listitem" componentkey="${key}"><div componentkey="${key}-actor"><a href="/in/${slug}/">${name}</a><span>2h</span></div><div data-testid="expandable-text-box">${text}</div><button data-testid="expandable-text-button">more</button><a href="/feed/">Like</a></div>`;
+    return { html: html(`<main><div role="list"><div role="listitem"><a href="/in/ada-lovelace/">Start a post</a></div>${post("ck-post-1", "grace-hopper", "Grace Hopper", "Compilers are fun.")}${post("ck-post-2", "alan-t", "Alan Turing", "Can machines think?")}</div></main>`, "Feed | LinkedIn") };
   }
   return { status: 404, html: html("") };
 }
@@ -568,10 +575,15 @@ function github(req, url) {
 
 function linear(req, url, body) {
   const cors = { "access-control-allow-origin": "https://linear.app", "access-control-allow-credentials": "true" };
-  if (url.hostname === "linear.app") return url.pathname === "/robots.txt" ? { status: 200, headers: { "content-type": "text/plain" }, body: "User-agent: *\n" } : { status: 404, text: "" };
-  if (req.method === "OPTIONS") return { status: 204, headers: { ...cors, "access-control-allow-methods": "POST", "access-control-allow-headers": "content-type" }, body: "" };
+  if (url.hostname === "linear.app") {
+    if (url.pathname === "/__seed") return { html: html(`<script>localStorage.setItem("ApplicationStore", JSON.stringify({ currentUserAccountId: "acct-1", currentUserId: "user-linear-1", userAccounts: { "acct-1": { id: "acct-1" } }, version: 3 }));</script>`) };
+    return url.pathname === "/robots.txt" ? { status: 200, headers: { "content-type": "text/plain" }, body: "User-agent: *\n" } : { status: 404, text: "" };
+  }
+  if (req.method === "OPTIONS") return { status: 204, headers: { ...cors, "access-control-allow-methods": "POST", "access-control-allow-headers": "content-type, user" }, body: "" };
   const reply = (json, status = 200) => ({ status, headers: { ...cors, "content-type": "application/json" }, body: JSON.stringify(json) });
-  if (cookieOf(req, "session") !== SECRETS.linearSession) return reply({ errors: [{ message: "Authentication required", extensions: { code: "AUTHENTICATION_ERROR" } }] });
+  // The web client sends the signed-in user's id (from localStorage's
+  // ApplicationStore) in a "user" header with the session cookie.
+  if (cookieOf(req, "session") !== SECRETS.linearSession || req.headers.user !== "user-linear-1") return reply({ errors: [{ message: "Authentication required, no user context", extensions: { type: "authentication error", code: "AUTHENTICATION_ERROR" } }] }, 401);
   const { query, variables } = JSON.parse(body);
   const issue = { id: "uuid-1", identifier: "ENG-12", title: "Flaky test", url: "https://linear.app/acme/issue/ENG-12", priorityLabel: "High", createdAt: "2026-09-01T00:00:00Z", updatedAt: "2026-09-02T00:00:00Z", state: { name: "In Progress", type: "started" }, assignee: { name: "Ada", email: "ada@example.com" }, team: { key: "ENG", name: "Engineering" }, labels: { nodes: [{ name: "bug" }] } };
   if (/^\s*mutation/.test(query)) return reply({ errors: [{ message: "mutations not allowed in mock" }] });
@@ -657,6 +669,15 @@ function login(req, url) {
   };
 }
 
+function atlassianHome(req, url) {
+  if (url.pathname === "/robots.txt") return { status: 200, headers: { "content-type": "text/plain" }, body: "User-agent: *\n" };
+  if (url.pathname === "/gateway/api/available-sites" && req.method === "POST") {
+    if (cookieOf(req, "cloud.session.token") !== "atl-session-secret") return { status: 401, json: { message: "Unauthorized" } };
+    return { json: { sites: [{ cloudId: "c-1", url: "https://acme.atlassian.net", displayName: "Acme", products: ["jira-software.ondemand"] }, { cloudId: "c-2", url: "https://wiki.atlassian.net", displayName: "Wiki", products: ["confluence.ondemand"] }] } };
+  }
+  return { status: 404, json: { status: 404 } };
+}
+
 const HOSTS = {
   "accounts.google.com": accounts,
   "docs.google.com": docs,
@@ -670,12 +691,14 @@ const HOSTS = {
   "acme.slack.com": slackApi,
   "sidep.slack.com": slackApi,
   "www.notion.so": notion,
+  "app.notion.com": notion,
   "www.linkedin.com": linkedin,
   "x.com": x,
   "github.com": github,
   "linear.app": linear,
   "client-api.linear.app": linear,
   "acme.atlassian.net": jira,
+  "home.atlassian.com": atlassianHome,
   "assets.example": assets,
   "tools.example": tools,
   "login.example": login,

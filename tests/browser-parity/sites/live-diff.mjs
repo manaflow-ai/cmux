@@ -188,7 +188,7 @@ const SIGNED_IN = [
   { site: "google", cookies: [["https://mail.google.com/", /^(SID|__Secure-1PSID)$/]], aside: "(await googleAccounts.list()).length > 0" },
   { site: "youtube", cookies: [["https://www.youtube.com/", /^(SID|__Secure-1PSID|LOGIN_INFO)$/]], aside: "(await googleAccounts.list()).length > 0" },
   { site: "slack", cookies: [["https://app.slack.com/", /^d$/]], aside: "(await slack.listWorkspaces()).filter((w) => w.status === 'joined').length > 0" },
-  { site: "notion", cookies: [["https://www.notion.so/", /^token_v2$/]], aside: "(await notion.listAccounts()).length > 0" },
+  { site: "notion", cookies: [["https://www.notion.so/", /^token_v2$/], ["https://app.notion.com/", /^token_v2$/]], aside: "(await notion.listAccounts()).length > 0" },
   { site: "linkedin", cookies: [["https://www.linkedin.com/", /^li_at$/]], aside: "!!(await linkedin.getMe())" },
   { site: "x", cookies: [["https://x.com/", /^auth_token$/]], aside: "!!(await twitter.getMe())" },
   { site: "github", cookies: [["https://github.com/", /^user_session$/]], aside: null },

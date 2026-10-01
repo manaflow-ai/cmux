@@ -48,9 +48,9 @@ export async function createSitesEnv({ signedIn = true, authResponder } = {}) {
       });
       await ctx.route((url) => url.protocol === "https:" && !isMock(url.href), (route) => route.abort("blockedbyclient"));
       if (signedIn) await ctx.addCookies(COOKIES);
-      // Slack keeps its workspace list and tokens in app.slack.com's localStorage.
+      // Linear's web client keeps the signed-in user in localStorage.
       const seed = await ctx.newPage();
-      await seed.goto("https://app.slack.com/__seed");
+      await seed.goto("https://linear.app/__seed");
       await seed.close();
     },
   });

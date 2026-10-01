@@ -105,6 +105,10 @@ test("linear: viewer, issue with comments, search, assigned; mutations refused",
   assert.match(await s.error('sites.linear.query("mutation { issueDelete(id: \\"x\\") { success } }")'), /mutations are not run/);
 });
 
+test("jira.sites lists the Jira Cloud sites of the signed-in Atlassian account", async () => {
+  assert.deepEqual(await s.value("sites.jira.sites()"), [{ url: "https://acme.atlassian.net", name: "Acme", products: ["jira-software.ondemand"] }]);
+});
+
 test("jira: issue with ADF description and comments as Markdown, JQL search, current user", async () => {
   const i = await s.value('sites.jira.issue("https://acme.atlassian.net/browse/ABC-1")');
   assert.deepEqual([i.key, i.summary, i.status, i.assignee, i.url], ["ABC-1", "Login fails", "To Do", "Ada", "https://acme.atlassian.net/browse/ABC-1"]);
