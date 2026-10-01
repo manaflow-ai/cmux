@@ -5,7 +5,7 @@ public import WebKit
 /// Hosts the React agent pane (`Resources/agent-pane/index.html`, built by
 /// `scripts/cmux-next/build-agent-pane-web.sh`) in a WKWebView. The page
 /// connects to acpmux itself after the handshake; this view only answers
-/// host requests, keeps the page on the bundled file, and applies the theme
+/// host requests, keeps the page on its source, and applies the theme
 /// of the scope it sits in (window, workspace), re-applied whenever that
 /// scope repaints.
 public final class AgentPaneView: NSView {
@@ -15,14 +15,26 @@ public final class AgentPaneView: NSView {
     /// system handler; the App can route it to a cmux browser tab.
     public var openURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
 
-    let pageURL: URL
+    /// The page this pane shows; navigation and the handshake trust only it.
+    public let source: AgentPaneSource
     private let navigation = AgentPaneNavigation()
 
-    /// Nil when the bundled page is missing (a broken build).
-    public init?(model: AgentPaneModel) {
-        guard let page = Bundle.module.url(forResource: "index", withExtension: "html", subdirectory: "agent-pane") else { return nil }
+    /// The bundled page, nil when it is missing (a broken build).
+    public static var bundledPage: URL? {
+        Bundle.module.url(forResource: "index", withExtension: "html", subdirectory: "agent-pane")
+    }
+
+    /// Makes a pane and starts loading its page.
+    ///
+    /// Nil when `source` is nil and the bundled page is missing.
+    ///
+    /// - Parameters:
+    ///   - model: Answers the page's host requests.
+    ///   - source: The page to load; nil loads ``bundledPage``.
+    public init?(model: AgentPaneModel, source: AgentPaneSource? = nil) {
+        guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.model = model
-        pageURL = page
+        self.source = source
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         webView = WKWebView(frame: .zero, configuration: configuration)
@@ -40,7 +52,7 @@ public final class AgentPaneView: NSView {
         navigation.view = self
         webView.navigationDelegate = navigation
         addSubview(webView)
-        webView.loadFileURL(page, allowingReadAccessTo: page.deletingLastPathComponent())
+        source.load(into: webView)
     }
 
     @available(*, unavailable)
