@@ -669,16 +669,13 @@ enum TitlebarControlsLayoutMetrics {
         config: TitlebarControlsStyleConfig,
         titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX
     ) -> NSSize {
-        // Two width requirements; reserve the larger so neither the buttons nor the
-        // shortcut hints are clipped by the accessory's allocated frame.
+        // Reserve the larger width for buttons and shortcut hints.
         let buttonReservation = outerLeadingPadding
             + config.groupPadding.leading
             + buttonRowWidth(config: config)
             + config.groupPadding.trailing
             + hintTrailingInset(titlebarShortcutHintXOffset: titlebarShortcutHintXOffset)
-        // Drive the reservation from the planner's actual rightmost hint edge so the
-        // overlap-shift the planner applies (which the fixed inset above ignores) is
-        // always covered. This is what prevents the rightmost pill from clipping.
+        // Reserve the planner's rightmost hint edge to prevent clipping.
         let hintReservation = hintLeadingPadding
             + titlebarHintLayoutRightmostExtent(
                 config: config,
@@ -886,10 +883,7 @@ private struct TitlebarControlButtonStyleBody: View {
         configuration.label
             .frame(width: config.buttonSize, height: config.buttonSize)
             .foregroundStyle(foregroundColor.opacity(foregroundOpacity))
-            // Hosted symbols bake their tint into the bitmap, so they read the
-            // same dimming from the environment (`TitlebarControlSymbol`)
-            // while other label content (the notification badge) keeps its
-            // own colors.
+            // Hosted symbols bake tint opacity into the bitmap; badges keep their own colors.
             .environment(\.titlebarControlForegroundOpacity, foregroundOpacity)
             .background {
                 if backgroundOpacity > 0 {
@@ -983,6 +977,7 @@ private final class TitlebarControlRightClickNSView: NSView {
 }
 
 private struct TitlebarNotificationBadge: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let unreadModel: SidebarUnreadModel
     let config: TitlebarControlsStyleConfig
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
@@ -998,7 +993,7 @@ private struct TitlebarNotificationBadge: View {
                 )
                 .foregroundColor(.white)
                 .frame(width: config.badgeSize, height: config.badgeSize)
-                .background(Circle().fill(cmuxAccentColor()))
+                .background(Circle().fill(cmuxAccent.color))
                 .offset(x: config.badgeOffset.width, y: config.badgeOffset.height)
         }
     }
@@ -2011,7 +2006,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         )
         hostingView = NonDraggableHostingView(
             rootView: AnyView(
-                rootView.environment(\.settingsRuntime, settingsRuntime)
+                rootView.environment(\.settingsRuntime, settingsRuntime).cmuxAccentColorEnvironment()
             )
         )
 
@@ -2254,6 +2249,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                     openPhoneForwardingSettings(in: window)
                 }
             )
+            .cmuxAccentColorEnvironment()
         )
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = .clear
@@ -2351,6 +2347,7 @@ private func openPhoneForwardingSettings(in window: NSWindow?) {
 }
 
 private struct NotificationsPopoverView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     @ObservedObject var notificationStore: TerminalNotificationStore
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     let onDismiss: () -> Void
@@ -2478,7 +2475,7 @@ private struct NotificationsPopoverView: View {
                     .foregroundColor(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
-                    .background(Capsule().fill(cmuxAccentColor()))
+                    .background(Capsule().fill(cmuxAccent.color))
             }
             Spacer()
             Button(action: jumpToLatestUnread) {
@@ -3128,6 +3125,7 @@ final class UpdateTitlebarAccessoryController {
                     openPhoneForwardingSettings(in: window)
                 }
             )
+            .cmuxAccentColorEnvironment()
         )
 
         contentView.layoutSubtreeIfNeeded()
