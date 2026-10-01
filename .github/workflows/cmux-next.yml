@@ -8,7 +8,8 @@ name: cmux-next
 
 on:
   pull_request:
-    branches: [feat-cmux-next]
+    # feat-cmux-next and the PR branches stacked on it (#16174's line).
+    branches: [feat-cmux-next, 'feat-cmux-next-*']
     paths:
       - Packages/macOS/CmuxNext/**
       - Packages/Shared/**
@@ -56,7 +57,7 @@ concurrency:
 
 jobs:
   checks:
-    if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/feat-cmux-next') }}
     name: cmux-next checks (god files, concurrency, crash safety, l10n)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
@@ -81,7 +82,7 @@ jobs:
         run: scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
   swift-test:
-    if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/feat-cmux-next') }}
     name: cmux-next swift test
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # A cold build of the package graph (CmuxNext plus its Shared and iOS test
