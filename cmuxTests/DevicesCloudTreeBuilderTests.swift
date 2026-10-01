@@ -74,6 +74,7 @@ struct DevicesCloudTreeBuilderTests {
         #expect(outline.isItemExpanded(section))
         #expect(outline.isItemExpanded(device))
         #expect(outline.selectedRow == outline.row(forItem: device))
+        #expect(coordinator.selectedNodeID == device.id)
 
         outline.collapseItem(device)
         outline.deselectAll(nil)
@@ -84,6 +85,22 @@ struct DevicesCloudTreeBuilderTests {
         coordinator.reveal(.machine(.device(studio)))
         #expect(outline.isItemExpanded(device))
         #expect(outline.selectedRow == outline.row(forItem: device))
+        _ = container
+    }
+
+    @MainActor
+    @Test("A cancelled pending reveal can be cleared without selecting its late row")
+    func cancelledRevealReportsConsumption() throws {
+        let suiteName = "DevicesCloudTreeRevealCancellation-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = makeCoordinator(defaults: defaults)
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let request = CloudTreeRevealRequest.machine(.device(studio))
+        #expect(coordinator.reveal(request) == .waiting)
+        coordinator.outlineViewSelectionDidChange(Notification(name: NSOutlineView.selectionDidChangeNotification))
+        #expect(coordinator.reveal(request) == .consumed)
+        #expect(coordinator.pendingRevealTokens.isEmpty)
         _ = container
     }
 

@@ -14,7 +14,15 @@ extension CloudTreeOutlineView.Coordinator {
         _ request: CloudTreeRevealRequest?,
         channel: RevealChannel = .device
     ) -> RevealResult {
-        guard let request, !consumedRevealTokens.contains(request.token), let outlineView else { return .ignored }
+        guard let request else {
+            if let previous = pendingRevealByChannel.removeValue(forKey: channel) {
+                pendingRevealTokens.remove(previous)
+                rememberConsumedRevealToken(previous)
+            }
+            return .ignored
+        }
+        guard !consumedRevealTokens.contains(request.token) else { return .consumed }
+        guard let outlineView else { return .waiting }
         if let previous = pendingRevealByChannel[channel], previous != request.token {
             pendingRevealTokens.remove(previous)
             rememberConsumedRevealToken(previous)
@@ -30,6 +38,7 @@ extension CloudTreeOutlineView.Coordinator {
             outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         }
         guard outlineView.selectedRow == row else { return .waiting }
+        selectedNodeID = node.id
         rememberConsumedRevealToken(request.token)
         pendingRevealTokens.remove(request.token)
         pendingRevealByChannel.removeValue(forKey: channel)

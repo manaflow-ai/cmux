@@ -86,14 +86,15 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             canCreateCloudMachine: canCreateCloudMachine,
             cloudMachinesUsage: cloudMachinesUsage
         ))
-        if let reveal, context.coordinator.reveal(reveal, channel: .device) == .consumed {
+        let deviceResult = context.coordinator.reveal(reveal, channel: .device)
+        if let reveal, deviceResult == .consumed {
             Task { @MainActor in onRevealConsumed?(reveal.token) }
         }
         // A device reveal is the explicit sidebar action and takes precedence
         // over the passive workspace mirror while it is being applied.
         if reveal == nil {
-            if let cloudWorkspaceReveal,
-               context.coordinator.reveal(cloudWorkspaceReveal, channel: .cloudWorkspace) == .consumed {
+            let cloudResult = context.coordinator.reveal(cloudWorkspaceReveal, channel: .cloudWorkspace)
+            if let cloudWorkspaceReveal, cloudResult == .consumed {
                 Task { @MainActor in onCloudWorkspaceRevealConsumed?(cloudWorkspaceReveal.token) }
             }
         }
