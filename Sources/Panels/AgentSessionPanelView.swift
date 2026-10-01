@@ -14,19 +14,21 @@ struct AgentSessionPanelView: View {
     var body: some View {
         Group {
             if isVisibleInUI {
-                if panel.rendererKind == .typescript {
-                    AcpmuxChatWebRenderer(
-                        panel: panel,
-                        isFocused: isFocused,
-                        backgroundColor: appearance.contentBackgroundColor,
-                        theme: AgentSessionWebTheme.resolve(appearance: appearance),
-                        onRequestPanelFocus: onRequestPanelFocus
-                    )
-                } else {
-                    AcpmuxChatPaneRepresentable(
-                        panel: panel,
-                        theme: AcpmuxChatTheme.resolve(appearance: appearance, accent: cmuxAccent)
-                    )
+                Group {
+                    if panel.rendererKind == .typescript {
+                        AcpmuxChatWebRenderer(
+                            panel: panel,
+                            isFocused: isFocused,
+                            backgroundColor: appearance.contentBackgroundColor,
+                            theme: AgentSessionWebTheme.resolve(appearance: appearance),
+                            onRequestPanelFocus: onRequestPanelFocus
+                        )
+                    } else {
+                        AcpmuxChatPaneRepresentable(
+                            panel: panel,
+                            theme: AcpmuxChatTheme.resolve(appearance: appearance, accent: cmuxAccent)
+                        )
+                    }
                 }
                 .id(panel.id)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
