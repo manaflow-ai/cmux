@@ -165,6 +165,27 @@ struct MobileShellAgentFeedStateTests {
         #expect(store.agentFeedItems.map(\.itemID) == ["good"])
     }
 
+    @Test("Notification history rows stay out of the Agent Feed projection")
+    func notificationRowsAreExcludedBeforeProjection() throws {
+        let store = MobileShellComposite()
+        #expect(store.applyAgentFeedSnapshot(
+            try response(revision: 1, rows: [
+                row(
+                    id: "notification-row",
+                    kind: "assistantMessage",
+                    status: "telemetry",
+                    requestID: nil,
+                    extra: ["source": "notification"]
+                ),
+                row(id: "agent-row"),
+            ]),
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac"
+        ))
+        #expect(store.agentFeedItems.map(\.itemID) == ["agent-row"])
+        #expect(store.agentFeedNeedsInputCount == 1)
+    }
+
     @Test("Recorded terminal replies mark their row and survive refreshes")
     func recordedRepliesSurviveRefresh() throws {
         let store = MobileShellComposite()

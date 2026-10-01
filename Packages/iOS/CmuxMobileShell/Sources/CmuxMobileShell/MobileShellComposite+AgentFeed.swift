@@ -752,6 +752,17 @@ extension MobileShellComposite {
             return nil
         }
         let kind = MobileAgentFeedItemKind(rawValue: wire.kind) ?? .unsupported
+        let source = agentFeedString(
+            wire.source,
+            limitedToUTF8Bytes: mobileShellAgentFeedMetadataByteLimit
+        )
+        // Notification history has its own tab and is never part of the
+        // Agent Feed projection. Filter it at ingestion so hidden legacy rows
+        // cannot affect counts, unread state, or empty-state decisions.
+        guard source.trimmingCharacters(in: .whitespacesAndNewlines)
+            .caseInsensitiveCompare("notification") != .orderedSame else {
+            return nil
+        }
         let status: MobileAgentFeedItemStatus
         switch wire.status {
         case "pending":
@@ -833,10 +844,7 @@ extension MobileShellComposite {
             macDisplayName: macDisplayName,
             itemID: itemID,
             workstreamID: workstreamID,
-            source: agentFeedString(
-                wire.source,
-                limitedToUTF8Bytes: mobileShellAgentFeedMetadataByteLimit
-            ),
+            source: source,
             kind: kind,
             status: status,
             createdAt: wire.createdAt,
