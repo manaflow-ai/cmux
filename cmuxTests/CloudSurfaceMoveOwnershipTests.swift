@@ -294,6 +294,30 @@ struct CloudSurfaceMoveOwnershipTests {
         }
     }
 
+    @Test("A local browser can move into a Cloud workspace through the live tab path")
+    func localBrowserMoveIntoCloudWorkspace() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try VaultPaneAppFixture()
+            defer { fixture.tearDown() }
+            let source = fixture.workspace
+            let destination = fixture.manager.addWorkspace(title: "Cloud", select: false)
+            defer { destination.teardownAllPanels() }
+            destination.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "browser-cloud", isBase: false)
+            let sourcePane = try #require(source.bonsplitController.allPaneIds.first)
+            let browser = try #require(source.newBrowserSurface(
+                inPane: sourcePane, url: URL(string: "https://example.com"), focus: false
+            ))
+            let tab = try #require(source.surfaceIdFromPanelId(browser.id))
+            #expect(source.machineOwningSurface(browser.id) == .local)
+            #expect(fixture.appDelegate.canMoveBonsplitTab(tabId: tab.uuid, toWorkspace: destination.id))
+            #expect(fixture.appDelegate.moveSurface(
+                panelId: browser.id, toWorkspace: destination.id, focus: false, focusWindow: false
+            ))
+            #expect(source.panels[browser.id] == nil)
+            #expect(destination.panels[browser.id] != nil)
+        }
+    }
+
     private func resource(machine: String, kind: SurfaceResourceKind) -> SurfaceResource {
         SurfaceResource(
             id: SurfaceResourceID(machine: .cloud(machine), kind: kind, key: UUID().uuidString),

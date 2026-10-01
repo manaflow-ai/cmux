@@ -27,6 +27,10 @@ extension DockSplitStore {
             guard transfer.isFromCurrentProcess else { return ownershipPolicy.rejection(for: nil) }
             // A Dock surface split or reordered within this Dock stays on its machine.
             if surfaceIdToPanelId[TabID(uuid: transfer.tabId)] != nil { return nil }
+            if let app = AppDelegate.shared,
+               app.locateContainerSurface(tabId: transfer.tabId) != nil {
+                return app.surfaceOwnershipRejection(for: transfer.tabId, policy: ownershipPolicy)
+            }
             return ownershipPolicy.rejection(for: AppDelegate.shared?.machineOwningBonsplitTab(transfer.tabId))
         case .vaultSession, .filePreview, .rightSidebarTool:
             return ownershipPolicy.rejection(for: .local)
@@ -35,6 +39,9 @@ extension DockSplitStore {
 
     func acceptsDetachedSurface(_ transfer: Workspace.DetachedSurfaceTransfer) -> Bool {
         if transfer.origin == .dock(workspaceId) { return true }
+        if transfer.panel is BrowserPanel, transfer.surfaceMachine?.isLocal != false {
+            return true
+        }
         return surfaceOwnershipPolicy.rejection(for: transfer.surfaceMachine
             ?? SurfaceCatalog.shared.machineOwningPanel(transfer.panelId)
             ?? transfer.panel.transferredSurfaceMachine) == nil

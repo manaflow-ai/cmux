@@ -38,6 +38,12 @@ extension Workspace {
             // it is reordered or split within it. Rejecting it here put the Cloud
             // drop gate over the workspace's own tab strips and blocked tab drags.
             if panelIdFromSurfaceId(TabID(uuid: transfer.tabId)) != nil { return nil }
+            if let app = AppDelegate.shared,
+               app.locateContainerSurface(tabId: transfer.tabId) != nil {
+                return app.surfaceOwnershipRejection(for: transfer.tabId, policy: surfaceOwnershipPolicy)
+            }
+            let localBrowserID = LocalSurfaceProvider.resourceID(forBrowserPanel: transfer.tabId)
+            if SurfaceCatalog.shared.resources[localBrowserID] != nil { return nil }
             return surfaceOwnershipPolicy.rejection(for: AppDelegate.shared?.machineOwningBonsplitTab(transfer.tabId))
         case .vaultSession, .filePreview, .rightSidebarTool:
             return surfaceOwnershipPolicy.rejection(for: .local)
@@ -53,8 +59,12 @@ extension Workspace {
     }
 
     func acceptsSurface(from source: Workspace, panelID: UUID) -> Bool {
-        !isRetiredFromOwningTabManager
-            && surfaceOwnershipPolicy.rejection(for: source.machineOwningSurface(panelID)) == nil
+        guard !isRetiredFromOwningTabManager else { return false }
+        let machine = source.machineOwningSurface(panelID)
+        if source.panels[panelID] is BrowserPanel, machine?.isLocal != false {
+            return true
+        }
+        return surfaceOwnershipPolicy.rejection(for: machine) == nil
     }
 
     func acceptsDetachedSurface(_ transfer: DetachedSurfaceTransfer) -> Bool {

@@ -80,7 +80,7 @@ struct CloudSurfaceOwnershipTests {
         #expect(workspace.cloudVMID == "ownership-a")
     }
 
-    @Test("Cloud pane hover rejects local and foreign resources", arguments: SurfaceResourceKind.allCases)
+    @Test("Cloud pane hover keeps local browsers portable and rejects other foreign resources", arguments: SurfaceResourceKind.allCases)
     func rejectsForeignResourceHover(kind: SurfaceResourceKind) throws {
         let workspace = cloudWorkspace()
         defer { workspace.teardownAllPanels() }
@@ -90,7 +90,8 @@ struct CloudSurfaceOwnershipTests {
         )
         for source in [SurfaceMachineID.local, .cloud("ownership-a")] {
             let group = SurfaceResourceGroup(single: resource(source, kind: kind))
-            #expect(!workspace.canPerformPortalPaneDrop(transfer, source: .surfaceResources(group)))
+            let accepted = source.isLocal && kind == .browser
+            #expect(workspace.canPerformPortalPaneDrop(transfer, source: .surfaceResources(group)) == accepted)
         }
         let sameMachine = SurfaceResourceGroup(single: resource(machine, kind: kind))
         #expect(workspace.canPerformPortalPaneDrop(transfer, source: .surfaceResources(sameMachine)))
@@ -117,7 +118,7 @@ struct CloudSurfaceOwnershipTests {
         }
     }
 
-    @Test("Catalog rejects ownership before materializing or focusing", arguments: SurfaceResourceKind.allCases)
+    @Test("Catalog rejects foreign ownership before materializing, while local browsers remain portable", arguments: SurfaceResourceKind.allCases)
     func catalogRejectsForeignResources(kind: SurfaceResourceKind) async throws {
         let workspace = cloudWorkspace()
         defer { workspace.teardownAllPanels() }
@@ -131,12 +132,19 @@ struct CloudSurfaceOwnershipTests {
             catalog.register(provider)
             let item = resource(source, kind: kind)
             catalog.upsert(item)
-            do {
-                _ = try await catalog.project(item.id, into: .workspace(id: workspace.id, placement: .split))
-                Issue.record("A foreign resource was projected into a Cloud workspace")
-            } catch {}
+            let shouldReject = source != .local || kind != .browser
+            if shouldReject {
+                do {
+                    _ = try await catalog.project(item.id, into: .workspace(id: workspace.id, placement: .split))
+                    Issue.record("A foreign resource was projected into a Cloud workspace")
+                } catch {}
+            } else {
+                let result = try await catalog.project(item.id, into: .workspace(id: workspace.id, placement: .split))
+                #expect(result.projection.resource == item.id)
+                catalog.endProjections(panelID: result.projection.panelID, reason: .replaced)
+            }
         }
-        #expect(materializations == 0)
+        #expect(materializations == (kind == .browser ? 1 : 0))
         #expect(focuses == 0)
         #expect(catalog.snapshot.projections.isEmpty)
     }
@@ -165,6 +173,16 @@ struct CloudSurfaceOwnershipTests {
         } catch {}
         #expect(materializations == 0)
         #expect(catalog.snapshot.projections.isEmpty)
+    }
+
+    @Test("A local browser can join a Cloud drop, but a mixed browser and terminal group is rejected")
+    func localBrowserPortabilityIsAtomic() {
+        let policy = SurfaceOwnershipPolicy(cloudMachine: machine)
+        let browser = SurfaceResourceID(machine: .local, kind: .browser, key: "browser")
+        let terminal = SurfaceResourceID(machine: .local, kind: .terminal, key: "terminal")
+        #expect(policy.rejection(for: [browser]) == nil)
+        #expect(policy.rejection(for: [browser, terminal]) == .cloudMachineMismatch)
+        #expect(policy.rejection(for: [SurfaceResourceID(machine: .cloud("ownership-a"), kind: .browser, key: "foreign-browser")]) == .cloudMachineMismatch)
     }
 
     @Test("Same-machine resources and local workspace projections retain their behavior", arguments: SurfaceResourceKind.allCases)
