@@ -209,7 +209,10 @@ struct IntegrationTests {
             let entries = Set((seen ?? "").split(separator: ":").map(String.init))
             let missing = loginPath.split(separator: ":").map(String.init).filter { !entries.contains($0) }
             #expect(seen != nil)
-            #expect(missing.isEmpty, "missing from terminal PATH: \(missing)")
+            #expect(
+                missing.isEmpty,
+                "missing from terminal PATH: \(missing); expected login PATH: \(loginPath); observed: \(seen ?? "<none>")"
+            )
         } catch {
             await BranchDaemonHarness.shutDown(connection)
             throw error
