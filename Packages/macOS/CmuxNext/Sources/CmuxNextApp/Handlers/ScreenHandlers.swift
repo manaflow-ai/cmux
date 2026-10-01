@@ -55,6 +55,9 @@ enum ScreenHandlers {
             })
         }
         registry.bind("screen.reopenClosed", invoke: { _ in
+            if let entry = DaemonClosedHistory.entries([.screen], in: ctx.services).first {
+                return DaemonClosedHistory.reopen(entry, services: ctx.services)
+            }
             guard let record = ctx.services.closedScreens.popLatest(isLive: { ctx.services.workspace(id: $0) != nil })
                 ?? ctx.refuse(ScreenStrings.noClosedScreen),
                 let workspace = ctx.services.workspace(id: record.workspaceID) else { return }

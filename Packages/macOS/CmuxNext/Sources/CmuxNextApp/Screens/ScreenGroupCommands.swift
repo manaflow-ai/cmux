@@ -71,7 +71,7 @@ enum ScreenGroupCommands {
     }
 
     static func close(_ ref: ScreenGroupRef, services: AppServices) {
-        for screen in ref.members { services.closedScreens.record(screen, in: ref.workspace) }
+        for screen in ref.members { services.closedScreens.record(screen, in: ref.workspace, daemon: ref.daemon.store) }
         let group = ref.group.id
         ref.daemon.send("close-screen-group") { _ = try await $0.closeScreenGroup(group) }
     }

@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 /// The daemon's state resources (`session.events`) laid over the tree
 /// records. The raw tree carries none of these fields, so the mirror is
@@ -20,6 +21,22 @@ extension DaemonStore {
 
     /// Recently closed tabs, screens, and workspaces, newest first.
     public var closedItems: [ClosedItem] { sessionState?.closed ?? [] }
+
+    /// The workspace whose public id is `id`.
+    public func workspace(resourceID id: ResourceID) -> WorkspaceModel? {
+        workspaces.first { $0.resourceID == id }
+    }
+
+    /// Returns once the tree reflects every event up to `sequence` (a
+    /// `DaemonConnection.eventSequence()` taken after a command's reply), or
+    /// the connection changed. Event-driven: it observes the store.
+    public func applied(through sequence: UInt64?) async {
+        guard let sequence, appliedSequence < sequence else { return }
+        let state = connectionState
+        for await done in Observations({ self.appliedSequence >= sequence || self.connectionState != state }) where done {
+            return
+        }
+    }
 
     /// Applies one `session.events` item.
     func applySessionState(_ item: SessionStreamItem) {

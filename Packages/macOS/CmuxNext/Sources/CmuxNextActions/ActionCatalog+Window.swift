@@ -121,7 +121,7 @@ nonisolated extension ActionCatalog {
                 id: "recentlyClosed",
                 title: String(localized: "action.recentlyClosed", defaultValue: "Recently Closed…", bundle: .module),
                 keywords: ["history", "reopen", "undo"], category: .window, symbol: "clock.arrow.circlepath",
-                surfaces: [.menu], cliName: "app recently-closed", mainMenu: .window
+                surfaces: [.menu], arguments: [CatalogArgument.closedItem], cliName: "app recently-closed", mainMenu: .window
             ),
             ActionDescriptor(
                 id: "palette.openTaskManager",

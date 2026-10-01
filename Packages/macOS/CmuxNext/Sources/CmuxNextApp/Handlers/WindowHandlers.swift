@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextActions
+import CmuxNextDaemon
 import CmuxNextSettings
 
 /// Window and app-level actions (category `window`) not bound in
@@ -51,9 +52,29 @@ enum WindowHandlers {
         for (id, feature) in unbuilt {
             registry.bindUnavailable([id], ActionFailure.needsAppCapability(feature))
         }
-        // Closed workspaces and tabs are gone from the daemon tree; reopening
-        // needs a daemon-side closed-item history.
-        registry.bindUnavailable(["recentlyClosed"], ActionFailure.needsDaemonCapability("closed-history-v1"))
+        bindRecentlyClosed(registry, context)
+    }
+
+    /// Recently Closed…: reopens the item named by `closed`, else shows the
+    /// daemons' closed history as a menu. Available once a daemon serves it.
+    private static func bindRecentlyClosed(_ registry: ActionRegistry, _ context: AppActionContext) {
+        let services = context.services
+        registry.bind("recentlyClosed", unavailable: {
+            DaemonClosedHistory.isServed(in: services)
+                ? nil : services.activeDaemon.missingCapabilityMessage(DaemonCapabilities.stateResources)
+        }, invoke: { invocation in
+            if let id = invocation["closed"]?.stringValue {
+                guard let entry = DaemonClosedHistory.entry(id, in: services) ?? context.notFound(RefusalStrings.noClosedItem(id))
+                else { return }
+                return DaemonClosedHistory.reopen(entry, services: services)
+            }
+            let entries = DaemonClosedHistory.entries([.tab, .screen, .workspace], in: services)
+            guard !entries.isEmpty else { return context.refuse(RefusalStrings.noRecentlyClosedItem) }
+            guard let window = context.activeWindow?.window else { return context.refuse(RefusalStrings.noWindowOpen) }
+            ClosedHistoryMenu.popUp(entries, in: window) { id in
+                _ = registry.perform("recentlyClosed", invocation: ActionInvocation(arguments: ["closed": .string(id)]))
+            }
+        })
     }
 
     private static func showMainWindow(_ context: AppActionContext) {

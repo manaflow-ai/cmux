@@ -66,7 +66,7 @@ enum ScreenCommands {
     /// period, so Reopen Closed Screen can bring the first one back.
     static func close(_ screens: [ScreenModel], in workspace: WorkspaceModel, daemon: DaemonService, services: AppServices) {
         for screen in screens {
-            services.closedScreens.record(screen, in: workspace)
+            services.closedScreens.record(screen, in: workspace, daemon: daemon.store)
             let handle = screen.handle
             daemon.send("close-screen") { try await $0.closeScreen(handle) }
         }

@@ -53,14 +53,15 @@ final class ClosedTabTracker {
     }
 
     /// Connected machines only: a machine that drops takes its tabs and
-    /// workspaces out together, so nothing on it counts as closed.
+    /// workspaces out together, so nothing on it counts as closed. A daemon
+    /// that records closed history itself (`DaemonClosedHistory`) is skipped.
     private static func structure(of daemons: [DaemonService]) -> Structure {
         var tabs: [(TabModel, ClosedTabHistory.Record)] = []
         var live: Set<String> = []
         var generations: [String: String] = [:]
         for daemon in daemons {
             let store = daemon.store
-            guard case .connected = store.connectionState else { continue }
+            guard case .connected = store.connectionState, !store.servesStateResources else { continue }
             let machine = daemon.machineID
             generations[machine] = store.generation?.rawValue ?? ""
             for workspace in store.workspaces {
