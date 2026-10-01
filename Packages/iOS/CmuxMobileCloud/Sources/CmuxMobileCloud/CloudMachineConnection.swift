@@ -89,6 +89,97 @@ private actor CloudConnectionHandshake {
     }
 }
 
+private actor CloudConnectionInFlight {
+    typealias Session = any CloudTerminalSession
+
+    private let task: Task<Session, any Error>
+    private var result: Result<Session, any Error>?
+    private var waiters: [UUID: CheckedContinuation<Session, any Error>] = [:]
+    private var cancelled = false
+    private var isMonitoring = false
+
+    init(task: Task<Session, any Error>) {
+        self.task = task
+    }
+
+    func wait() async throws -> Session {
+        let id = UUID()
+        return try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { continuation in
+                if let result {
+                    continuation.resume(with: result)
+                } else if cancelled || task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else {
+                    waiters[id] = continuation
+                    startMonitoringIfNeeded()
+                }
+            }
+        }, onCancel: {
+            Task { await self.cancelWaiter(id) }
+        })
+    }
+
+    func finish(_ result: Result<Session, any Error>) {
+        guard self.result == nil else {
+            if case .success(let session) = result {
+                session.disconnect()
+            }
+            return
+        }
+        guard !cancelled, !waiters.isEmpty else {
+            if case .success(let session) = result {
+                session.disconnect()
+            }
+            self.result = .failure(CancellationError())
+            return
+        }
+        self.result = result
+        let currentWaiters = waiters.values
+        waiters.removeAll()
+        for waiter in currentWaiters {
+            waiter.resume(with: result)
+        }
+    }
+
+    func cancelAll() {
+        cancelled = true
+        task.cancel()
+        let currentWaiters = waiters.values
+        waiters.removeAll()
+        for waiter in currentWaiters {
+            waiter.resume(throwing: CancellationError())
+        }
+    }
+
+    func hasWaiters() -> Bool {
+        !waiters.isEmpty
+    }
+
+    private func startMonitoringIfNeeded() {
+        guard !isMonitoring else { return }
+        isMonitoring = true
+        let task = self.task
+        Task { [weak self] in
+            do {
+                let session = try await task.value
+                await self?.finish(.success(session))
+            } catch {
+                await self?.finish(.failure(error))
+            }
+        }
+    }
+
+    private func cancelWaiter(_ id: UUID) {
+        guard let waiter = waiters.removeValue(forKey: id) else { return }
+        waiter.resume(throwing: CancellationError())
+        if waiters.isEmpty {
+            cancelled = true
+            task.cancel()
+        }
+    }
+}
+
 /// One machine's daemon link and terminal catalog.
 ///
 /// The link opens lazily on the first catalog load. First contact hands the
@@ -120,6 +211,7 @@ public final class CloudMachineConnection {
 
     private var session: (any CloudTerminalSession)?
     private var connectTask: Task<any CloudTerminalSession, any Error>?
+    private var connectionInFlight: CloudConnectionInFlight?
     private var listTask: Task<Void, Never>?
     private var closed = false
     private var operationGeneration: UInt64 = 0
@@ -286,6 +378,10 @@ public final class CloudMachineConnection {
         listTask = nil
         connectTask?.cancel()
         connectTask = nil
+        if let connectionInFlight {
+            Task { await connectionInFlight.cancelAll() }
+        }
+        connectionInFlight = nil
         session?.disconnect()
         session = nil
     }
@@ -294,26 +390,31 @@ public final class CloudMachineConnection {
         !closed && operationGeneration == generation
     }
 
-    private func awaitConnection(
-        _ task: Task<any CloudTerminalSession, any Error>
-    ) async throws -> any CloudTerminalSession {
-        try await withTaskCancellationHandler(operation: {
-            try await task.value
-        }, onCancel: {
-            task.cancel()
-        })
-    }
-
     private func connectedSession() async throws -> any CloudTerminalSession {
         guard !closed else { throw CancellationError() }
         if let session { return session }
-        if let connectTask {
-            let session = try await awaitConnection(connectTask)
-            guard !closed, !Task.isCancelled else {
-                session.disconnect()
-                throw CancellationError()
+        if connectTask?.isCancelled == true {
+            connectTask = nil
+            connectionInFlight = nil
+        }
+        if let connectionInFlight {
+            do {
+                let session = try await connectionInFlight.wait()
+                guard !closed, !Task.isCancelled else {
+                    session.disconnect()
+                    throw CancellationError()
+                }
+                self.session = session
+                connectTask = nil
+                self.connectionInFlight = nil
+                return session
+            } catch {
+                if !(await connectionInFlight.hasWaiters()) {
+                    connectTask = nil
+                    self.connectionInFlight = nil
+                }
+                throw error
             }
-            return session
         }
         let task = Task<any CloudTerminalSession, any Error> { [service, connector, tunnel, identity, stateDirectory, deviceName, approvalClock, machine] in
             let endpoint = try await service.openAttach(machineID: machine.id, deviceFingerprint: identity.fingerprint)
@@ -376,16 +477,23 @@ public final class CloudMachineConnection {
             })
         }
         connectTask = task
-        defer { connectTask = nil }
+        let connectionInFlight = CloudConnectionInFlight(task: task)
+        self.connectionInFlight = connectionInFlight
         do {
-            let session = try await awaitConnection(task)
-            if closed || Task.isCancelled {
+            let session = try await connectionInFlight.wait()
+            guard !closed, !Task.isCancelled else {
                 session.disconnect()
                 throw CancellationError()
             }
             self.session = session
+            connectTask = nil
+            self.connectionInFlight = nil
             return session
         } catch {
+            if !(await connectionInFlight.hasWaiters()) {
+                connectTask = nil
+                self.connectionInFlight = nil
+            }
             throw error
         }
     }

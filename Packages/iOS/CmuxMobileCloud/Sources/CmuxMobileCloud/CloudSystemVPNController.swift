@@ -34,7 +34,7 @@ public final class CloudSystemVPNController {
     private let maxPendingRevocationsBeforeEnrollment: Int
     private let maxPendingRevocationsPerTransition = 1
     private let maxPendingRevocationsPerRetry = 8
-    private let credentials: @Sendable () async -> CloudAPITokenSource.TokenPair?
+    private let credentials: @Sendable () async -> CloudAPITokenSource.TokenContext?
     private let pendingRevocationStore: any CloudSystemVPNPendingRevocationStoring
     private var scope: String?
     private var scopeTeamID: String?
@@ -81,8 +81,8 @@ public final class CloudSystemVPNController {
     ///     profile before leaving cleanup pending for a later retry.
     ///   - pendingRevocationCapacity: Maximum number of unresolved browser
     ///     peers retained before new enrollment is blocked.
-    ///   - credentials: Captures the active account's token pair so a peer
-    ///     enrolled before an account switch can be revoked with its owner.
+    ///   - credentials: Captures the active account's tokens and team so a
+    ///     peer enrolled before an account switch can be revoked with its owner.
     ///   - pendingRevocationStore: Durable fingerprints for server revocations
     ///     that must be retried after a controller or session is recreated.
     ///
@@ -96,7 +96,7 @@ public final class CloudSystemVPNController {
         operationTimeout: Duration = .seconds(30),
         cleanupRetryCount: Int = 3,
         pendingRevocationCapacity: Int = 4096,
-        credentials: @escaping @Sendable () async -> CloudAPITokenSource.TokenPair? = { nil },
+        credentials: @escaping @Sendable () async -> CloudAPITokenSource.TokenContext? = { nil },
         pendingRevocationStore: any CloudSystemVPNPendingRevocationStoring
     ) {
         self.service = service
@@ -361,14 +361,7 @@ public final class CloudSystemVPNController {
                     reconcilePlatformOnTimeout: true,
                     onTimeout: { attempt.invalidate() }
                 ) {
-                    let tokenPair = await self.credentials()
-                    let credentials = tokenPair.map { pair in
-                        CloudAPITokenSource.TokenContext(
-                            accessToken: pair.accessToken,
-                            refreshToken: pair.refreshToken,
-                            teamID: ownerTeamID
-                        )
-                    }
+                    let credentials = await self.credentials()
                     let identity: CloudDeviceIdentity
                     do {
                         identity = try await self.identityResolver.resolve()
@@ -376,6 +369,12 @@ public final class CloudSystemVPNController {
                         throw CancellationError()
                     } catch {
                         throw CloudSystemVPNError.enrollment
+                    }
+                    guard self.isCurrent(generation),
+                          self.scope == scope,
+                          self.scopeTeamID == ownerTeamID
+                    else {
+                        throw CancellationError()
                     }
                     let enrollment: CloudTunnelEnrollment
                     do {
@@ -407,7 +406,7 @@ public final class CloudSystemVPNController {
                     let browserEnrollment = (
                         scope: scope,
                         deviceFingerprint: enrollment.deviceFingerprint,
-                        teamID: credentials?.teamID ?? ownerTeamID,
+                        teamID: credentials?.teamID,
                         credentials: credentials
                     )
                     self.browserEnrollmentInFlight = browserEnrollment
@@ -416,7 +415,7 @@ public final class CloudSystemVPNController {
                             enrollment: enrollment,
                             privateKey: keyPair.privateKey,
                             scope: scope,
-                            teamID: ownerTeamID,
+                            teamID: credentials?.teamID,
                             credentials: credentials
                         )
                     } catch {

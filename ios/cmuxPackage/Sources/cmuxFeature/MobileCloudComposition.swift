@@ -68,7 +68,16 @@ struct MobileCloudComposition {
             ),
             deviceName: UIDevice.current.name,
             credentials: {
-                try? await coordinator.coherentTokenPair()
+                do {
+                    let context = try await coordinator.coherentTokenContext()
+                    return CloudAPITokenSource.TokenContext(
+                        accessToken: context.accessToken,
+                        refreshToken: context.refreshToken,
+                        teamID: context.teamID
+                    )
+                } catch AuthError.unauthorized {
+                    return nil
+                }
             },
             pendingRevocationStore: UserDefaultsCloudSystemVPNPendingRevocationStore(
                 defaults: .standard

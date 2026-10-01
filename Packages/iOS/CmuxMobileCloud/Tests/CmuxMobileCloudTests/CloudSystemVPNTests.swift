@@ -45,7 +45,13 @@ import Testing
     }
 
     @Test func teamContextIsCapturedForEnrollmentAndPlatformProfile() async {
-        let rig = Rig()
+        let rig = Rig(credentials: {
+            CloudAPITokenSource.TokenContext(
+                accessToken: "captured-access",
+                refreshToken: "captured-refresh",
+                teamID: "team-1"
+            )
+        })
         rig.controller.setScope("user-1/team-1", teamID: "team-1")
         await rig.controller.waitForPendingOperation()
 
@@ -223,7 +229,11 @@ import Testing
             manager: manager,
             deviceName: "Aziz's iPhone",
             credentials: {
-                (accessToken: "captured-access", refreshToken: "captured-refresh")
+                CloudAPITokenSource.TokenContext(
+                    accessToken: "captured-access",
+                    refreshToken: "captured-refresh",
+                    teamID: "team-1"
+                )
             },
             pendingRevocationStore: pendingStore
         )
@@ -240,7 +250,11 @@ import Testing
             manager: manager,
             deviceName: "Aziz's iPhone",
             credentials: {
-                (accessToken: "captured-access", refreshToken: "captured-refresh")
+                CloudAPITokenSource.TokenContext(
+                    accessToken: "captured-access",
+                    refreshToken: "captured-refresh",
+                    teamID: "team-1"
+                )
             },
             pendingRevocationStore: pendingStore
         )
@@ -886,7 +900,11 @@ import Testing
 
     @Test func switchingAccountsRevokesTheOldBrowserPeer() async {
         let rig = Rig(credentials: {
-            (accessToken: "old-access", refreshToken: "old-refresh")
+            CloudAPITokenSource.TokenContext(
+                accessToken: "old-access",
+                refreshToken: "old-refresh",
+                teamID: "team-1"
+            )
         })
         rig.controller.setScope("user-1/team-1", teamID: "team-1")
         await rig.controller.waitForPendingOperation()
@@ -907,7 +925,11 @@ import Testing
 
     @Test func switchingTeamsForTheSameScopeRevokesTheOldTeamPeer() async {
         let rig = Rig(credentials: {
-            (accessToken: "old-access", refreshToken: "old-refresh")
+            CloudAPITokenSource.TokenContext(
+                accessToken: "old-access",
+                refreshToken: "old-refresh",
+                teamID: "team-1"
+            )
         })
         rig.controller.setScope("user-1/team-1", teamID: "team-1")
         await rig.controller.waitForPendingOperation()
@@ -934,7 +956,11 @@ import Testing
         let rig = Rig(
             cleanupRetryCount: 1,
             credentials: {
-                (accessToken: "old-access", refreshToken: "old-refresh")
+                CloudAPITokenSource.TokenContext(
+                    accessToken: "old-access",
+                    refreshToken: "old-refresh",
+                    teamID: "team-1"
+                )
             },
             pendingRevocationStore: pendingStore
         )
