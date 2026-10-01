@@ -1,5 +1,5 @@
 import Foundation
-import Testing
+import XCTest
 
 extension CLINotifyProcessIntegrationRegressionTests {
     func codexLaunchEnvironment(
@@ -25,14 +25,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
     // app-host crash, so one slow CLI turned a whole tolerant shard red.
     func notificationRows(from stdout: String) throws -> [[String: Any]] {
         let data = Data(stdout.utf8)
-        return try #require(
+        return try XCTUnwrap(
             (try? JSONSerialization.jsonObject(with: data, options: [])) as? [[String: Any]],
             "Expected notification JSON array, got: \(stdout)"
         )
     }
     func jsonPayload(from stdout: String) throws -> [String: Any] {
         let data = Data(stdout.utf8)
-        return try #require(
+        return try XCTUnwrap(
             (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any],
             "Expected JSON object, got: \(stdout)"
         )
