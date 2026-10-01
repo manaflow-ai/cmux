@@ -779,9 +779,13 @@ function pinnedFetch(pin: ProviderPin): typeof fetch {
     const headers = new Headers(init.headers);
     const body = init.body == null
       ? null
-      : init.body instanceof ReadableStream
+      : init.body instanceof Readable
         ? init.body
-        : new Response(init.body as BodyInit).body;
+        : Readable.fromWeb(
+            (init.body instanceof ReadableStream
+              ? init.body
+              : new Response(init.body as BodyInit).body) as import("node:stream/web").ReadableStream,
+          );
     const send = url.protocol === "https:" ? httpsRequest : httpRequest;
     return await new Promise<Response>((resolve, reject) => {
       const outgoing = send(url, {
@@ -809,7 +813,7 @@ function pinnedFetch(pin: ProviderPin): typeof fetch {
       outgoing.on("error", reject);
       if (body) {
         // pipeline destroys the request when the client body fails.
-        pipeline(Readable.fromWeb(body as import("node:stream/web").ReadableStream), outgoing, (error) => {
+        pipeline(body, outgoing, (error) => {
           if (error) reject(error);
         });
       } else {

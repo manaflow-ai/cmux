@@ -262,8 +262,7 @@ struct CloudWorkspaceLiveProjectionTests {
         #expect(catalog.projections == [first.projection])
     }
 
-    /// Reconcile reprojects through `project`, so a reuse that rewrites unchanged
-    /// coordinates would request its own next pass and spin the main actor.
+    /// Reusing a projection at its current placement must not request another pass.
     @Test("Reusing a projection at its current placement changes nothing")
     func reusingCurrentPlacementIsNoOp() async throws {
         let fixture = boundWorkspaceFixture()
@@ -287,8 +286,7 @@ struct CloudWorkspaceLiveProjectionTests {
         #expect(catalog.projectionVersions[machine] == version)
     }
 
-    /// Any consumer that requests another pass without changing the graph (the
-    /// nightly b36a9b3 livelock) must end in a bounded number of passes.
+    /// Requests for another pass without graph progress must remain bounded.
     @Test("Reconciling one graph stops when every pass requests another")
     func reconcileOfOneGraphIsBounded() async throws {
         let fixture = boundWorkspaceFixture()
@@ -337,8 +335,7 @@ struct CloudWorkspaceLiveProjectionTests {
     func progressingPassesStayAdmitted() throws {
         let state = try graph(["first": "a"], revision: 1)
         var budget = CloudWorkspaceReconcileBudget()
-        // `admit` is mutating, and #expect expands a method call into a closure
-        // over an immutable copy, so record each result before asserting it.
+        // Capture mutating admissions before #expect's immutable closure.
         for version in 0..<UInt64(CloudWorkspaceReconcileBudget.maxPassesPerState) {
             let admitted = budget.admit(.init(state: state, projectionVersion: version, bindings: [:]))
             #expect(admitted)
@@ -472,8 +469,7 @@ struct CloudWorkspaceLiveProjectionTests {
         #expect(catalog.projectionRecords(forWorkspace: firstWorkspace).isEmpty)
     }
 
-    /// A bound workspace whose real `Workspace` answers ownership checks, so `project`
-    /// and `restore` take the production validation path.
+    /// A bound workspace fixture exercises production ownership validation.
     private func boundWorkspaceFixture(closed: @escaping @MainActor (SurfaceProjection) -> Void = { _ in })
         -> (workspace: Workspace, catalog: SurfaceCatalog, placement: CloudPlacementCoordinator, coordinator: CloudWorkspaceProjectionCoordinator) {
         let workspace = Workspace()
@@ -501,8 +497,7 @@ struct CloudWorkspaceLiveProjectionTests {
         let catalog = fixture.catalog
         let provider = CloudPlacementTestProvider(machine: machine)
         let desktop = CmuxTuiSnapshotParser.display(machine: machine)
-        // Only the browser pane binds its resource while being configured; the
-        // coordinator's own terminal materialization keeps its daemon tab.
+        // The browser registers during materialization; the terminal keeps its daemon tab.
         provider.registerDuringMaterialization = { projection in
             guard projection.resource == desktop.id else { return }
             catalog.record(projection)
