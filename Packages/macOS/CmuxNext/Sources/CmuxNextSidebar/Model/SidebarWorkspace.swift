@@ -42,6 +42,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var icon: WorkspaceIcon?
     public var unread: UnreadState
     public var activity: AgentActivity
+    public var progress: SidebarProgress?
 
     public init(
         id: WorkspaceID,
@@ -51,7 +52,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         status: String? = nil,
         icon: WorkspaceIcon? = nil,
         unread: UnreadState = .none,
-        activity: AgentActivity = .idle
+        activity: AgentActivity = .idle,
+        progress: SidebarProgress? = nil
     ) {
         self.id = id
         self.machineID = machineID
@@ -61,6 +63,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.icon = icon
         self.unread = unread
         self.activity = activity
+        self.progress = progress
     }
 }
 

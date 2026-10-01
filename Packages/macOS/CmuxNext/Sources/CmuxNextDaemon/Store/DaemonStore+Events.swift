@@ -37,7 +37,7 @@ extension DaemonStore {
         }
         var followup = Followup.none
         for envelope in batch {
-            if envelope.sequence > snapshotBarrier || isLifecycle(envelope.event) {
+            if envelope.sequence > snapshotBarrier || isLifecycle(envelope.event) || isSessionState(envelope.event) {
                 if apply(envelope.event) == .resync { followup = .resync }
             } else if let transaction = envelope.event.clientTransactionID {
                 // Superseded by the snapshot, but its echo still settles the patch.
@@ -54,6 +54,13 @@ extension DaemonStore {
         if sequence > appliedSequence { appliedSequence = sequence }
     }
 
+    /// `session.events` items are not part of `list-workspaces`, so a tree
+    /// snapshot never supersedes them.
+    private func isSessionState(_ event: DaemonEvent) -> Bool {
+        if case .sessionState = event { return true }
+        return false
+    }
+
     private func isLifecycle(_ event: DaemonEvent) -> Bool {
         switch event {
         case .connected, .disconnected, .daemonShutdown: true
@@ -65,6 +72,7 @@ extension DaemonStore {
         switch event {
         case .connected(let identity, _):
             connectionEpoch += 1
+            sessionStateKnown = false
             connectionState = .connected(identity)
             noteHandshake(identity)
             return .resync
@@ -197,6 +205,10 @@ extension DaemonStore {
         case .agentChanged(let status):
             agentsBySurface[status.surface] = status
             tabsBySurface[status.surface]?.setAgent(status)
+            return .none
+
+        case .sessionState(let item):
+            applySessionState(item)
             return .none
 
         case .scrollChanged, .bell, .frontendProjectionChanged, .terminalRegistryChanged, .client, .unknown:

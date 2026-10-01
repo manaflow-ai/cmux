@@ -42,7 +42,7 @@ struct ActionBindingCoverageTests {
     @Test func missingDaemonCapabilityIsUnavailableWithReason() {
         let services = Self.boundServices()
         let group = ActionTargetRef(kind: .workspaceGroup, id: "grp_1")
-        #expect(Self.run(services, "workspaceGroup.collapse", target: group) == .refused("needs daemon capability workspace-groups-v1"))
+        #expect(Self.run(services, "workspaceGroup.collapse", target: group) == .refused("needs daemon capability profiles-v1"))
         #expect(Self.run(services, "palette.markWorkspaceRead") == .refused("needs daemon capability notification-ack-v1"))
         #expect(Self.run(services, "tabGroup.reopenSaved") == .refused("needs daemon capability tab-groups-v1"))
     }

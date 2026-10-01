@@ -70,6 +70,8 @@ nonisolated enum RefusalStrings {
     static var vaultPaneUnported: String { text("handlers.refusal.vaultPaneUnported", "needs the Vault panel as a pane (not in cmux-next yet)") }
     static var cloudPaneUnported: String { text("handlers.refusal.cloudPaneUnported", "needs the Cloud panel as a pane (not in cmux-next yet)") }
     static var noRecentlyClosedTab: String { text("handlers.refusal.noRecentlyClosedTab", "no recently closed tab") }
+    static var noRecentlyClosedItem: String { text("handlers.refusal.noRecentlyClosedItem", "nothing was closed recently") }
+    static func noClosedItem(_ id: String) -> String { format("handlers.refusal.noClosedItem", "no recently closed item %@", id) }
     static var paneHasNoTabs: String { text("handlers.refusal.paneHasNoTabs", "the pane has no tabs") }
     static var tabArgumentRequired: String { text("handlers.refusal.tabArgumentRequired", "a tab argument is required") }
     static var tabAtEdge: String { text("handlers.refusal.tabAtEdge", "the tab is already at the edge") }

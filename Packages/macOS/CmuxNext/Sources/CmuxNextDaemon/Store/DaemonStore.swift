@@ -39,6 +39,15 @@ public final class DaemonStore {
     public internal(set) var generation: DaemonGeneration?
     public internal(set) var registryID: String?
     public internal(set) var workspaceRevision: UInt64 = 0
+    /// The state resources the daemon serves over `session.events` (closed
+    /// history, workspace status, ephemeral workspaces, screen metadata and
+    /// groups, tab records, terminal progress); nil while the daemon serves
+    /// none (it predates them, or the stream has not delivered its snapshot).
+    /// The store lays it over the tree's records (`applyStateOverlay`).
+    public internal(set) var sessionState: SessionStateMirror?
+    /// True once this connection's daemon answered whether it serves state
+    /// resources (a snapshot, or a stream it refused); reset on connect.
+    public internal(set) var sessionStateKnown = false
     /// Recent notifications, newest last (bounded).
     public internal(set) var notifications: [DaemonNotification] = []
     /// True once the first snapshot is applied.
@@ -190,6 +199,7 @@ public final class DaemonStore {
         workspacesByKey = byKey
         tabGroupsByID = tabGroups
         recomputeSidebar()
+        applyStateOverlay()
     }
 
     /// Runs `onWorkspaceListChanged` when the workspace list differs from

@@ -41,33 +41,6 @@ extension DaemonConnection {
         try await request(SetWorkspaceMetadataRequest(workspace: .key(key), color: color, icon: icon, title: title, mutation: mutation()))
     }
 
-    // Groups (`workspace-groups-v1`)
-
-    @discardableResult
-    public func createGroup(name: String, id: WorkspaceGroupID? = nil, color: String? = nil, index: Int? = nil) async throws -> WorkspaceGroupSnapshot {
-        try await request(CreateWorkspaceGroupRequest(name: name, group: id, color: color, index: index)).group
-    }
-
-    @discardableResult
-    public func updateGroup(_ id: WorkspaceGroupID, name: String? = nil, color: FieldUpdate<String> = .unchanged,
-                            collapsed: Bool? = nil) async throws -> WorkspaceGroupSnapshot {
-        try await request(UpdateWorkspaceGroupRequest(group: id, name: name, color: color, collapsed: collapsed)).group
-    }
-
-    public func deleteGroup(_ id: WorkspaceGroupID) async throws {
-        _ = try await request(DeleteWorkspaceGroupRequest(group: id))
-    }
-
-    public func moveGroup(_ id: WorkspaceGroupID, to index: Int) async throws {
-        _ = try await request(MoveWorkspaceGroupRequest(group: id, index: index))
-    }
-
-    /// Puts a workspace in a group (nil ungroups) at an optional section index.
-    @discardableResult
-    public func moveWorkspace(_ key: WorkspaceKey, toGroup group: WorkspaceGroupID?, index: Int? = nil) async throws -> MoveWorkspaceToGroupRequest.Response {
-        try await request(MoveWorkspaceToGroupRequest(workspace: .key(key), group: group, index: index, mutation: mutation()))
-    }
-
     /// Closes a workspace. `endTerminals` also ends, in the same daemon
     /// commit, each of its terminals not shown elsewhere and not kept; it is
     /// sent only to a daemon with `batch-close-v1` (see `supportsBatchClose`).
