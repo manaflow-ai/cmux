@@ -168,17 +168,20 @@ struct CloudMenuContentTests {
     @Test("Delete confirmation renders its display name and falls back for blank names")
     @MainActor
     func deleteConfirmationTextUsesStableFallback() {
+        let title: (String) -> String = { name in
+            String(format: String(localized: "machines.delete.title", defaultValue: "Delete machine “%@”?"), name)
+        }
         let named = MachineRowActions.deleteConfirmationAlert(
             id: "vm-internal-id",
             displayName: "crisp-rose-piglet"
         )
-        #expect(named.messageText == "Delete machine \u{201C}crisp-rose-piglet\u{201D}?")
+        #expect(named.messageText == title("crisp-rose-piglet"))
 
         let blank = MachineRowActions.deleteConfirmationAlert(
             id: "vm-internal-id",
             displayName: "  \n"
         )
-        #expect(blank.messageText == "Delete machine \u{201C}vm-internal-id\u{201D}?")
+        #expect(blank.messageText == title("vm-internal-id"))
     }
 
     @Test("Status item renders machines with a status dot and dimmed state")
