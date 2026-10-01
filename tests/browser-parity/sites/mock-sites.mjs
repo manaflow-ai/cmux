@@ -126,6 +126,13 @@ function docs(req, url) {
 
 function drive(req, url) {
   if (!signedInGoogle(req)) return { redirect: GOOGLE_LOGIN + encodeURIComponent(url.href) };
+  if (/^\/drive\/u\/\d+\/search$/.test(url.pathname)) {
+    const row = (id, name, type) => `<div role="row" data-id="${id}"><div role="gridcell"><div data-tooltip="${esc(name)} ${type}"><span>${esc(name)}</span></div></div></div>`;
+    const q = url.searchParams.get("q") || "";
+    const all = [["1SheetSheetSheetSheetSheetSheet01", "Budget 2026", "Google Sheets"], ["1DeckDeckDeckDeckDeckDeckDeckD01", "Roadmap", "Google Slides"]];
+    const hits = all.filter(([, , type]) => (q.includes("type:spreadsheet") ? type === "Google Sheets" : q.includes("type:presentation") ? type === "Google Slides" : true));
+    return { html: html(`<div role="main"><div role="grid">${hits.map((h) => row(...h)).join("")}</div></div>`, "Search results - Google Drive") };
+  }
   if (/^\/drive\/u\/\d+\/recent$/.test(url.pathname)) {
     const row = (id, name, type) => `<div role="row" data-id="${id}"><div role="gridcell"><div data-tooltip="${esc(name)} ${type}"><span>${esc(name)}</span></div></div><div role="gridcell">Sep 29, 2026</div></div>`;
     return { html: html(`<div role="main"><div role="grid">${row("1AbCdEfGhIjKlMnOpQrStUvWxYz012345", "Design Notes", "Google Docs")}${row("1ZyXwVuTsRqPoNmLkJiHgFeDcBa987654", "Budget 2026", "Google Sheets")}</div></div>`, "Recent - Google Drive") };
@@ -381,7 +388,13 @@ const SLACK_TEAMS = {
 };
 export const SLACK_SEED = { teams: SLACK_TEAMS, lastActiveTeamId: "T01ACME" };
 
-function slackApp(req, url) {
+function slackApp(req, url, body, state) {
+  // The web client calls the Web API same-origin; the token picks the workspace.
+  if (url.pathname.startsWith("/api/")) {
+    const form = parseForm(req, body);
+    const team = Object.values(SLACK_TEAMS).find((t) => t.token === form.token);
+    return slackApi(req, new URL(team ? `https://${team.domain}.slack.com${url.pathname}` : url.href), body, state, true);
+  }
   if (url.pathname === "/robots.txt") return { status: 200, headers: { "content-type": "text/plain" }, body: "User-agent: *\n" };
   // The web client writes its workspace config when it boots (/client), not
   // on the landing page; a fresh profile has none until then.
@@ -402,8 +415,11 @@ function parseForm(req, body) {
   return out;
 }
 
-function slackApi(req, url, body, state) {
-  const cors = { "access-control-allow-origin": "https://app.slack.com", "access-control-allow-credentials": "true" };
+function slackApi(req, url, body, state, sameOrigin = false) {
+  // Workspace hosts send no CORS headers to app.slack.com (calls there fail
+  // with "Load failed" in the browser).
+  const cors = {};
+  if (!sameOrigin && req.method !== "OPTIONS") return { status: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ ok: false, error: "cross_origin" }) };
   if (req.method === "OPTIONS") return { status: 204, headers: { ...cors, "access-control-allow-methods": "POST", "access-control-allow-headers": "content-type" }, body: "" };
   const method = /^\/api\/([\w.]+)$/.exec(url.pathname);
   if (!method) return { status: 404, text: "" };

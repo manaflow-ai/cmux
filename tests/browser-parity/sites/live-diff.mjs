@@ -56,7 +56,16 @@ function exec(cmd, argv, { input, timeoutMs = 240000, env } = {}) {
 }
 
 // REPL code: evaluate `expr`, reduce it with `extract`, print one marked line.
-const program = (expr, extract) => `
+// LIVE_RELOAD_SITES=<dir>: load sites/*.js from a checkout first (to try
+// fixes on a running tag without a rebuild).
+const reload = process.env.LIVE_RELOAD_SITES
+  ? (() => {
+      const dir = path.resolve(process.env.LIVE_RELOAD_SITES);
+      const m = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
+      return m.repl.filter((f) => f.startsWith("sites/")).map((f) => `(0, eval)(${JSON.stringify(fs.readFileSync(path.join(dir, f), "utf8"))});`).join("\n");
+    })()
+  : "";
+const program = (expr, extract, forCmux = true) => `${forCmux ? reload : ""}
 const __t0 = Date.now();
 let __out;
 try {
@@ -80,7 +89,7 @@ async function runCmux(expr, extract) {
 }
 async function runAside(expr, extract) {
   if (!expr) return { ok: false, code: "no_tool", error: "Aside has no tool for this read", ms: null };
-  return parse(await exec("aside", ["repl", program(expr, extract)], { timeoutMs: 200000 }));
+  return parse(await exec("aside", ["repl", program(expr, extract, false)], { timeoutMs: 200000 }));
 }
 
 // Summary reducers, as source for both REPLs. Each returns
@@ -98,8 +107,8 @@ const q = (s) => JSON.stringify(s);
 const OPS = [
   // Google
   { op: "googleAccounts.list", cmux: "sites.googleAccounts.list()", aside: "googleAccounts.list()", cx: list("v", "x.email", "x.name"), ax: list("v", "x.email", "x.name") },
-  { op: "gmail.inbox", cmux: `sites.gmail.inbox({ uid: ${UID}, limit: 25 })`, aside: `gmail.getInbox(${UID})`, cx: list("v", "x.threadId", "x.subject"), ax: list("v.results", "x.threadId", "x.subject"), keep: (c) => (ctx.threadIds = c) },
-  { op: "gmail.search is:unread", cmux: `sites.gmail.search("is:unread", { uid: ${UID}, limit: 25 })`, aside: `gmail.search(${UID}, "is:unread")`, cx: list("v", "x.threadId", "x.subject"), ax: list("v.results", "x.threadId", "x.subject") },
+  { op: "gmail.inbox", cap: 50, cmux: `sites.gmail.inbox({ uid: ${UID}, limit: 50 })`, aside: `gmail.getInbox(${UID})`, cx: list("v", "x.threadId", "x.subject"), ax: list("v.results", "x.threadId", "x.subject"), keep: (c) => (ctx.threadIds = c) },
+  { op: "gmail.search is:unread", cap: 50, cmux: `sites.gmail.search("is:unread", { uid: ${UID}, limit: 50 })`, aside: `gmail.search(${UID}, "is:unread")`, cx: list("v", "x.threadId", "x.subject"), ax: list("v.results", "x.threadId", "x.subject") },
   {
     op: "gmail.thread",
     needs: () => ctx.threadIds && ctx.threadIds[0],
@@ -117,7 +126,16 @@ const OPS = [
     ax: list("v", "x.filename", "x.filename"),
   },
   { op: "googleCalendar.events (next 10)", cmux: `sites.googleCalendar.events({ view: "agenda", limit: 10, uid: ${UID} })`, aside: null, cx: list("v", "x.id", "x.title") },
-  { op: "googleDrive.recent", cmux: `sites.googleDrive.recent({ uid: ${UID}, limit: 20 })`, aside: null, cx: list("v", "x.id", "x.title"), keep: (c) => (ctx.driveIds = c) },
+  { op: "googleDrive.recent", cmux: `sites.googleDrive.recent({ uid: ${UID}, limit: 50 })`, aside: null, cx: list("v", "(x.type || '') + '|' + x.id", "x.title"), keep: (c) => {
+    ctx.driveIds = c;
+    // A Doc, Sheet and Slides file from Recent when history had none.
+    const kinds = { "Google Docs": "document", "Google Sheets": "spreadsheets", "Google Slides": "presentation" };
+    for (const entry of c) {
+      const [type, id] = String(entry).split("|");
+      const kind = kinds[type];
+      if (kind && !ctx.files[kind]) ctx.files[kind] = `https://docs.google.com/${kind}/d/${id}/edit`;
+    }
+  } },
   ...["document", "spreadsheets", "presentation"].map((kind) => ({
     op: `google ${kind} read`,
     needs: () => ctx.files && ctx.files[kind],
@@ -166,7 +184,7 @@ const OPS = [
   },
   // LinkedIn
   { op: "linkedin.me", cmux: "sites.linkedin.me()", aside: "linkedin.getMe()", cx: `(v) => ({ count: v && v.publicIdentifier ? 1 : 0, ids: [v && v.publicIdentifier] })`, ax: `(v) => { const m = ((v && v.included) || []).find((x) => x.$type && x.$type.endsWith("MiniProfile")); return { count: m ? 1 : 0, ids: [m && m.publicIdentifier] }; }` },
-  { op: "linkedin.feed (first page)", cmux: "sites.linkedin.feed({ limit: 10 })", aside: null, cx: list("v", "x.urn", "x.text") },
+  { op: "linkedin.feed (first page)", cmux: "sites.linkedin.feed({ limit: 10 })", aside: null, cx: list("v", "x.id", "x.text") },
   { op: "linkedin.search people", cmux: `sites.linkedin.search("software engineer", { limit: 10 })`, aside: `linkedin.searchPeople("software engineer")`, cx: list("v", "(x.url.match(/\\/in\\/([^/]+)/) || [])[1]", "x.name"), ax: list("v.results", "x.publicIdentifier || ((x.navigationUrl || x.url || '').match(/\\/in\\/([^/?]+)/) || [])[1]", "x.title") },
   // X
   { op: "x.user", cmux: `sites.x.user("XDevelopers")`, aside: `twitter.getUser("XDevelopers")`, cx: `(v) => ({ count: v ? 1 : 0, ids: [v && v.screenName && v.screenName.toLowerCase()], followers: v && v.followersCount })`, ax: `(v) => ({ count: v ? 1 : 0, ids: [v && v.screenName && v.screenName.toLowerCase()], followers: v && v.followersCount })` },
@@ -175,7 +193,8 @@ const OPS = [
   // Code trackers (Aside has guides only)
   { op: "github.assigned", cmux: "sites.github.assigned()", aside: null, cx: list("v", "x.url", "x.title") },
   { op: "linear.assigned", cmux: "sites.linear.assigned()", aside: null, cx: list("v", "x.identifier", "x.title") },
-  { op: "jira.assigned", needs: () => process.env.LIVE_JIRA_SITE, cmux: () => `sites.jira.search("assignee = currentUser() ORDER BY updated DESC", { site: ${q(process.env.LIVE_JIRA_SITE)} })`, aside: null, cx: list("v", "x.key", "x.summary") },
+  { op: "jira.sites", cmux: "sites.jira.sites()", aside: null, cx: list("v", "x.url", "x.name"), keep: (c) => (ctx.jiraSite = process.env.LIVE_JIRA_SITE || c[0]) },
+  { op: "jira.assigned", needs: () => ctx.jiraSite, cmux: () => `sites.jira.search("assignee = currentUser() ORDER BY updated DESC", { site: ${q(ctx.jiraSite)} })`, aside: null, cx: list("v", "x.key", "x.summary") },
   // Browser-level reads
   { op: "tabs.content", cmux: `tabs.content({ urls: ["https://example.com/"], format: "markdown" })`, aside: null, cx: text("v[0].content") },
   { op: "tabs.history", cmux: "tabs.history({ limit: 20 })", aside: null, cx: list("v", "x.url", "x.title") },
@@ -203,7 +222,7 @@ async function signedIn() {
   for (const s of SIGNED_IN) {
     let aside = "no tool";
     if (s.aside) {
-      const r = parse(await exec("aside", ["repl", program(s.aside, "(v) => ({ yes: !!v })")], { timeoutMs: 120000 }));
+      const r = parse(await exec("aside", ["repl", program(s.aside, "(v) => ({ yes: !!v })", false)], { timeoutMs: 120000 }));
       aside = r.ok ? (r.yes ? "signed in" : "not signed in") : `not signed in (${r.code || redact(r.error)})`;
     }
     const c = cm.ok ? (cm.sites[s.site] ? "signed in" : "not signed in") : `unknown (${redact(cm.error)})`;
@@ -214,7 +233,7 @@ async function signedIn() {
 }
 
 // Verdict from two summaries.
-function verdict(op, c, a) {
+function verdict(op, c, a, cap) {
   const unavailable = (r) => r.code === "not_signed_in" || /not signed in|sign in|invalid_auth|not_authed|unauthorized|login/i.test(r.error || "");
   if (!c.ok && unavailable(c)) return { verdict: "cmux-unavailable", note: "user not signed in to cmux" };
   if (!a.ok && a.code === "no_tool") return c.ok ? { verdict: "cmux-better", note: "Aside has no tool for this read" } : { verdict: "cmux-worse", note: `cmux failed: ${c.code || ""} ${redact(c.error)}` };
@@ -230,7 +249,8 @@ function verdict(op, c, a) {
     return { verdict: "cmux-worse", note: `text ${cl} vs ${al} chars` };
   }
   const cc = c.count || 0;
-  const ac = a.count || 0;
+  // A read capped at `cap` items is compared with as many of the other's.
+  const ac = cap && cc >= cap ? Math.min(a.count || 0, cap) : a.count || 0;
   const cIds = (c.ids || []).filter(Boolean);
   const aIds = (a.ids || []).filter(Boolean);
   const common = aIds.filter((x) => cIds.includes(x));
@@ -287,7 +307,7 @@ async function run({ ops, runs, writeDoc }) {
     if (o.keep && c.ok) o.keep(c.ids || []);
     // Aside's ids feed later steps when cmux has none (so its own reads still run).
     if (o.keep && !c.ok && a.ok) o.keep(a.ids || []);
-    const v = verdict(o.op, c, a);
+    const v = verdict(o.op, c, a, o.cap);
     const okRate = (list) => `${list.filter((r) => r.ok).length}/${list.length}`;
     const med = (list) => {
       const ms = list.map((r) => r.ms).filter((x) => typeof x === "number").sort((x, y) => x - y);

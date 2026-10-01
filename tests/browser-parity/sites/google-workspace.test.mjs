@@ -78,6 +78,10 @@ test("googleDrive.recent lists the Recent view's files with ids and names", asyn
   ]);
 });
 
+test("googleDrive.search uses Drive's search (operators such as type:spreadsheet) with the same rows", async () => {
+  assert.deepEqual(await s.value('sites.googleDrive.search("type:spreadsheet owner:me")'), [{ id: "1SheetSheetSheetSheetSheetSheet01", title: "Budget 2026", type: "Google Sheets", url: "https://drive.google.com/open?id=1SheetSheetSheetSheetSheetSheet01" }]);
+});
+
 test("signed out: Google's sign-in redirect becomes a not_signed_in error naming the fix", async () => {
   const out = await createSitesEnv({ signedIn: false });
   try {
