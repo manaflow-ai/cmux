@@ -35,19 +35,25 @@ public actor CloudVMService: CloudVMServing {
     }
 
     public func listMachineCatalog() async throws -> CloudMachineCatalog {
-        let (access, refresh) = try await credentials()
-        let data = try await send(requests.listMachines(accessToken: access, refreshToken: refresh))
+        let credentials = try await credentials()
+        let data = try await send(
+            requests.listMachines(
+                accessToken: credentials.accessToken,
+                refreshToken: credentials.refreshToken
+            ),
+            teamID: credentials.teamID
+        )
         return try decoding.catalog(from: data)
     }
 
     public func createMachine(options: CloudMachineCreateOptions, idempotencyKey: String) async throws -> CloudMachine {
-        let (access, refresh) = try await credentials()
+        let credentials = try await credentials()
         let data = try await send(requests.createMachine(
             options: options,
             idempotencyKey: idempotencyKey,
-            accessToken: access,
-            refreshToken: refresh
-        ))
+            accessToken: credentials.accessToken,
+            refreshToken: credentials.refreshToken
+        ), teamID: credentials.teamID)
         return try decoding.createdMachine(from: data)
     }
 
@@ -57,15 +63,15 @@ public actor CloudVMService: CloudVMServing {
         tunnelPurpose: CloudTunnelPurpose,
         deviceName: String?
     ) async throws -> CloudTunnelEnrollment {
-        let (access, refresh) = try await credentials()
+        let credentials = try await credentials()
         return try await enrollTunnel(
             clientPublicKey: clientPublicKey,
             deviceFingerprint: deviceFingerprint,
             tunnelPurpose: tunnelPurpose,
             deviceName: deviceName,
-            accessToken: access,
-            refreshToken: refresh,
-            teamID: await tokens.teamID()
+            accessToken: credentials.accessToken,
+            refreshToken: credentials.refreshToken,
+            teamID: credentials.teamID
         )
     }
 
@@ -114,7 +120,7 @@ public actor CloudVMService: CloudVMServing {
             deviceName: deviceName,
             accessToken: accessToken,
             refreshToken: refreshToken
-        ), teamRouting: .explicit(teamID))
+        ), teamID: teamID)
         let enrollment = try decoding.tunnelEnrollment(from: data)
         log.info("Cloud enrollment succeeded purpose=\(tunnelPurpose.rawValue, privacy: .public)")
         return enrollment
@@ -122,13 +128,13 @@ public actor CloudVMService: CloudVMServing {
 
     /// Revokes one role with the currently signed-in credentials.
     public func revokeTunnel(deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose) async throws {
-        let (access, refresh) = try await credentials()
+        let credentials = try await credentials()
         try await revokeTunnel(
             deviceFingerprint: deviceFingerprint,
             tunnelPurpose: tunnelPurpose,
-            accessToken: access,
-            refreshToken: refresh,
-            teamID: await tokens.teamID()
+            accessToken: credentials.accessToken,
+            refreshToken: credentials.refreshToken,
+            teamID: credentials.teamID
         )
     }
 
@@ -162,79 +168,88 @@ public actor CloudVMService: CloudVMServing {
             accessToken: accessToken,
             refreshToken: refreshToken
         )
-        _ = try await send(request, teamRouting: .explicit(teamID))
+        _ = try await send(request, teamID: teamID)
     }
 
     public func openAttach(machineID: String, deviceFingerprint: String) async throws -> CloudAttachEndpoint {
-        let (access, refresh) = try await credentials()
+        let credentials = try await credentials()
         let data = try await send(requests.openAttach(
             machineID: machineID,
             deviceFingerprint: deviceFingerprint,
             clientCapabilities: [],
-            accessToken: access,
-            refreshToken: refresh
-        ))
+            accessToken: credentials.accessToken,
+            refreshToken: credentials.refreshToken
+        ), teamID: credentials.teamID)
         return try decoding.attachEndpoint(from: data)
     }
 
     public func approveEnrollment(machineID: String, invitationId: String) async throws -> Bool {
-        let (access, refresh) = try await credentials()
+        let credentials = try await credentials()
         let data = try await send(requests.approveEnrollment(
             machineID: machineID,
             invitationId: invitationId,
-            accessToken: access,
-            refreshToken: refresh
-        ))
+            accessToken: credentials.accessToken,
+            refreshToken: credentials.refreshToken
+        ), teamID: credentials.teamID)
         return try decoding.approvalGranted(from: data)
     }
 
-    private func credentials() async throws -> (String, String) {
-        let readPair: CloudAPITokenSource.TokenPair?
+    private func credentials() async throws -> CloudAPITokenSource.TokenContext {
+        let context: CloudAPITokenSource.TokenContext?
         do {
-            readPair = try await tokens.coherentTokenPair()
+            context = try await tokens.coherentTokenContext()
         } catch {
             throw CloudAPIError.sessionUnavailable
         }
-        guard let pair = readPair,
-              !pair.accessToken.isEmpty,
-              !pair.refreshToken.isEmpty else {
+        guard let context,
+              !context.accessToken.isEmpty,
+              !context.refreshToken.isEmpty else {
             throw CloudAPIError.notSignedIn
         }
-        return pair
+        return context
     }
 
     public func pauseMachine(id: String) async throws {
-        let (access, refresh) = try await credentials()
-        _ = try await send(requests.pauseMachine(id: id, accessToken: access, refreshToken: refresh))
+        let credentials = try await credentials()
+        _ = try await send(
+            requests.pauseMachine(
+                id: id,
+                accessToken: credentials.accessToken,
+                refreshToken: credentials.refreshToken
+            ),
+            teamID: credentials.teamID
+        )
     }
 
     public func resumeMachine(id: String) async throws {
-        let (access, refresh) = try await credentials()
-        _ = try await send(requests.resumeMachine(id: id, accessToken: access, refreshToken: refresh))
+        let credentials = try await credentials()
+        _ = try await send(
+            requests.resumeMachine(
+                id: id,
+                accessToken: credentials.accessToken,
+                refreshToken: credentials.refreshToken
+            ),
+            teamID: credentials.teamID
+        )
     }
 
     public func deleteMachine(id: String) async throws {
-        let (access, refresh) = try await credentials()
-        _ = try await send(requests.deleteMachine(id: id, accessToken: access, refreshToken: refresh))
-    }
-
-    private enum TeamRouting {
-        case current
-        case explicit(String?)
+        let credentials = try await credentials()
+        _ = try await send(
+            requests.deleteMachine(
+                id: id,
+                accessToken: credentials.accessToken,
+                refreshToken: credentials.refreshToken
+            ),
+            teamID: credentials.teamID
+        )
     }
 
     private func send(
         _ request: URLRequest,
-        teamRouting: TeamRouting = .current
+        teamID: String? = nil
     ) async throws -> Data {
         var request = request
-        let teamID: String?
-        switch teamRouting {
-        case .current:
-            teamID = await tokens.teamID()
-        case .explicit(let capturedTeamID):
-            teamID = capturedTeamID
-        }
         if let teamID, !teamID.isEmpty {
             request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }

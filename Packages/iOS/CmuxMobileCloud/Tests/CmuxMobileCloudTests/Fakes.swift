@@ -23,6 +23,10 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
     var calls: Calls { lock.withLock { $0 } }
 
     var machines: Result<[CloudMachine], any Error> = .success([])
+    var listResponses: [Result<[CloudMachine], any Error>] = []
+    var holdFirstListRequest = false
+    private let firstListStarted = TestSignal()
+    private let releaseFirstList = TestSignal()
     var creation: Result<CloudMachine, any Error> = .success(CloudMachine(id: "vm-created", provider: "freestyle", status: "starting"))
     var holdCreation = false
     private let creationStarted = TestSignal()
@@ -48,9 +52,20 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
     private let releaseLifecycleAction = TestSignal()
 
     func listMachines() async throws -> [CloudMachine] {
-        lock.withLock { $0.list += 1 }
-        return try machines.get()
+        let index = lock.withLock { calls -> Int in
+            calls.list += 1
+            return calls.list - 1
+        }
+        if index == 0, holdFirstListRequest {
+            await firstListStarted.signal()
+            await releaseFirstList.wait()
+        }
+        let result = listResponses.indices.contains(index) ? listResponses[index] : machines
+        return try result.get()
     }
+
+    func waitForFirstListStart() async { await firstListStarted.wait() }
+    func releaseHeldFirstList() async { await releaseFirstList.signal() }
 
     func createMachine(options: CloudMachineCreateOptions, idempotencyKey: String) async throws -> CloudMachine {
         lock.withLock { $0.create.append((options, idempotencyKey)) }

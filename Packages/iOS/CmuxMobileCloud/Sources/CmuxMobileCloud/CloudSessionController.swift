@@ -71,6 +71,7 @@ public final class CloudSessionController {
     private var connections: [String: CloudMachineConnection] = [:]
     private var pendingCreate: (options: CloudMachineCreateOptions, idempotencyKey: String)?
     private var accountGeneration: UInt64 = 0
+    private var machineListGeneration: UInt64 = 0
     private var createTask: Task<CloudMachine?, Never>?
     private var machineActionTasks: [String: Task<Bool, Never>] = [:]
 
@@ -174,6 +175,7 @@ public final class CloudSessionController {
     /// account, and re-enrolling under the next account reuses it.
     public func resetForSignOut() {
         accountGeneration &+= 1
+        machineListGeneration &+= 1
         shellLeaseActive = false
         listTask?.cancel()
         listTask = nil
@@ -403,12 +405,14 @@ public final class CloudSessionController {
         }
         let previouslyKnownMachineIDs = Set(machines.elements.map(\.id))
         listTask?.cancel()
+        machineListGeneration &+= 1
+        let generation = machineListGeneration
         machines = .loading(previous: machines.elements)
         listTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let catalog = try await service.listMachineCatalog()
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, self.machineListGeneration == generation else { return }
                 self.listFailureCount = 0
                 self.availableMachineKinds = catalog.availableKinds
                 self.machineLimits = catalog.limits
@@ -422,7 +426,7 @@ public final class CloudSessionController {
                 self.scheduleProvisioningPollIfNeeded()
                 self.reconcile()
             } catch {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, self.machineListGeneration == generation else { return }
                 let failure = CloudSessionFailure.classify(error, stage: .list)
                 self.listFailureCount += 1
                 // The first transient failure retries quietly: right after

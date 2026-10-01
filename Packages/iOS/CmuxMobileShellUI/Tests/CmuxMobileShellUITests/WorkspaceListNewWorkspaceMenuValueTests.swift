@@ -74,7 +74,7 @@ import SwiftUI
         let actions = WorkspaceListNewWorkspaceMenuActions(
             createWorkspace: { genericActionCalled = true },
             createWorkspaceGroup: nil,
-            createWorkspaceOnComputer: { selectedTarget = $0 }
+            createWorkspaceOnComputer: { target, _ in selectedTarget = target }
         )
 
         actions.performPrimaryAction(for: value)

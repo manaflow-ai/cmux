@@ -22,23 +22,30 @@ public struct CloudAPITokenSource: Sendable {
         }
     }
 
-    /// The selected team context for team-owned Cloud machines, or nil for a
-    /// personal account.
-    public var teamID: @Sendable () async -> String?
-    /// Reads a matching access and refresh token from one auth snapshot.
-    /// Returns nil when there is no session, and throws when the session exists
-    /// but its tokens cannot be read right now, so a transient state is never
-    /// mistaken for a sign-out.
-    public var coherentTokenPair: @Sendable () async throws -> TokenPair?
+    /// Reads credentials and their selected team routing from one auth
+    /// snapshot. Returns nil when there is no session, and throws when the
+    /// session exists but its credentials cannot be read right now, so a
+    /// transient state is never mistaken for a sign-out.
+    public var coherentTokenContext: @Sendable () async throws -> TokenContext?
 
-    /// Creates a token source from one coherent live auth snapshot, optionally
-    /// including the selected team.
+    /// Creates a token source from one coherent live auth snapshot.
     public init(
-        coherentTokenPair: @escaping @Sendable () async throws -> TokenPair?,
-        teamID: @escaping @Sendable () async -> String? = { nil }
+        coherentTokenContext: @escaping @Sendable () async throws -> TokenContext?
     ) {
-        self.teamID = teamID
-        self.coherentTokenPair = coherentTokenPair
+        self.coherentTokenContext = coherentTokenContext
+    }
+
+    /// Creates a token source for callers that do not need team routing.
+    public init(
+        coherentTokenPair: @escaping @Sendable () async throws -> TokenPair?
+    ) {
+        self.coherentTokenContext = {
+            guard let pair = try await coherentTokenPair() else { return nil }
+            return TokenContext(
+                accessToken: pair.accessToken,
+                refreshToken: pair.refreshToken
+            )
+        }
     }
 
     /// A source that always yields the given pair; for tests and previews.
@@ -48,8 +55,13 @@ public struct CloudAPITokenSource: Sendable {
         teamID: String? = nil
     ) -> CloudAPITokenSource {
         CloudAPITokenSource(
-            coherentTokenPair: { (accessToken: accessToken, refreshToken: refreshToken) },
-            teamID: { teamID }
+            coherentTokenContext: {
+                TokenContext(
+                    accessToken: accessToken,
+                    refreshToken: refreshToken,
+                    teamID: teamID
+                )
+            }
         )
     }
 }

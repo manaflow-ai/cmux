@@ -67,6 +67,25 @@ import Testing
         #expect(service.calls.list == 2)
     }
 
+    @Test func aLateCancelledListCannotOverwriteNewerRefresh() async {
+        let first = CloudMachine(id: "vm-old", provider: "freestyle", status: "running")
+        let second = CloudMachine(id: "vm-new", provider: "freestyle", status: "running")
+        let service = FakeCloudVMService()
+        service.listResponses = [.success([first]), .success([second])]
+        service.holdFirstListRequest = true
+        let controller = makeController(service: service, clock: TestClock())
+
+        controller.refreshMachines()
+        await service.waitForFirstListStart()
+        controller.refreshMachines()
+        await settle { controller.machines == .loaded([second]) }
+        #expect(controller.machines == .loaded([second]))
+
+        await service.releaseHeldFirstList()
+        for _ in 0 ..< 200 { await Task.yield() }
+        #expect(controller.machines == .loaded([second]))
+    }
+
     @Test func repeatedTransientFailuresShowAndKeepRetryingWithBackoff() async {
         let service = FakeCloudVMService()
         service.machines = .failure(CloudAPIError.httpStatus(503, message: "provider down", action: nil))

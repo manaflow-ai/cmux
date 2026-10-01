@@ -97,17 +97,21 @@ struct MobileCloudComposition {
         return CloudVMService(
             baseURL: baseURL,
             tokens: CloudAPITokenSource(
-                coherentTokenPair: {
+                coherentTokenContext: {
                     // Only a rejected session is a sign-out. Anything else (a
                     // refresh or sign-in step still in flight, no network) is
                     // transient, and throwing lets the list retry it.
                     do {
-                        return try await coordinator.coherentTokenPair()
+                        let context = try await coordinator.coherentTokenContext()
+                        return CloudAPITokenSource.TokenContext(
+                            accessToken: context.accessToken,
+                            refreshToken: context.refreshToken,
+                            teamID: context.teamID
+                        )
                     } catch AuthError.unauthorized {
                         return nil
                     }
-                },
-                teamID: { await coordinator.resolvedTeamID }
+                }
             ),
             deviceID: deviceID
         )
