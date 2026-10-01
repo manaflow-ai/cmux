@@ -1,4 +1,5 @@
 public import CmuxNextActions
+import CmuxNextDaemon
 public import CmuxNextSettings
 public import Foundation
 
@@ -64,7 +65,7 @@ public final class ControlService {
             registry: registry,
             settingsStore: settings?.file,
             configuration: ControlSocketServer.Configuration(path: launch.socketPath, accessMode: mode, passwordVerifier: verifier,
-                                                             trustedExecutables: bundledExecutables(bundle)),
+                                                             trustedExecutables: bundledExecutables(bundle, environment: environment)),
             identity: identity,
             frameSource: frameSource,
             watchdog: watchdog
@@ -117,12 +118,14 @@ public final class ControlService {
 
     /// The bundled cmux binary (`bin/cmux`, also run as `bin/cmux-tui`),
     /// whose processes host every terminal: `.cmuxOnly` admits their
-    /// descendants.
-    static func bundledExecutables(_ bundle: Bundle) -> Set<String> {
-        guard let bin = bundle.resourceURL?.appendingPathComponent("bin") else { return [] }
-        return Set(["cmux", "cmux-tui"].flatMap { name -> [String] in
-            let url = bin.appendingPathComponent(name)
-            return [url.path, url.resolvingSymlinksInPath().path]
-        })
+    /// descendants. Includes the daemon binary the launcher resolves the
+    /// same way (`CMUX_NEXT_TUI_BIN` in dev builds).
+    static func bundledExecutables(_ bundle: Bundle, environment: [String: String]) -> Set<String> {
+        var urls: [URL] = []
+        if let bin = bundle.resourceURL?.appendingPathComponent("bin") {
+            urls += ["cmux", "cmux-tui"].map { bin.appendingPathComponent($0) }
+        }
+        if let daemon = try? DaemonLauncher.resolveBinary(bundle: bundle, environment: environment) { urls.append(daemon) }
+        return Set(urls.flatMap { [$0.path, $0.resolvingSymlinksInPath().path] })
     }
 }
