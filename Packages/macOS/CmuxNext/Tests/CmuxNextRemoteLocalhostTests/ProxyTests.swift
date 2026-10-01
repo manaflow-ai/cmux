@@ -104,16 +104,34 @@ import Testing
     @Test func directDestinationsThatResolveToThisMacAreRefused() async throws {
         let server = try await TestServer.start(mode: .echo)
         defer { server.stop() }
+        // A public name that resolves to this Mac's loopback (DNS rebinding),
+        // without depending on this host's resolver or network.
+        let proxy = RemoteLocalhostProxy(directHost: { $0 == "rebound.example" ? .ipv4(.loopback) : NWEndpoint.Host($0) })
+        let port = try await proxy.start()
+        defer { proxy.stop() }
+        let credential = proxy.credential(for: "m", route: .init(machineName: "build-box", opener: TCPOpener()))
+        let head = "CONNECT rebound.example:\(server.port) HTTP/1.1\r\nProxy-Authorization: \(credential.basicAuthorization)\r\n\r\n"
+        let reply = try await RawClient.exchange(port: port, Data(head.utf8))
+        #expect(reply.hasPrefix("HTTP/1.1 403 "), "\(reply)")
+        #expect(proxy.stats.refusedLocal == 1)
+        #expect(proxy.stats.direct == 0)
+        #expect(proxy.stats.tunnels == 0)
+    }
+
+    @Test func theUnspecifiedAddressNeverReachesThisMac() async throws {
+        let server = try await TestServer.start(mode: .echo)
+        defer { server.stop() }
         let proxy = RemoteLocalhostProxy()
         let port = try await proxy.start()
         defer { proxy.stop() }
         let credential = proxy.credential(for: "m", route: .init(machineName: "build-box", opener: TCPOpener()))
-        // 0.0.0.0 is not a loopback literal, so it goes direct, and the
-        // kernel connects it to this Mac: the guard must refuse it.
+        // 0.0.0.0 is not a loopback literal, so it goes direct. The kernel
+        // either connects it to this Mac (the guard refuses it) or the host's
+        // network refuses it; which one depends on the host. Neither relays.
         let head = "CONNECT 0.0.0.0:\(server.port) HTTP/1.1\r\nProxy-Authorization: \(credential.basicAuthorization)\r\n\r\n"
         let reply = try await RawClient.exchange(port: port, Data(head.utf8))
-        #expect(reply.hasPrefix("HTTP/1.1 403 "), "\(reply)")
-        #expect(proxy.stats.refusedLocal == 1)
+        #expect(reply.hasPrefix("HTTP/1.1 403 ") || reply.hasPrefix("HTTP/1.1 502 "), "\(reply)")
+        #expect(proxy.stats.direct == 0)
         #expect(proxy.stats.tunnels == 0)
     }
 }

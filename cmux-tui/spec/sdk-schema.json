@@ -14249,6 +14249,17 @@
       "since": 12,
       "capability": "workspace-pin-v1"
      },
+     "marked_unread": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "notification-mark-unread-v1"
+     },
      "origin": {
       "type": {
        "kind": "scalar",

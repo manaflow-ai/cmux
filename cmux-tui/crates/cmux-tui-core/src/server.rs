@@ -188,6 +188,9 @@ pub const WORKSPACE_METADATA_CAPABILITY: &str = "workspace-metadata-v1";
 /// The sidebar workspace pin: `pinned` on `set-workspace-metadata` and the
 /// `pinned` workspace field.
 pub const WORKSPACE_PIN_CAPABILITY: &str = "workspace-pin-v1";
+/// The manual workspace unread mark: `marked_unread` on
+/// `set-workspace-metadata` and the `marked_unread` workspace field.
+pub const NOTIFICATION_MARK_UNREAD_CAPABILITY: &str = "notification-mark-unread-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the
 /// `tab-changed` delta.
@@ -369,6 +372,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         WORKSPACE_GROUPS_CAPABILITY,
         WORKSPACE_METADATA_CAPABILITY,
         WORKSPACE_PIN_CAPABILITY,
+        NOTIFICATION_MARK_UNREAD_CAPABILITY,
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
         TAB_DRAG_CAPABILITY,
@@ -1958,7 +1962,8 @@ enum Command {
         mutation: MutationRequest,
     },
     /// Set, clear (`null`), or keep (absent) a workspace's shared color,
-    /// SF Symbol icon, and custom title, and set or keep its sidebar pin.
+    /// SF Symbol icon, and custom title, and set or keep its sidebar pin
+    /// and manual unread mark.
     SetWorkspaceMetadata {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
@@ -1972,6 +1977,8 @@ enum Command {
         title: Option<Option<String>>,
         #[serde(default)]
         pinned: Option<bool>,
+        #[serde(default)]
+        marked_unread: Option<bool>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -11717,6 +11724,7 @@ fn workspace_json(
         "icon": presentation.and_then(|presentation| presentation.icon.as_deref()),
         "title": presentation.and_then(|presentation| presentation.title.as_deref()),
         "pinned": presentation.is_some_and(|presentation| presentation.pinned),
+        "marked_unread": presentation.is_some_and(|presentation| presentation.marked_unread),
         "unread_count": workspace_unread_count(state, workspace, notifications),
         "active": index == state.active_workspace,
         "screens": workspace.screens.iter().enumerate().map(|(screen_index, screen)| {
@@ -14915,7 +14923,16 @@ fn handle_command_with_cancellation(
                 "generation": generation,
             }))
         }
-        Command::SetWorkspaceMetadata { workspace, key, color, icon, title, pinned, mutation } => {
+        Command::SetWorkspaceMetadata {
+            workspace,
+            key,
+            color,
+            icon,
+            title,
+            pinned,
+            marked_unread,
+            mutation,
+        } => {
             let workspace_mutation = workspace_mutation(&mutation)?;
             let update = crate::workspace_registry::WorkspacePresentationUpdate {
                 group: None,
@@ -14923,6 +14940,7 @@ fn handle_command_with_cancellation(
                 icon,
                 title,
                 pinned,
+                marked_unread,
             };
             let result = mux.set_workspace_metadata(
                 workspace,
@@ -14942,6 +14960,7 @@ fn handle_command_with_cancellation(
                 "icon": record.icon,
                 "title": record.title,
                 "pinned": record.pinned,
+                "marked_unread": record.marked_unread,
                 "workspace_revision": result.revision,
                 "changed": result.changed,
                 "replayed": result.replayed,
@@ -24658,6 +24677,52 @@ mod tests {
         assert_eq!(unpinned["pinned"], false);
         assert_eq!(unpinned["title"], "Build");
         assert_eq!(entry(&mux)["pinned"], false);
+    }
+
+    #[test]
+    fn cmux_next_set_workspace_metadata_marks_a_workspace_unread() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&NOTIFICATION_MARK_UNREAD_CAPABILITY));
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let entry = |mux: &Arc<Mux>| {
+            let tree = run_json_command(mux, json!({"cmd":"list-workspaces"})).unwrap();
+            tree["workspaces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|entry| entry["key"] == json!(workspace.key))
+                .cloned()
+                .unwrap()
+        };
+        assert_eq!(entry(&mux)["marked_unread"], false);
+        let mark = json!({
+            "cmd":"set-workspace-metadata",
+            "key": workspace.key,
+            "marked_unread": true,
+            "origin":"cmux-next",
+            "mutation_id":"mark-unread-1",
+        });
+        let marked = run_json_command(&mux, mark.clone()).unwrap();
+        assert_eq!(marked["marked_unread"], true);
+        assert_eq!(marked["changed"], true);
+        assert_eq!(entry(&mux)["marked_unread"], true);
+        assert_eq!(run_json_command(&mux, mark).unwrap()["replayed"], true);
+        // The mark is independent of the pin and of notifications.
+        let pinned = run_json_command(
+            &mux,
+            json!({"cmd":"set-workspace-metadata","key":workspace.key,"pinned":true}),
+        )
+        .unwrap();
+        assert_eq!(pinned["marked_unread"], true);
+        assert_eq!(entry(&mux)["unread_count"], 0);
+        let cleared = run_json_command(
+            &mux,
+            json!({"cmd":"set-workspace-metadata","key":workspace.key,"marked_unread":false}),
+        )
+        .unwrap();
+        assert_eq!(cleared["marked_unread"], false);
+        assert_eq!(cleared["pinned"], true);
+        assert_eq!(entry(&mux)["marked_unread"], false);
     }
 
     #[test]

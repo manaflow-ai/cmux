@@ -12,7 +12,7 @@ import PackageDescription
 //   CmuxNextBridge -> Daemon, Layout, Sidebar, Tabs (App-layer mapping, testable)
 //   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Palette -> Design, Actions
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
-//   CmuxNextTerminal -> CmuxNextTerminalGeometry (pure), CmuxGhosttyKit (binary)
+//   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary)
 //   CmuxNextWakeups -> system frameworks only (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger; plans/cmux-next/idle-wakeups.md)
 //   CmuxNextDesign, CmuxNextActions -> system frameworks only; CmuxNextDaemon -> Wakeups
@@ -379,6 +379,7 @@ let package = Package(
                 "CmuxNextWakeups",
                 "CmuxNextDesign",
                 "CmuxNextTerminalGeometry",
+                "CmuxNextCopyMode",
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
             ],
             resources: [
@@ -397,6 +398,17 @@ let package = Package(
             name: "CmuxNextTerminalGeometryTests",
             dependencies: ["CmuxNextTerminalGeometry"],
             swiftSettings: uiSwiftSettings
+        ),
+        // Copy mode's vim key table and cursor-box geometry. No GhosttyKit, so
+        // it has tests; CmuxNextTerminal drives Ghostty's keyboard-copy API.
+        .target(
+            name: "CmuxNextCopyMode",
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextCopyModeTests",
+            dependencies: ["CmuxNextCopyMode"],
+            swiftSettings: daemonSwiftSettings
         ),
         .target(
             name: "CmuxNextTabs",
@@ -515,7 +527,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode"],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),

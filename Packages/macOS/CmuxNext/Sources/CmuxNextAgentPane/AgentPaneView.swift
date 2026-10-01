@@ -38,12 +38,19 @@ public final class AgentPaneView: NSView {
     /// - Parameters:
     ///   - model: Answers the page's host requests.
     ///   - source: The page to load; nil loads ``bundledPage``.
-    public init?(model: AgentPaneModel, source: AgentPaneSource? = nil) {
+    ///   - rendersAtFullRate: Renders at the display's rate instead of
+    ///     WebKit's default, the display-rate divisor nearest 60 fps (80 Hz
+    ///     on a 160 Hz display). Off until a frame's paint fits the shorter
+    ///     interval: with it on, a fling ran unevenly at 82-99 Hz (#16471).
+    public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, rendersAtFullRate: Bool = false) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.model = model
         self.source = source
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
+        if rendersAtFullRate {
+            configuration.preferences.setWebKitFeature("PreferPageRenderingUpdatesNear60FPSEnabled", enabled: false)
+        }
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init(frame: .zero)
         configuration.userContentController.addScriptMessageHandler(

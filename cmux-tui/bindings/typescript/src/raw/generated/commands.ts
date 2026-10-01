@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2d0400483f8959286a63f39345a5cb558a1f0969a7bab415f3472617276cdb39. */
+/* cmux-tui mux protocol 12, IR 45d5f5eee71a41e566a469983f04b4e23ebc018dbd440ee24c7a1f25ad540f43. */
 
 
 import type * as T from "./types.js";
@@ -1491,6 +1491,7 @@ export interface SetWorkspaceMetadataRequest extends CmuxRequestBase {
   "expected_revision"?: (bigint) | null;
   "icon"?: (string) | null;
   "key"?: (string) | null;
+  "marked_unread"?: (boolean) | null;
   "mutation_id"?: (string) | null;
   "origin"?: (string) | null;
   "pinned"?: (boolean) | null;

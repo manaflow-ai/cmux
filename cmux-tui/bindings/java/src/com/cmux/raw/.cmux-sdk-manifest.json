@@ -347,8 +347,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "435dc60222f041f2e8541d6c6c642ee7751a9c47482ed79f87bf9ed4206e0b93",
-      "size": 49403
+      "sha256": "842fbdfaeb1faf111e809b621665283c68f0fb7ebc8713ef1afc8b67a7f85d42",
+      "size": 49495
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1152,7 +1152,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "46291fa4314ad74da200002a19ab8efe2895ea70f50141c76c5ef3b105a6b297",
+      "sha256": "9cba9ba4be6c36345ef842cee5fbb41aa4e03921c3419d2c2f107de115d00b73",
       "size": 4696
     },
     {
@@ -1637,8 +1637,8 @@
     },
     {
       "path": "SetWorkspaceMetadataRequest.java",
-      "sha256": "f33d45b0b15a7e307bf732863a1aa6d203e0c31702cbd426c493ff565dfd3351",
-      "size": 8293
+      "sha256": "4154573cdfc79d1e8acc0b99c40c38903118a195305a34c1a6468c78c03934c2",
+      "size": 9057
     },
     {
       "path": "ShutdownDaemonRequest.java",
@@ -2137,7 +2137,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "2d0400483f8959286a63f39345a5cb558a1f0969a7bab415f3472617276cdb39",
+  "ir_sha256": "45d5f5eee71a41e566a469983f04b4e23ebc018dbd440ee24c7a1f25ad540f43",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

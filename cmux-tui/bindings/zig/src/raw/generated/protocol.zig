@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2d0400483f8959286a63f39345a5cb558a1f0969a7bab415f3472617276cdb39";
+pub const ir_sha256 = "45d5f5eee71a41e566a469983f04b4e23ebc018dbd440ee24c7a1f25ad540f43";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -5822,6 +5822,7 @@ pub const SetWorkspaceMetadataRequest = struct {
     expected_revision: wire.Field(u64) = .absent,
     icon: wire.Field([]const u8) = .absent,
     key: wire.Field([]const u8) = .absent,
+    marked_unread: wire.Field(bool) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
     pinned: wire.Field(bool) = .absent,
@@ -5840,6 +5841,7 @@ pub fn setWorkspaceMetadata(client: anytype, request: SetWorkspaceMetadataReques
             .since = 12,
             .capability = "workspace-metadata-v1",
             .fields = &.{
+                .{ .name = "marked_unread", .since = 12, .capability = "notification-mark-unread-v1" },
                 .{ .name = "pinned", .since = 12, .capability = "workspace-pin-v1" },
             },
         },
