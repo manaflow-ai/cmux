@@ -195,14 +195,23 @@ private struct WorkspaceShellRenderPresentation {
     let notificationUnreadCount: Int
     let notificationFeedStatus: MobileNotificationFeedStatus
     let selectedNotificationFeedMacDeviceIDs: Set<String>?
+    let agentFeedItems: [MobileAgentFeedItem]
+    let agentFeedStatus: MobileNotificationFeedStatus
+    let agentFeedNeedsInputCount: Int
+    let agentFeedPendingReplyRequestIDs: Set<String>
+    let agentFeedPendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>
     let toolbarMachineSnapshots: WorkspaceMachineSnapshots
     let canCreateWorkspaceForSelection: Bool
 }
 #endif
 
 struct WorkspaceShellView: View {
-    #if os(iOS) && DEBUG
+    #if os(iOS)
+    #if DEBUG
     @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    #endif
+    /// The Cloud tab's content, supplied by the composition root.
+    @Environment(\.mobileCloudTabContent) private var cloudTabContent
     #endif
     @Bindable var store: CMUXMobileShellStore
     let signOut: @MainActor @Sendable () -> Void
@@ -217,6 +226,8 @@ struct WorkspaceShellView: View {
     var tailscalePairingRequired = false
     var showSettings: () -> Void = {}
     var showComputers: () -> Void = {}
+    /// Present the SSH computer form (PRD D6). `nil` hides SSH add actions.
+    var showAddSSHComputer: (() -> Void)? = nil
     var taskComposerPresentation = MobileChildSheetPresentation()
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
@@ -228,6 +239,7 @@ struct WorkspaceShellView: View {
     /// sheet presents, so remote list changes mid-presentation cannot mutate
     /// an open sheet.
     @Environment(MobileWhatsNewCenter.self) private var whatsNewCenter: MobileWhatsNewCenter?
+    @Environment(\.mobileWhatsNewPresentationPolicy) private var whatsNewPresentationPolicy
     @Environment(\.mobileWebAppSession) private var whatsNewWebAppSession
     @Environment(\.colorScheme) private var whatsNewColorScheme
     @State private var whatsNewSheetPages: [MobileWhatsNewPage] = []
@@ -241,6 +253,8 @@ struct WorkspaceShellView: View {
     @State private var whatsNewWebLoads: [String: MobileWhatsNewWebPageLoad] = [:]
     @State private var showsWhatsNewSheet = false
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
+    /// Compact Feed-tab stack: workspaces opened from Feed rows push here.
+    @State private var feedNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var notificationSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var workspaceSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingPrimarySearchWorkspaceNavigationID: MobileWorkspacePreview.ID?
@@ -327,24 +341,12 @@ struct WorkspaceShellView: View {
             compactNavigationPath: compactNavigationPath,
             notificationNavigationPath: notificationNavigationPath,
             workspaceSearchNavigationPath: workspaceSearchNavigationPath,
-            notificationSearchNavigationPath: notificationSearchNavigationPath
+            notificationSearchNavigationPath: notificationSearchNavigationPath,
+            feedNavigationPath: feedNavigationPath
         )
         #if os(iOS)
         GeometryReader { geometry in
-            Group {
-                if usesCompactStack {
-                    compactScaffold(presentation: presentation)
-                } else {
-                    // Regular-width (iPad): the NavigationSplitView is the one
-                    // navigation hierarchy. Wrapping it in the TabView renders
-                    // the iOS 26 floating tab strip on top of the split
-                    // columns' own toolbars; destinations move into the
-                    // sidebar's bottom bar instead.
-                    workspaceTabContent(
-                        presentation: presentation
-                    )
-                }
-            }
+            primaryScaffold(presentation: presentation)
             .background {
                 NotificationFeedSearchProjectionSync(
                     searchCoordinator: primarySearchCoordinator,
@@ -365,6 +367,13 @@ struct WorkspaceShellView: View {
                 )
                 if !isPresented {
                     consumePendingPrimarySearchNavigation(for: selectedPrimaryTab)
+                }
+            }
+            .onChange(of: displaySettings.feedReplacesNotifications, initial: true) { _, replaces in
+                // A hidden destination cannot stay selected; the Feed is its
+                // replacement.
+                if replaces, selectedPrimaryTab == .notifications {
+                    selectedPrimaryTab = .feed
                 }
             }
             .onChange(of: selectedPrimaryTab) { oldValue, newValue in
@@ -419,13 +428,15 @@ struct WorkspaceShellView: View {
     }
 
     #if os(iOS)
-    /// The compact (iPhone-style) shell: the primary destinations live in the
-    /// system TabView with the transient search tab.
-    private func compactScaffold(presentation: WorkspaceShellRenderPresentation) -> some View {
+    /// Primary destinations retain their own navigation across tab switches.
+    /// Workspace tabs keep split navigation at regular widths.
+    private func primaryScaffold(presentation: WorkspaceShellRenderPresentation) -> some View {
         MobilePrimaryTabScaffold(
             selection: $selectedPrimaryTab,
             searchCoordinator: primarySearchCoordinator,
             notificationUnreadCount: presentation.notificationUnreadCount,
+            feedNeedsInputCount: presentation.agentFeedNeedsInputCount,
+            showsNotificationsTab: !displaySettings.feedReplacesNotifications,
             taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
                 ? nil
                 : taskComposerAction
@@ -433,7 +444,27 @@ struct WorkspaceShellView: View {
             workspaceTabContent(
                 presentation: presentation
             )
+        } feed: {
+            NavigationStack(path: $feedNavigationPath) {
+                agentFeedStoreView(for: presentation)
+                    .toolbar {
+                        if feedNavigationPath.isEmpty {
+                            rootToolbarContent
+                        }
+                    }
+                    .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
+                        workspaceDestination(
+                            for: workspaceID,
+                            createWorkspace: createWorkspaceInCompactStack,
+                            canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+                        )
+                        .mobileToolbarVisibility(.hidden, for: .tabBar)
+                    }
+            }
         } notifications: {
+            if !usesCompactStack {
+                workspaceTabContent(presentation: presentation)
+            } else {
             NavigationStack(path: $notificationNavigationPath) {
                 NotificationFeedStoreView(
                     store: store,
@@ -466,10 +497,15 @@ struct WorkspaceShellView: View {
             .onChange(of: pendingPrimarySearchNotificationNavigationID) { _, _ in
                 consumePendingPrimarySearchNavigation(for: .notifications)
             }
+            }
+        } cloud: {
+            // Supplied by the composition root; the shell owns no Cloud code.
+            cloudTabContent?.makeView()
         } search: {
             primarySearchTabContent(presentation: presentation)
         }
     }
+
     #endif
 
     #if os(iOS)
@@ -489,9 +525,11 @@ struct WorkspaceShellView: View {
     #endif
 
     private var primarySearchNavigationPath: Binding<[MobileWorkspacePreview.ID]> {
-        primarySearchCoordinator.scope == .workspaces
-            ? $workspaceSearchNavigationPath
-            : $notificationSearchNavigationPath
+        switch primarySearchCoordinator.scope {
+        case .workspaces: $workspaceSearchNavigationPath
+        case .notifications: $notificationSearchNavigationPath
+        case .feed: .constant([])
+        }
     }
 
     private func primarySearchTabContent(
@@ -520,6 +558,8 @@ struct WorkspaceShellView: View {
                                 createWorkspaceGroupAction: createWorkspaceGroupFromSearchClosure
                             )
                         }
+                    case .feed:
+                        agentFeedStoreView(for: presentation)
                     case .notifications:
                         NotificationFeedStoreView(
                             store: store,
@@ -698,7 +738,8 @@ struct WorkspaceShellView: View {
     /// sheet already occupying the presenter) never marks pages as seen.
     private func presentWhatsNewIfNeeded() {
         guard let whatsNewCenter, whatsNewCenter.hasCompletedInitialRefresh,
-              !showsWhatsNewSheet else { return }
+              !showsWhatsNewSheet,
+              !whatsNewPresentationPolicy.suppressLaunchPresentation else { return }
         let pages = whatsNewCenter.unseenPages
         guard !pages.isEmpty else { return }
         whatsNewCandidatePages = pages
@@ -942,17 +983,16 @@ struct WorkspaceShellView: View {
     #endif
 
     #if os(iOS)
-    /// The split (iPad) sidebar column: one destination surface switched by
-    /// the bottom-bar control, the shared root toolbar on top, and the native
-    /// search field scoped to the visible destination. There is no TabView in
-    /// this hierarchy, so no floating tab strip can overlap the column
-    /// toolbars.
+    /// The workspace tab's split sidebar. Top-level destination navigation is
+    /// provided by the system tab bar; this sidebar owns workspace search and
+    /// the Mac picker.
     private func splitSidebar(presentation: WorkspaceShellRenderPresentation) -> some View {
         let selectedMacDeviceIDs = presentation.selectedNotificationFeedMacDeviceIDs
         let notificationItems = presentation.notificationFeedItems
-        let unreadCount = presentation.notificationUnreadCount
         return Group {
             switch splitSidebarDestination {
+            case .feed:
+                agentFeedStoreView(for: presentation)
             case .notifications:
                 NotificationFeedStoreView(
                     store: store,
@@ -961,7 +1001,12 @@ struct WorkspaceShellView: View {
                     projection: notificationFeedProjection,
                     selectedMacDeviceIDs: selectedMacDeviceIDs
                 )
-            case .workspaces, .search:
+            case .cloud where cloudTabContent != nil:
+                // The sidebar column already owns a navigation container and
+                // the destination bar, so Cloud renders inside it rather than
+                // bringing a stack of its own.
+                cloudTabContent?.makeEmbeddedView()
+            case .workspaces, .cloud, .search:
                 workspaceList(
                     navigationStyle: .sidebar,
                     searchText: primarySearchCoordinator.searchDestinationText(for: .workspaces),
@@ -971,7 +1016,9 @@ struct WorkspaceShellView: View {
             }
         }
         .toolbar {
-            if splitSidebarDestination == .notifications {
+            if splitSidebarDestination == .notifications
+                || splitSidebarDestination == .feed
+                || (splitSidebarDestination == .cloud && cloudTabContent != nil) {
                 ToolbarItem(placement: .topBarTrailing) {
                     // Notifications has no WorkspaceListView toolbar, so the
                     // sidebar owns its trailing control directly in this path.
@@ -985,9 +1032,6 @@ struct WorkspaceShellView: View {
         .toolbar {
             rootToolbarContent
         }
-        .toolbar {
-            splitSidebarBottomBar(unreadCount: unreadCount)
-        }
         // Keep NavigationSplitView's synthesized control out of the toolbar.
         // The shared custom action is owned by this sidebar while open and by
         // the detail bar after the sidebar is hidden.
@@ -1000,6 +1044,8 @@ struct WorkspaceShellView: View {
         .searchScopes(splitSearchScope, activation: .onSearchPresentation) {
             Text(L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"))
                 .tag(MobilePrimarySearchScope.workspaces)
+            Text(L10n.string("mobile.tabs.feed", defaultValue: "Feed"))
+                .tag(MobilePrimarySearchScope.feed)
             Text(L10n.string("mobile.tabs.notifications", defaultValue: "Notifications"))
                 .tag(MobilePrimarySearchScope.notifications)
         }
@@ -1039,7 +1085,12 @@ struct WorkspaceShellView: View {
             WorkspaceSidebarDestinationControl(
                 selection: splitSidebarDestinationSelection,
                 workspacesTitle: L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
-                notificationsTitle: notificationsSegmentTitle(unreadCount: unreadCount)
+                feedTitle: L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
+                notificationsTitle: notificationsSegmentTitle(unreadCount: unreadCount),
+                showsNotifications: !displaySettings.feedReplacesNotifications,
+                cloudTitle: cloudTabContent == nil
+                    ? nil
+                    : L10n.string("mobile.tabs.cloud", defaultValue: "Cloud")
             )
         }
         if #available(iOS 26.0, *) {
@@ -1064,7 +1115,11 @@ struct WorkspaceShellView: View {
     private struct WorkspaceSidebarDestinationControl: View {
         let selection: Binding<MobilePrimaryTab>
         let workspacesTitle: String
+        let feedTitle: String
         let notificationsTitle: String
+        let showsNotifications: Bool
+        /// Nil in a build without Cloud, which omits the destination.
+        let cloudTitle: String?
 
         var body: some View {
             HStack(spacing: 0) {
@@ -1074,10 +1129,24 @@ struct WorkspaceShellView: View {
                     accessibilityID: "MobileSplitSidebarWorkspaces"
                 )
                 destinationButton(
-                    .notifications,
-                    title: notificationsTitle,
-                    accessibilityID: "MobileSplitSidebarNotifications"
+                    .feed,
+                    title: feedTitle,
+                    accessibilityID: "MobileSplitSidebarFeed"
                 )
+                if showsNotifications {
+                    destinationButton(
+                        .notifications,
+                        title: notificationsTitle,
+                        accessibilityID: "MobileSplitSidebarNotifications"
+                    )
+                }
+                if let cloudTitle {
+                    destinationButton(
+                        .cloud,
+                        title: cloudTitle,
+                        accessibilityID: "MobileSplitSidebarCloud"
+                    )
+                }
             }
             .frame(minHeight: 44)
             .fixedSize(horizontal: true, vertical: false)
@@ -1194,6 +1263,8 @@ struct WorkspaceShellView: View {
 
     private var splitSearchPrompt: Text {
         switch splitSearchFieldScope {
+        case .feed:
+            Text(L10n.string("mobile.agentFeed.search.placeholder", defaultValue: "Search Feed"))
         case .workspaces:
             Text(
                 L10n.string(
@@ -1263,6 +1334,16 @@ struct WorkspaceShellView: View {
             createWorkspace: resolvedCreateWorkspace,
             createWorkspaceInGroup: resolvedCreateWorkspaceInGroup,
             createWorkspaceGroup: resolvedCreateWorkspaceGroup,
+            createWorkspaceOnCloudMachine: { createWorkspaceOnExternalHost(onHost: $0) },
+            newWorkspaceComputerTargets: newWorkspaceComputerTargets,
+            createWorkspaceOnComputer: { target, kind in
+                createWorkspace(on: target, kind: kind, create: resolvedCreateWorkspace)
+            },
+            sshNewWorkspaceKinds: sshNewWorkspaceKinds,
+            createSSHWorkspace: sshCreateHostID.map { hostID in
+                { kind in createSSHWorkspace(hostID: hostID, kind: kind) }
+            },
+            sshCreateHostID: sshCreateHostID,
             canCreateWorkspace: canCreateWorkspaceForSelection,
             macSelection: $macSelection,
             switchMac: { macDeviceID, instanceTag in
@@ -1327,7 +1408,8 @@ struct WorkspaceShellView: View {
             hasStore: true,
             connectionRequiresReauth: store.connectionRequiresReauth,
             connectionRecoveryFailed: store.connectionRecoveryFailed,
-            isRecoveringConnection: store.isRecoveringConnection,
+            isRecoveringConnection: store.isRecoveringConnection
+                && store.workspaceListShowsForegroundRecovery,
             isRecoveringWorkspaceList: store.isRecoveringWorkspaceList,
             connectionStatus: listConnectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
@@ -1341,6 +1423,13 @@ struct WorkspaceShellView: View {
         let scope = macSelectionScope
         let selectedMachineIDs = scope.selectedScopeEntries
         let visibleNotificationFeedItems = store.notificationFeedItems(scopedTo: selectedMachineIDs)
+        let selectedFeedOwners = selectedMachineIDs.map(MobileWorkspaceListFilter.parsedMachineEntries)
+        let visibleAgentFeedItems = store.agentFeedItems.filter { item in
+            guard let selectedFeedOwners, !selectedFeedOwners.isEmpty else { return true }
+            return selectedFeedOwners.contains {
+                $0.matches(deviceID: item.macDeviceID, rowTag: item.macInstanceTag)
+            }
+        }
         let notificationUnreadCount = visibleNotificationFeedItems.lazy.filter { !$0.isRead }.count
         var names: [String: String] = [:]
         for workspace in store.workspaces {
@@ -1373,7 +1462,7 @@ struct WorkspaceShellView: View {
             names[mac.id] = mac.resolvedName
         }
         if let buildScope = MobileIOSBuildScope.current() {
-            names = names.mapValues(buildScope.computerDisplayName)
+            names = buildScope.computerDisplayNames(names, isExternalHost: store.externalHostOwnsHost)
         }
 
         let buildLabelsByID = WorkspaceMacBuildLabelResolver().labels(
@@ -1394,11 +1483,27 @@ struct WorkspaceShellView: View {
             notificationUnreadCount: notificationUnreadCount,
             notificationFeedStatus: store.notificationFeedStatus(scopedTo: selectedMachineIDs),
             selectedNotificationFeedMacDeviceIDs: selectedMachineIDs,
+            agentFeedItems: visibleAgentFeedItems,
+            agentFeedStatus: store.agentFeedStatus,
+            agentFeedNeedsInputCount: visibleAgentFeedItems.lazy.filter(\.effectiveNeedsInput).count,
+            agentFeedPendingReplyRequestIDs: store.agentFeedPendingReplyRequestIDs,
+            agentFeedPendingTerminalReplyItemIDs: store.agentFeedPendingTerminalReplyItemIDs,
             toolbarMachineSnapshots: toolbarMachineSnapshots,
             canCreateWorkspaceForSelection: scope.canCreateWorkspace(
                 base: canCreateWorkspace,
                 switchPending: pendingMacSwitchID != nil
             )
+        )
+    }
+
+    private func agentFeedStoreView(for presentation: WorkspaceShellRenderPresentation) -> AgentFeedStoreView {
+        AgentFeedStoreView(
+            store: store,
+            items: presentation.agentFeedItems,
+            status: presentation.agentFeedStatus,
+            pendingReplyRequestIDs: presentation.agentFeedPendingReplyRequestIDs,
+            pendingTerminalReplyItemIDs: presentation.agentFeedPendingTerminalReplyItemIDs,
+            searchCoordinator: primarySearchCoordinator
         )
     }
 
@@ -1508,6 +1613,14 @@ struct WorkspaceShellView: View {
             }
             return
         }
+        if request.origin == .agentFeed,
+           selectedPrimaryTab == .feed,
+           !primarySearchCoordinator.isPresented {
+            if feedNavigationPath.last != workspaceID {
+                feedNavigationPath = [workspaceID]
+            }
+            return
+        }
         if selectedPrimaryTab == .search || primarySearchCoordinator.isPresented {
             pendingPrimarySearchWorkspaceNavigationID = workspaceID
             transitionPrimaryTab(to: .workspaces)
@@ -1532,6 +1645,9 @@ struct WorkspaceShellView: View {
             guard let workspaceID = pendingPrimarySearchWorkspaceNavigationID else { return }
             pendingPrimarySearchWorkspaceNavigationID = nil
             selectWorkspaceImmediately(workspaceID)
+        case .feed:
+            // The Feed has no search-result navigation lane yet.
+            break
         case .notifications:
             guard notificationsStackIsOnScreen else { return }
             guard let workspaceID = pendingPrimarySearchNotificationNavigationID else { return }
@@ -1539,6 +1655,8 @@ struct WorkspaceShellView: View {
             if notificationNavigationPath.last != workspaceID {
                 notificationNavigationPath = [workspaceID]
             }
+        case .cloud:
+            break
         case .search:
             break
         }
@@ -1551,7 +1669,7 @@ struct WorkspaceShellView: View {
     ) -> Bool {
         let previousTab = selectedPrimaryTab
         if (selectedPrimaryTab == .search || primarySearchCoordinator.isPresented),
-           tab.searchScope != nil {
+           tab != .search {
             primarySearchCoordinator.deactivateCurrentSearch()
         }
         beforeSelection()
@@ -1608,7 +1726,9 @@ struct WorkspaceShellView: View {
     private func diagnosticPrimaryTab(_ tab: MobilePrimaryTab) -> DiagnosticPrimaryTab {
         switch tab {
         case .workspaces: .workspaces
+        case .feed: .feed
         case .notifications: .notifications
+        case .cloud: .cloud
         case .search: .search
         }
     }
@@ -1617,6 +1737,7 @@ struct WorkspaceShellView: View {
         switch primarySearchCoordinator.scope {
         case .workspaces: .workspaces
         case .notifications: .notifications
+        case .feed: .feed
         }
     }
 
@@ -1680,14 +1801,35 @@ struct WorkspaceShellView: View {
     }
 
     var canCreateWorkspaceForMacSelection: Bool {
-        macSelectionScope.canCreateWorkspace(
+        if sshCreateHostID != nil || newWorkspaceComputerTargets.count > 1 {
+            return pendingMacSwitchID == nil
+        }
+        return macSelectionScope.canCreateWorkspace(
             base: canCreateWorkspace,
             switchPending: pendingMacSwitchID != nil
         )
     }
 
+    /// The SSH computer the workspace list is scoped to, if any.
+    var selectedSSHHostID: UUID? {
+        guard case .machine(let id) = macSelection,
+              let hostID = store.sshHostID(computerDeviceID: id),
+              store.sshComputers.host(id: hostID) != nil else { return nil }
+        return hostID
+    }
+
+    /// Where New Workspace goes when it targets an SSH computer: the selected
+    /// one, or the only one when no Mac is connected.
+    var sshCreateHostID: UUID? {
+        if let selectedSSHHostID { return selectedSSHHostID }
+        guard store.connectionState != .connected,
+              case .all = macSelectionScope.visibleSelection,
+              store.sshComputers.hosts.count == 1 else { return nil }
+        return store.sshComputers.hosts.first?.id
+    }
+
     @MainActor
-    private func switchMacFromWorkspacePicker(
+    func switchMacFromWorkspacePicker(
         macDeviceID: String,
         instanceTag: String?
     ) async -> Bool {
@@ -1715,7 +1857,7 @@ struct WorkspaceShellView: View {
         }
     }
 
-    private var macSelectionScope: WorkspaceMacSelectionScope {
+    var macSelectionScope: WorkspaceMacSelectionScope {
         WorkspaceMacSelectionScope(
             selection: macSelection,
             workspaces: store.workspaces,
@@ -1765,11 +1907,19 @@ struct WorkspaceShellView: View {
         toggleSidebar: (() -> Void)? = nil,
         showsSidebarToggle: Bool = false
     ) -> some View {
-        WorkspaceDetailContainer(
+        // A Cloud machine's workspace makes its new workspace on that machine,
+        // whether or not a Mac is connected.
+        let externalHostID = workspaceID.flatMap { store.externalHostID(ofWorkspace: $0) }
+        return WorkspaceDetailContainer(
             store: store,
             workspaceID: workspaceID,
-            createWorkspace: createWorkspace,
-            canCreateWorkspace: canCreateWorkspaceForSelection,
+            createWorkspace: externalHostID == nil || workspaceID == nil
+                ? createWorkspace
+                : { [workspaceID] in
+                    if let workspaceID { createWorkspaceOnExternalHost(beside: workspaceID) }
+                },
+            canCreateWorkspace: externalHostID.map { store.externalHostIsConnected($0) }
+                ?? canCreateWorkspaceForSelection,
             renameWorkspace: renameWorkspaceClosure,
             customizeWorkspace: customizeWorkspaceClosure,
             setWorkspaceUnread: setWorkspaceUnreadClosure,

@@ -12,10 +12,13 @@ struct NativeSSHControlMasterOwnershipRecoveryTests {
     @Test("A live foreign owner prevents inherited-forward recovery")
     func foreignOwnerFailsClosed() async {
         let controlPath =
-            "/tmp/cmux-ssh-501-0123456789abcdef0123456789abcdef01234567"
+            "/Users/alice/.cmux/ssh/0123456789abcdef0123456789abcdef01234567"
         let runner = RecordingProcessRunner()
         let broker = NativeSSHConnectionBroker(
-            sharingOptions: SSHConnectionSharingOptions(userID: 501),
+            sharingOptions: SSHConnectionSharingOptions(
+                userID: 501,
+                controlSocketDirectoryPath: "/Users/alice/.cmux/ssh"
+            ),
             clock: RecordingImmediateClock(),
             jitterMilliseconds: { 200 },
             cleanupLauncher: { _ in },
@@ -67,6 +70,7 @@ struct NativeSSHControlMasterOwnershipRecoveryTests {
         defer { try? FileManager.default.removeItem(at: scratchDirectory) }
         let sharingOptions = SSHConnectionSharingOptions(
             userID: Int(getuid()),
+            controlSocketDirectoryPath: "/Users/alice/.cmux/ssh",
             authenticationLockDirectoryPath: scratchDirectory.path
         )
         let firstRegistry = NativeSSHControlMasterOwnershipRegistry(
@@ -84,7 +88,7 @@ struct NativeSSHControlMasterOwnershipRecoveryTests {
         )
         let ownerWorkspaceID = UUID()
         let controlPath =
-            "/tmp/cmux-ssh-\(getuid())-" +
+            "/Users/alice/.cmux/ssh/" +
             "0123456789abcdef0123456789abcdef01234567"
         let handoff = try #require(
             broker.beginControlMasterAdoption(

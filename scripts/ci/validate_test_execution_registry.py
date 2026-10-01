@@ -86,7 +86,8 @@ def all_workflow_text(workflows: Path = WORKFLOWS) -> str:
     """Every workflow's text, for asking whether a path is executed anywhere.
 
     A Linux guard does not have to live in ci-guards.yml to be live. The
-    always-on lanes run guards too -- testbox-broker-guard.yml deliberately has
+    routed CI lanes run guards too -- the Testbox checks now live in
+    ci-guards.yml's `ci` group, while testbox-broker-guard.yml deliberately has
     no path filter, and ci-artifact-transport.yml owns its own -- so checking
     ci-guards.yml alone rejects a test that demonstrably executes on every
     pull request.
@@ -465,20 +466,27 @@ def report_warnings(warnings: list[str]) -> None:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-sha", default="")
+    parser.add_argument(
+        "--repo-root",
+        type=Path,
+        default=ROOT,
+        help="repository root to validate (defaults to the helper's checkout)",
+    )
     parser.add_argument("--write", action="store_true",
                         help="register unregistered tests a workflow already runs, then validate")
     args = parser.parse_args(argv)
+    root = args.repo_root.resolve()
 
     if args.write:
         try:
-            for path in register_derivable(ROOT):
+            for path in register_derivable(root):
                 print(f"registered {path} on lane {DIRECT_RUN_LANE}")
         except (OSError, ValueError) as error:
             print(error, file=sys.stderr)
             return 1
 
     try:
-        errors, warnings, lane_counts = validate(ROOT, args.base_sha)
+        errors, warnings, lane_counts = validate(root, args.base_sha)
     except (OSError, ValueError) as error:
         print(error, file=sys.stderr)
         return 1
@@ -492,7 +500,7 @@ def main(argv: list[str]) -> int:
         return 1
 
     summary = ", ".join(f"{lane}={count}" for lane, count in sorted(lane_counts.items()))
-    discovered = sum(1 for path in (ROOT / "tests").glob("test_*.py") if path.is_file())
+    discovered = sum(1 for path in (root / "tests").glob("test_*.py") if path.is_file())
     print(f"Python test execution registry valid: {discovered} tests ({summary})")
     return 0
 

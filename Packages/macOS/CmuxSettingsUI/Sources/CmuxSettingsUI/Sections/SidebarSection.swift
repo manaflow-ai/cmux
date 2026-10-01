@@ -31,9 +31,11 @@ public struct SidebarSection: View {
     @State private var showLog: DefaultsValueModel<Bool>
     @State private var showProgress: DefaultsValueModel<Bool>
     @State var showAgentActivity: DefaultsValueModel<Bool>
+    @State var showAgentUsage: DefaultsValueModel<Bool>
     @State var loadingSpinnerPosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
-    @State private var showMetadata: DefaultsValueModel<Bool>
+    @State var showMetadata: DefaultsValueModel<Bool>
+    @State private var compactAgentStatus: DefaultsValueModel<Bool>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
@@ -62,9 +64,11 @@ public struct SidebarSection: View {
         _showLog = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showLog))
         _showProgress = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showProgress))
         _showAgentActivity = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showAgentActivity))
+        _showAgentUsage = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showAgentUsage))
         _loadingSpinnerPosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.loadingSpinnerPosition))
         _notificationBadgePosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationBadgePosition))
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
+        _compactAgentStatus = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.compactAgentStatus))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
     }
@@ -98,14 +102,12 @@ public struct SidebarSection: View {
             prClickable,
             prLinks,
             portLinks,
-            showSSH,
-            showPorts,
-            showLog,
-            showProgress,
-            showAgentActivity,
+            showSSH, showPorts, showLog,
+            showProgress, showAgentActivity, showAgentUsage,
             loadingSpinnerPosition,
             notificationBadgePosition,
             showMetadata,
+            compactAgentStatus,
             rightMaxWidth,
             rememberedRightMaxWidth,
         ]
@@ -510,6 +512,17 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.compactAgentStatus"),
+                String(localized: "settings.app.compactAgentStatus", defaultValue: "Compact Agent Status"),
+                subtitle: String(localized: "settings.app.compactAgentStatus.subtitle", defaultValue: "Show a workspace's agent, unread and pull request state as one colored icon before the title instead of separate rows. Hover the icon for details.")
+            ) {
+                Toggle("", isOn: Binding(get: { compactAgentStatus.current }, set: { compactAgentStatus.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
         }
     }
 

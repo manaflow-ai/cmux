@@ -99,11 +99,14 @@ public struct AgentLifecycleReducer: Sendable {
         case .sessionStarted:
             return (.unknown, false)
         case .turnStarted:
+            // A new turn is active even when the session still reports work
+            // from an earlier watcher or background task. Pending work only
+            // changes the completed-turn projection below.
             return (.running, false)
         case .attentionResolved:
-            return (draft.declaredPhase ?? (draft.pendingWork ? .running : .idle), false)
+            return (draft.declaredPhase ?? (draft.pendingWork ? .backgroundWorkPending : .idle), false)
         case .turnCompleted, .idleObserved:
-            return (draft.pendingWork ? .running : .idle, false)
+            return (draft.pendingWork ? .backgroundWorkPending : .idle, false)
         case .approvalRequested, .questionRequested, .planReviewRequested:
             return (.needsInput, false)
         case .errorReported:

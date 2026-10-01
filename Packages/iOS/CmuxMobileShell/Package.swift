@@ -20,6 +20,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
+        .package(path: "../../Shared/CmuxTerminalSizing"),
         .package(path: "../../Shared/CmuxWorkspacePresence"),
         .package(path: "../../Shared/CmuxAgentChat"),
         .package(path: "../CmuxMobileChanges"),
@@ -27,15 +28,19 @@ let package = Package(
         .package(path: "../CmuxMobileBrowserStream"),
         .package(path: "../CmuxMobilePairedMac"),
         .package(path: "../CmuxMobileRPC"),
+        .package(path: "../CmuxMobileSSH"),
         .package(path: "../CmuxMobileShellModel"),
         .package(path: "../CmuxMobileSupport"),
+        .package(path: "../CmuxMobileTerminalKit"),
         .package(path: "../CmuxMobileTransport"),
+        .package(path: "../CmuxMobileTunnel"),
     ],
     targets: [
         .target(
             name: "CmuxMobileShell",
             dependencies: [
                 "CMUXMobileCore",
+                "CmuxTerminalSizing",
                 "CmuxWorkspacePresence",
                 "CmuxAgentChat",
                 "CmuxMobileChanges",
@@ -43,9 +48,12 @@ let package = Package(
                 "CmuxMobileBrowserStream",
                 "CmuxMobilePairedMac",
                 "CmuxMobileRPC",
+                "CmuxMobileSSH",
                 "CmuxMobileShellModel",
                 "CmuxMobileSupport",
+                "CmuxMobileTerminalKit",
                 "CmuxMobileTransport",
+                "CmuxMobileTunnel",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -82,6 +90,8 @@ let package = Package(
                 "CmuxMobileRPC",
                 "CmuxMobileShellModel",
                 "CmuxMobileTransport",
+                "CmuxTerminalSizing",
+                "CmuxMobileTunnel",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

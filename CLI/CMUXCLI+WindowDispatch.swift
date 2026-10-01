@@ -10,7 +10,7 @@ extension CMUXCLI {
         if normalizedCommand == "window" {
             return false
         }
-        if normalizedCommand == "surface-resume" {
+        if normalizedCommand == "surface-resume" || normalizedCommand == "pr" {
             return false
         }
         if normalizedCommand == "restore" || normalizedCommand == "fork" {
@@ -22,6 +22,13 @@ extension CMUXCLI {
             return false
         }
         if normalizedCommand == "read-screen" || normalizedCommand == "read-selection" || normalizedCommand == "current" {
+            return false
+        }
+        // A capture shows whatever is on screen; activating a window first
+        // would put the capture's own side effect in the image.
+        if normalizedCommand == "record"
+            || normalizedCommand == "shot"
+            || normalizedCommand == "screenshot" {
             return false
         }
         if normalizedCommand == "rpc",
