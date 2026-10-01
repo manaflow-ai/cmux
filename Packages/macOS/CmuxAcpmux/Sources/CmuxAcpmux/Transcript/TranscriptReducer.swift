@@ -172,6 +172,16 @@ public struct TranscriptReducer: Sendable {
                 pendingLocal.removeAll { $0.promptId == promptId }
             }
             let text = msg["text"]?.stringValue ?? ""
+            // acpmux 0.1 does not echo the client prompt id in its
+            // user_message record. Reconcile by text so the authoritative
+            // record upgrades the optimistic row instead of rendering a
+            // second identical bubble.
+            let pendingPromptId = promptId == nil
+                ? pendingLocal.last(where: { !$0.failed && $0.text == text })?.promptId
+                : nil
+            if let pendingPromptId {
+                pendingLocal.removeAll { $0.promptId == pendingPromptId }
+            }
             let steersRunningTurn = msg["steer"]?.boolValue == true && turn != nil
             if !steersRunningTurn, turn == nil || turn?.hasOutput == true {
                 // Old logs have no turn_started; a user message opens the turn.
@@ -179,7 +189,7 @@ public struct TranscriptReducer: Sendable {
                 openTurn(key: record.seq, at: record.at)
             }
             turn?.sawUserMessage = true
-            let rowID = Self.userRowID(promptId: promptId, seq: record.seq)
+            let rowID = Self.userRowID(promptId: promptId ?? pendingPromptId, seq: record.seq)
             if indexByID[rowID] != nil {
                 updateRow(rowID) { $0 = .user(TranscriptUserMessage(text: text)) }
             } else {

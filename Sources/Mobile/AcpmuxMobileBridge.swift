@@ -131,9 +131,11 @@ final class AcpmuxMobileBridge {
             )
         }
         let state: ChatAgentState
-        if model.sessionId == summary.sessionId, model.pendingPermission != nil {
+        let isSelected = model.sessionId == summary.sessionId
+        let isWorking = isSelected ? model.isWorking : summary.isWorking
+        if isSelected, model.pendingPermission != nil {
             state = .needsInput(since: date(milliseconds: summary.updatedAt))
-        } else if summary.isWorking || model.isWorking, model.sessionId == summary.sessionId {
+        } else if isWorking {
             state = .working(since: date(milliseconds: summary.updatedAt))
         } else if summary.status == "closed" || summary.status == "disconnected" {
             state = .ended

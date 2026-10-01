@@ -81,6 +81,21 @@ struct AcpmuxChatSessionModelTests {
         model.stop()
     }
 
+    @Test func transcriptTurnEndWinsOverStaleRunningSummary() async throws {
+        var attach = try FixtureLoader().fakeAttach()
+        attach.session.summary.status = "running"
+        let api = FakeAcpmuxAPI(attachResult: attach)
+        let model = AcpmuxChatSessionModel(
+            connector: FakeConnector(api: api),
+            sessionId: attach.session.summary.sessionId,
+            workingDirectory: nil
+        )
+        model.start()
+        await waitUntil { model.rows.count == 11 }
+        #expect(!model.isWorking)
+        model.stop()
+    }
+
     @Test func sendShowsLocalEchoAndPromptsDaemon() async throws {
         var attach = try FixtureLoader().fakeAttach()
         attach.events = []

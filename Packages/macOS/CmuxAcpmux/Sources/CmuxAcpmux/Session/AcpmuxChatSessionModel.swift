@@ -93,7 +93,12 @@ public final class AcpmuxChatSessionModel {
     /// Whether the agent is working on a turn.
     public var isWorking: Bool {
         _ = transcriptRevision
-        return reducer.isTurnOpen || summary?.isWorking == true
+        // Once a transcript has been attached, its turn markers are the
+        // authoritative live state. Session summaries are refreshed on a
+        // separate notification path and can briefly still say "running"
+        // after the terminal turn record arrived.
+        if reducer.lastSeq > 0 { return reducer.isTurnOpen }
+        return summary?.isWorking == true
     }
 
     /// Prompts waiting behind the running turn.
