@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""cmux-next tour media: the runner pick, the tour format and the PR comment."""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+
+import cmux_next_media_runner as runner  # noqa: E402
+
+
+def load(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+MEDIA = ROOT / "scripts" / "cmux-next" / "media"
+tour = load("cmux_next_tour", MEDIA / "tour.py")
+publish = load("cmux_next_publish", MEDIA / "publish.py")
+
+SLOTS = json.dumps({"glaeda-std-xcode-26.6": 42, "glaeda-root-std-xcode-26.6": 19,
+                    "glaeda-gui-std-xcode-26.6": 10})
+XCODE = "/Applications/Xcode_26.6.app"
+
+
+class RunnerPick(unittest.TestCase):
+    def test_a_same_repository_head_takes_the_gui_runner(self) -> None:
+        label, reason = runner.pick(same_repo=True, owned="1", owned_slots=SLOTS, pr_xcode_app=XCODE)
+        self.assertEqual(label, "glaeda-gui-std-xcode-26.6")
+        self.assertIn("10 gui runner", reason)
+
+    def test_never_blacksmith_and_never_a_fork(self) -> None:
+        cases = {
+            "fork": dict(same_repo=False, owned="1", owned_slots=SLOTS, pr_xcode_app=XCODE),
+            "owned off": dict(same_repo=True, owned="0", owned_slots=SLOTS, pr_xcode_app=XCODE),
+            "no gui slots": dict(same_repo=True, owned="1", pr_xcode_app=XCODE,
+                                 owned_slots=json.dumps({"glaeda-std-xcode-26.6": 42})),
+            "other xcode": dict(same_repo=True, owned="1", owned_slots=SLOTS,
+                                pr_xcode_app="/Applications/Xcode_26.3.app"),
+            "malformed slots": dict(same_repo=True, owned="1", owned_slots="{", pr_xcode_app=XCODE),
+        }
+        for name, kwargs in cases.items():
+            with self.subTest(name):
+                label, reason = runner.pick(**kwargs)
+                self.assertEqual(label, "")
+                self.assertTrue(reason)
+
+
+class TourFormat(unittest.TestCase):
+    def write(self, data) -> Path:
+        directory = Path(tempfile.mkdtemp())
+        path = directory / "sample.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    def test_every_checked_in_tour_loads(self) -> None:
+        tours = sorted((MEDIA / "tours").glob("*.json"))
+        self.assertTrue(tours)
+        for path in tours:
+            with self.subTest(path.name):
+                loaded = tour.load_tour(path)
+                self.assertTrue(loaded["steps"])
+
+    def test_bad_steps_are_refused_with_the_step_number(self) -> None:
+        bad = {
+            "unknown key": {"title": "x", "run": ["a"]},
+            "no title": {"cmux": ["a"]},
+            "string command": {"title": "x", "cmux": "pane split-right"},
+            "daemon without command": {"title": "x", "daemon": True},
+            "long wait": {"title": "x", "wait": 120},
+            "empty optional": {"title": "x", "optional": ""},
+        }
+        for name, step in bad.items():
+            with self.subTest(name):
+                path = self.write({"title": "T", "steps": [{"title": "ok"}, step]})
+                with self.assertRaisesRegex(tour.TourError, "step 2"):
+                    tour.load_tour(path)
+
+    def test_a_tour_needs_a_title_and_steps(self) -> None:
+        for data in ({"steps": [{"title": "x"}]}, {"title": "T", "steps": []}, {"title": "T", "steps": [], "x": 1}):
+            with self.subTest(data=data), self.assertRaises(tour.TourError):
+                tour.load_tour(self.write(data))
+
+    def test_check_mode_validates_without_an_app(self) -> None:
+        self.assertEqual(tour.main(["--check", str(MEDIA / "tours")]), 0)
+        self.assertEqual(tour.main(["--check", str(self.write({"title": "T", "steps": [{}]}))]), 2)
+
+    def test_a_tour_fails_only_on_a_required_step(self) -> None:
+        manifest = {"steps": [{"status": "ok"}, {"status": "unavailable"}]}
+        self.assertTrue(tour.passed(manifest))
+        self.assertFalse(tour.passed({"steps": [{"status": "failed"}]}))
+        self.assertFalse(tour.passed({"steps": [], "error": "launch: no socket"}))
+
+
+class Comment(unittest.TestCase):
+    MANIFEST = {
+        "name": "core", "title": "Core UI",
+        "steps": [
+            {"index": 1, "title": "Launch", "status": "ok", "shot": "shots/01-launch.png"},
+            {"index": 2, "title": "Split | right", "status": "failed", "detail": "exited 2",
+             "command": "cmux pane split-right", "shot": "shots/02-split-right-failed.png"},
+            {"index": 3, "title": "Agent chat", "status": "unavailable",
+             "detail": "exited 1 (agent chat views are not ported yet)"},
+        ],
+    }
+    URLS = {"shots/01-launch.png": "https://raw/01.png", "shots/02-split-right-failed.png": "https://raw/02.png",
+            "tour.gif": "https://raw/tour.gif", "tour.mp4": "https://raw/tour.mp4"}
+
+    def test_failed_steps_show_inline_and_the_rest_fold(self) -> None:
+        section = publish.tour_section(self.MANIFEST, self.URLS)
+        self.assertIn("### Core UI: 1 ok, 1 failed, 1 unavailable", section)
+        failed, _, folded = section.partition("<details>")
+        self.assertIn("https://raw/02.png", failed)
+        self.assertNotIn("https://raw/01.png", failed)
+        self.assertIn("https://raw/01.png", folded)
+        self.assertIn("Split \\| right", section)
+        self.assertIn("[Video (mp4)](https://raw/tour.mp4)", section)
+
+    def test_the_comment_carries_the_marker_and_a_note(self) -> None:
+        body = publish.render("a" * 40, [], "https://run", "The tour did not run: owned Macs are off.")
+        self.assertTrue(body.startswith(publish.COMMENT_MARKER))
+        self.assertIn("The tour did not run", body)
+        self.assertIn(publish.TOURS_DIR, body)
+
+    def test_dry_run_renders_from_tour_output(self) -> None:
+        media = Path(tempfile.mkdtemp())
+        (media / "core" / "shots").mkdir(parents=True)
+        (media / "core" / "shots" / "01-launch.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        (media / "core" / "manifest.json").write_text(json.dumps(self.MANIFEST), encoding="utf-8")
+        self.assertEqual(publish.main(["--media", str(media), "--pr", "1", "--sha", "b" * 40, "--dry-run"]), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
