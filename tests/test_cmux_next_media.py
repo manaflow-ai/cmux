@@ -102,6 +102,32 @@ class TourFormat(unittest.TestCase):
         self.assertFalse(tour.passed({"steps": [], "error": "launch: no socket"}))
 
 
+class CaptureRect(unittest.TestCase):
+    def screen(self, width=1920.0, height=1080.0):
+        screen = tour.Screen.__new__(tour.Screen)
+        screen.rect, screen.primary_width, screen.primary_height = None, width, height
+        return screen
+
+    def test_a_window_frame_becomes_a_top_left_rect(self) -> None:
+        screen = self.screen()
+        screen.follow([100, 200, 800, 600])
+        self.assertEqual(screen.rect, (100, 280, 800, 600))
+
+    def test_a_window_partly_off_screen_is_clamped(self) -> None:
+        screen = self.screen()
+        screen.follow([-50, 900, 400, 300])
+        self.assertEqual(screen.rect, (0, 0, 350, 180))
+        screen.follow([1800, 0, 400, 300])
+        self.assertEqual(screen.rect, (1800, 780, 120, 300))
+
+    def test_no_window_means_no_rect_and_no_shot(self) -> None:
+        screen = self.screen()
+        screen.follow(None)
+        screen.follow([0, 0, 10, 10])
+        self.assertIsNone(screen.rect)
+        self.assertEqual(screen.capture(Path("/tmp/never.png")), "no app window on screen to capture")
+
+
 class Comment(unittest.TestCase):
     MANIFEST = {
         "name": "core", "title": "Core UI",
@@ -171,6 +197,25 @@ class ArtifactIsData(unittest.TestCase):
             {"index": 1, "title": "<script>", "status": "ok", "shot": ["odd"]}]}, {})
         self.assertNotIn("<script>", section)
         self.assertNotIn("<img src=x>", section)
+
+    def test_markdown_mentions_and_code_spans_are_inert(self) -> None:
+        media = self.tour({"title": "T", "steps": [
+            {"index": 1, "title": "![x](https://tracker) @manaflow-ai/everyone", "status": "ok",
+             "command": "cmux `rm` [a](b)"}]})
+        (directory, manifest), = publish.manifests(media)
+        section = publish.tour_section(manifest, {})
+        self.assertNotIn("![x](", section)
+        self.assertNotIn("@manaflow-ai", section)
+        self.assertEqual(section.count("`"), 2)
+
+    def test_malformed_step_values_do_not_crash_the_comment(self) -> None:
+        media = self.tour({"title": ["x"], "error": {"a": 1}, "frames": "nope", "steps": [
+            {"index": "1", "title": 5, "status": ["ok"], "detail": 7, "command": 3, "shot": 9},
+            {"index": True, "status": "weird"}]})
+        (directory, manifest), = publish.manifests(media)
+        self.assertEqual([step["status"] for step in manifest["steps"]], ["failed", "failed"])
+        self.assertEqual(manifest["frames"], [])
+        self.assertIn("2 failed", publish.tour_section(manifest, {}))
 
     def test_no_capture_is_explained(self) -> None:
         section = publish.tour_section({"title": "T", "capture_mode": "none (direct: no permission)",

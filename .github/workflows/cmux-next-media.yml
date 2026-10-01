@@ -13,6 +13,9 @@ name: cmux-next media
 # holds the pr-media write token. That job never checks out or runs the pull
 # request's code: its scripts come from the base revision, and it reads the
 # tour artifact as data (publish.py validates names and paths before upload).
+# A pull_request run still takes this file from the pull request, so the
+# boundary that holds is same-repository write access: anyone who can push a
+# branch here could edit these jobs, and forks never reach them.
 
 on:
   pull_request:

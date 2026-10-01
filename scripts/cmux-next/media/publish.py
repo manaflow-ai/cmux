@@ -36,6 +36,7 @@ BOT = "github-actions[bot]"
 # Frames are taken about every 0.5 s; played at 4 per second the video runs at 2x.
 VIDEO_FPS = 4
 GIF_FPS = 4
+VIDEO_SIZE = (1280, 800)
 GIF_WIDTHS = (720, 560, 440)
 TOUR_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
 SHOT_PATH = re.compile(r"shots/[0-9]{2}-[a-z0-9-]{1,40}(?:-failed)?\.png")
@@ -67,9 +68,27 @@ def manifests(media: Path) -> list[tuple[Path, dict[str, Any]]]:
             print(f"warning: skipping {path}: {error}", file=sys.stderr)
             continue
         if isinstance(manifest, dict) and isinstance(manifest.get("steps", []), list):
-            manifest["steps"] = [step for step in manifest.get("steps", []) if isinstance(step, dict)]
+            manifest["steps"] = [clean_step(step) for step in manifest.get("steps", []) if isinstance(step, dict)]
+            manifest["frames"] = manifest.get("frames") if isinstance(manifest.get("frames"), list) else []
+            for key in ("title", "error", "capture_mode"):
+                if key in manifest:
+                    manifest[key] = str(manifest[key])
             found.append((path.parent, manifest))
     return found
+
+
+def clean_step(step: dict[str, Any]) -> dict[str, Any]:
+    """A step with only the fields the comment shows, each a plain string or int."""
+    status = step.get("status")
+    index = step.get("index")
+    return {
+        "index": index if isinstance(index, int) and not isinstance(index, bool) else "",
+        "title": str(step.get("title", ""))[:200],
+        "status": status if isinstance(status, str) and status in STATUS_TEXT else "failed",
+        "detail": str(step.get("detail") or "")[:500],
+        "command": str(step.get("command") or "")[:500],
+        "shot": step["shot"] if isinstance(step.get("shot"), str) else "",
+    }
 
 
 def shot_file(directory: Path, shot: Any) -> Path | None:
@@ -91,7 +110,9 @@ def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: 
     mp4 = into / "tour.mp4"
     done = run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-framerate", str(VIDEO_FPS),
                 "-i", str(directory / "frames/frame-%05d.jpg"),
-                "-vf", "scale='min(1280,iw)':-2,pad=ceil(iw/2)*2:ceil(ih/2)*2",
+                # A fixed output size: a frame of another size cannot break the stream.
+                "-vf", f"scale={VIDEO_SIZE[0]}:{VIDEO_SIZE[1]}:force_original_aspect_ratio=decrease,"
+                       f"pad={VIDEO_SIZE[0]}:{VIDEO_SIZE[1]}:(ow-iw)/2:(oh-ih)/2:color=white",
                 "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(mp4)],
                capture_output=True, text=True)
     if done.returncode != 0 or not mp4.is_file():
@@ -106,16 +127,22 @@ def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: 
 
 
 def step_row(step: dict[str, Any]) -> str:
-    status = STATUS_TEXT.get(step.get("status", ""), step.get("status", ""))
-    if step.get("detail"):
-        status += f": {step['detail']}"
-    command = f"`{step['command']}`" if step.get("command") else ""
-    return f"| {step.get('index', '')} | {cell(step.get('title', ''))} | {cell(status)} | {cell(command)} |"
+    status = STATUS_TEXT.get(step.get("status", ""), "")
+    detail = f": {cell(step['detail'])}" if step.get("detail") else ""
+    # A code span cannot hold its own backticks, and inside one nothing else is Markdown.
+    command = f"`{str(step['command']).replace('`', chr(39))}`" if step.get("command") else ""
+    return f"| {cell(step.get('index', ''))} | {cell(step.get('title', ''))} | {status}{detail} | {command.replace('|', chr(92) + '|')} |"
+
+
+MARKDOWN_SPECIAL = re.compile(r"([\\`*_{}\[\]()#+!<>~|-])")
 
 
 def cell(text: Any) -> str:
-    """Table cell text, escaped: it comes from the tour's manifest, which is data."""
-    return html.escape(str(text), quote=False).replace("|", "\\|").replace("\n", " ")
+    """Manifest text for the comment, inert: it comes from a job that ran the
+    pull request's code. HTML and Markdown are escaped, and @ is broken so no
+    mention or team ping is sent."""
+    escaped = MARKDOWN_SPECIAL.sub(r"\\\1", html.escape(str(text), quote=False))
+    return escaped.replace("@", "@\u200b").replace("\n", " ")
 
 
 def image(url: str, title: str, width: int) -> str:
@@ -127,7 +154,7 @@ def tour_section(manifest: dict[str, Any], urls: dict[str, str]) -> str:
     counts = {status: sum(1 for step in steps if step.get("status") == status)
               for status in ("ok", "failed", "unavailable")}
     summary = ", ".join(f"{count} {status}" for status, count in counts.items() if count)
-    lines = [f"### {cell(manifest.get('title', manifest.get('name')))}: {summary or 'no steps ran'}", ""]
+    lines = [f"### {cell(manifest.get('title') or 'Tour')}: {summary or 'no steps ran'}", ""]
     if manifest.get("error"):
         lines += [f"> {cell(str(manifest['error']).splitlines()[0][:300])}", ""]
     capture = str(manifest.get("capture_mode") or "")
@@ -142,11 +169,12 @@ def tour_section(manifest: dict[str, Any], urls: dict[str, str]) -> str:
     failed = [step for step in steps if step.get("status") == "failed" and urls.get(str(step.get("shot", "")))]
     if failed:
         lines += ["", "Failed steps:", ""]
-        lines += [image(urls[str(step["shot"])], f"{step.get('index')} {step.get('title')}", 480) for step in failed]
+        lines += [f"**{cell(step['index'])}. {cell(step['title'])}**<br>{image(urls[step['shot']], step['title'], 480)}<br>"
+                  for step in failed]
     rest = [step for step in steps if step not in failed and urls.get(str(step.get("shot", "")))]
     if rest:
         lines += ["", f"<details><summary>Screenshots ({len(rest)})</summary>", ""]
-        lines += [f"**{cell(step.get('index'))}. {cell(step.get('title'))}**<br>{image(urls[str(step['shot'])], str(step.get('title')), 480)}<br>"
+        lines += [f"**{cell(step['index'])}. {cell(step['title'])}**<br>{image(urls[step['shot']], step['title'], 480)}<br>"
                   for step in rest]
         lines += ["", "</details>"]
     return "\n".join(lines)
@@ -191,46 +219,64 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="print the comment; upload and post nothing")
     args = parser.parse_args(argv)
 
-    if not args.dry_run:
-        head = gh(["api", f"repos/{args.repo}/pulls/{args.pr}", "--jq", ".head.sha"]).strip()
-        if head != args.sha:
-            print(f"#{args.pr} moved to {head[:8]}; its own run posts the media")
-            return 0
+    if not args.dry_run and head_moved(args):
+        return 0
 
     pr_media = load_pr_media()
     sections = []
     with tempfile.TemporaryDirectory() as scratch:
         for directory, manifest in manifests(args.media) if args.media.is_dir() else []:
-            name = directory.name
-            folder = f"{args.pr}/{args.sha[:8]}/next-{name}"
-            files: dict[str, Path] = {}
-            for step in manifest["steps"]:
-                shot = shot_file(directory, step.get("shot"))
-                if shot and shot.stat().st_size <= pr_media.INLINE_MAX_BYTES \
-                        and pr_media.family_of_content(shot) == "png":
-                    files[step["shot"]] = shot
-            into = Path(scratch) / name
-            into.mkdir()
-            mp4, gif = make_video(directory, manifest, into, pr_media)
-            for local in (mp4, gif):
-                if local:
-                    files[local.name] = local
-            urls = {}
-            for key, local in files.items():
-                remote = f"{folder}/{key}"
-                if not args.dry_run:
-                    pr_media.put_file(args.repo, pr_media.BRANCH, remote, local,
-                                      f"cmux-next tour media for #{args.pr} at {args.sha[:8]}")
-                urls[key] = pr_media.raw_url(args.repo, pr_media.BRANCH, remote)
-            sections.append(tour_section(manifest, urls))
+            try:
+                sections.append(publish_tour(directory, manifest, args, pr_media, Path(scratch)))
+            except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as error:
+                print(f"warning: tour {directory.name}: {error}", file=sys.stderr)
+                sections.append(f"### {cell(directory.name)}: the media could not be published ({cell(str(error)[:200])})")
 
     body = render(args.sha, sections, args.run_url, args.note)
     if args.dry_run:
         print(body)
         return 0
+    # Uploads take minutes; a push in the meantime posts its own media.
+    if head_moved(args):
+        return 0
     upsert_comment(args.repo, args.pr, body)
     print(f"Posted the tour media on #{args.pr}")
     return 0
+
+
+def head_moved(args: argparse.Namespace) -> bool:
+    head = gh(["api", f"repos/{args.repo}/pulls/{args.pr}", "--jq", ".head.sha"]).strip()
+    if head != args.sha:
+        print(f"#{args.pr} moved to {head[:8]}; its own run posts the media")
+        return True
+    return False
+
+
+def publish_tour(directory: Path, manifest: dict[str, Any], args: argparse.Namespace, pr_media: Any,
+                 scratch: Path) -> str:
+    """Upload one tour's media; its comment section."""
+    name = directory.name
+    folder = f"{args.pr}/{args.sha[:8]}/next-{name}"
+    files: dict[str, Path] = {}
+    for step in manifest["steps"]:
+        shot = shot_file(directory, step.get("shot"))
+        if shot and shot.stat().st_size <= pr_media.INLINE_MAX_BYTES \
+                and pr_media.family_of_content(shot) == "png":
+            files[step["shot"]] = shot
+    into = scratch / name
+    into.mkdir()
+    mp4, gif = make_video(directory, manifest, into, pr_media)
+    for local in (mp4, gif):
+        if local:
+            files[local.name] = local
+    urls = {}
+    for key, local in files.items():
+        remote = f"{folder}/{key}"
+        if not args.dry_run:
+            pr_media.put_file(args.repo, pr_media.BRANCH, remote, local,
+                              f"cmux-next tour media for #{args.pr} at {args.sha[:8]}")
+        urls[key] = pr_media.raw_url(args.repo, pr_media.BRANCH, remote)
+    return tour_section(manifest, urls)
 
 
 if __name__ == "__main__":

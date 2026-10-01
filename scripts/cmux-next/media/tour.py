@@ -56,6 +56,7 @@ DEFAULT_WAIT = 1.5
 STEP_TIMEOUT = 20.0
 SOCKET_TIMEOUT = 60.0
 FRAME_INTERVAL = 0.5
+WINDOW_TIMEOUT = 20.0
 # scripts/release-media/host_agent.py on main looks in the same places.
 HELPER_CANDIDATES = (Path.home() / "Applications/CuaSshScreenCapture.app",
                      Path("/Applications/CuaSshScreenCapture.app"))
@@ -186,7 +187,7 @@ class Session:
         """One helper capture (`desktop` or `window <id>`) to a PNG; None on success."""
         try:
             path.unlink(missing_ok=True)
-            done = subprocess.run(["/usr/bin/open", "-g", "-n", "-W", str(helper), "--args", *what, str(path)],
+            done = subprocess.run(self.prefix + ["/usr/bin/open", "-g", "-n", "-W", str(helper), "--args", *what, str(path)],
                                   capture_output=True, text=True, timeout=60)
         except (OSError, subprocess.SubprocessError) as error:
             return str(error)
@@ -227,30 +228,33 @@ class Screen:
         if width < 50 or height < 50:
             return
         top = self.primary_height - (y + height)
-        self.rect = (int(x), int(max(0, top)), int(width), int(height))
+        left, right = max(0.0, x), x + width
+        bottom = min(self.primary_height, top + height)
+        if self.primary_width:
+            right = min(self.primary_width, right)
+        top = max(0.0, top)
+        if right - left < 50 or bottom - top < 50:
+            return
+        self.rect = (int(left), int(top), int(right - left), int(bottom - top))
 
     def capture(self, path: Path, kind: str = "png") -> str | None:
-        """Write a screenshot; None on success, else what went wrong."""
+        """Write a screenshot of the app window's rect; None on success, else what went wrong.
+
+        Never the whole display: the runner's console is shared, and these
+        images are published, so with no window rect there is no shot.
+        """
+        if not self.rect:
+            return "no app window on screen to capture"
         if self.session.helper:
             return self.helper_capture(path, kind)
-        argv = ["/usr/sbin/screencapture", "-x", "-t", kind]
-        argv += [f"-R{','.join(map(str, self.rect))}"] if self.rect else ["-D", "1"]
+        argv = ["/usr/sbin/screencapture", "-x", "-t", kind, f"-R{','.join(map(str, self.rect))}", str(path)]
         try:
-            done = self.session.capture(argv + [str(path)])
+            done = self.session.capture(argv)
         except subprocess.TimeoutExpired:
             return "screencapture timed out"
         if path.is_file() and path.stat().st_size > 0:
             return None
-        problem = (done.stderr or done.stdout or f"screencapture exited {done.returncode}").strip()
-        if self.rect:
-            # A rect off the display fails where the whole display works.
-            try:
-                self.session.capture(["/usr/sbin/screencapture", "-x", "-t", kind, "-D", "1", str(path)])
-            except subprocess.TimeoutExpired:
-                pass
-            if path.is_file() and path.stat().st_size > 0:
-                return None
-        return problem
+        return (done.stderr or done.stdout or f"screencapture exited {done.returncode}").strip()
 
 
     def helper_capture(self, path: Path, kind: str) -> str | None:
@@ -259,13 +263,17 @@ class Screen:
         problem = self.session.helper_capture(self.session.helper, ["desktop"], raw)
         if problem:
             return problem
-        argv = ["sips", "-s", "format", "jpeg" if kind == "jpg" else "png"]
-        if self.rect and self.primary_width:
-            pixels = subprocess.run(["sips", "-g", "pixelWidth", str(raw)], capture_output=True, text=True).stdout
-            match = re.search(r"pixelWidth:\s*(\d+)", pixels)
-            scale = int(match.group(1)) / self.primary_width if match else 1.0
-            x, y, width, height = (round(value * scale) for value in self.rect)
-            argv += ["--cropOffset", str(y), str(x), "-c", str(height), str(width)]
+        if not self.primary_width:
+            raw.unlink(missing_ok=True)
+            return "unknown display size; cannot crop the helper's desktop image"
+        # The rect is clamped to the primary display (follow()), which the
+        # helper's desktop image starts with.
+        pixels = subprocess.run(["sips", "-g", "pixelWidth", str(raw)], capture_output=True, text=True).stdout
+        match = re.search(r"pixelWidth:\s*(\d+)", pixels)
+        scale = int(match.group(1)) / self.primary_width if match else 1.0
+        x, y, width, height = (round(value * scale) for value in self.rect)
+        argv = ["sips", "-s", "format", "jpeg" if kind == "jpg" else "png",
+                "--cropOffset", str(y), str(x), "-c", str(height), str(width)]
         done = subprocess.run(argv + [str(raw), "--out", str(path)], capture_output=True, text=True)
         raw.unlink(missing_ok=True)
         if path.is_file() and path.stat().st_size > 0:
@@ -284,21 +292,35 @@ class Recorder(threading.Thread):
         self.frames: list[dict[str, Any]] = []
         self.error: str | None = None
         self.stopping = threading.Event()
+        self.lock = threading.Lock()
 
     def run(self) -> None:
         while not self.stopping.is_set():
             started = time.monotonic()
-            path = self.directory / f"frame-{len(self.frames):05d}.jpg"
+            with self.lock:
+                if self.stopping.is_set():
+                    break
+                path = self.directory / f"frame-{len(self.frames):05d}.jpg"
             problem = self.screen.capture(path, "jpg")
-            if problem:
-                self.error = problem
-            else:
-                self.frames.append({"file": f"frames/{path.name}", "step": self.step})
+            with self.lock:
+                if self.stopping.is_set():
+                    path.unlink(missing_ok=True)
+                    break
+                if problem:
+                    self.error = problem
+                else:
+                    self.frames.append({"file": f"frames/{path.name}", "step": self.step})
             self.stopping.wait(max(0.0, FRAME_INTERVAL - (time.monotonic() - started)))
 
-    def stop(self) -> None:
-        self.stopping.set()
-        self.join(timeout=10)
+    def stop(self) -> list[dict[str, Any]]:
+        """Stop recording; the frames kept, which nothing appends to afterwards."""
+        with self.lock:
+            self.stopping.set()
+            frames = list(self.frames)
+        if self.is_alive():
+            # A capture in flight is bounded (60 s for the helper); its frame is dropped.
+            self.join(timeout=65)
+        return frames
 
 
 class App:
@@ -322,7 +344,13 @@ class App:
         env = {key: value for key, value in os.environ.items() if key not in SCRUBBED_ENV}
         return env
 
+    def clear_leftovers(self) -> None:
+        """Stop a copy of this bundle and its daemon a cancelled run left behind."""
+        for pattern in (f"{self.app_path}/Contents/Resources/bin/", str(self.executable)):
+            self.session.run(["pkill", "-f", re.escape(pattern)])
+
     def launch(self) -> None:
+        self.clear_leftovers()
         knobs = [f"CMUX_NEXT_SOCKET_PATH={self.socket_path}", "CMUX_NEXT_SOCKET_MODE=allowAll"]
         argv = self.session.prefix + ["env", *knobs, str(self.executable), "-ApplePersistenceIgnoreState", "YES"]
         with self.log_path.open("wb") as log:
@@ -416,7 +444,7 @@ class App:
         if isinstance(pid, int):
             self.session.run(["kill", "-9", str(pid)])
         # The app leaves its daemon running by design; this tour started it.
-        self.session.run(["pkill", "-f", f"{self.app_path}/Contents/Resources/bin/"])
+        self.clear_leftovers()
 
 
 def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: Path) -> dict[str, Any]:
@@ -468,14 +496,19 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session) 
             app.launch()
         except (TourError, OSError, subprocess.SubprocessError) as error:
             manifest["error"] = f"launch: {error}"
-            problem = screen.capture(shots / "00-launch-failed.png")
-            if not problem:
-                manifest["steps"].append({"index": 0, "title": "Launch", "status": "failed",
-                                          "detail": str(error)[:1500], "shot": "shots/00-launch-failed.png"})
+            manifest["steps"].append({"index": 0, "title": "Launch", "status": "failed", "detail": str(error)[:1500]})
             return manifest
         manifest["app"] = {key: app.identity.get(key) for key in ("app", "version", "build", "bundle_id", "tag")}
-        screen.follow(app.main_window_frame())
-        recorder.start()
+        # Frames and shots cover the window only, so the recording starts once it is on screen.
+        deadline = time.monotonic() + WINDOW_TIMEOUT
+        while screen.rect is None and time.monotonic() < deadline:
+            screen.follow(app.main_window_frame())
+            if screen.rect is None:
+                time.sleep(0.5)
+        if screen.rect is None:
+            manifest["frames_error"] = f"no app window on screen within {WINDOW_TIMEOUT:.0f}s"
+        else:
+            recorder.start()
         for index, step in enumerate(tour["steps"], 1):
             recorder.step = index
             result = run_step(app, screen, step, index, shots)
@@ -486,18 +519,22 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session) 
                 manifest["error"] = "the app exited during the tour: " + app.log_tail()
                 break
     finally:
-        if recorder.is_alive():
-            recorder.stop()
-        manifest["frames"] = recorder.frames
-        if recorder.error and not recorder.frames:
-            manifest["frames_error"] = recorder.error
-        manifest["capture_rect"] = screen.rect
+        # The app first: a cancelled job gets a few seconds before SIGKILL,
+        # and a leftover app or daemon would serve the next run on this Mac.
         app.stop()
+        manifest["frames"] = recorder.stop() if recorder.ident else []
+        if recorder.error and not manifest["frames"]:
+            manifest.setdefault("frames_error", recorder.error)
+        manifest["capture_rect"] = screen.rect
         if app.log_path.exists():
             shutil.copy(app.log_path, directory / "app.log")
         shutil.rmtree(workdir, ignore_errors=True)
         (directory / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return manifest
+
+
+def terminated(signum: int, frame: Any) -> None:
+    raise SystemExit(128 + signum)
 
 
 def passed(manifest: dict[str, Any]) -> bool:
@@ -528,9 +565,17 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if not args.app or not args.out:
         parser.error("--app and --out are required unless --check")
+    # A cancelled job gets SIGINT, then SIGTERM; both unwind through
+    # run_tour's cleanup, so the app and its daemon do not outlive the job.
+    signal.signal(signal.SIGTERM, terminated)
     session = Session()
     args.out.mkdir(parents=True, exist_ok=True)
-    session.probe_capture(session.shareable(Path(tempfile.mkdtemp(prefix="cmux-tour-probe.", dir="/tmp"))))
+    probe = Path(tempfile.mkdtemp(prefix="cmux-tour-probe.", dir="/tmp"))
+    try:
+        session.probe_capture(session.shareable(probe))
+    finally:
+        # The probe captured the whole display; it never leaves the runner.
+        shutil.rmtree(probe, ignore_errors=True)
     print(f"screen capture: {session.capture_mode}", flush=True)
     ok = True
     for tour in tours:

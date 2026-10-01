@@ -2,9 +2,9 @@
   "title": "Core UI",
   "steps": [
     {"title": "Launch", "wait": 2},
-    {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Tour"]},
     {"title": "Type in the terminal", "daemon": true,
      "cmux": ["terminal", "current", "write", "--text", "echo hello from the cmux-next tour\r"]},
+    {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Tour"]},
     {"title": "Split right", "cmux": ["action", "run", "splitRight"]},
     {"title": "Split down", "cmux": ["action", "run", "splitDown"]},
     {"title": "New terminal tab", "cmux": ["action", "run", "newSurface"]},
