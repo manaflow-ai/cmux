@@ -454,3 +454,26 @@ describe("acpmux host handshake", () => {
     }
   });
 });
+
+describe("acpmux composer", () => {
+  /// Codex has no modes: its mode picker drew as an empty pill next to the model picker, and Stop sat beside Send between turns.
+  test("shows only the pickers that have choices, and Stop only while a turn runs", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window;
+    const snapshot = (isWorking: boolean) => ({ type: "snapshot", protocolVersion: 1, rows: [], sessions: [], connection: "connected", isWorking, queue: [], canLoadOlder: false, catalog: [{ id: "codex", models: [{ id: "gpt", name: "GPT" }] }], summary: { harness: "codex", model: "gpt", modes: { availableModes: [], currentModeId: null } } });
+    const composer = () => dom.window.document.querySelector(".acpmux-composer")!;
+    const buttons = () => Array.from(composer().querySelectorAll("button"), (button) => button.textContent);
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot(false) as never));
+      expect(composer().querySelector("[aria-label=Model]")).not.toBeNull();
+      expect(composer().querySelector("[aria-label=Mode]")).toBeNull();
+      expect(buttons()).toEqual(["Send"]);
+      await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot(true) as never));
+      expect(buttons()).toEqual(["Send", "Stop"]);
+    } finally {
+      await act(async () => root.unmount());
+      delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
+    }
+  });
+});
