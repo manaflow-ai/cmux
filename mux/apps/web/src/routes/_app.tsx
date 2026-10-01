@@ -64,9 +64,13 @@ function AppLayout() {
         <Machines />
         <footer className="list-footer">
           <span className="muted">{viewer.displayName}</span>
-          <button type="button" className="link-button" onClick={() => void signOut()}>
-            Sign out
-          </button>
+          {session.auth.isLocal ? (
+            <span className="muted">this Mac</span>
+          ) : (
+            <button type="button" className="link-button" onClick={() => void signOut()}>
+              Sign out
+            </button>
+          )}
         </footer>
       </nav>
       <main className="thread">
@@ -89,14 +93,16 @@ function Machines() {
     <section className="machines">
       <div className="machines-header">
         <span className="muted">Machines</span>
-        <button
-          type="button"
-          className="link-button"
-          disabled={mint.isPending}
-          onClick={() => mint.mutate()}
-        >
-          Connect a Mac
-        </button>
+        {session.auth.isLocal ? null : (
+          <button
+            type="button"
+            className="link-button"
+            disabled={mint.isPending}
+            onClick={() => mint.mutate()}
+          >
+            Connect a Mac
+          </button>
+        )}
       </div>
       {machines.map((m) => (
         <div key={m.id} className="machine">

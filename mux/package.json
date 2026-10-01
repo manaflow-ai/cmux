@@ -6,12 +6,14 @@
     "packages/*",
     "apps/*",
     "cloud/*",
+    "local",
     "tools/*"
   ],
   "type": "module",
   "scripts": {
     "ready": "vp check && vp run -r test && vp run -r build",
-    "dev": "vp run @mux/web#dev"
+    "dev": "vp run @mux/web#dev",
+    "local": "vp run -r build && vp run @mux/local#start"
   },
   "devDependencies": {
     "vite": "catalog:",

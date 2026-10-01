@@ -12,7 +12,7 @@ export function httpSource(options: {
     const headers = new Headers(init.headers);
     if (credential.kind === "stack")
       headers.set("authorization", `Bearer ${credential.accessToken}`);
-    else headers.set("x-mux-dev-user", credential.user);
+    else if (credential.kind === "dev") headers.set("x-mux-dev-user", credential.user);
     const response = await fetch(`${options.baseUrl}${path}`, { ...init, headers });
     if (!response.ok) throw new Error(`${init.method ?? "GET"} ${path}: ${response.status}`);
     return (await response.json()) as T;
@@ -47,7 +47,7 @@ export function httpSource(options: {
           url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
           if (credential.kind === "stack")
             url.searchParams.set("access_token", credential.accessToken);
-          else url.searchParams.set("dev_user", credential.user);
+          else if (credential.kind === "dev") url.searchParams.set("dev_user", credential.user);
           socket = new WebSocket(url);
           socket.onopen = () => {
             for (const text of queue.splice(0)) socket?.send(text);

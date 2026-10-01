@@ -6,12 +6,17 @@ const REFRESH_KEY = "mux.stackRefreshToken";
 const DEV_USER_KEY = "mux.devUser";
 
 export interface AuthConfig {
+  /** "none": a local mux server on this Mac, no sign-in. Absent means Stack. */
+  mode?: "none" | "stack";
   stackProjectId: string | null;
   stackPublishableClientKey: string | null;
   devAuth: boolean;
 }
 
-export type Credential = { kind: "stack"; accessToken: string } | { kind: "dev"; user: string };
+export type Credential =
+  | { kind: "stack"; accessToken: string }
+  | { kind: "dev"; user: string }
+  | { kind: "none" };
 
 function storage(): Storage | undefined {
   try {
@@ -34,7 +39,13 @@ export class StackAuth {
     return this.config;
   }
 
+  /** The server needs no sign-in (the local form). */
+  get isLocal(): boolean {
+    return this.config?.mode === "none";
+  }
+
   signedIn(): boolean {
+    if (this.isLocal) return true;
     return Boolean(
       storage()?.getItem(REFRESH_KEY) || (this.config?.devAuth && storage()?.getItem(DEV_USER_KEY)),
     );
@@ -73,6 +84,7 @@ export class StackAuth {
 
   /** A credential for the next request, refreshing the access token when needed. */
   async credential(): Promise<Credential> {
+    if (this.isLocal) return { kind: "none" };
     const refresh = storage()?.getItem(REFRESH_KEY);
     if (refresh) {
       if (!this.access || this.access.expiresAt - Date.now() < 60_000) await this.refresh(refresh);

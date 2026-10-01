@@ -168,3 +168,16 @@ Rust link that lets a mux spawn and drive acpmux agents on a Mac.
   Stack project's trusted domains.
 - Sign-in uses the cmux development Stack project (cmuxterm-dev). Production
   accounts need that project switched in `cloudflare.config.ts`.
+
+## Local form, default for iteration (user 2026-10-01)
+
+cmux next's Home loads the local form by default: `mux/local`, a Bun server on
+127.0.0.1:47820 with no sign-in (`/api/auth/config` mode `none`). Each
+conversation's mux is one acpmux session (`mux-<id>`, harness `claude`,
+policy `approve-all`; `MUX_LOCAL_HARNESS`, `MUX_LOCAL_POLICY`). The first turn
+carries the instructions and the memory tail; acpmux keeps the context after
+that. Chats live in SQLite and memory in a git repo (LOG.txt) under
+`~/.cmux/mux/`; the agent greps older memory itself. Compaction is not wired
+in the local form yet. Because the agent can run commands, the server refuses
+any Host other than its loopback name and any foreign Origin. Staging and
+Stack sign-in stay reachable with `CMUX_NEXT_MUX_URL`.
