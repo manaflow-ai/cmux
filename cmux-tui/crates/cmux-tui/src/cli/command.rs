@@ -1398,7 +1398,8 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
 /// machine boundary. `--window`, `--id-format`, and `--desktop` are accepted
 /// for signature parity and have no meaning on a machine: the Mac decides how
 /// a machine's row is delivered. `--desktop` is still validated so a bad value
-/// fails the same way it does locally.
+/// fails the same way it does locally, and like the local flag it is not
+/// validated with `--clear`.
 fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     if !words.is_empty() {
         return usage("notify takes flags only");
@@ -1411,10 +1412,7 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
     }
     let _ = flags.take("window");
     let _ = flags.take("id-format");
-    if let Some(desktop) = flags.take("desktop") {
-        parse_bool("--desktop", &desktop)
-            .map_err(|_| UsageError::new("--desktop must be true|false"))?;
-    }
+    let desktop = flags.take("desktop");
     let workspace = flags.take("workspace");
     if let Some(workspace) = &workspace
         && workspace != "current"
@@ -1459,6 +1457,11 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
             params.insert("terminal_id".into(), Value::String(surface));
         }
         return request(ResourceOperation::NotificationClear, &selectors, flags, params);
+    }
+    // Like the local flag, `--desktop` has no effect with `--clear` and is validated only here.
+    if let Some(desktop) = desktop {
+        parse_bool("--desktop", &desktop)
+            .map_err(|_| UsageError::new("--desktop must be true|false"))?;
     }
     let title = flags.take("title").unwrap_or_else(|| "Notification".into());
     if title.is_empty() {
@@ -3463,6 +3466,9 @@ mod tests {
         assert_eq!(clear.params["terminal_id"], TERMINAL);
         let clear_all = protocol(&["notify", "--clear", "--workspace", "current"]);
         assert!(clear_all.params.get("terminal_id").is_none());
+        let clear_ignores_desktop =
+            protocol(&["notify", "--clear", "--surface", TERMINAL, "--desktop", "maybe"]);
+        assert_eq!(clear_ignores_desktop.operation.name().unwrap(), "notification.clear");
 
         assert!(
             parse(&strings(&["notify", "--reply", "--title", "x"])).is_err(),
