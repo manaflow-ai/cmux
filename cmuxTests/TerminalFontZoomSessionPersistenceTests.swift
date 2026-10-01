@@ -12,8 +12,13 @@ import CmuxTerminalCore
 @testable import cmux
 #endif
 
+/// Lineage expectations here are unmagnified base points, and one zoom step
+/// moves a terminal by one runtime point, so they hold only at 100%.
 @MainActor
-@Suite("Terminal font zoom session persistence")
+@Suite(
+    "Terminal font zoom session persistence",
+    .appliedGlobalFontMagnification(GlobalFontMagnification.defaultPercent)
+)
 struct TerminalFontZoomSessionPersistenceTests {
     @Test("Swift Ghostty font default matches the native macOS default")
     func ghosttyFontDefaultMatchesNativeMacOSDefault() {

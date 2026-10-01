@@ -24,13 +24,7 @@ struct CloudSidebarAttentionLayoutTests {
     /// Rows read the magnification from `UserDefaults.standard` when they render,
     /// so geometry assertions pin it instead of inheriting app-host state.
     private func withMagnification<T>(_ percent: Int, _ body: () throws -> T) rethrows -> T {
-        let oldPercent = UserDefaults.standard.object(forKey: GlobalFontMagnification.percentKey)
-        UserDefaults.standard.set(percent, forKey: GlobalFontMagnification.percentKey)
-        defer {
-            if let oldPercent { UserDefaults.standard.set(oldPercent, forKey: GlobalFontMagnification.percentKey) }
-            else { UserDefaults.standard.removeObject(forKey: GlobalFontMagnification.percentKey) }
-        }
-        return try body()
+        try ProcessLocalGlobalFontMagnification.with(percent, body)
     }
 
     private func attentionPlacement(width: Double, kind: String, percent: Int, pinned: Bool) throws {

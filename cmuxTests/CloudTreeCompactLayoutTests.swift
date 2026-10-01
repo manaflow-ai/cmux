@@ -48,12 +48,8 @@ struct CloudTreeCompactLayoutTests {
     @Test("Machine spacing matches leaf rows while narrow rows retain accessible identities",
           arguments: [220.0, 380.0], [75, 100, 150, 200])
     func iconLabelSpacing(width: Double, percent: Int) throws {
-        let oldPercent = UserDefaults.standard.object(forKey: GlobalFontMagnification.percentKey)
-        UserDefaults.standard.set(percent, forKey: GlobalFontMagnification.percentKey)
-        defer {
-            if let oldPercent { UserDefaults.standard.set(oldPercent, forKey: GlobalFontMagnification.percentKey) }
-            else { UserDefaults.standard.removeObject(forKey: GlobalFontMagnification.percentKey) }
-        }
+        let magnification = ProcessLocalGlobalFontMagnification(percent: percent)
+        defer { magnification.restore() }
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         fixture.window.setContentSize(NSSize(width: width, height: 620))
@@ -112,12 +108,8 @@ struct CloudTreeCompactLayoutTests {
     @Test("Cloud, locked, local and pending machine titles share the folder icon column",
           arguments: CloudTreeStyle.presets, [75, 100, 150, 200])
     func machineVariants(style: CloudTreeStyle, percent: Int) throws {
-        let oldPercent = UserDefaults.standard.object(forKey: GlobalFontMagnification.percentKey)
-        UserDefaults.standard.set(percent, forKey: GlobalFontMagnification.percentKey)
-        defer {
-            if let oldPercent { UserDefaults.standard.set(oldPercent, forKey: GlobalFontMagnification.percentKey) }
-            else { UserDefaults.standard.removeObject(forKey: GlobalFontMagnification.percentKey) }
-        }
+        let magnification = ProcessLocalGlobalFontMagnification(percent: percent)
+        defer { magnification.restore() }
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         fixture.window.setContentSize(NSSize(width: 380, height: 620))
@@ -183,12 +175,8 @@ struct CloudTreeCompactLayoutTests {
     @Test("Folders start as close to their carets as plain section headings",
           arguments: [220.0, 360.0], [50, 100, 150])
     func compactRows(width: Double, percent: Int) throws {
-        let oldPercent = UserDefaults.standard.object(forKey: GlobalFontMagnification.percentKey)
-        UserDefaults.standard.set(percent, forKey: GlobalFontMagnification.percentKey)
-        defer {
-            if let oldPercent { UserDefaults.standard.set(oldPercent, forKey: GlobalFontMagnification.percentKey) }
-            else { UserDefaults.standard.removeObject(forKey: GlobalFontMagnification.percentKey) }
-        }
+        let magnification = ProcessLocalGlobalFontMagnification(percent: percent)
+        defer { magnification.restore() }
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         fixture.window.setContentSize(NSSize(width: width, height: 620))

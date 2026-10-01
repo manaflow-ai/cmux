@@ -411,7 +411,12 @@ private extension TabManager {
     }
 }
 
-@Suite(.serialized)
+// Font-size expectations are unmagnified base points moved by whole runtime
+// points, so they hold only at 100%.
+@Suite(
+    .serialized,
+    .appliedGlobalFontMagnification(GlobalFontMagnification.defaultPercent)
+)
 @MainActor
 final class AppDelegateEqualizeSplitsShortcutTests {
     private static let splitFixtureContentSize = CGSize(width: 1_000, height: 700)
@@ -1479,31 +1484,16 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
     @Test
     func testDefaultTerminalDependenciesUseAppliedMagnificationDuringQueuedReload() {
-        let defaults = UserDefaults.standard
-        let originalValue =
-            defaults.object(forKey: GlobalFontMagnification.percentKey)
         let appliedPercent =
             GhosttyApp.shared.appliedGlobalFontMagnificationPercent
         let queuedPercent =
             appliedPercent == GlobalFontMagnification.maximumPercent
             ? GlobalFontMagnification.minimumPercent
             : GlobalFontMagnification.maximumPercent
-        defaults.set(
-            queuedPercent,
-            forKey: GlobalFontMagnification.percentKey
+        let magnification = ProcessLocalGlobalFontMagnification(
+            percent: queuedPercent
         )
-        defer {
-            if let originalValue {
-                defaults.set(
-                    originalValue,
-                    forKey: GlobalFontMagnification.percentKey
-                )
-            } else {
-                defaults.removeObject(
-                    forKey: GlobalFontMagnification.percentKey
-                )
-            }
-        }
+        defer { magnification.restore() }
 
         XCTAssertEqual(
             GlobalFontMagnification.storedPercent,
@@ -6489,26 +6479,12 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
     @Test
     func testFontRequestSnapshotsMagnificationAcrossDrainTurns() {
-        let defaults = UserDefaults.standard
-        let originalPercent = defaults.object(
-            forKey: GlobalFontMagnification.percentKey
-        )
-        defaults.set(
-            GlobalFontMagnification.defaultPercent,
-            forKey: GlobalFontMagnification.percentKey
+        let magnification = ProcessLocalGlobalFontMagnification(
+            percent: GlobalFontMagnification.defaultPercent
         )
         GhosttyConfig.invalidateLoadCache()
         defer {
-            if let originalPercent {
-                defaults.set(
-                    originalPercent,
-                    forKey: GlobalFontMagnification.percentKey
-                )
-            } else {
-                defaults.removeObject(
-                    forKey: GlobalFontMagnification.percentKey
-                )
-            }
+            magnification.restore()
             GhosttyConfig.invalidateLoadCache()
         }
 
@@ -6556,10 +6532,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         return
 #endif
 
-        defaults.set(
-            GlobalFontMagnification.maximumPercent,
-            forKey: GlobalFontMagnification.percentKey
-        )
+        magnification.set(GlobalFontMagnification.maximumPercent)
         GhosttyConfig.invalidateLoadCache()
 #if DEBUG
         coordinator.drainAllForVerification()
