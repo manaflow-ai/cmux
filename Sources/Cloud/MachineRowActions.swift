@@ -229,7 +229,10 @@ struct MachineRowActions {
         // Keep MachineSnapshot's label → generated slug → ID precedence, but
         // treat whitespace-only values as missing at this presentation boundary.
         let readableName = [machine.label, machine.slug]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .compactMap { value -> String? in
+                guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+                return value
+            }
             .first { !$0.isEmpty } ?? machine.id
         let format = String(
             localized: "machines.delete.title",

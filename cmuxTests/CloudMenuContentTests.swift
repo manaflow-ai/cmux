@@ -186,9 +186,14 @@ struct CloudMenuContentTests {
             image: "cmux-devbox",
             isDesktop: false,
             activity: .ready,
+            label: " Cloud VM ",
             slug: "crisp-rose-piglet"
         )
-        #expect(MachineRowActions.deleteConfirmationTitle(for: named) == String(format: format, "crisp-rose-piglet"))
+        #expect(MachineRowActions.deleteConfirmationTitle(for: named) == String(format: format, " Cloud VM "))
+
+        var generated = named
+        generated.label = nil
+        #expect(MachineRowActions.deleteConfirmationTitle(for: generated) == String(format: format, "crisp-rose-piglet"))
 
         let blank = MachineSnapshot(
             id: named.id,

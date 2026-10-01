@@ -151,7 +151,7 @@ struct CloudTreeMachineMenuTests {
         #expect(recorder.commands.map { $0.id } == [Self.machineID])
         #expect(recorder.commands.map { $0.verb } == [["vm", "snapshot"]])
         try Self.choose(Self.title("machines.menu.delete", "Delete\u{2026}"), in: menu)
-        #expect(recorder.deletions.first.map { $0.id == Self.machineID && $0.name == "Big Machine" } == true)
+        #expect(recorder.deletions.map { [$0.id, $0.name] } == [[Self.machineID, "Big Machine"]])
         #expect(recorder.pinChanges.count == 1)
         #expect(recorder.pinChanges.first?.0 == Self.machineID)
         #expect(recorder.pinChanges.first?.1 == true)
