@@ -83,14 +83,14 @@ public final class AgentPaneView: NSView {
         webView.frame = bounds
     }
 
-    /// Stops the page (and its WebSocket) for good; call when the tab closes.
     /// WebKit's feature that renders a page at the display-rate divisor
     /// nearest 60 fps.
     static let near60FPSFeature = "PreferPageRenderingUpdatesNear60FPSEnabled"
 
     public let renderRate: AgentPaneRenderRate
     private var framePacing = AgentPaneFramePacing()
-    /// The display's refresh rate; the window's screen by default.
+    /// The display's refresh rate when the pane has no window screen to ask
+    /// (tests set it).
     var displayFramesPerSecond: () -> Int = { NSScreen.main?.maximumFramesPerSecond ?? 60 }
 
     /// An adaptive pane's settled scroll: picks the rate for the next one.
@@ -108,6 +108,7 @@ public final class AgentPaneView: NSView {
         set { webView.configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: !newValue) }
     }
 
+    /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
         webView.configuration.userContentController.removeScriptMessageHandler(forName: AgentPaneRequest.handlerName, contentWorld: .page)
         webView.navigationDelegate = nil
