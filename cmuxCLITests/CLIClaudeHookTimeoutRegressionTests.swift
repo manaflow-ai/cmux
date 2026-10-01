@@ -1429,7 +1429,16 @@ struct CLIClaudeHookTimeoutRegressionTests {
     }
 
     private var repositoryRoot: URL {
-        BundledCLITestSupport.repositoryRoot(file: #filePath)
+        // CI consumers run products compiled under another root; the restore
+        // step aliases this checkout at $CMUX_CI_RUNTIME_SOURCE_ROOT/src.
+        if let runtimeRoot = ProcessInfo.processInfo.environment["CMUX_CI_RUNTIME_SOURCE_ROOT"],
+           !runtimeRoot.isEmpty {
+            return URL(fileURLWithPath: runtimeRoot, isDirectory: true)
+                .appendingPathComponent("src", isDirectory: true)
+        }
+        return URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
     }
 
     private func makeSettingsCapturingClaude(at url: URL) throws {
