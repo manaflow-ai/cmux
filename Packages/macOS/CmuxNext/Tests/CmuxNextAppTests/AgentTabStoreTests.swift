@@ -38,13 +38,16 @@ struct AgentTabLifecycleTests {
         let store = AgentTabStore(tag: nil, environment: Self.mock)
         let key = store.open(in: pane.id, of: daemon)
 
+        // A tree that drops the pane while the daemon is away is not
+        // trusted; the tabs wait for the daemon to be back.
         _ = daemon.apply(.disconnected(reason: "test"))
+        let empty = #"{"workspace_revision":2,"generation":"GEN","registry_id":"r","workspaces":[]}"#
+        daemon.apply(snapshot: try JSONDecoder().decode(DaemonTree.self, from: Data(empty.utf8)))
         await ReopenClosedTabTests.settle { false }
+        store.closeGonePanes(in: daemon)
         #expect(store.tabIDs(in: pane.id) == [key], "a daemon that is away keeps its panes' agent tabs")
 
         try Self.connect(daemon)
-        let empty = #"{"workspace_revision":2,"generation":"GEN","registry_id":"r","workspaces":[]}"#
-        daemon.apply(snapshot: try JSONDecoder().decode(DaemonTree.self, from: Data(empty.utf8)))
         await ReopenClosedTabTests.settle { store.tabIDs(in: pane.id).isEmpty }
         #expect(store.tabIDs(in: pane.id).isEmpty)
     }
@@ -54,10 +57,11 @@ struct AgentTabLifecycleTests {
         let daemon = DaemonStore()
         let store = AgentTabStore(tag: nil, environment: Self.mock)
         let key = store.open(in: "a", of: daemon)
+        let next = store.open(in: "a", of: daemon)
         let view = try #require(store.view(for: key))
         _ = await view.model.respond(to: .persistSession("s-1"))
         let copy = store.duplicate(key, in: "a", of: daemon)
-        #expect(store.tabIDs(in: "a") == [key, copy])
+        #expect(store.tabIDs(in: "a") == [key, copy, next])
         #expect(store.view(for: copy)?.model.sessionId == "s-1")
         store.closePane("a")
     }
