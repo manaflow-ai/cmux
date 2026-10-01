@@ -150,6 +150,84 @@ struct RemoteRelayAuthorizationPolicyTests {
         ) == .allowed)
     }
 
+    @Test("agent message relay methods stay inside the authenticated session")
+    func agentMessageSelectorsStayOwned() {
+        let policy = RemoteRelayAuthorizationPolicy()
+        let owner = UUID()
+        let surface = UUID()
+        let foreign = UUID()
+        let ownedSurface = Set([surface])
+
+        #expect(policy.validate(
+            method: "agent.message.poll",
+            parameters: ["surface_id": surface.uuidString],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) == .allowed)
+        #expect(policy.validate(
+            method: "agent.message.claim",
+            parameters: ["surface_id": surface.uuidString],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) == .allowed)
+        #expect(policy.validate(
+            method: "agent.message.mark_read",
+            parameters: ["surface_id": surface.uuidString],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) == .allowed)
+        #expect(policy.validate(
+            method: "agent.message.list",
+            parameters: ["surface": surface.uuidString],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) == .allowed)
+        #expect(policy.validate(
+            method: "agent.message.send",
+            parameters: [
+                "target": owner.uuidString,
+                "sender_surface_id": surface.uuidString,
+                "sender_workspace_id": owner.uuidString,
+            ],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) == .allowed)
+
+        #expect(policy.validate(
+            method: "agent.message.list",
+            parameters: [:],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) != .allowed)
+        #expect(policy.validate(
+            method: "agent.message.send",
+            parameters: ["target": foreign.uuidString],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) != .allowed)
+        #expect(policy.validate(
+            method: "agent.message.send",
+            parameters: ["target": owner.uuidString, "reply_to": "message-id"],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) != .allowed)
+        #expect(policy.validate(
+            method: "agent.message.send",
+            parameters: [
+                "target": owner.uuidString,
+                "sender_surface_id": foreign.uuidString,
+            ],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) != .allowed)
+        #expect(policy.validate(
+            method: "agent.message.mark_read",
+            parameters: ["surface_id": surface.uuidString, "id": "message-id"],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) != .allowed)
+    }
+
     @Test("respawn planner quotes remote directories and classifies transports")
     func planner() {
         let planner = RemotePTYRespawnPlanner()

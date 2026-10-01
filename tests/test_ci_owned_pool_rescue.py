@@ -981,7 +981,7 @@ class E2E(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertNotIn("pull", api.calls)
         # The build never finished, so every job re-runs and the sibling wait looks again.
-        self.assertEqual(api.calls[-1], "rerun")  # attempt 2 is on Blacksmith: not watched
+        self.assertEqual(api.calls[-2:], ["rerun", "jobs:2"])  # attempt 2 is checked and ends on Blacksmith
         self.assertIn("cancel", api.calls)
         self.assertNotIn("rerun-failed", api.calls)
 
@@ -995,9 +995,52 @@ class E2E(unittest.TestCase):
         api = FakeAPI(clock, jobs, marker=True, finished=lambda s: s >= 60)
         code, summary = run_main(api, clock, payload=e2e_event())
         self.assertEqual(code, 0)
-        self.assertEqual(api.calls[-1], "rerun")  # attempt 2 is on Blacksmith: not watched
+        self.assertEqual(api.calls[-2:], ["rerun", "jobs:2"])  # attempt 2 is checked and ends on Blacksmith
         self.assertIn("refused", summary)
         self.assertIn("so its sibling wait runs again", summary)
+
+    def test_a_full_e2e_rerun_on_the_fleet_is_followed_by_its_marker(self):
+        # Attempt 2 of a full re-run takes the runner job's new pick, which may
+        # be an owned Mac. The watch follows it by attempt 2's own marker, and a
+        # second refusal moves the run on to attempt 3 (always Blacksmith).
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 60:
+                found.append(refused_job("build"))
+            return found
+
+        def rerun_jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 60:
+                found.append(refused_job("build"))
+            elif seconds >= 30:
+                found.append(job("build", labels=[MINI], created=30))
+            return found
+        clock = Clock()
+        markers = []
+        api = FakeAPI(clock, jobs, marker=lambda name: markers.append(name) or True,
+                      finished=lambda s: s >= 60, rerun_jobs=rerun_jobs)
+        code, summary = run_main(api, clock, payload=e2e_event())
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls.count("rerun"), 2, summary)
+        self.assertEqual(api.attempt, 3)
+        self.assertIn(f"{rescue.MARKER_PREFIX}-{RUN_ID}-2-", markers)
+        self.assertIn("attempt 3 takes retry_runner on Blacksmith", summary)
+
+    def test_a_full_e2e_rerun_on_blacksmith_ends_the_watch(self):
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 60:
+                found.append(refused_job("build"))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=lambda name: name.endswith("-1-"),
+                      finished=lambda s: s >= 60,
+                      rerun_jobs=lambda s: [e2e_runner()(s), job("build", labels=[BLACKSMITH])])
+        code, summary = run_main(api, clock, payload=e2e_event())
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls.count("rerun"), 1)
+        self.assertIn("ephemeral pool", summary)
 
     def test_an_e2e_run_whose_build_passed_keeps_it(self):
         # Only the test job failed: re-running every job would compile again.
@@ -1568,15 +1611,16 @@ def listed(run_id, **overrides):
 
 
 class Sweeper(unittest.TestCase):
-    def sweep(self, api, *, follow=None, ticks=3):
+    def sweep(self, api, *, follow=None, ticks=3, light_retry=False):
         clock, watched = Clock(), []
 
         def fake_follow(client, target, **kwargs):
-            watched.append((target.run_id, target.attempt, target.late))
+            watched.append((target.run_id, target.attempt, target.full_rerun) if light_retry
+                           else (target.run_id, target.attempt, target.late))
             return follow(kwargs["sleep"]) if follow else "stopped: the run finished"
 
         with unittest.mock.patch.object(rescue, "follow", fake_follow):
-            outcomes = rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0",
+            outcomes = rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", light_retry=light_retry,
                                     now=clock.now, log=lambda text: None, sweep_seconds=ticks * 60,
                                     tick_seconds=60, wait=clock.sleep)
         return sorted(watched), outcomes
@@ -1613,6 +1657,25 @@ class Sweeper(unittest.TestCase):
                        picker=[1, 2])
         # The bot's attempt 3 and later take Blacksmith: nothing to watch.
         self.assertEqual(self.sweep(api)[0], [(1, 2, False)])
+
+    def test_an_e2e_full_rerun_is_resumed_as_one_without_light_retry(self):
+        # The picker ran again on attempt 2, so its marker, not its jobs, decides.
+        e2e = dict(path=".github/workflows/test-e2e.yml", event="workflow_dispatch", pull_requests=[],
+                   run_attempt=2)
+        picker = {"name": "runner", "run_attempt": 2}
+        api = SweepAPI([listed(1, **e2e), listed(2, **e2e)], picker=[1, 2],
+                       attempt_jobs={1: [picker], 2: [{"name": "runner", "run_attempt": 1}]})
+        self.assertEqual(self.sweep(api, light_retry=True)[0], [(1, 2, True), (2, 2, False)])
+        clock, targets = Clock(), []
+
+        def fake_follow(client, target, **kwargs):
+            targets.append(target.full_rerun)
+            return "stopped: the run finished"
+        with unittest.mock.patch.object(rescue, "follow", fake_follow):
+            rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", light_retry=False,
+                         now=clock.now, log=lambda text: None, sweep_seconds=120, tick_seconds=60,
+                         wait=clock.sleep)
+        self.assertEqual(sorted(targets), [False, True])
 
     def test_a_finished_run_only_when_it_failed_since_the_last_sweeper(self):
         recent, old = stamp(-10 * 60), stamp(-rescue.SWEEP_FINISHED_SECONDS - 60)

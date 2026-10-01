@@ -33,17 +33,12 @@ extension Workspace {
         case .surfaceResources(let group):
             return SurfaceCatalog.shared.ownershipRejection(for: group.resources, policy: surfaceOwnershipPolicy)
         case .surface:
-            let machine: SurfaceMachineID?
-            if transfer.isFromCurrentProcess {
-                if let panelID = panelIdFromSurfaceId(TabID(uuid: transfer.tabId)) {
-                    machine = machineOwningSurface(panelID)
-                } else {
-                    machine = AppDelegate.shared?.machineOwningBonsplitTab(transfer.tabId)
-                }
-            } else {
-                machine = nil
-            }
-            return surfaceOwnershipPolicy.rejection(for: machine)
+            guard transfer.isFromCurrentProcess else { return surfaceOwnershipPolicy.rejection(for: nil) }
+            // A surface already in this workspace crosses no machine boundary when
+            // it is reordered or split within it. Rejecting it here put the Cloud
+            // drop gate over the workspace's own tab strips and blocked tab drags.
+            if panelIdFromSurfaceId(TabID(uuid: transfer.tabId)) != nil { return nil }
+            return surfaceOwnershipPolicy.rejection(for: AppDelegate.shared?.machineOwningBonsplitTab(transfer.tabId))
         case .vaultSession, .filePreview, .rightSidebarTool:
             return surfaceOwnershipPolicy.rejection(for: .local)
         }

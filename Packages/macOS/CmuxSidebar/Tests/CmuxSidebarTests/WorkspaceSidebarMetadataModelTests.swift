@@ -1,11 +1,19 @@
 import Combine
 import Foundation
+import Observation
 import Testing
 
 @testable import CmuxSidebar
 
 private struct FixedLogLimitProvider: SidebarLogEntryLimitProviding {
     let configuredMaxSidebarLogEntries: Int?
+}
+
+/// Counts Observation `onChange` callbacks, which Swift requires to be
+/// `@Sendable`. The model mutates synchronously on the main actor, so the
+/// callback runs before the mutating call returns.
+private final class InvalidationCounter: @unchecked Sendable {
+    var count = 0
 }
 
 @MainActor
@@ -151,5 +159,41 @@ private struct FixedLogLimitProvider: SidebarLogEntryLimitProviding {
         #expect(model.panelDirectoryDisplayLabels[id] == nil)
         #expect(emitted.count == 3)
         #expect(emitted.last == [:])
+    }
+
+    /// SwiftUI reads `manualPullRequest` (through the workspace's inferred
+    /// task status) via Observation, so a CLI handoff must invalidate those
+    /// readers. An unchanged watcher reconcile must not.
+    @Test func manualPullRequestChangesAreObservable() {
+        let model = makeModel()
+        let url = URL(string: "https://github.com/owner/repo/pull/12746")!
+        let invalidations = InvalidationCounter()
+        func track() {
+            withObservationTracking {
+                _ = model.manualPullRequest
+            } onChange: {
+                invalidations.count += 1
+            }
+        }
+
+        track()
+        model.attachManualPullRequest(number: 12746, label: "PR", url: url, status: .open, branch: "feat")
+        #expect(invalidations.count == 1)
+        #expect(model.manualPullRequest?.number == 12746)
+
+        track()
+        let unchanged = SidebarPullRequestState(number: 12746, label: "watcher", url: url, status: .open, branch: "feat")
+        model.reconcileManualPullRequest(with: unchanged)
+        #expect(invalidations.count == 1)
+
+        let merged = SidebarPullRequestState(number: 12746, label: "watcher", url: url, status: .merged, branch: "feat")
+        model.reconcileManualPullRequest(with: merged)
+        #expect(invalidations.count == 2)
+        #expect(model.manualPullRequest?.status == .merged)
+
+        track()
+        model.clearManualPullRequest()
+        #expect(invalidations.count == 3)
+        #expect(model.manualPullRequest == nil)
     }
 }

@@ -246,6 +246,20 @@ public final class TerminalPredictionCenter {
         scheduleExpiry(surfaceID: surfaceID)
     }
 
+    /// A local key binding consumed the event without sending bytes to the
+    /// PTY. Keep the prediction run alive because the remote state is intact.
+    public func typedNothing(surfaceID: UUID) {
+        guard isEnabled, engines[surfaceID] != nil else { return }
+        seedIfNeeded(surfaceID: surfaceID)
+        guard engines[surfaceID]?.isRemoteSurface == true else { return }
+        let changed = engines[surfaceID]?.typedNothing(at: now) == true
+        trace(surfaceID: surfaceID, "nothing sent", changed: changed)
+        if changed {
+            redrawHandlers[surfaceID]?()
+        }
+        scheduleExpiry(surfaceID: surfaceID)
+    }
+
     /// A Backspace, whichever byte the key sends. Retracts the newest glyph
     /// the remote has not echoed, or withdraws when there is none.
     public func typedBackspace(surfaceID: UUID) {

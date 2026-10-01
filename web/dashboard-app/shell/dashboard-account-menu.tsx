@@ -1,6 +1,7 @@
 "use client";
 
 import { Menu } from "@base-ui-components/react/menu";
+import { useQuery } from "@tanstack/react-query";
 import { UserAvatar, useStackApp } from "@hexclave/next";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
@@ -10,10 +11,46 @@ import type { DashboardSessionUser } from "../lib/session-types";
 import { localeHomeHref } from "../lib/locale-href";
 import { clearCoderouterOrganizationScope } from "@/services/coderouter/organizationScope";
 import { useThemeToggle } from "@/app/[locale]/theme";
+import { Badge } from "../components/settings-ui";
+import { planQuery } from "../queries/billing";
 import { useDashboardTeamScope, type DashboardCatalogTeam } from "./dashboard-team-scope";
 
 const menuItemClass =
   "flex min-h-9 w-full cursor-default select-none items-center gap-2 px-2.5 py-2 text-left text-sm text-foreground no-underline outline-none data-[highlighted]:bg-code-bg";
+
+/** The personal plan under the viewer's name; nothing until it loads. */
+function AccountPlanLine() {
+  const billing = useTranslations("dashboard.billing.picker");
+  const plan = useQuery(planQuery);
+  if (!plan.data) return null;
+  return (
+    <div className="mt-1.5" data-testid="account-plan">
+      <Badge tone={plan.data.isPro ? "default" : "outline"}>{billing(`names.${plan.data.planId}`)}</Badge>
+    </div>
+  );
+}
+
+/** Free accounts get Upgrade, which opens the plan picker. */
+function UpgradeItem() {
+  const t = useTranslations("dashboard.accountMenu");
+  const plan = useQuery(planQuery);
+  if (!plan.data || plan.data.isPro) return null;
+  return (
+    <Menu.Item render={<Link to="/dashboard/billing" />} className={menuItemClass}>
+      <UpgradeIcon />
+      <span>{t("upgrade")}</span>
+    </Menu.Item>
+  );
+}
+
+function UpgradeIcon() {
+  return (
+    <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 13V3" />
+      <path d="M4 7l4-4 4 4" />
+    </svg>
+  );
+}
 
 export function DashboardAccountMenuFallback() {
   return <div aria-hidden="true" className="min-w-0 flex-1" />;
@@ -76,6 +113,7 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
                 {user.displayName ? (
                   <div className="truncate text-xs text-muted">{user.primaryEmail}</div>
                 ) : null}
+                <AccountPlanLine />
               </div>
               <Menu.Item render={<Link to="/dashboard/settings" />} className={menuItemClass}>
                 <SettingsIcon />
@@ -96,6 +134,7 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
                 <BillingIcon />
                 <span>{t("billing")}</span>
               </Menu.Item>
+              <UpgradeItem />
               {teamScope.status === "ready" ? (
                 <TeamSubmenu
                   teams={teamScope.teams}
