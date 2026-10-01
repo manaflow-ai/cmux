@@ -72,7 +72,7 @@ default).
 | `CMUX_PLUGIN_VERSION` | `plugin.version`, when set. |
 | `CMUX_PLUGIN_ACTION_ID` | Actions only: `plugin.<name>.<action>`. |
 | `CMUX_WORKSPACE_ID`, `CMUX_SURFACE_ID` | Actions only: the workspace and focused surface the action ran in. |
-| `CMUX_PLUGIN_CONTEXT_JSON` | The values above as one JSON object. |
+| `CMUX_PLUGIN_CONTEXT_JSON` | JSON object with `plugin_id`, `action_id`, `workspace_id`, `surface_id`, and `socket_path`; omitted optional values are represented as empty strings. |
 | `CMUX_SOCKET_PATH` | The app's control socket. |
 | `CMUX_BUNDLED_CLI_PATH` | The app's `cmux` CLI. Its directory is also first on `PATH`. |
 

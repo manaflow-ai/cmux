@@ -19,6 +19,7 @@ final class AppPluginHelloUITests: SettingsUITestCase {
 
         let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += settingsLaunchArguments
+        app.launchEnvironment["HOME"] = home.path
         app.launchEnvironment["CFFIXED_USER_HOME"] = home.path
         app.launchEnvironment["XDG_CONFIG_HOME"] = home.appendingPathComponent(".config").path
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"

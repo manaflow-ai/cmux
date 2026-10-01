@@ -72,7 +72,7 @@ struct CmuxPluginManifestTests {
 
     @Test("Rejects manifests that would be ambiguous or do nothing", arguments: [
         // Unknown keys catch typos.
-        "[plugin]\nname = \"a\"\nkind = \"extension\"\n[[actions]]\nid = \"x\"\ntitle = \"X\"\nargs = [\"true\"]",
+        "[plugin]\nname = \"a\"\nkind = \"extension\"\n[[actions]]\nid = \"x\"\ntitle = \"X\"\nargv = [\"true\"]\nargs = [\"true\"]",
         // Names keep plugin.<name>.<action> unambiguous.
         "[plugin]\nname = \"A.b\"\nkind = \"extension\"\n[[events]]\nevent = \"x\"\nargv = [\"true\"]",
         "[plugin]\nname = \"a\"\nkind = \"extension\"\n[[actions]]\nid = \"x.y\"\ntitle = \"X\"\nargv = [\"true\"]",

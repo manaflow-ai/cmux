@@ -24,16 +24,25 @@ public struct CmuxPluginPaths: Equatable, Sendable {
     }
 
     public func installDirectory(for name: String) -> URL {
-        installRoot.appendingPathComponent(name, isDirectory: true)
+        installRoot.appendingPathComponent(validatedName(name), isDirectory: true)
     }
 
     /// Writable per-plugin state, exported as `CMUX_PLUGIN_STATE_DIR`.
     public func stateDirectory(for name: String) -> URL {
-        homeDirectory.appendingPathComponent(".local/state/cmux/plugins/\(name)", isDirectory: true)
+        homeDirectory.appendingPathComponent(".local/state/cmux/plugins/\(validatedName(name))", isDirectory: true)
     }
 
     /// Per-plugin user configuration, exported as `CMUX_PLUGIN_CONFIG_DIR`.
     public func configDirectory(for name: String) -> URL {
-        homeDirectory.appendingPathComponent(".config/cmux/plugins/\(name)", isDirectory: true)
+        homeDirectory.appendingPathComponent(".config/cmux/plugins/\(validatedName(name))", isDirectory: true)
+    }
+
+    private func validatedName(_ name: String) -> String {
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789-_")
+        precondition(
+            !name.isEmpty && name.utf8.count <= 64 && name.unicodeScalars.allSatisfy(allowed.contains),
+            "plugin names must match [a-z0-9_-]+ and be at most 64 bytes"
+        )
+        return name
     }
 }

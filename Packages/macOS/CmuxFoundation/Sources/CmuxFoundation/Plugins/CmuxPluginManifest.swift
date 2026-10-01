@@ -248,7 +248,8 @@ public struct CmuxPluginEventHook: Equatable, Sendable {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-*"))
         guard !event.isEmpty,
               event.utf8.count <= 128,
-              event.unicodeScalars.allSatisfy({ $0.isASCII && allowed.contains($0) }) else {
+              event.unicodeScalars.allSatisfy({ $0.isASCII && allowed.contains($0) }),
+              !event.dropFirst().dropLast().contains("*") else {
             throw CmuxPluginManifestError("\(path).event must be an event name such as workspace.created")
         }
         return CmuxPluginEventHook(event: event, argv: argv, timeoutSeconds: timeout)
@@ -372,7 +373,7 @@ private struct TableReader {
     mutating func requiredArgv(_ key: String) throws -> [String] {
         guard let argv = try optionalStringArray(key),
               let first = argv.first,
-              !first.trimmingCharacters(in: .whitespaces).isEmpty else {
+              !first.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw CmuxPluginManifestError("\(path).\(key) must be a non-empty array of strings")
         }
         guard argv.count <= CmuxPluginManifest.maximumArguments,

@@ -19,6 +19,7 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case type
         case builtin
+        case plugin
         case command
         case commandName
         case name
@@ -95,6 +96,8 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
             inferredType = "agent"
         } else if container.contains(.builtin) {
             inferredType = "builtin"
+        } else if container.contains(.plugin) {
+            inferredType = "plugin"
         } else if container.contains(.workspace) {
             inferredType = "workspace"
         } else if container.contains(.command) {
@@ -114,6 +117,8 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
                 )
             }
             action = .builtIn(builtIn)
+        case "plugin":
+            action = .plugin(try Self.requiredTrimmedString(forKey: .plugin, in: container))
         case "command":
             let command = try Self.requiredTrimmedString(forKey: .command, in: container)
             action = .command(command)
@@ -195,9 +200,12 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
             try container.encodeIfPresent(restart, forKey: .restart)
         case .setting(let change):
             try Self.encodeSettingChange(change, in: &container)
-        case .actionReference(let identifier), .plugin(let identifier):
+        case .actionReference(let identifier):
             try container.encode("builtin", forKey: .type)
             try container.encode(identifier, forKey: .builtin)
+        case .plugin(let identifier):
+            try container.encode("plugin", forKey: .type)
+            try container.encode(identifier, forKey: .plugin)
         }
     }
 

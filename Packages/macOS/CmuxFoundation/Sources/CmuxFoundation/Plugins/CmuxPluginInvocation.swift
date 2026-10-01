@@ -73,6 +73,9 @@ public struct CmuxPluginInvocation: Equatable, Sendable {
         environment["CMUX_BUNDLED_CLI_PATH"] = context.cliPath
         environment["CMUX_WORKSPACE_ID"] = context.workspaceID
         environment["CMUX_SURFACE_ID"] = context.surfaceID
+        for key in ["CMUX_PLUGIN_VERSION", "CMUX_PLUGIN_ACTION_ID", "CMUX_SOCKET_PATH", "CMUX_BUNDLED_CLI_PATH", "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID"] {
+            if environment[key] == nil { environment[key] = "" }
+        }
         var contextObject: [String: String] = ["plugin_id": name]
         contextObject["action_id"] = context.actionID
         contextObject["workspace_id"] = context.workspaceID

@@ -25,6 +25,8 @@ public struct CmuxPluginTOMLError: Error, Equatable, Sendable, CustomStringConve
 /// `[[array]]` headers with dotted keys, bare or quoted keys, basic and
 /// literal strings, integers, booleans, arrays, and inline tables.
 public struct CmuxPluginTOMLParser {
+    private static let maximumNestingDepth = 32
+
     public init() {}
 
     public func parse(_ text: String) throws -> [String: CmuxPluginTOMLValue] {
@@ -175,7 +177,10 @@ public struct CmuxPluginTOMLParser {
         }
     }
 
-    private func parseValue(_ scanner: inout Scanner) throws -> CmuxPluginTOMLValue {
+    private func parseValue(_ scanner: inout Scanner, depth: Int = 0) throws -> CmuxPluginTOMLValue {
+        guard depth <= Self.maximumNestingDepth else {
+            throw scanner.error("nested value exceeds maximum depth")
+        }
         guard let scalar = scanner.peek() else { throw scanner.error("expected a value") }
         switch scalar {
         case "\"":
@@ -185,9 +190,9 @@ public struct CmuxPluginTOMLParser {
             if scanner.hasPrefix("'''") { throw scanner.error("multi-line strings are not supported") }
             return .string(try parseLiteralString(&scanner))
         case "[":
-            return try parseArray(&scanner)
+            return try parseArray(&scanner, depth: depth + 1)
         case "{":
-            return try parseInlineTable(&scanner)
+            return try parseInlineTable(&scanner, depth: depth + 1)
         default:
             var token = ""
             while let next = scanner.peek(), Self.isBareKeyScalar(next) || next == "+" || next == "." || next == ":" {
@@ -196,17 +201,25 @@ public struct CmuxPluginTOMLParser {
             }
             if token == "true" { return .bool(true) }
             if token == "false" { return .bool(false) }
-            let digits = token.replacingOccurrences(of: "_", with: "")
-            if !digits.isEmpty,
-               digits.unicodeScalars.allSatisfy({ CharacterSet(charactersIn: "+-0123456789").contains($0) }),
-               let integer = Int(digits) {
+            let signless = token.first.map { $0 == "+" || $0 == "-" ? String(token.dropFirst()) : token } ?? ""
+            let validUnderscores = !signless.isEmpty
+                && !signless.hasPrefix("_")
+                && !signless.hasSuffix("_")
+                && !signless.contains("__")
+            let digits = signless.replacingOccurrences(of: "_", with: "")
+            let validLeadingZero = digits.count <= 1 || digits.first != "0"
+            if validUnderscores,
+               validLeadingZero,
+               !digits.isEmpty,
+               digits.unicodeScalars.allSatisfy({ $0.value >= 48 && $0.value <= 57 }),
+               let integer = Int((token.first == "+" || token.first == "-") ? String(token.prefix(1)) + digits : digits) {
                 return .integer(integer)
             }
             throw scanner.error(token.isEmpty ? "expected a value" : "unsupported value '\(token)'")
         }
     }
 
-    private func parseArray(_ scanner: inout Scanner) throws -> CmuxPluginTOMLValue {
+    private func parseArray(_ scanner: inout Scanner, depth: Int) throws -> CmuxPluginTOMLValue {
         scanner.advance()
         var values: [CmuxPluginTOMLValue] = []
         while true {
@@ -215,7 +228,7 @@ public struct CmuxPluginTOMLParser {
                 scanner.advance()
                 return .array(values)
             }
-            values.append(try parseValue(&scanner))
+            values.append(try parseValue(&scanner, depth: depth))
             scanner.skipBlankLinesAndComments()
             if scanner.peek() == "," {
                 scanner.advance()
@@ -225,7 +238,7 @@ public struct CmuxPluginTOMLParser {
         }
     }
 
-    private func parseInlineTable(_ scanner: inout Scanner) throws -> CmuxPluginTOMLValue {
+    private func parseInlineTable(_ scanner: inout Scanner, depth: Int) throws -> CmuxPluginTOMLValue {
         scanner.advance()
         let node = Node()
         scanner.skipSpaces()
@@ -238,7 +251,7 @@ public struct CmuxPluginTOMLParser {
             scanner.skipSpaces()
             try scanner.expect("=")
             scanner.skipSpaces()
-            try assign(try parseValue(&scanner), path: path, in: node, scanner: scanner)
+            try assign(try parseValue(&scanner, depth: depth), path: path, in: node, scanner: scanner)
             scanner.skipSpaces()
             if scanner.peek() == "}" {
                 scanner.advance()

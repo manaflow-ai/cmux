@@ -39,7 +39,13 @@ public struct CmuxPluginSource: Equatable, Sendable {
             }
             return CmuxPluginSource(cloneURL: value, subdirectory: explicitSubdirectory)
         }
-        if value.hasPrefix("/") || value.hasPrefix(".") || value.hasPrefix("~") || value.contains(":") {
+        if let at = value.firstIndex(of: "@"), value[..<at].contains(":") {
+            throw CmuxPluginManifestError("plugin sources must not include credentials; use a git credential helper or SSH")
+        }
+        if value.hasPrefix("/") || value.hasPrefix(".") || value.hasPrefix("~") {
+            throw CmuxPluginManifestError("local plugin sources are not supported by install; use cmux plugin link")
+        }
+        if value.contains(":") {
             return CmuxPluginSource(cloneURL: value, subdirectory: explicitSubdirectory)
         }
         let parts = value.split(separator: "/", omittingEmptySubsequences: false).map(String.init)

@@ -1,3 +1,6 @@
 #!/bin/sh
 # Event hooks receive the event as JSON in CMUX_EVENT_JSON.
 printf '%s\n' "$CMUX_EVENT_JSON" >> "$CMUX_PLUGIN_STATE_DIR/events.log"
+# Keep the sample state bounded when many workspaces are created.
+tail -n 100 "$CMUX_PLUGIN_STATE_DIR/events.log" > "$CMUX_PLUGIN_STATE_DIR/events.log.tmp" \
+  && mv "$CMUX_PLUGIN_STATE_DIR/events.log.tmp" "$CMUX_PLUGIN_STATE_DIR/events.log"

@@ -60,10 +60,19 @@ public struct CmuxPluginCatalog: Equatable, Sendable {
         fileManager: FileManager = .default
     ) -> CmuxPluginCatalog {
         let root = paths.installRoot
-        guard let entries = try? fileManager.contentsOfDirectory(atPath: root.path) else {
+        let entries: [String]
+        do {
+            entries = try fileManager.contentsOfDirectory(atPath: root.path)
+        } catch {
+            guard !fileManager.fileExists(atPath: root.path) else {
+                return CmuxPluginCatalog(problems: [
+                    CmuxPluginLoadProblem(name: root.path, message: "unable to read plugin install root")
+                ])
+            }
             return CmuxPluginCatalog()
         }
-        guard entries.count <= maximumEntries else {
+        let visibleEntries = entries.filter { !$0.hasPrefix(".") }
+        guard visibleEntries.count <= maximumEntries else {
             return CmuxPluginCatalog(problems: [
                 CmuxPluginLoadProblem(
                     name: root.path,
@@ -74,7 +83,7 @@ public struct CmuxPluginCatalog: Equatable, Sendable {
         let enabled = CmuxPluginEnablementStore(fileURL: paths.enablementFile).load()
         var plugins: [CmuxInstalledPlugin] = []
         var problems: [CmuxPluginLoadProblem] = []
-        for entry in entries.sorted() where !entry.hasPrefix(".") {
+        for entry in visibleEntries.sorted() {
             do {
                 plugins.append(try loadPlugin(
                     entry: entry,
@@ -94,6 +103,11 @@ public struct CmuxPluginCatalog: Equatable, Sendable {
         in directory: URL
     ) throws -> (manifest: CmuxPluginManifest, fingerprint: String) {
         let url = directory.appendingPathComponent(CmuxPluginManifest.fileName)
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let type = attributes[.type] as? FileAttributeType,
+              type == .typeRegular else {
+            throw CmuxPluginManifestError("(CmuxPluginManifest.fileName) is not a regular file")
+        }
         let handle: FileHandle
         do {
             handle = try FileHandle(forReadingFrom: url)
