@@ -32,6 +32,7 @@ public actor CloudMachineLinkManager {
         case wireGuardHubUnsupported
         case privateRouteRequired(String)
         case retryLater(String)
+        case retryExhausted(String)
 
         public var errorDescription: String? {
             switch self {
@@ -44,6 +45,8 @@ public actor CloudMachineLinkManager {
             case .privateRouteRequired(let route):
                 return "The Cloud machine did not provide a private-network route: \(route)"
             case .retryLater(let detail):
+                return detail
+            case .retryExhausted(let detail):
                 return detail
             }
         }
@@ -70,7 +73,7 @@ public actor CloudMachineLinkManager {
     private var connecting: [String: Task<CloudMachineLink.Connected, Error>] = [:]
     private var browserProxies: [String: CloudBrowserProxyProcess] = [:]
     private var browserProxyStarts: [String: Task<CloudBrowserProxyEndpoint, Error>] = [:]
-    private struct LinkFailure { let at: Date; let error: String; let typed: CloudVMHTTPError?; let terminal: Bool }
+    private struct LinkFailure { let episode: CloudVMRetryEpisode; let error: String; let typed: CloudVMHTTPError? }
     private var lastFailure: [String: LinkFailure] = [:]
     private var machineStatuses: [String: String] = [:]
     private var localStatusChanges: [String: Date] = [:]
@@ -79,9 +82,6 @@ public actor CloudMachineLinkManager {
     private var resumesInFlight: [String: Task<String, Error>] = [:]
     private var resumeTokens: [String: UUID] = [:]
     private let resumeMachine: @Sendable (String) async throws -> String
-    /// A failed link is not retried for this long, so a polling sidebar does not hammer
-    /// a machine whose route is broken. Only background upkeep waits it out.
-    private let retryBackoff: TimeInterval = 15
     /// Marks background upkeep so explicit opens can bypass stale transport backoff.
     @TaskLocal public static var isBackgroundUpkeep = false
     /// How long a link may take to report its socket: the daemon accepts a
@@ -237,12 +237,11 @@ public actor CloudMachineLinkManager {
                 "outcome": "started"
             ]
         )
-        if let failure = lastFailure[machineID], failure.terminal {
+        if let failure = lastFailure[machineID], !failure.episode.admitsAttempt() {
+            if failure.episode.isStopped || failure.episode.hasExpired {
+                throw ManagerError.retryExhausted(failure.error)
+            }
             if let typed = failure.typed { throw VMClientError.typedHTTPStatus(typed) }
-            throw ManagerError.retryLater(failure.error)
-        }
-        if let failure = lastFailure[machineID], Self.backoffRejects(failedAt: failure.at, now: Date.now, backoff: retryBackoff) {
-            recordPreflightFailure(machineID: machineID, reason: "retry_backoff", correlationID: correlationID)
             throw ManagerError.retryLater(failure.error)
         }
         guard let clientURL else {
@@ -355,8 +354,9 @@ public actor CloudMachineLinkManager {
             guard connecting[machineID] == task else { throw error }
             let text = CloudMachineLink.errorText(error)
             let typed = (error as? VMClientError)?.cloudHTTPError
-            let terminal = typed.map { !$0.admitsAutomaticRetry || $0.requiresRecreate || $0.rejectsSession } ?? false
-            lastFailure[machineID] = LinkFailure(at: .now, error: text, typed: typed, terminal: terminal)
+            var episode = lastFailure[machineID]?.episode ?? CloudVMRetryEpisode()
+            episode.recordFailure(error, jitter: Double.random(in: 0...0.25))
+            lastFailure[machineID] = LinkFailure(episode: episode, error: text, typed: typed)
             links[machineID] = nil
             #if DEBUG
             CMUXDebugLog.logDebugEvent("cloud.link.failed machine=\(machineID) error=\(String(reflecting: error)) text=\(text)")
@@ -404,6 +404,12 @@ public actor CloudMachineLinkManager {
     /// One authenticated browser carrier per machine, sharing the app's userspace WireGuard hub.
     public func browserProxy(machineID: String) async throws -> CloudBrowserProxyEndpoint {
         try Task.checkCancellation()
+        if Self.isBackgroundUpkeep, let failure = lastFailure[machineID], !failure.episode.admitsAttempt() {
+            if failure.episode.isStopped || failure.episode.hasExpired {
+                throw ManagerError.retryExhausted(failure.error)
+            }
+            throw ManagerError.retryLater(failure.error)
+        }
         guard isCloudEnabled(), privateRoutes[machineID] != nil else {
             throw ManagerError.privateRouteRequired(machineID)
         }
@@ -529,7 +535,7 @@ public actor CloudMachineLinkManager {
         if connecting[machineID] != nil {
             return LinkStatus(state: .connecting, error: nil)
         }
-        if let failure = lastFailure[machineID], failure.terminal || Date.now.timeIntervalSince(failure.at) < retryBackoff {
+        if let failure = lastFailure[machineID] {
             return LinkStatus(state: .error, error: failure.error)
         }
         return nil

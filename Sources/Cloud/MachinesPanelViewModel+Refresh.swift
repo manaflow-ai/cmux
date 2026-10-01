@@ -85,8 +85,11 @@ extension MachinesPanelViewModel {
 
     func startPolling() {
         wantsPolling = true
+        if cloudSessionRejected {
+            pausePolling()
+            return
+        }
         if listProblem == .sessionRejected {
-            wantsPolling = false
             pausePolling()
             return
         }

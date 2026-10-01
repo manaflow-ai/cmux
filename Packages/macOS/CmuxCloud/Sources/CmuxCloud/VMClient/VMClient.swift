@@ -779,6 +779,10 @@ public struct VMTunnelEndpoint: Sendable {
 ///
 /// All methods are `async throws` and run off the main actor.
 public actor VMClient {
+    /// Posted when any VM request proves that the current credentials are rejected.
+    public static let sessionRejectedNotification = Notification.Name("cmux.cloud.sessionRejected")
+    /// Posted when a new authenticated credential pair replaces a rejected pair.
+    public static let sessionRecoveredNotification = Notification.Name("cmux.cloud.sessionRecovered")
     /// Set once by `bootstrap(auth:)` during app startup (AppDelegate
     /// `configure`), before any socket/CLI path can reach the cloud VM client.
     /// Main-actor isolated so every read goes through a compiler-checked hop.
@@ -863,7 +867,10 @@ public actor VMClient {
     private let isDisabledByManagedPolicy: (@Sendable () -> Bool)?
     private var attachRetryLedger = CloudVMRetryLedger()
     private var attachInFlight: [String: Task<VMCmuxRemoteEndpoint, Error>] = [:]
-    private var attachSessionKey: String?
+    private var attachIdentityKey: String?
+    private var rejectedSessionIdentity: AuthenticatedSessionIdentity?
+    private var rejectedCredentialSignature: Int?
+    private var rejectedSessionError: CloudVMHTTPError?
 
     public init(
         session: URLSession = .shared,
@@ -1810,15 +1817,17 @@ public actor VMClient {
         let identity = await auth.authenticatedSessionIdentity
         let selectedTeamID = await auth.resolvedTeamID
         let requestTeamID = teamID ?? selectedTeamID
-        let sessionKey = "\(identity?.accountID ?? "<none>"):\(identity?.generation ?? 0):\(requestTeamID ?? "<none>")"
-        if attachSessionKey != sessionKey {
+        let identityKey = "\(identity?.accountID ?? "<none>"):\(identity?.generation ?? 0)"
+        if attachIdentityKey != identityKey {
             attachRetryLedger.removeAll()
-            attachSessionKey = sessionKey
+            attachIdentityKey = identityKey
         }
         let capabilities = Self.sanitizedClientCapabilities(clientCapabilities)
-        let key = [sessionKey, id, deviceFingerprint ?? "", capabilities.joined(separator: ",")].joined(separator: "\u{0}")
+        let sessionKey = "\(requestTeamID ?? "<none>"):\(id)"
+        let retryMachineID = sessionKey
+        let key = [identityKey, sessionKey, deviceFingerprint ?? "", capabilities.joined(separator: ",")].joined(separator: "\u{0}")
         if let inFlight = attachInFlight[key] { return try await inFlight.value }
-        if case .blocked(let error) = attachRetryLedger.admission(machineID: id, now: .now) {
+        if case .blocked(let error) = attachRetryLedger.admission(machineID: retryMachineID, now: .now) {
             throw VMClientError.typedHTTPStatus(error)
         }
         let task = Task<VMCmuxRemoteEndpoint, Error> { [weak self] in
@@ -1840,12 +1849,12 @@ public actor VMClient {
             } else {
                 guard await auth.isAuthenticated else { throw CancellationError() }
             }
-            attachRetryLedger.recordSuccess(machineID: id)
+            attachRetryLedger.recordSuccess(machineID: retryMachineID)
             return endpoint
         } catch let VMClientError.typedHTTPStatus(error) {
-            guard attachSessionKey == sessionKey else { throw CancellationError() }
+            guard attachIdentityKey == identityKey else { throw CancellationError() }
             attachRetryLedger.recordFailure(
-                machineID: id,
+                machineID: retryMachineID,
                 error: error,
                 now: .now,
                 jitter: Double.random(in: 0...0.25)
@@ -2507,6 +2516,18 @@ public actor VMClient {
         } catch {
             throw VMClientError.notSignedIn
         }
+        let credentialSignature = Self.credentialSignature(tokens)
+        if let rejectedSessionError {
+            if self.rejectedSessionIdentity != sessionIdentity || rejectedCredentialSignature != credentialSignature {
+                self.rejectedSessionIdentity = nil
+                rejectedCredentialSignature = nil
+                self.rejectedSessionError = nil
+                attachRetryLedger.removeAll()
+                NotificationCenter.default.post(name: Self.sessionRecoveredNotification, object: nil)
+            } else {
+                throw VMClientError.typedHTTPStatus(rejectedSessionError)
+            }
+        }
         let teamID = requestedTeamID
         guard var url = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
             throw VMClientError.malformedResponse("bad vmAPIBaseURL")
@@ -2589,6 +2610,12 @@ public actor VMClient {
                     body: String(data: data, encoding: .utf8) ?? "<binary>",
                     retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
                 )
+                if vmError.rejectsSession {
+                    rejectedSessionIdentity = sessionIdentity
+                    rejectedCredentialSignature = credentialSignature
+                    rejectedSessionError = vmError
+                    NotificationCenter.default.post(name: Self.sessionRejectedNotification, object: nil)
+                }
                 let elapsedSeconds = Double(DispatchTime.now().uptimeNanoseconds - retryStartedAt) / 1_000_000_000
                 let decision = CloudVMRetryPolicy.automatic.decision(
                     for: vmError,
@@ -2632,6 +2659,15 @@ public actor VMClient {
             }
             return (data, http)
         }
+    }
+
+    private static func credentialSignature(
+        _ tokens: (accessToken: String, refreshToken: String)
+    ) -> Int {
+        var hasher = Hasher()
+        hasher.combine(tokens.accessToken)
+        hasher.combine(tokens.refreshToken)
+        return hasher.finalize()
     }
     private func pollOperationProgress(context: CloudOperationContext, request: URLRequest) async {
         struct ProgressResponse: Decodable { let steps: [CloudRemoteOperationStep] }
@@ -2914,9 +2950,14 @@ public actor MachineUsageClient {
             }
             let (data, http) = (response.data, response.http)
             guard (200...299).contains(http.statusCode) else {
+                if http.statusCode == 401 || http.statusCode == 403 {
+                    NotificationCenter.default.post(name: VMClient.sessionRejectedNotification, object: nil)
+                }
                 throw MachineUsageClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
             }
-            return try Self.decodeTeamUsage(data)
+            let usage = try Self.decodeTeamUsage(data)
+            NotificationCenter.default.post(name: VMClient.sessionRecoveredNotification, object: nil)
+            return usage
         }
     }
 
@@ -3050,6 +3091,9 @@ public actor MachineUsageClient {
                 _ = await owner.noteRetryAfter(read.key, seconds: seconds, response: .init(data: data, http: http))
             }
             guard (200...299).contains(http.statusCode) else {
+                if http.statusCode == 401 || http.statusCode == 403 {
+                    NotificationCenter.default.post(name: VMClient.sessionRejectedNotification, object: nil)
+                }
                 throw MachineUsageClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
             }
         return (data, http)

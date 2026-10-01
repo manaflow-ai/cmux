@@ -13,7 +13,7 @@ enum MachineListStatus: Equatable {
 
 extension MachinesPanelViewModel {
     enum CloudListProblem: Equatable {
-        /// HTTP 401: the Cloud service no longer accepts this session.
+        /// HTTP 401/403: the Cloud service no longer accepts this session.
         case sessionRejected
         /// HTTP 402: the plan gates Cloud access.
         case requiresPro

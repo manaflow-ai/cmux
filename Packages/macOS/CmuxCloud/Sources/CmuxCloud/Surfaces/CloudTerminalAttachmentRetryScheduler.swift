@@ -32,7 +32,10 @@ public final class CloudTerminalAttachmentRetryScheduler {
     public func scheduleRetry(_ retry: @escaping @MainActor () -> Void) -> Duration {
         guard !isStopped else { return .zero }
         failures += 1
-        let delay = policy.cappedDelay(afterFailures: failures)
+        guard let delay = policy.boundedDelay(afterFailures: failures) else {
+            stop()
+            return .zero
+        }
         task?.cancel()
         task = Task { @MainActor [weak self, clock] in
             do {

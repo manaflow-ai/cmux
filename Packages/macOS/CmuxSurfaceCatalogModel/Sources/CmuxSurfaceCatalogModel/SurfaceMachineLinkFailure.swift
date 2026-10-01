@@ -6,4 +6,6 @@ import Foundation
 public enum SurfaceMachineLinkFailure: String, Codable, Sendable, Hashable {
     case recreateRequired
     case sessionRejected
+    /// A typed VM refusal that is not safe to retry automatically.
+    case terminal
 }

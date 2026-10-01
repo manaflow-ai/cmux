@@ -268,6 +268,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             from: summary,
             linkState: linkState,
             linkError: linkError,
+            linkFailure: info.linkFailure,
             stats: nil,
             remoteWorkspaces: info.remoteWorkspaces,
             portDiscoveryState: portDiscovery.state
@@ -421,7 +422,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         var linkState: SurfaceLinkState = .connected
         var linkError: String?
-        var linkFailure: SurfaceMachineLinkFailure?
+        var linkFailure: SurfaceMachineLinkFailure? = info.linkFailure
         // A decoded snapshot is not automatically an authorization boundary. It
         // can lose an install race, or be older than the graph already accepted.
         // Callers must use only a graph established by this refresh as mutation
@@ -508,7 +509,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 return false
             }
             portDiscovery.linkFailed()
-            if let typed = (error as? VMClientError)?.cloudHTTPError { linkFailure = typed.requiresRecreate ? .recreateRequired : (typed.rejectsSession ? .sessionRejected : nil); if typed.requiresRecreate || typed.rejectsSession { attachmentRetry.stop() } }
+            if let typed = (error as? VMClientError)?.cloudHTTPError {
+                linkFailure = typed.requiresRecreate ? .recreateRequired : (typed.rejectsSession ? .sessionRejected : (typed.admitsAutomaticRetry ? linkFailure : .terminal))
+                if typed.requiresRecreate || typed.rejectsSession || !typed.admitsAutomaticRetry { attachmentRetry.stop() }
+            }
             let status = await links.status(machineID: machineID)
             linkState = eventsFeedWarning == nil ? (status?.state ?? .error) : .error
             let text = eventsFeedWarning ?? status?.error ?? CloudMachineLink.errorText(error)
@@ -1577,7 +1581,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         portsCache = (scan.ports, Date.now)
         return scan.ports
     }
-
     private func watchChanges(link: CloudMachineLink, generation: UInt64) {
         guard generation == lifecycleGeneration else { return }
         if let watchedLink, watchedLink === link, changeWatcher != nil { return }
@@ -1811,7 +1814,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 }
-
 extension SurfaceMachineInfo {
     /// Copy for a failed remote graph refresh. State-specific failures take precedence over
     /// diagnostics because a missing graph is not necessarily a network failure. Internal
@@ -1832,7 +1834,6 @@ extension SurfaceMachineInfo {
             return message
         }
     }
-
     /// The same machine row with `previous`'s resource gauges, so a refresh that
     /// publishes before its stats read lands does not blank the sidebar gauges.
     func carryingGauges(from previous: SurfaceMachineInfo) -> SurfaceMachineInfo {
@@ -1844,7 +1845,6 @@ extension SurfaceMachineInfo {
         info.diskUsedMb = previous.diskUsedMb
         return info
     }
-
     func applyingGauges(_ stats: VMStats) -> SurfaceMachineInfo {
         var info = self
         info.memoryMb = stats.memoryTotalMb

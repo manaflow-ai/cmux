@@ -306,10 +306,15 @@ extension CmuxTuiSurfaceProvider {
         restoredAttachTasks[panelID]?.cancel()
         let generation = lifecycleGeneration
         reservation.retry = { [weak self] in
-            guard self?.isCurrentLifecycleGeneration(generation) == true else { return }
-            self?.attachmentRetry.reset()
-            self?.restoredAttachTasks[panelID]?.cancel()
-            self?.attachReservedTerminalPane(reservation, resource: resource, remoteTabID: remoteTabID)
+            guard let self, self.isCurrentLifecycleGeneration(generation) else { return }
+            Task { @MainActor [weak self] in
+                guard let self, self.isCurrentLifecycleGeneration(generation) else { return }
+                await self.links.resetRetry(machineID: self.machineID)
+                self.attachmentRetry.reset()
+                self.restoredAttachTasks[panelID]?.cancel()
+                self.attachReservedTerminalPane(reservation, resource: resource, remoteTabID: remoteTabID)
+                self.scheduleRefresh()
+            }
         }
         reservation.cancel = { [weak self] in
             guard let self else { return }
@@ -362,8 +367,14 @@ extension CmuxTuiSurfaceProvider {
                     return
                 } catch {
                     guard !Task.isCancelled else { return }
+                    if let managerError = error as? CloudMachineLinkManager.ManagerError,
+                       case .retryExhausted = managerError {
+                        self.restoredAttachTasks[panelID] = nil
+                        workspace.failReservedCloudTerminalPane(reservation, error: error)
+                        return
+                    }
                     if let typed = (error as? VMClientError)?.cloudHTTPError,
-                       (typed.requiresRecreate || typed.rejectsSession) {
+                       (typed.requiresRecreate || typed.rejectsSession || !typed.admitsAutomaticRetry) {
                         self.restoredAttachTasks[panelID] = nil
                         workspace.failReservedCloudTerminalPane(reservation, error: error)
                         return
@@ -390,7 +401,10 @@ extension CmuxTuiSurfaceProvider {
                     if failures >= Self.reservedAttachFailuresBeforeReporting {
                         workspace.failReservedCloudTerminalPane(reservation, error: error)
                     }
-                    let delay = CloudTerminalAttachmentRetryPolicy.background.cappedDelay(afterFailures: failures)
+                    guard let delay = CloudTerminalAttachmentRetryPolicy.background.boundedDelay(afterFailures: failures) else {
+                        self.restoredAttachTasks[panelID] = nil
+                        return
+                    }
                     do { try await self.attachmentClock.sleep(for: delay) } catch { return }
                 }
             }

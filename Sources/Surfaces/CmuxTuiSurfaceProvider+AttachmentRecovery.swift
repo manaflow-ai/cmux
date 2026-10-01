@@ -87,6 +87,7 @@ extension CmuxTuiSurfaceProvider {
         let delay = attachmentRetry.scheduleRetry { [weak self] in
             self?.scheduleRefresh()
         }
+        guard delay > .zero else { return }
         attachmentLog.retry(machineID: machineID, failures: attachmentRetry.failures, delay: delay)
     }
 }

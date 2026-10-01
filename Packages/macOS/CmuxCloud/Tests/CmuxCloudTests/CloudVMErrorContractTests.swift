@@ -11,6 +11,7 @@ struct CloudVMErrorContractTests {
 
         #expect(text.contains("This Cloud machine can no longer be attached"))
         #expect(!text.contains("Cloud service unavailable"))
+        #expect(!text.contains("Another Cloud VM operation is already running."))
     }
 
     @Test("automatic retries require the typed retryable contract")
@@ -22,6 +23,12 @@ struct CloudVMErrorContractTests {
 
         let nonRetryable = CloudVMHTTPError(status: 502, body: #"{"error":"vm_cloud_service_unavailable","retryable":false}"#)
         #expect(policy.decision(for: nonRetryable, attempt: 1, elapsedSeconds: 0) == .stop)
+        let headerFloor = CloudVMHTTPError(
+            status: 429,
+            body: #"{"retryable":true,"retryAfterSeconds":1}"#,
+            retryAfterHeader: "60"
+        )
+        #expect(headerFloor.retryAfterSeconds == 60)
     }
 
     @Test("terminal refusals stay sticky until the explicit reset")
@@ -76,5 +83,13 @@ struct CloudVMErrorContractTests {
         #expect(scheduler.isStopped)
         #expect(!scheduler.isPending)
         #expect(scheduler.scheduleRetry {} == .zero)
+    }
+
+    @Test("local attachment failures stop after the finite episode")
+    func localRetryEpisodeStops() {
+        var episode = CloudVMRetryEpisode()
+        for _ in 1...5 { #expect(episode.recordFailure(nil) != .stop) }
+        #expect(episode.recordFailure(nil) == .stop)
+        #expect(episode.isStopped)
     }
 }

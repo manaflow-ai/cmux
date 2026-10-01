@@ -21,9 +21,10 @@ public struct CloudVMHTTPError: Error, CustomStringConvertible, Equatable, Senda
         self.status = status
         self.code = cloudVMString(object["error"]) ?? "http_\(status)"
         self.retryable = cloudVMBool(object["retryable"]) ?? cloudVMBool(ui?["retryable"]) ?? false
-        self.retryAfterSeconds = cloudVMInt(object["retryAfterSeconds"])
+        let bodyRetryAfter = cloudVMInt(object["retryAfterSeconds"])
             ?? cloudVMInt(ui?["retryAfterSeconds"])
-            ?? CmxRetryAfterPolicy().seconds(from: retryAfterHeader)
+        let headerRetryAfter = CmxRetryAfterPolicy().seconds(from: retryAfterHeader)
+        self.retryAfterSeconds = [bodyRetryAfter, headerRetryAfter].compactMap { $0 }.max()
         self.phase = cloudVMString(object["phase"]) ?? cloudVMString(ui?["phase"])
         self.traceId = cloudVMString(object["traceId"])
             ?? cloudVMString(ui?["traceId"])
@@ -76,23 +77,27 @@ public struct CloudVMRetryPolicy: Sendable, Equatable {
     /// number of requests already made and `elapsedSeconds` is the time spent
     /// in this automatic retry episode.
     public func decision(
-        for error: CloudVMHTTPError,
+        for error: CloudVMHTTPError?,
         attempt: Int,
         elapsedSeconds: Double,
         jitter: Double = 0
     ) -> Decision {
-        guard error.admitsAutomaticRetry,
-              !error.requiresRecreate,
-              !error.rejectsSession,
+        guard error?.admitsAutomaticRetry != false,
+              error?.requiresRecreate != true,
+              error?.rejectsSession != true,
               attempt < maximumAttempts,
               elapsedSeconds < maximumElapsedSeconds else {
             return .stop
         }
-        return .retry(delay: delay(
+        let wait = delay(
             afterAttempt: attempt,
-            retryAfterSeconds: error.retryAfterSeconds,
+            retryAfterSeconds: error?.retryAfterSeconds,
             jitter: jitter
-        ))
+        )
+        let parts = wait.components
+        let seconds = Double(parts.seconds) + Double(parts.attoseconds) / 1e18
+        guard elapsedSeconds + seconds < maximumElapsedSeconds else { return .stop }
+        return .retry(delay: wait)
     }
 
     /// Exponential backoff with bounded jitter. The server-provided delay is a
@@ -101,7 +106,7 @@ public struct CloudVMRetryPolicy: Sendable, Equatable {
         let exponent = min(max(attempt - 1, 0), 30)
         let exponential = min(baseDelaySeconds * pow(2, Double(exponent)), maximumDelaySeconds)
         let normalizedJitter = min(max(jitter, 0), 0.25)
-        let localDelay = exponential * (1 + normalizedJitter)
+        let localDelay = min(maximumDelaySeconds, exponential * (1 + normalizedJitter))
         let serverDelay = Double(max(retryAfterSeconds ?? 0, 0))
         return .seconds(max(localDelay, serverDelay))
     }
@@ -167,7 +172,11 @@ public struct CloudVMRetryLedger: Sendable, Equatable {
     }
 
     public mutating func reset(machineID: String) {
-        recordSuccess(machineID: machineID)
+        entries = entries.filter { key, _ in
+            key != machineID
+                && !key.hasSuffix("\u{0}\(machineID)")
+                && !key.hasSuffix(":\(machineID)")
+        }
     }
 
     public mutating func removeAll() {
@@ -284,14 +293,14 @@ func cloudVMInt(_ value: Any?) -> Int? {
     if let int = value as? Int { return int }
     if let double = value as? Double, double.isFinite {
         let truncated = double.rounded(.towardZero)
-        guard truncated >= Double(Int.min), truncated <= Double(Int.max) else { return nil }
+        guard truncated >= Double(Int.min), truncated < Double(Int.max) else { return nil }
         return Int(truncated)
     }
     if let number = value as? NSNumber {
         let double = number.doubleValue
         guard double.isFinite else { return nil }
         let truncated = double.rounded(.towardZero)
-        guard truncated >= Double(Int.min), truncated <= Double(Int.max) else { return nil }
+        guard truncated >= Double(Int.min), truncated < Double(Int.max) else { return nil }
         return Int(truncated)
     }
     if let string = value as? String { return Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) }

@@ -103,7 +103,7 @@ public enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
         switch error {
         case .clientMissing, .wireGuardHubMissing: return .process
         case .wireGuardHubUnsupported: return .unsupported
-        case .privateRouteRequired, .retryLater: return .network
+        case .privateRouteRequired, .retryLater, .retryExhausted: return .network
         }
     }
 

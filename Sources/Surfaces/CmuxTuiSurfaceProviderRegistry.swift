@@ -3,22 +3,13 @@ import CmuxFoundation
 import CmuxSettings
 import CmuxSurfaceCatalogModel
 import Foundation
-/// Owns one ``CmuxTuiSurfaceProvider`` per cloud machine and keeps the catalog's machine
-/// list in step with the control plane: registers a provider for every machine the
-/// account can see, unregisters deleted ones, and drives refreshes on the same 45 s
-/// cadence the Machines panel uses. Signing out tears everything down.
-///
-/// Authenticated fleet discovery also prepares the shared terminal carrier, even for
-/// an empty fleet. Both follow the Cloud flag and Beta Features opt-in; disabling
-/// Cloud or signing out stops the carrier without deleting persisted identities.
 @MainActor
 final class CmuxTuiSurfaceProviderRegistry {
     static let shared = CmuxTuiSurfaceProviderRegistry()
     private enum RegistryError: Error { case listUnavailable }
     private var catalog: SurfaceCatalog?
-    private var providers: [String: CmuxTuiSurfaceProvider] = [:]
+    fileprivate var providers: [String: CmuxTuiSurfaceProvider] = [:]
     let links: CloudMachineLinkManager
-    /// The app's one WireGuard hub for private-network machines; nil when no cmux-tui
     /// client is bundled (then no link can be made at all).
     nonisolated let wireGuardHub: CloudWireGuardHub?
     /// Loopback forwards to VM ports over the hub (Ports and Desktop rows); nil
@@ -26,8 +17,10 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// local port until the machine leaves the fleet or the account signs out.
     let portAccess = CloudPortAccessStore()
     let portForwards: CloudHubPortForwarder?
-    private var pollTask: Task<Void, Never>?
+    fileprivate var pollTask: Task<Void, Never>?
     private var accessObserver: NSObjectProtocol?
+    fileprivate var sessionRejectedObserver: NSObjectProtocol?
+    fileprivate var sessionRecoveredObserver: NSObjectProtocol?
     private var themeObserver: NSObjectProtocol?
     private var activationObserver: NSObjectProtocol?
     private var networkObserver: CloudReadRecoveryObserver?
@@ -56,14 +49,14 @@ final class CmuxTuiSurfaceProviderRegistry {
     private let hasCloudSession: @MainActor () -> Bool
     private let refreshProvider: @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Bool
     private let closeTransports: @MainActor () async -> Void
-    private var refreshInFlight: Task<Bool, Never>?
-    private var discoveryInFlight: Task<[CmuxTuiSurfaceProvider]?, Never>?
+    fileprivate var refreshInFlight: Task<Bool, Never>?
+    fileprivate var discoveryInFlight: Task<[CmuxTuiSurfaceProvider]?, Never>?
     /// New account discovery waits until the previous account's transports close.
     private var teardownInFlight: Task<Void, Never>?
     /// A forced refresh waits for an existing pass instead of starting a second
     /// fleet read. This prevents an older page from unregistering a machine that
     /// a newer page just added.
-    private var refreshGeneration: UInt64 = 0
+    fileprivate var refreshGeneration: UInt64 = 0
     /// Bumped by every ``start(catalog:)``. `NotificationCenter` blocks queued
     /// on `.main` are already enqueued when `removeObserver` runs, so a
     /// teardown posted before a restart can still land after it. The observer
@@ -84,7 +77,8 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Whether account access has ended. Retired registries reject all new Cloud work
     /// until ``start(catalog:)`` reactivates them for the next account.
     var isRetired = true
-    private var sessionRejected = false
+    fileprivate var sessionRejected = false
+    private var registryRetryEpisode = CloudVMRetryEpisode()
     /// Same cadence as the Machines panel's list refresh.
     private let pollInterval: Duration = .seconds(45)
     /// In-flight forward and link teardowns for deleted machines, keyed by
@@ -199,6 +193,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     var isPolling: Bool { pollTask != nil }
     deinit {
         if let accessObserver { notificationCenter.removeObserver(accessObserver) }
+        removeSessionGateObservers()
         if let themeObserver { notificationCenter.removeObserver(themeObserver) }
         if let activationObserver { notificationCenter.removeObserver(activationObserver) }
         if let featureFlagObserver { notificationCenter.removeObserver(featureFlagObserver) }
@@ -241,6 +236,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                 Task { @MainActor in await self.accessDidEnd(epoch: epoch) }
             }
         }
+        installSessionGateObservers()
         // A Ghostty config reload can change the resolved theme; re-push it so remote
         // panes keep matching the local ones (connect-time push covers new links).
         if let themeObserver { notificationCenter.removeObserver(themeObserver) }
@@ -341,6 +337,8 @@ final class CmuxTuiSurfaceProviderRegistry {
     @discardableResult
     func refresh(force: Bool) async -> Bool {
         guard !isRetired, !sessionRejected, !ManagedDevicePolicy().isEnforced(.disableCloud), isCloudEnabled() else { return false }
+        if force { registryRetryEpisode.reset() }
+        guard force || registryRetryEpisode.admitsAttempt() else { pollTask?.cancel(); pollTask = nil; return false }
         let access = accessEpoch
         while true {
             guard access == accessEpoch, isCloudEnabled(), !Task.isCancelled else { return false }
@@ -372,7 +370,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         let refreshableMachines = Set(refreshable.map { provider in provider.machineID })
         let retainedForeign = retainedForeignTeamMachineIDs(activeTeamID: activeTeamID())
         let foreignIDs = retainedForeign.subtracting(refreshableMachines)
-        let foreign = foreignIDs.compactMap { id in providers[id] }
+        let foreign = foreignIDs.compactMap { id in providers[id] }.filter { $0.info.linkFailure == nil }
         let candidates = refreshable + foreign
         let activeMachines: Set<SurfaceMachineID>
         if force || !hasCompletedInitialRefresh {
@@ -655,12 +653,14 @@ final class CmuxTuiSurfaceProviderRegistry {
         let access = accessEpoch
         let page: VMListPage
         do {
-            page = try await listPageWithError()
+            page = try await listPageWithError(); registryRetryEpisode.reset()
         } catch let error as VMClientError {
             guard access == accessEpoch, generation == refreshGeneration, !Task.isCancelled, !isRetired else { return nil }
             if error.cloudHTTPError?.rejectsSession == true { sessionRejected = true; pollTask?.cancel(); pollTask = nil; refreshGeneration &+= 1 }
+            registryRetryEpisode.recordFailure(error); if registryRetryEpisode.isStopped { pollTask?.cancel(); pollTask = nil }
             return nil
         } catch {
+            registryRetryEpisode.recordFailure(error); if registryRetryEpisode.isStopped { pollTask?.cancel(); pollTask = nil }
             return nil
         }
         guard !isRetired, generation == refreshGeneration, isCloudEnabled(), !Task.isCancelled, pageTeamID == activeTeamID() else { return nil }

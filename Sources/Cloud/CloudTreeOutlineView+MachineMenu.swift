@@ -19,26 +19,18 @@ extension CloudTreeOutlineView.Coordinator {
             self?.applyMachineOrder(machines)
         })
         items.append(contentsOf: machineReorderMenuItems(id: id))
-        if info?.linkFailure == .recreateRequired {
-            items.append(item(String(localized: "machines.menu.recreate", defaultValue: "Recreate")) {
-                actions.recreate(id)
-            })
+        if let linkFailure = info?.linkFailure {
+            if linkFailure == .recreateRequired {
+                items.append(item(String(localized: "machines.menu.recreate", defaultValue: "Recreate")) {
+                    actions.recreate(id)
+                })
+            }
             if let error = info?.linkError {
                 items.append(item(CloudErrorCopy.title) { CloudErrorCopy.copy(error) })
             }
         } else if machine.freeAccess == .expired {
             items.append(item(String(localized: "machines.menu.upgradeToReconnect", defaultValue: "Upgrade to Reconnect…")) { actions.promptUpgrade() })
         } else {
-            items.append(item(String(localized: "machines.menu.openShell", defaultValue: "Open Shell")) { nodeActions.newTerminal(.cloud(id), nil) })
-            items.append(item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { nodeActions.newWorkspace(.cloud(id)) })
-            if machine.isDesktop {
-                items.append(item(String(localized: "machines.menu.openDesktop", defaultValue: "Open Desktop")) {
-                    nodeActions.project(SurfaceResourceID(machine: .cloud(id), kind: .display, key: SurfaceResourceID.desktopDisplayKey), .split, true)
-                })
-            }
-            items.append(item(String(localized: "cloudTree.menu.openFullClient", defaultValue: "Open Full cmux-tui Client")) { actions.runCommand(id, ["vm", "tui"]) })
-        }
-        if info?.linkFailure != .recreateRequired {
             let verbs = machineMenuVerbs
             items.append(contentsOf: CloudMenuAppKitRenderer.items(verbs.openEntries(machine)))
         }

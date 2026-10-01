@@ -598,6 +598,7 @@ extension TerminalController {
                         "trusted_carrier": deviceFingerprint == CloudTuiClientPaths.carrierDeviceMarker,
                     ]
                 } else {
+                    await VMClient.shared.resetAttachRetry(machineID: vmId) // explicit user action
                     let endpoint = try await VMClient.shared.openCmuxRemote(
                         id: vmId,
                         deviceFingerprint: deviceFingerprint,
@@ -1059,7 +1060,6 @@ private struct SocketWorkerPublicationAccess {
     let mode: VMPublicationAccessMode
     let teamID: String?
 }
-
 private struct SocketWorkerPublicationAccessError: Error {
     let message: String
 }
