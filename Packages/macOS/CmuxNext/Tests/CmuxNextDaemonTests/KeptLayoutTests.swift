@@ -59,3 +59,15 @@ import Testing
         #expect(plain["keep_layout"] == nil)
     }
 }
+
+/// The daemon reports a tab's directory only from its launch or the
+/// shell's OSC 7 report; a shell that changed directory without one would
+/// restart in the wrong place. The app measures each shell's directory and
+/// it overrides the tree's; a tab with neither restarts in `fallback`.
+@Suite struct KeptLayoutDirectoryTests {
+    @Test func measuredDirectoriesOverrideTheTreeAndTheFallbackFillsTheRest() throws {
+        let plan = KeptLayoutPlan(tabs: ["tab_a": .init(cwd: "/repo/api"), "tab_c": .init(cwd: nil), "tab_d": .init(cwd: nil)])
+        let filled = plan.withDirectories(["tab_a": "/tmp", "tab_c": "/repo"], fallback: "/Users/me")
+        #expect(filled.tabs == ["tab_a": .init(cwd: "/tmp"), "tab_c": .init(cwd: "/repo"), "tab_d": .init(cwd: "/Users/me")])
+    }
+}

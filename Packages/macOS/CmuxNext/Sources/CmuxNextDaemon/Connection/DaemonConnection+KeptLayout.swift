@@ -34,6 +34,12 @@ public struct KeptLayoutPlan: Codable, Sendable, Equatable {
         }
         self.tabs = tabs
     }
+
+    /// This plan with `measured` directories (by tab resource id) in place of
+    /// the tree's, and `fallback` for a tab with neither.
+    public func withDirectories(_ measured: [String: String], fallback: String?) -> KeptLayoutPlan {
+        KeptLayoutPlan(tabs: tabs)  // not implemented yet
+    }
 }
 
 /// One kept tab to restart: a new shell opens next to the dead tab in the
