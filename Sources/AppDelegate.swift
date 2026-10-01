@@ -8886,11 +8886,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let initialWorkspace = context.tabManager.selectedWorkspace
                 switch initialSurface {
                 case .terminal:
-                    _ = executeConfiguredNewWorkspaceActionIfAvailable(
-                        in: context,
-                        debugSource: debugSource,
-                        replacingInitialWorkspace: initialWorkspace
-                    )
+                    if !skipConfiguredAction {
+                        _ = executeConfiguredNewWorkspaceActionIfAvailable(
+                            in: context,
+                            debugSource: debugSource,
+                            replacingInitialWorkspace: initialWorkspace
+                        )
+                    }
                 case .browser:
                     // The fresh window boots with a terminal workspace; add the
                     // browser workspace and close that initial one so the

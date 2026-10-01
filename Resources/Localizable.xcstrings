@@ -242547,25 +242547,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مساحة عمل جديدة"
+            "value": "مساحة عمل محلية جديدة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Novi radni prostor"
+            "value": "Novi lokalni radni prostor"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nyt arbejdsområde"
+            "value": "Nyt lokalt arbejdsområde"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Neuer Arbeitsbereich"
+            "value": "Neuer lokaler Arbeitsbereich"
           }
         },
         "en": {
@@ -242577,85 +242577,85 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nuevo espacio de trabajo"
+            "value": "Nuevo espacio de trabajo local"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nouvel espace de travail"
+            "value": "Nouvel espace de travail local"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nuova area di lavoro"
+            "value": "Nuova area di lavoro locale"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新規ワークスペース"
+            "value": "新規ローカルワークスペース"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 작업 공간"
+            "value": "새 로컬 작업 공간"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nytt arbeidsområde"
+            "value": "Nytt lokalt arbeidsområde"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nowa przestrzeń robocza"
+            "value": "Nowa lokalna przestrzeń robocza"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nova Área de Trabalho"
+            "value": "Novo espaço de trabalho local"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Новое рабочее пространство"
+            "value": "Новое локальное рабочее пространство"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เวิร์กสเปซใหม่"
+            "value": "พื้นที่ทำงานในเครื่องใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yeni Çalışma Alanı"
+            "value": "Yeni Yerel Çalışma Alanı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нова робоча область"
+            "value": "Новий локальний робочий простір"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "新建工作区"
+            "value": "新建本地工作区"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "新增工作區"
+            "value": "新增本機工作區"
           }
         }
       }
