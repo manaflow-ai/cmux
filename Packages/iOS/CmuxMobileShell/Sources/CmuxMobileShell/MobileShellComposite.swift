@@ -3970,9 +3970,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             userID: scope.userID,
             teamID: scope.teamID
         ) {
-            guard !hiddenIDs.contains(key.pairingID),
-                  key.normalizedInstanceTag != nil
-                    || !hiddenIDs.contains(key.canonicalMacDeviceID) else { continue }
+            guard !isHiddenMacPairingKey(key, hiddenIDs: hiddenIDs) else { continue }
             guard workspacesByMac[key]?.status != .connected else { continue }
             workspacesByMac[key] = cached
             changed = true

@@ -31,6 +31,26 @@ extension MobileShellComposite {
         return scoped.union(userWide)
     }
 
+    /// Matches a stored hidden marker to a typed app-instance key. Older
+    /// markers can use a raw device id or preserve different casing, so a
+    /// string lookup is not sufficient for cached snapshot restoration.
+    /// A raw marker remains scoped to the legacy untagged pairing; a tagged
+    /// marker matches only the same tagged app instance.
+    func isHiddenMacPairingKey(
+        _ key: MacPairingKey,
+        hiddenIDs: Set<String>
+    ) -> Bool {
+        let expectedDeviceID = cmxCanonicalDeviceID(key.canonicalMacDeviceID)
+        let expectedTag = macInstanceTagAuthority.normalize(key.normalizedInstanceTag)
+        return hiddenIDs.contains { marker in
+            let identity = MobilePairedMac.pairingIdentity(from: marker)
+            guard cmxCanonicalDeviceID(identity.macDeviceID) == expectedDeviceID else {
+                return false
+            }
+            return macInstanceTagAuthority.normalize(identity.instanceTag) == expectedTag
+        }
+    }
+
     func visibleStoredPairedMacs(
         from loadedMacs: [MobilePairedMac],
         scope: MobileShellScopeSnapshot
