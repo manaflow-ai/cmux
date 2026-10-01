@@ -107,21 +107,18 @@ fn sticky_column_sets_right_with_defaults_and_left_overlay() {
         "cmd": "set-column-sticky",
         "pane": panes[2],
         "sticky": true,
-        "transaction": "tx-sticky-right",
+        "transaction": 41,
     }));
     assert_eq!(data["column"], columns[2]["id"]);
     assert_eq!(data["sticky"], json!({"edge": "right", "mode": "docked"}));
-    assert_eq!(data["transaction"], "tx-sticky-right");
+    assert_eq!(data["transaction"], 41);
     assert_eq!(wire.sticky(), vec![None, None, sticky("right", "docked")]);
 
     let data = wire.set_sticky(panes[0], "left", "overlay");
     assert_eq!(data["column"], columns[0]["id"]);
     assert_eq!(data["sticky"], json!({"edge": "left", "mode": "overlay"}));
     assert!(data.get("transaction").is_none(), "no transaction, no echo: {data}");
-    assert_eq!(
-        wire.sticky(),
-        vec![sticky("left", "overlay"), None, sticky("right", "docked")]
-    );
+    assert_eq!(wire.sticky(), vec![sticky("left", "overlay"), None, sticky("right", "docked")]);
 
     // Order, widths, and the compatibility projection are unchanged.
     let after = wire.columns();
@@ -179,11 +176,11 @@ fn sticky_column_clears_and_clearing_is_idempotent() {
             "cmd": "set-column-sticky",
             "pane": panes[1],
             "sticky": false,
-            "transaction": "tx-clear",
+            "transaction": 9,
         }));
         assert_eq!(data["column"], columns[1]["id"]);
         assert_eq!(data["sticky"], Value::Null);
-        assert_eq!(data["transaction"], "tx-clear");
+        assert_eq!(data["transaction"], 9);
         assert_eq!(wire.sticky(), vec![None, None]);
     }
 }
@@ -204,14 +201,33 @@ fn sticky_column_undo_layout_restores_previous_flags() {
 }
 
 #[test]
-fn sticky_column_emits_screen_change_with_the_transaction() {
+fn sticky_column_changes_in_one_transaction_coalesce_into_one_undo() {
+    let (mut wire, panes) = Wire::with_columns(3);
+    for (edge, mode) in [("right", "docked"), ("left", "overlay"), ("right", "overlay")] {
+        wire.ok(json!({
+            "cmd": "set-column-sticky",
+            "pane": panes[2],
+            "sticky": true,
+            "edge": edge,
+            "mode": mode,
+            "transaction": 77,
+        }));
+    }
+    assert_eq!(wire.sticky(), vec![None, None, sticky("right", "overlay")]);
+    let undone = wire.ok(json!({"cmd": "undo-layout", "pane": panes[2]}));
+    assert_eq!(undone["undone"], true, "{undone}");
+    assert_eq!(wire.sticky(), vec![None, None, None]);
+}
+
+#[test]
+fn sticky_column_emits_screen_change_and_layout_change() {
     let (mut wire, panes) = Wire::with_columns(2);
     let events = wire.mux.subscribe();
     wire.ok(json!({
         "cmd": "set-column-sticky",
         "pane": panes[1],
         "sticky": true,
-        "transaction": "tx-event",
+        "transaction": 5,
     }));
     let events = events.try_iter().collect::<Vec<_>>();
     assert!(events.iter().any(|event| matches!(event, MuxEvent::LayoutChanged(_))));
@@ -222,7 +238,6 @@ fn sticky_column_emits_screen_change_with_the_transaction() {
             _ => None,
         })
         .expect("a sticky change emits screen-changed");
-    assert_eq!(delta.transaction.as_deref(), Some("tx-event"));
     assert_eq!(delta.entity["columns"][1]["sticky"], json!({"edge": "right", "mode": "docked"}));
 }
 
@@ -283,7 +298,7 @@ fn sticky_column_rejects_unknown_edge_and_mode() {
         "cmd": "set-column-sticky",
         "pane": panes[1],
         "sticky": true,
-        "transaction": "",
+        "transaction": "not-a-number",
     }));
     assert_eq!(response["ok"], false, "{response}");
     assert_eq!(wire.sticky(), vec![None, None]);
