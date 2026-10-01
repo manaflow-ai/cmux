@@ -23,6 +23,8 @@ struct SettingsSectionView: View {
             BrowserProfilesCard(model: model)
         case .machines: ListSectionCard(rows: model.host?.machines ?? [], empty: SettingsWindowStrings.machinesEmpty, unavailable: "")
         case .advanced: AdvancedCard(model: model)
+        case .accounts:
+            if let accounts = model.host?.accountsView(tokens: SettingsTheme.shared.tokens) { accounts }
         case .general, .browser, .notifications: EmptyView()
         }
         ForEach(model.groups(in: section)) { group in

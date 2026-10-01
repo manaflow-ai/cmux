@@ -1,4 +1,6 @@
 public import CmuxNextActions
+public import CmuxNextDesign
+public import SwiftUI
 
 /// What the Settings window needs from the App that cmux.json does not hold:
 /// live rooms and machines (daemon state), the Ghostty config and shell
@@ -32,6 +34,9 @@ public import CmuxNextActions
     /// Sets (nil: resets to the Ghostty config) the theme at `level`, through
     /// the same actions as the palette and menus.
     func setTheme(_ spec: String?, at level: SettingsThemeLevel)
+    /// Accounts: provider sign-ins and CodeRouter accounts, drawn in the
+    /// window's theme `tokens` (nil hides the section's content).
+    func accountsView(tokens: ThemeTokens) -> AnyView?
 }
 
 extension SettingsWindowHost {
@@ -40,6 +45,7 @@ extension SettingsWindowHost {
     public func theme(at level: SettingsThemeLevel) -> String? { nil }
     public func acceptsTheme(_ text: String) -> Bool { false }
     public func setTheme(_ spec: String?, at level: SettingsThemeLevel) {}
+    public func accountsView(tokens: ThemeTokens) -> AnyView? { nil }
 }
 
 /// One row of a list section (a room, a machine).

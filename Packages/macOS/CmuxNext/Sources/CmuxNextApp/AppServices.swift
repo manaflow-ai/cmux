@@ -83,6 +83,8 @@ final class AppServices {
     private(set) lazy var quit = QuitCoordinator(services: self)
     /// First-run onboarding, browser import and default-app claims.
     private(set) lazy var onboarding = OnboardingService(services: self)
+    /// Provider sign-ins and CodeRouter accounts (Settings > Accounts, onboarding).
+    private(set) lazy var accounts = AccountsService(services: self)
     /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).
     private(set) lazy var externalOpen = ExternalOpenController(services: self)
     let terminalTheme = TerminalThemeSetting()

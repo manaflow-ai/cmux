@@ -43,6 +43,7 @@ enum AppActions {
         NotificationHandlers.bind(into: registry, context: context)
         AgentHandlers.bind(into: registry, context: context)
         CloudHandlers.bind(into: registry, context: context)
+        AccountsHandlers.bind(into: registry, context: context)
         RemoteHandlers.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         context.observeRefusals()

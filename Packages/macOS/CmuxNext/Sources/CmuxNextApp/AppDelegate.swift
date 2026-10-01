@@ -112,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)
+                control.registerAccountsMethods(services)
                 control.registerRemoteMethods(services)
                 control.registerMobileMethods(services)
                 control.registerUpdateMethods(services.updater)

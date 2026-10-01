@@ -29,6 +29,9 @@ import PackageDescription
 //   CmuxNextBrowserImport -> system frameworks only (browser detection, parsers, importer; no UI)
 //   CmuxNextOnboarding -> Design, BrowserImport (first-run window; the App supplies OnboardingServices)
 //   CmuxNextHistory -> Design (history model, SQLite visit log, cmux://history page; no daemon)
+//   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
+//     client, pasted-key Keychain store, account row state; no UI, no daemon; plans/cmux-next/coderouter.md)
+//   CmuxNextAccounts -> CodeRouter, Design (Settings > Accounts and the onboarding step; the App supplies AccountsServices)
 //   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
 
@@ -102,10 +105,38 @@ let package = Package(
                 "CmuxNextBrowserImport",
                 "CmuxNextOnboarding",
                 "CmuxNextHistory",
+                "CmuxNextCodeRouter",
+                "CmuxNextAccounts",
             ],
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // CodeRouter and provider accounts (plans/cmux-next/coderouter.md):
+        // presence-only detection of local sign-ins (Codex, Claude Code, API
+        // keys, clouds, local servers), the /api/coderouter control-plane
+        // client, the pasted-key Keychain store and the row state machine.
+        .target(
+            name: "CmuxNextCodeRouter",
+            dependencies: ["CmuxNextCloud"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextCodeRouterTests",
+            dependencies: ["CmuxNextCodeRouter"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // The Accounts screen (Settings > Accounts, onboarding step). The App
+        // supplies `AccountsServices`.
+        .target(
+            name: "CmuxNextAccounts",
+            dependencies: ["CmuxNextCodeRouter", "CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAccountsTests",
+            dependencies: ["CmuxNextAccounts", "CmuxNextCodeRouter"],
             swiftSettings: uiSwiftSettings
         ),
         // Browser import (onboarding step 2; data-model.md 5): source detection

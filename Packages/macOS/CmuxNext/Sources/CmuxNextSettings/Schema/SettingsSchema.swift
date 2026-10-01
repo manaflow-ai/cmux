@@ -32,6 +32,7 @@ public nonisolated enum SettingsSchema {
         case .browser: ["browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
         case .keyboard: ["palette.searchShortcuts"]
         case .notifications: []
+        case .accounts: ["accounts.refresh", "openTeamPicker"]
         case .rooms: ["room.new", "room.switch", "room.rename", "room.setTheme", "room.clearTheme"]
         case .machines: ["remote.connect", "newCloudMachine", "palette.auth.signIn"]
         case .advanced: ["palette.openCmuxSettingsFile", "reloadConfiguration"]

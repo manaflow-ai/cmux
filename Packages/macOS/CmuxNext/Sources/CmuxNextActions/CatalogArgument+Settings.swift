@@ -13,6 +13,7 @@ nonisolated extension CatalogArgument {
                 ActionEnumCase(value: "browser", title: text("argument.value.section.browser", "Browser")),
                 ActionEnumCase(value: "keyboard", title: text("argument.value.section.keyboard", "Keyboard")),
                 ActionEnumCase(value: "notifications", title: text("argument.value.section.notifications", "Notifications")),
+                ActionEnumCase(value: "accounts", title: text("argument.value.section.accounts", "Accounts")),
                 ActionEnumCase(value: "rooms", title: text("argument.value.section.rooms", "Rooms & Profiles")),
                 ActionEnumCase(value: "machines", title: text("argument.value.section.machines", "Machines")),
                 ActionEnumCase(value: "advanced", title: text("argument.value.section.advanced", "Advanced")),
