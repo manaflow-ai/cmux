@@ -505,6 +505,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(try String(contentsOf: count).split(separator: "\n").count, 1)
     }
 
+    func testVMDevSetupOwnerDeathReleasesLockForRetry() throws {
+        let fixture = try vmDevFixture("owner-death", files: [
+            // The first owner kills the generated shell after taking the lock.
+            // A later invocation must acquire the kernel lock and retry instead
+            // of waiting forever on a stale directory.
+            ".cmux/cloud.json": #"{"setup":["if [ ! -f \"$FAIL_FLAG\" ]; then : > \"$FAIL_FLAG\"; kill -KILL $$; else echo retry >> \"$COUNT\"; fi"]}"#,
+            "package.json": #"{"scripts":{"dev":"true"}}"#,
+            "package-lock.json": "lock-v1",
+        ])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let count = fixture.root.appendingPathComponent("count")
+        let failFlag = fixture.root.appendingPathComponent("killed-once")
+        let plan = try vmDevDryRunPlan("owner-death", project: fixture.project, home: fixture.home, extra: ["--command", ":"])
+        let command = try XCTUnwrap(plan["command"] as? String)
+        let killed = runGeneratedVMDevCommand(command, cwd: fixture.project, home: fixture.home, extraEnvironment: ["COUNT": count.path, "FAIL_FLAG": failFlag.path])
+        XCTAssertNotEqual(killed.status, 0)
+        let retried = runGeneratedVMDevCommand(command, cwd: fixture.project, home: fixture.home, extraEnvironment: ["COUNT": count.path, "FAIL_FLAG": failFlag.path], timeout: 2)
+        XCTAssertEqual(retried.status, 0, "stdout=\(retried.stdout) stderr=\(retried.stderr)")
+        XCTAssertFalse(retried.timedOut, "retry remained blocked behind a stale setup lock")
+        XCTAssertEqual(try String(contentsOf: count), "retry\n")
+    }
+
     // MARK: - The socket sequence
 
     func testVMDevBuildsTheLayoutInAFreshWorkspaceAndOpensItHere() throws {
