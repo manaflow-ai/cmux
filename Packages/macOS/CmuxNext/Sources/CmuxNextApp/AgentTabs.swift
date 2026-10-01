@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTabs
 
@@ -57,10 +58,19 @@ final class AgentTabStore {
     }
 
     /// Adds a new chat tab to `paneKey`'s strip and returns its id.
-    func open(in paneKey: String) -> String {
+    ///
+    /// - Parameters:
+    ///   - paneKey: The pane's id (`PaneModel.id`).
+    ///   - store: The tree of the daemon that owns the pane.
+    func open(in paneKey: String, of store: DaemonStore) -> String {
         let key = LocalAgentTab.prefix + UUID().uuidString.lowercased()
         tabsByPane[paneKey, default: []].append(key)
         return key
+    }
+
+    /// Duplicate Tab: a new tab in `paneKey` after `key`, showing its session.
+    func duplicate(_ key: String, in paneKey: String, of store: DaemonStore) -> String {
+        open(in: paneKey, of: store)
     }
 
     func tabIDs(in paneKey: String) -> [String] { tabsByPane[paneKey] ?? [] }
@@ -111,7 +121,7 @@ final class AgentTabStore {
 extension PaneController {
     /// New Agent Chat: a new agent tab in this pane, selected.
     func newAgentTab() {
-        let key = services.agentTabs.open(in: paneKey)
+        let key = services.agentTabs.open(in: paneKey, of: daemon.store)
         apply(snapshot())
         select(StripTabID(key))
     }
