@@ -13,7 +13,7 @@ Object.assign(globals, {
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
-  ResizeObserver: class { constructor(callback: () => void) { resizeCallbacks.push(callback); } observe() {} disconnect() {} },
+  ResizeObserver: class { constructor(callback: () => void) { resizeCallbacks.push(callback); } observe() {} unobserve() {} disconnect() {} },
   requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
   cancelAnimationFrame: (handle: number) => clearTimeout(handle),
   IS_REACT_ACT_ENVIRONMENT: true,
@@ -238,10 +238,24 @@ describe("acpmux measured rows", () => {
       await act(async () => root.render(createElement(VirtualTranscript, { rows: conversation, onToggleActivity: () => {}, expanded: new Set<string>() })));
       expect(overlaps()).toEqual([]);
       const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
+      // Opened at the latest row, it stays there as the rows settle to their drawn heights.
+      const spacer = dom.window.document.querySelector(".acpmux-spacer") as HTMLElement;
+      expect(scroller.scrollTop).toBe(parseFloat(spacer.style.height) - 600);
       for (const top of [0, 4000, 9000]) {
         await act(async () => { scroller.scrollTop = top; scroller.dispatchEvent(new dom.window.Event("scroll")); });
         expect(overlaps()).toEqual([]);
       }
+      // A row above the viewport that grows leaves the row at the viewport's top where it is.
+      const placed = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")].map((article) => ({ article, index: Number(article.getAttribute("aria-posinset")) - 1, top: Number(/translateY\(([-\d.]+)px\)/.exec(article.style.transform)?.[1]) }));
+      const atTop = () => placed().filter((row) => row.top <= scroller.scrollTop).sort((a, b) => b.top - a.top)[0]!;
+      const anchor = atTop();
+      const offset = scroller.scrollTop - anchor.top;
+      const above = placed().filter((row) => row.index < anchor.index).sort((a, b) => a.index - b.index)[0]!;
+      drawn.set(conversation[above.index]!.id, drawn.get(conversation[above.index]!.id)! + 100);
+      await act(async () => { for (const callback of resizeCallbacks) (callback as (entries: { target: Element }[]) => void)([{ target: above.article }]); });
+      expect(atTop().index).toBe(anchor.index);
+      expect(scroller.scrollTop - atTop().top).toBe(offset);
+      expect(overlaps()).toEqual([]);
     } finally {
       await act(async () => root.unmount());
       prototype.getBoundingClientRect = original;

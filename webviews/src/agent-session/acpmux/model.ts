@@ -108,10 +108,18 @@ export function visibleRowRange(rowCount: number, scrollTop: number, viewportHei
   return { first, last };
 }
 
+/// First-layout estimates for rows not yet drawn; a drawn row places by its drawn height. Each
+/// includes the row's bottom padding (`.acpmux-row` in styles.css: 16px for messages, 8px else).
 function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   const textLines = Math.max(1, Math.ceil((row.text?.length ?? 0) / Math.max(24, Math.floor(width / 8))));
-  if (row.kind === "activity") return Math.max(46, 24 + (row.items?.length ?? 0) * 20);
-  if (row.kind === "turnSummary" || row.kind === "notice" || row.kind === "typing") return 32;
+  if (row.kind === "activity") {
+    // Collapsed tool calls, or the edited-files list (a title and one line per file).
+    const edits = row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange").length ?? 0;
+    return edits ? 8 + 16 * (1 + edits) : 34;
+  }
+  // Card padding and border, title, button row.
+  if (row.kind === "permission") return 87;
+  if (row.kind === "turnSummary" || row.kind === "notice" || row.kind === "plan" || row.kind === "typing") return 37;
   return 24 + chromeHeight(row) + textLines * MESSAGE_LINE_HEIGHT;
 }
 
@@ -173,6 +181,8 @@ function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, Pre
   } else if (entry.text !== row.text) {
     entry.text = row.text;
     entry.blocks = markdownBlocks(row.text);
+    // A streaming row prepares a new last block on every version; keep the cache bounded.
+    if (entry.prepared.size > 64) entry.prepared.clear();
   }
   if (entry.blocks.length === 0) return fallbackRowHeight(row, width);
   const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES : width);
