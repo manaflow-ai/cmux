@@ -1,25 +1,39 @@
 import {
+  compact,
   conversationInput,
   DEFAULT_MODEL,
   eventInput,
   formatRunResult,
   instructions,
+  messageText,
+  outputText,
   responsesModel,
   RUN_TOOL,
   runModule,
   runTurn,
+  SUMMARY_INSTRUCTIONS,
+  toLines,
+  wake,
+  zoom,
   type ModelConfig,
   type RunResult,
+  type Summarize,
   type ToolCall,
 } from "@mux/brain";
-import type { ID, LinkEvent, Message, Participant } from "@mux/protocol";
+import type { Conversation, ID, LinkEvent, Message, Participant } from "@mux/protocol";
 import { DurableObject } from "cloudflare:workers";
 import { conversation, type Env } from "./env.ts";
+import { SqliteMemoryStore } from "./memory-store.ts";
 import type { MuxApi, MuxApiProps } from "./mux-api.ts";
 
 /** Turn attempts before the mux reports the error in chat and moves on. */
 const MAX_ATTEMPTS = 3;
 const RUN_TIMEOUT_MS = 60_000;
+/** Memory lines shown to the model each turn (about 8k tokens). */
+const WAKE_BUDGET = 96;
+/** Summary levels up to this one use the small model; higher, rarer levels use the main model. */
+const SMALL_MODEL_MAX_LEVEL = 3;
+const SMALL_MODEL = { model: "gpt-6-luna", reasoningEffort: "low" } as const;
 
 /** One inbox item: a chat message or an agent event, for one conversation. */
 type Pending = { conversationId: ID; message: Message } | { conversationId: ID; event: LinkEvent };
@@ -36,9 +50,11 @@ interface Identity {
  */
 export class MuxDO extends DurableObject<Env> {
   private sql = this.ctx.storage.sql;
+  private memory: SqliteMemoryStore;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    this.memory = new SqliteMemoryStore(this.sql);
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS inbox (
@@ -76,7 +92,10 @@ export class MuxDO extends DurableObject<Env> {
         "SELECT seq, json, attempts FROM inbox ORDER BY seq LIMIT 1",
       )
       .toArray()[0];
-    if (!row) return;
+    if (!row) {
+      await this.compactStep();
+      return;
+    }
     const pending = JSON.parse(row.json) as Pending;
     this.sql.exec("UPDATE inbox SET attempts = attempts + 1 WHERE seq = ?", row.seq);
     const kind = "event" in pending ? `event ${pending.event.kind}` : "message";
@@ -100,8 +119,82 @@ export class MuxDO extends DurableObject<Env> {
         .catch(() => undefined);
     }
     this.sql.exec("DELETE FROM inbox WHERE seq = ?", row.seq);
-    if (this.sql.exec("SELECT 1 FROM inbox LIMIT 1").toArray().length > 0)
-      await this.ctx.storage.setAlarm(Date.now());
+    const more = this.sql.exec("SELECT 1 FROM inbox LIMIT 1").toArray().length > 0;
+    if (more || this.compactionDue()) await this.ctx.storage.setAlarm(Date.now());
+  }
+
+  // Memory, for the MuxApi entrypoint.
+
+  async memoryRecall(pattern: string, limit: number) {
+    return this.memory.recall(pattern, Math.min(Math.max(limit, 1), 200));
+  }
+
+  async memoryZoom(lo: number, hi: number) {
+    return zoom(this.memory, { lo, hi });
+  }
+
+  async memoryNote(text: string) {
+    const index = await this.memory.length();
+    await this.memory.append(toLines(`${new Date().toISOString().slice(0, 16)} note: ${text}`));
+    return { index };
+  }
+
+  /** One bounded compaction step off the critical path; re-arms itself while work remains. */
+  private async compactStep(): Promise<void> {
+    if (!this.compactionDue()) return;
+    const { missing } = await wake(this.memory, WAKE_BUDGET);
+    if (missing.length === 0) {
+      this.sql.exec("DELETE FROM meta WHERE key = 'compact'");
+      console.log(JSON.stringify({ at: "mux.compact.done" }));
+      return;
+    }
+    try {
+      const written = await compact(this.memory, missing, this.summarizer(), 8);
+      console.log(JSON.stringify({ at: "mux.compact", written, missing: missing.length }));
+      await this.ctx.storage.setAlarm(Date.now() + 500);
+    } catch (error) {
+      console.log(JSON.stringify({ at: "mux.compact.error", error: String(error) }));
+      await this.ctx.storage.setAlarm(Date.now() + 30_000);
+    }
+  }
+
+  private compactionDue(): boolean {
+    return this.sql.exec("SELECT 1 FROM meta WHERE key = 'compact'").toArray().length > 0;
+  }
+
+  private summarizer(): Summarize {
+    const main = this.modelConfig(this.identity().participant.id);
+    return async ({ left, right, level }) => {
+      const config = level <= SMALL_MODEL_MAX_LEVEL ? { ...main, ...SMALL_MODEL } : main;
+      const { output } = await responsesModel(config)({
+        instructions: SUMMARY_INSTRUCTIONS,
+        input: [{ role: "user", content: `A: ${left}\nB: ${right}` }],
+      });
+      return outputText(output);
+    };
+  }
+
+  /** Appends what this turn saw to memory. */
+  private async remember(snapshot: Conversation, pending: Pending): Promise<void> {
+    const stamp = new Date().toISOString().slice(0, 16);
+    const where = `[${snapshot.title}]`;
+    if ("message" in pending) {
+      const sender = snapshot.participants.find(
+        (p) => p.id === pending.message.senderId,
+      )?.displayName;
+      await this.memory.append(
+        toLines(
+          `${stamp} ${where} ${sender ?? pending.message.senderId}: ${messageText(pending.message)}`,
+        ),
+      );
+    } else {
+      const e = pending.event;
+      const text =
+        e.kind === "turn_end"
+          ? `agent ${e.name} ${e.status}: ${e.reply}`
+          : `agent ${e.name} asks permission: ${e.title}`;
+      await this.memory.append(toLines(`${stamp} ${where} ${text}`));
+    }
   }
 
   private async enqueue(pending: Pending): Promise<void> {
@@ -115,7 +208,11 @@ export class MuxDO extends DurableObject<Env> {
     await room.setTyping(me.id, true);
     try {
       const snapshot = await room.snapshot();
-      const context = { muxId: me.id, conversation: snapshot };
+      await this.remember(snapshot, pending);
+      const memory = await wake(this.memory, WAKE_BUDGET);
+      if (memory.missing.length > 0)
+        this.sql.exec("INSERT OR IGNORE INTO meta (key, value) VALUES ('compact', '1')");
+      const context = { muxId: me.id, conversation: snapshot, memory: memory.text };
       const result = await runTurn({
         model: responsesModel(this.modelConfig(me.id)),
         instructions: instructions(context),
@@ -127,7 +224,11 @@ export class MuxDO extends DurableObject<Env> {
         runTool: (call) =>
           this.runTool(call, { muxId: me.id, ownerId, conversationId: pending.conversationId }),
       });
-      if (result.text) await room.post(me.id, [{ type: "text", text: result.text }]);
+      if (result.text) {
+        await room.post(me.id, [{ type: "text", text: result.text }]);
+        const stamp = new Date().toISOString().slice(0, 16);
+        await this.memory.append(toLines(`${stamp} [${snapshot.title}] me: ${result.text}`));
+      }
     } finally {
       await room.setTyping(me.id, false);
     }

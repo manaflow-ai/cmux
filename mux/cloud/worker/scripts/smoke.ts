@@ -18,7 +18,10 @@ const timeout = setTimeout(() => {
 }, 600_000);
 ws.onmessage = (event) => {
   const frame = JSON.parse(String(event.data));
-  console.log(frame.type, JSON.stringify(frame).slice(0, 300));
+  if (frame.type === "message") {
+    const text = frame.message.parts.map((p: { text?: string }) => p.text ?? "").join(" ");
+    console.log(`${frame.message.senderId}: ${text}`);
+  } else console.log(frame.type);
   if (frame.type === "snapshot")
     ws.send(JSON.stringify({ type: "send", clientId: "c1", parts: [{ type: "text", text }] }));
   if (frame.type === "message" && frame.message.senderId.startsWith("mux-") && --remaining === 0) {

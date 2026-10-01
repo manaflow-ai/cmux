@@ -2,7 +2,7 @@ import type { MuxApiMethods } from "@mux/brain";
 import type { ID, LinkMethod, LinkMethods } from "@mux/protocol";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import type { AgentOrigin } from "./account.ts";
-import { account, conversation, type Env } from "./env.ts";
+import { account, conversation, mux, type Env } from "./env.ts";
 
 export interface MuxApiProps {
   muxId: ID;
@@ -57,6 +57,18 @@ export class MuxApi extends WorkerEntrypoint<Env, MuxApiProps> implements MuxApi
 
   async agentsCancel({ machine, ...params }: Parameters<MuxApiMethods["agentsCancel"]>[0]) {
     return this.call(machine, "agents.cancel", params);
+  }
+
+  async memoryRecall({ pattern, limit }: { pattern: string; limit?: number }) {
+    return mux(this.env, this.ctx.props.muxId).memoryRecall(pattern, limit ?? 20);
+  }
+
+  async memoryZoom({ lo, hi }: { lo: number; hi: number }) {
+    return mux(this.env, this.ctx.props.muxId).memoryZoom(lo, hi);
+  }
+
+  async memoryNote(text: string) {
+    return mux(this.env, this.ctx.props.muxId).memoryNote(text);
   }
 
   async messagesSend(text: string) {

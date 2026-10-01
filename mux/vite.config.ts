@@ -3,10 +3,10 @@ import { defineConfig } from "vite-plus";
 // vp check reads fmt and lint only from this root config.
 export default defineConfig({
   fmt: {
-    ignorePatterns: ["**/routeTree.gen.ts"],
+    ignorePatterns: ["**/routeTree.gen.ts", "**/.cloudflare/**", "**/.wrangler/**"],
   },
   lint: {
-    ignorePatterns: ["**/routeTree.gen.ts"],
+    ignorePatterns: ["**/routeTree.gen.ts", "**/.cloudflare/**", "**/.wrangler/**"],
     plugins: ["react", "typescript", "oxc"],
     jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
     rules: {
