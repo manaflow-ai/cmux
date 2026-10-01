@@ -92,6 +92,20 @@ while [ \$# -gt 0 ]; do
 done
 printf 'curl %s\n' "\$url" >> "$EVENTS"
 if [[ -n "\${FAKE_CURL_ARGS_LOG:-}" ]]; then printf '%s\n' "\$args" >> "\$FAKE_CURL_ARGS_LOG"; fi
+if [[ "\${FAKE_CURL_FAIL_MANIFEST:-0}" == 1 && "\$url" == */manifest.json ]]; then
+  printf 'incomplete manifest\n' > "\$out"
+  exit 22
+fi
+if [[ "\${FAKE_CURL_RESUME_RESET:-0}" == 1 && "\$url" == */cmux-tui-aarch64-apple-darwin ]]; then
+  marker="\$out.resume-reset-seen"
+  if [[ ! -e "\$marker" ]]; then
+    printf 'stale partial\n' > "\$out"
+    : > "\$marker"
+    exit 33
+  fi
+  [[ "\$args" == *'--continue-at -'* ]] || { echo 'missing resume flag' >&2; exit 99; }
+  [[ ! -s "\$out" ]] || { echo 'rejected partial was not removed' >&2; exit 99; }
+fi
 cp "$SERVE/\$(basename "\$url")" "\$out"
 SH
 cat > "$FAKEBIN/gh" <<SH
@@ -124,12 +138,14 @@ install_remote() { # <app> [installer options]
   mkdir -p "$app/Contents"
   : > "$EVENTS"
   REMOTE_INSTALL_SEQ=$((REMOTE_INSTALL_SEQ + 1))
-  PATH="$FAKEBIN:$PATH" CMUX_TUI_CLIENT_CACHE="$TEST_DIR/cache-$REMOTE_INSTALL_SEQ" /bin/bash \
+  PATH="$FAKEBIN:$PATH" CMUX_TUI_CLIENT_CACHE="$TEST_DIR/cache-$REMOTE_INSTALL_SEQ" \
+    CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS="$DOWNLOAD_BUDGET" /bin/bash \
     "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$app" \
     --manifest-url "https://files.example.test/cmux-tui/$COMMIT/manifest.json" "$@"
 }
 
 export FAKE_CURL_ARGS_LOG="$TEST_DIR/curl-args.log"
+DOWNLOAD_BUDGET=600
 : > "$FAKE_CURL_ARGS_LOG"
 ATTESTED_APP="$TEST_DIR/Attested.app"
 install_remote "$ATTESTED_APP" --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" \
@@ -142,12 +158,55 @@ grep -q "^gh attestation verify .*manifest.* --repo manaflow-ai/cmux --signer-wo
 [ "$(sed -n '3p' "$EVENTS")" = "curl https://files.example.test/cmux-tui/$COMMIT/cmux-tui-aarch64-apple-darwin" ]
 echo "PASS: attested manifest is verified before slices are downloaded"
 # Manifest downloads are never resumed, while binary slices use range resumes
-# and inherit the total per-download deadline.
-grep -q -- '--max-time 600' "$FAKE_CURL_ARGS_LOG"
+# and inherit the total per-download deadline. A fast retry may receive less
+# than the full budget, but never exceeds it.
+awk -v budget="$DOWNLOAD_BUDGET" '
+  BEGIN { valid = 1 }
+  {
+    found = 0
+    for (i = 1; i < NF; i++) {
+      if ($i == "--max-time") {
+        found = 1
+        value = $(i + 1)
+        if (value !~ /^[1-9][0-9]*$/ || (value + 0) > budget) valid = 0
+      }
+    }
+    if (!found) valid = 0
+  }
+  END { exit !(valid && NR > 0) }
+' "$FAKE_CURL_ARGS_LOG"
 grep -q -- '--continue-at -' "$FAKE_CURL_ARGS_LOG"
 manifest_args="$(sed -n '1p' "$FAKE_CURL_ARGS_LOG")"
 [[ "$manifest_args" != *'--continue-at -'* ]]
 echo "PASS: manifest is atomic and slices are resumable within a bounded budget"
+
+# A rejected range must delete the stale partial before the final retry. The
+# fake server checks both the resume flag and that the second attempt starts
+# from an empty temporary file.
+RESUME_APP="$TEST_DIR/ResumeReset.app"
+FAKE_CURL_RESUME_RESET=1 install_remote "$RESUME_APP" --arch arm64 > "$TEST_DIR/resume-reset.log" 2>&1
+cmp "$CLIENT" "$RESUME_APP/Contents/Resources/bin/cmux-tui"
+echo "PASS: rejected ranges clear partial slices before retrying"
+
+# A manifest is published only after a complete successful download. A failed
+# manifest request must leave neither the final cache path nor a reusable temp.
+FAILED_MANIFEST_CACHE="$TEST_DIR/failed-manifest-cache"
+mkdir -p "$FAILED_MANIFEST_CACHE"
+mkdir -p "$TEST_DIR/FailedManifest.app/Contents"
+if FAKE_CURL_FAIL_MANIFEST=1 PATH="$FAKEBIN:$PATH" \
+    CMUX_TUI_CLIENT_CACHE="$FAILED_MANIFEST_CACHE" \
+    CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS="$DOWNLOAD_BUDGET" \
+    /bin/bash "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$TEST_DIR/FailedManifest.app" \
+    --manifest-url "https://files.example.test/cmux-tui/$COMMIT/manifest.json" --allow-unattested \
+    > "$TEST_DIR/failed-manifest.log" 2>&1; then
+  echo "FAIL: installed after a failed manifest download" >&2
+  exit 1
+fi
+if find "$FAILED_MANIFEST_CACHE" -maxdepth 1 -name 'manifest.*.json' -print -quit | grep -q .; then
+  echo "FAIL: failed manifest was published" >&2
+  exit 1
+fi
+echo "PASS: failed manifest downloads are never published"
 
 
 UNATTESTED_APP="$TEST_DIR/Unattested.app"

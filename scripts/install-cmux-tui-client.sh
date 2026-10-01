@@ -173,21 +173,30 @@ download() { # <url> <output> [resume]
     if (( status == 0 )); then
       return 0
     fi
+    # A rejected range leaves an invalid partial behind. curl reports both
+    # range errors (33) and --fail responses such as HTTP 416 (22); clear it
+    # before checking the retry budget so the final failed attempt is covered.
+    if (( resume )) && (( status == 22 || status == 33 )); then rm -f "$output"; fi
     if (( attempt >= DOWNLOAD_ATTEMPTS )); then
       echo "error: could not download $url after $attempt attempts" >&2
       (( resume )) || rm -f "$output"
       return 1
     fi
-    if (( resume )) && (( status == 33 )); then rm -f "$output"; fi
     attempt=$((attempt + 1))
-    sleep 3
+    local backoff=3
+    remaining=$((deadline - SECONDS))
+    (( backoff > remaining )) && backoff=$remaining
+    (( backoff > 0 )) && sleep "$backoff"
   done
 }
 
 mkdir -p "$CACHE_DIR"
 MANIFEST="$CACHE_DIR/manifest.$(printf '%s' "$MANIFEST_URL" | shasum -a 256 | cut -c1-12).json"
-download "$MANIFEST_URL" "$MANIFEST.tmp" 0
-mv -f "$MANIFEST.tmp" "$MANIFEST"
+MANIFEST_TMP="$(mktemp "$CACHE_DIR/manifest.XXXXXX")"
+trap 'rm -f "$MANIFEST_TMP"' EXIT
+download "$MANIFEST_URL" "$MANIFEST_TMP" 0
+mv -f "$MANIFEST_TMP" "$MANIFEST"
+trap - EXIT
 if (( ALLOW_UNATTESTED )); then
   echo "warning: installing an unattested cmux-tui manifest from $MANIFEST_URL (--allow-unattested)" >&2
 else
