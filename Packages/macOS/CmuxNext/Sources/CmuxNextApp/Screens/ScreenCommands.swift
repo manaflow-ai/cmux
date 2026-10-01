@@ -35,7 +35,7 @@ enum ScreenCommands {
         guard let connection = daemon.connection else { return }
         let handle = workspace.handle
         let intent = content?.beginFocusIntent()
-        let extended = daemon.supports(DaemonCapabilities.screenMetadata)
+        let extended = daemon.supports(DaemonCapabilities.shared.screenMetadata)
         let options = SpawnOptions(cwd: cwd, workspace: workspace.key)
         Task {
             do {

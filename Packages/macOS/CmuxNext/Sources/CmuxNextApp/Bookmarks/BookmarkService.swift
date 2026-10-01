@@ -83,7 +83,7 @@ final class BookmarkService {
     // MARK: Reading
 
     /// The home daemon serves bookmarks; every read and write goes there.
-    var usesDaemon: Bool { services.machines.local.supports(DaemonCapabilities.bookmarks) }
+    var usesDaemon: Bool { services.machines.local.supports(DaemonCapabilities.shared.bookmarks) }
 
     /// `profile`'s tree; asks the daemon for it the first time.
     func tree(_ profile: String) -> BookmarkTree {

@@ -5,11 +5,12 @@ import Foundation
 
 /// Maps the daemon store's sidebar flattening into sidebar rows: one machine
 /// section for the local daemon, loose workspaces first, then groups.
-public enum SidebarMapping {
+public struct SidebarMapping {
+    public static let shared = Self()
     /// `statusLine` maps a workspace id to the status hooks reported
     /// (`set_status`), the row's live second line. The cwd stays passive
     /// detail (tooltip, accessibility).
-    public static func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
+    public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
                                 showsUnread: Bool = true,
                                 statusLine: (String) -> String? = { _ in nil }) -> [SidebarRowSection] {
@@ -32,9 +33,7 @@ public enum SidebarMapping {
     }
 
     /// `showsUnread: false` hides the unread badge (`notifications.attention.showOnSidebar`).
-    /// Notification markers show as a count; a workspace marked unread by
-    /// hand with none shows a dot.
-    public static func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true) -> SidebarWorkspace {
+    public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
         return SidebarWorkspace(
@@ -50,28 +49,28 @@ public enum SidebarMapping {
     }
 
     /// cwd of the first tab that reports one, `~`-abbreviated, plus branch.
-    static func subtitle(_ tabs: [TabModel]) -> String? {
+    func subtitle(_ tabs: [TabModel]) -> String? {
         guard let tab = tabs.first(where: { $0.cwd != nil }), let cwd = tab.cwd else { return nil }
         let path = abbreviate(cwd)
         guard let branch = tab.gitBranch, !branch.isEmpty else { return path }
         return "\(path) · \(branch)"
     }
 
-    static func abbreviate(_ path: String) -> String {
+    func abbreviate(_ path: String) -> String {
         let home = NSHomeDirectory()
         if path == home { return "~" }
         if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
         return path
     }
 
-    static func activity(_ tabs: [TabModel]) -> AgentActivity {
+    func activity(_ tabs: [TabModel]) -> AgentActivity {
         let states = tabs.compactMap { $0.agent?.state }
         if states.contains(.blocked) { return .needsInput }
         if states.contains(.working) { return .running }
         return .idle
     }
 
-    public static func color(_ name: String?) -> GroupColor? {
+    public func color(_ name: String?) -> GroupColor? {
         guard let name else { return nil }
         return GroupColor(rawValue: name.lowercased()) ?? (name.lowercased() == "gray" ? .grey : nil)
     }

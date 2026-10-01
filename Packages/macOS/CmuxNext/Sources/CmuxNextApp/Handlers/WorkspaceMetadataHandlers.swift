@@ -12,19 +12,19 @@ import CmuxNextDesign
 /// report the missing daemon capability.
 enum WorkspaceMetadataHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        registry.bind("palette.clearWorkspaceName", requires: DaemonCapabilities.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in
-            try context.require(DaemonCapabilities.workspaceMetadata)
+        registry.bind("palette.clearWorkspaceName", requires: DaemonCapabilities.shared.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in
+            try context.require(DaemonCapabilities.shared.workspaceMetadata)
             let key = try context.workspace(invocation).key
             context.services.activeDaemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, title: .clear) }
         })
-        registry.bind("palette.workspaceColor", requires: DaemonCapabilities.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in
+        registry.bind("palette.workspaceColor", requires: DaemonCapabilities.shared.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in
             guard let raw = invocation["color"]?.stringValue, let color = GroupColor(rawValue: raw) else {
                 throw ActionFailure.invalidTarget(RefusalStrings.colorMustBeOneOf(GroupColor.allCases.map(\.rawValue).joined(separator: ", ")))
             }
             try setColor(color, invocation, context)
         })
-        registry.bind("palette.toggleWorkspacePin", requires: DaemonCapabilities.workspacePin, daemon: context.services.activeDaemon, run: { invocation in
-            try context.require(DaemonCapabilities.workspacePin)
+        registry.bind("palette.toggleWorkspacePin", requires: DaemonCapabilities.shared.workspacePin, daemon: context.services.activeDaemon, run: { invocation in
+            try context.require(DaemonCapabilities.shared.workspacePin)
             let (workspace, key) = try context.workspace(invocation)
             let pinned = !workspace.pinned
             if let sidebar = context.activeWindow?.sidebar {
@@ -33,9 +33,9 @@ enum WorkspaceMetadataHandlers {
                 context.services.activeDaemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, pinned: pinned) }
             }
         })
-        registry.bind("palette.resetWorkspaceColor", requires: DaemonCapabilities.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in try setColor(nil, invocation, context) })
+        registry.bind("palette.resetWorkspaceColor", requires: DaemonCapabilities.shared.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in try setColor(nil, invocation, context) })
         for id: ActionID in ["palette.markWorkspaceRead", "clearWorkspaceNotifications"] {
-            registry.bind(id, requires: DaemonCapabilities.notificationAck, daemon: context.services.activeDaemon, run: { invocation in
+            registry.bind(id, requires: DaemonCapabilities.shared.notificationAck, daemon: context.services.activeDaemon, run: { invocation in
                 try acknowledge([try context.workspace(invocation).model], context)
             })
         }
@@ -52,8 +52,8 @@ enum WorkspaceMetadataHandlers {
 
         registry.bindUnavailable(["palette.copyWorkspaceLink"], ActionFailure.needsAppCapability("deep-links"))
         registry.bindUnavailable(["palette.workspaceCustomColor"], ActionFailure.needsAppCapability("custom-workspace-colors"))
-        registry.bind("palette.markWorkspaceUnread", requires: DaemonCapabilities.notificationMarkUnread, daemon: context.services.activeDaemon, run: { invocation in
-            try context.require(DaemonCapabilities.notificationMarkUnread)
+        registry.bind("palette.markWorkspaceUnread", requires: DaemonCapabilities.shared.notificationMarkUnread, daemon: context.services.activeDaemon, run: { invocation in
+            try context.require(DaemonCapabilities.shared.notificationMarkUnread)
             WorkspaceUnreadMark.set(true, on: [try context.workspace(invocation).model], daemon: context.services.activeDaemon)
         })
         let missing: [(ActionID, String)] = [
@@ -72,7 +72,7 @@ enum WorkspaceMetadataHandlers {
     }
 
     private static func setColor(_ color: GroupColor?, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
-        try context.require(DaemonCapabilities.workspaceMetadata)
+        try context.require(DaemonCapabilities.shared.workspaceMetadata)
         let (workspace, key) = try context.workspace(invocation)
         if let sidebar = context.activeWindow?.sidebar {
             sidebar.handle(.setColor([SidebarWorkspaceID(workspace.id)], color))
@@ -85,7 +85,7 @@ enum WorkspaceMetadataHandlers {
     /// Acknowledges every unread tab of `workspaces` (all tabs when the
     /// daemon rollup reports unread but no tab carries a marker).
     static func acknowledge(_ workspaces: [WorkspaceModel], _ context: AppActionContext) throws {
-        try context.require(DaemonCapabilities.notificationAck)
+        try context.require(DaemonCapabilities.shared.notificationAck)
         WorkspaceUnreadMark.set(false, on: workspaces, daemon: context.services.activeDaemon)
         for workspace in workspaces {
             let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)

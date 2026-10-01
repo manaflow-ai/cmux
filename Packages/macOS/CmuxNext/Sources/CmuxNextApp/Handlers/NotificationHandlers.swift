@@ -9,7 +9,7 @@ import CmuxNextDaemon
 /// notification unread, so that is refused. The row verbs act on the panel
 /// row their `notification` argument names, else on the latest unread.
 enum NotificationHandlers {
-    static let ack = DaemonCapabilities.notificationAck
+    static let ack = DaemonCapabilities.shared.notificationAck
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let daemon = context.daemon

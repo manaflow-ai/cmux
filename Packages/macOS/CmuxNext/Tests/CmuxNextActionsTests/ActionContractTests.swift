@@ -36,9 +36,9 @@ import Testing
     @Test func everyContextMenuIDResolves() {
         let ids = Set(catalog.map(\.id))
         for context in ActionMenuContext.allCases {
-            let entries = ContextMenuCatalog.entries(for: context)
+            let entries = ContextMenuCatalog.shared.entries(for: context)
             #expect(!entries.isEmpty, "\(context) menu is empty")
-            for id in ContextMenuCatalog.referencedIDs(entries) {
+            for id in ContextMenuCatalog.shared.referencedIDs(entries) {
                 #expect(ids.contains(id), "\(context) menu references unknown \(id)")
             }
         }

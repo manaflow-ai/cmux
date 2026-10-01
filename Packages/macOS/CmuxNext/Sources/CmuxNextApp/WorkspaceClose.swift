@@ -22,7 +22,7 @@ enum WorkspaceClose {
     @MainActor
     static func closing(_ workspace: WorkspaceModel, on daemon: DaemonService) -> [Terminal] {
         willClose?(workspace)
-        guard !daemon.supports(DaemonCapabilities.batchClose), !daemon.supports(DaemonCapabilities.terminalReap) else {
+        guard !daemon.supports(DaemonCapabilities.shared.batchClose), !daemon.supports(DaemonCapabilities.shared.terminalReap) else {
             return []
         }
         return workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab in

@@ -20,7 +20,7 @@ enum TabMoves {
         let surface = tab.surface, target = pane.handle
         let current = pane.tabs.firstIndex { $0.surface == surface }
         let wire = TabMoveIndex.wireIndex(finalIndex: index, currentIndex: current)
-        let echoes = daemon.supports(DaemonCapabilities.tabDrag)
+        let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
         services.registry.track(Task {
             let ok = await daemon.commit("move-tab", patch: .moveTab(surface: surface, toPane: target, index: index),
                                                    transaction: transaction, expectEcho: echoes) { connection -> Void in
@@ -48,7 +48,7 @@ enum TabMoves {
             return completion(false)
         }
         let surface = tab.surface, paneHandle = pane.handle
-        let echoes = daemon.supports(DaemonCapabilities.tabDrag)
+        let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
         services.registry.track(Task {
             let ok = await daemon.commit("move-tab-to-split", patch: .custom { _ in }, transaction: transaction,
                                                    expectEcho: echoes) { connection -> Void in
@@ -71,7 +71,7 @@ enum TabMoves {
         guard services.daemon(for: pane) === daemon else { return completion(false) }
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         let surface = tab.surface, paneHandle = pane.handle
-        let echoes = daemon.supports(DaemonCapabilities.tabDrag)
+        let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
         let spawn = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
         let width = spawn.width
         services.registry.track(Task {
@@ -98,7 +98,7 @@ enum TabMoves {
                                transaction: ClientTransactionID = .generate()) async -> WorkspaceKey? {
         let daemon = services.machines.daemon(forTab: tab)
         let surface = tab.surface
-        let echoes = daemon.supports(DaemonCapabilities.tabDrag)
+        let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
         let before = Set(daemon.store.workspaces.compactMap(\.key))
         let key = await daemon.commit("move-tab-to-new-workspace", patch: .custom { _ in }, transaction: transaction,
                                                expectEcho: echoes) { connection -> WorkspaceKey? in
@@ -129,7 +129,7 @@ enum TabMoves {
             return services.remoteTerminals.move(tab, from: daemon, to: workspace, on: destination, completion: completion)
         }
         let surface = tab.surface, handle = workspace.handle
-        let echoes = daemon.supports(DaemonCapabilities.tabDrag)
+        let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
         services.registry.track(Task {
             let ok = await daemon.commit("move-tab-to-workspace", patch: .custom { _ in }, transaction: transaction,
                                                    expectEcho: echoes) { connection -> Void in

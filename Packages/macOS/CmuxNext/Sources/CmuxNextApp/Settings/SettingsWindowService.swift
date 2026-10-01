@@ -40,7 +40,7 @@ final class SettingsWindowService: SettingsWindowHost {
 
     var rooms: [SettingsListRow]? {
         let local = services.machines.local
-        guard local.supports(DaemonCapabilities.profiles) else { return nil }
+        guard local.supports(DaemonCapabilities.shared.profiles) else { return nil }
         let current = services.windows.active?.state.profileID ?? .defaultProfile
         return local.store.profiles.sorted { $0.index < $1.index }.map { room in
             SettingsListRow(id: room.id.rawValue, title: room.name, subtitle: nil,

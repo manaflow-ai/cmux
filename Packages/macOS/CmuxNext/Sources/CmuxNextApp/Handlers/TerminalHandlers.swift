@@ -72,7 +72,7 @@ enum TerminalHandlers {
     /// tab (`terminal-reap-v1`); off lets the daemon end it after the reap
     /// grace period once no tab shows it.
     private static func bindKeep(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        registry.bind("terminal.keep", unavailable: ctx.needs(DaemonCapabilities.terminalReap), invoke: { invocation in
+        registry.bind("terminal.keep", unavailable: ctx.needs(DaemonCapabilities.shared.terminalReap), invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
             guard tab.kind == .pty else { return ctx.refuse(RefusalStrings.notATerminal) }
             let keep = invocation["on"]?.boolValue ?? true, surface = tab.surface

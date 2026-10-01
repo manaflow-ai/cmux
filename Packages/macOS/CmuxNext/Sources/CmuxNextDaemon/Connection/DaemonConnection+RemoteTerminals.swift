@@ -5,8 +5,8 @@ import Foundation
 /// terminals that run on another session.
 extension DaemonConnection {
     private func requireRemoteTerminalTabs() throws {
-        guard identity?.supports(DaemonCapabilities.remoteTerminalTabs) == true else {
-            throw DaemonError.missingCapabilities([DaemonCapabilities.remoteTerminalTabs])
+        guard identity?.supports(DaemonCapabilities.shared.remoteTerminalTabs) == true else {
+            throw DaemonError.missingCapabilities([DaemonCapabilities.shared.remoteTerminalTabs])
         }
     }
 
@@ -36,12 +36,12 @@ extension DaemonConnection {
     /// A new kept terminal with no tab on this session (its only view
     /// lives in another session's layout): `create-terminal {detached}`.
     public func createDetachedTerminal(cwd: String? = nil, size: CellSize? = nil) async throws -> CreateDetachedTerminalRequest.Response {
-        guard identity?.supports(DaemonCapabilities.detachedTerminals) == true else {
-            throw DaemonError.missingCapabilities([DaemonCapabilities.detachedTerminals])
+        guard identity?.supports(DaemonCapabilities.shared.detachedTerminals) == true else {
+            throw DaemonError.missingCapabilities([DaemonCapabilities.shared.detachedTerminals])
         }
         let terminal = TerminalID.generate()
         var env = await terminalEnvironment(nil)
-        if identity?.supports(DaemonCapabilities.terminalEnv) == true {
+        if identity?.supports(DaemonCapabilities.shared.terminalEnv) == true {
             env = (env ?? [:]).merging(Self.placementEnvironment(workspace: nil, terminal: terminal)) { _, placement in placement }
         }
         return try await request(CreateDetachedTerminalRequest(cwd: cwd, size: size, terminalID: terminal, env: env, mutation: mutation()))
@@ -52,8 +52,8 @@ extension DaemonConnection {
     /// its tab closes (the tab exists for one round trip).
     public func createUnplacedTerminal(in key: WorkspaceKey, cwd: String? = nil,
                                        size: CellSize? = nil) async throws -> (terminal: TerminalID, resource: ResourceID?) {
-        guard identity?.supports(DaemonCapabilities.terminalReap) == true else {
-            throw DaemonError.missingCapabilities([DaemonCapabilities.terminalReap])
+        guard identity?.supports(DaemonCapabilities.shared.terminalReap) == true else {
+            throw DaemonError.missingCapabilities([DaemonCapabilities.shared.terminalReap])
         }
         let created = try await createTerminal(in: key, cwd: cwd, size: size, keep: true)
         if let surface = created.surface { try await closeTab(surface) }

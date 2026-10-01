@@ -40,7 +40,7 @@ public final class PersonalStore {
 
 extension DaemonStore {
     /// Whether this daemon serves personal state (`profiles-v1`).
-    public var supportsProfiles: Bool { identity?.supports(DaemonCapabilities.profiles) ?? false }
+    public var supportsProfiles: Bool { identity?.supports(DaemonCapabilities.shared.profiles) ?? false }
 
     func applyPersonal(_ state: PersonalState?) {
         guard let state else {

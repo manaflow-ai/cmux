@@ -39,7 +39,6 @@ enum WindowHandlers {
         registry.bind("commandPalettePrevious", run: { _ in context.services.palette.model.handle(.moveUp) })
 
         let unbuilt: [(ActionID, String)] = [
-            ("globalSearch", "search-all-windows"),
             ("palette.openTaskManager", "task-manager"),
             ("taskManager.killProcess", "task-manager"),
             ("palette.sleepyMode", "sleepy-mode"),

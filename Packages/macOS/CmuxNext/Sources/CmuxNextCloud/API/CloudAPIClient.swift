@@ -96,6 +96,13 @@ public struct CloudAPIClient: Sendable {
         try await send("POST", "/api/vm/\(id)/open-port", body: ["port": port], timeout: .seconds(30), as: CloudPortLink.self)
     }
 
+    /// `POST /api/vm/{id}/exec`: runs `command` in the machine's shell. The
+    /// route caps `timeoutMs` at 15 minutes.
+    public func exec(_ id: String, command: String, timeoutMs: Int = 30_000) async throws -> CloudExecResult {
+        try await send("POST", "/api/vm/\(id)/exec", body: ["command": command, "timeoutMs": timeoutMs],
+                       timeout: .milliseconds(timeoutMs) + .seconds(5), as: CloudExecResult.self)
+    }
+
     // MARK: Tunnel
 
     /// `POST /api/vm/tunnel`: enrolls this Mac's WireGuard public key. The

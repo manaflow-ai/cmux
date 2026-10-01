@@ -23,13 +23,13 @@ struct SidebarUnreadMarkTests {
 
     @Test func aMarkedWorkspaceWithoutNotificationsShowsTheDot() throws {
         let store = try Self.store(markingUnread: ["gamma"])
-        let rows = SidebarMapping.sections(store.sidebarSections, machine: Self.machine)[0].workspaces
+        let rows = SidebarMapping.shared.sections(store.sidebarSections, machine: Self.machine)[0].workspaces
         #expect(rows.first { $0.title == "gamma" }?.unread == .dot)
     }
 
     @Test func notificationCountsWinOverTheMark() throws {
         let store = try Self.store(markingUnread: ["beta"])
-        let rows = SidebarMapping.sections(store.sidebarSections, machine: Self.machine)[0].workspaces
+        let rows = SidebarMapping.shared.sections(store.sidebarSections, machine: Self.machine)[0].workspaces
         #expect(rows.first { $0.title == "beta" }?.unread == .count(1))
     }
 
@@ -37,7 +37,7 @@ struct SidebarUnreadMarkTests {
         let store = try Self.store(markingUnread: ["gamma"])
         let gamma = try #require(store.workspaces.first { $0.name == "gamma" })
         #expect(gamma.markedUnread)
-        #expect(SidebarMapping.row(gamma, machine: .local, showsUnread: false).unread == .none)
-        #expect(SidebarMapping.row(gamma, machine: .local).unread == .dot)
+        #expect(SidebarMapping.shared.row(gamma, machine: .local, showsUnread: false).unread == .none)
+        #expect(SidebarMapping.shared.row(gamma, machine: .local).unread == .dot)
     }
 }

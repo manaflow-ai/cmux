@@ -85,6 +85,6 @@ enum CompatDeadline {
     ) async throws -> T {
         // Not a task group: it would wait for a body that ignores
         // cancellation, turning the deadline into a hang.
-        try await ControlDeadline.run(method: what, deadline: .now + limit, body)
+        try await ControlDeadline.shared.run(method: what, deadline: .now + limit, body)
     }
 }

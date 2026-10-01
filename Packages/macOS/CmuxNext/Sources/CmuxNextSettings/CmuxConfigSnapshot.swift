@@ -11,7 +11,7 @@ public struct SettingsDiagnostic: Sendable, Hashable, CustomStringConvertible {
         case invalidValue
         case unknownAction
         case unknownMetric
-        /// A two-stroke chord; the registry cannot dispatch chords yet.
+        /// A chord whose first key has neither Command nor Control.
         case unsupportedChord
         /// Two actions claim the same shortcut in the same context.
         case shortcutConflict

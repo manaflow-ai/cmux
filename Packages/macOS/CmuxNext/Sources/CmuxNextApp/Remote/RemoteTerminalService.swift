@@ -186,7 +186,7 @@ final class RemoteTerminalService {
     }
 
     private func loadSnapshot(into view: RemoteTerminalPlaceholderView, surface: SurfaceID, home: DaemonService) {
-        guard let connection = home.connection, home.supports(DaemonCapabilities.remoteTerminalTabs) else { return }
+        guard let connection = home.connection, home.supports(DaemonCapabilities.shared.remoteTerminalTabs) else { return }
         // task-owner: one bounded read into a weak view; a closed tab drops the result
         Task { [weak view] in
             guard let text = try? await connection.remoteTerminalSnapshot(surface) else { return }

@@ -48,9 +48,9 @@ public struct LaunchIdentity: Sendable, Equatable {
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> LaunchIdentity {
         let bundle = bundleID.flatMap { $0.isEmpty ? nil : $0 }
-        let tag = ControlSocketPath.bundleTag(bundle)
-            ?? bundledEnvironment["CMUX_TAG"].flatMap(ControlSocketPath.sanitize)
-        var path = ControlSocketPath.resolve(bundleID: bundle, tag: tag, isDebugBuild: isDebugBuild, home: home)
+        let tag = ControlSocketPath.shared.bundleTag(bundle)
+            ?? bundledEnvironment["CMUX_TAG"].flatMap(ControlSocketPath.shared.sanitize)
+        var path = ControlSocketPath.shared.resolve(bundleID: bundle, tag: tag, isDebugBuild: isDebugBuild, home: home)
         if let explicit = processEnvironment[socketOverrideKey]?.trimmingCharacters(in: .whitespaces), !explicit.isEmpty {
             path = explicit
         }

@@ -80,9 +80,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     private func observe() {
         let workspace = workspace
-        apply(LayoutMapping.map(workspace))
+        apply(LayoutMapping.shared.map(workspace))
         observation = Task { [weak self] in
-            for await result in Observations({ LayoutMapping.map(workspace) }) {
+            for await result in Observations({ LayoutMapping.shared.map(workspace) }) {
                 self?.apply(result)
             }
         }
@@ -108,7 +108,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// Re-applies the current store state (after a command response that
     /// may trail its own delta).
     func applyCurrent() {
-        apply(LayoutMapping.map(workspace))
+        apply(LayoutMapping.shared.map(workspace))
     }
 
     private func apply(_ result: LayoutMapping.Result) {

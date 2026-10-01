@@ -185,7 +185,7 @@ final class BrowserHibernation {
 
     private static func snapshot(_ tab: any BrowserTab, cached: CGImage?) async -> CGImage? {
         if let cached { return cached }
-        return try? await ControlDeadline.run(method: "hibernation.snapshot", deadline: .now + .seconds(2)) { @MainActor in
+        return try? await ControlDeadline.shared.run(method: "hibernation.snapshot", deadline: .now + .seconds(2)) { @MainActor in
             try await tab.snapshot()
         }
     }
@@ -305,7 +305,7 @@ struct PageProbe {
 
     static func run(_ tab: any BrowserTab) async -> PageProbe {
         do {
-            let value = try await ControlDeadline.run(method: "hibernation.probe", deadline: .now + .seconds(2)) { @MainActor in
+            let value = try await ControlDeadline.shared.run(method: "hibernation.probe", deadline: .now + .seconds(2)) { @MainActor in
                 try await tab.evaluate(script, world: .isolated)
             }
             guard case .string(let json) = value, let data = json.data(using: .utf8),

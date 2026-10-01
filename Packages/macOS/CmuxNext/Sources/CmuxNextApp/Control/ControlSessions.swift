@@ -16,7 +16,7 @@ enum ControlSessions {
     static func sessions(machines: MachineRegistry) -> [ControlSessionInfo] {
         let daemons = machines.daemons
         let names = daemons.map { machineName($0, machines: machines) }
-        let qualifiers = ControlSessionNaming.qualifiers(zip(daemons, names).map { daemon, name in
+        let qualifiers = ControlSessionNaming.shared.qualifiers(zip(daemons, names).map { daemon, name in
             ControlSessionNaming.Candidate(id: key(daemon), name: qualifierName(machine: name, session: daemon.identity?.session))
         })
         return zip(daemons, names).map { daemon, name in

@@ -193,7 +193,7 @@ extension PaneController {
         apply(snapshot())
         guard !commands.isEmpty else { return }
         let keys = Set(ids.map(\.rawValue))
-        let runs = surfaces.count > 1 && daemon.supports(DaemonCapabilities.batchClose)
+        let runs = surfaces.count > 1 && daemon.supports(DaemonCapabilities.shared.batchClose)
             ? [("close-tabs", { @Sendable [surfaces] connection in _ = try await connection.closeTabs(surfaces, endTerminals: false) })]
             : commands
         services.registry.track(Task {
@@ -232,8 +232,8 @@ extension PaneController {
     func setPinned(_ id: StripTabID, pinned: Bool) {
         guard let tab = tab(id) else { return }
         let surface = tab.surface
-        guard daemon.supports(DaemonCapabilities.tabMetadata) else {
-            services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.tabMetadata))
+        guard daemon.supports(DaemonCapabilities.shared.tabMetadata) else {
+            services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.shared.tabMetadata))
             return
         }
         services.registry.track(Task {
@@ -276,12 +276,12 @@ extension PaneController {
             let other: ActionID = tab.browserEngine == BrowserEngineTag.cef.rawValue ? "browser.openInChromium" : "browser.openInWebKit"
             // Terminal themes do not apply to a page.
             let hidden: Set<ContextMenuEntry> = [.action(other), .choices("terminal.setTheme"), .action("terminal.clearTheme")]
-            let entries = ContextMenuCatalog.entries(for: .tab).filter { !hidden.contains($0) }
+            let entries = ContextMenuCatalog.shared.entries(for: .tab).filter { !hidden.contains($0) }
             return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused)
         case .group(let group), .savedGroup(let group):
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue))
         case .emptyStrip:
-            let entries = ContextMenuCatalog.entries(for: .newTab) + [.separator] + ContextMenuCatalog.entries(for: .pane)
+            let entries = ContextMenuCatalog.shared.entries(for: .newTab) + [.separator] + ContextMenuCatalog.shared.entries(for: .pane)
             return registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: paneKey), entries: entries)
         case .newTabButton:
             // The engine menu predicts a Chromium tab (ChromiumWarmup).
