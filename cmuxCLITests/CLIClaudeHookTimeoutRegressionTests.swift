@@ -1391,9 +1391,10 @@ struct CLIClaudeHookTimeoutRegressionTests {
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ]
-            if let runtimeRoot = ProcessInfo.processInfo.environment["CMUX_CI_RUNTIME_SOURCE_ROOT"] {
-                environment["CMUX_CI_RUNTIME_SOURCE_ROOT"] = runtimeRoot
-            }
+            environment.merge(
+                BundledCLITestSupport.ciRuntimeSourceRootEnvironment(),
+                uniquingKeysWith: { _, newValue in newValue }
+            )
             environment.merge(producer.environment, uniquingKeysWith: { _, value in value })
             let result = runCodexHookProcess(
                 executablePath: cliPath,
@@ -1464,9 +1465,10 @@ struct CLIClaudeHookTimeoutRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "FAKE_CLAUDE_SETTINGS_OUTPUT": settings.path,
         ]
-        if let runtimeRoot = ProcessInfo.processInfo.environment["CMUX_CI_RUNTIME_SOURCE_ROOT"] {
-            environment["CMUX_CI_RUNTIME_SOURCE_ROOT"] = runtimeRoot
-        }
+        environment.merge(
+            BundledCLITestSupport.ciRuntimeSourceRootEnvironment(),
+            uniquingKeysWith: { _, newValue in newValue }
+        )
         return environment
     }
 
