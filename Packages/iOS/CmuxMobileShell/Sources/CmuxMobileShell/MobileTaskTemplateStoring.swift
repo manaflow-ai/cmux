@@ -67,10 +67,11 @@ public extension MobileTaskTemplateStoring {
         lastMacDeviceID()
     }
 
-    /// Backward-compatible pairing selection for stores that only persist the
-    /// legacy Mac id field.
+    /// Legacy stores cannot safely encode a tagged pairing in the physical Mac
+    /// id field, so they retain their existing value until they add pairing
+    /// storage.
     func setLastMacPairingID(_ id: String?) {
-        setLastMacDeviceID(id)
+        _ = id
     }
 
     /// Deletes one template.
