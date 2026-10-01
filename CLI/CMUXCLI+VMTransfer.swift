@@ -840,12 +840,11 @@ extension CMUXCLI {
         }
     }
 
-    /// Seconds between `vm.status` polls. `CMUX_VM_WAIT_POLL_SECONDS` overrides the
-    /// default so tests against a mock socket do not wait out the real cadence.
+    /// Seconds between `vm.status` polls; see ``VMReadyPollInterval``.
     static func vmReadyPollInterval(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> TimeInterval {
-        CmuxTuiRemoteRouting.vmReadyPollInterval(environment: environment)
+        VMReadyPollInterval.resolve(environment: environment)
     }
 
     // MARK: - transfer plumbing

@@ -8112,6 +8112,13 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
+        case "pr":
+            try await runPullRequestCommand(
+                commandArgs: commandArgs,
+                client: client,
+                windowOverride: windowId,
+                jsonOutput: jsonOutput
+            )
         case "right-sidebar":
             try forwardRightSidebarCommand(
                 commandArgs: commandArgs,
@@ -20906,6 +20913,8 @@ struct CMUXCLI {
               cmux sidebar-state
               cmux sidebar-state --workspace workspace:2
             """
+        case "pr":
+            return Self.pullRequestUsage
         case "right-sidebar":
             return String(localized: "cli.rightSidebar.usage", defaultValue: """
             Usage: cmux right-sidebar <command> [flags]
@@ -42553,13 +42562,11 @@ export default {
             }
             current = parent
         }
-
         // If we already found an ancestor bundle or repo Info.plist, avoid scanning
         // sibling app bundles. Large Resources directories can otherwise balloon RSS.
         guard candidates.isEmpty else {
             return candidates
         }
-
         let searchRoots = [
             executableURL.deletingLastPathComponent().standardizedFileURL,
             executableURL.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL
@@ -42577,10 +42584,8 @@ export default {
                 appendIfExisting(entry.appendingPathComponent("Contents/Info.plist"))
             }
         }
-
         return candidates
     }
-
     private func currentExecutablePath() -> String? {
         if let path = CLIExecutableLocator.currentExecutableURL()?.path
             .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -42589,28 +42594,23 @@ export default {
         }
         return args.first
     }
-
     func resolvedExecutableURL() -> URL? {
         guard let executable = currentExecutablePath(), !executable.isEmpty else {
             return nil
         }
-
         let expanded = (executable as NSString).expandingTildeInPath
         if let resolvedPath = realpath(expanded, nil) {
             defer { free(resolvedPath) }
             return URL(fileURLWithPath: String(cString: resolvedPath)).standardizedFileURL
         }
-
         return URL(fileURLWithPath: expanded).standardizedFileURL
     }
 }
-
 private enum CMUXCLIOutput {
     static func writeStandardError(_ message: String) {
         cliWriteStderr(message)
     }
 }
-
 @main
 struct CMUXTermMain {
     static func main() async {

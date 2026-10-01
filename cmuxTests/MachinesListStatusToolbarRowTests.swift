@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloud
 import SwiftUI
 import Testing
 
@@ -99,6 +100,20 @@ struct MachinesListStatusToolbarRowTests {
         #expect(performed.actions == [.upgrade])
     }
 
+    /// Dismissal retains the raw signature for state while all user-facing copy stays safe.
+    @Test("A failed toolbar row dismisses by signature without exposing upstream details")
+    func failureDismissalKeepsSignaturePrivate() throws {
+        let raw = "HTTP 502 https://cloud.example.test/api/vm trace=private"
+        var dismissed: String?
+        let hosted = Self.host(.failed(.unreachable), dismissalSignature: raw, onDismiss: { dismissed = $0 })
+        let button = try #require(Self.element("CloudBannerDismissButton", in: hosted))
+        try #require(Self.press(button))
+        #expect(dismissed == raw)
+        #expect(!Self.text(of: hosted).contains(raw))
+        #expect(!Self.helpTexts(of: hosted).contains { $0.contains(raw) })
+        #expect(Self.helpTexts(of: hosted).contains { $0.contains("cmux couldn’t load the list") })
+    }
+
     // MARK: - Fixtures
 
     /// The row's action closure escapes into SwiftUI, so the recorder has to be
@@ -117,13 +132,15 @@ struct MachinesListStatusToolbarRowTests {
 
     private static func host(
         _ status: MachineListStatus,
-        perform: @escaping (MachineListStatusPresentation.Action) -> Void = { _ in }
+        dismissalSignature: String = "HTTP 402 from /api/vm",
+        perform: @escaping (MachineListStatusPresentation.Action) -> Void = { _ in },
+        onDismiss: @escaping (String) -> Void = { _ in }
     ) -> Hosted {
         let view = NSHostingView(
             rootView: MachinesListStatusToolbarRow(
                 status: status,
-                error: "HTTP 402 from /api/vm",
-                onDismiss: { _ in },
+                dismissalSignature: dismissalSignature,
+                onDismiss: onDismiss,
                 perform: perform
             )
             // Required, empirically: run 36401958401 dropped this line and every
@@ -178,6 +195,23 @@ struct MachinesListStatusToolbarRowTests {
         return found.joined(separator: " | ")
     }
 
+    private static func helpTexts(of hosted: Hosted) -> [String] {
+        var found: [String] = []
+        var pending: [NSObject] = [hosted.view]
+        var visited = Set<ObjectIdentifier>()
+        while let element = pending.popLast() {
+            guard visited.insert(ObjectIdentifier(element)).inserted else { continue }
+            if let help = CloudTreeHeaderActionsTests.accessibilityAttribute(
+                .help, getter: "accessibilityHelp", of: element
+            ) as? String, !help.isEmpty { found.append(help) }
+            let children = CloudTreeHeaderActionsTests.accessibilityAttribute(
+                .children, getter: "accessibilityChildren", of: element
+            ) as? [Any] ?? []
+            pending += NSAccessibility.unignoredChildren(from: children).compactMap { $0 as? NSObject }
+        }
+        return found
+    }
+
     /// Presses `element` the way VoiceOver would, through the modern protocol
     /// method when it is implemented and the legacy action API otherwise.
     private static func press(_ element: NSObject) -> Bool {
@@ -210,6 +244,24 @@ struct MachinesCloudStatusTests {
         #expect(dismissed.error == "Unsupported: Browsers on another Mac can’t be opened here yet.")
     }
 
+    /// Confirms the empty status is quiet and proves the traversal reaches a populated row.
+    @Test("An empty Cloud status contains no progress indicator or operation text")
+    func emptyStatusHasNoProgressPresentation() {
+        let hosted = Self.host(treeError: nil, listStatus: .reconnecting) { _ in }
+        let empty = Self.accessibilitySnapshot(in: hosted.view)
+        #expect(!empty.roles.contains(NSAccessibility.Role.progressIndicator.rawValue))
+        #expect(!empty.texts.contains { $0.contains("Opening") })
+
+        // A separate non-empty fixture proves the traversal reaches the status
+        // row rather than passing with only the hosting view as its root.
+        let rawError = "https://cloud.example.test/api/vm?trace=secret response-body=private"
+        let populated = Self.host(treeError: rawError) { _ in }
+        let safeMessage = String(localized: "cloud.operation.failedAction", defaultValue: "This operation did not complete. Check the machine state before you try it again.")
+        let texts = Self.accessibilitySnapshot(in: populated.view).texts
+        #expect(texts.contains(safeMessage), "The populated fixture did not expose the sanitized tree status")
+        #expect(texts.allSatisfy { !$0.contains(rawError) }, "Upstream error details reached accessibility")
+    }
+
     @MainActor
     private final class ActionLog {
         var error: String?
@@ -221,13 +273,13 @@ struct MachinesCloudStatusTests {
     }
 
     private static func host(
-        treeError: String,
+        treeError: String?,
+        listStatus: MachineListStatus? = nil,
         onDismissTreeError: @escaping (String) -> Void
     ) -> Hosted {
         let view = NSHostingView(
             rootView: MachinesCloudStatus(
-                activeOperation: nil,
-                listStatus: nil,
+                listStatus: listStatus,
                 listError: nil,
                 treeError: treeError,
                 onDismissStale: { _ in },
@@ -257,5 +309,32 @@ struct MachinesCloudStatusTests {
         guard element.responds(to: legacy) else { return false }
         _ = element.perform(legacy, with: NSAccessibility.Action.press.rawValue)
         return true
+    }
+
+    /// Collects all accessibility strings exposed by a mounted status fixture.
+    static func accessibilitySnapshot(in view: NSView) -> (texts: [String], roles: Set<String>) {
+        var found: [String] = []
+        var roles = Set<String>()
+        var pending: [NSObject] = [view]
+        var visited = Set<ObjectIdentifier>()
+        while let element = pending.popLast() {
+            guard visited.insert(ObjectIdentifier(element)).inserted else { continue }
+            if let role = CloudTreeHeaderActionsTests.accessibilityAttribute(
+                .role, getter: "accessibilityRole", of: element
+            ) as? String { roles.insert(role) }
+            for (attribute, getter) in [(NSAccessibility.Attribute.value, "accessibilityValue"),
+                                        (.description, "accessibilityLabel"), (.title, "accessibilityTitle"),
+                                        (.help, "accessibilityHelp")] {
+                let text = CloudTreeHeaderActionsTests.accessibilityAttribute(
+                    attribute, getter: getter, of: element
+                ) as? String ?? ""
+                if !text.isEmpty { found.append(text) }
+            }
+            let children = CloudTreeHeaderActionsTests.accessibilityAttribute(
+                .children, getter: "accessibilityChildren", of: element
+            ) as? [Any] ?? []
+            pending += NSAccessibility.unignoredChildren(from: children).compactMap { $0 as? NSObject }
+        }
+        return (found, roles)
     }
 }

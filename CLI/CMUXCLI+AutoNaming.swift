@@ -232,14 +232,20 @@ struct CodexAutoNamingArguments: Sendable {
             arguments.insert("--ignore-user-config", at: arguments.firstIndex(of: "--ignore-rules")!)
         }
         guard let configToml else { return arguments }
-        let overrides = providerOverrides(from: configToml, usesTemporaryConfig: usesTemporaryConfig)
+        let overrides = providerOverrides(
+            from: configToml,
+            usesTemporaryConfig: usesTemporaryConfig
+        )
         for override in overrides.reversed() {
             arguments.insert(contentsOf: ["-c", override], at: 1)
         }
         return arguments
     }
 
-    private static func providerOverrides(from toml: String, usesTemporaryConfig: Bool) -> [String] {
+    private static func providerOverrides(
+        from toml: String,
+        usesTemporaryConfig: Bool
+    ) -> [String] {
         var model: String?
         var modelProvider: String?
         var providerEntries: [(section: String, key: String, value: String)] = []
@@ -602,7 +608,6 @@ struct AutoNamingEngine: Sendable {
         }
         return withoutMetadata.trimmingCharacters(in: .whitespacesAndNewlines)
     }
-
     private func taggedContent(named tag: String, in text: String) -> String? {
         let openTag = "<\(tag)>"
         let closeTag = "</\(tag)>"
@@ -613,7 +618,6 @@ struct AutoNamingEngine: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return body.isEmpty ? nil : body
     }
-
     private func removingTaggedContent(named tag: String, from text: String) -> String {
         let openTag = "<\(tag)>"
         let closeTag = "</\(tag)>"
@@ -625,7 +629,6 @@ struct AutoNamingEngine: Sendable {
         }
         return result
     }
-
     private func firstString(in object: [String: Any], keys: [String]) -> String? {
         for key in keys {
             guard let value = object[key] as? String else { continue }
@@ -634,7 +637,6 @@ struct AutoNamingEngine: Sendable {
         }
         return nil
     }
-
     private func firstText(in object: [String: Any], keys: [String]) -> String? {
         for key in keys {
             guard let text = firstTextValue(object[key]) else { continue }
@@ -642,7 +644,6 @@ struct AutoNamingEngine: Sendable {
         }
         return nil
     }
-
     private func firstTextValue(_ value: Any?) -> String? {
         if let string = value as? String {
             let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -659,7 +660,6 @@ struct AutoNamingEngine: Sendable {
         }
         return nil
     }
-
     private func firstTextBlock(_ value: Any) -> String? {
         if let string = value as? String {
             let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
