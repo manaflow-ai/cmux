@@ -4,7 +4,7 @@ import CmuxNextCloud
 import CmuxNextDaemon
 
 // Per-machine actions: open, terminal, rename, kill, copy, resize, status,
-// ports, tools, handoff, snapshot, restore, fork.
+// ports, tools, handoff, snapshot, promote to template, restore, fork.
 extension CloudHandlers {
     static func bindMachineActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
         let cloud = context.services.cloud!
@@ -91,6 +91,15 @@ extension CloudHandlers {
                 CloudPresenter.show(CloudStrings.snapshotTitle, CloudStrings.snapshotBody(snapshot.id), copyable: true, in: window(context))
             }
         }
+        // The old app's `cmux vm promote-template`: a snapshot named after the
+        // machine, which Restore Cloud Machine then starts new machines from.
+        bind("palette.cloud.promoteTemplate", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context)
+            run("promote machine to template", context) {
+                let snapshot = try await cloud.api.snapshot(session.machineID, name: templateName(session.machineID, at: Date()))
+                CloudPresenter.show(CloudStrings.templateTitle, CloudStrings.templateBody(snapshot.id), copyable: true, in: window(context))
+            }
+        }
         bind("palette.cloud.restore", registry, reason: reason) { invocation in
             guard let snapshot = invocation["snapshot"]?.stringValue, !snapshot.isEmpty else { throw ActionFailure(message: CloudStrings.snapshotRequired) }
             run("restore machine", context) {
@@ -122,6 +131,11 @@ extension CloudHandlers {
         let target = "--target machine:\(machine.id)"
         return ["\(machine.title) (\(machine.id))", "provider: \(machine.provider.isEmpty ? "?" : machine.provider)", "status: \(machine.status.rawValue)",
                 "attach: cmux cloud open-machine \(target)", "inspect: cmux cloud machine-tools \(target)"].joined(separator: "\n")
+    }
+
+    /// `template-<first 12 of the id>-<unix seconds>`, the old CLI's name.
+    static func templateName(_ machineID: String, at date: Date) -> String {
+        "template-\(machineID.prefix(12))-\(Int(date.timeIntervalSince1970))"
     }
 
     /// `size` choices -> (vCPUs, MiB). Pro allows up to 24 GiB.
