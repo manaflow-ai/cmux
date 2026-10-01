@@ -59,6 +59,55 @@ struct AccessoryEdgeFadeTests {
         #expect(scrollView.decelerationRate == .normal)
     }
 
+    @Test("shortcut row defers layout correction during an active gesture")
+    func defersOffsetCorrectionDuringGesture() {
+        let decision = AccessoryScrollOffsetReconciliation.decide(
+            geometryChanged: true,
+            interactionActive: true,
+            previousOffset: 100,
+            currentOffset: 130,
+            minimumOffset: 0,
+            maximumOffset: 120,
+            wasAtLeadingEdge: false,
+            wasAtTrailingEdge: true
+        )
+
+        #expect(decision == .deferUntilScrollEnds)
+    }
+
+    @Test("shortcut row clamps stale overscroll after the gesture ends")
+    func clampsStaleOverscrollAfterGesture() {
+        let decision = AccessoryScrollOffsetReconciliation.decide(
+            geometryChanged: true,
+            interactionActive: false,
+            previousOffset: 100,
+            currentOffset: 130,
+            minimumOffset: 0,
+            maximumOffset: 120,
+            wasAtLeadingEdge: false,
+            wasAtTrailingEdge: true,
+            preserveEdge: false
+        )
+
+        #expect(decision == .set(120))
+    }
+
+    @Test("shortcut row keeps the trailing edge through a resting resize")
+    func keepsTrailingEdgeThroughResize() {
+        let decision = AccessoryScrollOffsetReconciliation.decide(
+            geometryChanged: true,
+            interactionActive: false,
+            previousOffset: 100,
+            currentOffset: 100,
+            minimumOffset: 0,
+            maximumOffset: 120,
+            wasAtLeadingEdge: false,
+            wasAtTrailingEdge: true
+        )
+
+        #expect(decision == .set(120))
+    }
+
     @MainActor
     private static func findAccessoryScrollView(in view: UIView) -> AccessoryEdgeFadeScrollView? {
         if let scrollView = view as? AccessoryEdgeFadeScrollView {

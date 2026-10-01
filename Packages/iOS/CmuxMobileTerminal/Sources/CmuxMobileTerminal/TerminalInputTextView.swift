@@ -4,6 +4,47 @@ import CmuxMobileTerminalKit
 import Foundation
 import UIKit
 
+/// Decides how a shortcut-row offset should react to a layout change.
+///
+/// UIKit owns the offset while a finger drag, deceleration, or edge bounce is
+/// active. Once that interaction ends, a deferred layout change may clamp a
+/// stale out-of-range offset without replaying the old edge position.
+enum AccessoryScrollOffsetReconciliation: Equatable {
+    case deferUntilScrollEnds
+    case leaveUnchanged
+    case set(CGFloat)
+
+    nonisolated static func decide(
+        geometryChanged: Bool,
+        interactionActive: Bool,
+        previousOffset: CGFloat,
+        currentOffset: CGFloat,
+        minimumOffset: CGFloat,
+        maximumOffset: CGFloat,
+        wasAtLeadingEdge: Bool,
+        wasAtTrailingEdge: Bool,
+        preserveEdge: Bool = true
+    ) -> Self {
+        guard geometryChanged else { return .leaveUnchanged }
+        guard !interactionActive else { return .deferUntilScrollEnds }
+
+        let targetOffset: CGFloat
+        if !preserveEdge,
+           currentOffset < minimumOffset - 0.5 || currentOffset > maximumOffset + 0.5 {
+            targetOffset = min(max(currentOffset, minimumOffset), maximumOffset)
+        } else if wasAtLeadingEdge {
+            targetOffset = minimumOffset
+        } else if wasAtTrailingEdge {
+            targetOffset = maximumOffset
+        } else {
+            targetOffset = min(max(previousOffset, minimumOffset), maximumOffset)
+        }
+
+        guard abs(currentOffset - targetOffset) > 0.5 else { return .leaveUnchanged }
+        return .set(targetOffset)
+    }
+}
+
 /// The iOS terminal's keyboard input surface.
 ///
 /// This is a **documentless responder**, not a text editor. It conforms to
@@ -35,7 +76,7 @@ import UIKit
 /// Autocorrect/predictive text stay **disabled** here and fundamentally cannot
 /// be enabled: they require the field to retain the in-progress word, which is
 /// incompatible with forwarding every keystroke to a remote terminal.
-final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
+final class TerminalInputTextView: UIView, UIKeyInput, UITextInput, UIScrollViewDelegate {
     var onFirstResponderChanged: ((Bool) -> Void)?
     var onText: ((String) -> Void)?
     var onBackspace: (() -> Void)?
@@ -77,6 +118,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// it is always reachable regardless of the button row's scroll position.
     private weak var composerButton: UIButton?
     private weak var accessoryArrowNub: TerminalArrowNubView?
+    private var accessoryOffsetNeedsReconciliation = false
     /// The armed/sticky modifier state machine, extracted into the testable
     /// ``TerminalInputModifierState`` reducer. This view is now a dumb
     /// first-responder that forwards taps into the reducer and reads its state
@@ -390,6 +432,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         let scrollView = AccessoryEdgeFadeScrollView()
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
+        scrollView.delegate = self
         // Keep UIKit's native horizontal drag, deceleration, and edge-bounce
         // physics. Offset preservation below must never replace that gesture
         // state with an immediate clamp.
@@ -624,14 +667,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             let geometryChanged = previousBoundsSize != scrollView.bounds.size
                 || previousContentSize != scrollView.contentSize
                 || previousAdjustedContentInset != scrollView.adjustedContentInset
-            // This method is called from the surface's layout pass. During a
-            // finger drag, deceleration, or the native edge-bounce animation,
-            // UIKit owns contentOffset and must be allowed to finish its
-            // physics without a competing setContentOffset call.
-            guard geometryChanged,
-                  !scrollView.isTracking,
-                  !scrollView.isDragging,
-                  !scrollView.isDecelerating else { return }
             let minimumOffset = -scrollView.adjustedContentInset.left
             let maximumOffset = max(
                 minimumOffset,
@@ -639,26 +674,82 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
                     - scrollView.bounds.width
                     + scrollView.adjustedContentInset.right
             )
-            let isOverscrolling = scrollView.contentOffset.x < minimumOffset - 0.5
-                || scrollView.contentOffset.x > maximumOffset + 0.5
-            // A rubber-band offset is UIKit's transient state. Leave it alone
-            // even if a parent layout also changed the strip's geometry; the
-            // native spring will return it to the new boundary.
-            guard !isOverscrolling else { return }
-            let targetOffset: CGFloat
-            if wasAtLeadingEdge {
-                targetOffset = minimumOffset
-            } else if wasAtTrailingEdge {
-                targetOffset = maximumOffset
-            } else {
-                targetOffset = min(max(previousOffset, minimumOffset), maximumOffset)
-            }
-            guard abs(scrollView.contentOffset.x - targetOffset) > 0.5 else { return }
-            scrollView.setContentOffset(
-                CGPoint(x: targetOffset, y: scrollView.contentOffset.y),
-                animated: false
+            let interactionActive = scrollView.isTracking
+                || scrollView.isDragging
+                || scrollView.isDecelerating
+            guard geometryChanged || accessoryOffsetNeedsReconciliation else { return }
+            let decision = AccessoryScrollOffsetReconciliation.decide(
+                geometryChanged: true,
+                interactionActive: interactionActive,
+                previousOffset: previousOffset,
+                currentOffset: scrollView.contentOffset.x,
+                minimumOffset: minimumOffset,
+                maximumOffset: maximumOffset,
+                wasAtLeadingEdge: wasAtLeadingEdge,
+                wasAtTrailingEdge: wasAtTrailingEdge,
+                preserveEdge: !accessoryOffsetNeedsReconciliation
             )
+            switch decision {
+            case .deferUntilScrollEnds:
+                accessoryOffsetNeedsReconciliation = true
+            case .leaveUnchanged:
+                accessoryOffsetNeedsReconciliation = false
+            case let .set(targetOffset):
+                accessoryOffsetNeedsReconciliation = false
+                scrollView.setContentOffset(
+                    CGPoint(x: targetOffset, y: scrollView.contentOffset.y),
+                    animated: false
+                )
+            }
         }
+    }
+
+    private func reconcileAccessoryOffsetAfterScroll() {
+        guard accessoryOffsetNeedsReconciliation,
+              let scrollView = accessoryStackView?.superview as? UIScrollView,
+              !scrollView.isTracking,
+              !scrollView.isDragging,
+              !scrollView.isDecelerating else {
+            return
+        }
+
+        let minimumOffset = -scrollView.adjustedContentInset.left
+        let maximumOffset = max(
+            minimumOffset,
+            scrollView.contentSize.width
+                - scrollView.bounds.width
+                + scrollView.adjustedContentInset.right
+        )
+        let decision = AccessoryScrollOffsetReconciliation.decide(
+            geometryChanged: true,
+            interactionActive: false,
+            previousOffset: scrollView.contentOffset.x,
+            currentOffset: scrollView.contentOffset.x,
+            minimumOffset: minimumOffset,
+            maximumOffset: maximumOffset,
+            wasAtLeadingEdge: false,
+            wasAtTrailingEdge: false,
+            preserveEdge: false
+        )
+        accessoryOffsetNeedsReconciliation = false
+        guard case let .set(targetOffset) = decision else { return }
+        scrollView.setContentOffset(
+            CGPoint(x: targetOffset, y: scrollView.contentOffset.y),
+            animated: false
+        )
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        guard let accessoryScrollView = accessoryStackView?.superview as? UIScrollView,
+              scrollView === accessoryScrollView,
+              !decelerate else { return }
+        reconcileAccessoryOffsetAfterScroll()
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        guard let accessoryScrollView = accessoryStackView?.superview as? UIScrollView,
+              scrollView === accessoryScrollView else { return }
+        reconcileAccessoryOffsetAfterScroll()
     }
 
     /// Build (or rebuild) the SCROLLABLE button row: the user's configured order
