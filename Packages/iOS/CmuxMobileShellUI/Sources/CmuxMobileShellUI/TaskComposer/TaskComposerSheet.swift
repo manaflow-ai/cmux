@@ -915,7 +915,9 @@ struct TaskComposerSheet: View {
                         provider: provider,
                         macDeviceID: macDeviceID,
                         instanceTag: instanceTag,
-                        maximumCacheAge: 300
+                        // Render the prefetched catalog immediately above, then
+                        // revalidate the host whenever the composer opens.
+                        maximumCacheAge: 0
                     ) { result in
                         guard !Task.isCancelled,
                               modelRefreshOperationID == operationID,
