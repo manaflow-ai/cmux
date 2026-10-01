@@ -33,27 +33,22 @@ export default async function StackHandlerPage(
     headers(),
   ]);
 
+  // The handler page when the path is a single segment, as every page cmux
+  // replaces is.
+  const page = stack.length === 1 ? stack[0] : null;
+
   // A failed OAuth return goes to cmux's own recovery page rather than the
   // hosted one, which shows raw service codes.
-  const query = new URLSearchParams();
-  for (const [name, value] of Object.entries((await props.searchParams) ?? {})) {
-    const first = Array.isArray(value) ? value[0] : value;
-    if (first !== undefined) query.set(name, first);
-  }
-  const errorTarget = stack.length === 1 ? hostedAuthErrorRedirect(stack[0], query) : null;
+  const errorTarget = page ? hostedAuthErrorRedirect(page, firstValues(await props.searchParams)) : null;
   if (errorTarget) redirect(errorTarget);
 
-  const isCoderouterSignIn =
-    coderouterHost(requestHeaders.get("host")) &&
-    stack.length === 1 &&
-    stack[0] === "sign-in";
+  const isCoderouterSignIn = coderouterHost(requestHeaders.get("host")) && page === "sign-in";
+  const messages = () => loadMessages(preferredLocaleFromAcceptLanguage(requestHeaders.get("accept-language") ?? ""));
 
-  const handlerContent = stack.length === 1 && stack[0] === "cli-auth-confirm" ? (
+  const handlerContent = page === "cli-auth-confirm" ? (
     <CliAuthConfirmation
       fullPage
-      identityMessages={(await loadMessages(preferredLocaleFromAcceptLanguage(
-        requestHeaders.get("accept-language") ?? "",
-      ))).cliAuthIdentity as CliAuthIdentityMessages}
+      identityMessages={(await messages()).cliAuthIdentity as CliAuthIdentityMessages}
     />
   ) : isCoderouterSignIn ? (
     // The shared cmux Google connector requests Drive, Gmail, and Calendar
@@ -72,21 +67,12 @@ export default async function StackHandlerPage(
         <MagicLinkSignIn />
       </section>
     </main>
-  ) : stack.length === 1 && stack[0] === "oauth-callback" ? (
-    <CmuxOAuthCallback
-      messages={(await loadMessages(preferredLocaleFromAcceptLanguage(
-        requestHeaders.get("accept-language") ?? "",
-      ))).cmuxSignIn as CmuxSignInMessages}
-    />
-  ) : stack.length === 1 && (stack[0] === "sign-in" || stack[0] === "sign-up") ? (
+  ) : page === "oauth-callback" ? (
+    <CmuxOAuthCallback messages={(await messages()).cmuxSignIn as CmuxSignInMessages} />
+  ) : page === "sign-in" || page === "sign-up" ? (
     // cmux's own sign-in and sign-up screens. Every callback, reset and
     // verification route below stays with the hosted handler.
-    <CmuxSignIn
-      mode={stack[0] === "sign-up" ? "sign-up" : "sign-in"}
-      messages={(await loadMessages(preferredLocaleFromAcceptLanguage(
-        requestHeaders.get("accept-language") ?? "",
-      ))).cmuxSignIn as CmuxSignInMessages}
-    />
+    <CmuxSignIn mode={page} messages={(await messages()).cmuxSignIn as CmuxSignInMessages} />
   ) : (
     // The hosted pages spin a circular-arrow icon; the stylesheet redraws it
     // in place as cmux's spinner so every loading state matches.
@@ -101,12 +87,22 @@ export default async function StackHandlerPage(
   // a missing-boundary error.
   return (
     <>
-      {stack.length === 1 && stack[0] === "sign-out" && <EndSavedSessions />}
+      {page === "sign-out" && <EndSavedSessions />}
       <Suspense fallback={<StackHandlerLoading />}>
         {handlerContent}
       </Suspense>
     </>
   );
+}
+
+/** The first value of each query parameter. */
+function firstValues(searchParams: Record<string, string | string[] | undefined> | undefined): URLSearchParams {
+  const query = new URLSearchParams();
+  for (const [name, value] of Object.entries(searchParams ?? {})) {
+    const first = Array.isArray(value) ? value[0] : value;
+    if (first !== undefined) query.set(name, first);
+  }
+  return query;
 }
 
 function StackHandlerLoading() {

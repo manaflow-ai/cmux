@@ -126,7 +126,7 @@ export function CmuxSignIn({ mode, messages }: { mode: Mode; messages: CmuxSignI
         {remember}
         <ChooseAccount
           messages={messages}
-          current={user ? { id: user.id, email: user.primaryEmail, displayName: user.displayName, profileImageUrl: user.profileImageUrl } : null}
+          current={accountRowFor(user)}
           onContinue={() => app.redirectToAfterSignIn({ replace: true })}
           onSignInHere={setInlineSignIn}
           onSwitching={setSwitching}
@@ -151,14 +151,26 @@ export function CmuxSignIn({ mode, messages }: { mode: Mode; messages: CmuxSignI
         mode={inlineSignIn ? "sign-in" : mode}
         messages={messages}
         returnTo={returnTo}
-        prefillEmail={inlineSignIn?.email ?? null}
-        lastUsedMethod={inlineSignIn?.method ?? null}
-        startWithPassword={inlineSignIn?.password ?? false}
-        notice={inlineSignIn?.sessionEnded ? messages.sessionEnded : null}
-        onBack={inlineSignIn ? () => setInlineSignIn(null) : undefined}
+        {...inlineFormProps(inlineSignIn, messages, () => setInlineSignIn(null))}
       />
     </>
   );
+}
+
+function accountRowFor(user: CurrentUser | null): AccountRow | null {
+  return user ? { id: user.id, email: user.primaryEmail, displayName: user.displayName, profileImageUrl: user.profileImageUrl } : null;
+}
+
+/** The form's account-specific props when the chooser opened it; none otherwise. */
+function inlineFormProps(inline: InlineSignIn | null, messages: CmuxSignInMessages, back: () => void) {
+  if (!inline) return {};
+  return {
+    prefillEmail: inline.email,
+    lastUsedMethod: inline.method,
+    startWithPassword: inline.password,
+    notice: inline.sessionEnded ? messages.sessionEnded : null,
+    onBack: back,
+  };
 }
 
 /** The form opened from the chooser, for one account or for a new one. */
@@ -566,24 +578,7 @@ function SignInForm({ mode, messages, returnTo, prefillEmail = null, lastUsedMet
 
   return (
     <Page>
-      {onBack && (
-        <Button
-          onClick={onBack}
-          className="group mb-5 -ml-1 inline-flex cursor-pointer items-center gap-1 px-1 py-0.5 text-sm text-muted transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
-        >
-          <BackIcon />
-          {messages.back}
-        </Button>
-      )}
-      <Heading
-        title={mode === "sign-in" ? messages.signInTitle : messages.signUpTitle}
-        subtitle={mode === "sign-in" ? messages.signInSubtitle : messages.signUpSubtitle}
-      />
-      {notice && (
-        <p className="-mt-3 mb-5 border border-border px-3 py-2 text-sm text-muted">
-          {notice}
-        </p>
-      )}
+      <FormHeader mode={mode} messages={messages} notice={notice} onBack={onBack} />
       <div className="grid gap-2">
         {config.oauthProviders.map(({ id }) => (
           <OAuthProviderButton
@@ -597,13 +592,7 @@ function SignInForm({ mode, messages, returnTo, prefillEmail = null, lastUsedMet
         ))}
         {passkeyAvailable && <PasskeyButton messages={messages} />}
         {inIframe && hasOAuth && <p className="text-xs text-muted">{messages.embeddedDisabled}</p>}
-        {hasEmail && (hasOAuth || passkeyAvailable) && (
-          <div className="my-2 flex items-center gap-2.5 font-mono text-[11px] text-muted">
-            <span aria-hidden="true" className="h-px flex-1 bg-border" />
-            {messages.or}
-            <span aria-hidden="true" className="h-px flex-1 bg-border" />
-          </div>
-        )}
+        {hasEmail && (hasOAuth || passkeyAvailable) && <OrDivider text={messages.or} />}
         {hasEmail && (
           <EmailMethods
             mode={mode}
@@ -616,23 +605,73 @@ function SignInForm({ mode, messages, returnTo, prefillEmail = null, lastUsedMet
           />
         )}
       </div>
-      <div className="mt-6 grid gap-3 text-sm text-muted">
-        {onBack ? null : mode === "sign-in" ? (
-          config.signUpEnabled && (
-            <p>
-              {messages.noAccount}{" "}
-              <a className={linkClass} href={handlerHref("sign-up", returnTo)}>{messages.signUpLink}</a>
-            </p>
-          )
-        ) : (
-          <p>
-            {messages.haveAccount}{" "}
-            <a className={linkClass} href={handlerHref("sign-in", returnTo)}>{messages.signInLink}</a>
-          </p>
-        )}
-        <LegalLine messages={messages} />
-      </div>
+      <FormFooter mode={mode} messages={messages} returnTo={returnTo} signUpEnabled={config.signUpEnabled} showModeSwitch={!onBack} />
     </Page>
+  );
+}
+
+function FormHeader({ mode, messages, notice, onBack }: {
+  mode: Mode;
+  messages: CmuxSignInMessages;
+  notice: string | null;
+  onBack?: () => void;
+}) {
+  const signIn = mode === "sign-in";
+  return (
+    <>
+      {onBack && (
+        <Button
+          onClick={onBack}
+          className="group mb-5 -ml-1 inline-flex cursor-pointer items-center gap-1 px-1 py-0.5 text-sm text-muted transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
+        >
+          <BackIcon />
+          {messages.back}
+        </Button>
+      )}
+      <Heading
+        title={signIn ? messages.signInTitle : messages.signUpTitle}
+        subtitle={signIn ? messages.signInSubtitle : messages.signUpSubtitle}
+      />
+      {notice && (
+        <p className="-mt-3 mb-5 border border-border px-3 py-2 text-sm text-muted">
+          {notice}
+        </p>
+      )}
+    </>
+  );
+}
+
+function OrDivider({ text }: { text: string }) {
+  return (
+    <div className="my-2 flex items-center gap-2.5 font-mono text-[11px] text-muted">
+      <span aria-hidden="true" className="h-px flex-1 bg-border" />
+      {text}
+      <span aria-hidden="true" className="h-px flex-1 bg-border" />
+    </div>
+  );
+}
+
+/** The sign-in / sign-up switch (not on a form opened from the chooser) and the legal line. */
+function FormFooter({ mode, messages, returnTo, signUpEnabled, showModeSwitch }: {
+  mode: Mode;
+  messages: CmuxSignInMessages;
+  returnTo: string | null;
+  signUpEnabled: boolean;
+  showModeSwitch: boolean;
+}) {
+  const toSignUp = mode === "sign-in";
+  return (
+    <div className="mt-6 grid gap-3 text-sm text-muted">
+      {showModeSwitch && (!toSignUp || signUpEnabled) && (
+        <p>
+          {toSignUp ? messages.noAccount : messages.haveAccount}{" "}
+          <a className={linkClass} href={handlerHref(toSignUp ? "sign-up" : "sign-in", returnTo)}>
+            {toSignUp ? messages.signUpLink : messages.signInLink}
+          </a>
+        </p>
+      )}
+      <LegalLine messages={messages} />
+    </div>
   );
 }
 
