@@ -648,16 +648,16 @@ struct WorkspaceShellView: View {
             }
         }
         .toolbar {
-            if #unavailable(iOS 26.0),
-               primarySearchCoordinator.scope == .notifications,
-               primarySearchNavigationPath.wrappedValue.isEmpty {
+            if #unavailable(iOS 26.0), primarySearchNavigationPath.wrappedValue.isEmpty {
                 rootToolbarContent
-                NotificationFeedToolbarContent(
-                    projection: notificationFeedProjection,
-                    requestMarkAllRead: {
-                        isConfirmingNotificationFeedMarkAllRead = true
-                    }
-                )
+                if primarySearchCoordinator.scope == .notifications {
+                    NotificationFeedToolbarContent(
+                        projection: notificationFeedProjection,
+                        requestMarkAllRead: {
+                            isConfirmingNotificationFeedMarkAllRead = true
+                        }
+                    )
+                }
             }
         }
     }
