@@ -9,9 +9,10 @@ from pathlib import Path
 BINDINGS = Path(__file__).resolve().parents[2]
 LIVE_SCHEMA = BINDINGS.parent / "spec" / "sdk-schema.json"
 
-# Each SDK's own tests pin the generated command count. A command added to
-# the schema must bump every pin in the same change; this names them all.
-PINS = {
+# Each SDK's own tests pin the generated command and event counts. A schema
+# change that adds one must bump every pin in the same change; this names
+# them all. Python compares against its embedded schema instead.
+COMMAND_PINS = {
     "go/raw/client_test.go": r"len\(commands\) != (\d+) \{",
     "typescript/test/generated.test.ts": r"Object\.keys\(COMMAND_METADATA\)\.length, (\d+)\)",
     "java/tests/com/cmux/raw/GeneratedCoverageTest.java": r"Commands\.ALL\.size\(\) == (\d+),",
@@ -19,18 +20,37 @@ PINS = {
     "zig/src/raw.zig": r"@as\(usize, (\d+)\), protocol\.command_count",
     "zig/examples/watch.zig": r"@as\(usize, (\d+)\),\s*cmux\.raw\.protocol\.command_count",
 }
+EVENT_PINS = {
+    "go/raw/client_test.go": r"len\(events\) != (\d+) \{",
+    "typescript/test/generated.test.ts": r"Object\.keys\(EVENT_METADATA\)\.length, (\d+)\)",
+    "java/tests/com/cmux/raw/GeneratedCoverageTest.java": r"Events\.ALL\.size\(\) == (\d+),",
+    "cpp/tests/test_generated.cpp": r"CHECK_EQ\(events\.size\(\), (\d+)U\);",
+    "zig/src/raw.zig": r"@as\(usize, (\d+)\), protocol\.event_count",
+    "zig/examples/watch.zig": r"@as\(usize, (\d+)\),\s*cmux\.raw\.protocol\.event_count",
+}
+
+
+def stale_pins(pins: dict[str, str], expected: int) -> list[str]:
+    stale = []
+    for path, pattern in pins.items():
+        matches = re.findall(pattern, (BINDINGS / path).read_text())
+        if not matches:
+            stale.append(f"{path}: pin not found")
+        stale += [f"{path}: {value}" for value in matches if int(value) != expected]
+    return stale
 
 
 class SdkInventoryPinTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.schema = json.loads(LIVE_SCHEMA.read_text())
+
     def test_every_sdk_pins_the_schema_command_count(self) -> None:
-        expected = len(json.loads(LIVE_SCHEMA.read_text())["commands"])
-        stale = []
-        for path, pattern in PINS.items():
-            match = re.search(pattern, (BINDINGS / path).read_text())
-            self.assertIsNotNone(match, f"{path}: command count pin not found")
-            if int(match.group(1)) != expected:
-                stale.append(f"{path}: {match.group(1)}")
-        self.assertEqual(stale, [], f"set these command count pins to {expected}")
+        expected = len(self.schema["commands"])
+        self.assertEqual(stale_pins(COMMAND_PINS, expected), [], f"set these command count pins to {expected}")
+
+    def test_every_sdk_pins_the_schema_event_count(self) -> None:
+        expected = len(self.schema["events"])
+        self.assertEqual(stale_pins(EVENT_PINS, expected), [], f"set these event count pins to {expected}")
 
 
 if __name__ == "__main__":
