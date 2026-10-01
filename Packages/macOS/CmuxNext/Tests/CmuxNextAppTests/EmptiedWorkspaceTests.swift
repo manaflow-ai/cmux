@@ -103,6 +103,7 @@ struct EmptiedWorkspaceTests {
             return SurfaceID(rawValue: 42)
         }
         populated.emptyWorkspaces.close = { key in closer.closed.append(key) }
+        populated.emptyWorkspaces.cause = { _ in .tabClosed }
         let tree = try BridgeTreeFixture.tree()
         populated.daemon.store.applyProvisional(snapshot: tree)
         populated.daemon.store.apply(snapshot: tree)
