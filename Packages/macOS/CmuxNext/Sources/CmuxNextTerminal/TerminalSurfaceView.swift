@@ -17,7 +17,10 @@ public final class TerminalSurfaceView: NSView {
     // MARK: State
 
     private(set) var surface: ghostty_surface_t?
-    private let bridge: Unmanaged<SurfaceBridge>
+    let bridge: Unmanaged<SurfaceBridge>
+    /// The font scale after each font size change (nil: the configured
+    /// size); `TerminalSurfaceView+FontScale`.
+    public var onFontScaleChange: ((Double?) -> Void)?
     /// Serial lane for output and other process_output-ordered calls.
     private(set) var lane: TerminalOutputLane?
     weak var session: TerminalSession?
@@ -117,6 +120,7 @@ public final class TerminalSurfaceView: NSView {
             return
         }
         self.surface = surface
+        installFontSizeCallback()
         lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output")
         registerForDraggedTypes([.fileURL, .URL, .string])
         updateContentScale()

@@ -44,6 +44,10 @@ public enum DaemonEvent: Sendable, Hashable {
     case notification(DaemonNotification)
     case agentChanged(AgentStatus)
 
+    /// A `session.events` item: the state resources the daemon owns
+    /// (state-ownership.md 2), which `DaemonStore.sessionState` mirrors.
+    case sessionState(SessionStreamItem)
+
     // Registries and clients.
     case frontendProjectionChanged(ProjectionChange)
     case terminalRegistryChanged(revision: UInt64)

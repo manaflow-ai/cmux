@@ -220,12 +220,15 @@ extension PaneController {
     func setPinned(_ id: StripTabID, pinned: Bool) {
         guard let tab = tab(id) else { return }
         let surface = tab.surface
-        guard daemon.supports(DaemonCapabilities.tabMetadata) else {
+        // `tab.pin`/`tab.unpin` on a daemon with state resources.
+        let resource = daemon.store.servesStateResources ? tab.resourceID : nil
+        guard resource != nil || daemon.supports(DaemonCapabilities.tabMetadata) else {
             services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.tabMetadata))
             return
         }
         services.registry.track(Task {
             let ok = await daemon.perform("set-tab-pinned", patch: .setTabPinned(surface: surface, pinned: pinned)) { connection, _ in
+                if let resource { return try await connection.setTabPinned(resource, pinned) }
                 _ = try await connection.setTabPinned(surface, pinned)
             }
             if !ok { resyncStrip() }

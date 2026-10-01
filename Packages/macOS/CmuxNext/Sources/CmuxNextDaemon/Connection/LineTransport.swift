@@ -28,6 +28,9 @@ final class LineTransport: Sendable {
 
     /// Inbound limit: the server may send up to 32 MiB (VT replay).
     static let maxLineBytes = 64 << 20
+    /// The event name a `cmux.protocol/2` stream line is routed under
+    /// (`DaemonEvent.decode`); the connection opens one stream, `session.events`.
+    static let streamEvent = "cmux.protocol/2 stream"
 
     private enum Waiter {
         case continuation(cmd: String, CheckedContinuation<Response, any Error>)
@@ -261,9 +264,11 @@ final class LineTransport: Sendable {
         var event: String?
         var error: String?
         var errorCode: String?
+        /// `stream_item` or `stream_end` of a `cmux.protocol/2` stream.
+        var type: String?
 
         enum CodingKeys: String, CodingKey {
-            case id, ok, event, error
+            case id, ok, event, error, type
             case errorCode = "error_code"
         }
 
@@ -281,6 +286,7 @@ final class LineTransport: Sendable {
             }
             ok = try? c.decodeIfPresent(Bool.self, forKey: .ok)
             event = try? c.decodeIfPresent(String.self, forKey: .event)
+            type = try? c.decodeIfPresent(String.self, forKey: .type)
             errorCode = try? c.decodeIfPresent(String.self, forKey: .errorCode)
             if let text = try? c.decodeIfPresent(String.self, forKey: .error) {
                 error = text
@@ -339,7 +345,9 @@ final class LineTransport: Sendable {
 
     private func route(_ line: Data, decoder: JSONDecoder, onEvent: EventHandler) {
         guard let envelope = try? decoder.decode(Envelope.self, from: line) else { return }
-        if let name = envelope.event {
+        // A v2 stream line travels with the raw events, in socket order.
+        let streamed = envelope.type == "stream_item" || envelope.type == "stream_end"
+        if let name = streamed ? Self.streamEvent : envelope.event {
             let index = state.withLock { state -> UInt64 in
                 if name == "daemon-shutdown" { state.sawShutdown = true }
                 state.eventCount += 1
