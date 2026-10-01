@@ -10,7 +10,7 @@ struct MachineRowActions {
     let openShell: @MainActor (String) -> Void
     let openDesktop: @MainActor (String) -> Void
     let runCommand: @MainActor (String, [String]) -> Void
-    let confirmDelete: @MainActor (String) -> Void
+    let confirmDelete: @MainActor (MachineSnapshot) -> Void
     let promptRename: @MainActor (String, String?) -> Void
     /// Grow the machine through the shared `cmux vm resize` command.
     let resizeDisk: @MainActor (String, Int) -> Void
@@ -59,8 +59,8 @@ struct MachineRowActions {
                     onDidMutate()
                 }
             },
-            confirmDelete: { id in
-                presentDeleteConfirmation(id: id, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
+            confirmDelete: { machine in
+                presentDeleteConfirmation(machine: machine, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
             },
             promptRename: { id, currentLabel in
                 presentRenamePrompt(id: id, currentLabel: currentLabel, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
@@ -223,18 +223,30 @@ struct MachineRowActions {
     }
 
     @MainActor
+    /// Builds the destructive confirmation title from the name people see in
+    /// Cloud, while retaining the stable provider ID for unnamed machines.
+    static func deleteConfirmationTitle(for machine: MachineSnapshot) -> String {
+        // Keep MachineSnapshot's label → generated slug → ID precedence, but
+        // treat whitespace-only values as missing at this presentation boundary.
+        let readableName = [machine.label, machine.slug]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? machine.id
+        let format = String(
+            localized: "machines.delete.title",
+            defaultValue: "Delete machine “%@”?"
+        )
+        return String(format: format, readableName)
+    }
+
+    @MainActor
     private static func presentDeleteConfirmation(
-        id: String,
+        machine: MachineSnapshot,
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
         onDidMutate: @escaping @MainActor () -> Void
     ) {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        let format = String(
-            localized: "machines.delete.title",
-            defaultValue: "Delete machine “%@”?"
-        )
-        alert.messageText = String(format: format, id)
+        alert.messageText = deleteConfirmationTitle(for: machine)
         alert.informativeText = String(
             localized: "machines.delete.message",
             defaultValue: "This permanently deletes the machine and everything stored on it. This cannot be undone."
@@ -244,6 +256,7 @@ struct MachineRowActions {
         alert.buttons.first?.hasDestructiveAction = true
         let respond: (NSApplication.ModalResponse) -> Void = { response in
             // A second confirm while the first delete runs is a no-op, never a second `vm rm`.
+            let id = machine.id
             guard response == .alertFirstButtonReturn, MachineDeleteCoordinator.shared.canBegin(id) else { return }
             onWillMutate(operationLabel(verb: ["rm"], id: id))
             let deletions = MachineDeleteCoordinator.shared
