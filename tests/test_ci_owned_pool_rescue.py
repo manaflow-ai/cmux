@@ -1183,6 +1183,36 @@ class SideLanes(unittest.TestCase):
         self.assertIn("attempt 2 takes the side lane's Blacksmith default", summary)
         self.assertNotIn("jobs:2", api.calls)
 
+    def test_a_stuck_side_job_never_cancels_a_sibling_running_on_a_mini(self):
+        # #16463: cmux-next's swift test ran on a mini while release-compile waited
+        # for one; the rescue cancelled both and moved them to Blacksmith.
+        def cmux_next(done_at):
+            def jobs(seconds):
+                test = job("cmux-next swift test", labels=[SIDE], status="in_progress", runner="mini-5-glaeda-3")
+                test["started_at"] = stamp(5)
+                if done_at is not None and seconds >= done_at:
+                    test.update(status="completed", conclusion="success")
+                return [test, job("cmux-next Release compile (Xcode 26)", labels=[SIDE], created=0)]
+            return jobs
+
+        payload = side_event(path=".github/workflows/cmux-next.yml")
+        clock = Clock()
+        api = FakeAPI(clock, cmux_next(done_at=None))
+        code, summary = run_main(api, clock, payload=payload)
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("watch limit reached", summary)
+
+        # Once the mini's job ends, cancelling the run touches only the stuck job.
+        clock = Clock()
+        api = FakeAPI(clock, cmux_next(done_at=600))
+        code, summary = run_main(api, clock, payload=payload)
+        self.assertEqual(code, 0)
+        self.assertIn("cancel", api.calls)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertGreaterEqual(clock.seconds, 600)
+
     def test_a_side_lane_retry_takes_blacksmith(self):
         target = rescue.target_from_event(side_event(), "manaflow-ai/cmux")
         self.assertIn("Blacksmith default", rescue.next_attempt(target))
