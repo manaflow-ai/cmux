@@ -115,10 +115,11 @@ public final class CloudSessionController {
         self.deviceName = deviceName
         self.approvalClock = approvalClock
         self.visibilityDefaults = visibilityDefaults
-        self.visibilityScope = Self.normalizedVisibilityScope(visibilityScope)
+        let normalizedVisibilityScope = Self.normalizedVisibilityScope(visibilityScope)
+        self.visibilityScope = normalizedVisibilityScope
         self.hiddenMachineIDs = Self.loadHiddenMachineIDs(
             from: visibilityDefaults,
-            scope: self.visibilityScope
+            scope: normalizedVisibilityScope
         )
         self.tunnelStartupTimeout = max(.milliseconds(1), tunnelStartupTimeout)
         self.provisioningPollLimit = max(1, provisioningPollLimit)
