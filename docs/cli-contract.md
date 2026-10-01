@@ -67,7 +67,7 @@ Each command goes to the owner of its object.
 
 | Owner | Scopes | Works with the app closed |
 | --- | --- | --- |
-| cmux-tui daemon (`cmux.protocol/2`) | `machine`, `session`, `client`, `workspace`, `screen`, `pane`, `tab`, `terminal`, `browser` (daemon-owned `browser_…`), `notification`, `notify`, `agent`, `sidebar`, `pairing`, `projection`, `provider`, `raw` | yes |
+| cmux-tui daemon (`cmux.protocol/2`) | `machine`, `session`, `client`, `workspace`, `screen`, `pane`, `tab`, `terminal`, `browser` (daemon-owned `browser_…`), `notification`, `notify`, `agent`, `room`, `closed`, `sidebar`, `pairing`, `projection`, `provider`, `raw` | yes |
 | app control socket (JSON lines, `{"id","method","params"}`) | `app`, `window`, `action`, `settings`, `events`, `browser page`/`browser tab_…` page commands, and any `<noun> <verb>` that is an app action CLI name | no |
 | acpmux daemon | `acp` | yes (started on demand) |
 
@@ -135,21 +135,44 @@ listed by that scope's help.
 
 ```text
 cmux workspace list
-cmux workspace create [--name <value>] [--empty] [--correlation-key <value>]
+cmux workspace create [--name <value>] [--empty] [--ephemeral] [--correlation-key <value>]
 cmux workspace <selector> show|focus|close
 cmux workspace <selector> rename --name <value>
+cmux workspace <selector> update [--title <value>|--clear-title] [--color <value>|--clear-color] [--icon <value>|--clear-icon]
 cmux workspace <selector> move --index <n>
 cmux workspace <selector> run [--on-exit <close|keep>] [--cwd <path>] [--name <value>] -- <argv...>
 cmux workspace <selector> run [--on-exit <close|keep>] shell <script>
 cmux workspace <selector> layout apply --layout <json>
 cmux workspace <selector> screen ...
-cmux workspace group list
-cmux workspace group create --name <value> [--color <token|#hex>] [--id <id>] [--index <n>] [--collapse]
-cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color] [--collapse|--expand]
+cmux workspace [<selector>] status list
+cmux workspace status list --all
+cmux workspace [<selector>] status set <key> <text> [--icon <value>] [--color <value>]
+cmux workspace [<selector>] status clear [<key>]
+cmux workspace [<selector>] progress set <0..1>|--indeterminate [--label <value>]
+cmux workspace [<selector>] progress clear
+cmux workspace [<selector>] log append <text> [--level info|progress|success|warning|error] [--source <value>]
+cmux workspace [<selector>] log list [--limit <1..200>]
+cmux workspace [<selector>] log clear
+cmux workspace placement list
+cmux workspace group list [--room <room>]
+cmux workspace group create --name <value> [--color <token|#hex>] [--room <room>] [--index <n>] [--collapse]
+cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color] [--room <room>] [--collapse|--expand]
 cmux workspace group <group> delete|move --index <n>
-cmux workspace group <group> add --workspace <key|id> [--index <n>]
-cmux workspace group remove --workspace <key|id>
+cmux workspace group <group> add --workspace <selector> [--index <n>]
+cmux workspace group remove --workspace <selector>
 ```
+
+Without a selector, `status`, `progress` and `log` target the caller's
+workspace (the one that holds `$CMUX_TUI_TERMINAL_ID`) inside a cmux terminal,
+else `current`; with `--socket` or `--session` they target that session's
+`current`. Text that starts with a dash goes after `--`. `--ephemeral` creates
+an incognito workspace that the session closes at its next start. Workspace
+groups and their order are personal state of this Mac's home session.
+
+Rooms and groups (workspace, tab, screen and saved tab groups) take their id or
+their exact name. The CLI reads the list on the request's connection and sends
+the id, so a retry with `--idempotency-key` repeats the same request; a name
+two records share is `selector.ambiguous` with their ids.
 
 ### screen
 
@@ -158,10 +181,22 @@ cmux screen list
 cmux screen create [--name <value>] [--correlation-key <value>]
 cmux screen <selector> show|focus|close
 cmux screen <selector> rename --name <value>
+cmux screen <selector> pin|unpin
+cmux screen <selector> update [--pinned <bool>] [--color <value>|--clear-color] [--icon <value>|--clear-icon]
+cmux screen <selector> move --index <n>
 cmux screen <selector> layout export
 cmux screen <selector> layout undo [--confirm-close] [--confirmation-token <value>]
 cmux screen <selector> pane ...
+cmux screen group list [--workspace <selector>]
+cmux screen group create --screens <screen_id,...> [--name <value>] [--color <color>]
+cmux screen group <group> show|ungroup
+cmux screen group <group> update [--name <value>] [--color <color>] [--collapse|--expand]
+cmux screen group <group> add --screens <screen_id,...>
+cmux screen group remove --screens <screen_id,...>
 ```
+
+Pinned screens sort first and leave their group. Group colors are `grey`,
+`blue`, `red`, `yellow`, `green`, `pink`, `purple`, `cyan` and `orange`.
 
 ### pane
 
@@ -193,10 +228,28 @@ cmux tab <selector> move --workspace <sel> --screen <sel> --pane <sel> --index <
 cmux tab create terminal [--cwd <path>] [--name <value>] [--workspace <sel>] [--screen <sel>] [--pane <sel>]
 cmux tab create browser --url <value> [--name <value>] [--workspace <sel>] [--screen <sel>] [--pane <sel>]
 cmux tab <selector> terminal|browser ...
-cmux tab group list|create|update|add|remove|move|split|column|new-workspace|ungroup|close|save|unsave
-cmux tab group saved list
-cmux tab group saved <saved> delete|reopen --pane <id>
+cmux tab <selector> pin|unpin
+cmux tab <selector> zoom <0.25..5>|reset
+cmux tab <selector> update [--zoom <0.25..5>|--clear-zoom] [--back <url,...>] [--forward <url,...>]
+cmux tab group list [--pane <pane_id>]
+cmux tab group create --tabs <tab_id,...> [--name <value>] [--color <color>]
+cmux tab group <group> show|ungroup|close
+cmux tab group <group> update [--name <value>] [--color <color>] [--collapse|--expand]
+cmux tab group <group> add --tabs <tab_id,...> [--index <n>]
+cmux tab group remove --tabs <tab_id,...>
+cmux tab group <group> move [--pane <pane_id>] [--index <n>]
+cmux tab group <group> save [--room <room>]
+cmux tab group saved list [--room <room>]
+cmux tab group saved <saved> reopen [--pane <pane_id>]
+cmux tab group saved <saved> delete
+cmux tab group <group> split|column|new-workspace|unsave [OPTIONS]
 ```
+
+Zoom is a browser page zoom or a terminal font scale. Pinned tabs sort first
+and leave their group. Tab group verbs are `tab_group.*` and
+`saved_tab_group.*` operations; `split`, `column`, `new-workspace` and `unsave`
+have no `cmux.protocol/2` operation yet and still use private daemon commands.
+Saved tab groups are personal and belong to a room (default: the default room).
 
 ### terminal
 
@@ -282,6 +335,36 @@ Hook providers are `codex`, `claude` (also `claude-code`), `gemini`, `opencode`
 and `pi`. `hook emit` reads the native payload from stdin when
 `--payload-json` is absent and defaults `--terminal` to `CMUX_TUI_TERMINAL_ID`.
 Agents run through `cmux acp` need no hooks.
+
+### room
+
+```text
+cmux room list
+cmux room create --name <value> [--color <value>] [--icon <value>] [--theme <value>] [--index <n>]
+cmux room <room> update [--name <value>] [--color|--icon|--theme <value>] [--clear-color|--clear-icon|--clear-theme]
+  [--browser-profile <id>|--clear-browser-profile] [--default-session <id>|--clear-default-session]
+cmux room <room> delete [--move-to <room>]
+cmux room <room> move --index <n>
+cmux room <room> follow --sessions <session,...>
+cmux room <room> pin --workspace <selector>
+cmux room unpin --workspace <selector>
+```
+
+Rooms are personal views of this Mac's home session. A room shows the
+workspaces pinned to it and the unpinned workspaces of the sessions it follows.
+`--sessions` is the complete follow set (`""` follows none). A workspace is
+pinned to at most one room, so `unpin` names only the workspace.
+
+### closed
+
+```text
+cmux closed list
+cmux closed <closed_id> reopen
+```
+
+The session keeps recently closed tabs, screens and workspaces. A tab reopens in
+its pane (else the focused pane of its workspace), a screen in its workspace, a
+workspace as a new workspace.
 
 ### Other daemon scopes
 
@@ -394,7 +477,9 @@ yet.
 | `trigger-flash` | `cmux pane flash-focused` (app action). |
 | `browser open|goto|snapshot|click|fill|type|eval|get url` | Page commands `cmux browser <tab_…|page> …`; new tabs with `cmux tab create browser --url U`. |
 | `browser wait`, cookies, storage, screenshots, downloads, console, network, frames, dialogs | None. |
-| `set-status`, `clear-status`, `log`, `set-progress`, `sidebar-state` | None. (`cmux workspace set-status` is the workspace todo status action, not a sidebar pill.) |
-| `todo`, `workspace status` | None as CLI verbs; the app actions under `cmux action list --noun workspace` cover the checklist and status. |
+| `set-status`, `clear-status` | `cmux workspace [<sel>] status set <key> <text>`, `status clear [<key>]`. (`cmux workspace set-status` is the workspace todo status action, not a status entry.) |
+| `log`, `set-progress`, `clear-progress` | `cmux workspace [<sel>] log append <text>`, `progress set <0..1>`, `progress clear`. |
+| `sidebar-state` | `cmux workspace [<sel>] status list`. |
+| `todo` | None as a CLI verb; the app actions under `cmux action list --noun workspace` cover the checklist. |
 | `claude-hook`, `codex-hook`, `hooks …` | `cmux agent hook install|uninstall|status|emit`. |
 | `markdown open`, `themes`, `vm`, `cloud` verbs, `glaeda`, `current` | None, except the app actions `cmux action list` reports (for example `cmux cloud new-machine`). |

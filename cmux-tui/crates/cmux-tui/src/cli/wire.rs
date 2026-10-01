@@ -43,23 +43,16 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     {
         params.insert("session".into(), Value::String(session.clone()));
     }
-    let request = match request_value(&plan) {
+    let mut request = match request_value(&plan) {
         Ok(request) => request,
         Err(error) => {
             eprintln!("cmux: {error}");
             return 2;
         }
     };
-    let encoded = match serde_json::to_vec(&request) {
-        Ok(encoded) if encoded.len() <= MAX_MESSAGE_BYTES => encoded,
-        Ok(_) => {
-            eprintln!("cmux: request exceeds the 4 MiB protocol limit");
-            return 2;
-        }
-        Err(error) => {
-            eprintln!("cmux: cannot encode request: {error}");
-            return 2;
-        }
+    let mut encoded = match encode_request(&request) {
+        Ok(encoded) => encoded,
+        Err(code) => return code,
     };
     let request_id =
         request["id"].as_str().expect("locally built request IDs are strings").to_string();
@@ -87,6 +80,19 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             Err(exit_code) => return exit_code,
         }
     }
+    if !plan.resolve.is_empty() {
+        // The caller's terminal belongs to the session its environment
+        // names; an explicit route targets that session's current workspace.
+        let caller_route = global.socket.is_none() && global.session.is_none();
+        if let Err(failure) = super::resolve::apply(&mut reader, &mut plan, caller_route) {
+            return failure.report(global.output);
+        }
+        request["params"] = plan.params.clone();
+        encoded = match encode_request(&request) {
+            Ok(encoded) => encoded,
+            Err(code) => return code,
+        };
+    }
     #[cfg(unix)]
     let interrupt_handled = !plan.stream || stream_interrupt(reader.get_ref().as_ref());
     #[cfg(not(unix))]
@@ -109,6 +115,20 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         key_report.finish(global.output);
     }
     code
+}
+
+fn encode_request(request: &Value) -> Result<Vec<u8>, i32> {
+    match serde_json::to_vec(request) {
+        Ok(encoded) if encoded.len() <= MAX_MESSAGE_BYTES => Ok(encoded),
+        Ok(_) => {
+            eprintln!("cmux: request exceeds the 4 MiB protocol limit");
+            Err(2)
+        }
+        Err(error) => {
+            eprintln!("cmux: cannot encode request: {error}");
+            Err(2)
+        }
+    }
 }
 
 /// Reports a mutation's idempotency key once when the command fails after
@@ -338,7 +358,7 @@ fn request_value(plan: &RequestPlan) -> Result<Value, UsageError> {
     Ok(request)
 }
 
-fn random_request_id() -> Result<String, UsageError> {
+pub(super) fn random_request_id() -> Result<String, UsageError> {
     random_prefixed("request")
 }
 
@@ -488,7 +508,7 @@ fn run_response(
     }
 }
 
-fn read_envelope(
+pub(super) fn read_envelope(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
     allow_timeout: bool,
 ) -> Result<Option<Value>, String> {
@@ -554,7 +574,7 @@ fn print_success(value: &Value, output: OutputMode) -> i32 {
     }
 }
 
-fn print_operation_error(error: &Value, output: OutputMode) -> i32 {
+pub(super) fn print_operation_error(error: &Value, output: OutputMode) -> i32 {
     print_local_error(error, output, 1)
 }
 
@@ -886,6 +906,7 @@ mod tests {
             params: json!({}),
             idempotency_key: None,
             stream: false,
+            resolve: Vec::new(),
         }
     }
 
@@ -953,6 +974,7 @@ mod tests {
             params: json!({"initial_content":"empty"}),
             idempotency_key: None,
             stream: false,
+            resolve: Vec::new(),
         };
         assert!(request_value(&mutation).unwrap().get("idempotency_key").is_some());
 
@@ -961,6 +983,7 @@ mod tests {
             params: json!({}),
             idempotency_key: None,
             stream: false,
+            resolve: Vec::new(),
         };
         assert!(request_value(&read).unwrap().get("idempotency_key").is_none());
     }
@@ -1038,6 +1061,7 @@ mod tests {
                 params: json!({"timeout_ms":"5000"}),
                 idempotency_key: None,
                 stream: false,
+                resolve: Vec::new(),
             };
             assert_eq!(response_read_timeout(&bounded, false), Some(Duration::from_secs(7)));
 
@@ -1053,6 +1077,7 @@ mod tests {
             params: json!({}),
             idempotency_key: None,
             stream: true,
+            resolve: Vec::new(),
         };
         assert_eq!(response_read_timeout(&stream, false), Some(Duration::from_millis(250)));
         assert_eq!(response_read_timeout(&stream, true), None);
@@ -1073,6 +1098,7 @@ mod tests {
                     params: json!({}),
                     idempotency_key: Some("input-error".into()),
                     stream: false,
+                    resolve: Vec::new(),
                 };
                 for (reason, expected) in [
                     ("terminal_input_too_large", catalog.terminal_input.too_large),
@@ -1110,6 +1136,7 @@ mod tests {
                 params: json!({}),
                 idempotency_key: Some("reload-owner-stopped".into()),
                 stream: false,
+                resolve: Vec::new(),
             };
             let mut error = json!({
                 "code":"operation.failed",

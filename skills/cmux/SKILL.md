@@ -13,6 +13,8 @@ Non-browser cmux topology and routing. The `cmux` CLI is noun-first: `cmux <scop
 - **Pane** (`pane_…`): a split region in a screen.
 - **Tab** (`tab_…`): a tab in a pane, showing a terminal or browser.
 - **Terminal** (`term_…`): terminal content, addressable with or without a tab.
+- **Room**: a personal view that shows the workspaces pinned to it and those of the sessions it follows. Rooms, workspace groups and tab or screen groups take their id or exact name (`cmux room --help`).
+- **Closed history**: recently closed tabs, screens and workspaces (`cmux closed list`, `cmux closed <id> reopen`).
 
 ## Fast start
 

@@ -25,6 +25,9 @@ cmux workspace new --name task --cwd "$PWD" --command "npm run dev"   # app acti
 cmux workspace ws_… show
 cmux workspace ws_… focus
 cmux workspace ws_… rename --name "new name"
+cmux workspace ws_… update --title "API" --color "#336699" --icon server.rack
+cmux workspace ws_… update --clear-title
+cmux workspace create --name scratch --ephemeral   # incognito, closed at the next session start
 cmux workspace ws_… move --index 0
 cmux workspace ws_… close
 cmux workspace ws_… run -- cargo test
@@ -53,7 +56,50 @@ cmux pane pane_… zoom --enabled true
 cmux pane pane_… close
 cmux tab tab_… rename --name logs
 cmux tab tab_… move --workspace ws_… --screen screen_… --pane pane_… --index 0
+cmux tab tab_… pin
+cmux tab tab_… zoom 1.25            # browser page zoom or terminal font scale; `zoom reset`
 cmux tab tab_… close
+```
+
+## Tab and screen groups
+
+Groups take their id or exact name.
+
+```bash
+cmux tab group create --tabs tab_…,tab_… --name agents --color green
+cmux tab group list --json
+cmux tab group agents update --collapse
+cmux tab group agents add --tabs tab_…
+cmux tab group remove --tabs tab_…
+cmux tab group agents move --pane pane_… --index 0
+cmux tab group agents save --room Work      # personal saved group
+cmux tab group saved list
+cmux tab group saved <saved> reopen --pane pane_…
+cmux tab group agents ungroup               # or close (closes its tabs)
+
+cmux screen screen_… pin
+cmux screen screen_… update --color blue --icon star
+cmux screen screen_… move --index 0
+cmux screen group create --screens screen_…,screen_… --name infra
+cmux screen group infra update --collapse
+```
+
+## Workspace status, progress and log
+
+```bash
+cmux workspace status set build "tests running"
+cmux workspace progress set 0.5 --label tests
+cmux workspace log append "done" --level success
+cmux workspace status list --json
+```
+
+Without a selector they target the caller's workspace. See the skill for more.
+
+## Closed history
+
+```bash
+cmux closed list --json
+cmux closed <closed_id> reopen
 ```
 
 ## Input and output
