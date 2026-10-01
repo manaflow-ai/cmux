@@ -60,6 +60,10 @@ struct CloudTreeNodeActions {
     var renameRemoteView: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView) -> Void = { _, _ in }
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
+    /// Share a discovered port using the same URL and workspace placement path
+    /// as the row's other actions. `inNewWorkspace` never changes selection in
+    /// the current workspace.
+    var sharePort: @MainActor (_ resource: SurfaceResource, _ url: String, _ inNewWorkspace: Bool) -> Void = { _, _, _ in }
     /// Copy the machine port's private URL without changing network state.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
@@ -512,6 +516,12 @@ struct CloudTreeNodeActions {
             },
             refresh: refresh
         )
+        actions.sharePort = { resource, url, inNewWorkspace in
+            Self.copyToPasteboard(url)
+            guard inNewWorkspace else { return }
+            let group = SurfaceResourceGroup(title: resource.title, resources: [resource.id])
+            actions.openGroupAsWorkspace(resource.machine, group, nil)
+        }
         actions.openWorkspace = { machine, workspace, group in
             let host = workspaceCreationHost() ?? selectedWorkspaceID()
                 .flatMap { Workspace.liveWorkspace(id: $0)?.owningTabManager }
