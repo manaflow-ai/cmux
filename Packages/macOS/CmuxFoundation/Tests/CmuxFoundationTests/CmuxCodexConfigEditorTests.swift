@@ -109,6 +109,28 @@ struct CmuxCodexConfigEditorTests {
         #expect(restored == original)
     }
 
+    @Test("A hash before a same-line basic-string close does not hide later TOML")
+    func multilineBasicStringCloseAfterHashStillParsesFollowingTable() {
+        let original = "instructions = \"\"\"\nbody # still text\n\"\"\"\n[features]\nhooks = false\n"
+
+        let installed = editor.installingHooks(in: original, trustEntries: [])
+        let restored = editor.uninstallingHooks(from: installed.content)
+
+        #expect(installed.content.contains("[features]\nhooks = true\n"))
+        #expect(restored == original)
+    }
+
+    @Test("A hash before a same-line literal-string close does not hide later TOML")
+    func multilineLiteralStringCloseAfterHashStillParsesFollowingTable() {
+        let original = "instructions = '''\nbody # still text\n'''\n[features]\nhooks = false\n"
+
+        let installed = editor.installingHooks(in: original, trustEntries: [])
+        let restored = editor.uninstallingHooks(from: installed.content)
+
+        #expect(installed.content.contains("[features]\nhooks = true\n"))
+        #expect(restored == original)
+    }
+
     private static func occurrences(of needle: String, in haystack: String) -> Int {
         haystack.components(separatedBy: needle).count - 1
     }

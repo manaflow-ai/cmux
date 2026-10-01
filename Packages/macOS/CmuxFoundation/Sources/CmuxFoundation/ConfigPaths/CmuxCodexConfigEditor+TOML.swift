@@ -37,6 +37,7 @@ extension CmuxCodexConfigEditor {
 
     private static let tomlMultilineContentPrefix = "\u{001F}"
 
+    /// Splits TOML into editable lines while masking multiline string bodies.
     func tomlLines(from content: String) -> [String] {
         var delimiter: String?
         return CmuxConfigLines().split(content).map { line in
@@ -46,6 +47,7 @@ extension CmuxCodexConfigEditor {
         }
     }
 
+    /// Reconstructs TOML lines and removes the internal multiline mask.
     func tomlContent(from lines: [String], lineEnding: CmuxConfigLines.LineEnding) -> String {
         let unmaskedLines = lines.map { line in
             line.hasPrefix(Self.tomlMultilineContentPrefix)
@@ -55,6 +57,7 @@ extension CmuxCodexConfigEditor {
         return CmuxConfigLines().joined(unmaskedLines, lineEnding: lineEnding)
     }
 
+    /// Tracks multiline basic and literal string delimiters across lines.
     private func tomlMultilineStringDelimiter(after line: String, startingIn delimiter: String?) -> String? {
         var index = line.startIndex
         var activeDelimiter = delimiter
@@ -100,6 +103,7 @@ extension CmuxCodexConfigEditor {
         return activeDelimiter
     }
 
+    /// Finds a TOML comment outside a quoted string.
     private func tomlCommentStart(in line: String) -> String.Index? {
         var quote: Character?
         var escaped = false
@@ -128,6 +132,7 @@ extension CmuxCodexConfigEditor {
         return nil
     }
 
+    /// Reports whether a quote is preceded by an odd run of backslashes.
     private func isEscaped(in line: String, at index: String.Index) -> Bool {
         var backslashes = 0
         var cursor = index
