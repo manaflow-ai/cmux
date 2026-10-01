@@ -22,6 +22,8 @@ public enum CmxWebRTCByteTransportError: Error, Equatable, Sendable {
     case receiveFailed(String)
     /// A native WebRTC operation returned an error.
     case operationFailed(String)
+    /// The authenticated ICE server provider returned no usable servers.
+    case iceServersUnavailable
     /// The peer sent an unexpected signaling message.
     case unexpectedSignal
 }
@@ -143,6 +145,7 @@ public actor CmxWebRTCByteTransport: CmxByteTransport {
     private let clientHost: String?
     private let clientPort: Int?
     private let signalingToken: String?
+    private let iceServersProvider: CmxWebRTCIceServersProvider?
     private var signaling: CmxWebRTCSignalingConnection?
     private var state: State = .idle
     private var factory: RTCPeerConnectionFactory?
@@ -168,7 +171,8 @@ public actor CmxWebRTCByteTransport: CmxByteTransport {
         clientHost host: String,
         clientPort port: Int,
         token: String,
-        configuration: CmxWebRTCConfiguration
+        configuration: CmxWebRTCConfiguration,
+        iceServersProvider: CmxWebRTCIceServersProvider? = nil
     ) throws {
         guard !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               (1...65535).contains(port),
@@ -179,6 +183,7 @@ public actor CmxWebRTCByteTransport: CmxByteTransport {
         self.clientHost = host
         self.clientPort = port
         self.signalingToken = token
+        self.iceServersProvider = iceServersProvider
     }
 
     /// Creates a host-side transport around an already-authenticated signaling socket.
@@ -188,12 +193,14 @@ public actor CmxWebRTCByteTransport: CmxByteTransport {
     ///   - configuration: ICE and timeout configuration.
     init(
         hostSignaling signaling: CmxWebRTCSignalingConnection,
-        configuration: CmxWebRTCConfiguration
+        configuration: CmxWebRTCConfiguration,
+        iceServersProvider: CmxWebRTCIceServersProvider? = nil
     ) {
         self.configuration = configuration
         clientHost = nil
         clientPort = nil
         signalingToken = nil
+        self.iceServersProvider = iceServersProvider
         self.signaling = signaling
     }
 
@@ -225,7 +232,7 @@ public actor CmxWebRTCByteTransport: CmxByteTransport {
             )
             guard let signaling else { throw CmxWebRTCByteTransportError.invalidRoute }
             try await signaling.send(.hello(token: signalingToken))
-            try createPeerConnection()
+            try await createPeerConnection()
             startSignalReader()
             guard let peerConnection else {
                 throw CmxWebRTCByteTransportError.peerConnectionUnavailable
@@ -244,7 +251,7 @@ public actor CmxWebRTCByteTransport: CmxByteTransport {
             try await setLocalDescription(offer)
             try await signaling.send(.offer(sdp: offer.value.sdp))
         } else {
-            try createPeerConnection()
+            try await createPeerConnection()
             startSignalReader()
         }
         try await waitUntilReady()
@@ -257,7 +264,7 @@ public actor CmxWebRTCByteTransport: CmxByteTransport {
         guard signaling != nil else { throw CmxWebRTCByteTransportError.invalidRoute }
         guard case .idle = state else { try await connect(); return }
         state = .negotiating
-        try createPeerConnection()
+        try await createPeerConnection()
         startSignalReader()
         try await waitUntilReady()
     }
@@ -333,12 +340,21 @@ public actor CmxWebRTCByteTransport: CmxByteTransport {
         signaling = nil
     }
 
-    private func createPeerConnection() throws {
+    private func createPeerConnection() async throws {
         guard peerConnection == nil else { return }
         _ = RTCInitializeSSL()
         let factory = RTCPeerConnectionFactory()
         let nativeConfiguration = RTCConfiguration()
-        nativeConfiguration.iceServers = configuration.iceServers.map { server in
+        let iceServers: [CmxWebRTCICEServer]
+        if let iceServersProvider {
+            iceServers = try await iceServersProvider()
+            guard !iceServers.isEmpty else {
+                throw CmxWebRTCByteTransportError.iceServersUnavailable
+            }
+        } else {
+            iceServers = configuration.iceServers
+        }
+        nativeConfiguration.iceServers = iceServers.map { server in
             if let username = server.username, let credential = server.credential {
                 return RTCIceServer(
                     urlStrings: server.urls,

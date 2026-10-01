@@ -92,11 +92,33 @@ struct cmuxApp: App {
         let fallbackRegistrations = supportedKinds.map { kind in
             CmxRouteTransportFactoryRegistration(kind: kind, factory: networkFactory)
         }
+        let webRTCIceServersProvider: CmxWebRTCIceServersProvider?
+        if webRTCExperimentEnabled,
+           let serviceBaseURL = PresenceClient.resolvedServiceBaseURL(
+               isDevelopmentAuthChannel: auth.authEnvironment == .development
+           ) {
+            let client = CmxWebRTCIceServerClient(
+                serviceBaseURL: serviceBaseURL,
+                tokenProvider: { [weak coordinator = auth.coordinator] in
+                    guard let coordinator else {
+                        throw CmxWebRTCIceServerClientError.notAuthenticated
+                    }
+                    return try await coordinator.currentTokens()
+                },
+                teamIDProvider: { [weak coordinator = auth.coordinator] in
+                    await coordinator?.resolvedTeamID
+                }
+            )
+            webRTCIceServersProvider = { try await client.fetch() }
+        } else {
+            webRTCIceServersProvider = nil
+        }
         let webRTCFactory = CmxWebRTCByteTransportFactory(
             configuration: CmxWebRTCConfiguration(
                 environment: ProcessInfo.processInfo.environment,
                 userDefaults: .standard
-            )
+            ),
+            iceServersProvider: webRTCIceServersProvider
         )
         let registrations = [
             CmxRouteTransportFactoryRegistration(

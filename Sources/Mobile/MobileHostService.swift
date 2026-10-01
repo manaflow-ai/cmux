@@ -1428,7 +1428,8 @@ final class MobileHostService {
         if webRTCExperimentHost == nil {
             let host = MobileWebRTCExperimentalHost(
                 defaults: defaults,
-                environment: environment
+            environment: environment,
+            iceServersProvider: webRTCIceServersProvider()
             )
             webRTCExperimentHost = host
             host.start()
@@ -1436,7 +1437,27 @@ final class MobileHostService {
             webRTCExperimentHost?.refreshRoutes()
         }
     }
-    #endif
+
+    private func webRTCIceServersProvider() -> CmxWebRTCIceServersProvider? {
+        guard let auth,
+              let serviceURL = PresenceHeartbeatClient.resolvedServiceURL()?.absoluteString else {
+            return nil
+        }
+        let client = CmxWebRTCIceServerClient(
+            serviceBaseURL: serviceURL,
+            tokenProvider: { [weak auth] in
+                guard let auth else {
+                    throw CmxWebRTCIceServerClientError.notAuthenticated
+                }
+                return try await auth.currentTokens()
+            },
+            teamIDProvider: { [weak auth] in
+                await auth?.resolvedTeamID
+            }
+        )
+        return { try await client.fetch() }
+    }
+#endif
 
     private func handleNetworkPathChange() {
         let runtime = pairingRuntime

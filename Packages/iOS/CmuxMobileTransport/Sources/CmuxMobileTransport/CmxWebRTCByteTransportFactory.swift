@@ -7,12 +7,18 @@ public struct CmxWebRTCByteTransportFactory: CmxRouteAwareByteTransportFactory {
     public let supportedKinds: [CmxAttachTransportKind] = [.webrtc]
     /// ICE and timeout settings used by created transports.
     public let configuration: CmxWebRTCConfiguration
+    /// Optional authenticated provider for short-lived ICE credentials.
+    public let iceServersProvider: CmxWebRTCIceServersProvider?
 
     /// Creates a WebRTC transport factory.
     ///
     /// - Parameter configuration: ICE servers and deadlines for new peers.
-    public init(configuration: CmxWebRTCConfiguration = CmxWebRTCConfiguration()) {
+    public init(
+        configuration: CmxWebRTCConfiguration = CmxWebRTCConfiguration(),
+        iceServersProvider: CmxWebRTCIceServersProvider? = nil
+    ) {
         self.configuration = configuration
+        self.iceServersProvider = iceServersProvider
     }
 
     /// Builds a client transport from a route without extra request context.
@@ -62,7 +68,8 @@ public struct CmxWebRTCByteTransportFactory: CmxRouteAwareByteTransportFactory {
             clientHost: host,
             clientPort: port,
             token: token,
-            configuration: configuration
+            configuration: configuration,
+            iceServersProvider: iceServersProvider
         )
     }
 }

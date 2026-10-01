@@ -14,10 +14,16 @@ final class MobileWebRTCExperimentalHost {
     private let defaults: UserDefaults
     private let routeResolver = MobileRouteResolver()
     private let configuration: CmxWebRTCConfiguration
+    private let iceServersProvider: CmxWebRTCIceServersProvider?
     private var server: CmxWebRTCSignalingServer?
 
-    init(defaults: UserDefaults = .standard, environment: [String: String]) {
+    init(
+        defaults: UserDefaults = .standard,
+        environment: [String: String],
+        iceServersProvider: CmxWebRTCIceServersProvider? = nil
+    ) {
         self.defaults = defaults
+        self.iceServersProvider = iceServersProvider
         configuration = CmxWebRTCConfiguration(
             environment: environment,
             userDefaults: defaults
@@ -28,7 +34,8 @@ final class MobileWebRTCExperimentalHost {
         guard server == nil else { return }
         let nextServer = CmxWebRTCSignalingServer(
             preferredPort: MobileHostService.configuredPort(defaults: defaults),
-            configuration: configuration
+            configuration: configuration,
+            iceServersProvider: iceServersProvider
         ) { transport in
             await MobileHostService.acceptTransport(
                 transport,

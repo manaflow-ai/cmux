@@ -1,5 +1,10 @@
 public import Foundation
 
+/// Fetches the short-lived ICE server set immediately before a peer connection
+/// is created. The provider is shared by the Mac host and iOS client so TURN
+/// credentials never need to be placed in app defaults or environment files.
+public typealias CmxWebRTCIceServersProvider = @Sendable () async throws -> [CmxWebRTCICEServer]
+
 /// A serializable ICE server entry used to configure an experimental WebRTC
 /// data channel without exposing native WebRTC objects to the app target.
 public struct CmxWebRTCICEServer: Codable, Equatable, Sendable {

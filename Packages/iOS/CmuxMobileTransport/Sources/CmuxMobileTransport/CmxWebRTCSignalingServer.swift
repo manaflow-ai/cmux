@@ -8,6 +8,7 @@ public actor CmxWebRTCSignalingServer {
 
     private let preferredPort: Int
     private let configuration: CmxWebRTCConfiguration
+    private let iceServersProvider: CmxWebRTCIceServersProvider?
     private let token: String
     private let transportHandler: TransportHandler
     private let callbackQueue: DispatchQueue
@@ -25,10 +26,12 @@ public actor CmxWebRTCSignalingServer {
     public init(
         preferredPort: Int,
         configuration: CmxWebRTCConfiguration,
+        iceServersProvider: CmxWebRTCIceServersProvider? = nil,
         transportHandler: @escaping TransportHandler
     ) {
         self.preferredPort = (1...65535).contains(preferredPort) ? preferredPort : 0
         self.configuration = configuration
+        self.iceServersProvider = iceServersProvider
         token = UUID().uuidString
         self.transportHandler = transportHandler
         callbackQueue = DispatchQueue(
@@ -145,7 +148,8 @@ public actor CmxWebRTCSignalingServer {
             }
             let transport = CmxWebRTCByteTransport(
                 hostSignaling: signaling,
-                configuration: configuration
+                configuration: configuration,
+                iceServersProvider: iceServersProvider
             )
             let id = UUID()
             activeTransports[id] = transport

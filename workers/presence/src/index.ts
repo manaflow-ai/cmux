@@ -10,6 +10,7 @@
 //   POST /v1/connectivity/invalidate      publish one account route revision
 //   GET  /v1/control/socket               account control-plane WebSocket:
 //                                         revisioned directory/hint/pass facts
+//   GET  /v1/webrtc/ice-servers            authenticated temporary STUN/TURN set
 //   POST /v1/control/devices/revoke       flip one device's revoked flag
 //                                         ({endpointId, revoked}); the DO
 //                                         broadcasts, closes that device's
@@ -112,6 +113,20 @@ const worker = {
 
     if (url.pathname === "/v1/workspace-presence") {
       return workspacePresenceRoute(request, env);
+    }
+
+    if (url.pathname === "/v1/webrtc/ice-servers") {
+      if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
+      // The account DO receives only this verified account id. It never trusts
+      // a caller-supplied account header and never receives the Stack bearer.
+      const user = await verifyRequest(request, env, { fresh: true });
+      if (!user) return unauthorized();
+      const headers = new Headers();
+      headers.set("x-control-account-id", user.id);
+      const stub = env.ACCOUNT_CONTROL_PLANE.get(
+        env.ACCOUNT_CONTROL_PLANE.idFromName(`control:user:${user.id}`),
+      );
+      return stub.fetch(new Request(request.url, { method: "GET", headers }));
     }
 
     if (url.pathname === "/v1/connectivity/subscribe") {

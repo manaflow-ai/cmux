@@ -19,7 +19,10 @@ set -euo pipefail
 # Required Stack config is read from the shell environment first, then from
 # .dev.vars: STACK_PROJECT_ID, STACK_PUBLISHABLE_CLIENT_KEY, and
 # CONNECTIVITY_INVALIDATION_SECRET. STACK_API_URL is optional and defaults in
-# code to https://api.stack-auth.com.
+# code to https://api.stack-auth.com. The TURN key id and key secret
+# are resolved from the shell/.dev.vars first, then from the standard private
+# Cloudflare config files. They are uploaded as Worker secrets and never enter
+# the app bundle.
 #
 # Do NOT deploy the shared `cmux-presence-dev` from a feature branch: that single
 # instance is the integration baseline, and `wrangler deploy --name cmux-presence`
@@ -44,6 +47,25 @@ read_dev_value() {
     return
   fi
   value="${line#*=}"
+  value="${value%\"}"
+  value="${value#\"}"
+  value="${value%\'}"
+  value="${value#\'}"
+  printf '%s' "$value"
+}
+
+read_private_env_value() {
+  local key="$1"
+  local file="${2:-${CLOUDFLARE_ENV_FILE:-$HOME/.config/manaflow/cloudflare.env}}"
+  if [ ! -f "$file" ]; then
+    return
+  fi
+  local line
+  line="$(grep -E "^${key}=" "$file" | tail -1 || true)"
+  if [ -z "$line" ]; then
+    return
+  fi
+  local value="${line#*=}"
   value="${value%\"}"
   value="${value#\"}"
   value="${value%\'}"
@@ -77,19 +99,72 @@ stack_project_id="$(read_dev_value STACK_PROJECT_ID)"
 stack_client_key="$(read_dev_value STACK_PUBLISHABLE_CLIENT_KEY)"
 stack_api_url="$(read_dev_value STACK_API_URL)"
 connectivity_invalidation_secret="$(read_dev_value CONNECTIVITY_INVALIDATION_SECRET)"
+turn_key_id="$(read_dev_value CLOUDFLARE_TURN_KEY_ID)"
+turn_key_secret="$(read_dev_value CLOUDFLARE_TURN_KEY_SECRET)"
+
+# Reuse the private dev Stack config used by the web and mobile launchers when
+# the caller has not supplied a .dev.vars file. Only the two publishable values
+# are read; the server key is never needed by this Worker.
+stack_env_file="${CMUX_STACK_ENV_FILE:-$HOME/.secrets/cmux.env}"
+if [ -z "$stack_project_id" ]; then
+  stack_project_id="$(read_private_env_value NEXT_PUBLIC_STACK_PROJECT_ID "$stack_env_file")"
+fi
+if [ -z "$stack_client_key" ]; then
+  stack_client_key="$(read_private_env_value NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY "$stack_env_file")"
+fi
+if [ -z "$connectivity_invalidation_secret" ]; then
+  connectivity_invalidation_secret="$(read_private_env_value CMUX_CONNECTIVITY_INVALIDATION_SECRET "$stack_env_file")"
+fi
+if [ -z "$connectivity_invalidation_secret" ]; then
+  connectivity_invalidation_secret="$(openssl rand -hex 32)"
+fi
+
+# The local TURN key file is provisioned by the Cloudflare account setup. Its
+# uid and secret are used only to provision the encrypted Worker secrets. The
+# account API token is used only for this deploy; it is never sent to the TURN
+# credential endpoint.
+turn_key_file="${CLOUDFLARE_TURN_KEY_FILE:-$HOME/.config/cmux/webrtc/wrtca-turn-key.json}"
+if [ -z "$turn_key_id" ] && [ -f "$turn_key_file" ]; then
+  turn_key_id="$(jq -er '.uid // empty' "$turn_key_file" 2>/dev/null || true)"
+fi
+if [ -z "$turn_key_secret" ] && [ -f "$turn_key_file" ]; then
+  turn_key_secret="$(jq -er '.secret // empty' "$turn_key_file" 2>/dev/null || true)"
+fi
+
+# Allow a fresh checkout to deploy without exporting the Cloudflare CLI
+# credentials in the interactive shell. The values remain process-local and
+# are never printed.
+if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+  cloudflare_api_token="$(read_private_env_value CLOUDFLARE_API_TOKEN)"
+  if [ -n "$cloudflare_api_token" ]; then
+    export CLOUDFLARE_API_TOKEN="$cloudflare_api_token"
+  fi
+fi
+if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+  cloudflare_account_id="$(read_private_env_value CLOUDFLARE_ACCOUNT_ID)"
+  if [ -n "$cloudflare_account_id" ]; then
+    export CLOUDFLARE_ACCOUNT_ID="$cloudflare_account_id"
+  fi
+fi
 
 if [ -z "$stack_project_id" ] || [ -z "$stack_client_key" ] \
-  || [ "${#connectivity_invalidation_secret}" -lt 32 ]; then
+  || [ "${#connectivity_invalidation_secret}" -lt 32 ] \
+  || [ -z "$turn_key_id" ] || [ -z "$turn_key_secret" ]; then
   cat >&2 <<'EOF'
-error: missing Stack Auth config for the isolated worker.
+error: missing isolated-worker configuration.
 
 Set these in your shell or workers/presence/.dev.vars before deploying:
   STACK_PROJECT_ID=...
   STACK_PUBLISHABLE_CLIENT_KEY=...
-  CONNECTIVITY_INVALIDATION_SECRET=... # at least 32 random characters
+  CONNECTIVITY_INVALIDATION_SECRET=... # optional; generated when omitted
 
-Without these Worker secrets, authenticated /v1 presence and paired-Mac backup
-routes or backend-only connectivity publication fail closed.
+TURN is resolved automatically from:
+  $HOME/.config/cmux/webrtc/wrtca-turn-key.json (key uid)
+  $HOME/.config/manaflow/cloudflare.env (CLOUDFLARE_API_TOKEN)
+or from CLOUDFLARE_TURN_KEY_ID / CLOUDFLARE_TURN_KEY_SECRET.
+
+Without the Stack values or TURN values, authenticated /v1 presence and the
+WebRTC credential route fail closed.
 EOF
   exit 1
 fi
@@ -108,6 +183,8 @@ echo "→ Provisioning Stack Auth secrets on ${name}"
 put_worker_secret STACK_PROJECT_ID "$stack_project_id"
 put_worker_secret STACK_PUBLISHABLE_CLIENT_KEY "$stack_client_key"
 put_worker_secret CONNECTIVITY_INVALIDATION_SECRET "$connectivity_invalidation_secret"
+put_worker_secret CLOUDFLARE_TURN_KEY_ID "$turn_key_id"
+put_worker_secret CLOUDFLARE_TURN_KEY_SECRET "$turn_key_secret"
 if [ -n "$stack_api_url" ]; then
   put_worker_secret STACK_API_URL "$stack_api_url"
 fi
