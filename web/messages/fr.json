@@ -426,8 +426,7 @@
         "memberReadOnly": "Seuls les admins de l’équipe peuvent modifier ce forfait.",
         "grantedBody": "L’accès Team a été accordé à {team} par l’équipe cmux. Il n’y a aucun abonnement à gérer.",
         "seatsUsed": "{members} sur {seats} utilisés",
-        "overSeat": "{team} compte {members} membres pour {seats} sièges payés. Il est toujours possible de rejoindre l’équipe ; ajoutez des sièges pour couvrir tout le monde.",
-        "addSeats": "Ajouter des sièges"
+        "overSeat": "{team} compte {members} membres pour {seats} sièges payés. Les sièges suivent le nombre de membres ; l’abonnement se met à jour tout seul."
       },
       "teamList": {
         "heading": "Périmètres de facturation",
@@ -942,7 +941,7 @@
         "featurePrioritySupport": "Assistance prioritaire",
         "chooseFree": "Continuer avec le forfait gratuit",
         "chooseTeam": "Passer à Team ({price} $/siège/mois)",
-        "upgradeLater": "Les sièges sont flexibles : vous pouvez inviter plus de personnes que vous n’en payez et ajouter des sièges plus tard.",
+        "upgradeLater": "Les sièges suivent le nombre de membres : chaque membre est facturé et le total change lorsque quelqu’un rejoint ou quitte l’équipe.",
         "inviteTitle": "Inviter des personnes dans {team}",
         "inviteDescription": "Facultatif. Vous pouvez aussi inviter des personnes plus tard depuis la page Membres de l’équipe.",
         "inviteByEmail": "Inviter par e-mail",
@@ -1059,8 +1058,6 @@
         "revoke": "Révoquer",
         "linksTitle": "Liens d’invitation",
         "linksDescription": "Un lien réutilisable que n’importe qui peut utiliser pour rejoindre l’équipe en tant que membre.",
-        "seatNudge": "{used} personnes sont membres ou invitées, mais le forfait compte {seats} sièges. Les invitations fonctionnent toujours ; ajoutez {over, plural, one {# siège} other {# sièges}} pour couvrir tout le monde.",
-        "seatNudgeAction": "Gérer les sièges",
         "actions": {
           "makeAdmin": "Promouvoir admin",
           "makeMember": "Rétrograder en membre",
@@ -2032,8 +2029,10 @@
         "automation": {
           "ampIntegration": "Active ou désactive les hooks cmux pour Amp. Une fois désactivés, le plugin fourni reste installé mais inactif.",
           "suppressSubagentNotifications": "Masque les notifications visibles de fin et les changements d’état des agents enfants Codex ou Claude imbriqués, tout en conservant leurs événements dans la télémétrie Feed.",
+          "agentAutoResume": "Envoie `continue`, avec un délai progressif, à un agent lancé par cmux dont le tour s’est terminé sur une erreur amont réessayable (modèle saturé, surchargé ou connexion perdue). Les tours en attente d’une personne ne sont jamais relancés.",
           "workspaceAutoNaming": "Nommage automatique optionnel des espaces de travail et des onglets par IA à partir du contenu des conversations de l'agent. Lorsqu'il est activé, cmux résume les sessions d'agents pris en charge en titres courts à l'aide du binaire propre à chaque agent ; les renommages manuels priment toujours.",
-          "autoNamingAgent": "Quel agent génère les noms automatiques pour chaque session. « auto » (par défaut) nomme chaque session avec son propre agent ; n'importe quel identifiant d'agent (claude, codex, grok, opencode, pi, omp, …) remplace le nommage pour toutes les sessions, même celles d'autres agents. Les agents non pilotables ou non installés se rabattent sur l'agent propre à la session, de sorte que le nommage n'échoue jamais."
+          "autoNamingAgent": "Quel agent génère les noms automatiques pour chaque session. « auto » (par défaut) nomme chaque session avec son propre agent ; n'importe quel identifiant d'agent (claude, codex, grok, opencode, pi, omp, …) remplace le nommage pour toutes les sessions, même celles d'autres agents. Les agents non pilotables ou non installés se rabattent sur l'agent propre à la session, de sorte que le nommage n'échoue jamais.",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "Contrôle quand cmux demande confirmation avant de quitter. Les builds DEV quittent toujours immédiatement, quel que soit ce réglage. L'ancien app.warnBeforeQuit reste accepté comme fallback booléen.",
@@ -2084,7 +2083,12 @@
           "compactAgentStatus": "Afficher chaque espace de travail sur une seule ligne : une icône colorée avant le titre indique l’état de l’agent, des éléments non lus et de la pull request, et remplace les lignes de statut des agents (par exemple En cours ou Saisie requise), la ligne de branche et de dossier et les lignes de pull request, dont les détails passent dans l’infobulle de l’icône. Les autres entrées de statut gardent leurs lignes.",
           "compactStatusIcons": "Noms de SF Symbols qui remplacent le glyphe compactAgentStatus pour chaque état, par exemple {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Les états non définis gardent le symbole intégré, et un nom qui ne s’affiche pas revient à celui-ci.",
           "notificationMessageLineLimit": "Nombre maximal de lignes affichées pour la notification la plus récente sous le titre de chaque espace de travail.",
-          "rightMaxWidth": "Largeur maximale en points de la barre latérale droite. Si elle est omise, la limite dynamique intégrée s’applique."
+          "rightMaxWidth": "Largeur maximale en points de la barre latérale droite. Si elle est omise, la limite dynamique intégrée s’applique.",
+          "beta": {
+            "conversations": {
+              "enabled": "Afficher la vue unifiée des conversations dans le sélecteur de la barre latérale."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Paramètres de l’explorateur de fichiers (arborescence) dans la barre latérale droite.",
@@ -2292,7 +2296,8 @@
         "wn-reload": "Recharger la configuration",
         "wn-quit": "Quitter"
       },
-      "metaTitle": "Raccourcis clavier"
+      "metaTitle": "Raccourcis clavier",
+      "fileEditorWordWrap": "Activer ou désactiver le retour à la ligne de l’éditeur de fichiers (Option+Z)."
     },
     "api": {
       "title": "Référence CLI",
@@ -2732,7 +2737,8 @@
       "maxLinesSetting": "TextBox Max Lines limite la hauteur de TextBox avant que son contenu ne défile.",
       "configTitle": "cmux.json",
       "configDesc": "Définissez les mêmes valeurs par défaut dans ~/.config/cmux/cmux.json sous terminal :",
-      "focusNote": "Les sessions restaurées conservent leur visibilité TextBox et leur état de focus enregistrés. Ces valeurs par défaut ne s'appliquent qu'aux nouvelles surfaces de terminal."
+      "focusNote": "Les sessions restaurées conservent leur visibilité TextBox et leur état de focus enregistrés. Ces valeurs par défaut ne s'appliquent qu'aux nouvelles surfaces de terminal.",
+      "betaCallout": "TextBox est une fonctionnalité bêta. Ses valeurs par défaut et son comportement peuvent changer pendant les tests."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode : OpenCode multi-agent dans cmux",

@@ -1038,7 +1038,6 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                 };
                 if Instant::now() >= retry_deadline {
                     stop_writer_after_retry_deadline(
-                        &mux,
                         &receivers,
                         &batch,
                         pending,
@@ -1073,7 +1072,6 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                         let remaining = retry_deadline.saturating_duration_since(Instant::now());
                         if remaining.is_zero() {
                             stop_writer_after_retry_deadline(
-                                &mux,
                                 &receivers,
                                 &batch,
                                 pending,
@@ -1107,7 +1105,11 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             let failure = receivers.state.fail(format!(
                                 "session journal writer failed permanently: {summary}"
                             ));
-                            mux.request_daemon_shutdown();
+                            // A terminal journal failure must not strand the
+                            // live terminal hosts. Mark journaling failed,
+                            // fail pending receipts, and keep the daemon
+                            // available so callers can reconnect or export
+                            // their session before the next restart.
                             #[cfg(test)]
                             receivers.state.notify_failure_for_test(&failure);
                             complete_batch_error(&batch, failure.clone());
@@ -1173,7 +1175,6 @@ fn admit_batch_commit(
 }
 
 fn stop_writer_after_retry_deadline(
-    mux: &Mux,
     receivers: &JournalIngressReceivers,
     batch: &[QueuedJournalEvent],
     pending: VecDeque<Vec<QueuedJournalEvent>>,
@@ -1185,7 +1186,9 @@ fn stop_writer_after_retry_deadline(
         "session journal writer timed out after {} ms: {detail}",
         JOURNAL_DURABLE_WAIT.as_millis()
     ));
-    mux.request_daemon_shutdown();
+    // Journal persistence is a recoverability aid, not a reason to tear down
+    // every live terminal host. The failed state rejects later journal writes
+    // while the daemon remains available for the user to recover the session.
     #[cfg(test)]
     receivers.state.notify_failure_for_test(&failure);
     complete_batch_error(batch, failure.clone());
@@ -1664,7 +1667,7 @@ mod tests {
         );
         assert!(
             mux.daemon_shutdown_requested(),
-            "a journal lock beyond the fixed deadline must stop the daemon"
+            "explicit shutdown must request daemon shutdown even when journal flush times out"
         );
         blocker.execute_batch("ROLLBACK;").unwrap();
         assert!(
@@ -1725,8 +1728,8 @@ mod tests {
         );
         failed_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(
-            mux.daemon_shutdown_requested(),
-            "a producer database lock beyond the deadline must stop the daemon"
+            !mux.daemon_shutdown_requested(),
+            "a producer database lock must not stop live terminal hosts"
         );
         blocker.execute_batch("ROLLBACK;").unwrap();
         drop(blocker);
@@ -1781,7 +1784,7 @@ mod tests {
             "registry mutex admission must not outlive the producer deadline"
         );
         failed_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert!(mux.daemon_shutdown_requested());
+        assert!(!mux.daemon_shutdown_requested());
         release.send(()).unwrap();
         blocker.join().unwrap();
         let records = mux.session_journal_after(0, 1024).unwrap().records;
@@ -1847,7 +1850,7 @@ mod tests {
         release.send(()).unwrap();
         producer.join().unwrap();
         failed_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert!(mux.daemon_shutdown_requested());
+        assert!(!mux.daemon_shutdown_requested());
         let records = mux.session_journal_after(0, 1024).unwrap().records;
         assert!(
             records
@@ -2467,8 +2470,8 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(3));
         assert!(error.to_string().contains("injected permanent terminal journal failure"));
         assert!(
-            mux.daemon_shutdown_requested(),
-            "a permanent output gap must stop the daemon instead of continuing silently"
+            !mux.daemon_shutdown_requested(),
+            "a permanent output gap must not stop live terminal hosts"
         );
         assert!(
             mux.try_journal_terminal_output(

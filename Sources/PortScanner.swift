@@ -6,9 +6,9 @@ import Foundation
 /// Batched port scanner that replaces per-shell `ps + lsof` scanning.
 ///
 /// Each shell sends a lightweight `report_tty` + `ports_kick` over the socket.
-/// PortScanner coalesces kicks across all panels, then runs a single
-/// `ps -t <ttys>` plus a kernel lookup of each PID's listening sockets covering
-/// every panel that needs scanning.
+/// PortScanner coalesces kicks across all panels, then reads the processes on
+/// every panel's terminal and each PID's listening sockets straight from the
+/// kernel in one pass. A scan spawns no subprocesses.
 ///
 /// Kick → coalesce → burst flow:
 /// 1. `kick()` adds panel to `pendingKicks` set
@@ -20,7 +20,7 @@ import Foundation
 final class PortScanner: @unchecked Sendable {
     static let shared = PortScanner()
 
-    let commandRunner: any CommandRunning
+    let processTable: any PortProcessTableReading
 
     /// Callback delivers `(workspaceId, panelId, ports)` on the main actor.
     @MainActor var onPortsUpdated: (@MainActor (_ workspaceId: UUID, _ panelId: UUID, _ ports: [Int]) -> Void)?
@@ -97,7 +97,7 @@ final class PortScanner: @unchecked Sendable {
     // MARK: - Public API
 
     init(
-        commandRunner: any CommandRunning = CommandRunner(),
+        processTable: any PortProcessTableReading = KernelPortProcessTable(),
         processIdentityProvider: @escaping @Sendable (pid_t) -> AgentPIDProcessIdentity? = {
             AgentPIDProcessIdentity(pid: $0)
         },
@@ -113,7 +113,7 @@ final class PortScanner: @unchecked Sendable {
         burstOffsets: [TimeInterval] = PortScanner.defaultBurstOffsets,
         coalesceDelay: TimeInterval = PortScanner.defaultCoalesceDelay
     ) {
-        self.commandRunner = commandRunner
+        self.processTable = processTable
         self.burstOffsets = burstOffsets
         self.coalesceDelay = coalesceDelay
         self.processIdentityProvider = processIdentityProvider
@@ -438,15 +438,15 @@ final class PortScanner: @unchecked Sendable {
         let uniqueTTYs = Set(panelSnapshot.values)
         let ttyList = uniqueTTYs.joined(separator: ",")
 
-        // 1. ps -t tty1,tty2,... -o pid=,tty=
+        // 1. Processes on each panel's terminal, read from the kernel.
         async let agentProcessScanTask = expandAgentProcessTree(
             agentRootsByWorkspace: agentRootsByWorkspace
         )
-        let psScan = ttyList.isEmpty
+        let terminalProcessScan = ttyList.isEmpty
             ? (values: [Int: String](), completeness: PortScanCompleteness.complete)
-            : await runPS(ttyList: ttyList)
+            : await readTerminalProcesses(ttyList: ttyList)
         let agentProcessScan = await agentProcessScanTask
-        let pidToTTY = psScan.values
+        let pidToTTY = terminalProcessScan.values
         let capturedPanelPIDs = capturePIDIdentities(Set(pidToTTY.keys))
         let capturedAgentPIDs = captureAgentPIDIdentities(
             ownershipByPID: agentProcessScan.values,
@@ -475,7 +475,7 @@ final class PortScanner: @unchecked Sendable {
             let panelCompletenessByKey = Self.panelCompletenessByKey(
                 panelTTYs: panelSnapshot,
                 pidToTTY: pidToTTY,
-                psCompleteness: psScan.completeness,
+                psCompleteness: terminalProcessScan.completeness,
                 lsofScan: panelLsofEvidence
             )
             queue.async { [weak self] in
@@ -504,7 +504,7 @@ final class PortScanner: @unchecked Sendable {
             return
         }
 
-        // 2. lsof -nP -a -p <all_pids> -iTCP -sTCP:LISTEN -F pn
+        // 2. Listening TCP sockets for every PID, read from the kernel.
         let pidsCsv = allPids.sorted().map(String.init).joined(separator: ",")
         let lsofScan = scanListeningPorts(pidsCsv: pidsCsv)
         let pidToPorts = lsofScan.values
@@ -516,7 +516,7 @@ final class PortScanner: @unchecked Sendable {
         )
         let refreshedPanelProcessScan = capturedPanelPIDs.identitiesByPID.isEmpty
             ? (values: [Int: String](), completeness: PortScanCompleteness.complete)
-            : await runPS(ttyList: ttyList)
+            : await readTerminalProcesses(ttyList: ttyList)
         let revalidatedPanelPIDs = revalidatePanelPIDOwnership(
             capturedPIDToTTY: pidToTTY,
             capturedIdentitiesByPID: capturedPanelPIDs.identitiesByPID,
@@ -611,7 +611,7 @@ final class PortScanner: @unchecked Sendable {
             panelTTYs: panelSnapshot,
             pidToTTY: pidToTTY,
             psCompleteness: Self.combinedCompleteness(
-                psScan.completeness,
+                terminalProcessScan.completeness,
                 refreshedPanelProcessScan.completeness
             ),
             lsofScan: panelProcessScopeEvidence
@@ -620,7 +620,7 @@ final class PortScanner: @unchecked Sendable {
             panelTTYs: panelSnapshot,
             pidToTTY: pidToTTY,
             psCompleteness: Self.combinedCompleteness(
-                psScan.completeness,
+                terminalProcessScan.completeness,
                 refreshedPanelProcessScan.completeness
             ),
             lsofScan: panelLsofEvidence

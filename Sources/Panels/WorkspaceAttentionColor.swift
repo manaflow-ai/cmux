@@ -8,7 +8,7 @@ import SwiftUI
 /// value validates one immutable snapshot before it reaches a renderer, so
 /// AppKit layers and SwiftUI canvases never read ambient defaults or parse the
 /// setting in their drawing loops.
-struct WorkspaceAttentionColor: Equatable, Sendable {
+struct WorkspaceAttentionColor: Hashable, Sendable {
     private let rgb: UInt32?
     /// The resolved cmux accent used when no valid color is configured.
     private let accent: CmuxAccentColor
