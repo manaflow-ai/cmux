@@ -150,6 +150,29 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         #expect(decoded.macDeviceID == deviceID)
     }
 
+    @Test func webRTCPairingTicketUsesThePublishedV2InstallationIdentity() throws {
+        let deviceID = "123e4567-e89b-42d3-a456-426614174099"
+        let route = try webRTCRoute()
+        let previousDeviceID = MobileHostPublicStatusCache.currentV2DeviceID()
+        let previousRoutes = MobileHostPublicStatusCache.snapshot()
+        defer {
+            MobileHostPublicStatusCache.updateV2DeviceID(previousDeviceID)
+            MobileHostPublicStatusCache.update(routes: previousRoutes.filter { $0.kind != .webrtc })
+        }
+
+        MobileHostPublicStatusCache.update(routes: [route])
+        MobileHostPublicStatusCache.updateV2DeviceID(deviceID)
+        let subject = try MobileHostService.attachTicketSubject(
+            publishedStatus: MobileHostPublicStatusCache.publishedStatus(),
+            routeID: nil,
+            routeKind: nil,
+            target: .simulatorInjection
+        )
+
+        #expect(subject.routes == [route])
+        #expect(subject.deviceID == deviceID)
+    }
+
     @Test func attachTargetsPreferSanitizedIrohThenUseDestinationFallbacks() throws {
         let loopback = try loopbackRoute()
         let tailscale = try tailscaleRoute()
