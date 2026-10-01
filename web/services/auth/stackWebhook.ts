@@ -172,10 +172,23 @@ async function recordBestEffort(
   }
 }
 
+/**
+ * A log-safe error: name, Postgres code, and the first line of the message
+ * with any bound parameters cut off (Drizzle appends `params: ...`, which can
+ * hold emails). HexclaveApiError details carry only status, known-error code
+ * and value-free validation paths.
+ */
 function errorSummary(error: unknown): Record<string, unknown> {
-  if (!(error instanceof Error)) return { value: String(error).slice(0, 200) };
+  if (!(error instanceof Error)) return { type: typeof error };
   const details = (error as { details?: unknown }).details;
-  return { name: error.name, message: error.message.slice(0, 500), ...(details ? { details } : {}) };
+  const code = (error as { code?: unknown }).code;
+  const message = (error.message.split("\n")[0] ?? "").split(/params:/i)[0]!.slice(0, 300);
+  return {
+    name: error.name,
+    message,
+    ...(typeof code === "string" ? { code } : {}),
+    ...(details ? { details } : {}),
+  };
 }
 
 function json(status: number, body: Record<string, unknown>): Response {

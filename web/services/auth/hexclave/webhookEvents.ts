@@ -91,9 +91,18 @@ export async function validateHexclave<S extends ISchema<unknown>>(
   try {
     return { ok: true, value: (await schema.validate(value, HEXCLAVE_VALIDATE_OPTIONS)) as InferType<S> };
   } catch (error) {
-    if (error instanceof ValidationError) return { ok: false, errors: error.errors.slice(0, 20) };
+    if (error instanceof ValidationError) return { ok: false, errors: validationErrorPaths(error) };
     throw error;
   }
+}
+
+/**
+ * `path: rule` for each failure, never yup's message: messages can interpolate
+ * the rejected value (an email, a metadata blob), and these strings are logged.
+ */
+function validationErrorPaths(error: ValidationError): readonly string[] {
+  const failures = error.inner.length > 0 ? error.inner : [error];
+  return failures.slice(0, 20).map((failure) => `${failure.path || "(root)"}: ${failure.type ?? "invalid"}`);
 }
 
 export type ParsedHexclaveWebhook =

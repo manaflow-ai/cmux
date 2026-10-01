@@ -55,7 +55,9 @@ describe("Hexclave webhook validation", () => {
       if (parsed.kind !== "event") return;
       expect(parsed.event.type).toBe(type);
       expect(parsed.event.data).toEqual(validWebhookData[type] as never);
-      expect(subjectOf(parsed.event)).toBeString();
+      const data = validWebhookData[type] as { id?: string; user_id?: string };
+      const expected = type.startsWith("user.") || type.startsWith("team.") ? data.id : data.user_id;
+      expect(subjectOf(parsed.event)).toBe(expected!);
     });
   }
 
