@@ -33,8 +33,14 @@ struct CloudDesktopOpenActionTests {
             #expect(fixture.provider.destinations == [.workspace(id: fixture.owner.id, placement: .split)])
 
             // Exercise the actual workspace drop action, including commit and focus.
-            try await fixture.drop(row, into: fixture.owner)
-            #expect(fixture.catalog.projections(of: fixture.display.id).count == 2)
+            // The Desktop is already open here, so the drop focuses that view
+            // instead of opening a second one.
+            let opened = try #require(clicked.first?.panelID)
+            let neighbor = try #require(fixture.owner.panels.keys.first { $0 != opened })
+            fixture.owner.focusPanel(neighbor)
+            try await fixture.drop(row, into: fixture.owner, expectedProjections: 1)
+            #expect(fixture.catalog.projections(of: fixture.display.id).map(\.panelID) == [opened])
+            #expect(fixture.owner.focusedPanelId == opened)
             #expect(fixture.owner.cloudVMBinding?.vmID == fixture.provider.machine.rawValue)
             #expect(fixture.other.panels.count == 1)
         }

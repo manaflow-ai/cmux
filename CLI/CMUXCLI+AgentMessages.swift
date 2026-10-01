@@ -28,7 +28,7 @@ extension CMUXCLI {
         Usage: cmux agent inbox [--surface <target>] [--state queued|delivered|read] [--limit <n>] [--mark-read] [--json]
 
         List agent messages, newest first. Without --surface, lists messages for
-        every surface. --mark-read marks the listed messages read.
+        every surface. --mark-read marks the listed delivered messages read; queued messages stay queued.
         """)
     }
 
@@ -194,7 +194,13 @@ extension CMUXCLI {
         let payload = try client.sendV2(method: "agent.message.list", params: params)
         let messages = payload["messages"] as? [[String: Any]] ?? []
         if markRead {
-            let ids = messages.compactMap { $0["id"] as? String }
+            // Only delivered messages: the store treats a read queued
+            // message as handled and never delivers it, so marking queued
+            // messages here would silently drop them for the recipient agent.
+            let ids = messages.compactMap { message -> String? in
+                guard message["state"] as? String == "delivered" else { return nil }
+                return message["id"] as? String
+            }
             if !ids.isEmpty {
                 _ = try client.sendV2(method: "agent.message.mark_read", params: ["ids": ids])
             }
@@ -277,8 +283,10 @@ extension CMUXCLI {
 
     /// Claude SessionStart/Stop `asyncRewake` hook. Checks for messages to
     /// this surface every ``agentInboxPollInterval``; when one is waiting it
-    /// claims it, writes it to stderr and exits 2, which wakes Claude with the
-    /// text as a system reminder. The prompt box, and any draft in it, is
+    /// renders the queued messages to stderr and exits 2, which wakes Claude
+    /// with the text as a system reminder. The hook acknowledges its lease
+    /// after writing the reminder; an interrupted hook lets the lease expire
+    /// so the messages can be retried. The prompt box, and any draft in it, is
     /// never touched.
     ///
     /// Each check uses a new connection that is closed right after, so an

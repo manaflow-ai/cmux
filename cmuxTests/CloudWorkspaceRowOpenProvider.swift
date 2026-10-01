@@ -15,9 +15,18 @@ final class CloudWorkspaceRowOpenProvider: SurfaceProvider {
     let info: SurfaceMachineInfo
     var gate: CloudLinkFirstValue<Bool>?
     let started = CloudLinkFirstValue<Bool>()
+    /// Resolved as the first successful attachment returns to its caller, which
+    /// then finishes on the main actor before any waiter resumes.
+    let answered = CloudLinkFirstValue<Bool>()
     var materializations = 0
     var failAt: Int?
     var remoteCloses = 0
+    /// Answers with this tab instead of the requested one, like a stale daemon reply.
+    var answeredTabID: String?
+    /// Fails the attachment of this tab only.
+    var failTabID: String?
+    /// Binds the attachment to the reserved pane, as the Cloud provider does.
+    var adoptsTerminalReservations: Bool { true }
 
     init(machine: SurfaceMachineID) {
         self.machine = machine
@@ -42,6 +51,7 @@ final class CloudWorkspaceRowOpenProvider: SurfaceProvider {
         started.resolve(true)
         if let gate { _ = await gate.result }
         if materializations == failAt { throw CloudDiagnosticFailure.conflict }
+        if let failTabID, remoteView?.tabID == failTabID { throw CloudDiagnosticFailure.conflict }
         let pane: (workspaceID: UUID, panelID: UUID)
         if let reservation {
             pane = (reservation.workspaceID, reservation.panelID)
@@ -53,8 +63,9 @@ final class CloudWorkspaceRowOpenProvider: SurfaceProvider {
             pane = try SurfacePaneFactory.makeBrowserPane(url: nil, at: destination, focus: focus)
         }
         let view = remoteView ?? resource.remoteViews?.first
+        answered.resolve(true)
         return SurfaceProjection(resource: resource.id, workspaceID: pane.workspaceID, panelID: pane.panelID,
-            remoteWorkspaceID: view?.workspace.id, remoteTabID: view?.tabID)
+            remoteWorkspaceID: view?.workspace.id, remoteTabID: answeredTabID ?? view?.tabID)
     }
     func discardMaterialization(_ projection: SurfaceProjection) -> Bool {
         SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)

@@ -19,6 +19,8 @@ final class TerminalPortalGeometryFixture {
     let portal: WindowTerminalPortal
     let surface: TerminalSurface
     private var dividerResizeActive = false
+    /// The longest this surface's first runtime may wait for its command-shim install.
+    private let shimInstallDeadline: Duration
     var hosted: GhosttySurfaceScrollView { surface.hostedView }
     var hostedID: ObjectIdentifier { ObjectIdentifier(hosted) }
 
@@ -35,6 +37,7 @@ final class TerminalPortalGeometryFixture {
         anchor = anchorView ?? NSView(frame: NSRect(x: 8, y: 8, width: 520, height: 280))
         window.contentView?.addSubview(anchor)
         portal = WindowTerminalPortal(window: window)
+        shimInstallDeadline = GhosttyApp.terminalSurfaceRuntimeDependencies.agentCommandShimInstallDeadline
         surface = TerminalSurface(
             tabId: workspace.id, context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil, workingDirectory: nil
@@ -80,7 +83,7 @@ final class TerminalPortalGeometryFixture {
         width: CGFloat? = nil,
         sourceLocation: SourceLocation = #_sourceLocation
     ) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        let deadline = ContinuousClock.now.advanced(by: shimInstallDeadline + .seconds(2))
         repeat {
             if let geometry = surface.committedPaneGeometry,
                geometry.phase == .settled, gridMatchesPTY(),

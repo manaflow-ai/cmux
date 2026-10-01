@@ -34,8 +34,13 @@ extension Workspace {
     /// with the real drop destination; the first resource takes the drop spot and
     /// the rest join it as tabs; the provider decides whether a resource means a
     /// new pane (cloud) or moving the one pane a local terminal has. A drop never
-    /// reuses an existing pane elsewhere. The drop is accepted as soon as the
-    /// request is dispatched; failures are logged here.
+    /// reuses an existing pane elsewhere; a placement already open in this
+    /// workspace is focused rather than opened twice.
+    ///
+    /// A Cloud terminal's pane is reserved at the drop spot before any machine
+    /// round trip and shows its connecting state until the provider adopts it in
+    /// place. Failure, a stale placement, or sign-out removes that pane and
+    /// restores the layout and selection captured here, before the drop.
     @discardableResult
     @MainActor
     func handleSurfaceResourceDrop(
@@ -50,14 +55,17 @@ extension Workspace {
 #if DEBUG
         cmuxDebugLog("surfaces.drop workspace=\(self.id.uuidString.prefix(5)) group=\(group.title) count=\(group.resources.count) target=\(target)")
 #endif
+        let rollback = CloudSurfaceDropRollback(workspace: self, destination: destination, catalog: catalog)
+        let host = SurfaceCatalog.OptimisticPaneHost.drop(into: self, catalog: catalog, rollback: rollback)
         Task { @MainActor in
             do {
-                let projections = try await catalog.projectGroup(group, into: target, focus: true)
+                let projections = try await catalog.projectGroup(group, into: target, focus: true, optimistic: host)
                 // A Cloud drag starts in the right sidebar, so the sidebar remains
                 // the window's recorded keyboard owner after AppKit completes the
                 // drop. Re-run the shared focus transaction once the first pane is
                 // materialized so its Bonsplit focus and bright active state agree.
-                if let first = projections.first {
+                // A reserved pane may already have rolled back; focus what remains.
+                if let first = projections.first(where: { catalog.projection(forPanel: $0.panelID) != nil }) {
                     SurfacePaneFactory.focus(panelID: first.panelID, in: first.workspaceID)
                 }
             } catch {

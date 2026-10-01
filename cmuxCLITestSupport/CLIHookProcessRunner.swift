@@ -39,15 +39,29 @@ enum CLIHookProcessRunner {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
         let exitSignal = DispatchSemaphore(value: 0)
-        // Observe actual termination instead of scheduling a blocking waiter on
-        // the same global pool used to drain the child's output.
+        // The callback only signals termination; the caller polls it without
+        // blocking so pipe draining and deadline enforcement stay synchronous.
         process.terminationHandler = { _ in exitSignal.signal() }
+        let stdoutFD = stdoutPipe.fileHandleForReading.fileDescriptor
+        let stderrFD = stderrPipe.fileHandleForReading.fileDescriptor
+        let stdinFD = stdinPipe?.fileHandleForWriting.fileDescriptor
+        defer {
+            try? stdoutPipe.fileHandleForReading.close()
+            try? stderrPipe.fileHandleForReading.close()
+            try? stdinPipe?.fileHandleForWriting.close()
+        }
 
-        // A child may exit or be killed while its stdin writer is blocked.
-        // Suppress SIGPIPE on this descriptor only, leaving the test process
-        // and spawned CLI signal dispositions unchanged.
-        if let stdinPipe,
-           fcntl(stdinPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1) == -1 {
+        // Only the parent's endpoints are nonblocking; the child's opposite
+        // pipe ends retain their normal blocking stdio contract.
+        for fd in [stdoutFD, stderrFD] + (stdinFD.map { [$0] } ?? []) {
+            let flags = fcntl(fd, F_GETFL)
+            guard flags >= 0, fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 else {
+                return Result(status: -1, stdout: "", stderr: "Cannot configure process pipe: \(errno)", timedOut: false)
+            }
+        }
+        // A child may close stdin before consuming the whole payload. Protect
+        // this writer only; the child still observes the normal SIGPIPE state.
+        if let stdinFD, fcntl(stdinFD, F_SETNOSIGPIPE, 1) == -1 {
             return Result(status: -1, stdout: "", stderr: "Cannot suppress stdin SIGPIPE: \(errno)", timedOut: false)
         }
 
@@ -56,65 +70,117 @@ enum CLIHookProcessRunner {
         } catch {
             return Result(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
-        let outputLock = NSLock()
+
         var stdoutData = Data()
         var stderrData = Data()
-        let ioGroup = DispatchGroup()
+        var stdoutEnded = false
+        var stderrEnded = false
+        let input = Data((standardInput ?? "").utf8)
+        var inputOffset = 0
+        var inputEnded = stdinFD == nil
+        var timedOut = false
+        var sentKill = false
+        var didTerminate = false
+        var deadline = ProcessInfo.processInfo.systemUptime + max(0, timeout)
 
-        ioGroup.enter()
-        DispatchQueue.global(qos: .utility).async {
-            let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            outputLock.lock()
-            stdoutData = data
-            outputLock.unlock()
-            ioGroup.leave()
-        }
+        // The synchronous test runner owns all three pipes. Waiting for global
+        // queue readers and then ignoring their timeout returned empty output
+        // under app-host load, even after an immediate successful child exit.
+        // Polling readiness here drains both streams while feeding large input
+        // without a blocked worker or a cross-thread FileHandle close.
+        while true {
+            if !didTerminate, exitSignal.wait(timeout: .now()) == .success {
+                didTerminate = true
+            }
+            if !stdoutEnded { stdoutEnded = drainAvailable(fd: stdoutFD, into: &stdoutData) }
+            if !stderrEnded { stderrEnded = drainAvailable(fd: stderrFD, into: &stderrData) }
+            guard !didTerminate, process.isRunning else { break }
 
-        ioGroup.enter()
-        DispatchQueue.global(qos: .utility).async {
-            let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            outputLock.lock()
-            stderrData = data
-            outputLock.unlock()
-            ioGroup.leave()
-        }
-
-        // Start input only after both drains exist: a child can fill either
-        // output pipe before it reads a large input. The writer shares the
-        // lifecycle group so timeout termination also releases blocked writes.
-        if let standardInput, let stdinPipe {
-            ioGroup.enter()
-            DispatchQueue.global(qos: .utility).async {
-                defer {
-                    try? stdinPipe.fileHandleForWriting.close()
-                    ioGroup.leave()
+            let now = ProcessInfo.processInfo.systemUptime
+            if now >= deadline {
+                guard process.isRunning else {
+                    didTerminate = true
+                    break
                 }
-                try? stdinPipe.fileHandleForWriting.write(contentsOf: Data(standardInput.utf8))
+                if !timedOut {
+                    timedOut = true
+                    process.terminate()
+                } else if !sentKill {
+                    sentKill = true
+                    kill(process.processIdentifier, SIGKILL)
+                } else {
+                    break
+                }
+                deadline = now + 1
             }
+
+            if !inputEnded, let stdinFD {
+                if inputOffset < input.count, !timedOut {
+                    let written = input.withUnsafeBytes { bytes in
+                        Darwin.write(stdinFD, bytes.baseAddress!.advanced(by: inputOffset), input.count - inputOffset)
+                    }
+                    if written > 0 {
+                        inputOffset += written
+                    } else if written < 0, errno != EINTR, errno != EAGAIN, errno != EWOULDBLOCK {
+                        inputEnded = true
+                    }
+                }
+                if inputEnded || inputOffset == input.count || timedOut {
+                    try? stdinPipe?.fileHandleForWriting.close()
+                    inputEnded = true
+                }
+            }
+
+            var descriptors = [
+                pollfd(fd: stdoutEnded ? -1 : stdoutFD, events: Int16(POLLIN), revents: 0),
+                pollfd(fd: stderrEnded ? -1 : stderrFD, events: Int16(POLLIN), revents: 0),
+                pollfd(fd: inputEnded ? -1 : (stdinFD ?? -1), events: Int16(POLLOUT), revents: 0),
+            ]
+            // A child may close all pipes before exiting. Bound the readiness
+            // wait so Process's observed exit and the monotonic deadline still
+            // advance without relying on a termination callback worker.
+            let remaining = max(0, deadline - ProcessInfo.processInfo.systemUptime)
+            let milliseconds = Int32(min(50, (remaining * 1_000).rounded(.up)))
+            _ = Darwin.poll(&descriptors, nfds_t(descriptors.count), milliseconds)
         }
 
-        // Termination callbacks may lag behind the actual process exit.
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut && process.isRunning
-        if timedOut {
-            process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut && process.isRunning {
-                kill(process.processIdentifier, SIGKILL)
-                _ = exitSignal.wait(timeout: .now() + 1)
-            }
+        // Direct-child exit guarantees its writes reached the pipe. Read those
+        // buffered bytes without waiting for EOF from an inherited descendant.
+        while !drainAvailable(fd: stdoutFD, into: &stdoutData) {
+            var readiness = pollfd(fd: stdoutFD, events: Int16(POLLIN), revents: 0)
+            guard Darwin.poll(&readiness, 1, 0) > 0 else { break }
         }
-
-        _ = ioGroup.wait(timeout: .now() + 2)
-
-        outputLock.lock()
-        let finalStdoutData = stdoutData
-        let finalStderrData = stderrData
-        outputLock.unlock()
+        while !drainAvailable(fd: stderrFD, into: &stderrData) {
+            var readiness = pollfd(fd: stderrFD, events: Int16(POLLIN), revents: 0)
+            guard Darwin.poll(&readiness, 1, 0) > 0 else { break }
+        }
         return Result(
             status: process.isRunning ? SIGKILL : process.terminationStatus,
-            stdout: String(data: finalStdoutData, encoding: .utf8) ?? "",
-            stderr: String(data: finalStderrData, encoding: .utf8) ?? "",
+            stdout: String(data: stdoutData, encoding: .utf8) ?? "",
+            stderr: String(data: stderrData, encoding: .utf8) ?? "",
             timedOut: timedOut
         )
+    }
+
+    /// Drains a bounded batch so a continuously writing child cannot starve the deadline.
+    private static func drainAvailable(fd: Int32, into data: inout Data) -> Bool {
+        var buffer = [UInt8](repeating: 0, count: 65_536)
+        for _ in 0..<16 {
+            let count = buffer.withUnsafeMutableBytes { bytes -> Int in
+                guard let baseAddress = bytes.baseAddress else { return 0 }
+                return Darwin.read(fd, baseAddress, bytes.count)
+            }
+            if count > 0 {
+                data.append(contentsOf: buffer.prefix(count))
+            } else if count == 0 {
+                return true
+            } else if errno == EINTR {
+                continue
+            } else {
+                return errno != EAGAIN && errno != EWOULDBLOCK
+            }
+        }
+        return false
     }
 }
 

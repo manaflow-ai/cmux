@@ -529,6 +529,16 @@ final class SharedLiveAgentIndex {
                     return .timedOut
                 }
                 guard !Task.isCancelled else { return .cancelled }
+                // A hook-store event can chain a successor refresh before this
+                // request resumes from the pre-existing scan. Adopt that
+                // successor as this request's fresh boundary; otherwise the
+                // loop keeps following every coalesced refresh until the
+                // ownership deadline even though one completed scan is enough.
+                if requestedRefreshGeneration == nil,
+                   let successorGeneration = self.refreshTaskGeneration,
+                   successorGeneration != awaitedRefreshGeneration {
+                    requestedRefreshGeneration = successorGeneration
+                }
                 if let index,
                    let requestedRefreshGeneration,
                    awaitedRefreshGeneration == requestedRefreshGeneration {

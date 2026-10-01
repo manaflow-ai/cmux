@@ -988,6 +988,7 @@ private struct TitlebarNotificationBadge: View {
     let config: TitlebarControlsStyleConfig
     @Environment(\.cmuxAccentColor) private var cmuxAccent
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
 
     var body: some View {
         let unreadCount = unreadModel.totalUnreadCount
@@ -2257,8 +2258,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                     notificationsPopover?.performClose(nil)
                     openPhoneForwardingSettings(in: window)
                 }
-            )
-            .cmuxAccentColorEnvironment()
+            ).cmuxAccentColorEnvironment()
         )
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = .clear
@@ -2356,6 +2356,7 @@ private func openPhoneForwardingSettings(in window: NSWindow?) {
 }
 
 private struct NotificationsPopoverView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     @ObservedObject var notificationStore: TerminalNotificationStore
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @Environment(\.cmuxAccentColor) private var cmuxAccent
@@ -2605,6 +2606,7 @@ private struct NotificationsPopoverView: View {
                         NotificationPopoverRow(
                             notification: notification,
                             workspaceTitle: titleSnapshot[notification.tabId],
+                            accentColor: cmuxAccent,
                             onOpen: { open(notification) },
                             onClear: {
                                 withAnimation(.easeOut(duration: 0.18)) {
@@ -3131,8 +3133,7 @@ final class UpdateTitlebarAccessoryController {
                     popover?.performClose(nil)
                     openPhoneForwardingSettings(in: window)
                 }
-            )
-            .cmuxAccentColorEnvironment()
+            ).cmuxAccentColorEnvironment()
         )
 
         contentView.layoutSubtreeIfNeeded()
