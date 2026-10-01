@@ -30911,7 +30911,7 @@ struct CMUXCLI {
                     candidate = failure
                     candidateCanPublishBeforeTerminal = turnId == nil || payloadTurnId == turnId || sawRelevantTurn
                 }
-            case "task_complete", "turn_complete":
+            case "task_complete", "turn_complete", "turn_aborted":
                 let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
                 if let turnId {
                     guard payloadTurnId == turnId else {
@@ -30920,6 +30920,12 @@ struct CMUXCLI {
                 }
                 sawRelevantTurn = true
                 sawTerminalTurn = true
+                // An interrupted turn is still terminal for the monitor. It
+                // has no final response to classify as a failure, so let the
+                // normal Stop replay retire its stale prompt record.
+                if eventType == "turn_aborted" {
+                    continue
+                }
                 // Codex persists fatal turn failures inside task_complete.error. Standalone
                 // error events are transient, and a failed turn may still contain partial
                 // assistant output, so the terminal error must be authoritative.
