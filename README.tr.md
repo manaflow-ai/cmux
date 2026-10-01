@@ -126,12 +126,16 @@ Homebrew cask'i zsh, bash ve fish için tamamlamayı kurar. Kurulumdan sonra yen
 
 cmux'u başka bir yolla kurduysanız, ilgili satırı kabuğunuzun başlangıç dosyasına ekleyin ve yeni bir kabuk başlatın:
 
-```bash
-# zsh
+```zsh
+autoload -Uz compinit && compinit
 eval "$(cmux completion zsh)"
-# bash
+```
+
+```bash
 eval "$(cmux completion bash)"
-# fish
+```
+
+```fish
 cmux completion fish | source
 ```
 

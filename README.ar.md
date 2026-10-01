@@ -126,12 +126,16 @@ brew upgrade --cask cmux
 
 إذا ثبّت cmux بطريقة أخرى، فأضف السطر المناسب إلى ملف بدء تشغيل صدفتك، ثم ابدأ صدفة جديدة:
 
-```bash
-# zsh
+```zsh
+autoload -Uz compinit && compinit
 eval "$(cmux completion zsh)"
-# bash
+```
+
+```bash
 eval "$(cmux completion bash)"
-# fish
+```
+
+```fish
 cmux completion fish | source
 ```
 

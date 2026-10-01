@@ -126,12 +126,16 @@ Homebrew-casken installerer fullføring for zsh, bash og fish. Start et nytt she
 
 Hvis du installerte cmux på en annen måte, legg den aktuelle linjen til i oppstartsfilen til shellet ditt, og start et nytt shell:
 
-```bash
-# zsh
+```zsh
+autoload -Uz compinit && compinit
 eval "$(cmux completion zsh)"
-# bash
+```
+
+```bash
 eval "$(cmux completion bash)"
-# fish
+```
+
+```fish
 cmux completion fish | source
 ```
 

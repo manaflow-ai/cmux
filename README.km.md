@@ -126,12 +126,16 @@ Homebrew cask ដំឡើងការបំពេញស្វ័យប្រវ
 
 ប្រសិនបើអ្នកបានដំឡើង cmux តាមវិធីផ្សេង សូមបន្ថែមបន្ទាត់ដែលត្រូវគ្នាទៅក្នុងឯកសារចាប់ផ្តើម shell របស់អ្នក រួចចាប់ផ្តើម shell ថ្មី៖
 
-```bash
-# zsh
+```zsh
+autoload -Uz compinit && compinit
 eval "$(cmux completion zsh)"
-# bash
+```
+
+```bash
 eval "$(cmux completion bash)"
-# fish
+```
+
+```fish
 cmux completion fish | source
 ```
 

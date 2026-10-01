@@ -122,16 +122,20 @@ Przy pierwszym uruchomieniu macOS może poprosić o potwierdzenie otwarcia aplik
 
 ### Uzupełnianie w powłoce
 
-Cask Homebrew instaluje uzupełnianie dla zsh, bash i fish. Po instalacji uruchom nową powłokę. Jeśli się nie ładuje, sprawdź, czy katalogi uzupełniania Homebrew są podpięte do twojej powłoki (zobacz [dokumentację uzupełniania w powłoce Homebrew](https://docs.brew.sh/Shell-Completion)).
+Cask Homebrew instaluje uzupełnianie dla zsh, bash i fish. Po instalacji uruchom nową powłokę. Jeśli się nie ładuje, sprawdź, czy katalogi uzupełniania Homebrew są podpięte do Twojej powłoki (zobacz [dokumentację uzupełniania w powłoce Homebrew](https://docs.brew.sh/Shell-Completion)).
 
 Jeśli zainstalowałeś cmux w inny sposób, dodaj odpowiedni wiersz do pliku startowego swojej powłoki, a potem uruchom nową powłokę:
 
-```bash
-# zsh
+```zsh
+autoload -Uz compinit && compinit
 eval "$(cmux completion zsh)"
-# bash
+```
+
+```bash
 eval "$(cmux completion bash)"
-# fish
+```
+
+```fish
 cmux completion fish | source
 ```
 

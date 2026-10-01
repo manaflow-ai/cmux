@@ -124,12 +124,16 @@ Cask Homebrew cài đặt tự động hoàn thành cho zsh, bash và fish. Hãy
 
 Nếu bạn cài cmux theo cách khác, hãy thêm dòng tương ứng vào tệp khởi động shell của bạn, rồi mở một shell mới:
 
-```bash
-# zsh
+```zsh
+autoload -Uz compinit && compinit
 eval "$(cmux completion zsh)"
-# bash
+```
+
+```bash
 eval "$(cmux completion bash)"
-# fish
+```
+
+```fish
 cmux completion fish | source
 ```
 

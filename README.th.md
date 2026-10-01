@@ -126,12 +126,16 @@ cask ของ Homebrew จะติดตั้งการเติมคำ�
 
 ถ้าคุณติดตั้ง cmux ด้วยวิธีอื่น ให้เพิ่มบรรทัดที่ตรงกันลงในไฟล์เริ่มต้นของ shell แล้วเปิด shell ใหม่:
 
-```bash
-# zsh
+```zsh
+autoload -Uz compinit && compinit
 eval "$(cmux completion zsh)"
-# bash
+```
+
+```bash
 eval "$(cmux completion bash)"
-# fish
+```
+
+```fish
 cmux completion fish | source
 ```
 

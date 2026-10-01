@@ -122,16 +122,20 @@ Beim ersten Start fordert macOS Sie möglicherweise auf, das Öffnen einer App v
 
 ### Shell-Vervollständigung
 
-Das Homebrew-Cask installiert die Vervollständigung für zsh, bash und fish. Starten Sie nach der Installation eine neue Shell. Falls sie nicht geladen wird, stellen Sie sicher, dass die Vervollständigungsverzeichnisse von Homebrew in Ihrer Shell eingebunden sind (siehe [Homebrews Dokumentation zur Shell-Vervollständigung](https://docs.brew.sh/Shell-Completion)).
+Das Homebrew-Cask installiert die Vervollständigung für zsh, bash und fish. Starten Sie nach der Installation eine neue Shell. Falls die Vervollständigung nicht geladen wird, stellen Sie sicher, dass die Vervollständigungsverzeichnisse von Homebrew in Ihrer Shell eingebunden sind (siehe [Homebrews Dokumentation zur Shell-Vervollständigung](https://docs.brew.sh/Shell-Completion)).
 
 Wenn Sie cmux anders installiert haben, fügen Sie die passende Zeile zur Startdatei Ihrer Shell hinzu und starten Sie eine neue Shell:
 
-```bash
-# zsh
+```zsh
+autoload -Uz compinit && compinit
 eval "$(cmux completion zsh)"
-# bash
+```
+
+```bash
 eval "$(cmux completion bash)"
-# fish
+```
+
+```fish
 cmux completion fish | source
 ```
 

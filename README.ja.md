@@ -124,14 +124,18 @@ brew upgrade --cask cmux
 
 Homebrewのcaskはzsh、bash、fish用の補完をインストールします。インストール後に新しいシェルを起動してください。読み込まれない場合は、Homebrewの補完ディレクトリがシェルに設定されているか確認してください（[Homebrewのシェル補完ドキュメント](https://docs.brew.sh/Shell-Completion)を参照）。
 
-他の方法でcmuxをインストールした場合は、該当する行をシェルの起動ファイルに追加し、新しいシェルを起動してください:
+他の方法でcmuxをインストールした場合は、該当する行をシェルの起動ファイルに追加し、新しいシェルを起動してください：
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
 
 ```bash
-# zsh
-eval "$(cmux completion zsh)"
-# bash
 eval "$(cmux completion bash)"
-# fish
+```
+
+```fish
 cmux completion fish | source
 ```
 

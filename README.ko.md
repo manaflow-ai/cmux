@@ -126,12 +126,16 @@ Homebrew cask가 zsh, bash, fish용 자동완성을 설치해요. 설치 후 새
 
 다른 방법으로 cmux를 설치했다면, 해당하는 줄을 셸 시작 파일에 추가하고 새 셸을 열어 주세요:
 
-```bash
-# zsh
+```zsh
+autoload -Uz compinit && compinit
 eval "$(cmux completion zsh)"
-# bash
+```
+
+```bash
 eval "$(cmux completion bash)"
-# fish
+```
+
+```fish
 cmux completion fish | source
 ```
 

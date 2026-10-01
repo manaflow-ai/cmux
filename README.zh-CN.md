@@ -126,12 +126,16 @@ Homebrew cask 会安装 zsh、bash 和 fish 的补全。安装后启动一个新
 
 如果你通过其他方式安装 cmux，请将对应的一行加入 shell 启动文件，然后启动一个新 shell：
 
-```bash
-# zsh
+```zsh
+autoload -Uz compinit && compinit
 eval "$(cmux completion zsh)"
-# bash
+```
+
+```bash
 eval "$(cmux completion bash)"
-# fish
+```
+
+```fish
 cmux completion fish | source
 ```
 

@@ -126,12 +126,16 @@ El cask de Homebrew instala el autocompletado para zsh, bash y fish. Abre un she
 
 Si instalaste cmux de otra forma, añade la línea correspondiente al archivo de inicio de tu shell y abre un shell nuevo:
 
-```bash
-# zsh
+```zsh
+autoload -Uz compinit && compinit
 eval "$(cmux completion zsh)"
-# bash
+```
+
+```bash
 eval "$(cmux completion bash)"
-# fish
+```
+
+```fish
 cmux completion fish | source
 ```
 

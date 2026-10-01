@@ -128,12 +128,16 @@ The Homebrew cask installs completions for zsh, bash, and fish. Start a new shel
 
 If you installed cmux another way, add the matching line to your shell startup file, then start a new shell:
 
-```bash
-# zsh
+```zsh
+autoload -Uz compinit && compinit
 eval "$(cmux completion zsh)"
-# bash
+```
+
+```bash
 eval "$(cmux completion bash)"
-# fish
+```
+
+```fish
 cmux completion fish | source
 ```
 

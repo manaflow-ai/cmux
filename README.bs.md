@@ -126,12 +126,16 @@ Homebrew cask instalira dovršavanje za zsh, bash i fish. Pokrenite novi shell n
 
 Ako ste cmux instalirali na drugi način, dodajte odgovarajuću liniju u startnu datoteku svog shella, pa pokrenite novi shell:
 
-```bash
-# zsh
+```zsh
+autoload -Uz compinit && compinit
 eval "$(cmux completion zsh)"
-# bash
+```
+
+```bash
 eval "$(cmux completion bash)"
-# fish
+```
+
+```fish
 cmux completion fish | source
 ```
 

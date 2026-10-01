@@ -126,12 +126,16 @@ Cask Homebrew устанавливает автодополнение для zsh
 
 Если вы установили cmux другим способом, добавьте подходящую строку в файл автозапуска вашей оболочки и запустите новую оболочку:
 
-```bash
-# zsh
+```zsh
+autoload -Uz compinit && compinit
 eval "$(cmux completion zsh)"
-# bash
+```
+
+```bash
 eval "$(cmux completion bash)"
-# fish
+```
+
+```fish
 cmux completion fish | source
 ```
 
