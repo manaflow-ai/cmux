@@ -97,14 +97,30 @@ Verification: Linux Testbox build, clippy and tests (1762 cmux-tui unit tests, a
 `swift test` CmuxNextControlTests (68). `terminal_host_recovery::closing_one_hundred…`
 misses its 15 s budget on the Testbox at the base commit too (timing flake).
 
+On `feat-cmux-next-cli-state` (state-ownership.md step D, CLI part):
+
+- Curated commands for the v2 state resources: `workspace <sel> update`,
+  `workspace [<sel>] status|progress|log`, `workspace placement list`, `workspace create
+  --ephemeral`, `tab <sel> pin|unpin|zoom|update`, `tab group …` and `tab group saved …`
+  over `tab_group.*`/`saved_tab_group.*`, `room …`, `screen <sel> update|pin|unpin|move`,
+  `screen group …`, `closed list|<id> reopen`. New curated scopes `room` and `closed`.
+- Rooms and groups take an id or exact name; status/progress/log without a selector
+  target the caller's workspace. Both resolve with reads on the request's own connection
+  before it is sent (`cli/resolve.rs`), so the request carries ids only.
+- Still private (no v2 operation): `tab group <g> split|column|new-workspace|unsave`.
+- Verification: Linux Testbox build, clippy `--all-targets -D warnings`, fmt; cmux-tui
+  1794 unit tests, cmux-tui-core 1494, integration suites green except the two known
+  timing flakes (`session_shutdown_exits_an_interactive_detached_owner_client`,
+  `closing_one_hundred_terminals…`).
+
 ## Remaining
 
 1. App windows get typed ids (`win_<32 hex>`); today they are bare lowercase UUIDs.
 2. Nightly and release apps both use daemon session `cmux-app` when untagged
    (`DaemonLauncher.sessionName`); give each channel its own session.
 3. acpmux CLI output is English only; the rest of `cmux` is English and Japanese.
-4. Browser waits, screenshots, cookies, downloads and sidebar status/log/progress have no
-   new-CLI equivalent yet (the compat layer had partial ones).
+4. Browser waits, screenshots, cookies and downloads have no new-CLI equivalent yet
+   (the compat layer had partial ones). Workspace status/log/progress are done.
 5. `Resources/Localizable.xcstrings` (987 `cli.*` keys plus legacy app keys) is probably
    unused by the cmux-next app; prove it and remove it from the Resources phase.
 6. The daemon forwards page commands for frontend browser tabs to their app, so a CLI on
