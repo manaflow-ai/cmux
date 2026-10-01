@@ -154,6 +154,24 @@ struct CloudMenuContentTests {
         #expect(CloudMenuTone(expired) == .locked)
     }
 
+    @Test("Delete routes the current machine display name, including after a rename")
+    func deleteMenuUsesCurrentDisplayName() throws {
+        var confirmedNames: [String] = []
+        let verbs = CloudMachineMenuVerbs(
+            openShell: { _ in }, newWorkspace: { _ in }, openDesktop: { _ in },
+            runCommand: { _, _ in }, promptRename: { _, _ in }, copyToPasteboard: { _ in },
+            confirmDelete: { confirmedNames.append($0) }, promptUpgrade: {}
+        )
+        let initial = MachineSnapshot(id: "vm-opaque-16336", provider: "freestyle", image: "cmux-devbox", isDesktop: false, activity: .ready, label: "crisp-rose-piglet")
+        let renamed = MachineSnapshot(id: initial.id, provider: initial.provider, image: initial.image, isDesktop: false, activity: .ready, label: "new-cloud-name")
+        for machine in [initial, renamed] {
+            let entry = try #require(verbs.deleteEntries(machine).first)
+            guard case .action(let action) = entry else { Issue.record("Delete entry should be an action"); return }
+            action.perform()
+        }
+        #expect(confirmedNames == [initial.displayName, renamed.displayName])
+    }
+
     @Test("Status item renders machines with a status dot and dimmed state")
     func appKitRendering() throws {
         let recorder = Recorder()
