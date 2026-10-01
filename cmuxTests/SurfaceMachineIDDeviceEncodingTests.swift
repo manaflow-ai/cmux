@@ -121,7 +121,7 @@ struct SurfaceMachineIDDeviceEncodingTests {
 
     @Test("Cloud tree payload carries user-facing link failure copy")
     func cloudLinkFailureCopy() {
-        let info = machineInfo(.cloud("brave-otter"), linkState: .error, presence: nil)
+        let info = machineInfo(.cloud("brave-otter"), linkState: .unavailable, presence: nil)
         var failed = info
         failed.linkError = "cloud_api_unavailable"
         let payload = TerminalController.surfaceMachinePayload(failed)
