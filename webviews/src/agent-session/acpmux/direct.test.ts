@@ -91,12 +91,28 @@ class ScriptedSocket {
     const [request] = this.waiting.splice(index, 1);
     this.reply(request!, result);
   }
+  /// Answers a held request with a JSON-RPC error.
+  fail(method: string) {
+    const index = this.waiting.findIndex((request) => request.method === method);
+    if (index < 0) throw new Error(`no ${method} request is waiting`);
+    const [request] = this.waiting.splice(index, 1);
+    this.onmessage?.({ data: JSON.stringify({ id: request!.id, error: { message: `${method} failed` } }) });
+  }
   notify(method: string, params: unknown) { this.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method, params }) }); }
   close() { this.readyState = 3; }
+  drop() { this.readyState = 3; this.onclose?.(); }
 }
 
 const userEvent = (sessionId: string, seq: number, text: string): EventRecord => ({ sessionId, seq, at: seq, dir: "mux", kind: "user_message", msg: { text } });
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+/// Drops the socket and waits out the client's first reconnect delay.
+const dropAndReconnect = async () => {
+  const dropped = ScriptedSocket.current;
+  dropped.drop();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  for (let pass = 0; pass < 5 && ScriptedSocket.current === dropped; pass += 1) await settle();
+  for (let pass = 0; pass < 5; pass += 1) await settle();
+};
 
 describe("direct client session state", () => {
   const realSocket = globalThis.WebSocket;
@@ -291,5 +307,110 @@ describe("direct client session state", () => {
     ScriptedSocket.current.release("_acpmux/attach", attachReply("b"));
     expect(await selected).toBe("b");
     expect(texts()).toEqual(["b one"]);
+  });
+
+  test("lag recovery keeps the live summary, queue and permission", async () => {
+    await connect();
+    ScriptedSocket.current.notify("_acpmux/permission_pending", { sessionId: "a", permissionId: "p1", request: { toolCall: { title: "Run" }, options: [] } });
+    ScriptedSocket.respond = ({ method, params }) => method === "_acpmux/events" && params.afterSeq === 6 ? { events: [userEvent("a", 7, "a seven")] } : {};
+    ScriptedSocket.current.notify("_acpmux/lagged", { sessionIds: ["a"], watch: false, dropped: 1 });
+    await settle();
+    expect(texts()).toEqual(["a five", "a six", "a seven"]);
+    expect(latest().permission?.permissionId).toBe("p1");
+    expect(latest().queue).toEqual([{ id: "q1", prompt: "queued" }]);
+    expect(latest().summary?.status).toBe("idle");
+  });
+
+  test("lag recovery still applies a missed permission decision and status", async () => {
+    await connect();
+    ScriptedSocket.current.notify("_acpmux/permission_pending", { sessionId: "a", permissionId: "p1", request: { toolCall: { title: "Run" }, options: [] } });
+    ScriptedSocket.respond = ({ method }) => method === "_acpmux/events" ? { events: [{ sessionId: "a", seq: 7, at: 7, dir: "mux", kind: "permission_decision", msg: {} }, { sessionId: "a", seq: 8, at: 8, dir: "mux", kind: "status", msg: { status: "running" } }] } : {};
+    ScriptedSocket.current.notify("_acpmux/lagged", { sessionIds: ["a"], watch: false, dropped: 2 });
+    await settle();
+    expect(latest().permission).toBeUndefined();
+    expect(latest().summary?.status).toBe("running");
+  });
+
+  test("a failed lag fetch does not leave the pane resyncing", async () => {
+    await connect();
+    ScriptedSocket.held.add("_acpmux/events");
+    ScriptedSocket.current.notify("_acpmux/lagged", { sessionIds: ["a"], watch: false, dropped: 1 });
+    expect(latest().connection).toBe("resyncing");
+    ScriptedSocket.current.fail("_acpmux/events");
+    await settle();
+    expect(latest().connection).toBe("failed");
+  });
+
+  test("a reconnect that finds the selected session gone waits for the new attach before a lag resync", async () => {
+    await connect();
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "b" }] };
+      if (method === "_acpmux/attach") return attachReply(params.sessionId);
+      return {};
+    };
+    ScriptedSocket.held.add("_acpmux/attach");
+    await dropAndReconnect();
+    expect(ScriptedSocket.current.waiting.find((request) => request.method === "_acpmux/attach")?.params.sessionId).toBe("b");
+    ScriptedSocket.current.notify("_acpmux/lagged", { dropped: 1 });
+    await settle();
+    expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/events")).toBe(false);
+    ScriptedSocket.current.release("_acpmux/attach", attachReply("b"));
+    await settle();
+    expect(latest().sessionId).toBe("b");
+    expect(texts()).toEqual(["b one"]);
+  });
+
+  test("a reconnect re-attach fetches the events between the old cursor and the new attach page", async () => {
+    await connect();
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b" }] };
+      if (method === "_acpmux/attach") return { session: { sessionId: "a", status: "idle" }, events: [userEvent("a", 10, "a ten"), userEvent("a", 11, "a eleven")] };
+      if (method === "_acpmux/events" && params.afterSeq === 6) return { events: [userEvent("a", 7, "a seven"), userEvent("a", 8, "a eight")], more: true };
+      if (method === "_acpmux/events" && params.afterSeq === 8) return { events: [userEvent("a", 9, "a nine"), userEvent("a", 10, "a ten")], more: false };
+      return {};
+    };
+    await dropAndReconnect();
+    expect(texts()).toEqual(["a five", "a six", "a seven", "a eight", "a nine", "a ten", "a eleven"]);
+  });
+
+  test("a watch lag that drops the selected session selects the most recent remaining one", async () => {
+    await connect();
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "b" }] };
+      if (method === "_acpmux/attach") return attachReply(params.sessionId);
+      return {};
+    };
+    ScriptedSocket.current.notify("_acpmux/lagged", { sessionIds: [], watch: true, dropped: 4 });
+    await settle();
+    await settle();
+    expect(latest().sessionId).toBe("b");
+    expect(texts()).toEqual(["b one"]);
+    expect(latest().queue).toEqual([]);
+  });
+
+  test("closing the client settles its pending requests", async () => {
+    const client = await connect();
+    ScriptedSocket.held.add("session/set_model");
+    const outcome = Promise.race([
+      client.setModel("m").then(() => "resolved", () => "rejected"),
+      new Promise((resolve) => setTimeout(() => resolve("pending"), 100)),
+    ]);
+    await settle();
+    client.close();
+    expect(await outcome).toBe("rejected");
+  });
+
+  test("a failed prompt row survives a lag rebuild", async () => {
+    const client = await connect();
+    ScriptedSocket.held.add("session/prompt");
+    const sending = client.send("did not send").catch(() => "failed");
+    await settle();
+    ScriptedSocket.current.fail("session/prompt");
+    expect(await sending).toBe("failed");
+    ScriptedSocket.respond = ({ method, params }) => method === "_acpmux/events" && params.afterSeq === 6 ? { events: [userEvent("a", 7, "a seven")] } : {};
+    ScriptedSocket.current.notify("_acpmux/lagged", { sessionIds: ["a"], watch: false, dropped: 1 });
+    await settle();
+    expect(texts()).toEqual(["a five", "a six", "a seven", "did not send"]);
+    expect(latest().rows.find((row) => row.text === "did not send")?.failed).toBe(true);
   });
 });
