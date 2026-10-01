@@ -7,6 +7,9 @@ import Foundation
 /// continuations, deadlines and event subscriptions. Never retries a mutation:
 /// a caller retains its idempotency key when an outcome is uncertain.
 public actor CloudTuiPersistentResourceConnection {
+    /// A protocol violation closes this channel, but does not prove that the
+    /// daemon's link process or socket listener is gone.
+    private enum ResponseError: Error { case invalidResponse }
     private struct Pending {
         let continuation: CheckedContinuation<Data, Error>
         let request: CloudTuiRequest
@@ -26,8 +29,9 @@ public actor CloudTuiPersistentResourceConnection {
     private var startTask: Task<Void, Error>?
     private var pumpTask: Task<Void, Never>?
     private var closed = false
+    private var invalidResponseClosed = false
     private let pendingLimit = 128
-    private static let protocolFailure = CloudMachineLink.LinkError.exited(status: 3, output: "transport closed: invalid resource response")
+    private static let protocolFailure = ResponseError.invalidResponse
 
     public init(socketPath: String, clock: any Clock<Duration> = ContinuousClock()) {
         connection = CloudTuiManualIOConnection(socketPath: socketPath, deliversJSONMessages: true)
@@ -37,13 +41,13 @@ public actor CloudTuiPersistentResourceConnection {
     deinit { pumpTask?.cancel(); startTask?.cancel(); connection.close() }
 
     public func start() async throws {
-        guard !closed else { throw Self.protocolFailure }
+        guard !closed else { throw closureError }
         if let startTask { return try await startTask.value }
         let connection = connection
         let task = Task { try await connection.start() }
         startTask = task
         do { try await task.value } catch { close(); throw error }
-        guard !closed else { throw Self.protocolFailure }
+        guard !closed else { throw closureError }
         pumpTask = Task { [weak self, connection] in
             for await frame in connection.events {
                 guard case let .message(data) = frame else { continue }
@@ -54,9 +58,15 @@ public actor CloudTuiPersistentResourceConnection {
     }
 
     public var isClosed: Bool { closed }
+    public var lostTransport: Bool { closed && !invalidResponseClosed }
 
-    public func close() {
+    private var closureError: Error {
+        invalidResponseClosed ? Self.protocolFailure : CloudMachineLink.LinkError.transportLost
+    }
+
+    public func close(invalidResponse: Bool = false) {
         guard !closed else { return }
+        invalidResponseClosed = invalidResponse
         closed = true
         startTask?.cancel()
         pumpTask?.cancel()
@@ -66,7 +76,7 @@ public actor CloudTuiPersistentResourceConnection {
         pending.removeAll()
         for entry in requests.values {
             entry.deadline.cancel()
-            entry.continuation.resume(throwing: Self.protocolFailure)
+            entry.continuation.resume(throwing: closureError)
         }
         for stream in subscriptions.values { stream.continuation.finish() }
         subscriptions.removeAll()
@@ -90,7 +100,7 @@ public actor CloudTuiPersistentResourceConnection {
         guard timeout > .zero else { throw CloudMachineLink.LinkError.timedOut }
         try await start()
         try Task.checkCancellation()
-        guard !closed else { throw Self.protocolFailure }
+        guard !closed else { throw closureError }
         guard pending.count < pendingLimit else {
             throw CloudMachineLink.LinkError.exited(status: 3, output: "transport busy: request not sent")
         }
@@ -161,9 +171,9 @@ public actor CloudTuiPersistentResourceConnection {
 
     private func receive(_ data: Data) {
         guard !closed else { return }
-        guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { close(); return }
+        guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { close(invalidResponse: true); return }
         if let type = root["type"] as? String, type == "stream_item" || type == "stream_end" {
-            guard root["protocol"] as? String == "cmux.protocol/2", let id = root["stream_id"] as? String else { close(); return }
+            guard root["protocol"] as? String == "cmux.protocol/2", let id = root["stream_id"] as? String else { close(invalidResponse: true); return }
             guard var subscription = subscriptions[id] else { return }
             if type == "stream_item" {
                 guard let raw = root["sequence"] as? String, let next = UInt64(raw), next == subscription.sequence else {
@@ -177,11 +187,11 @@ public actor CloudTuiPersistentResourceConnection {
             return
         }
         guard let id = root["id"] as? String,
-              let ok = root["ok"] as? NSNumber, CFGetTypeID(ok) == CFBooleanGetTypeID() else { close(); return }
+              let ok = root["ok"] as? NSNumber, CFGetTypeID(ok) == CFBooleanGetTypeID() else { close(invalidResponse: true); return }
         guard let entry = pending[id] else {
             // Responses to cancellation and retired requests are harmless.
             guard id.hasPrefix("request-\(namespace)-"), let suffix = id.split(separator: "-").last,
-                  let issued = UInt64(suffix), issued > 0, issued <= sequence else { close(); return }
+                  let issued = UInt64(suffix), issued > 0, issued <= sequence else { close(invalidResponse: true); return }
             return
         }
         // After suspend/resume, the socket reader may run before the deadline task.
@@ -192,7 +202,7 @@ public actor CloudTuiPersistentResourceConnection {
         pending.removeValue(forKey: id)
         entry.deadline.cancel()
         if !entry.request.raw && (root["protocol"] as? String != "cmux.protocol/2" || root["type"] as? String != "response") {
-            entry.continuation.resume(throwing: Self.protocolFailure); close(); return
+            entry.continuation.resume(throwing: Self.protocolFailure); close(invalidResponse: true); return
         }
         if !ok.boolValue {
             let errorObject: Any = entry.request.raw
@@ -203,11 +213,11 @@ public actor CloudTuiPersistentResourceConnection {
         } else if entry.request.raw {
             if let value = root["data"], let encoded = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]) {
                 entry.continuation.resume(returning: encoded)
-            } else { entry.continuation.resume(throwing: Self.protocolFailure); close() }
+            } else { entry.continuation.resume(throwing: Self.protocolFailure); close(invalidResponse: true) }
         } else if let result = root["result"], !(result is NSNull), let bytes = try? JSONSerialization.data(withJSONObject: result, options: [.fragmentsAllowed]) {
             entry.continuation.resume(returning: bytes)
         } else {
-            entry.continuation.resume(throwing: Self.protocolFailure); close()
+            entry.continuation.resume(throwing: Self.protocolFailure); close(invalidResponse: true)
         }
     }
 }

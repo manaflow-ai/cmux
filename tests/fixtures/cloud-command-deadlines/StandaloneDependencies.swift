@@ -4,6 +4,7 @@ import Foundation
 // Only app-level error and cursor declarations are stubbed for this isolated runner.
 enum CloudMachineLink {
     enum LinkError: Error {
+        case transportLost
         case timedOut
         case inputTooLarge
         case exited(status: Int32, output: String)

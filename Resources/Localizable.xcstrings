@@ -511132,6 +511132,31 @@
         }
       }
     },
+    "cloud.link.transportLost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The Cloud VM service connection was lost. Refresh to reconnect."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Cloud-VM-Dienstverbindung wurde getrennt. Aktualisieren Sie zum erneuten Verbinden."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La connexion au service de la VM Cloud a été interrompue. Actualisez pour vous reconnecter."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "انقطع اتصال خدمة الجهاز الافتراضي السحابي. حدّث الصفحة لإعادة الاتصال."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Se perdió la conexión con el servicio de la máquina virtual de Cloud. Actualiza para volver a conectarte."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Cloud 虛擬機器服務連線已中斷。請重新整理以重新連線。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Cloud 虚拟机服务连接已断开。请刷新以重新连接。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Cloud VM 서비스 연결이 끊겼습니다. 새로 고침하여 다시 연결하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud VM サービスへの接続が失われました。更新して再接続してください。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Veza sa uslugom Cloud VM-a je prekinuta. Osvježite da biste se ponovo povezali."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Forbindelsen til Cloud VM-tjenesten blev afbrudt. Opdater for at oprette forbindelse igen."}},
+        "it": {"stringUnit": {"state": "translated", "value": "La connessione al servizio della VM Cloud è stata persa. Aggiorna per riconnetterti."}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការតភ្ជាប់ទៅសេវា Cloud VM ត្រូវបានបាត់បង់។ ផ្ទុកឡើងវិញ ដើម្បីភ្ជាប់ឡើងវិញ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Tilkoblingen til Cloud VM-tjenesten ble brutt. Oppdater for å koble til på nytt."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Połączenie z usługą Cloud VM zostało utracone. Odśwież, aby połączyć się ponownie."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A conexão com o serviço da VM na nuvem foi perdida. Atualize para reconectar."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Соединение со службой Cloud VM потеряно. Обновите страницу, чтобы подключиться снова."}},
+        "th": {"stringUnit": {"state": "translated", "value": "การเชื่อมต่อกับบริการ Cloud VM ขาดหาย รีเฟรชเพื่อเชื่อมต่ออีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Cloud VM hizmet bağlantısı kesildi. Yeniden bağlanmak için yenileyin."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "З’єднання зі службою Cloud VM втрачено. Оновіть сторінку, щоб під’єднатися знову."}}
+      }
+    },
     "cloud.link.inputTooLarge": {
       "extractionState": "manual",
       "localizations": {

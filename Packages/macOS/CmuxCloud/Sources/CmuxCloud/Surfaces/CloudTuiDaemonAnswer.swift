@@ -26,6 +26,8 @@ public enum CloudTuiDaemonAnswer: Equatable, Sendable {
             return
         }
         switch linkError {
+        case .transportLost:
+            self = .transportFailure("transport closed")
         case .timedOut:
             self = .transportFailure("link deadline")
         case .clientMissing, .spawnFailed, .failureMessage:

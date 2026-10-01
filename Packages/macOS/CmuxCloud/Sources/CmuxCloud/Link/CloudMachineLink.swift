@@ -81,6 +81,8 @@ public actor CloudMachineLink {
         case spawnFailed(String)
         case failureMessage(String)
         case exited(status: Int32, output: String)
+        /// The daemon transport closed or returned an invalid resource frame.
+        case transportLost
         case timedOut
         case inputTooLarge
 
@@ -97,6 +99,11 @@ public actor CloudMachineLink {
             case .exited(let status, let output):
                 let tail = output.split(separator: "\n").suffix(3).joined(separator: " · ")
                 return "cmux-tui link exited with status \(status)" + (tail.isEmpty ? "" : ": \(tail)")
+            case .transportLost:
+                return String(
+                    localized: "cloud.link.transportLost",
+                    defaultValue: "The Cloud VM service connection was lost. Refresh to reconnect."
+                )
             case .timedOut:
                 return "cmux-tui link did not report a socket within the connect timeout."
             }
@@ -127,6 +134,11 @@ public actor CloudMachineLink {
         }
         return described
     }
+
+    private nonisolated static let transportFailureMessage = String(
+        localized: "cloud.link.transportLost",
+        defaultValue: "The Cloud VM service connection was lost. Refresh to reconnect."
+    )
     public private(set) var connected: Connected?
 
     // Foundation `Process` and its pipes are actor-isolated state; every callback hops
@@ -137,6 +149,10 @@ public actor CloudMachineLink {
     /// this machine. Terminal attachment streams are still allowed to subscribe
     /// separately while they migrate onto this same multiplexer.
     private var resourceConnection: CloudTuiPersistentResourceConnection?
+    /// Changes whenever ownership moves to a newly connected or explicitly
+    /// torn-down client. Awaiting operations must validate this epoch before
+    /// publishing their result to a caller.
+    private var connectionEpoch: UInt64 = 0
     private var eventStreamID: String?
     private var eventsSubscriptionID: UUID?
     private var eventsReaderTask: Task<Void, Never>?
@@ -299,8 +315,15 @@ public actor CloudMachineLink {
         let connected = Connected(socketPath: socketPath, session: session)
         self.connected = connected
         self.resourceConnection = CloudTuiPersistentResourceConnection(socketPath: socketPath)
+        connectionEpoch &+= 1
+        let installedConnectionEpoch = connectionEpoch
         state = .connected
-        await startEventsSubscription(socketPath: socketPath, cursor: nil)
+        _ = await startEventsSubscription(socketPath: socketPath, cursor: nil)
+        guard state == .connected,
+              self.connected == connected,
+              connectionEpoch == installedConnectionEpoch else {
+            throw LinkError.transportLost
+        }
         changesContinuation.yield(.connected)
         return connected
     }
@@ -314,19 +337,28 @@ public actor CloudMachineLink {
         cancelEventsStabilityReset()
         eventsRecoveryPhase = .healthy
         state = .unavailable
+        connectionEpoch &+= 1
         connected = nil
         changesContinuation.finish()
-        await cancelEventsStream()
-        if let process, let processExit {
-            await Self.terminateAndWait(process, exit: processExit)
-            if self.process === process {
-                self.process = nil
-                self.processExit = nil
-            }
-        }
-        await resourceConnection?.close()
+        // Capture and clear every owned resource before the first suspension.
+        // A reconnect may otherwise install a new client while this disconnect
+        // is awaiting stream cancellation, and the old cleanup would kill it.
+        let staleStreamID = eventStreamID
+        let staleChannel = resourceConnection
+        let staleProcess = process
+        let staleExit = processExit
+        let staleRelease = releaseHubLease
+        eventStreamID = nil
         resourceConnection = nil
-        await releaseHubLeaseOnce()
+        process = nil
+        processExit = nil
+        releaseHubLease = nil
+        if let staleStreamID { await staleChannel?.cancelStream(staleStreamID) }
+        await staleChannel?.close()
+        if let staleProcess, let staleExit {
+            await Self.terminateAndWait(staleProcess, exit: staleExit)
+        }
+        await staleRelease?()
     }
 
     /// Records a cursor only after the owner has accepted the corresponding
@@ -421,12 +453,37 @@ public actor CloudMachineLink {
     /// Commands are immutable protocol messages on one machine-owned socket.
     /// No child process, CLI parsing, automatic mutation replay or re-authentication.
     public func run(arguments: CloudTuiRequest, timeout: Duration = .seconds(30)) async throws -> Data {
-        try await CloudOperationContext.phase(.process) {
-            let channel = try await self.controlConnection()
-            return try await channel.request(arguments, timeout: timeout)
+        var requestChannel: CloudTuiPersistentResourceConnection?
+        var requestResourceConnection: CloudTuiPersistentResourceConnection?
+        do {
+            let channel = try await controlConnection()
+            // Keep the exact connection used by this request. A concurrent
+            // reconnect may replace the actor's property while the request
+            // is suspended on the socket.
+            requestChannel = channel
+            requestResourceConnection = resourceConnection
+            return try await CloudOperationContext.phase(.process) {
+                try await channel.request(arguments, timeout: timeout)
+            }
+        } catch {
+            // A link process can remain alive after its local control socket has
+            // lost the daemon. Retire that transport so the manager can create a
+            // fresh client instead of reusing a permanently dead link.
+            if Self.isTransportFailure(error),
+               let requestChannel,
+               let requestResourceConnection {
+                await retireForTransportFailure(
+                    error,
+                    resourceConnection: requestResourceConnection,
+                    channel: requestChannel
+                )
+            }
+            throw error
         }
     }
 
+    /// Returns the shared control connection, creating it only after the link
+    /// has reached the connected state.
     private func controlConnection() async throws -> CloudTuiPersistentResourceConnection {
         guard state == .connected, let connected else {
             throw LinkError.exited(status: 3, output: "transport closed: machine link is unavailable")
@@ -435,6 +492,38 @@ public actor CloudMachineLink {
         let channel = CloudTuiPersistentResourceConnection(socketPath: connected.socketPath)
         resourceConnection = channel
         return channel
+    }
+
+    /// Identifies failures that mean the local daemon socket is no longer usable.
+    private nonisolated static func isTransportFailure(_ error: Error) -> Bool {
+        if let linkError = error as? LinkError,
+           case .transportLost = linkError {
+            return true
+        }
+        let nsError = error as NSError
+        guard nsError.domain == "cmux.cloud.manual-io",
+              let description = nsError.userInfo[NSLocalizedDescriptionKey] as? String
+        else { return false }
+        // Only peer-connect failures prove that an already-live link lost its
+        // daemon. Local descriptor, path, and nonblocking setup failures can
+        // occur before any transport was established and must not retire it.
+        return description.hasPrefix("Cloud terminal socket connect failed")
+            || description.hasPrefix("Cloud terminal socket connect status failed")
+    }
+
+    /// Fences a dead link only when the failed request still belongs to the
+    /// connection currently installed on this actor.
+    private func retireForTransportFailure(
+        _: Error,
+        resourceConnection requestResourceConnection: CloudTuiPersistentResourceConnection,
+        channel requestChannel: CloudTuiPersistentResourceConnection
+    ) async {
+        guard state == .connected,
+              self.resourceConnection === requestResourceConnection,
+              self.resourceConnection === requestChannel else { return }
+        state = .error
+        lastError = Self.transportFailureMessage
+        await finishLink(reason: "transport_failure", cursor: eventsCursor, terminateProcess: true)
     }
 
     private func cancelEventsStream() async {
@@ -448,15 +537,19 @@ public actor CloudMachineLink {
     @discardableResult
     private func startEventsSubscription(socketPath: String, cursor: CloudVMCursor?) async -> Bool {
         guard !socketPath.isEmpty else { return false }
+        let subscriptionID = UUID()
         cancelEventsStabilityReset()
-        eventsSubscriptionID = nil
+        // Install the generation before the first await. A concurrent restart
+        // can then invalidate this operation without letting it clobber the
+        // newer stream after cancellation returns.
+        eventsSubscriptionID = subscriptionID
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
         await cancelEventsStream()
-        let subscriptionID = UUID()
-        eventsSubscriptionID = subscriptionID
+        var requestChannel: CloudTuiPersistentResourceConnection?
         do {
             let channel = try await controlConnection()
+            requestChannel = channel
             let opened = try await channel.events(cursor: cursor)
             guard eventsSubscriptionID == subscriptionID, state == .connected else {
                 await channel.cancelStream(opened.id)
@@ -470,12 +563,27 @@ public actor CloudMachineLink {
                     if case .streamEnded = change { receivedStreamEnd = true }
                     await self?.eventChange(change, subscriptionID: subscriptionID)
                 }
-                await self?.eventReaderDidEnd(subscriptionID: subscriptionID, receivedStreamEnd: receivedStreamEnd)
+                await self?.eventReaderDidEnd(
+                    subscriptionID: subscriptionID,
+                    receivedStreamEnd: receivedStreamEnd,
+                    channel: channel
+                )
             }
             return true
         } catch {
             guard eventsSubscriptionID == subscriptionID else { return false }
             eventsSubscriptionID = nil
+            if Self.isTransportFailure(error) {
+                let channel = requestChannel ?? resourceConnection
+                if let channel {
+                    await retireForTransportFailure(
+                        error,
+                        resourceConnection: channel,
+                        channel: channel
+                    )
+                }
+                return false
+            }
             changesContinuation.yield(.streamEnded(reason: "events_open_failed", cursor: eventsCursor))
             scheduleEventsRecovery()
             return false
@@ -505,8 +613,20 @@ public actor CloudMachineLink {
         changesContinuation.yield(change)
     }
 
-    private func eventReaderDidEnd(subscriptionID: UUID, receivedStreamEnd: Bool) async {
+    private func eventReaderDidEnd(
+        subscriptionID: UUID,
+        receivedStreamEnd: Bool,
+        channel: CloudTuiPersistentResourceConnection
+    ) async {
         guard eventsSubscriptionID == subscriptionID else { return }
+        if !receivedStreamEnd, await channel.lostTransport {
+            await retireForTransportFailure(
+                LinkError.transportLost,
+                resourceConnection: channel,
+                channel: channel
+            )
+            return
+        }
         await finishEventsSubscription(
             subscriptionID: subscriptionID,
             reason: receivedStreamEnd ? nil : "eof"
@@ -643,6 +763,17 @@ public actor CloudMachineLink {
 
     private func linkProcessDidExit(_ exitedProcess: Process, status: Int32) async {
         guard process === exitedProcess else { return }
+        if state != .unavailable {
+            state = status == 0 ? .unavailable : .error
+            lastError = status == 0 ? nil : LinkError.exited(status: status, output: stderrTail.joined(separator: "\n")).errorDescription
+        }
+        await finishLink(reason: "link_exit", cursor: nil, terminateProcess: false)
+    }
+
+    /// Finishes a link exactly once after either the child exits or transport
+    /// retirement fences it. The caller sets the final state and error first.
+    private func finishLink(reason: String, cursor: CloudVMCursor?, terminateProcess: Bool) async {
+        connectionEpoch &+= 1
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
@@ -650,19 +781,27 @@ public actor CloudMachineLink {
         eventsRecoveryTask = nil
         cancelEventsStabilityReset()
         eventsRecoveryPhase = .healthy
-        await cancelEventsStream()
+        // Clear every owned resource before the first suspension. A reconnect
+        // can install a new client while these old resources finish closing.
+        let staleStreamID = eventStreamID
+        let staleChannel = resourceConnection
+        let staleRelease = releaseHubLease
+        eventStreamID = nil
+        resourceConnection = nil
+        releaseHubLease = nil
+        connected = nil
+        let staleProcess = process
+        let staleExit = processExit
         process = nil
         processExit = nil
-        connected = nil
-        if state != .unavailable {
-            state = status == 0 ? .unavailable : .error
-            lastError = status == 0 ? nil : LinkError.exited(status: status, output: stderrTail.joined(separator: "\n")).errorDescription
-        }
-        await resourceConnection?.close()
-        resourceConnection = nil
-        changesContinuation.yield(.streamEnded(reason: "link_exit", cursor: nil))
+        changesContinuation.yield(.streamEnded(reason: reason, cursor: cursor))
         changesContinuation.finish()
-        await releaseHubLeaseOnce()
+        if let staleStreamID { await staleChannel?.cancelStream(staleStreamID) }
+        await staleChannel?.close()
+        if terminateProcess, let staleProcess, let staleExit {
+            await Self.terminateAndWait(staleProcess, exit: staleExit)
+        }
+        await staleRelease?()
     }
 
     /// Foundation aborts if a running `Process` is released. Keep a detached exit
