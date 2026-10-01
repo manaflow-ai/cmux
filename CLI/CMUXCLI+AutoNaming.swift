@@ -330,6 +330,12 @@ enum TmuxCompatArgumentParser {
         var positional: [String] = []
     }
 
+    struct ArgumentError: Error, LocalizedError, Equatable, Sendable {
+        let message: String
+
+        var errorDescription: String? { message }
+    }
+
     static func parseClearHistory(_ args: [String]) throws -> TmuxCompatParsedArguments {
         let result = try scan(
             args,
@@ -400,8 +406,8 @@ enum TmuxCompatArgumentParser {
         )
     }
 
-    private static func invalid(_ message: String) -> TmuxCompatArgumentError {
-        TmuxCompatArgumentError(message: message)
+    private static func invalid(_ message: String) -> ArgumentError {
+        ArgumentError(message: message)
     }
 
     private static func scan(

@@ -3956,9 +3956,6 @@
 		C4160A070000000000000001 /* TitlebarLayoutDebugWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A070000000000000002 /* TitlebarLayoutDebugWindow.swift */; };
 		C10D00110000000000000011 /* TitlebarNewWorkspaceSplitButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00120000000000000012 /* TitlebarNewWorkspaceSplitButton.swift */; };
 		A10507000000000000000001 /* TitleUpdateAmplificationRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10507000000000000000002 /* TitleUpdateAmplificationRegressionTests.swift */; };
-		4EA49A152F979C233B038F5C /* TmuxCompatArgumentError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4633FFE32F3D03F6EFA14FEE /* TmuxCompatArgumentError.swift */; };
-		CA6390108AFAC809B6801E98 /* TmuxCompatArgumentError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4633FFE32F3D03F6EFA14FEE /* TmuxCompatArgumentError.swift */; };
-		D236A556B558EAD2E624BE99 /* TmuxCompatArgumentError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4633FFE32F3D03F6EFA14FEE /* TmuxCompatArgumentError.swift */; };
 		9009A0029009A0029009A001 /* TmuxCompatLaunchContextError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9009A0029009A0029009A002 /* TmuxCompatLaunchContextError.swift */; };
 		E30760030000000000000002 /* TmuxOverlayExperimentSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760030000000000000001 /* TmuxOverlayExperimentSettings.swift */; };
 		E30760040000000000000002 /* TmuxOverlayExperimentTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760040000000000000001 /* TmuxOverlayExperimentTarget.swift */; };
@@ -8237,7 +8234,6 @@
 		C4160A070000000000000002 /* TitlebarLayoutDebugWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarLayoutDebugWindow.swift; sourceTree = "<group>"; };
 		C10D00120000000000000012 /* TitlebarNewWorkspaceSplitButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/TitlebarNewWorkspaceSplitButton.swift; sourceTree = "<group>"; };
 		A10507000000000000000002 /* TitleUpdateAmplificationRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitleUpdateAmplificationRegressionTests.swift; sourceTree = "<group>"; };
-		4633FFE32F3D03F6EFA14FEE /* TmuxCompatArgumentError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxCompatArgumentError.swift; sourceTree = "<group>"; };
 		9009A0029009A0029009A002 /* TmuxCompatLaunchContextError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxCompatLaunchContextError.swift; sourceTree = "<group>"; };
 		E30760030000000000000001 /* TmuxOverlayExperimentSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxOverlayExperimentSettings.swift; sourceTree = "<group>"; };
 		E30760040000000000000001 /* TmuxOverlayExperimentTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxOverlayExperimentTarget.swift; sourceTree = "<group>"; };
@@ -11879,7 +11875,6 @@
 				054B01530302FCEEAA5CFEAD /* CMUXCLI+DiffViewerPreferences.swift */,
 				57AE38B536A608CB2CDEE6AD /* CMUXCLI+DiffViewerReviewLabels.swift */,
 				5A2776CC5FE1E0083FAAB3A8 /* VMReadyPollInterval.swift */,
-				4633FFE32F3D03F6EFA14FEE /* TmuxCompatArgumentError.swift */,
 			);
 			path = CLI;
 			sourceTree = "<group>";
@@ -13874,7 +13869,6 @@
 				C1175700000000000000003D /* CodexTerminalErrorNotificationTests.swift in Sources */,
 				C1175700000000000000003E /* KimiHookConfigLocationTests.swift in Sources */,
 				C11757000000000000000063 /* ProcessExitWait.swift in Sources */,
-				D236A556B558EAD2E624BE99 /* TmuxCompatArgumentError.swift in Sources */,
 				C1175700000000000000F0A1 /* VMReadyPollInterval.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -16704,7 +16698,6 @@
 				6379A0046379A0046379A004 /* SSHPTYResizeMonitor.swift in Sources */,
 				9A6800000000000000000002 /* SSHPTYTerminalReadinessReport.swift in Sources */,
 				D0F101000000000000000003 /* TerminalRawMode.swift in Sources */,
-				4EA49A152F979C233B038F5C /* TmuxCompatArgumentError.swift in Sources */,
 				9009A0029009A0029009A001 /* TmuxCompatLaunchContextError.swift in Sources */,
 					575000010000000000000002 /* TmuxWaitForSignal.swift in Sources */,
 				B81607322100000000000002 /* VMMachineTerminalResolution.swift in Sources */,
@@ -17940,7 +17933,6 @@
 				C0DE7B360000000000000001 /* TextBoxSubmitActionTests.swift in Sources */,
 				F50030040000000000000001 /* TitlebarInteractiveControlTests.swift in Sources */,
 				A10507000000000000000001 /* TitleUpdateAmplificationRegressionTests.swift in Sources */,
-				CA6390108AFAC809B6801E98 /* TmuxCompatArgumentError.swift in Sources */,
 				E30760060000000000000002 /* TmuxWorkspacePaneOverlayModelTests.swift in Sources */,
 				D3284001A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift in Sources */,
 				468100000000000000000003 /* TypingHotPathRegressionTests.swift in Sources */,
