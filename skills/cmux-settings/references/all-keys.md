@@ -205,8 +205,11 @@ Embedded browser settings from Settings > Browser.
 | `browser.reactGrabVersion` | string | `"0.1.29"` | Pinned react-grab version for the browser toolbar helper. |
 | `browser.customSearchEngineName` | string | `""` | Display name used when defaultSearchEngine is custom. |
 | `browser.customSearchEngineURLTemplate` | string | `"https://www.google.com/search?q={query}"` | Search URL used when defaultSearchEngine is custom. Include {query} or %s for the encoded query. If omitted, cmux appends q= to the URL. |
-| `browser.discardHiddenWebViews` | boolean | `true` | Allow hidden browser tabs to release page memory and restore when shown again. |
-| `browser.hiddenWebViewDiscardDelaySeconds` | number | `300` | Seconds a browser tab must stay hidden before cmux frees its page memory. |
+| `browser.discardHiddenWebViews` | boolean | `true` | Allow hidden browser tabs to release page memory. Scroll position, form input, and history come back when a tab is shown again. |
+| `browser.hiddenWebViewDiscardMode` | string | `"budget"` | How cmux picks hidden browser tabs to free. `budget` frees the tabs hidden longest once hidden tabs use more than `hiddenWebViewMemoryBudgetMB`; `timer` frees every tab hidden longer than `hiddenWebViewDiscardDelaySeconds`. |
+| `browser.hiddenWebViewMemoryBudgetMB` | integer | `2048` | Megabytes of memory hidden browser tabs may use before cmux frees the tabs hidden longest (256 to 65536). Applies when `hiddenWebViewDiscardMode` is `budget`. |
+| `browser.hiddenWebViewDiscardDelaySeconds` | number | `300` | Seconds a browser tab must stay hidden before cmux may free its page memory. In timer mode, every tab hidden this long is freed. |
+| `browser.autoRestoreUnloadedPages` | boolean | `true` | Restore a browser page unloaded to save memory, or whose web process ended while hidden, as soon as its tab is shown. When `false`, the tab shows the page's last snapshot until you click Restore. |
 | `browser.askWhereToSaveDownloads` | boolean | `false` | Show a save panel for browser downloads instead of saving directly to Downloads. |
 | `browser.urlAllowlist` | array<string> | `["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]` | Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies. |
 
