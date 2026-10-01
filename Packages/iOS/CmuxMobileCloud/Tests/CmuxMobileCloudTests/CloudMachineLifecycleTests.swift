@@ -159,6 +159,29 @@ import Testing
         controller.sectionDidDisappear()
     }
 
+    @Test func changingHiddenMachineIDsInvalidatesObservationConsumers() async {
+        let suite = "cmux-cloud-visibility-observation-tests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = makeController(service: FakeCloudVMService(), visibilityDefaults: defaults)
+        let invalidated = TestSignal()
+
+        withObservationTracking {
+            _ = controller.hiddenMachineIDs
+        } onChange: {
+            Task { await invalidated.signal() }
+        }
+
+        controller.setMachine(id: "vm-1", hidden: true)
+        let invalidationTask = Task<Void, any Error> {
+            await invalidated.wait()
+        }
+        let didInvalidate = (try? await CloudSystemVPNTaskTimeout(timeout: .milliseconds(100)).value(invalidationTask)) != nil
+
+        #expect(didInvalidate)
+        #expect(controller.hiddenMachineIDs == ["vm-1"])
+    }
+
     @Test func aProvisioningMachineIsReReadUntilItSettles() async {
         let service = FakeCloudVMService()
         let starting = CloudMachine(id: "vm-1", provider: "freestyle", status: "provisioning")

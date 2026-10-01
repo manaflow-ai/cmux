@@ -200,6 +200,12 @@ import Testing
         #expect(catalog.limits == nil)
     }
 
+    @Test func preservesUnknownMachineKindsWhenLimitsOmitImageKinds() throws {
+        let catalog = try decoding.catalog(from: Data(#"{"vms":[],"limits":{"maxActiveVms":50}}"#.utf8))
+        #expect(catalog.availableKinds == nil)
+        #expect(catalog.limits?.maxActiveMachines == 50)
+    }
+
     @Test func decodesCreatedMachine() throws {
         let machine = try decoding.createdMachine(from: Data(#"{"id":"vm-new","provider":"freestyle","status":"provisioning","displayName":"phone"}"#.utf8))
         #expect(machine == CloudMachine(id: "vm-new", provider: "freestyle", status: "provisioning", displayName: "phone"))
