@@ -25,11 +25,11 @@ extension CmuxTuiSurfaceProvider {
                   portAccessStore: portAccessStore, displayCoordinator: displayCoordinator,
                   browserPolicy: browserPolicy, loadPortSummary: loadPortSummary)
     }
-    static func info(from summary: VMSummary, linkState: SurfaceLinkState, linkError: String?, stats: VMStats?, remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil, portDiscoveryState: CloudPortDiscoveryState = .notRequested) -> SurfaceMachineInfo {
-        info(from: .cloud(summary), linkState: linkState, linkError: linkError, stats: stats, remoteWorkspaces: remoteWorkspaces, portDiscoveryState: portDiscoveryState)
+    static func info(from summary: VMSummary, linkState: SurfaceLinkState, linkError: String?, stats: VMStats?, remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil, portDiscoveryState: CloudPortDiscoveryState = .notRequested, observedDaemonBuild: SurfaceDaemonBuild? = nil) -> SurfaceMachineInfo {
+        info(from: .cloud(summary), linkState: linkState, linkError: linkError, stats: stats, remoteWorkspaces: remoteWorkspaces, portDiscoveryState: portDiscoveryState, observedDaemonBuild: observedDaemonBuild)
     }
 
-    static func info(from summary: RemoteTuiMachine, linkState: SurfaceLinkState, linkError: String?, stats: VMStats?, remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil, portDiscoveryState: CloudPortDiscoveryState = .notRequested) -> SurfaceMachineInfo {
+    static func info(from summary: RemoteTuiMachine, linkState: SurfaceLinkState, linkError: String?, stats: VMStats?, remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil, portDiscoveryState: CloudPortDiscoveryState = .notRequested, observedDaemonBuild: SurfaceDaemonBuild? = nil) -> SurfaceMachineInfo {
         SurfaceMachineInfo(
             id: summary.machine,
             name: summary.preferredName,
@@ -45,7 +45,8 @@ extension CmuxTuiSurfaceProvider {
             diskUsedMb: stats?.diskUsedMb,
             remoteWorkspaces: remoteWorkspaces,
             privateAddress: summary.preferredPrivateAddress,
-            portDiscoveryState: portDiscoveryState
+            portDiscoveryState: portDiscoveryState,
+            observedDaemonBuild: observedDaemonBuild
         )
     }
 

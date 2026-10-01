@@ -120,7 +120,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         guard machineID == connection.id, let current else { return nil }
         let state = await current.state
         let error = await current.lastError
-        return .init(state: state, error: error)
+        return .init(state: state, error: error, observedDaemonBuild: nil)
     }
 
     func privateAddresses(for machineID: String) -> [String] { ["127.0.0.1"] }

@@ -914,7 +914,7 @@ public struct VMCmuxRemoteEndpoint: Sendable {
 
     public let networkAddresses: NetworkAddresses?
     /// The machine daemon's build identity, for naming a protocol mismatch.
-    public struct DaemonBuild: Sendable {
+    public struct DaemonBuild: Sendable, Equatable {
         public let commit: String?
         public let remoteProtocol: Int?
         public let version: String?

@@ -23,6 +23,8 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
     /// Account presence for another Mac's app instance; nil for local and cloud machines.
     public var presence: SurfaceDevicePresence? = nil
     public var portDiscoveryState: CloudPortDiscoveryState = .notRequested
+    /// Build identity returned by the live cmux-tui daemon, when the attach path reported it.
+    public var observedDaemonBuild: SurfaceDaemonBuild? = nil
 
     public init(
         id: SurfaceMachineID,
@@ -40,7 +42,8 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil,
         privateAddress: String? = nil,
         presence: SurfaceDevicePresence? = nil,
-        portDiscoveryState: CloudPortDiscoveryState = .notRequested
+        portDiscoveryState: CloudPortDiscoveryState = .notRequested,
+        observedDaemonBuild: SurfaceDaemonBuild? = nil
     ) {
         self.id = id
         self.name = name
@@ -58,12 +61,13 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         self.privateAddress = privateAddress
         self.presence = presence
         self.portDiscoveryState = portDiscoveryState
+        self.observedDaemonBuild = observedDaemonBuild
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, status, image, hasDesktop, memoryMb, diskMb, linkState, linkError
         case cpuPercent, memoryUsedMb, diskUsedMb, remoteWorkspaces, privateAddress, presence
-        case portDiscoveryState
+        case portDiscoveryState, observedDaemonBuild
     }
 
     public init(from decoder: any Decoder) throws {
@@ -84,6 +88,7 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         privateAddress = try values.decodeIfPresent(String.self, forKey: .privateAddress)
         presence = try values.decodeIfPresent(SurfaceDevicePresence.self, forKey: .presence)
         portDiscoveryState = try values.decodeIfPresent(CloudPortDiscoveryState.self, forKey: .portDiscoveryState) ?? .notRequested
+        observedDaemonBuild = try values.decodeIfPresent(SurfaceDaemonBuild.self, forKey: .observedDaemonBuild)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -104,6 +109,6 @@ public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
         try values.encodeIfPresent(privateAddress, forKey: .privateAddress)
         try values.encodeIfPresent(presence, forKey: .presence)
         try values.encode(portDiscoveryState, forKey: .portDiscoveryState)
+        try values.encodeIfPresent(observedDaemonBuild, forKey: .observedDaemonBuild)
     }
 }
-

@@ -58,13 +58,16 @@ public actor CloudMachineLink {
     public struct Connected: Sendable, Equatable {
         public let socketPath: String
         public let session: String
+        public let daemonBuild: SurfaceDaemonBuild?
 
         public init(
             socketPath: String,
-            session: String
+            session: String,
+            daemonBuild: SurfaceDaemonBuild? = nil
         ) {
             self.socketPath = socketPath
             self.session = session
+            self.daemonBuild = daemonBuild
         }
     }
 
@@ -191,6 +194,7 @@ public actor CloudMachineLink {
         sshArguments: [String] = [],
         wireguardHubSocket: String? = nil,
         ssh: SSHTuiConnection? = nil,
+        daemonBuild: SurfaceDaemonBuild? = nil,
         releaseHubLease: (@Sendable () async -> Void)? = nil
     ) async throws -> Connected {
         if let connected, state == .connected {
@@ -306,7 +310,7 @@ public actor CloudMachineLink {
             try Task.checkCancellation()
             throw error
         }
-        let connected = Connected(socketPath: socketPath, session: session)
+        let connected = Connected(socketPath: socketPath, session: session, daemonBuild: daemonBuild)
         self.connected = connected
         self.resourceConnection = CloudTuiPersistentResourceConnection(socketPath: socketPath)
         state = .connected
