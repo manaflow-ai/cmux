@@ -30,6 +30,7 @@ enum OnboardingControl {
         box.attributedTitle = NSAttributedString(string: title, attributes: [
             .font: OnboardingMetrics.bodyFont, .foregroundColor: Palette.textPrimary,
         ])
+        singleLine(box)
         return box
     }
 
@@ -41,6 +42,16 @@ enum OnboardingControl {
         radio.attributedTitle = NSAttributedString(string: title, attributes: [
             .font: OnboardingMetrics.bodyFont, .foregroundColor: Palette.textPrimary,
         ])
+        singleLine(radio)
         return radio
+    }
+
+    /// Titles stay on one line at their full width (a squeezed stack made
+    /// AppKit wrap "Bookmarks" into "Bookmark/s").
+    private static func singleLine(_ button: NSButton) {
+        button.cell?.wraps = false
+        button.lineBreakMode = .byTruncatingTail
+        button.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        button.setContentHuggingPriority(.defaultHigh, for: .horizontal)
     }
 }

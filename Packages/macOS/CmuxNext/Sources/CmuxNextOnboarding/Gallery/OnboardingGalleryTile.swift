@@ -23,7 +23,6 @@ final class OnboardingGalleryTile: NSStackView {
         let size = OnboardingMetrics.windowSize
         let thumb = ScaledThumbnail(size: NSSize(width: size.width * Self.scale, height: size.height * Self.scale))
         let screen = OnboardingSurfaceView(surface: variant.surface, content: variant.makeContent(OnboardingStepContext(model: model)))
-        screen.frame = NSRect(origin: .zero, size: size)
         thumb.show(screen, fullSize: size)
         thumb.onClick = { [weak self] in self?.open() }
         model.stepDidAppear()
@@ -79,11 +78,17 @@ final class ScaledThumbnail: NSView {
 
     private var fullSize: NSSize?
 
+    /// Scales the box's coordinate space to `fullSize` first, then adds the
+    /// view at full size with no autoresizing (else AppKit shrinks it twice).
     func show(_ view: NSView, fullSize: NSSize) {
         self.fullSize = fullSize
-        addSubview(view)
         bounds = NSRect(origin: .zero, size: fullSize)
+        view.autoresizingMask = []
+        view.frame = NSRect(origin: .zero, size: fullSize)
+        addSubview(view)
     }
+
+    override var isFlipped: Bool { true }
 
     override func layout() {
         super.layout()
