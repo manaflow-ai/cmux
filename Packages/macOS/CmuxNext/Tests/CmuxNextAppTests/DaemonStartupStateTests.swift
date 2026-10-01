@@ -9,14 +9,20 @@ import Testing
 @MainActor @Suite(.timeLimit(.minutes(1))) struct DaemonStartupStateTests {
     private func waitFor(_ expected: DaemonStartupState, service: DaemonService,
                          timeout: Duration = .seconds(10)) async throws {
+        let observation = Task { @MainActor in
+            for await state in Observations({ service.startup }) where state == expected { return }
+        }
+        let timeoutTask = Task<Void, Error> {
+            try await Task.sleep(for: timeout)
+            throw DaemonError.timedOut("daemon startup state did not become (expected)")
+        }
+        defer {
+            observation.cancel()
+            timeoutTask.cancel()
+        }
         try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask { @MainActor in
-                for await state in Observations({ service.startup }) where state == expected { return }
-            }
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                throw DaemonError.timedOut("daemon startup state did not become (expected)")
-            }
+            group.addTask { await observation.value }
+            group.addTask { try await timeoutTask.value }
             try await group.next()
             group.cancelAll()
         }
