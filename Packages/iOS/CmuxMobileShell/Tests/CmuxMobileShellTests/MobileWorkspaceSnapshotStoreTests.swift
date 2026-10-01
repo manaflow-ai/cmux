@@ -67,10 +67,10 @@ struct MobileWorkspaceSnapshotStoreTests {
         await store.save(state: state(for: stable), userID: "user-a", teamID: "team-a", pairing: stable)
         await store.save(state: state(for: other), userID: "user-b", teamID: "team-a", pairing: other)
 
-        let loaded = store.loadAll(userID: "user-a", teamID: "team-a")
+        let loaded = await store.loadAll(userID: "user-a", teamID: "team-a")
         #expect(Set(loaded.map(\.0)) == [nightly, stable])
         #expect(loaded.allSatisfy { $0.1.status == .reconnecting })
-        #expect(store.loadAll(userID: "user-a", teamID: "team-b").isEmpty)
+        #expect(await store.loadAll(userID: "user-a", teamID: "team-b").isEmpty)
     }
 
     @Test
@@ -103,7 +103,7 @@ struct MobileWorkspaceSnapshotStoreTests {
         await store.save(state: empty, userID: "user-a", teamID: "team-a", pairing: pairing)
 
         #expect(store.load(userID: "user-a", teamID: "team-a", pairing: pairing) == nil)
-        #expect(store.loadAll(userID: "user-a", teamID: "team-a").isEmpty)
+        #expect(await store.loadAll(userID: "user-a", teamID: "team-a").isEmpty)
     }
 
     @Test
@@ -141,7 +141,7 @@ struct MobileWorkspaceSnapshotStoreTests {
         let storageKey = defaults.dictionaryRepresentation().keys.first { $0.contains("cmux.mobile.v2.workspace-snapshot.") }!
         defaults.set(Data("not-json".utf8), forKey: storageKey)
 
-        #expect(store.loadAll(userID: "user-a", teamID: "team-a").isEmpty)
+        #expect(await store.loadAll(userID: "user-a", teamID: "team-a").isEmpty)
         #expect(defaults.data(forKey: storageKey) == nil)
     }
 
@@ -163,7 +163,7 @@ struct MobileWorkspaceSnapshotStoreTests {
         object["savedAt"] = Date(timeIntervalSinceNow: -8 * 24 * 60 * 60).timeIntervalSinceReferenceDate
         defaults.set(try! JSONSerialization.data(withJSONObject: object), forKey: storageKey)
 
-        #expect(store.loadAll(userID: "user-a", teamID: "team-a").isEmpty)
+        #expect(await store.loadAll(userID: "user-a", teamID: "team-a").isEmpty)
         #expect(defaults.data(forKey: storageKey) == nil)
     }
 }

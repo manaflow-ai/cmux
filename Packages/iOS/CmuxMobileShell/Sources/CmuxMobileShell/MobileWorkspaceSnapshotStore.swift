@@ -17,14 +17,71 @@ public final class MobileWorkspaceSnapshotStore {
 
     private actor Persistence {
         private let defaults: DefaultsBox
+        private let maxAge: TimeInterval
         private let maxRecords: Int
         private var knownKeys: Set<String>?
         private var savedAtByKey: [String: Date] = [:]
         private var latestRevisionByKey: [String: UInt64] = [:]
 
-        init(defaults: DefaultsBox, maxRecords: Int) {
+        init(defaults: DefaultsBox, maxAge: TimeInterval, maxRecords: Int) {
             self.defaults = defaults
+            self.maxAge = maxAge
             self.maxRecords = maxRecords
+        }
+
+        func loadAll(
+            userID: String,
+            teamID: String?,
+            namespace: String
+        ) -> [(MacPairingKey, MacWorkspaceState)] {
+            let now = Date()
+            var keys = knownKeys ?? Set(
+                defaults.value.dictionaryRepresentation().keys.filter { $0.hasPrefix(namespace) }
+            )
+            var result: [(MacPairingKey, MacWorkspaceState)] = []
+            var removedKeys = Set<String>()
+            for key in keys {
+                guard let storedScope = Self.scope(fromStorageKey: key, namespace: namespace),
+                      storedScope.userID == userID,
+                      storedScope.teamID == teamID else {
+                    continue
+                }
+                guard let data = defaults.value.data(forKey: key),
+                      let record = try? JSONDecoder().decode(Record.self, from: data),
+                      (record.userID == nil || record.userID == userID),
+                      (record.teamID == nil || record.teamID == teamID) else {
+                    defaults.value.removeObject(forKey: key)
+                    removedKeys.insert(key)
+                    continue
+                }
+                guard now.timeIntervalSince(record.savedAt) <= maxAge else {
+                    defaults.value.removeObject(forKey: key)
+                    removedKeys.insert(key)
+                    savedAtByKey[key] = nil
+                    continue
+                }
+                let pairing = MacPairingKey(
+                    macDeviceID: record.macDeviceID,
+                    instanceTag: record.instanceTag
+                )
+                result.append((pairing, MacWorkspaceState(
+                    macDeviceID: pairing.canonicalMacDeviceID,
+                    instanceTag: pairing.normalizedInstanceTag,
+                    displayName: record.displayName,
+                    workspaces: record.workspaces.map { $0.value() },
+                    groups: record.groups.map { $0.value() },
+                    workspaceGroupsAreAuthoritative:
+                        record.workspaceGroupsAreAuthoritative ?? !record.groups.isEmpty,
+                    status: .reconnecting,
+                    workspaceSnapshotIsAuthoritative: false,
+                    actionCapabilities: .none
+                )))
+                savedAtByKey[key] = record.savedAt
+            }
+            keys.subtract(removedKeys)
+            knownKeys = keys
+            enforceLimit(keys: keys)
+            return result
         }
 
         func save(
@@ -80,6 +137,24 @@ public final class MobileWorkspaceSnapshotStore {
                   let dictionary = object as? [String: Any],
                   let seconds = dictionary["savedAt"] as? NSNumber else { return nil }
             return Date(timeIntervalSinceReferenceDate: seconds.doubleValue)
+        }
+
+        private static func scope(
+            fromStorageKey key: String,
+            namespace: String
+        ) -> (userID: String, teamID: String?)? {
+            let encoded = String(key.dropFirst(namespace.count))
+            var padded = encoded.replacingOccurrences(of: "_", with: "/")
+                .replacingOccurrences(of: "-", with: "+")
+            padded += String(repeating: "=", count: (4 - padded.count % 4) % 4)
+            guard let data = Data(base64Encoded: padded),
+                  let raw = String(data: data, encoding: .utf8) else { return nil }
+            let parts = raw.split(separator: "\u{1F}", omittingEmptySubsequences: false)
+            guard parts.count >= 3 else { return nil }
+            return (
+                userID: String(parts[0]),
+                teamID: parts[1].isEmpty ? nil : String(parts[1])
+            )
         }
     }
 
@@ -246,17 +321,15 @@ public final class MobileWorkspaceSnapshotStore {
     private let defaults: UserDefaults
     private let namespace = "cmux.mobile.v2.workspace-snapshot."
     private let maxAge: TimeInterval = 7 * 24 * 60 * 60
-    private let pruneInterval: TimeInterval = 60
     private let maxRecords = 64
     private let maxRecordBytes = 512 * 1024
     private let persistence: Persistence
-    private var knownStorageKeys: Set<String>?
-    private var lastPruneAt: Date?
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.persistence = Persistence(
             defaults: DefaultsBox(defaults),
+            maxAge: maxAge,
             maxRecords: maxRecords
         )
     }
@@ -318,28 +391,12 @@ public final class MobileWorkspaceSnapshotStore {
     public func loadAll(
         userID: String,
         teamID: String?
-    ) -> [(MacPairingKey, MacWorkspaceState)] {
-        pruneExpiredSnapshotsIfNeeded()
-        var result: [(MacPairingKey, MacWorkspaceState)] = []
-        for key in storageKeys() {
-            guard let storedScope = scope(fromStorageKey: key),
-                  storedScope.userID == userID,
-                  storedScope.teamID == teamID,
-                  let data = defaults.data(forKey: key),
-                  let record = try? JSONDecoder().decode(Record.self, from: data),
-                  // New values carry the scope too. Older values are still
-                  // safe because the encoded key above is scoped and is the
-                  // migration source for this index-free format.
-                  (record.userID == nil || record.userID == userID),
-                  (record.teamID == nil || record.teamID == teamID) else {
-                continue
-            }
-            let pairing = MacPairingKey(macDeviceID: record.macDeviceID, instanceTag: record.instanceTag)
-            if let state = state(from: record, pairing: pairing) {
-                result.append((pairing, state))
-            }
-        }
-        return result
+    ) async -> [(MacPairingKey, MacWorkspaceState)] {
+        await persistence.loadAll(
+            userID: userID,
+            teamID: teamID,
+            namespace: namespace
+        )
     }
 
     public func save(
@@ -358,7 +415,6 @@ public final class MobileWorkspaceSnapshotStore {
                 key: storageKey,
                 revision: revision
             )
-            knownStorageKeys?.remove(storageKey)
             return
         }
         let savedAt = Date()
@@ -382,8 +438,6 @@ public final class MobileWorkspaceSnapshotStore {
             revision: revision,
             namespace: namespace
         )
-        knownStorageKeys = nil
-        lastPruneAt = nil
     }
 
     public func remove(
@@ -394,29 +448,6 @@ public final class MobileWorkspaceSnapshotStore {
     ) async {
         let storageKey = key(userID: userID, teamID: teamID, pairing: pairing)
         await persistence.remove(key: storageKey, revision: revision)
-        knownStorageKeys?.remove(storageKey)
-    }
-
-    private func state(
-        from record: Record,
-        pairing: MacPairingKey
-    ) -> MacWorkspaceState? {
-        guard record.macDeviceID == pairing.canonicalMacDeviceID,
-              MacPairingKey(macDeviceID: record.macDeviceID, instanceTag: record.instanceTag)
-                  == pairing else {
-            return nil
-        }
-        return MacWorkspaceState(
-            macDeviceID: pairing.canonicalMacDeviceID,
-            instanceTag: pairing.normalizedInstanceTag,
-            displayName: record.displayName,
-            workspaces: record.workspaces.map { $0.value() },
-            groups: record.groups.map { $0.value() },
-            workspaceGroupsAreAuthoritative: record.workspaceGroupsAreAuthoritative ?? !record.groups.isEmpty,
-            status: .reconnecting,
-            workspaceSnapshotIsAuthoritative: false,
-            actionCapabilities: .none
-        )
     }
 
     private func key(
@@ -431,66 +462,4 @@ public final class MobileWorkspaceSnapshotStore {
             .replacingOccurrences(of: "=", with: "")
     }
 
-    /// Keep the index-free UserDefaults namespace bounded. A scope can be
-    /// removed or changed without a matching callback here, so age out every
-    /// expired or unreadable record whenever the store is touched.
-    private func storageKeys() -> Set<String> {
-        if let knownStorageKeys { return knownStorageKeys }
-        let keys = Set(defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix(namespace) })
-        knownStorageKeys = keys
-        return keys
-    }
-
-    private func pruneExpiredSnapshotsIfNeeded(now: Date = Date()) {
-        if let lastPruneAt, now.timeIntervalSince(lastPruneAt) < pruneInterval { return }
-        let existingKeys = storageKeys()
-        var retainedKeys = existingKeys
-        var expiredKeys = Set<String>()
-        for storageKey in existingKeys {
-            guard let data = defaults.data(forKey: storageKey),
-                  let record = try? JSONDecoder().decode(Record.self, from: data),
-                  now.timeIntervalSince(record.savedAt) <= maxAge else {
-                defaults.removeObject(forKey: storageKey)
-                expiredKeys.insert(storageKey)
-                continue
-            }
-        }
-        retainedKeys.subtract(expiredKeys)
-        knownStorageKeys = retainedKeys
-        lastPruneAt = now
-        enforceRecordLimitIfNeeded()
-    }
-
-    private func enforceRecordLimitIfNeeded() {
-        let keys = storageKeys()
-        guard keys.count > maxRecords else { return }
-        let records = keys.compactMap { storageKey -> (String, Date)? in
-            guard let data = defaults.data(forKey: storageKey),
-                  let record = try? JSONDecoder().decode(Record.self, from: data) else {
-                defaults.removeObject(forKey: storageKey)
-                return nil
-            }
-            return (storageKey, record.savedAt)
-        }
-        let keep = Set(records.sorted { $0.1 > $1.1 }.prefix(maxRecords).map(\.0))
-        for storageKey in keys where !keep.contains(storageKey) {
-            defaults.removeObject(forKey: storageKey)
-        }
-        knownStorageKeys = keep
-    }
-
-    private func scope(fromStorageKey key: String) -> (userID: String, teamID: String?)? {
-        let encoded = String(key.dropFirst(namespace.count))
-        var padded = encoded.replacingOccurrences(of: "_", with: "/")
-            .replacingOccurrences(of: "-", with: "+")
-        padded += String(repeating: "=", count: (4 - padded.count % 4) % 4)
-        guard let data = Data(base64Encoded: padded),
-              let raw = String(data: data, encoding: .utf8) else { return nil }
-        let parts = raw.split(separator: "\u{1F}", omittingEmptySubsequences: false)
-        guard parts.count >= 3 else { return nil }
-        return (
-            userID: String(parts[0]),
-            teamID: parts[1].isEmpty ? nil : String(parts[1])
-        )
-    }
 }

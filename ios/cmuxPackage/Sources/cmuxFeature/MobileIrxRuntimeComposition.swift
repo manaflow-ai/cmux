@@ -46,7 +46,6 @@ public actor MobileIrxRuntimeComposition {
     var foregroundTask: Task<Void, Never>?
     var endpointWarmupTask: Task<Void, Never>?
     var cachedWarmupTask: Task<Void, Never>?
-    var cachedWarmupFinished = true
     var preparedCachedRuntime: PreparedCachedRuntime?
     var control: V2ControlService?
     var endpointSupervisor: IrxEndpointSupervisor?

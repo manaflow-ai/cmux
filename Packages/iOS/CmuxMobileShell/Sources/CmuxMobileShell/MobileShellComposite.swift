@@ -3966,7 +3966,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         var changed = false
-        for (key, cached) in workspaceSnapshotStore.loadAll(
+        for (key, cached) in await workspaceSnapshotStore.loadAll(
             userID: scope.userID,
             teamID: scope.teamID
         ) {
