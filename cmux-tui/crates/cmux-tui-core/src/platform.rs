@@ -2084,6 +2084,42 @@ mod tests {
         assert_eq!(terminal_pwd_to_local_path("file://remote.invalid/tmp/nope"), None);
     }
 
+    /// Ghostty's shell integration, which cmux-tui injects into the default
+    /// shell since #15924, reports the directory as
+    /// `OSC 7 kitty-shell-cwd://$HOST$PWD` (zsh and bash): the path follows
+    /// the host unencoded. Before, both parsers accepted only `file://`, so
+    /// every such report was treated as untrusted and the terminal's
+    /// directory read as null.
+    #[cfg(unix)]
+    #[test]
+    fn terminal_pwd_accepts_ghostty_kitty_shell_cwd_reports() {
+        let mut hostname = [0_u8; 256];
+        assert_eq!(unsafe { libc::gethostname(hostname.as_mut_ptr().cast(), hostname.len()) }, 0);
+        let hostname_end = hostname.iter().position(|byte| *byte == 0).unwrap_or(hostname.len());
+        let hostname = std::str::from_utf8(&hostname[..hostname_end]).unwrap();
+
+        for parse in [terminal_pwd_to_local_path, local_terminal_pwd_to_local_path] {
+            assert_eq!(
+                parse(&format!("kitty-shell-cwd://{hostname}/private/tmp/launch dir")),
+                Some(PathBuf::from("/private/tmp/launch dir"))
+            );
+            // Unencoded: a literal percent sign is part of the path.
+            assert_eq!(
+                parse("kitty-shell-cwd://localhost/tmp/100%20done"),
+                Some(PathBuf::from("/tmp/100%20done"))
+            );
+            assert_eq!(parse("kitty-shell-cwd://remote.invalid/tmp/nope"), None);
+            assert_eq!(parse("kitty-shell-cwd://localhost"), None);
+            assert_eq!(parse("kitty-shell-cwd://localhost/tmp/a\0b"), None);
+        }
+        // Hosted terminals never trust a hostless report.
+        assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd:///tmp/hostless"), None);
+        assert_eq!(
+            local_terminal_pwd_to_local_path("kitty-shell-cwd:///tmp/hostless"),
+            Some(PathBuf::from("/tmp/hostless"))
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn local_terminal_pwd_keeps_hostless_osc7_urls() {
