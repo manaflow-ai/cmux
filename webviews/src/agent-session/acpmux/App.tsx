@@ -162,7 +162,7 @@ export function AcpmuxApp() {
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   useEffect(() => {
     window.React = React;
-    window.cmuxAcpmuxRegistry = { register(kind, renderer, options) { if (options?.measure) renderer.measure = options.measure; (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown>)[kind] = renderer; }, configure() { setRegistry(currentRegistry()); } };
+    window.cmuxAcpmuxRegistry = { register(kind, renderer, options) { if (options?.measure) renderer.measure = options.measure; (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown>)[kind] = renderer; setRegistry(currentRegistry()); }, configure() { setRegistry(currentRegistry()); } };
     window.cmuxAcpmuxBridge = {
       receive(next) { if (next.protocolVersion !== 1) return; const change = diffRows(rowsRef.current, next.rows); rowsRef.current = new Map(next.rows.map((row) => [row.id, row])); setSnapshot(next); void change; },
       applyTheme(theme) { applyAgentTheme(theme as never); },

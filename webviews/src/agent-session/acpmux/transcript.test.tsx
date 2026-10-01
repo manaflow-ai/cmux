@@ -1,8 +1,9 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { JSDOM } from "jsdom";
+import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "./model";
 
-const dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true });
+// A silent console: jsdom has no canvas, so text measurement logs and falls back to row estimates.
+const dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(["window", "document", "navigator", "HTMLElement", "ResizeObserver", "requestAnimationFrame", "cancelAnimationFrame", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]));
 Object.assign(globals, {
