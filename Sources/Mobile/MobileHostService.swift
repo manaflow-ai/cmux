@@ -1147,13 +1147,14 @@ final class MobileHostService {
             routeKind: routeKind
         )
         let selectedRoutes = try target.selectRoutes(from: narrowedRoutes)
-        guard selectedRoutes.contains(where: { $0.kind == .iroh }) else {
-            return (selectedRoutes, MobileHostIdentity.deviceID())
+        if let publishedID = publishedStatus.v2DeviceID,
+           !publishedID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return (selectedRoutes, publishedID)
         }
-        guard let publishedID = publishedStatus.v2DeviceID else {
+        if selectedRoutes.contains(where: { $0.kind == .iroh }) {
             throw MobileAttachTicketStoreError.routeUnavailable
         }
-        return (selectedRoutes, publishedID)
+        return (selectedRoutes, MobileHostIdentity.deviceID())
     }
 
     private static func filteredRoutes(
