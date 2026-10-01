@@ -50,6 +50,7 @@ final class TerminalTabOverviewViewController: UIViewController {
     // background as the reference UI.
     private let canvasColor = UIColor(red: 0.918, green: 0.855, blue: 0.808, alpha: 1)
     private let bottomCanvasColor = UIColor(red: 0.824, green: 0.831, blue: 0.863, alpha: 1)
+    private let privateLockColor = UIColor(red: 0.095, green: 0.095, blue: 0.095, alpha: 1)
     private let topBar = TerminalTabOverviewPassthroughView()
     private let searchButton = UIButton(type: .system)
     private let layoutButton = UIButton(type: .system)
@@ -404,7 +405,16 @@ final class TerminalTabOverviewViewController: UIViewController {
             height: max(0, bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom - 160)
         )
         privateBrowsingView.isHidden = !isPrivateMode
-        privateLockView.frame = bounds
+        // Safari presents the locked-private explanation as a bottom sheet. It
+        // leaves the status bar and the top controls in the warm canvas while
+        // the sheet owns the lower edge and its safe-area backdrop.
+        let privateLockTop = view.safeAreaInsets.top + 24
+        privateLockView.frame = CGRect(
+            x: 0,
+            y: privateLockTop,
+            width: bounds.width,
+            height: max(0, bounds.maxY - privateLockTop)
+        )
         privateLockView.isHidden = !isPrivateMode || privateLockView.isHidden
 
         let bottomY = bounds.height - view.safeAreaInsets.bottom - 48 - 4
@@ -611,6 +621,13 @@ final class TerminalTabOverviewViewController: UIViewController {
 
     @objc private func newTerminalTapped() {
         guard !isTransitioning else { return }
+        if isPrivateMode {
+            // Safari uses the first private-tab creation as the entry point for
+            // its locked-private explanation. Keep the existing private canvas
+            // visible underneath the sheet instead of changing modes again.
+            presentPrivateLock(animated: true)
+            return
+        }
         onNewTerminal()
     }
 
@@ -762,14 +779,9 @@ final class TerminalTabOverviewViewController: UIViewController {
             self.cards.values.forEach { $0.alpha = privateMode ? 0 : 1; $0.isHidden = privateMode }
             self.privateBrowsingView.alpha = privateMode ? 1 : 0
             self.layoutButton.isHidden = privateMode
+            self.presentationBottomBackdrop?.backgroundColor = self.bottomCanvasColor
             self.view.setNeedsLayout()
             self.view.layoutIfNeeded()
-            if privateMode {
-                self.privateLockView.isHidden = false
-                self.privateLockView.alpha = 1
-                self.presentationBottomBackdrop?.backgroundColor = UIColor(red: 0.095, green: 0.095, blue: 0.095, alpha: 1)
-                self.view.bringSubviewToFront(self.privateLockView)
-            }
         }
         if animated {
             UIView.animate(
@@ -788,6 +800,7 @@ final class TerminalTabOverviewViewController: UIViewController {
         let finish = {
             self.privateLockView.isHidden = true
             self.privateLockView.alpha = 1
+            self.privateLockView.transform = .identity
             self.presentationBottomBackdrop?.backgroundColor = self.bottomCanvasColor
             self.view.bringSubviewToFront(self.topBar)
             self.view.bringSubviewToFront(self.bottomBar)
@@ -797,9 +810,33 @@ final class TerminalTabOverviewViewController: UIViewController {
             finish()
             return
         }
-        UIView.animate(withDuration: 0.22, animations: {
+        UIView.animate(withDuration: 0.28, delay: 0, options: [.curveEaseIn, .beginFromCurrentState], animations: {
             self.privateLockView.alpha = 0
+            self.privateLockView.transform = CGAffineTransform(translationX: 0, y: self.privateLockView.bounds.height)
         }, completion: { _ in finish() })
+    }
+
+    private func presentPrivateLock(animated: Bool) {
+        guard isPrivateMode, privateLockView.isHidden else { return }
+        privateLockView.isHidden = false
+        privateLockView.alpha = 0
+        privateLockView.transform = CGAffineTransform(translationX: 0, y: privateLockView.bounds.height)
+        presentationBottomBackdrop?.backgroundColor = privateLockColor
+        view.bringSubviewToFront(privateLockView)
+        let animations = {
+            self.privateLockView.alpha = 1
+            self.privateLockView.transform = .identity
+        }
+        if animated {
+            UIView.animate(
+                withDuration: 0.34,
+                delay: 0,
+                options: [.curveEaseOut, .beginFromCurrentState],
+                animations: animations
+            )
+        } else {
+            animations()
+        }
     }
 
     private func reorder(id: MobileTerminalPreview.ID, at location: CGPoint) {
@@ -915,6 +952,7 @@ private final class TerminalTabOverviewPrivateLockView: UIView {
         super.init(frame: frame)
         backgroundColor = UIColor(red: 0.095, green: 0.095, blue: 0.095, alpha: 1)
         layer.cornerRadius = 30
+        layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         layer.masksToBounds = true
         isAccessibilityElement = false
 
@@ -976,10 +1014,11 @@ private final class TerminalTabOverviewPrivateLockView: UIView {
         super.layoutSubviews()
         let width = min(bounds.width - 64, 338)
         let centerX = bounds.midX
-        iconView.frame = CGRect(x: centerX - 31, y: bounds.midY - 311, width: 62, height: 62)
-        lockBadge.frame = CGRect(x: centerX + 12, y: bounds.midY - 266, width: 28, height: 28)
-        titleLabel.frame = CGRect(x: centerX - width / 2, y: bounds.midY - 198, width: width, height: 32)
-        messageLabel.frame = CGRect(x: centerX - width / 2, y: bounds.midY - 171, width: width, height: 208)
+        let contentTop = max(112, bounds.height * 0.09)
+        iconView.frame = CGRect(x: centerX - 31, y: contentTop, width: 62, height: 62)
+        lockBadge.frame = CGRect(x: centerX + 12, y: contentTop + 45, width: 28, height: 28)
+        titleLabel.frame = CGRect(x: centerX - width / 2, y: contentTop + 242, width: width, height: 32)
+        messageLabel.frame = CGRect(x: centerX - width / 2, y: contentTop + 300, width: width, height: 208)
         enableButton.frame = CGRect(x: centerX - width / 2, y: bounds.maxY - 120, width: width, height: 44)
         notNowButton.frame = CGRect(x: centerX - width / 2, y: bounds.maxY - 66, width: width, height: 40)
     }
