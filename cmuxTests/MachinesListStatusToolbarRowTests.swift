@@ -210,21 +210,29 @@ struct MachinesCloudStatusTests {
         #expect(dismissed.error == "Unsupported: Browsers on another Mac can’t be opened here yet.")
     }
 
-    @Test("A tree error remains dismissible while an operation is active")
-    func treeErrorRemainsVisibleDuringOperation() throws {
-        let dismissed = ActionLog()
-        let hosted = Self.host(
-            treeError: "Cloud is unavailable.",
-            activeOperation: "Opening Cloud terminal…"
-        ) {
-            dismissed.error = $0
+    @Test("An empty Cloud status contains no progress indicator or operation text")
+    func emptyStatusHasNoProgressPresentation() {
+        let hosted = Self.host(treeError: nil) { _ in }
+        var pending: [NSObject] = [hosted.view]
+        var visited = Set<ObjectIdentifier>()
+        while let element = pending.popLast() {
+            guard visited.insert(ObjectIdentifier(element)).inserted else { continue }
+            let role = CloudTreeHeaderActionsTests.accessibilityAttribute(
+                .role, getter: "accessibilityRole", of: element
+            ) as? String
+            #expect(role != NSAccessibility.Role.progressIndicator.rawValue)
+            for (attribute, getter) in [(NSAccessibility.Attribute.value, "accessibilityValue"),
+                                        (.description, "accessibilityLabel"), (.title, "accessibilityTitle")] {
+                let text = CloudTreeHeaderActionsTests.accessibilityAttribute(
+                    attribute, getter: getter, of: element
+                ) as? String ?? ""
+                #expect(!text.contains("Opening"))
+            }
+            let children = CloudTreeHeaderActionsTests.accessibilityAttribute(
+                .children, getter: "accessibilityChildren", of: element
+            ) as? [Any] ?? []
+            pending += NSAccessibility.unignoredChildren(from: children).compactMap { $0 as? NSObject }
         }
-        let button = try #require(
-            Self.element("CloudBannerDismissButton", in: hosted),
-            "an operation overlay must not hide the persistent recovery action"
-        )
-        try #require(Self.press(button), "tree error close affordance exposes no press action")
-        #expect(dismissed.error == "Cloud is unavailable.")
     }
 
     @MainActor
@@ -238,11 +246,9 @@ struct MachinesCloudStatusTests {
     }
 
     private static func host(
-        treeError: String,
-        activeOperation: String? = nil,
+        treeError: String?,
         onDismissTreeError: @escaping (String) -> Void
     ) -> Hosted {
-        _ = activeOperation
         let view = NSHostingView(
             rootView: MachinesCloudStatus(
                 listStatus: nil,

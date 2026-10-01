@@ -190,18 +190,10 @@ struct CloudMachinesHeaderCountTests {
                 "The \(message) row is missing: header is \(height)pt")
     }
 
-    @Test("An active Cloud open adds no status row or spinner")
-    func activeOperationAddsNoGap() {
-        let height = headerHeight { fleetStatus(activeOperation: "Opening on Mac") }
-        #expect(abs(height - RightSidebarChromeMetrics.secondaryBarHeight) <= 0.5,
-                "An optimistic open changed the header height to \(height)pt")
-    }
-
     private func fleetStatus(
-        activeOperation: String? = nil, listStatus: MachineListStatus? = nil, treeError: String? = nil
+        listStatus: MachineListStatus? = nil, treeError: String? = nil
     ) -> MachinesCloudStatus {
-        _ = activeOperation
-        return MachinesCloudStatus(listStatus: listStatus, listError: nil,
+        MachinesCloudStatus(listStatus: listStatus, listError: nil,
                             treeError: treeError, onDismissStale: { _ in }, onDismissTreeError: { _ in },
                             performListStatusAction: { _ in })
     }
