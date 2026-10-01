@@ -26,6 +26,7 @@ final class CloudBrowserProxyTestServer {
     private let pageHTML: String?
     private let styles: CloudLinkFirstValue<Bool>?
     private let securePort: UInt16?
+    private let stallConnectResponse: Bool
     private let listener: NWListener
     private let queue = DispatchQueue(label: "cmux.tests.cloud-browser-connect")
     private var connections: [ObjectIdentifier: NWConnection] = [:]
@@ -41,13 +42,14 @@ final class CloudBrowserProxyTestServer {
         CloudBrowserProxyEndpoint(host: "127.0.0.1", port: port, username: marker, password: "fixture-\(marker)", websocketToken: "ws-token")
     }
 
-    init(address: String, marker: String, styles: CloudLinkFirstValue<Bool>? = nil, securePort: UInt16? = nil, servicePort: Int = 8000, pageHTML: String? = nil) throws {
+    init(address: String, marker: String, styles: CloudLinkFirstValue<Bool>? = nil, securePort: UInt16? = nil, servicePort: Int = 8000, pageHTML: String? = nil, stallConnectResponse: Bool = false) throws {
         self.address = address
         self.marker = marker
         self.servicePort = servicePort
         self.pageHTML = pageHTML
         self.styles = styles
         self.securePort = securePort
+        self.stallConnectResponse = stallConnectResponse
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         listener = try NWListener(using: parameters)
@@ -127,6 +129,10 @@ final class CloudBrowserProxyTestServer {
                 return
             }
             capturedTargets.append(connect.target)
+            if stallConnectResponse {
+                try await Task.sleep(for: .seconds(15))
+                return
+            }
             try await connection.sendAll(Data("HTTP/1.1 200 Connection Established\r\n\r\n".utf8))
             if connect.target.hasSuffix(":\(port)") {
                 let bridge = try await readRequest(connection, buffered: &buffered)

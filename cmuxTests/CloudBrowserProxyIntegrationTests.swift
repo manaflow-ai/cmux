@@ -32,6 +32,24 @@ struct CloudBrowserProxyIntegrationTests {
         #expect(try await !CloudBrowserRouting.desktopIsReachable(endpoint: server.endpoint, address: server.address, port: 6901))
     }
 
+    @Test("Desktop readiness deadline cancels a proxy stalled before response headers")
+    func desktopReadinessDeadlineCancelsStalledProxy() async throws {
+        let server = try CloudBrowserProxyTestServer(
+            address: "10.16.0.11", marker: "desktop-stall", stallConnectResponse: true
+        )
+        try await server.start()
+        defer { server.stop() }
+        let started = ContinuousClock.now
+
+        #expect(try await !CloudBrowserRouting.desktopIsReachable(
+            endpoint: server.endpoint,
+            address: server.address,
+            port: 8000,
+            timeout: .milliseconds(200)
+        ))
+        #expect(ContinuousClock.now - started < .seconds(1))
+    }
+
     @Test("the browser carrier does not inherit app credentials")
     func browserCarrierSanitizesInheritedCredentials() {
         let environment = CloudBrowserProxyProcess.sanitizedEnvironment([
