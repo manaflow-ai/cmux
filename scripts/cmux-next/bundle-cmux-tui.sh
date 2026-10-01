@@ -6,7 +6,7 @@
 # (`commit=`, `source=`, `sha256=`, `run=`).
 #
 # Source order (this phase never downloads anything):
-#   1. CMUX_NEXT_TUI_BIN (a local cargo build or any hosted artifact),
+#   1. CMUX_NEXT_TUI_BIN (an explicit local cargo build or hosted artifact),
 #   2. the pinned hosted artifact for this branch: scripts/cmux-next/cmux-tui.pin
 #      names a commit, its public files.cmux.com url, the publishing run, and
 #      the sha256 of cmux-tui/target/hosted/<commit>/cmux-tui.
@@ -14,12 +14,10 @@
 #      needed); by hand, `scripts/cmux-next/pin-cmux-tui.sh fetch`. Refresh the
 #      pin after a daemon change as described in pin-cmux-tui.sh. A present
 #      binary with a different sha256 fails the build.
-#   3. CMUX_TUI_CLIENT_LOCAL (the release installer's local override),
-#   4. the newest slice in the release installer cache
-#      (~/Library/Caches/cmux/cmux-tui-client/<commit>/cmux-tui-<arch>-apple-darwin).
-#      Release clients lack the cmux-next daemon capabilities, so 3 and 4
-#      warn. With none of these it keeps an existing bundled copy, or warns
-#      and exits 0 (the app reports "cmux-tui binary not found" at launch).
+#
+# There is deliberately no release-client fallback. Those clients can be
+# executable and recent while still lacking cmux-next's daemon CLI, which
+# turns a packaging problem into a runtime startup loop.
 set -euo pipefail
 
 dest_dir="${TARGET_BUILD_DIR:?}/${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}/bin"
@@ -42,11 +40,23 @@ if [[ -n "${CMUX_NEXT_TUI_BIN:-}" ]]; then
   src="$CMUX_NEXT_TUI_BIN"
   source_kind="override"
 fi
-if [[ -z "$src" && -f "$pin_file" && "$arch" == aarch64 ]]; then
+if [[ -z "$src" ]]; then
+  if [[ ! -f "$pin_file" ]]; then
+    echo "error: cmux-next cmux-tui pin is missing at $pin_file; set CMUX_NEXT_TUI_BIN for an explicit override" >&2
+    exit 1
+  fi
+  if [[ "$arch" != aarch64 ]]; then
+    echo "error: cmux-next's pinned cmux-tui is available for aarch64 only, but Xcode requested $arch; set CMUX_NEXT_TUI_BIN for an explicit override" >&2
+    exit 1
+  fi
   pin_commit="$(awk -F= '$1=="commit"{print $2}' "$pin_file")"
   pin_run="$(awk -F= '$1=="run"{print $2}' "$pin_file")"
   pin_url="$(awk -F= '$1=="url"{sub(/^[^=]*=/, ""); print}' "$pin_file")"
   pin_sha256="$(awk -F= '$1=="sha256"{print $2}' "$pin_file")"
+  if [[ ! "$pin_commit" =~ ^[0-9a-f]{40}$ || ! "$pin_sha256" =~ ^[0-9a-f]{64}$ || "$pin_url" != https://* ]]; then
+    echo "error: malformed cmux-next cmux-tui pin at $pin_file" >&2
+    exit 1
+  fi
   pinned="$repo_root/cmux-tui/target/hosted/$pin_commit/cmux-tui"
   if [[ -f "$pinned" ]]; then
     actual="$(sha256_of "$pinned")"
@@ -57,32 +67,14 @@ if [[ -z "$src" && -f "$pin_file" && "$arch" == aarch64 ]]; then
     src="$pinned"
     source_kind="pinned-hosted"
   else
-    echo "warning: pinned cmux-tui $pin_commit is not downloaded; run scripts/cmux-next/pin-cmux-tui.sh fetch"
+    echo "error: pinned cmux-tui $pin_commit is not downloaded; run scripts/cmux-next/pin-cmux-tui.sh fetch or set CMUX_NEXT_TUI_BIN for an explicit override" >&2
+    exit 1
   fi
-fi
-if [[ -z "$src" && -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
-  src="$CMUX_TUI_CLIENT_LOCAL"
-  source_kind="client-local"
-fi
-if [[ -z "$src" ]]; then
-  cache="${CMUX_TUI_CLIENT_CACHE:-$HOME/Library/Caches/cmux/cmux-tui-client}"
-  if [[ -d "$cache" ]]; then
-    # Newest cached slice by mtime.
-    src="$(ls -t "$cache"/*/"cmux-tui-$arch-apple-darwin" 2>/dev/null | head -n 1 || true)"
-    [[ -n "$src" ]] && source_kind="release-cache"
-  fi
-fi
-if [[ "$source_kind" == client-local || "$source_kind" == release-cache ]]; then
-  echo "warning: bundling release cmux-tui $src, which lacks the cmux-next daemon capabilities"
 fi
 
 if [[ -z "$src" ]]; then
-  if [[ -x "$dest" ]]; then
-    echo "note: no cmux-tui source configured; keeping bundled $dest"
-    exit 0
-  fi
-  echo "warning: no cmux-tui binary to bundle. Set CMUX_NEXT_TUI_BIN, or run scripts/reload.sh (installs it via scripts/install-cmux-tui-client.sh)."
-  exit 0
+  echo "error: no cmux-tui source configured; set CMUX_NEXT_TUI_BIN or fetch the pinned client" >&2
+  exit 1
 fi
 if [[ ! -f "$src" ]]; then
   echo "error: cmux-tui source $src does not exist" >&2
@@ -92,10 +84,6 @@ fi
 sha256="$(sha256_of "$src")"
 version_line="$("$src" --version 2>/dev/null | head -n 1 || true)"
 commit="$(printf '%s' "$version_line" | sed -n 's/.*(\([0-9a-f]\{7,40\}\).*/\1/p')"
-if [[ -z "$commit" && "$source_kind" == release-cache ]]; then
-  # Cached slices are not executable; the cache directory is the commit.
-  commit="$(basename "$(dirname "$src")")"
-fi
 if [[ "$source_kind" == pinned-hosted && ( -z "$commit" || "$pin_commit" != "$commit"* ) ]]; then
   echo "error: pinned cmux-tui reports '$version_line', not commit $pin_commit" >&2
   exit 1

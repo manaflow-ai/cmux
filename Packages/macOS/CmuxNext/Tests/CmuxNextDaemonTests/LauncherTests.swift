@@ -26,6 +26,23 @@ import Testing
         }
     }
 
+    @Test func preservesNonRetryableEnsureErrors() {
+        let stderr = Data(#"{"code":"usage.invalid","details":{},"message":"unknown flag --terminal-reap-grace-seconds for this action","retryable":false}"#.utf8)
+        #expect(throws: DaemonError.launchRejected(
+            code: "usage.invalid",
+            message: "unknown flag --terminal-reap-grace-seconds for this action"
+        )) {
+            try DaemonLauncher.parseEnsure(ProcessResult(status: 2, stdout: Data(), stderr: stderr))
+        }
+    }
+
+    @Test func keepsRetryableEnsureErrorsRetryable() {
+        let stderr = Data(#"{"code":"daemon.busy","details":{},"message":"owner is still starting","retryable":true}"#.utf8)
+        #expect(throws: DaemonError.launchFailed("exit 3: \(String(decoding: stderr, as: UTF8.self))")) {
+            try DaemonLauncher.parseEnsure(ProcessResult(status: 3, stdout: Data(), stderr: stderr))
+        }
+    }
+
     /// cmux-tui derives the owner socket from `$XDG_RUNTIME_DIR`/`$TMPDIR`.
     /// Two launches of the same app with different `TMPDIR`s must still
     /// ask for the same socket, or the second spawns a rival owner that

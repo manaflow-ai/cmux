@@ -17,6 +17,10 @@ public enum DaemonError: Error, Sendable, Equatable, CustomStringConvertible {
     case missingCapabilities([String])
     /// No bundled or override cmux-tui binary was found.
     case binaryNotFound(searched: [String])
+    /// `server ensure` rejected its arguments or configuration. The daemon
+    /// marked the structured CLI error as non-retryable, so repeating the
+    /// launch cannot change the outcome.
+    case launchRejected(code: String, message: String)
     case launchFailed(String)
     case timedOut(String)
     /// A command that starts a terminal got no reply within the terminal
@@ -41,6 +45,7 @@ public enum DaemonError: Error, Sendable, Equatable, CustomStringConvertible {
         case .unsupportedProtocol(let version): "cmux-tui protocol \(version) is not supported (need 12)"
         case .missingCapabilities(let names): "cmux-tui lacks capabilities: \(names.joined(separator: ", "))"
         case .binaryNotFound(let searched): "cmux-tui binary not found (searched \(searched.joined(separator: ", ")))"
+        case .launchRejected(let code, let message): "cmux-tui is incompatible: server ensure rejected: \(message) [\(code)]"
         case .launchFailed(let detail): "cmux-tui server ensure failed: \(detail)"
         case .timedOut(let what): "timed out: \(what)"
         case .terminalStartTimedOut(let what): "timed out: \(what); the terminal may still appear"

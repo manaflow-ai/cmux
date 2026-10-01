@@ -2,11 +2,10 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// Finds a real cmux-tui: `CMUX_NEXT_TUI_BIN`, else the pinned hosted
-/// artifact (scripts/cmux-next/cmux-tui.pin, fetched by
-/// scripts/cmux-next/pin-cmux-tui.sh), else the newest client that
-/// scripts/install-cmux-tui-client.sh cached. Cached slices are not
-/// executable, so they are copied into a temp dir first.
+/// Finds a cmux-next-compatible cmux-tui: `CMUX_NEXT_TUI_BIN`, else the
+/// pinned hosted artifact (scripts/cmux-next/cmux-tui.pin, fetched by
+/// scripts/cmux-next/pin-cmux-tui.sh). Release clients do not carry the
+/// cmux-next daemon commands and must never be used for these tests.
 enum RealBinary {
     static let url: URL? = locate()
 
@@ -35,31 +34,7 @@ enum RealBinary {
            fileManager.isExecutableFile(atPath: override) {
             return URL(fileURLWithPath: override)
         }
-        if let pinned { return pinned }
-        let cache = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Caches/cmux/cmux-tui-client")
-        let slice = "cmux-tui-\(machineArch())-apple-darwin"
-        let candidates = ((try? fileManager.contentsOfDirectory(at: cache, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
-            .map { $0.appendingPathComponent(slice) }
-            .filter { fileManager.fileExists(atPath: $0.path) }
-            .sorted { modified($0) > modified($1) }
-        guard let newest = candidates.first else { return nil }
-        let copy = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cnd-bin-\(ProcessInfo.processInfo.processIdentifier)/cmux-tui")
-        try? fileManager.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? fileManager.removeItem(at: copy)
-        guard (try? fileManager.copyItem(at: newest, to: copy)) != nil else { return nil }
-        try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: copy.path)
-        return copy
-    }
-
-    private static func modified(_ url: URL) -> Date {
-        (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-    }
-
-    private static func machineArch() -> String {
-        var info = utsname()
-        uname(&info)
-        let machine = withUnsafeBytes(of: &info.machine) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
-        return machine == "arm64" ? "aarch64" : machine
+        return pinned
     }
 }
 

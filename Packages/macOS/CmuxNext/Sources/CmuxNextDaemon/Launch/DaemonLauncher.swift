@@ -10,6 +10,12 @@ import os
 /// so dev state never shares a root with release state. `run_ensure` does not
 /// forward `--state`, so the env var is the only way the owner sees it.
 public struct DaemonLauncher: Sendable {
+    private struct EnsureError: Decodable {
+        let code: String?
+        let message: String?
+        let retryable: Bool
+    }
+
     public struct Configuration: Sendable, Hashable {
         public var binary: URL
         public var session: String
@@ -241,9 +247,30 @@ public struct DaemonLauncher: Sendable {
               let parsed = try? JSONDecoder().decode(EnsureResult.self, from: Data(last.utf8)) else {
             let stderr = String(decoding: result.stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             let stdout = String(decoding: result.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            if let error = nonRetryableEnsureError(stderr: result.stderr, stdout: result.stdout) {
+                throw error
+            }
             throw DaemonError.launchFailed("exit \(result.status): \(stderr.isEmpty ? stdout : stderr)")
         }
         return parsed
+    }
+
+    /// cmux-tui emits structured JSON errors for `--json` CLI calls. Preserve
+    /// a non-retryable refusal so startup does not rerun an invalid command
+    /// until the user quits the app.
+    private static func nonRetryableEnsureError(stderr: Data, stdout: Data) -> DaemonError? {
+        for output in [stderr, stdout] {
+            let lines = String(decoding: output, as: UTF8.self)
+                .split(whereSeparator: \.isNewline)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .reversed()
+            for line in lines {
+                guard let error = try? JSONDecoder().decode(EnsureError.self, from: Data(line.utf8)),
+                      !error.retryable else { continue }
+                return .launchRejected(code: error.code ?? "unknown", message: error.message ?? "unknown error")
+            }
+        }
+        return nil
     }
 
     /// Endpoint provider for `DaemonConnection`: every (re)connect re-runs
