@@ -310,17 +310,33 @@ fn receiving_disabled(connection: &Connection, recipient: &str) -> anyhow::Resul
 
 /// Turn receiving on or off for one recipient. Turning it off fails the
 /// recipient's queued receipts, so nothing waits for a delivery that will
-/// not come. Returns the `AgentMessageReceiving` result.
+/// not come. Opt-outs of terminals that no longer exist are dropped (a
+/// terminal id is never reused), so the table stays as small as the live
+/// terminals and acpmux sessions that opted out. Returns the
+/// `AgentMessageReceivingChange` result.
 pub(crate) fn set_receiving(
     transaction: &Transaction<'_>,
     recipient: &str,
     enabled: bool,
+    terminal_exists: &dyn Fn(&str) -> anyhow::Result<bool>,
     now_ms: u64,
 ) -> anyhow::Result<Value> {
     if !is_recipient_address(recipient) {
         return Err(bad_request(format!(
             "{recipient:?} is not a recipient; use a terminal id (term_...) or acp:<session id>"
         )));
+    }
+    let terminals = {
+        let mut statement = transaction.prepare(
+            "SELECT recipient FROM agent_message_optouts WHERE substr(recipient, 1, 5) = 'term_'",
+        )?;
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
+    };
+    for terminal in terminals {
+        if terminal != recipient && !terminal_exists(&terminal)? {
+            transaction
+                .execute("DELETE FROM agent_message_optouts WHERE recipient = ?1", [&terminal])?;
+        }
     }
     let now = i64::try_from(now_ms)?;
     let failed = if enabled {
@@ -890,7 +906,7 @@ mod tests {
 
     fn set(connection: &mut Connection, recipient: &str, enabled: bool) -> Value {
         let transaction = connection.transaction().unwrap();
-        let value = set_receiving(&transaction, recipient, enabled, 20).unwrap();
+        let value = set_receiving(&transaction, recipient, enabled, &any_terminal, 20).unwrap();
         transaction.commit().unwrap();
         value
     }
@@ -912,7 +928,7 @@ mod tests {
         let mut reply = message("acp:review", &[], "answer");
         reply.in_reply_to = Some("msg_2".into());
         let transaction = connection.transaction().unwrap();
-        set_receiving(&transaction, TERM_A, false, 21).unwrap();
+        set_receiving(&transaction, TERM_A, false, &any_terminal, 21).unwrap();
         let error =
             send(&transaction, "session_x", "msg_3", &reply, &any_terminal, 22).unwrap_err();
         assert_eq!(error.to_string(), format!("bad request: {TERM_A} has messages disabled"));
@@ -946,10 +962,25 @@ mod tests {
     }
 
     #[test]
+    fn opt_outs_of_ended_terminals_are_dropped() {
+        let mut connection = connection();
+        set(&mut connection, TERM_A, false);
+        let transaction = connection.transaction().unwrap();
+        let only_b = |terminal: &str| -> anyhow::Result<bool> { Ok(terminal == TERM_B) };
+        set_receiving(&transaction, TERM_B, false, &only_b, 30).unwrap();
+        set_receiving(&transaction, "acp:review", false, &only_b, 31).unwrap();
+        transaction.commit().unwrap();
+        let rows: Vec<Value> = disabled_recipients(&connection).unwrap();
+        let recipients: Vec<&str> =
+            rows.iter().map(|row| row["recipient"].as_str().unwrap()).collect();
+        assert_eq!(recipients, [TERM_B, "acp:review"]);
+    }
+
+    #[test]
     fn receiving_is_set_only_for_recipient_addresses() {
         let mut connection = connection();
         let transaction = connection.transaction().unwrap();
-        let error = set_receiving(&transaction, "cli", false, 1).unwrap_err();
+        let error = set_receiving(&transaction, "cli", false, &any_terminal, 1).unwrap_err();
         assert!(error.to_string().contains("is not a recipient"), "{error}");
     }
 }

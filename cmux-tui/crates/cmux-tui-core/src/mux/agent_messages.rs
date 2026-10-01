@@ -68,7 +68,20 @@ impl Mux {
             StateEffects::EVENTS_ONLY,
             |transaction, state| {
                 self.resolve_in_state(state, crate::ResourceTarget::Session, selectors)?;
-                let value = messages::set_receiving(transaction, recipient, enabled, now_ms())?;
+                let terminal_exists = |terminal: &str| -> anyhow::Result<bool> {
+                    let mut lookup = selectors.clone();
+                    lookup.terminal = Some(terminal.to_owned());
+                    Ok(self
+                        .resolve_in_state(state, crate::ResourceTarget::Terminal, &lookup)
+                        .is_ok())
+                };
+                let value = messages::set_receiving(
+                    transaction,
+                    recipient,
+                    enabled,
+                    &terminal_exists,
+                    now_ms(),
+                )?;
                 Ok(StateChanges::new(value, Vec::new()))
             },
         )
