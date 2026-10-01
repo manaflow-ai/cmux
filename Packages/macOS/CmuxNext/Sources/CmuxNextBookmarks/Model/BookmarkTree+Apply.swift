@@ -87,7 +87,7 @@ extension BookmarkTree {
                 change.created += insertDraft(draft, parent: existing.id, index: offset, sourceKey: nil, makeID: makeID, now: now)
             }
             // Further drafts go right after the folder, untagged (the daemon's rule).
-            let after = (index(of: existing.id) ?? 0) + 1
+            let after = (self.index(of: existing.id) ?? 0) + 1
             for (offset, draft) in drafts.dropFirst().enumerated() {
                 change.created += insertDraft(draft, parent: existing.parent, index: after + offset, sourceKey: nil, makeID: makeID, now: now)
             }

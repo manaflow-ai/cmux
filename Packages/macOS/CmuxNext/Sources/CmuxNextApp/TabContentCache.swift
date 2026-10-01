@@ -36,12 +36,11 @@ final class TabContentCache {
     let previews = PreviewImageCache()
     let webKit = WebKitEngine()
     let cef = CEFEngine()
-    /// Pages visited in the default browser profile, shared by its omnibars
-    /// for suggestions and inline autocomplete (in memory, made durable by
-    /// `HistoryService` once the app launched). Other profiles keep their
-    /// own (`history(for:)`).
+    /// Pages visited in the default browser profile, shared by its omnibars for suggestions and
+    /// inline autocomplete (in memory, durable via `HistoryService`). Others: `history(for:)`.
     let history = InMemoryBrowserHistory()
-    private(set) lazy var suggestionEngine = OmniboxSuggestionEngine(providers: [HistorySuggestionProvider(store: history)])
+    private(set) lazy var suggestionEngine = OmniboxSuggestionEngine(providers: [HistorySuggestionProvider(store: history)] + (extraSuggestionProviders?(.default) ?? []))
+    var extraSuggestionProviders: ((BrowserProfileID) -> [any BrowserSuggestionProvider])? // bookmark rows per profile
     /// History and suggestions of each non-default browser profile.
     var profileHistories: [BrowserProfileID: ProfileHistory] = [:]
     /// A profile's omnibar history was created or dropped (`HistoryService`).

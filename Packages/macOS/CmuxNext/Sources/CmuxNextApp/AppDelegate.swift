@@ -66,6 +66,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.palette.onPresented = { DebugTimings.palettePresented($0) }
         services.browserProfiles.load(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
                                       importStore: services.onboarding.importStore)
+        services.bookmarks.start(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
+                                 importStore: services.onboarding.importStore)
         services.history.start(supportDirectory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
             .deletingLastPathComponent())
         services.windows.restoreWhenLoaded()
@@ -105,6 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.terminalTheme.follow(settings)
         services.themes.start()
         services.remoteLocalhost.follow(settings)
+        services.bookmarks.follow(settings)
         Task {
             await settings.waitForLoad(atLeast: 1)
             // `app.quitBehavior: "end"` (first release) is now "end-keep-layout".

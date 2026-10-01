@@ -69,13 +69,13 @@ and emits `bookmarks-changed {browser_profile_id, bookmarks_revision}`):
   kind, index, title, url?, favicon_key?, source_key?, created_ms,
   last_used_ms?}`.
 - `create-bookmark {browser_profile_id, parent, index?, kind, title, url?,
-  favicon_key?, source_key?, created_ms?, id?}` → `{bookmark, changed}`; an
+  favicon_key?, source_key?, created_ms?, bookmark?}` → `{bookmark, changed}`; an
   existing `id` returns the stored node with `changed:false` (idempotent
   retries). Absent `index` appends.
-- `update-bookmark {id, title?, url?, favicon_key?, last_used_ms?}`; absent
+- `update-bookmark {bookmark, title?, url?, favicon_key?, last_used_ms?}`; absent
   keeps, null clears `favicon_key` / `last_used_ms`.
-- `move-bookmark {id, parent, index}` (same profile; refuses a cycle).
-- `delete-bookmark {id}` → `{deleted:[ids]}` (subtree).
+- `move-bookmark {bookmark, parent, index}` (same profile; refuses a cycle).
+- `delete-bookmark {bookmark}` → `{deleted:[ids]}` (subtree).
 - `import-bookmarks {browser_profile_id, parent, index?, source_key?,
   replace?, nodes:[{kind, title, url?, created_ms?, children?:[...]}]}` → `{root_ids,
   count}`: one transaction. With `source_key` and `replace:true`, the folder
@@ -118,13 +118,55 @@ All are editable in the palette's shortcut recorder and in cmux.json.
 `chrome.bookmarks` in the CEF Chrome runtime works today against Chromium's
 own per-profile `BookmarkModel` (extensions-matrix.md: create, search and
 remove pass, with Chromium's "Bookmarks Bar" and "Other Bookmarks"). That
-model is not cmux's. Routing it to cmux needs a fork bridge (section 6).
+model is not cmux's: an extension sees a separate, empty tree, and its
+changes never reach cmux. The fork owner confirmed (2026-09-30) that no
+routing exists and that it is not in this wave.
 
-## 5. Places
+Follow-up for the fork (accepted approach: two-way sync, Chromium's model
+as a cache):
 
-A terminal location bookmark ("place") was considered. See the status
-section for the decision.
+- Shim: a `BookmarkModelObserver` per profile forwards node added, changed
+  (title, url), moved (parent, index) and removed to the host with
+  Chromium's node id; a host API applies cmux operations to the model
+  (add folder/url at parent+index with a given GUID, set title/url, move,
+  remove) without echoing them back.
+- Fields: cmux id <-> Chromium node GUID (cmux keeps a per-profile map;
+  creating from cmux sets the GUID from the `bm_` id), roots `bar` <->
+  `bookmark_bar_node`, `other` <-> `other_node` (`mobile_node` stays empty
+  and hidden), kind folder/url, title, url, index, date added.
+- Start: on profile load the host replaces Chromium's tree with cmux's
+  (cmux wins at startup). After that, last writer wins per node; a delete on
+  either side wins over a concurrent edit.
 
-## 6. Status
+## 5. Places (terminal locations): left out
 
-See the end of this file (updated as work lands).
+A "place" (workspace, cwd, optional command) does not fit the bookmark
+tree cleanly. Bookmarks are scoped per browser profile (Chrome parity,
+Netscape HTML, `chrome.bookmarks`), while a place belongs to a machine and
+a room; a place in the tree would break the HTML export and show to
+extensions as a non-URL node. A command in a bookmark is also a code path
+that imported files could carry. The location trail (history.md 4.2), Go to
+Workspace and the proposed workspace templates (`layout-templates-v1`) cover
+the need with the right owner. Revisit as a room-scoped "Saved Places" list
+if dogfood asks.
+
+## 6. Status (2026-09-30, branch feat-cmux-next-bookmarks)
+
+Built: the model and its tests (CmuxNextBookmarks), the local file store,
+migration of the file into the daemon and of earlier onboarding imports
+(once, marker file `bookmarks-imports-migrated`), the `ImportedBookmarkSink`
+conformance agreed with the onboarding agent, the omnibar star and edit
+bubble, the bookmarks bar (Cmd-Shift-B, `browser.showBookmarksBar`, overflow
+chevron, Other Bookmarks, folder menus, drag reorder, link drop), the
+`cmux://bookmarks` manager, bookmark rows in omnibar suggestions, the palette
+page Open Bookmark…, `cmux bookmark …` verbs and `bookmark.list`, the
+`debug.bookmarks` control method, the Settings toggle.
+
+Daemon: `bookmarks-v1` is implemented in cmux-tui on its own branch; the app
+lists it in `awaitingPin`, so it uses the file until the pin brings it.
+
+Not built: favicons on the bar and in menus (a globe and folder symbol
+stand in; the cache key is stored), Chromium's `chrome.bookmarks` bridge
+(section 4), bookmark rows in incognito omnibars, Bookmark All Tabs across
+every pane of a window (it takes the focused pane), a dedicated sync with
+other Macs.

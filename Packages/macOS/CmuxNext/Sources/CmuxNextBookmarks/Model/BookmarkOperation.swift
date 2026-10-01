@@ -54,13 +54,3 @@ public nonisolated enum BookmarkOperation: Sendable, Hashable {
     /// missing; the created folder carries `sourceKey`).
     case importDrafts(parent: String, index: Int?, sourceKey: String?, replace: Bool, drafts: [BookmarkDraft])
 }
-
-public nonisolated enum BookmarkError: Error, Equatable, Sendable {
-    case notFound(String)
-    case invalidParent(String)
-    case cycle
-    case invalidURL
-    case invalidKind
-    case tooLarge
-    case tooDeep
-}

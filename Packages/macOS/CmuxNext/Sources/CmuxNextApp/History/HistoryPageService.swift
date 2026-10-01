@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
@@ -63,17 +64,12 @@ final class HistoryPageService: HistoryPageSource {
 }
 
 extension TabContentCache {
-    /// The history page for a browser record whose URL is `cmux://history`
-    /// (nil otherwise). Remote records never get here (`recordURL` keeps
-    /// only web pages for them).
+    /// The native page for a browser record whose URL is `cmux://history`
+    /// or `cmux://bookmarks` (nil otherwise). Remote records never get here
+    /// (`recordURL` keeps only web pages for them).
     func appPage(for tab: TabModel, url: URL?) -> BrowserEntry? {
-        guard HistoryPageAddress.matches(url), let services = pageRequests.services else { return nil }
-        let key = tab.id
-        let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
-        let page = HistoryPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: browserProfile?(key) ?? .default,
-                                  source: services.historyPage)
-        page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
-        let entry = install(page, for: key)
+        guard let page = makeAppPage(url, for: tab) else { return nil }
+        let entry = install(page, for: tab.id)
         browserTabs.track(page, for: tab)
         return entry
     }
@@ -82,8 +78,8 @@ extension TabContentCache {
     /// for a tab its connection found already there (relaunch, daemon
     /// restart) or a page this process made for the tab before (hibernation
     /// wake, engine switch). A tab created later, by anyone, records its
-    /// first visit. Typing `cmux://history` into the address bar shows the
-    /// history page.
+    /// first visit. Typing an app page address (`cmux://history`,
+    /// `cmux://bookmarks`) into the address bar shows that page.
     func serveAppPages(_ entry: BrowserEntry, key: String) {
         guard let services = pageRequests.services else { return }
         let installedBefore = !services.history.installedPageKeys.insert(key).inserted
@@ -91,21 +87,36 @@ extension TabContentCache {
             entry.chrome.markRestored(tab.url.flatMap(URL.init(string:)))
         }
         entry.chrome.loadOverride = { [weak self] url in
-            guard HistoryPageAddress.matches(url), let self, let tab = tabModel(key) else { return false }
-            showHistoryPage(in: tab)
+            guard Self.isAppPage(url), let self, let tab = tabModel(key) else { return false }
+            showAppPage(url, in: tab)
             return true
         }
     }
 
     /// Replaces a page with the history page.
-    func showHistoryPage(in tab: TabModel) {
-        guard let services = pageRequests.services else { return }
+    func showHistoryPage(in tab: TabModel) { showAppPage(HistoryPageAddress.url, in: tab) }
+
+    /// Replaces a page with the app page at `url`.
+    func showAppPage(_ url: URL, in tab: TabModel) {
+        guard let page = makeAppPage(url, for: tab) else { return }
+        swapPage(tab.id, with: page)
+    }
+
+    static func isAppPage(_ url: URL?) -> Bool { HistoryPageAddress.matches(url) || BookmarkPageAddress.matches(url) }
+
+    private func makeAppPage(_ url: URL?, for tab: TabModel) -> (any BrowserTab)? {
+        guard Self.isAppPage(url), let services = pageRequests.services else { return nil }
         let key = tab.id
         let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
-        let page = HistoryPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: browserProfile?(key) ?? .default,
-                                  source: services.historyPage)
+        let profile = browserProfile?(key) ?? .default
+        if BookmarkPageAddress.matches(url) {
+            let page = services.bookmarkPages.makePage(key: key, engine: engine, profile: profile)
+            page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
+            return page
+        }
+        let page = HistoryPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: services.historyPage)
         page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
-        swapPage(key, with: page)
+        return page
     }
 
     /// The history page navigated to a web address: the tab becomes a real

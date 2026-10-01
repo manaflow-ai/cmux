@@ -18,6 +18,8 @@ public nonisolated enum ActionTargetKind: String, CaseIterable, Sendable, Hashab
     /// A browser profile (`browser-profile:default`, `browser-profile:<uuid>`;
     /// plans/cmux-next/data-model.md section 5).
     case browserProfile = "browser-profile"
+    /// A bookmark or bookmark folder (`bookmark:bm_…`; plans/cmux-next/bookmarks.md).
+    case bookmark
 }
 
 /// A reference to one object: what the user right-clicked, what the CLI
@@ -71,6 +73,10 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case profile
     /// A browser profile (the omnibar's profile badge, a Settings row).
     case browserProfile
+    /// A bookmark or folder on the bookmarks bar.
+    case bookmark
+    /// The bookmarks bar's empty area.
+    case bookmarksBar
 
     /// The object a right-click in this context targets, if any.
     public var targetKind: ActionTargetKind? {
@@ -87,6 +93,8 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .cloudMachine, .sshMachine: .machine
         case .profile: .profile
         case .browserProfile: .browserProfile
+        case .bookmark: .bookmark
+        case .bookmarksBar: nil
         }
     }
 }

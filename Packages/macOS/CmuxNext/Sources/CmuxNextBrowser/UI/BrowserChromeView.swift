@@ -43,6 +43,9 @@ public final class BrowserChromeView: NSView {
 
     let toolbar = NSView()
     private let separator = NSView()
+    /// Holds an optional bar under the toolbar (the bookmarks bar); zero high when empty.
+    let accessoryBar = NSView()
+    var accessoryHeight: CGFloat = 0
     let backButton: ChromeIconButton
     let forwardButton: ChromeIconButton
     let reloadButton: ChromeIconButton
@@ -166,7 +169,7 @@ public final class BrowserChromeView: NSView {
     // MARK: Layout
 
     private func buildLayout() {
-        for view in [toolbar, separator, contentContainer, progressLine, findBar, promptBar] as [NSView] {
+        for view in [toolbar, separator, accessoryBar, contentContainer, progressLine, findBar, promptBar] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
         toolbar.wantsLayer = true
@@ -192,6 +195,7 @@ public final class BrowserChromeView: NSView {
         addSubview(contentContainer)
         addSubview(toolbar)
         addSubview(separator)
+        installAccessoryBar(below: separator)
         addSubview(progressLine)
         pageStatus.install(in: self, over: contentContainer) { [weak self] in self?.tab }
         addSubview(promptBar)
@@ -237,7 +241,7 @@ public final class BrowserChromeView: NSView {
             progressLine.trailingAnchor.constraint(equalTo: trailingAnchor),
             density.bind(progressLine.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.progressThickness },
 
-            contentContainer.topAnchor.constraint(equalTo: separator.bottomAnchor),
+            contentContainer.topAnchor.constraint(equalTo: accessoryBar.bottomAnchor),
             contentContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
             contentContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -364,6 +368,8 @@ public final class BrowserChromeView: NSView {
         isToolbarHidden = hidden
         let height = hidden ? 0 : Self.toolbarHeight
         if !hidden { toolbar.isHidden = false; separator.isHidden = false }
+        accessoryBar.isHidden = hidden
+        applyAccessoryHeight()
         Motion.animateTimed(hidden ? .disappear : .appear, {
             self.toolbarHeight.animator().constant = height
             self.layoutSubtreeIfNeeded()
@@ -373,15 +379,6 @@ public final class BrowserChromeView: NSView {
                 self.separator.isHidden = true
             }
         })
-    }
-
-    private var containsFirstResponder: Bool {
-        guard let responder = window?.firstResponder else { return false }
-        if let view = responder as? NSView { return view.isDescendant(of: self) }
-        if let editor = responder as? NSText, let delegate = editor.delegate as? NSView {
-            return delegate.isDescendant(of: self)
-        }
-        return false
     }
 
     public override func viewDidChangeEffectiveAppearance() {

@@ -8,6 +8,8 @@ nonisolated enum Strings {
     static var forward: String { String(localized: "browser.toolbar.forward", defaultValue: "Forward", bundle: .module) }
     static var reload: String { String(localized: "browser.toolbar.reload", defaultValue: "Reload This Page", bundle: .module) }
     static var stop: String { String(localized: "browser.toolbar.stop", defaultValue: "Stop Loading", bundle: .module) }
+    static var bookmarkAdd: String { String(localized: "browser.bookmark.add", defaultValue: "Bookmark This Page", bundle: .module) }
+    static var bookmarkEdit: String { String(localized: "browser.bookmark.edit", defaultValue: "Edit Bookmark", bundle: .module) }
     static var extensions: String { String(localized: "browser.toolbar.extensions", defaultValue: "Extensions", bundle: .module) }
     static var extensionMoreFormat: String { String(localized: "browser.extensions.moreFormat", defaultValue: "More Actions for %@", bundle: .module) }
     static var noExtensions: String { String(localized: "browser.extensions.none", defaultValue: "No extensions installed", bundle: .module) }

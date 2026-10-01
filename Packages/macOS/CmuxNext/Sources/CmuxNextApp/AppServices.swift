@@ -67,6 +67,10 @@ final class AppServices {
     private(set) lazy var historyPage = HistoryPageService(services: self)
     /// Recently closed workspaces (history lists).
     private(set) lazy var closedWorkspaces = ClosedWorkspaceTracker(services: self)
+    /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
+    private(set) lazy var bookmarks = BookmarkService(services: self)
+    /// `cmux://bookmarks`: the manager pages.
+    private(set) lazy var bookmarkPages = BookmarkPageService(services: self)
     /// Recently closed screens (Reopen Closed Screen).
     let closedScreens = ClosedScreenHistory()
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
@@ -161,7 +165,13 @@ final class AppServices {
         keyRouter.services = self
         cache.keyRouter = keyRouter
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
-        cache.onBrowserEntryCreated = { [registry] entry in PageInfoHandlers.installRouter(on: entry, registry: registry) }
+        cache.onBrowserEntryCreated = { [registry, unowned self] entry in
+            PageInfoHandlers.installRouter(on: entry, registry: registry)
+            bookmarks.attach(entry)
+        }
+        cache.extraSuggestionProviders = { [unowned self] profile in
+            [BookmarkSuggestionProvider(service: bookmarks, profile: bookmarks.profile(of: profile))]
+        }
         cache.makeExtensionMenuHandler = { [unowned self] key in ExtensionMenuRouter(services: self, tabKey: key) }
         cache.onDevToolsChange = { [weak self] key, state, focused in self?.devToolsDidChange(key, state: state, focused: focused) }
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }

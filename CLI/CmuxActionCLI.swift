@@ -162,20 +162,23 @@ final class CmuxActionCLI {
     // MARK: - Query verbs
 
     /// Verbs that read data (actions return none): `cmux history list` and
-    /// `cmux history search <text>` call `history.list`.
+    /// `cmux history search <text>` call `history.list`; `cmux bookmark list`
+    /// and `cmux bookmark search <text>` call `bookmark.list`.
     static let queryVerbs: [String: [String: String]] = [
         "history": ["list": "history.list", "search": "history.list"],
+        "bookmark": ["list": "bookmark.list", "search": "bookmark.list"],
     ]
 
     private func runQuery(method: String, verb: String, noun: String, tokens: [String]) throws {
-        let usage = "Usage: cmux \(noun) \(verb)\(verb == "search" ? " <text>" : "") [--kind page|location|closed|agent|command] [--range hour|today|week|month|all] [--limit N] [--json]"
+        let options = noun == "bookmark" ? "[--folder ID] [--profile ID]" : "[--kind page|location|closed|agent|command] [--range hour|today|week|month|all]"
+        let usage = "Usage: cmux \(noun) \(verb)\(verb == "search" ? " <text>" : "") \(options) [--limit N] [--json]"
         var params: [String: Any] = [:]
         var words: [String] = []
         var index = 0
         while index < tokens.count {
             let token = tokens[index]
             switch token {
-            case "--kind", "--range", "--limit":
+            case "--kind", "--range", "--limit", "--folder", "--profile":
                 guard index + 1 < tokens.count else { throw Failure(usage, exitCode: 2) }
                 let value = tokens[index + 1]
                 if token == "--limit" {
@@ -204,8 +207,18 @@ final class CmuxActionCLI {
             output(Self.json(result))
             return
         }
+        if noun == "bookmark" {
+            let bookmarks = result["bookmarks"] as? [[String: Any]] ?? []
+            output(bookmarks.map(Self.bookmarkLine).joined(separator: "\n"))
+            return
+        }
         let entries = result["entries"] as? [[String: Any]] ?? []
         output(entries.map(Self.historyLine).joined(separator: "\n"))
+    }
+
+    /// `kind  title  url  path  id`, tab separated.
+    static func bookmarkLine(_ entry: [String: Any]) -> String {
+        ["kind", "title", "url", "path", "id"].map { entry[$0] as? String ?? "" }.joined(separator: "\t")
     }
 
     /// `time  kind  title  detail  id`, tab separated.

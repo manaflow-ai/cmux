@@ -33,6 +33,7 @@ extension BrowserProfileService {
         }
         try edit { $0.markDeleted(id) }
         services.cache.dropHistory(for: BrowserProfileRecord.engineProfile(for: id))
+        services.bookmarks.dropProfile(id)
         cleanUpDeletedProfiles()
     }
 

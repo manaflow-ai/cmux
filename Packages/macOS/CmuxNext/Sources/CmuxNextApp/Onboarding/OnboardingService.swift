@@ -84,11 +84,10 @@ final class OnboardingService {
         }
     }
 
-    /// A batch as omnibar history: pages as visited, bookmarks as one visit
-    /// on the day they were added (cmux-next has no bookmark list yet).
+    /// A batch's pages as omnibar history. Bookmarks reach the omnibar as
+    /// bookmark rows (`BookmarkSuggestionProvider`), not as visits.
     nonisolated static func historyEntries(_ batch: ImportBatch) -> [BrowserHistoryEntry] {
         batch.history.map { BrowserHistoryEntry(url: $0.url, title: $0.title, visitCount: $0.visitCount, lastVisit: $0.lastVisit) }
-            + batch.bookmarks.map { BrowserHistoryEntry(url: $0.url, title: $0.title, visitCount: 1, lastVisit: $0.dateAdded ?? batch.importedAt) }
     }
 }
 

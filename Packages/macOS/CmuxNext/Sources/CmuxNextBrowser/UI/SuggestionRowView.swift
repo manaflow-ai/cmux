@@ -31,6 +31,7 @@ final class SuggestionRowView: NSView {
         case .navigate: "globe"
         case .search: "magnifyingglass"
         case .history: "clock"
+        case .bookmark: "star"
         case .keyword: "puzzlepiece.extension"
         }
         icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
