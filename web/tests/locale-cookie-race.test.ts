@@ -10,7 +10,6 @@ function request(path: string, headers: Record<string, string> = {}) {
 
 describe("locale preference ownership", () => {
   for (const [kind, headers] of [
-    ["RSC prefetch", { rsc: "1", "next-router-prefetch": "1" }],
     ["router prefetch", { rsc: "1", "next-router-prefetch": "1" }],
     ["HTML prefetch", { purpose: "prefetch" }],
     ["browser prefetch", { "sec-purpose": "prefetch" }],
