@@ -182,6 +182,74 @@ describe("acpmux transcript accessibility", () => {
   });
 });
 
+/// A seeded generator, so a failing shape reproduces.
+function seeded(seed: number) {
+  let state = seed >>> 0;
+  return () => { state = (state * 1664525 + 1013904223) >>> 0; return state / 2 ** 32; };
+}
+
+/// Rows of every kind the transcript draws, in random markdown shapes.
+function randomConversation(count: number, random: () => number): AcpmuxRow[] {
+  const pieces = ["A sentence with `code` in it.", "## Heading\nText under it.", "- one\n- [ ] two\n- three", "```\nlet x = 1\n```", "> quoted", "Line one\nline two", "**bold** and [a link](https://example.com)"];
+  return Array.from({ length: count }, (_, index) => {
+    const pick = random();
+    const text = Array.from({ length: 1 + Math.floor(random() * 4) }, () => pieces[Math.floor(random() * pieces.length)]!).join("\n\n");
+    if (pick < 0.35) return { id: `r${index}`, version: 1, at: index, kind: "user", text };
+    if (pick < 0.75) return { id: `r${index}`, version: 1, at: index, kind: "assistant", text };
+    if (pick < 0.85) return { id: `r${index}`, version: 1, at: index, kind: "activity", toolCount: 2, items: [{ kind: "tool", text: "Read a file" }] } as AcpmuxRow;
+    if (pick < 0.92) return { id: `r${index}`, version: 1, at: index, kind: "permission", permission: { permissionId: `p${index}`, title: "Allow this?", options: [{ id: "allow", name: "Allow" }] } } as AcpmuxRow;
+    return { id: `r${index}`, version: 1, at: index, kind: "turnSummary", durationMs: 2000, toolCount: 1 };
+  });
+}
+
+describe("acpmux measured rows", () => {
+  /// The layout estimates a row's height before it draws, and some shapes always draw taller
+  /// than any estimate (fonts, permission cards, expanded tool output). A row the page has drawn
+  /// must be placed by its drawn height, so no row runs under the next one.
+  test("drawn rows never overlap, whatever their shape", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const random = seeded(16476);
+    const conversation = randomConversation(300, random);
+    // jsdom does no layout: each row draws at a height the estimator can't know.
+    const drawn = new Map(conversation.map((row) => [row.id, 30 + Math.round(random() * 220)]));
+    const prototype = dom.window.HTMLElement.prototype;
+    const original = prototype.getBoundingClientRect;
+    prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const index = Number(this.getAttribute("aria-posinset")) - 1;
+      const height = this.classList.contains("acpmux-row") ? drawn.get(conversation[index]?.id ?? "") ?? 0 : 0;
+      return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: height, width: 0, height, toJSON() { return {}; } } as DOMRect;
+    };
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const overlaps = () => {
+      const placed = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")]
+        .map((article) => ({ index: Number(article.getAttribute("aria-posinset")) - 1, top: Number(/translateY\(([-\d.]+)px\)/.exec(article.style.transform)?.[1]) }))
+        .sort((a, b) => a.index - b.index);
+      const found: string[] = [];
+      for (let position = 1; position < placed.length; position += 1) {
+        const above = placed[position - 1]!;
+        const below = placed[position]!;
+        if (below.index !== above.index + 1) continue;
+        const bottom = above.top + drawn.get(conversation[above.index]!.id)!;
+        if (bottom > below.top + 0.5) found.push(`${conversation[above.index]!.id} ends at ${bottom}, ${conversation[below.index]!.id} starts at ${below.top}`);
+      }
+      return found;
+    };
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: conversation, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      expect(overlaps()).toEqual([]);
+      const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
+      for (const top of [0, 4000, 9000]) {
+        await act(async () => { scroller.scrollTop = top; scroller.dispatchEvent(new dom.window.Event("scroll")); });
+        expect(overlaps()).toEqual([]);
+      }
+    } finally {
+      await act(async () => root.unmount());
+      prototype.getBoundingClientRect = original;
+      restore();
+    }
+  });
+});
+
 describe("acpmux renderer registry", () => {
   test("registering the same renderer again does not re-render the pane", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
