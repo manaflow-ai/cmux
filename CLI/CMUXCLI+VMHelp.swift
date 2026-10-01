@@ -24,6 +24,7 @@ extension CMUXCLI {
         case "tui": return vmTuiUsage
         case "prompt", "skill": return vmPromptUsage
         case "base": return vmBaseUsage
+        case "auth": return vmAuthUsage
         case "domains": return cloudDomainsUsage
         default: return nil
         }

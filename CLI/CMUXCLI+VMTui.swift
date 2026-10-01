@@ -1011,6 +1011,7 @@ extension CMUXCLI {
         case "resize": return vmResizeUsage
         case "layout": return vmLayoutUsage
         case "env": return vmEnvUsage
+        case "auth": return vmAuthUsage
         case "workspace": return vmWorkspaceUsage
         case "terminal": return vmTerminalUsage
         case "tab": return vmTabUsage

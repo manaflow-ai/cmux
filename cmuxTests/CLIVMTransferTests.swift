@@ -768,6 +768,31 @@ extension CLINotifyProcessIntegrationRegressionTests {
 /// changes, `vm agent --wait --output` polls the terminal to its exit and pages its
 /// output, and `vm self` renders the reflection the app fetched.
 extension CLINotifyProcessIntegrationRegressionTests {
+    func testVMAuthRequiresExplicitScopesAndParsesEachSelectedScope() throws {
+        XCTAssertEqual(
+            try CMUXCLI.parseVMAuthInputs(["setup", "brave-otter", "--git-identity", "--github"]),
+            CMUXCLI.VMAuthInputs(machine: "brave-otter", gitIdentity: true, github: true)
+        )
+        XCTAssertThrowsError(try CMUXCLI.parseVMAuthInputs(["setup", "brave-otter"]))
+        XCTAssertThrowsError(try CMUXCLI.parseVMAuthInputs(["setup", "brave-otter", "--all"]))
+    }
+
+    func testVMAuthGitHubSetupNeverPlacesTheTokenInTheRemoteCommand() {
+        let token = "gho_super_secret_value"
+        let command = CMUXCLI.vmAuthGitHubSetupCommand(tokenPath: ".cmux-github-token-123")
+        XCTAssertFalse(command.contains(token))
+        XCTAssertTrue(command.contains("gh auth login --hostname github.com --git-protocol https --with-token"))
+        XCTAssertTrue(command.contains("trap 'rm -f -- \"$token_path\"' EXIT"))
+        XCTAssertTrue(command.contains("gh auth setup-git"))
+    }
+
+    func testVMAuthGitIdentityCommandShellQuotesBothValues() {
+        let command = CMUXCLI.vmAuthGitConfigCommand(name: "Leo Li", email: "leo+cloud@example.com")
+        XCTAssertTrue(command.contains("'Leo Li'"))
+        XCTAssertTrue(command.contains("leo+cloud@example.com"))
+        XCTAssertFalse(command.contains("gho_"))
+    }
+
     /// Every decoded v2 request the mock saw, in order.
     private final class VMTransferRequestLog: @unchecked Sendable {
         private let lock = NSLock()

@@ -487,6 +487,7 @@ VM subcommands:
 | `surface new-terminal --machine <id\|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id\|ref\|index>] [--no-open] [--focus\|--no-focus] [--json] [-- <command...>]` | Create a terminal on a machine through its provider (`surface.new_terminal {machine, command?, cwd?, name?, remote_workspace_id?, open?, workspace_id?, …}` → `{resource, terminal_id, machine, remote_workspace_id, workspace_id?, surface_id?}`) and open it as a pane unless `--no-open`. Cloud terminals land in the machine's cmux-tui session (`--remote-workspace` picks the workspace); local ones are a new shell on This Mac. |
 | `vm tools <id>`, `vm tool-inspector <id>` | Inspect installed tools inside the VM. |
 | `vm ports <id>` | Show listening TCP ports inside the VM. |
+| `vm auth setup <machine> [--git-identity] [--github]` | With explicitly named scopes, copy this Mac's selected global Git identity and/or active GitHub CLI auth into one VM. GitHub tokens use the secret-safe transfer path and are never placed in commands or output; omitting both scopes is an error. |
 | `vm handoff <id>` | Print a short attach handoff block. |
 | `vm promote-template <id>` | Promote the VM into a reusable template. |
 
@@ -945,9 +946,9 @@ the expected text without connecting to a cmux socket.
 - `cmux events --help` -> `Usage: cmux events [options]`
 - `cmux glaeda --help` -> `Usage: cmux glaeda <request|observe> [options]`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout|team>`
-- `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
-- `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
-- `cmux vm ls --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|auth|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|auth|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux vm ls --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|auth|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux vm domains --help` -> `cmux cloud domains [list]`
 - `cmux vm run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <8g>] [--timeout <seconds>] -- <command...>`
 - `cmux vm run -h` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <8g>] [--timeout <seconds>] -- <command...>`

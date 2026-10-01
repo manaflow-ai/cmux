@@ -137,6 +137,8 @@ extension CMUXCLI {
         cmux cloud terminal wait-exit <machine> <terminal> --timeout 900
         cmux cloud terminal output <machine> <terminal>
         cmux cloud push --help
+        # Explicitly opt in to the selected scopes on one machine:
+        cmux cloud auth setup <machine> --git-identity --github
         cmux cloud pull --help
         ```
 
