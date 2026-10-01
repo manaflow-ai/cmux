@@ -1137,12 +1137,14 @@ fi
 if [[ "$REAL_USAGE" -eq 1 ]]; then
   REAL_USAGE_DIR="${REPORT_OUTPUT%.json}-real-usage"
   mkdir -p "$REAL_USAGE_DIR"
+  CODEX_SHUTDOWN_FILE="$REAL_USAGE_DIR/shutdown"
+  rm -f "$CODEX_SHUTDOWN_FILE"
   echo "==> starting real Codex workload in three Mac workspaces"
   CMUX_E2E_TAG="$TAG" \
   CMUX_CODEX_EVIDENCE_DIR="$REAL_USAGE_DIR" \
   CMUX_CODEX_MODEL="${CMUX_CODEX_MODEL:-gpt-5.5-mini}" \
   CMUX_CODEX_DURATION_SECONDS="${CMUX_CODEX_DURATION_SECONDS:-900}" \
-  CMUX_CODEX_SHUTDOWN_FILE="$REAL_USAGE_DIR/shutdown" \
+  CMUX_CODEX_SHUTDOWN_FILE="$CODEX_SHUTDOWN_FILE" \
   "$SCRIPT_DIR/e2e/iroh-codex-workload.sh" \
     > "$REAL_USAGE_DIR/codex-workload.log" 2>&1 &
   CODEX_WORKLOAD_PID=$!
@@ -1325,10 +1327,15 @@ if problems:
 PY
 
 if [[ "$REAL_USAGE" -eq 1 ]]; then
-  CODEX_SHUTDOWN_FILE="$REAL_USAGE_DIR/shutdown"
   TARGET_WORKSPACE_ID=""
   TARGET_SURFACE_ID=""
   for _ in $(seq 1 30); do
+    if ! kill -0 "$CODEX_WORKLOAD_PID" >/dev/null 2>&1; then
+      wait "$CODEX_WORKLOAD_PID" || true
+      echo "error: real Codex workload exited before the terminal verification" >&2
+      cat "$REAL_USAGE_DIR/codex-workload.log" >&2 || true
+      exit 1
+    fi
     if [[ -s "$REAL_USAGE_DIR/codex-workload.jsonl" ]]; then
       read -r TARGET_WORKSPACE_ID TARGET_SURFACE_ID < <(
         /usr/bin/python3 - "$REAL_USAGE_DIR/codex-workload.jsonl" <<'PY_TARGET'
@@ -1337,20 +1344,17 @@ import sys
 
 with open(sys.argv[1], encoding="utf-8") as handle:
     for line in handle:
-        row = json.loads(line)
-        if row.get("event") == "session_started":
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # The writer may still be appending its final line.
+        if row.get("event") == "session_started" and row.get("role") == "terminal":
             print(row["workspace_id"], row["surface_id"])
             break
 PY_TARGET
-      )
+      ) || true
     fi
     [[ -n "$TARGET_WORKSPACE_ID" && -n "$TARGET_SURFACE_ID" ]] && break
-    if ! kill -0 "$CODEX_WORKLOAD_PID" >/dev/null 2>&1; then
-      wait "$CODEX_WORKLOAD_PID" || true
-      echo "error: real Codex workload exited before producing a target workspace/surface" >&2
-      cat "$REAL_USAGE_DIR/codex-workload.log" >&2 || true
-      exit 1
-    fi
     sleep 1
   done
   [[ -n "${TARGET_WORKSPACE_ID:-}" && -n "${TARGET_SURFACE_ID:-}" ]] || {

@@ -58,7 +58,9 @@ cleanup() {
     "${CLI[@]}" close-workspace --workspace "$workspace" >/dev/null 2>&1
   done
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 TASK_ROOT="/tmp/cmux-iroh-mario"
 for ((index=1; index<=COUNT+2; index++)); do
@@ -67,24 +69,28 @@ for ((index=1; index<=COUNT+2; index++)); do
   session_log="$workdir/codex-session.log"
   rm -f "$session_log"
   if (( index <= COUNT )); then
+    role="codex"
     prompt="Build and iteratively improve a playable Mario-style HTML game in $workdir. Use real file edits and run local checks. Work independently for at least ten meaningful iterations. Print CMUX_CODEX_${index}_READY after the first playable version and CMUX_CODEX_${index}_ITER_<number> after every later improvement. Keep the game runnable from index.html."
     command="codex --yolo -m $(shell_quote "$MODEL") -- $(shell_quote "$prompt") 2>&1 | tee -a $(shell_quote "$session_log")"
   else
-    command="while true; do printf 'CMUX_SUPPORT_${index}_READY\\n' | tee -a $(shell_quote "$session_log"); sleep 30; done"
+    # The terminal driver must send shell input to an idle shell, never to
+    # Codex or a foreground keepalive process.
+    role="terminal"
+    command="/bin/zsh -l"
   fi
   response="$("${CLI[@]}" --json --id-format uuids workspace create --name "iroh codex $index" --cwd "$workdir" --command "$command" --focus false)"
   workspace="$(printf '%s' "$response" | json_value workspace_id)"
   [[ -n "$workspace" ]] || workspace="$(printf '%s' "$response" | json_value workspace_ref)"
   [[ -n "$workspace" ]] || { echo "workspace create failed: $response" >&2; exit 1; }
+  WORKSPACES+=("$workspace")
   surfaces_json="$("${CLI[@]}" --json --id-format uuids list-pane-surfaces --workspace "$workspace")"
   surface="$(printf '%s' "$surfaces_json" | /usr/bin/python3 -c 'import json,sys; d=json.load(sys.stdin); rows=d.get("surfaces",[]); print((rows[0].get("surface_id") or rows[0].get("id") or rows[0].get("surface_ref") or "") if rows else "")')"
   [[ -n "$surface" ]] || { echo "surface lookup failed: $surfaces_json" >&2; exit 1; }
-  WORKSPACES+=("$workspace")
   SURFACES+=("$surface")
   READY_SESSIONS+=(0)
   ITERATION_COUNTS+=(0)
-  printf '{"event":"session_started","index":%d,"workspace_id":"%s","surface_id":"%s","model":"%s","working_directory":"%s","started_at":"%s"}\n' \
-    "$index" "$workspace" "$surface" "$MODEL" "$workdir" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"
+  printf '{"event":"session_started","role":"%s","index":%d,"workspace_id":"%s","surface_id":"%s","model":"%s","working_directory":"%s","started_at":"%s"}\n' \
+    "$role" "$index" "$workspace" "$surface" "$MODEL" "$workdir" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"
 done
 
 deadline=$(( $(date +%s) + DURATION_SECONDS ))
