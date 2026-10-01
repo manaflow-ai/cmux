@@ -12,7 +12,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
+    /// A settled transcript scroll's frame intervals in milliseconds, at
+    /// most ``maximumPacingFrames``; the pane picks its rendering rate from them.
+    case framePacing([Double])
     case unsupported(String)
+
+    public static let maximumPacingFrames = 640
 
     public static let handlerName = "agentSession"
 
@@ -29,6 +34,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         case "chat.persistSession":
             if let id = params?["sessionId"] as? String, !id.isEmpty {
                 self = .persistSession(id)
+            } else {
+                self = .unsupported(method)
+            }
+        case "pane.framePacing":
+            if let intervals = params?["intervals"] as? [Double], !intervals.isEmpty {
+                self = .framePacing(Array(intervals.prefix(Self.maximumPacingFrames)))
             } else {
                 self = .unsupported(method)
             }
