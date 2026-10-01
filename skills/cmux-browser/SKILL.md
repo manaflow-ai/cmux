@@ -82,8 +82,8 @@ instead of retrying blindly.
 These old `cmux browser` features have no command in the new CLI: waits,
 cookies, local and session storage, saved state, console and error capture,
 network routing, dialogs, frames, downloads, screenshots to a file, video,
-trace and screencast, geolocation, offline and viewport emulation, hover,
-double click, check, select, scroll, key presses on app tabs, `identify`,
+trace and screencast, geolocation, offline and viewport emulation,
+double click, `identify`,
 profiles and proxies.
 
 Some have UI actions that act on the focused browser and return no data:

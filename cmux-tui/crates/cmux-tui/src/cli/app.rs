@@ -204,9 +204,61 @@ fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
             params.insert("text".into(), json!(text));
             if verb == "fill" { "browser.page.fill" } else { "browser.page.type" }
         }
+        ("hover" | "scroll-into-view" | "check" | "uncheck", [selector]) => {
+            params.insert("selector".into(), json!(selector));
+            match verb.as_str() {
+                "hover" => "browser.page.hover",
+                "check" => "browser.page.check",
+                "uncheck" => "browser.page.uncheck",
+                _ => "browser.page.scroll_into_view",
+            }
+        }
+        ("select", [selector, value]) => {
+            params.insert("selector".into(), json!(selector));
+            params.insert("value".into(), json!(value));
+            "browser.page.select"
+        }
+        ("press" | "scroll", _) => {
+            let split = rest.iter().position(|arg| arg.starts_with("--")).unwrap_or(rest.len());
+            let (positional, flags) = rest.split_at(split);
+            let options = Options::parse(flags, &["selector", "dx", "dy"], &[])?;
+            let selector = match positional {
+                [] => options.value("selector"),
+                [selector] if verb == "scroll" && options.value("selector").is_none() => {
+                    Some(selector.as_str())
+                }
+                [key] if verb == "press" => {
+                    params.insert("key".into(), json!(key));
+                    options.value("selector")
+                }
+                _ => return Err(usage()),
+            };
+            if let Some(selector) = selector {
+                params.insert("selector".into(), json!(selector));
+            }
+            if verb == "press" {
+                if !params.contains_key("key")
+                    || options.value("dx").or(options.value("dy")).is_some()
+                {
+                    return Err(usage());
+                }
+                "browser.page.press"
+            } else {
+                for key in ["dx", "dy"] {
+                    if let Some(offset) = options.value(key) {
+                        let offset: f64 = offset.parse().map_err(|_| usage())?;
+                        params.insert(key.into(), json!(offset));
+                    }
+                }
+                if !params.contains_key("dx") && !params.contains_key("dy") {
+                    return Err(usage());
+                }
+                "browser.page.scroll"
+            }
+        }
         _ => return Err(usage()),
     };
-    if verb != "snapshot" && words.len() != rest.len() {
+    if !matches!(verb.as_str(), "snapshot" | "press" | "scroll") && words.len() != rest.len() {
         return Err(usage());
     }
     Ok(AppCommand::Call {
@@ -813,6 +865,64 @@ mod tests {
             None
         );
         assert!(parse(&args(&["browser", "page", "fill", "#q"])).is_err());
+    }
+
+    #[test]
+    fn input_verbs_take_the_old_cli_forms() {
+        let page = |words: &[&str]| {
+            let mut all = vec!["browser", "tab_01ab"];
+            all.extend_from_slice(words);
+            parse(&args(&all)).map(|command| call(command.unwrap()))
+        };
+        assert_eq!(
+            page(&["press", "Enter"]).unwrap(),
+            ("browser.page.press", json!({ "tab": "tab_01ab", "key": "Enter" }))
+        );
+        assert_eq!(
+            page(&["press", "Space", "--selector", "#agree"]).unwrap(),
+            (
+                "browser.page.press",
+                json!({ "tab": "tab_01ab", "key": "Space", "selector": "#agree" })
+            )
+        );
+        assert_eq!(
+            page(&["hover", "#menu"]).unwrap(),
+            ("browser.page.hover", json!({ "tab": "tab_01ab", "selector": "#menu" }))
+        );
+        assert_eq!(
+            page(&["scroll-into-view", "e4"]).unwrap(),
+            ("browser.page.scroll_into_view", json!({ "tab": "tab_01ab", "selector": "e4" }))
+        );
+        assert_eq!(
+            page(&["select", "#size", "m"]).unwrap(),
+            (
+                "browser.page.select",
+                json!({ "tab": "tab_01ab", "selector": "#size", "value": "m" })
+            )
+        );
+        assert_eq!(page(&["check", "#a"]).unwrap().0, "browser.page.check");
+        assert_eq!(page(&["uncheck", "#a"]).unwrap().0, "browser.page.uncheck");
+        assert_eq!(
+            page(&["scroll", "--dy", "400"]).unwrap(),
+            ("browser.page.scroll", json!({ "tab": "tab_01ab", "dy": 400.0 }))
+        );
+        assert_eq!(
+            page(&["scroll", "#list", "--dx=-50"]).unwrap(),
+            ("browser.page.scroll", json!({ "tab": "tab_01ab", "selector": "#list", "dx": -50.0 }))
+        );
+        for bad in [
+            &["press"][..],
+            &["press", "a", "b"],
+            &["press", "a", "--dy", "1"],
+            &["scroll"],
+            &["scroll", "--dy", "far"],
+            &["scroll", "#a", "--selector", "#b", "--dy", "1"],
+            &["select", "#size"],
+            &["check"],
+            &["hover", "#a", "--force"],
+        ] {
+            assert!(page(bad).is_err(), "{bad:?}");
+        }
     }
 
     #[test]

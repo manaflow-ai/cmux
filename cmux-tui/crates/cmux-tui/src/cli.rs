@@ -941,6 +941,8 @@ USAGE
   cmux browser <selector> key|text [OPTIONS]
   cmux browser <selector> mouse|wheel --pointer-frame-seq <decimal> [OPTIONS]
   cmux browser <selector> attach|close [OPTIONS]
+  cmux browser <tab_…|page> press KEY [--selector S] | hover|check|uncheck|scroll-into-view SELECTOR
+  cmux browser <tab_…|page> select SELECTOR VALUE | scroll [SELECTOR] [--dx N] [--dy N]
 ";
 
 const NOTIFICATION_HELP: &str = "\
