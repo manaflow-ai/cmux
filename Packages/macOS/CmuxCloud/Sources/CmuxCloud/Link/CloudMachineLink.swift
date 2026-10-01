@@ -781,7 +781,10 @@ public actor CloudMachineLink {
                     try await ContinuousClock().sleep(for: limit)
                     return false
                 } catch {
-                    return true
+                    // Cancellation only cancels the timeout branch. It does
+                    // not prove that the child exited; the exit branch owns
+                    // that evidence and must be the only source of `true`.
+                    return false
                 }
             }
             let result = await group.next() ?? false
@@ -933,14 +936,32 @@ private final class CloudLinkProcess: @unchecked Sendable {
         let outputWrite = standardOutput.fileHandleForWriting.fileDescriptor
         let errorRead = standardError.fileHandleForReading.fileDescriptor
         let errorWrite = standardError.fileHandleForWriting.fileDescriptor
+        // Pipe() can reuse a closed standard descriptor. Stage every pipe fd
+        // above fd 2 before constructing file actions so a close action can
+        // never close the child's newly duplicated stdin/stdout/stderr.
+        func stagedDescriptor(_ descriptor: Int32) throws -> Int32 {
+            let staged = fcntl(descriptor, F_DUPFD_CLOEXEC, 3)
+            guard staged >= 0 else { throw POSIXError(.EIO) }
+            return staged
+        }
+        let stagedOutputRead = try stagedDescriptor(outputRead)
+        let stagedOutputWrite = try stagedDescriptor(outputWrite)
+        let stagedErrorRead = try stagedDescriptor(errorRead)
+        let stagedErrorWrite = try stagedDescriptor(errorWrite)
+        defer {
+            close(stagedOutputRead)
+            close(stagedOutputWrite)
+            close(stagedErrorRead)
+            close(stagedErrorWrite)
+        }
         let actionStatus = [
             posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0),
-            posix_spawn_file_actions_adddup2(&actions, outputWrite, STDOUT_FILENO),
-            posix_spawn_file_actions_adddup2(&actions, errorWrite, STDERR_FILENO),
-            posix_spawn_file_actions_addclose(&actions, outputRead),
-            posix_spawn_file_actions_addclose(&actions, outputWrite),
-            posix_spawn_file_actions_addclose(&actions, errorRead),
-            posix_spawn_file_actions_addclose(&actions, errorWrite),
+            posix_spawn_file_actions_adddup2(&actions, stagedOutputWrite, STDOUT_FILENO),
+            posix_spawn_file_actions_adddup2(&actions, stagedErrorWrite, STDERR_FILENO),
+            posix_spawn_file_actions_addclose(&actions, stagedOutputRead),
+            posix_spawn_file_actions_addclose(&actions, stagedOutputWrite),
+            posix_spawn_file_actions_addclose(&actions, stagedErrorRead),
+            posix_spawn_file_actions_addclose(&actions, stagedErrorWrite),
         ]
         guard actionStatus.allSatisfy({ $0 == 0 }) else {
             throw POSIXError(.EIO)
