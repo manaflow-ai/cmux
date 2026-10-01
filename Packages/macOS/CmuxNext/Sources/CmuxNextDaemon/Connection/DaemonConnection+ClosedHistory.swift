@@ -40,6 +40,11 @@ extension DaemonConnection {
             case workspaceID = "workspace_id"
             case tabIDs = "tab_ids"
         }
+
+        public init(workspaceID: String, tabIDs: [String] = []) {
+            self.workspaceID = workspaceID
+            self.tabIDs = tabIDs
+        }
     }
 
     /// Every retained closed item, newest first.

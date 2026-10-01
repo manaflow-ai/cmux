@@ -30,6 +30,37 @@ struct ReopenClosedWorkspaceTests {
         }
     }
 
+    @Test func retriesWithTheNextWorkspaceWhenOneWasReopenedMeanwhile() async throws {
+        var history = [Item(id: "closed_new", kind: .workspace), Item(id: "closed_old", kind: .workspace)]
+        var reopened: [String] = []
+        let result = try await WorkspaceHandlers.reopenNewestClosedWorkspace(list: { history }, reopen: { id in
+            reopened.append(id)
+            // Another press reopened the newest one between list and reopen.
+            if id == "closed_new" {
+                history.removeFirst()
+                throw DaemonError.command(cmd: "closed.reopen", message: "not found", code: "resource.not_found")
+            }
+            return .init(workspaceID: "ws_old")
+        })
+        #expect(reopened == ["closed_new", "closed_old"])
+        #expect(result.workspaceID == "ws_old")
+    }
+
+    @Test func otherReopenErrorsAreNotRetried() async {
+        var calls = 0
+        let failure = DaemonError.command(cmd: "closed.reopen", message: "boom", code: "internal")
+        do {
+            _ = try await WorkspaceHandlers.reopenNewestClosedWorkspace(list: { [Item(id: "closed_w", kind: .workspace)] }, reopen: { _ in
+                calls += 1
+                throw failure
+            })
+            Issue.record("reopen did not fail")
+        } catch {
+            #expect(error as? DaemonError == failure)
+        }
+        #expect(calls == 1)
+    }
+
     @Test func waitsForTheReopenedWorkspaceToReachTheMirror() async throws {
         let store = DaemonStore()
         let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(ReopenClosedTabTests.identify.utf8))
