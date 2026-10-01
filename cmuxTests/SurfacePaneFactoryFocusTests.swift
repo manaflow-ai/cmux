@@ -83,6 +83,67 @@ import SwiftUI
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == created.panelID)
     }
 
+    @Test("Cloud terminal input reasserts the active pane")
+    func cloudTerminalInputReassertsActivePane() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let sourcePane = try #require(workspace.bonsplitController.focusedPaneId)
+        let localPanelID = try #require(workspace.focusedPanelId)
+        let cloudPanel = try #require(workspace.makeRemoteTmuxPanePanel(onInput: { _ in }))
+        cloudPanel.cloudAttachment = CloudTerminalAttachmentStatus(machineID: "focus-ring-test")
+        _ = try workspace.insertCloudManualMirrorPanel(
+            cloudPanel,
+            at: .split(workspaceID: workspace.id, paneID: sourcePane.id.uuidString, direction: .right),
+            focus: false,
+            isLoading: false
+        )
+        var sessionActive = true
+        Workspace.bindCloudManualMirrorInputConvergence(
+            panel: cloudPanel,
+            isActive: { sessionActive },
+            onExplicitInput: {
+                #expect(Workspace.liveWorkspace(id: cloudPanel.workspaceId)?.focusedPanelId == cloudPanel.id)
+            }
+        )
+
+        #expect(workspace.focusedPanelId == localPanelID)
+
+        // Pointer activation must converge the visible pane selection before
+        // the portal's asynchronous callback gets a chance to run.
+        let pointerView = GhosttyNSView(frame: .zero)
+        pointerView.terminalSurface = cloudPanel.surface
+        pointerView.activateContainerFocusFromPointerDown()
+        #expect(workspace.focusedPanelId == cloudPanel.id)
+        #expect(workspace.isFocusedTerminalInputSurface(cloudPanel.id))
+
+        workspace.focusPanel(localPanelID)
+        #expect(workspace.focusedPanelId == localPanelID)
+        cloudPanel.surface.onExplicitInput?()
+        #expect(workspace.focusedPanelId == cloudPanel.id)
+        cloudPanel.surface.onExplicitInput?()
+        #expect(workspace.focusedPanelId == cloudPanel.id)
+
+        // Moving the same panel to another workspace must keep the input hook
+        // attached to its new owner after attach rebinds ordinary callbacks.
+        let manager = try #require(harness.appDelegate.tabManagerFor(windowId: harness.windowId))
+        let destination = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let detached = try #require(workspace.detachSurface(panelId: cloudPanel.id))
+        let destinationPane = try #require(destination.bonsplitController.allPaneIds.first)
+        #expect(destination.attachDetachedSurface(detached, inPane: destinationPane, focus: false) == cloudPanel.id)
+        manager.selectWorkspace(destination)
+        #expect(destination.focusedPanelId != cloudPanel.id)
+        cloudPanel.surface.onExplicitInput?()
+        #expect(destination.focusedPanelId == cloudPanel.id)
+
+        // A stopped session must not steal focus if its panel is later reused.
+        sessionActive = false
+        let localDestinationPanel = try #require(destination.panels.keys.first { $0 != cloudPanel.id })
+        destination.focusPanelFromTerminalInput(localDestinationPanel)
+        cloudPanel.surface.onExplicitInput?()
+        #expect(destination.focusedPanelId == localDestinationPanel)
+    }
+
     @Test("Cloud shortcut inheritance uses the live remote foreground cwd")
     func cloudShortcutInheritanceUsesLiveRemoteForegroundCwd() async throws {
         let harness = try Harness()

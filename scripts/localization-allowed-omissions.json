@@ -2,13 +2,23 @@
   "actions.discovery.menuTitle": {
     "source": "Actions · cmux.json…",
     "identityLocales": {
-      "fr": "The French UI uses the same established word for Actions; the translated catalog entry is still required."
+      "fr": {
+        "reason": "Actions is the standard French noun for this UI label, and cmux.json is an invariant filename. The translated French entry is still required.",
+        "values": [
+          "Actions · cmux.json…"
+        ]
+      }
     }
   },
   "actions.discovery.dialogTitle": {
     "source": "Actions · cmux.json",
     "identityLocales": {
-      "fr": "The French UI uses the same established word for Actions; the translated catalog entry is still required."
+      "fr": {
+        "reason": "Actions is the standard French noun for this UI label, and cmux.json is an invariant filename. The translated French entry is still required.",
+        "values": [
+          "Actions · cmux.json"
+        ]
+      }
     }
   },
   "mobile.ios106PairingUpdate.releaseLabel": {
@@ -233,28 +243,6 @@
   "agentSession.renderer.solid": {
     "class": "brand",
     "source": "Solid"
-  },
-  "actions.discovery.menuTitle": {
-    "source": "Actions · cmux.json…",
-    "identityLocales": {
-      "fr": {
-        "reason": "Actions is the standard French noun for this UI label, and cmux.json is an invariant filename. The translated French entry is still required.",
-        "values": [
-          "Actions · cmux.json…"
-        ]
-      }
-    }
-  },
-  "actions.discovery.dialogTitle": {
-    "source": "Actions · cmux.json",
-    "identityLocales": {
-      "fr": {
-        "reason": "Actions is the standard French noun for this UI label, and cmux.json is an invariant filename. The translated French entry is still required.",
-        "values": [
-          "Actions · cmux.json"
-        ]
-      }
-    }
   },
   "agentSession.web.mentionMenuTitle": {
     "source": "Mention",
@@ -4388,18 +4376,6 @@
     "source": "Desktop",
     "identityLocales": {
       "de": "\"Desktop\" is the established German loanword, spelled identically."
-    }
-  },
-  "actions.discovery.menuTitle": {
-    "source": "Actions · cmux.json…",
-    "identityLocales": {
-      "fr": "\"Actions\" is spelled the same in French; cmux.json is a file name."
-    }
-  },
-  "actions.discovery.dialogTitle": {
-    "source": "Actions · cmux.json",
-    "identityLocales": {
-      "fr": "\"Actions\" is spelled the same in French; cmux.json is a file name."
     }
   }
 }
