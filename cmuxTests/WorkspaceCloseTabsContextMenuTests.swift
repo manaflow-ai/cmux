@@ -89,8 +89,8 @@ struct WorkspaceCloseTabsContextMenuTests {
                 for: tab,
                 inPane: fixture.paneId
             )
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
             #expect(promptCount == 1)
             #expect(fixture.workspace.panelIdFromSurfaceId(tabId) == nil)
@@ -205,9 +205,9 @@ struct WorkspaceCloseTabsContextMenuTests {
 
                 workspace.markTabCloseButtonClose(surfaceId: surfaceId)
                 _ = workspace.closePanel(panelId)
-                drainMainQueue()
-                drainMainQueue()
-                drainMainQueue()
+                drainMainQueue(timeout: mainActorTestMainQueueSpin)
+                drainMainQueue(timeout: mainActorTestMainQueueSpin)
+                drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
                 #expect(workspace.panels[panelId] == nil)
                 #expect(workspace.panels.count == 1)
@@ -322,8 +322,8 @@ struct WorkspaceCloseTabsContextMenuTests {
             for: anchorTab,
             inPane: fixture.paneId
         )
-        drainMainQueue()
-        drainMainQueue()
+        drainMainQueue(timeout: mainActorTestMainQueueSpin)
+        drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
         #expect(promptCount == 1, "Expected one confirmation prompt for \(action)")
     }
@@ -337,6 +337,15 @@ struct WorkspaceCloseTabsContextMenuTests {
                 "Expected targeted tab \(closedTabId) to be removed"
             )
         }
+    }
+
+    /// Runs the local run loop briefly so serialized Swift Testing cases do not
+    /// block behind the module-global XCTest drain helper.
+    private func drainMainQueue(timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        } while Date() < deadline
     }
 
     private func withCleanClosedHistory(_ body: () throws -> Void) rethrows {
@@ -358,7 +367,7 @@ struct WorkspaceCloseTabsContextMenuTests {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
             if condition() { return }
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
             RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
         } while Date() < deadline
     }
