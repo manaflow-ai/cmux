@@ -117,7 +117,7 @@ Agents: spawn-throughput, omnibar-fsm, overlay-keys (+ child-window move sync), 
 
 User: Rectangle still desynced CEF (fixed 5dd8f4741d1: the app reports the shell window as AX focused window); Ctrl-Tab dead in Chromium, DevTools changes the URL, inline DevTools broken; animations must be faster, Apple-style (motion tokens, `ui.animationSpeed`); pane padding + subtle rounded border, configurable to none; Chrome extensions verified end to end (API conformance matrix + top-100 store suite); no "No workspaces in this window" state (a window exists only while it has a workspace); omnibar selection = Chrome parity; no spin loops, and **no polling anywhere** (every wait is event-driven; the only timers are one-shot user-visible deadlines and animation frames); no crashes: a Chromium tab or process failure never takes down the app, sad tab + Reload recovers, out-of-process CEF evaluated.
 User granted broad autonomy ("you can do whatever u want"). Coordinator decisions taken under it (reversible; the user can override):
-- Cmd-[ / Cmd-] in a terminal stay cmux Focus Back/Forward; Ghostty `super+[` still works if the user unbinds them.
+- Superseded (user 2026-09-30): Cmd-[ / Cmd-] act only in browser contexts (page Back/Forward) and do nothing elsewhere; Go Back / Go Forward over the location trail are Ctrl-Cmd-Left / Ctrl-Cmd-Right (plans/cmux-next/history.md).
 - cmux-tui may answer a later request before an earlier `new-tab` on one connection (documented in cmux-tui/spec/events.md).
 - Page Info default shortcut Ctrl-Cmd-I.
 - Tabs opened into a hidden workspace load lazily when shown.

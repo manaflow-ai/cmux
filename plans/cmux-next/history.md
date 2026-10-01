@@ -132,13 +132,10 @@ the user's rule), Ctrl-Cmd-[ / ] (workspaces), Ctrl-- / Ctrl-Shift-- (VS Code;
 Ctrl-Shift-- is Ctrl-_, undo in readline, zsh and Emacs, which tier 1 would
 steal from every terminal), Ctrl-Opt-arrows (Rectangle's defaults).
 
-Cmd-[ / Cmd-] in a terminal no longer run cmux Focus Back/Forward (this
-reverses the round 3 coordinator default, by the user's rule that the default
-bracket shortcuts are for browser history). With no cmux action on the chord,
-the terminal runs its Ghostty keybind: `super+[` / `super+]` are Ghostty's
-`goto_split:previous` / `next`, which cmux maps to Focus Previous/Next Pane.
-A user who wants the old behavior binds `shortcuts.bindings.focusHistoryBack`
-to `cmd+[` (tier 1 then beats the page too, which the recorder warns about).
+Cmd-[ / Cmd-] act only in a browser context (user 2026-09-30, "consistency
+is most important for keyboard shortcuts"). In a terminal or any other
+context they do nothing: cmux consumes them, so neither Ghostty's
+`super+[` keybind nor the shell gets them (focus.md section 5).
 
 Rules:
 
