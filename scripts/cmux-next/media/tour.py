@@ -56,6 +56,9 @@ DEFAULT_WAIT = 1.5
 STEP_TIMEOUT = 20.0
 SOCKET_TIMEOUT = 60.0
 FRAME_INTERVAL = 0.5
+# Five minutes of frames; a tour that runs longer keeps its screenshots but its
+# video stops here, so a stuck step cannot fill the runner's disk.
+MAX_FRAMES = 600
 WINDOW_TIMEOUT = 20.0
 # scripts/release-media/host_agent.py on main looks in the same places.
 HELPER_CANDIDATES = (Path.home() / "Applications/CuaSshScreenCapture.app",
@@ -305,6 +308,9 @@ class Recorder(threading.Thread):
             started = time.monotonic()
             with self.lock:
                 if self.stopping.is_set():
+                    break
+                if len(self.frames) >= MAX_FRAMES:
+                    self.error = f"the video stops at {MAX_FRAMES} frames"
                     break
                 path = self.directory / f"frame-{len(self.frames):05d}.jpg"
             problem = self.screen.capture(path, "jpg")

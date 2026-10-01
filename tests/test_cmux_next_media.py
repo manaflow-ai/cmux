@@ -142,6 +142,22 @@ class CaptureRect(unittest.TestCase):
         self.assertEqual(screen.capture(Path("/tmp/never.png")), "no app window on screen to capture")
 
 
+class Bounds(unittest.TestCase):
+    def test_the_recorder_stops_at_the_frame_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            class Screen:
+                def capture(self, path: Path, kind: str) -> None:
+                    return None
+            recorder = tour.Recorder(Screen(), Path(scratch))
+            recorder.frames = [{"file": "x", "step": 0}] * tour.MAX_FRAMES
+            recorder.run()
+            self.assertEqual(len(recorder.frames), tour.MAX_FRAMES)
+            self.assertIn("stops at", recorder.error)
+
+    def test_the_publisher_shares_the_cap(self) -> None:
+        self.assertEqual(publish.MAX_FRAMES, tour.MAX_FRAMES)
+
+
 class FreshState(unittest.TestCase):
     def app(self, tag: str, *, fresh: bool) -> object:
         app = tour.App.__new__(tour.App)

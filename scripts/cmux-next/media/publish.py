@@ -37,6 +37,8 @@ BOT = "github-actions[bot]"
 VIDEO_FPS = 4
 GIF_FPS = 4
 VIDEO_SIZE = (1280, 800)
+# tour.py's MAX_FRAMES: a larger artifact does not make a longer video.
+MAX_FRAMES = 600
 GIF_WIDTHS = (720, 560, 440)
 TOUR_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
 SHOT_PATH = re.compile(r"shots/[0-9]{2}-[a-z0-9-]{1,40}(?:-failed)?\.png")
@@ -110,6 +112,7 @@ def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: 
     mp4 = into / "tour.mp4"
     done = run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-framerate", str(VIDEO_FPS),
                 "-i", str(directory / "frames/frame-%05d.jpg"),
+                "-frames:v", str(MAX_FRAMES),
                 # A fixed output size: a frame of another size cannot break the stream.
                 "-vf", f"scale={VIDEO_SIZE[0]}:{VIDEO_SIZE[1]}:force_original_aspect_ratio=decrease,"
                        f"pad={VIDEO_SIZE[0]}:{VIDEO_SIZE[1]}:(ow-iw)/2:(oh-ih)/2:color=white",
