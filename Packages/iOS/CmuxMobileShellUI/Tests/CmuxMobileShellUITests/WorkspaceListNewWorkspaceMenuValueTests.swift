@@ -82,4 +82,19 @@ import SwiftUI
         #expect(!genericActionCalled)
         #expect(selectedTarget == target)
     }
+
+    @Test func selectedCloudHostIsPartOfMenuIdentity() {
+        let first = WorkspaceListNewWorkspaceMenuValue(
+            canCreate: true,
+            canCreateGroup: false,
+            scopedExternalHostID: "cloud-1"
+        )
+        let second = WorkspaceListNewWorkspaceMenuValue(
+            canCreate: true,
+            canCreateGroup: false,
+            scopedExternalHostID: "cloud-2"
+        )
+
+        #expect(first != second)
+    }
 }
