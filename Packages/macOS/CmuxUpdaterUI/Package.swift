@@ -34,7 +34,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxUpdaterUITests",
-            dependencies: ["CmuxUpdaterUI"],
+            dependencies: [
+                "CmuxUpdaterUI",
+                .product(name: "CmuxAppKitSupportUI", package: "CmuxAppKitSupportUI"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
