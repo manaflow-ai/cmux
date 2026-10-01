@@ -31,13 +31,11 @@ actor MobileTaskModelPrefetchCatalogWaiter {
         }
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                Task {
-                    self.register(
-                        waiterID: waiterID,
-                        provider: provider,
-                        continuation: continuation
-                    )
-                }
+                self.register(
+                    waiterID: waiterID,
+                    provider: provider,
+                    continuation: continuation
+                )
             }
         } onCancel: {
             Task { await self.cancel(waiterID: waiterID) }

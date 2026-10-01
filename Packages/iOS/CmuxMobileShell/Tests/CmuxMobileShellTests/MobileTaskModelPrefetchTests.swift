@@ -194,6 +194,27 @@ struct MobileTaskModelPrefetchTests {
         catalog.cancel()
     }
 
+    @Test func concurrentCatalogConsumersAllReceiveTheSharedResult() async {
+        let client = MobileTaskModelCatalogClient(
+            endpoint: URL(string: "https://catalog.example.test/models")!,
+            loader: { _ in
+                Data(#"{"schemaVersion":1,"providers":{"claude":{"models":[{"id":"backend-claude","label":"Backend Claude"}]}}}"#.utf8)
+            }
+        )
+        for _ in 0..<20 {
+            let catalog = MobileTaskModelPrefetchCatalog(client: client, startedAt: Date())
+            await withTaskGroup(of: MobileTaskModelListResult?.self) { group in
+                for _ in 0..<32 {
+                    group.addTask { await catalog.result(for: .claude) }
+                }
+                for await result in group {
+                    #expect(result?.models.map(\.id) == ["backend-claude"])
+                }
+            }
+            catalog.cancel()
+        }
+    }
+
     @Test func obsoleteConnectionDoesNotPrefetchIntoReplacement() async throws {
         let router = RoutingHostRouter()
         let store = try await makeRoutingConnectedStore(router: router, hostCapabilities: [])

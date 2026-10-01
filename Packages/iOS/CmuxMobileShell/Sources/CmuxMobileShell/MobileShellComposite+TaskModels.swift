@@ -212,6 +212,7 @@ extension MobileShellComposite {
     /// Performs the network request and parses the host response away from
     /// the main actor. The caller revalidates the connection before applying
     /// this immutable result to the observable shell state.
+    @concurrent
     private nonisolated func fetchTaskModelList(
         client: MobileCoreRPCClient,
         provider: MobileTaskAgentProvider
@@ -640,6 +641,7 @@ extension MobileShellComposite {
     }
 
     /// Fetches and decodes the backend fallback on the concurrent executor.
+    @concurrent
     private nonisolated func fetchTaskModelCatalog(
         client: MobileTaskModelCatalogClient,
         provider: MobileTaskAgentProvider
