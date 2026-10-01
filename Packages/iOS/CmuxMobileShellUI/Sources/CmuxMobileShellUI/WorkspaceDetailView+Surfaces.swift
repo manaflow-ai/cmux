@@ -170,14 +170,19 @@ extension WorkspaceDetailView {
 
     @ViewBuilder
     func browserContent(_ browser: BrowserSurfaceState) -> some View {
+        let serverRoute = browserServerRoute
         MobileBrowserPane(
             state: browser,
-            onClose: { browserStore.closeBrowser(for: workspace.id.rawValue) },
+            serverRoute: serverRoute,
+            modePicker: onDeviceModePicker(browser),
+            addressIdentifier: sshHostID == nil ? nil : "ssh.browser.address",
             onDiagnosticEvent: { event in
                 recordLocalBrowserDiagnostic(event, surfaceID: browser.id.rawValue)
             }
         )
-        .id(browser.id.rawValue)
+        // The route (proxy and data store) is fixed for a web view's
+        // lifetime, so a Mac that gains or loses the tunnel gets a new one.
+        .id("\(browser.id.rawValue)|\(serverRoute?.id ?? "")")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -204,8 +209,6 @@ extension WorkspaceDetailView {
             store.recordAppEvent(.browserReloadRequested, correlationID: surfaceID)
         case .stopRequested:
             store.recordAppEvent(.browserStopRequested, correlationID: surfaceID)
-        case .closed:
-            store.recordAppEvent(.browserClosed, correlationID: surfaceID)
         }
     }
 
@@ -227,7 +230,8 @@ extension WorkspaceDetailView {
                 reload: { await store.reloadMobileBrowser(panelID: $0) },
                 respondToDialog: { await store.respondToMobileBrowserDialog($0) }
             ),
-            reconnect: { Task { await store.reconnectOrRefresh() } }
+            reconnect: { Task { await store.reconnectBrowserStream(panelID: browser.id) } },
+            modePicker: streamedModePicker(browser)
         )
         .id(browser.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -14,6 +14,21 @@ import WebKit
 @MainActor
 @Suite(.serialized)
 struct BrowserWebContentTerminationLifecycleTests {
+    @Test("Content termination revokes readiness for the retained WebView")
+    func terminationRevokesCommittedDocumentReadiness() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { panel.close() }
+        let webView = panel.webView
+        let delegate = try #require(webView.navigationDelegate as? BrowserNavigationDelegate)
+        delegate.webView(webView, didCommit: nil)
+        #expect(panel.automationDocumentReadiness.hasCommittedDocument(for: panel.webViewInstanceID))
+
+        delegate.webViewWebContentProcessDidTerminate(webView)
+
+        #expect(panel.webView === webView)
+        #expect(!panel.automationDocumentReadiness.hasCommittedDocument(for: panel.webViewInstanceID))
+    }
+
     @Test
     func terminationCallbackDoesNotReplaceWebViewInsideWebKitCallback() {
         let panel = BrowserPanel(
@@ -49,7 +64,15 @@ struct BrowserWebContentTerminationLifecycleTests {
         navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
 
         #expect(panel.hasRecoverableWebContentTermination)
-        #expect(panel.webViewLifecycleTopPayload()["discard_blockers"] as? [String] == ["webcontent_recovery"])
+        // Recovery starts a navigation immediately, so the loading blocker is
+        // expected alongside the required web-content recovery blocker until
+        // that navigation settles.
+        #expect(
+            panel.webViewLifecycleTopPayload()["discard_blockers"] as? [String] == [
+                "webcontent_recovery",
+                "loading",
+            ]
+        )
         #expect(!panel.discardHiddenWebViewForMemory(reason: "test.hidden_timer"))
     }
 

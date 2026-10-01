@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 
 extension CloudTreeOutlineView.Coordinator {
@@ -31,38 +32,91 @@ extension CloudTreeOutlineView.Coordinator {
     func organize(_ action: CloudSidebarOrganizationAction, nodeID: String) -> Bool {
         let current = organizationNodes
         guard nodeActions.organize(action, nodeID, current) else { return false }
-        apply(nodes: current)
+        // The catalog mutation is local and already authoritative for this
+        // action. Do not wait for the native source's later `endedAt` callback
+        // before reflecting the accepted reorder in the outline.
+        applyOrganization(nodes: current)
         return true
     }
 
     func outlineView(_ outlineView: NSOutlineView, validateDrop info: any NSDraggingInfo,
                      proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
-        dropAction(outlineView, info: info, parent: item, index: index) == nil ? [] : .move
+        // The tree is a navigation/source surface. Pane destinations own the
+        // ownership warning and announcement; the tree draws no drag hints.
+        guard ownershipRejection(info: info, item: item) == nil else {
+            if let cloudOutline = outlineView as? CloudTreeNSOutlineView {
+                cloudOutline.clearDragDestination(sequence: info.draggingSequenceNumber)
+                cloudOutline.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
+            }
+            return []
+        }
+        guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else {
+            if let cloudOutline = outlineView as? CloudTreeNSOutlineView {
+                cloudOutline.clearDragDestination(sequence: info.draggingSequenceNumber)
+                cloudOutline.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
+            }
+            return []
+        }
+        outlineView.setDropItem(drop.parent, dropChildIndex: drop.childIndex)
+        if let cloudOutline = outlineView as? CloudTreeNSOutlineView {
+            cloudOutline.trackDragDestination(sequenceNumber: info.draggingSequenceNumber)
+            cloudOutline.reorderPresentation.show(drop, sequence: info.draggingSequenceNumber)
+        }
+        return .move
     }
 
     func outlineView(_ outlineView: NSOutlineView, acceptDrop info: any NSDraggingInfo,
                      item: Any?, childIndex index: Int) -> Bool {
-        guard let (id, action) = dropAction(outlineView, info: info, parent: item, index: index) else { return false }
-        return organize(action, nodeID: id)
+        defer { (outlineView as? CloudTreeNSOutlineView)?.clearDragDestination(sequence: info.draggingSequenceNumber) }
+        guard ownershipRejection(info: info, item: item) == nil else { return false }
+        guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else { return false }
+        switch drop.operation {
+        case .organization(let action):
+            return organize(action, nodeID: drop.sourceID)
+        case .machine(let id, let move):
+            guard let actions = machineOrdering(for: info, nodeID: drop.sourceID) else { return false }
+            return moveMachine(id, move: move, using: actions)
+        }
+    }
+
+    /// Keeps the shared ownership boundary ahead of sidebar organization mutations.
+    private func ownershipRejection(info: any NSDraggingInfo, item: Any?) -> SurfaceTransferRejection? {
+        guard let node = item as? CloudTreeNode, !node.machine.isLocal,
+              DragOverlayRoutingPolicy.hasBonsplitTabTransfer(info.draggingPasteboard.types) else { return nil }
+        let resolver = PaneTransferSourceResolver()
+        let policy = SurfaceOwnershipPolicy(cloudMachine: node.machine)
+        guard let transfer = resolver.transfer(from: info.draggingPasteboard),
+              let source = resolver.source(for: transfer) else { return policy.rejection(for: nil) }
+        switch source {
+        case .surfaceResources(let group):
+            return SurfaceCatalog.shared.ownershipRejection(for: group.resources, policy: policy)
+        case .surface:
+            return policy.rejection(for: AppDelegate.shared?.machineOwningBonsplitTab(transfer.tabId))
+        case .vaultSession, .filePreview, .rightSidebarTool:
+            return policy.rejection(for: .local)
+        }
     }
 
     /// Internal moves never cross a parent or pin partition. In particular, a
     /// folder drag must not become a remote tab.move and detach a running pane.
-    private func dropAction(_ outlineView: NSOutlineView, info: any NSDraggingInfo,
-                            parent: Any?, index: Int) -> (String, CloudSidebarOrganizationAction)? {
+    /// Projection-capable leaves also reorder here; their export capability is
+    /// consumed only by pane destinations, never by this organization action.
+    private func organizationDrop(_ outlineView: NSOutlineView, info: any NSDraggingInfo,
+                                  item: Any?, index: Int) -> CloudSidebarOrganizationDrop? {
         guard let source = info.draggingSource as? NSOutlineView, source === outlineView,
-              let id = info.draggingPasteboard.string(forType: .cloudSidebarRow),
-              let parent = parent as? CloudTreeNode, index >= 0, index <= parent.children.count,
-              CloudSidebarOrganizationTree(nodes: organizationNodes).parent(of: id)?.id == parent.id else { return nil }
-        let pinned = organization.state.isPinned(id, parent: parent.id)
-        let before = parent.children.prefix(index).last { $0.canOrganize && $0.id != id }
-        let after = parent.children.dropFirst(index).first { $0.canOrganize && $0.id != id }
-        if let after, organization.state.isPinned(after.id, parent: parent.id) == pinned {
-            return (id, .before(after.id))
+              let id = info.draggingPasteboard.string(forType: .cloudSidebarRow) else { return nil }
+        let row = item.map { outlineView.row(forItem: $0) } ?? -1
+        let point = outlineView.convert(info.draggingLocation, from: nil)
+        // Native indices refer to the frozen, displayed tree. Fresh catalog
+        // membership is checked by organize, never substituted into this index.
+        guard let drop = CloudSidebarOrganizationDrop(
+            sourceID: id, nodes: nodes, state: organization.state,
+            proposedItem: item as? CloudTreeNode, proposedChildIndex: index,
+            dropAfterItem: row >= 0 && point.y >= outlineView.rect(ofRow: row).midY
+        ) else { return nil }
+        if case .machine(let machineID, let move) = drop.operation {
+            guard machineOrdering(for: info, nodeID: id)?.canMove(machineID, move) == true else { return nil }
         }
-        if let before, organization.state.isPinned(before.id, parent: parent.id) == pinned {
-            return (id, .after(before.id))
-        }
-        return nil
+        return drop
     }
 }

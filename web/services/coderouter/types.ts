@@ -117,6 +117,8 @@ export type CodeRouterVault = {
 };
 
 export type CodeRouterAccountSummary = {
+  readonly visibility?: "private" | "team";
+  readonly createdBy?: string | null;
   readonly id: string;
   readonly provider: CodeRouterProvider;
   readonly providerAccountId: string;

@@ -1,6 +1,7 @@
 import CMUXAgentLaunch
 import CmuxAgentChat
 import CmuxFoundation
+import CmuxMobileHost
 import Foundation
 
 /// A coding-agent session discovered by observing the process table, with no
@@ -98,7 +99,7 @@ extension AgentChatSessionRegistry {
         case .stop:
             return .idle
         case .subagentStart, .subagentStop:
-            // Task subagent lifecycle says nothing about the parent
+            // Subagent lifecycle says nothing about the parent
             // session's activity; keep the current state.
             return previous
         case .sessionEnd:

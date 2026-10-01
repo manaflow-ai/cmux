@@ -22,6 +22,27 @@ if (summary !== "Edited 2 files, read 1 file, searched code, listed files, and r
 if (/Read 1 File|Searched Code|Listed Files|Ran 3 Commands/.test(summary)) {
   throw new Error(`summary regressed to title case: ${summary}`);
 }
+// Claude Code turn: only Bash calls are shell commands; structured tools are
+// reported by what they did (regression: this read "ran 6 commands").
+const claudeTurn: Block[] = [
+  { kind: "tool", toolId: "g", name: "Grep", detail: "func runExport", status: "ok" },
+  { kind: "tool", toolId: "r", name: "Read", detail: "/work/Export.swift", status: "ok" },
+  { kind: "tool", toolId: "e1", name: "Edit", detail: "/work/Export.swift", status: "ok" },
+  { kind: "tool", toolId: "b1", name: "Bash", detail: "swift test --filter ExportTests", status: "ok" },
+  { kind: "tool", toolId: "e2", name: "Edit", detail: "/work/Row.swift", status: "ok" },
+  { kind: "tool", toolId: "b2", name: "Bash", detail: "swift test --filter ExportTests", status: "ok" },
+  { kind: "tool", toolId: "w", name: "WebFetch", detail: "https://example.com", status: "ok" },
+];
+const claudeSummary = summarizeTurnActivity(claudeTurn);
+if (claudeSummary !== "Edited 2 files, read 1 file, searched code, ran 2 commands, and used 1 tool") {
+  throw new Error(`unexpected Claude summary: ${claudeSummary}`);
+}
+
+const claudeLabels = claudeTurn.map((block) => activityRowLabel(block)).join("|");
+if (claudeLabels !== "Searched func runExport|Read /work/Export.swift|Edited /work/Export.swift|Ran swift test --filter ExportTests|Edited /work/Row.swift|Ran swift test --filter ExportTests|Used WebFetch https://example.com") {
+  throw new Error(`unexpected Claude activity labels: ${claudeLabels}`);
+}
+
 const labels = activity.map((block) => activityRowLabel(block));
 if (labels.join("|") !== "Read AGENTS.md|Searched RepositoryPicker|Listed Sources|Edited 2 files") {
   throw new Error(`unexpected activity labels: ${labels.join("|")}`);
@@ -212,6 +233,35 @@ if (midCloseSnapshot.height !== "110px" || midCloseSnapshot.opacity !== "0.42") 
 const reopenFromMidClose = disclosureHeightKeyframes(true, Number.parseFloat(midCloseSnapshot.height), 149, Number.parseFloat(midCloseSnapshot.opacity));
 if (reopenFromMidClose[0].height !== "110px" || reopenFromMidClose[0].opacity !== 0.42 || reopenFromMidClose[1].height !== "149px") {
   throw new Error(`interrupted reopen should continue from current height instead of snap to start: ${JSON.stringify(reopenFromMidClose)}`);
+}
+
+// cmux agent messages stay visible at the top of the turn they arrived in; a
+// message that woke an idle agent, or continued it after its reply, starts a turn.
+const messageBlocks = [
+  { kind: "user", text: "cut the release" },
+  { kind: "message", id: "m1", from: "coordinator", body: "Hold the tag." },
+  { kind: "assistant", text: "Holding.", open: false },
+  { kind: "footer", text: "" },
+  { kind: "message", id: "m2", from: "reviewer", body: "Tag is clear." },
+  { kind: "assistant", text: "Tagging now.", open: false },
+  { kind: "message", id: "m3", from: "reviewer", body: "Also bump the docs." },
+  { kind: "tool", toolId: "t", name: "Edit", detail: "docs.md", status: "ok" },
+] as unknown as Block[];
+const messageTurns = groupTurns(messageBlocks, "idle");
+const turnShape = messageTurns.map((g) => ({ user: g.user?.text, messages: (g.messages ?? []).map((m) => m.id), activity: g.activity.length }));
+const expectedShape = [
+  { user: "cut the release", messages: ["m1"], activity: 0 },
+  { user: undefined, messages: ["m2"], activity: 0 },
+  { user: undefined, messages: ["m3"], activity: 1 },
+];
+if (JSON.stringify(turnShape) !== JSON.stringify(expectedShape)) {
+  throw new Error(`agent messages grouped wrong: ${JSON.stringify(turnShape)}`);
+}
+
+// A sender name is shown as written, even with replacement patterns in it.
+const { agentMessageLabel } = await import("../src/components/Transcript");
+if (agentMessageLabel("a$&b", ["en"]) !== "Message from a$&b") {
+  throw new Error(`sender label mangled: ${agentMessageLabel("a$&b", ["en"])}`);
 }
 
 console.log("turn summary and virtualization: OK");

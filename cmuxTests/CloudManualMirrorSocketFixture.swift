@@ -5,8 +5,13 @@ import Foundation
 /// handshake tests assert on.
 struct CloudManualMirrorFixtureCommand: Sendable {
     let cmd: String
+    let inputBytes: Data?
+    let expectedGeneration: String?
+    let expectedTerminalID: String?
     let id: UInt64
     let surface: UInt64?
+    let columns: Int?
+    let rows: Int?
     let capabilities: [String]
     let hasInitialSize: Bool
     let imageOperation: String?
@@ -16,12 +21,18 @@ struct CloudManualMirrorFixtureCommand: Sendable {
     let offset: Int?
     let imageBytes: Data?
     let hasDestinationPath: Bool
+    let noReply: Bool
 
     init?(_ object: [String: Any]) {
         guard let cmd = object["cmd"] as? String else { return nil }
         self.cmd = cmd
+        expectedGeneration = object["expected_generation"] as? String
+        expectedTerminalID = object["expected_terminal_id"] as? String
+        inputBytes = (object["bytes"] as? String).flatMap { Data(base64Encoded: $0) }
         id = (object["id"] as? NSNumber)?.uint64Value ?? 0
         surface = (object["surface"] as? NSNumber)?.uint64Value
+        columns = object["cols"] as? Int
+        rows = object["rows"] as? Int
         capabilities = object["capabilities"] as? [String] ?? []
         hasInitialSize = object["cols"] != nil || object["rows"] != nil
         imageOperation = object["op"] as? String
@@ -31,6 +42,7 @@ struct CloudManualMirrorFixtureCommand: Sendable {
         offset = object["offset"] as? Int
         imageBytes = (object["data"] as? String).flatMap { Data(base64Encoded: $0) }
         hasDestinationPath = object["path"] != nil
+        noReply = object["no_reply"] as? Bool == true
     }
 }
 
@@ -44,8 +56,13 @@ final class CloudManualMirrorSocketFixture: @unchecked Sendable {
     private let listenerFD: Int32
     private let lock = NSLock()
     private var clientFD: Int32 = -1
+    private var connectionFDs: [Int32] = []
+    private var acceptedConnections = 0
+    private var closed = false
     private var received: [CloudManualMirrorFixtureCommand] = []
     private var cursor = 0
+    private var inputAcknowledged = false
+    private var preAcknowledgementInputs: [CloudManualMirrorFixtureCommand] = []
 
     init() throws {
         let name = "cmux-mm-" + UUID().uuidString.prefix(8).lowercased() + ".sock"
@@ -91,29 +108,79 @@ final class CloudManualMirrorSocketFixture: @unchecked Sendable {
         }
     }
 
+    /// Marks the exact point at which the attach acknowledgement is sent.
+    /// Input commands received before this boundary are retained for a
+    /// deterministic assertion instead of being detected by a timeout.
+    func markInputAcknowledged() {
+        lock.lock()
+        inputAcknowledged = true
+        lock.unlock()
+    }
+
+    /// Returns input commands that arrived before the explicit attach ack.
+    func preAcknowledgementInputCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return preAcknowledgementInputs.count
+    }
+
+    /// How many connections the session has opened so far.
+    func connectionCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return acceptedConnections
+    }
+
     func close() {
         lock.lock()
-        if clientFD >= 0 {
-            Darwin.close(clientFD)
-            clientFD = -1
+        if closed {
+            lock.unlock()
+            return
         }
+        closed = true
+        for fd in connectionFDs {
+            shutdown(fd, SHUT_RDWR)
+            Darwin.close(fd)
+        }
+        connectionFDs.removeAll()
+        clientFD = -1
         lock.unlock()
         Darwin.close(listenerFD)
         unlink(socketPath)
     }
 
+    /// Accepts every connection the session opens. A reconnect replaces the
+    /// socket `send` writes to; commands from all connections share one queue.
     private func acceptAndRead() {
-        var address = sockaddr_un()
-        var length = socklen_t(MemoryLayout<sockaddr_un>.size)
-        let fd = withUnsafeMutablePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.accept(listenerFD, $0, &length)
+        while true {
+            var address = sockaddr_un()
+            var length = socklen_t(MemoryLayout<sockaddr_un>.size)
+            let fd = withUnsafeMutablePointer(to: &address) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    Darwin.accept(listenerFD, $0, &length)
+                }
+            }
+            if fd < 0 {
+                if errno == EINTR { continue }
+                return
+            }
+            lock.lock()
+            if closed {
+                lock.unlock()
+                Darwin.close(fd)
+                return
+            }
+            clientFD = fd
+            connectionFDs.append(fd)
+            acceptedConnections += 1
+            lock.unlock()
+            DispatchQueue.global(qos: .userInitiated).async { [self] in
+                read(from: fd)
             }
         }
-        guard fd >= 0 else { return }
-        lock.lock()
-        clientFD = fd
-        lock.unlock()
+    }
+
+    private func read(from fd: Int32) {
         var pending = Data()
         var buffer = [UInt8](repeating: 0, count: 4096)
         while true {
@@ -131,6 +198,9 @@ final class CloudManualMirrorSocketFixture: @unchecked Sendable {
                       let command = CloudManualMirrorFixtureCommand(object) else { continue }
                 lock.lock()
                 received.append(command)
+                if command.inputBytes != nil, !inputAcknowledged {
+                    preAcknowledgementInputs.append(command)
+                }
                 lock.unlock()
             }
         }

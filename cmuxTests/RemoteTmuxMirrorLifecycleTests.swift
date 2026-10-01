@@ -101,7 +101,13 @@ struct RemoteTmuxMirrorLifecycleTests {
         )
         window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
-        manager.window = window
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
         let veto = CloseVetoDelegate()
         window.delegate = veto
         var didClose = false
@@ -151,7 +157,13 @@ struct RemoteTmuxMirrorLifecycleTests {
         )
         window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
-        manager.window = window
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
         var didClose = false
         let closeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
@@ -179,7 +191,8 @@ struct RemoteTmuxMirrorLifecycleTests {
                 surfaceID: nil,
                 paneID: nil
             ),
-            workspaceID: mirrorWorkspace.id
+            workspaceID: mirrorWorkspace.id,
+            force: false
         )
 
         #expect(resolution == .resolved(windowID: windowId))
@@ -293,7 +306,7 @@ struct RemoteTmuxMirrorLifecycleTests {
         #expect(!window.isKeyWindow)
     }
 
-    @Test func discoveryPurgesDeadMirrorAndRecreatesItsSession() throws {
+    @Test func discoveryPurgesDeadMirrorAndRecreatesItsSession() async throws {
         let controller = RemoteTmuxController()
         let host = RemoteTmuxHost(destination: "user@host")
         var deadManager: TabManager? = TabManager()
@@ -309,7 +322,12 @@ struct RemoteTmuxMirrorLifecycleTests {
         // weak workspace deallocates but the map entry stays. That stale key
         // makes mirrorSessions skip recreation while the dead workspace fails
         // the manager filter, so every re-attach mirrors nothing.
+        deadManager?.tabs.forEach { $0.teardownAllPanels() }
         deadManager = nil
+        let released = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            controller.sessionMirrors.values.allSatisfy { $0.mirroredWorkspaceId == nil }
+        }
+        try #require(released, "The retired mirror workspace must be released before discovery")
 
         let target = TabManager()
         controller.cacheConnection(

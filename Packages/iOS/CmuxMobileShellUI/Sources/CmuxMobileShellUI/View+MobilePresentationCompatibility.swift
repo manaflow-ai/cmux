@@ -14,6 +14,17 @@ extension View {
         }
     }
 
+    /// Fits the sheet to its proposed content size on iOS 18 and newer. iOS 17
+    /// has no presentation sizing API; the height detents alone size it there.
+    @ViewBuilder
+    func mobileFittedPresentationSizing() -> some View {
+        if #available(iOS 18.0, *) {
+            presentationSizing(.fitted)
+        } else {
+            self
+        }
+    }
+
     /// Uses native popover fitting on iOS 17 and explicit proposal sizing on newer systems.
     @ViewBuilder
     func mobileNoticePresentationSizing() -> some View {

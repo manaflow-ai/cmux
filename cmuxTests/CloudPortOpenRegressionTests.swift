@@ -1,3 +1,6 @@
+import CmuxCloud
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 import CmuxWorkspaces
@@ -15,7 +18,6 @@ import CmuxWorkspaces
 struct CloudPortOpenRegressionTests {
     private let machine = SurfaceMachineID.cloud("port-vm")
     private let workspace = SurfaceRemoteWorkspace(id: "ws_app", name: "app", index: 0, focused: true)
-
     @MainActor
     private final class FakeProvider: SurfaceProvider {
         let machine: SurfaceMachineID
@@ -24,7 +26,6 @@ struct CloudPortOpenRegressionTests {
         var materialized: [(resource: SurfaceResourceID, destination: SurfaceDestination)] = []
         var refreshCalls = 0
         var forcedRefreshCalls = 0
-
         init(machine: SurfaceMachineID, supportsPortPreviews: Bool) {
             self.machine = machine
             self.supportsPortPreviews = supportsPortPreviews
@@ -45,16 +46,13 @@ struct CloudPortOpenRegressionTests {
                 privateAddress: "10.0.0.7"
             )
         }
-
         func refresh() async {
             refreshCalls += 1
         }
-
         func refresh(force: Bool) async {
             refreshCalls += 1
             if force { forcedRefreshCalls += 1 }
         }
-
         func materialize(
             _ resource: SurfaceResource,
             at destination: SurfaceDestination,
@@ -63,7 +61,6 @@ struct CloudPortOpenRegressionTests {
             materialized.append((resource.id, destination))
             return SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
         }
-
         func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
             SurfaceResource(
                 id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_new"),
@@ -76,10 +73,8 @@ struct CloudPortOpenRegressionTests {
                 url: nil
             )
         }
-
         func projectionDidEnd(_ projection: SurfaceProjection) {}
     }
-
     private func machineSnapshot() -> MachineSnapshot {
         MachineSnapshot(
             id: machine.rawValue,
@@ -91,7 +86,6 @@ struct CloudPortOpenRegressionTests {
             label: nil
         )
     }
-
     private func machineInfo(workspaces: [SurfaceRemoteWorkspace] = []) -> SurfaceMachineInfo {
         SurfaceMachineInfo(
             id: machine,
@@ -110,7 +104,6 @@ struct CloudPortOpenRegressionTests {
             privateAddress: "10.0.0.7"
         )
     }
-
     private func terminal() -> SurfaceResource {
         var resource = SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_app"),
@@ -158,7 +151,7 @@ struct CloudPortOpenRegressionTests {
             "resource:port-vm/browser/port:3000",
             "resource:port-vm/browser/port:8000",
         ])
-        #expect(byID["machine:port-vm/ws/ws_app/resource:port-vm/browser/port:8000"] != nil)
+        #expect(byID["machine:port-vm/ws/ws_app/resource:port-vm/browser/port:8000/tab:tab_port_8000"] != nil)
         #expect(portsGroup.children.last?.dragResource?.id == port.id)
         #expect(SurfaceResourceID(machine: machine, kind: .browser, key: "port:08000").forwardedPort == nil)
 
@@ -171,7 +164,7 @@ struct CloudPortOpenRegressionTests {
             localWorkspaces: [],
             includeLocalMachine: false
         ))
-        #expect(emptyNodes.first { $0.structureTag == "portsGroup" } == nil)
+        #expect(emptyNodes.first { $0.structureTag == "portsGroup" }?.children.first?.structureTag == "placeholder")
     }
 
     @Test("A localhost browser view is folded into the canonical port in its cloud workspace")
@@ -237,7 +230,7 @@ struct CloudPortOpenRegressionTests {
         ))
         let portsGroup = try #require(tree.first { $0.id == "machine:port-vm/ports" })
         #expect(portsGroup.children.compactMap { $0.dragResource?.id } == [port.id])
-        let workspacePort = try #require(tree.first { $0.id == "machine:port-vm/ws/ws_app/resource:port-vm/browser/port:8000" })
+        let workspacePort = try #require(tree.first { $0.id == "machine:port-vm/ws/ws_app/resource:port-vm/browser/port:8000/tab:tab_port" })
         guard case .port = workspacePort.kind else {
             Issue.record("the workspace pointer should retain the port row kind")
             return
@@ -283,10 +276,29 @@ struct CloudPortOpenRegressionTests {
         LISTEN 0 128 0.0.0.0:6901 0.0.0.0:*
         LISTEN 0 128 0.0.0.0:3000 0.0.0.0:*
         """
+        let scan = VMExecResult(exitCode: 0, stdout: bindings, stderr: "")
+        // #13196 (178d35e5da) scoped the RFB/noVNC range to machines whose
+        // display catalog owns it; SSH and the daemon are always filtered.
         #expect(CmuxTuiSurfaceProvider.ports(
-            from: VMExecResult(exitCode: 0, stdout: bindings, stderr: ""),
-            privateAddress: "10.16.179.6"
+            from: scan,
+            privateAddress: "10.16.179.6",
+            displayPortsOwned: true
         ) == [3000])
+        // Without a desktop, 5901 and 6901 are ordinary listeners; the browser
+        // proxy reaches the loopback-only 5901 on guest loopback.
+        #expect(CmuxTuiSurfaceProvider.ports(
+            from: scan,
+            privateAddress: "10.16.179.6"
+        ) == [3000, 5901, 6901])
+    }
+
+    @Test("Loopback services remain discoverable independently of private-address metadata")
+    func loopbackDiscoveryIsIndependentOfAddress() {
+        let listing = "State Recv-Q Send-Q Local Address:Port Peer Address:Port\nLISTEN 0 128 127.0.0.1:8000 0.0.0.0:*\n"
+        #expect(CmuxTuiSurfaceProvider.ports(
+            from: VMExecResult(exitCode: 0, stdout: listing, stderr: ""),
+            privateAddress: nil
+        ) == [8000])
     }
 
     @Test("Unavailable scans retain ports while an authoritative empty scan retires them")
@@ -306,7 +318,7 @@ struct CloudPortOpenRegressionTests {
         #expect(CmuxTuiSurfaceProvider.ports(
             from: VMExecResult(exitCode: 0, stdout: bindings, stderr: ""),
             privateAddress: "10.0.0.7"
-        ) == [9000])
+        ) == [8000, 9000])
         #expect(CmuxTuiSurfaceProvider.ports(
             from: VMExecResult(
                 exitCode: 0,
@@ -314,7 +326,7 @@ struct CloudPortOpenRegressionTests {
                 stderr: ""
             ),
             privateAddress: "10.0.0.7"
-        ) == [], "IPv4-mapped loopback must not be advertised through the private address")
+        ) == [9200], "the browser proxy opens the service on guest loopback")
         let previous = [discoveredPort(8000, in: workspace)]
         let retained = CmuxTuiSurfaceProvider.portResources(
             machine: machine,
@@ -377,14 +389,16 @@ struct CloudPortOpenRegressionTests {
 
     @Test("Sidebar and repeated opens use the machine-owned local workspace and one catalog identity")
     func rowOpenUsesSharedCatalogPath() async throws {
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
         let provider = FakeProvider(machine: machine, supportsPortPreviews: true)
         catalog.register(provider)
         let port = discoveredPort(8000, in: workspace)
         catalog.replaceResources([terminal(), port], on: machine, info: machineInfo(workspaces: [workspace]))
 
-        let ownerWorkspaceID = UUID()
-        let unrelatedWorkspaceID = UUID()
+        let ownerWorkspaceID = live.id()
+        let unrelatedWorkspaceID = live.id()
         _ = try await catalog.project(
             terminal().id,
             into: .workspace(id: ownerWorkspaceID, placement: .split),
@@ -395,6 +409,7 @@ struct CloudPortOpenRegressionTests {
         var completion: AsyncStream<Void>.Continuation!
         let completionStream = AsyncStream<Void> { completion = $0 }
         let actions = CloudTreeNodeActions.bound(
+            navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { catalog },
             selectedWorkspaceID: { unrelatedWorkspaceID },
             selectLocalWorkspace: { _ in },
@@ -460,7 +475,10 @@ struct CloudPortOpenRegressionTests {
 
     @Test("Unsupported providers fail before a synthetic row or browser pane is created")
     func unsupportedProviderFailsClosed() async {
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
+        let destination = live.id()
         let provider = FakeProvider(machine: machine, supportsPortPreviews: false)
         catalog.register(provider)
 
@@ -470,7 +488,7 @@ struct CloudPortOpenRegressionTests {
             try await catalog.openCloudPort(
                 machine: machine,
                 port: 8000,
-                into: .workspace(id: UUID(), placement: .split),
+                into: .workspace(id: destination, placement: .split),
                 focus: false,
                 reuseExisting: false
             )

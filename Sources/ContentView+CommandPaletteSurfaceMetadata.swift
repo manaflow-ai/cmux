@@ -68,7 +68,7 @@ extension ContentView {
         case .accountSignIn:
             return ["account", "auth", "profile", "sign in"]
         case .cloudVPNSetup:
-            return ["cloud", "vpn", "wireguard", "private", "network", "freestyle"]
+            return ["cloud", "vpn", "network", "private address"]
         }
     }
 }

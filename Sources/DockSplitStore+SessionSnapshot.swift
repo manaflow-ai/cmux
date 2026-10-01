@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Bonsplit
 import CmuxWorkspaces
 import Darwin
@@ -70,6 +71,7 @@ extension DockSplitStore {
                     downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable:
                         downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable,
                     detectedResumeBindingIsAmbiguous: surfaceResumeBindingIndex?.hasAmbiguousPanel(panelId) == true,
+                    resumeBindingDetectionUnavailable: surfaceResumeBindingIndex?.isAvailable == false,
                     terminalFontSizeSnapshotProjection:
                         terminalFontSizeSnapshotProjection,
                     notificationStore: notificationStore,
@@ -216,6 +218,7 @@ extension DockSplitStore {
         detectedResumeBinding: SurfaceResumeBindingSnapshot?,
         downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool,
         detectedResumeBindingIsAmbiguous: Bool = false,
+        resumeBindingDetectionUnavailable: Bool = false,
         terminalFontSizeSnapshotProjection:
             WorkspaceTerminalFontSizeSnapshotProjection?,
         notificationStore: TerminalNotificationStore?,
@@ -253,7 +256,8 @@ extension DockSplitStore {
                 detected: detectedResumeBinding,
                 downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable:
                     downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable,
-                detectedIsAmbiguous: detectedResumeBindingIsAmbiguous
+                detectedIsAmbiguous: detectedResumeBindingIsAmbiguous,
+                detectionUnavailable: resumeBindingDetectionUnavailable
             )
             let restorableAgent = localTmuxStartCommand == nil
                 ? effectiveSessionRestorableAgent(
@@ -301,7 +305,7 @@ extension DockSplitStore {
             let shouldPersistScrollback = policy.shouldPersistSessionScrollback(
                 closeConfirmationRequired: Workspace.resolveCloseConfirmation(
                     shellActivityState: terminal.shellActivity.state,
-                    fallbackNeedsConfirmClose: terminal.needsConfirmClose()
+                    fallbackNeedsConfirmClose: terminal.surface.snapshotNeedsConfirmClose()
                 )
             ) && policy.shouldReplaySessionScrollback(
                 hasRestorableAgent: restorableAgent != nil,
@@ -358,7 +362,8 @@ extension DockSplitStore {
                 textBoxDraft: terminal.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: transfer?.isRemoteTerminal ?? false,
                 remotePTYSessionID: transfer?.remotePTYSessionID,
-                wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil
+                wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil,
+                hasReceivedExplicitInput: terminal.hasReceivedExplicitInput
             )
             browserSnapshot = nil
             filePreviewSnapshot = nil
@@ -381,7 +386,8 @@ extension DockSplitStore {
                     forwardHistoryURLStrings: history.forwardHistoryURLStrings,
                     transparentBackground: browser.sessionSnapshotTransparentBackground,
                     diffViewerToken: diffViewer?.token,
-                    diffViewerRequestPath: diffViewer?.requestPath
+                    diffViewerRequestPath: diffViewer?.requestPath, cloudResource: browser.cloudResourceForSession, interactionState: browser.persistableInteractionStateForSessionSnapshot(), keepsPageActive: browser.keepsPageActiveForSessionSnapshot,
+                    cloudTeamID: browser.cloudTeamIDForSession
                 )
             } else if let deferred = panel as? DeferredBrowserPanel {
                 browserSnapshot = deferred.sessionPanelSnapshot.browser
@@ -390,9 +396,9 @@ extension DockSplitStore {
             }
             filePreviewSnapshot = nil
         case .filePreview:
-            guard let filePreview = panel as? FilePreviewPanel else {
-                return nil
-            }
+            guard let filePreview = panel as? FilePreviewPanel,
+                  filePreview.cloudPreviewLease == nil,
+                  filePreview.cloudPreviewRemotePath == nil else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             filePreviewSnapshot = SessionFilePreviewPanelSnapshot(
@@ -449,7 +455,8 @@ extension DockSplitStore {
         panelId: UUID,
         detected: SurfaceResumeBindingSnapshot?,
         downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable: Bool,
-        detectedIsAmbiguous: Bool
+        detectedIsAmbiguous: Bool,
+        detectionUnavailable: Bool = false
     ) -> SurfaceResumeBindingSnapshot? {
         let stored = surfaceResumeBindingsByPanelId[panelId]
         if let stored,
@@ -471,6 +478,11 @@ extension DockSplitStore {
             stored.autoResume = false
             stored.approvalPolicy = .manual
             stored.approvalRecordId = nil
+            effective = stored
+        } else if detectionUnavailable {
+            // No process scan ran (update relaunch save, or the quit fallback
+            // after a timed-out scan). Missing evidence is not an exit, so keep
+            // the binding the last successful scan stored, including tmux.
             effective = stored
         } else if stored?.isProcessDetected == true {
             effective = detectedIsAmbiguous
@@ -555,15 +567,21 @@ extension DockSplitStore {
         return compatible
     }
 
-    private func sessionAgentWasRunning(
+    func sessionAgentWasRunning(
         restorableAgent: SessionRestorableAgentSnapshot?,
         resumeBinding: SurfaceResumeBindingSnapshot?,
         managedResumeBinding: SurfaceResumeBindingSnapshot?,
         terminal: TerminalPanel,
         transfer: Workspace.DetachedSurfaceTransfer?,
         observation: RestorableAgentSessionIndex.Entry?,
-        currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity?,
-        agentProcessPresence: (Int) -> PIDPresence
+        currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        agentProcessPresence: (Int) -> PIDPresence = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
+            return PIDPresence.current(pid: pid_t($0))
+        }
     ) -> Bool? {
         let managedBinding = managedResumeBinding
             ?? resumeBinding.flatMap { $0.isAgentHookBinding ? $0 : nil }

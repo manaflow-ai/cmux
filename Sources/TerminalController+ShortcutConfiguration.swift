@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 
 #if DEBUG
 extension TerminalController {

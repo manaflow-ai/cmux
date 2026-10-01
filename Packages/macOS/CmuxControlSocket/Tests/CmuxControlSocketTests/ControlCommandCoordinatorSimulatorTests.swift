@@ -84,21 +84,21 @@ struct ControlCommandCoordinatorSimulatorTests {
 
     @Test("Web Inspector operation deadline starts after Simulator readiness")
     func webInspectorReceiptSeparatesReadinessDeadline() async {
-        let receipt = ControlSimulatorWebInspectorReceipt(
-            readinessTimeout: 1,
-            cancellationJoinTimeout: 0
-        )
+        let receipt = ControlSimulatorWebInspectorReceipt(readinessTimeout: 60, cancellationJoinTimeout: 0)
         let cancelled = SimulatorCancellationProbe()
         receipt.installCancellation { cancelled.mark() }
-        let waiter = Task.detached {
-            receipt.wait(timeout: 0)
+        let (entering, enteringContinuation) = AsyncStream<Void>.makeStream()
+        async let waiter: ControlSimulatorWebInspectorCompletion? = withCheckedContinuation { continuation in
+            DispatchQueue.global().async { // blocks a GCD thread, never the cooperative pool
+                enteringContinuation.yield(())
+                continuation.resume(returning: receipt.wait(timeout: 0))
+            }
         }
-
-        for _ in 0..<100 { await Task.yield() }
+        for await _ in entering { break } // the waiter thread is entering wait()
+        for _ in 0..<100 { await Task.yield() } // gives a regressed receipt time to cancel early
         #expect(!cancelled.isMarked)
-
-        receipt.markOperationReady()
-        #expect(await waiter.value == nil)
+        receipt.markOperationReady() // wakes the waiter long before the 60 s readiness bound
+        #expect(await waiter == nil)
         #expect(cancelled.isMarked)
     }
 

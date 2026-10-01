@@ -96,7 +96,7 @@ public actor IrxRelayCredentialAutopilot {
             let credentials = await broker.cachedRelayCredentials()
             guard generation == loopGeneration, !Task.isCancelled else { return }
             if let soonest = credentials.map({
-                IrxRelayCredentialPolicy.refreshDate(
+                IrxRelayCredentialPolicy().refreshDate(
                     for: $0, jitter: Double.random(in: 0...10))
             }).min(), soonest > now {
                 let wait = soonest.timeIntervalSince(now)
@@ -125,7 +125,7 @@ public actor IrxRelayCredentialAutopilot {
             } catch {
                 if Task.isCancelled || generation != loopGeneration { return }
                 let expiry = credentials.map(\.expiresAt).max() ?? Date()
-                let delay = IrxRelayCredentialPolicy.retryDelay(
+                let delay = IrxRelayCredentialPolicy().retryDelay(
                     expiresAt: expiry,
                     now: Date(),
                     retryAfterSeconds: (error as? any CmxRetryAfterProviding)?

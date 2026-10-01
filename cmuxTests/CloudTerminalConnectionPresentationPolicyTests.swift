@@ -1,4 +1,6 @@
+import CmuxCloud
 import AppKit
+import CmuxCloudTui
 import Foundation
 import Testing
 

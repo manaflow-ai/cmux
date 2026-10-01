@@ -1,5 +1,8 @@
+import CmuxCloud
+import CmuxCloudTui
 import CmuxControlSocket
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 extension TerminalController {
     nonisolated func socketWorkerCloudVMResponse(
@@ -23,10 +26,8 @@ extension TerminalController {
         if let tunnelResponse = socketWorkerCloudTunnelResponse(method: method, id: id, params: params) {
             return tunnelResponse
         }
-        // `DisableCloud`: every remaining `vm.*` verb fails closed here, before
-        // any control-plane call, with a stable error code. `VMClient` refuses
-        // as well, so this gate is the CLI's error surface, not the only line
-        // of defense.
+        // Refuse disabled Cloud before any control-plane call. VMClient also
+        // enforces this policy for non-socket callers.
         if ManagedDevicePolicy().isEnforced(.disableCloud) || !CloudMachinesFeature.offMainIsEnabled() {
             return v2Error(
                 id: id,
@@ -35,6 +36,13 @@ extension TerminalController {
             )
         }
         switch method {
+        case "vm.file_transfer_failure":
+            return socketWorkerFileTransferFailureResponse(id: id, params: params)
+        case "vm.billing_checkout":
+            guard let plan = params["plan"] as? String, plan == "go" || plan == "max" || plan == "pro" else {
+                return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.cloudVM.billingCheckout.invalidPlan", defaultValue: "Choose Go, Pro, or Max: cmux billing checkout --plan <go|pro|max>"))
+            }
+            return v2VmCall(id: id) { try await VMClient.shared.billingCheckout(plan: plan) }
         case "vm.list":
             return v2CloudCall(id: id, method: method, params: params) {
                 let page = try await VMClient.shared.listPage()
@@ -49,6 +57,9 @@ extension TerminalController {
                         "freeAccessExpiresAt": limits.freeAccessExpiresAt.map { $0 as Any } ?? NSNull(),
                         "imageKinds": limits.imageKinds.map { ["kind": $0.kind.rawValue, "image": $0.image] },
                         "memoryOptionsMb": limits.memoryOptionsMb,
+                        "lockedMemoryOptionsMb": limits.lockedMemoryOptionsMb.map { $0 as Any } ?? NSNull(),
+                        "memoryUpgradePlanId": limits.memoryUpgradePlanId.map { $0 as Any } ?? NSNull(),
+                        "memoryUpgradePlansByMb": limits.memoryUpgradePlansByMb.map { $0 as Any } ?? NSNull(),
                     ]
                 }
                 return payload
@@ -223,7 +234,9 @@ extension TerminalController {
             let perMachineHome = Self.socketWorkerBool(params["per_machine_home"]) ?? false
             let memoryMb = Self.socketWorkerInt(params["memory_mb"])
             return v2CloudCall(id: id, method: method, params: params) {
-                let vm = try await VMClient.shared.create(image: image, kind: kind, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, idempotencyKey: idempotencyKey)
+                let scope = await CmuxTuiSurfaceProviderRegistry.shared.creationScope
+                let vm = try await VMClient.shared.create(image: image, kind: kind, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, displayName: Self.socketWorkerString(params["display_name"]), idempotencyKey: idempotencyKey)
+                await CmuxTuiSurfaceProviderRegistry.shared.recordCreatedMachine(vm, scope: scope)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
         case "vm.base_open":
@@ -343,6 +356,9 @@ extension TerminalController {
                 let status = resume
                     ? try await VMClient.shared.resume(id: vmId)
                     : try await VMClient.shared.pause(id: vmId)
+                if !resume {
+                    await CmuxTuiSurfaceProviderRegistry.shared.machineBecameInactive(vmId, status: status)
+                }
                 return ["id": vmId, "status": status]
             }
         case "vm.reflection":
@@ -435,31 +451,13 @@ extension TerminalController {
                 return v2Error(id: id, code: "invalid_params", message: "vm.destroy requires `id`. Run `cmux vm ls` to find one, then `cmux vm rm <id>`.")
             }
             return v2CloudCall(id: id, method: method, params: params) {
-                do {
-                    try await VMClient.shared.destroy(id: vmId)
-                } catch let error as VMClientError {
-                    // Delete is idempotent from the person's perspective. A
-                    // stale sidebar row can point at a machine the backend has
-                    // already forgotten; treat that 404 as success so the
-                    // normal CLI completion path dismisses the operation and
-                    // never traps the person in an error sheet.
-                    if case .httpStatus(404, _) = error {
-                        await MainActor.run {
-                            AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: vmId)
-                        }
-                        return ["ok": true, "already_gone": true]
-                    }
-                    throw error
-                }
-                // Same cleanup as the Machines panel's delete confirm. Every
-                // entrypoint (panel, tree, CLI, socket) funnels through this
-                // handler, so this is the one place the app learns a machine
-                // died before the next 45 s list poll: close its workspaces
-                // and its URL-backed panes now, not up to 45 s later.
-                await MainActor.run {
-                    AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: vmId)
-                }
-                return ["ok": true]
+                // Every entrypoint (panel, tree, CLI, socket) funnels through this
+                // handler. The coordinator hides the machine and closes its
+                // workspaces before the request, joins a delete already in flight,
+                // and treats a 404 as success so a stale row never traps the person
+                // in an error sheet.
+                let alreadyGone = try await MachineDeleteCoordinator.shared.destroy(id: vmId)
+                return alreadyGone ? ["ok": true, "already_gone": true] : ["ok": true]
             }
         case "vm.exec":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
@@ -510,6 +508,23 @@ extension TerminalController {
                 let endpoint = try await VMClient.shared.openSSH(id: vmId)
                 return Self.socketWorkerSSHInfoPayload(endpoint)
             }
+        case "vm.scp_info":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty,
+                  let publicKey = Self.socketWorkerString(params["public_key"]), publicKey.utf8.count <= 512 else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.scp_info requires id and public_key.")
+            }
+            return v2CloudCall(id: id, method: method, params: params, timeoutSeconds: 90) {
+                let endpoint = try await VMClient.shared.prepareSCP(id: vmId, publicKey: publicKey)
+                let forwards = await MainActor.run { CmuxTuiSurfaceProviderRegistry.shared.portForwards }
+                guard let forwards else { throw CloudMachineLinkManager.ManagerError.wireGuardHubMissing }
+                let forward = try await forwards.forward(machineID: vmId, to: CloudPortForwardTarget(host: endpoint.host, port: endpoint.port))
+                try await forward.warmUpHub()
+                return [
+                    "host": "127.0.0.1", "port": Int(await forward.localPort),
+                    "username": endpoint.username, "host_public_key": endpoint.hostPublicKey,
+                    "expires_at_unix": endpoint.expiresAtUnix,
+                ]
+            }
         case "vm.attach_info":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.attach_info requires `id`. Run `cmux vm ls` to find one, then `cmux vm ssh <id>`.")
@@ -536,21 +551,37 @@ extension TerminalController {
                 transportUnsupportedMachineID: vmId
             ) {
                 let registry = await MainActor.run { CmuxTuiSurfaceProviderRegistry.shared }
-                let cachedCapabilities = await MainActor.run { registry.provider(machineID: vmId)?.capabilities }
-                let capabilities: VMCapabilities
-                if let cachedCapabilities {
-                    capabilities = cachedCapabilities
-                } else {
-                    capabilities = try await VMClient.shared.status(id: vmId).capabilities
-                }
-                guard capabilities.cmuxRemote else {
+                // The attach endpoint is the authoritative capability check. A
+                // status read here was redundant and, on a cold Next dev backend,
+                // forced an extra compilation of GET /api/vm/[id] before the
+                // attach request could begin. Reuse a cached provider verdict
+                // when available; otherwise let openCmuxRemote return the typed
+                // transport-unsupported error.
+                if let cachedCapabilities = await MainActor.run(body: { registry.provider(machineID: vmId)?.capabilities }),
+                   !cachedCapabilities.cmuxRemote {
                     throw VMClientError.httpStatus(501, #"{"error":"vm_attach_transport_unsupported"}"#)
                 }
                 guard clientCapabilities.contains(CloudTuiCommandLine.wireGuardHubCapability) else {
                     throw CloudMachineLinkManager.ManagerError.wireGuardHubUnsupported
                 }
                 var payload: [String: Any]
-                if let deviceFingerprint {
+                var isCreatedReceipt = false
+                if deviceFingerprint == nil,
+                   let createdRoute = await registry.takeCreatedTrustedCarrierRoute(machineID: vmId) {
+                    isCreatedReceipt = true
+                    // New Machine: the create receipt already proved the
+                    // snapshot-v2 trusted listener and named the private
+                    // address. Skip POST /attach-endpoint (~2 s measured);
+                    // it would return this same route from the same row.
+                    payload = [
+                        "transport": "cmux-remote",
+                        "route": createdRoute,
+                        "token": "",
+                        "expires_at_unix": 0,
+                        "session": "cmux",
+                        "trusted_carrier": true,
+                    ]
+                } else if let deviceFingerprint {
                     guard let knownRoute = await registry.privateRoute(machineID: vmId) else {
                         throw CloudMachineLinkManager.ManagerError.privateRouteRequired(vmId)
                     }
@@ -600,9 +631,14 @@ extension TerminalController {
                 guard let hub else { throw CloudMachineLinkManager.ManagerError.wireGuardHubMissing }
                 let ready = try await hub.pinForExternalClient()
                 payload["wireguard_hub_socket"] = ready.socketPath
-                let addresses = payload["network_addresses"] as? [String: Any] ?? [:]
-                let resolvedRoute = try await registry.resolvedPrivateRoute(machineID: vmId, through: ready, fallbackRoute: route, addresses: ["ipv4", "ipv6"].compactMap { addresses[$0] as? String })
-                payload["route"] = resolvedRoute
+                // A just-created machine keeps the route its receipt declared
+                // (IPv4 first, like the server). Racing families here would
+                // dial a machine that is still coming up and double the wait
+                // the app's own link (already started) is paying.
+                if !isCreatedReceipt {
+                    let addresses = payload["network_addresses"] as? [String: Any] ?? [:]
+                    payload["route"] = try await registry.resolvedPrivateRoute(machineID: vmId, through: ready, fallbackRoute: route, addresses: ["ipv4", "ipv6"].compactMap { addresses[$0] as? String })
+                }
                 return payload
             }
         case "vm.sessions":
@@ -747,7 +783,9 @@ extension TerminalController {
         return .success(kind)
     }
 
-    private nonisolated static func socketWorkerVMSummaryPayload(_ vm: VMSummary) -> [String: Any] {
+    /// Internal rather than private so `CloudMachineCreatorTests` can check
+    /// that a relayed client is sent the same machine facts a direct one gets.
+    nonisolated static func socketWorkerVMSummaryPayload(_ vm: VMSummary) -> [String: Any] {
         var payload: [String: Any] = [
             "id": vm.id,
             "provider": vm.provider,
@@ -755,17 +793,9 @@ extension TerminalController {
             "kind": vm.resolvedKind.rawValue,
             // What the provider can honor; the list response is authoritative and
             // older action responses retain the model's compatibility defaults.
-            "capabilities": [
-                "snapshot": vm.capabilities.snapshot,
-                "restore": vm.capabilities.restore,
-                "fork": vm.capabilities.fork,
-                "exec": vm.capabilities.exec,
-                "stats": vm.capabilities.stats,
-                "ports": vm.capabilities.ports,
-                "desktop": vm.capabilities.desktop,
-                "sizing": vm.capabilities.sizing,
-                "persistentHome": vm.capabilities.persistentHome,
-            ],
+            // Reuse the model's wire representation so newer capability fields,
+            // including attach transports, cannot be dropped by this summary.
+            "capabilities": vm.capabilities.jsonObject,
             "status": vm.status,
             "createdAt": vm.createdAt,
         ]
@@ -774,6 +804,19 @@ extension TerminalController {
         }
         if let slug = vm.slug, !slug.isEmpty {
             payload["slug"] = slug
+        }
+        if let createdBy = vm.createdBy {
+            // A known account with no recorded name sends an explicit null for
+            // the name, the same shape the HTTP response uses, so a consumer
+            // written against `/api/vm` decodes this without a second case.
+            // No author at all sends no key, where the backend sends
+            // `"createdBy": null`; both live readers treat absent and null the
+            // same, so this is narrower than the wire format rather than a
+            // second meaning.
+            payload["createdBy"] = [
+                "userId": createdBy.userId,
+                "displayName": createdBy.displayName.map { $0 as Any } ?? NSNull(),
+            ]
         }
         if let freeAccessExpiresAt = vm.freeAccessExpiresAt {
             payload["freeAccessExpiresAt"] = freeAccessExpiresAt

@@ -493,21 +493,21 @@ await new Promise((resolve) => setTimeout(resolve, 300));
         order_log = wait_for_text(fake_order_log, expected_invocations * 2)
         order_lines = [line for line in order_log.splitlines() if line.strip()]
         expected_lifecycle_order = [
-            "start hooks campfire session-start",
-            "end hooks campfire session-start",
-            "start hooks campfire prompt-submit",
-            "end hooks campfire prompt-submit",
-            "start hooks campfire stop",
-            "end hooks campfire stop",
+            "start hooks enqueue campfire session-start",
+            "end hooks enqueue campfire session-start",
+            "start hooks enqueue campfire prompt-submit",
+            "end hooks enqueue campfire prompt-submit",
+            "start hooks enqueue campfire stop",
+            "end hooks enqueue campfire stop",
         ]
         if order_lines[: len(expected_lifecycle_order)] != expected_lifecycle_order:
             print(f"FAIL: lifecycle hooks did not run serially, got {order_log!r}")
             return 1
         for expected in [
-            "hooks campfire session-start",
-            "hooks campfire prompt-submit",
-            "hooks campfire stop",
-            "hooks campfire notification",
+            "hooks enqueue campfire session-start",
+            "hooks enqueue campfire prompt-submit",
+            "hooks enqueue campfire stop",
+            "hooks enqueue campfire notification",
         ]:
             if expected not in args_log:
                 print(f"FAIL: extension did not invoke {expected}, got {args_log!r}")

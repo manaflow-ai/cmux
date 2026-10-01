@@ -79,6 +79,103 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertNotNil(snapshot.ack["boot_id"] as? String)
     }
 
+    func testNewBusRestoresDurableEventWindowAndContinuesSequence() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-event-replay-\(UUID().uuidString)", isDirectory: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let firstBus = CmuxEventBus(retainedEventLimit: 4, eventLogURL: logURL)
+        await firstBus.waitUntilRestored()
+        firstBus.publish(name: "one", category: "test", source: "first")
+        firstBus.publish(name: "two", category: "test", source: "first")
+        firstBus.flushEventLogForTesting()
+
+        let secondBus = CmuxEventBus(retainedEventLimit: 4, eventLogURL: logURL)
+        await secondBus.waitUntilRestored()
+        let snapshot = secondBus.subscribe(afterSequence: 0, names: [], categories: [])
+        defer { secondBus.unsubscribe(snapshot.subscription) }
+        XCTAssertEqual(snapshot.replay.compactMap { $0["name"] as? String }, ["one", "two"])
+        XCTAssertEqual(snapshot.replay.compactMap { CmuxEventBus.int64($0["seq"]) }, [1, 2])
+        XCTAssertEqual((snapshot.ack["resume"] as? [String: Any])?["gap"] as? Bool, false)
+        secondBus.publish(name: "three", category: "test", source: "second")
+        secondBus.flushEventLogForTesting()
+        let expectedSequence = Int64(CmuxEventSequenceStore.defaultBlockSize + 1)
+        XCTAssertEqual(secondBus.latestSequence, expectedSequence)
+    }
+
+    func testDurableReplayRebasesSequenceAfterAnOlderBootSegment() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-event-replay-segments-\(UUID().uuidString)", isDirectory: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let lines: [[String: Any]] = [
+            ["type": "event", "boot_id": "boot-a", "seq": 1, "id": "boot-a-1", "name": "one", "category": "test", "source": "test", "payload": [:]],
+            ["type": "event", "boot_id": "boot-a", "seq": 2, "id": "boot-a-2", "name": "two", "category": "test", "source": "test", "payload": [:]],
+            ["type": "event", "boot_id": "boot-b", "seq": 1, "id": "boot-b-1", "name": "three", "category": "test", "source": "test", "payload": [:]]
+        ]
+        let encoded = try lines.map { try XCTUnwrap(CmuxEventBus.encodeLine($0)) }.joined(separator: "\n") + "\n"
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try encoded.write(to: logURL, atomically: true, encoding: .utf8)
+
+        let bus = CmuxEventBus(retainedEventLimit: 4, eventLogURL: logURL)
+        await bus.waitUntilRestored()
+        let replay = bus.subscribe(afterSequence: 0, names: [], categories: [])
+        defer { bus.unsubscribe(replay.subscription) }
+
+        XCTAssertEqual(replay.replay.compactMap { CmuxEventBus.int64($0["seq"]) }, [1, 2, 3])
+        XCTAssertEqual(CmuxEventBus.int64(replay.replay[2]["legacy_seq"]), 1)
+        XCTAssertEqual(bus.latestSequence, 3)
+
+        let persistedSequences = try String(contentsOf: logURL, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line -> Int64? in
+                guard let data = String(line).data(using: .utf8),
+                      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    return nil
+                }
+                return CmuxEventBus.int64(object["seq"])
+            }
+        XCTAssertEqual(persistedSequences, [1, 2, 3])
+
+        let secondBus = CmuxEventBus(retainedEventLimit: 4, eventLogURL: logURL)
+        await secondBus.waitUntilRestored()
+        let secondReplay = secondBus.subscribe(afterSequence: 0, names: [], categories: [])
+        defer { secondBus.unsubscribe(secondReplay.subscription) }
+        XCTAssertEqual(secondReplay.replay.compactMap { CmuxEventBus.int64($0["seq"]) }, [1, 2, 3])
+    }
+
+    func testDurableReplayReportsUnreadableRecordsAsAGap() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-event-replay-gap-\(UUID().uuidString)", isDirectory: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let valid = [
+            "type": "event", "boot_id": "boot", "seq": 1, "id": "boot-1",
+            "name": "one", "category": "test", "source": "test", "payload": [:]
+        ] as [String: Any]
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let first = try XCTUnwrap(CmuxEventBus.encodeLine(valid))
+        var second = valid
+        second["seq"] = 2
+        second["id"] = "boot-2"
+        let secondLine = try XCTUnwrap(CmuxEventBus.encodeLine(second))
+        try "\(first)\nnot-json\n\(secondLine)\n"
+            .write(to: logURL, atomically: true, encoding: .utf8)
+
+        let bus = CmuxEventBus(retainedEventLimit: 4, eventLogURL: logURL)
+        await bus.waitUntilRestored()
+        let replay = bus.subscribe(afterSequence: 0, names: [], categories: [])
+        defer { bus.unsubscribe(replay.subscription) }
+
+        let resume = try XCTUnwrap(replay.ack["resume"] as? [String: Any])
+        XCTAssertEqual(resume["gap"] as? Bool, true)
+        XCTAssertEqual(resume["restore_gap"] as? Bool, true)
+        XCTAssertEqual(replay.replay.count, 2)
+    }
+
     func testSubscriptionFiltersLiveEventsByCategory() {
         let bus = CmuxEventBus(retainedEventLimit: 8)
         let snapshot = bus.subscribe(afterSequence: nil, names: [], categories: ["notification"])
@@ -104,6 +201,57 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertTrue(snapshot.subscription.isClosed)
         XCTAssertEqual(snapshot.subscription.closeReason, "pending event buffer exceeded 2 events")
         XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
+    }
+
+    func testRestoredReplayDoesNotUseLivePendingLimit() {
+        let subscription = CmuxEventSubscription(names: [], categories: [], maxPendingEvents: 1)
+        defer { subscription.close() }
+        let events = (1...3).map { sequence in
+            ["type": "event", "seq": sequence, "name": "event", "category": "test"] as [String: Any]
+        }
+
+        for event in events {
+            XCTAssertTrue(subscription.enqueueReplay(event))
+        }
+        XCTAssertFalse(subscription.isClosed)
+        let received = (1...3).compactMap { _ in
+            subscription.next(timeout: 0.05).flatMap { CmuxEventBus.int64($0["seq"]) }
+        }
+        XCTAssertEqual(received, [1, 2, 3])
+    }
+
+    func testUnreadableSegmentUsesPersistedSequenceHighWater() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-event-replay-high-water-\(UUID().uuidString)", isDirectory: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let older = [
+            "type": "event", "seq": 1, "id": "old-1",
+            "name": "old", "category": "test", "source": "test", "payload": [:]
+        ] as [String: Any]
+        let olderLine = try XCTUnwrap(CmuxEventBus.encodeLine(older))
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try olderLine.appending("\n").write(
+            to: logURL.appendingPathExtension("1"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try Data(repeating: 0x78, count: 512).write(to: logURL)
+        try "100\n".write(
+            to: logURL.appendingPathExtension("seq"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let bus = CmuxEventBus(retainedEventLimit: 4, eventLogURL: logURL, maxEventLogBytes: 256)
+        await bus.waitUntilRestored()
+        bus.publish(name: "new", category: "test", source: "test")
+        bus.flushEventLogForTesting()
+        XCTAssertEqual(bus.latestSequence, 101)
+        let snapshot = bus.subscribe(afterSequence: 100, names: [], categories: [])
+        defer { bus.unsubscribe(snapshot.subscription) }
+        XCTAssertEqual(snapshot.replay.compactMap { CmuxEventBus.int64($0["seq"]) }, [101])
     }
 
     func testEventEncodingIsSingleLineJSON() throws {
@@ -283,7 +431,12 @@ final class CmuxEventBusTests: XCTestCase {
         let growth = after > before ? after - before : 0
         XCTAssertLessThan(
             growth,
-            UInt64(32 * 1_024 * 1_024),
+            // JSONSerialization and Foundation's allocator can retain a
+            // thread-local high-water mark after the autorelease pool drains;
+            // the bus invariant is the bounded retained snapshot below. Keep
+            // enough headroom for that allocator cache while still detecting
+            // an unbounded response retention.
+            UInt64(64 * 1_024 * 1_024),
             "publishV2 retained \(growth) bytes after \(iterations) large surface.read_text responses on one socket worker thread"
         )
         XCTAssertTrue(CmuxEventBus.shared.retainedSnapshot().isEmpty)
@@ -406,8 +559,8 @@ final class CmuxEventBusTests: XCTestCase {
 
         store.replaceNotificationsForTesting(notifications)
         CmuxEventBus.shared.resetForTesting()
-
         store.clearNotifications(forTabId: workspaceId, discardQueuedNotifications: false)
+        CmuxEventBus.shared.flushEventLogForTesting()
 
         let events = CmuxEventBus.shared.retainedSnapshot()
         XCTAssertEqual(events.compactMap { $0["name"] as? String }, ["notification.cleared"])
@@ -439,8 +592,8 @@ final class CmuxEventBusTests: XCTestCase {
         let surfaceId = UUID()
         CmuxEventBus.shared.resetForTesting()
         defer { CmuxEventBus.shared.resetForTesting() }
-
         CmuxSocketEventMapper.publish(command: "notify_surface \(surfaceId.uuidString) done", response: "OK")
+        CmuxEventBus.shared.flushEventLogForTesting()
 
         let event = try XCTUnwrap(CmuxEventBus.shared.retainedSnapshot().last)
         XCTAssertEqual(event["name"] as? String, "notification.requested")
@@ -522,11 +675,12 @@ final class CmuxEventBusTests: XCTestCase {
         }
     }
 
-    func testPublishAppendsDurableEventLog() throws {
+    func testPublishAppendsDurableEventLog() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-event-log-\(UUID().uuidString)", isDirectory: true)
         let logURL = directory.appendingPathComponent("events.jsonl")
         let bus = CmuxEventBus(retainedEventLimit: 4, eventLogURL: logURL)
+        await bus.waitUntilRestored()
 
         bus.publish(name: "workspace.created", category: "workspace", source: "test")
         bus.publish(name: "surface.created", category: "surface", source: "test")
@@ -542,7 +696,7 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(second["name"] as? String, "surface.created")
     }
 
-    func testDurableEventLogDropsOldestPendingLinesUnderBackpressure() throws {
+    func testDurableEventLogDropsOldestPendingLinesUnderBackpressure() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-event-log-backpressure-\(UUID().uuidString)", isDirectory: true)
         let logURL = directory.appendingPathComponent("events.jsonl")
@@ -551,6 +705,7 @@ final class CmuxEventBusTests: XCTestCase {
             eventLogURL: logURL,
             maxPendingEventLogLines: 2
         )
+        await bus.waitUntilRestored()
 
         bus.setEventLogFlushSuspendedForTesting(true)
         defer {
@@ -566,7 +721,7 @@ final class CmuxEventBusTests: XCTestCase {
                 payload: ["index": index]
             )
         }
-
+        bus.flushEventLogForTesting()
         let backlog = bus.eventLogBacklogSnapshotForTesting()
         XCTAssertEqual(backlog.pending, 2)
         XCTAssertEqual(backlog.dropped, 3)
@@ -586,7 +741,7 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(indexes, [3, 4])
     }
 
-    func testDurableEventLogRotatesAtByteLimit() throws {
+    func testDurableEventLogRotatesAtByteLimit() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-event-log-rotation-\(UUID().uuidString)", isDirectory: true)
         let logURL = directory.appendingPathComponent("events.jsonl")
@@ -596,6 +751,7 @@ final class CmuxEventBusTests: XCTestCase {
             maxEventLogBytes: 1_500,
             maxEventLineBytes: 1_024
         )
+        await bus.waitUntilRestored()
 
         for index in 0..<20 {
             bus.publish(

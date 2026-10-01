@@ -2,6 +2,7 @@ import CryptoKit
 import Darwin
 import Foundation
 import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -41,147 +42,30 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
+    final class VMRunCreateAttemptState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var keys: [String] = []
+
+        func record(key: String?) -> Int {
+            lock.lock()
+            defer { lock.unlock() }
+            if let key { keys.append(key) }
+            return keys.count
+        }
+
+        func snapshot() -> [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return keys
+        }
+    }
+
     private func vmExecOKResponse(id: String, stdout: String) -> String {
         v2Response(id: id, ok: true, result: ["exit_code": 0, "stdout": stdout, "stderr": ""])
     }
 
     private static func sha256Hex(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
-
-    func testVMPushFileStreamsChunksAndVerifiesDigest() throws {
-        let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("vm-push")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-        let received = VMTransferMockState()
-
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-        }
-
-        // ~19 chunks at the CLI's 64 KiB push chunk size (argv-bound; see
-        // vmTransferPushChunkBytes).
-        var payload = Data(count: 1_200_000)
-        payload.withUnsafeMutableBytes { buffer in
-            for index in buffer.indices {
-                buffer[index] = UInt8((index &* 31) & 0xFF)
-            }
-        }
-        let expectedDigest = Self.sha256Hex(payload)
-
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-vm-push-\(UUID().uuidString.prefix(8))")
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-        let localFile = tempDir.appendingPathComponent("payload.bin")
-        try payload.write(to: localFile)
-
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if line.hasPrefix("auth ") { return "OK" }
-            guard let request = self.jsonObject(line),
-                  let id = request["id"] as? String,
-                  let method = request["method"] as? String else {
-                return self.malformedRequestResponse(raw: line)
-            }
-            guard method == "vm.exec",
-                  let params = request["params"] as? [String: Any],
-                  let command = params["command"] as? String else {
-                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected method \(method)"])
-            }
-            if command.hasPrefix(": > ") {
-                return self.vmExecOKResponse(id: id, stdout: "")
-            }
-            if command.contains("| base64 -d >>") {
-                guard let start = command.range(of: "printf %s '"),
-                      let end = command.range(of: "' | base64 -d >>") else {
-                    return self.v2Response(id: id, ok: false, error: ["code": "bad_chunk", "message": "Unparseable chunk command"])
-                }
-                let encoded = String(command[start.upperBound..<end.lowerBound])
-                guard let decoded = Data(base64Encoded: encoded) else {
-                    return self.v2Response(id: id, ok: false, error: ["code": "bad_base64", "message": "Chunk was not base64"])
-                }
-                received.append(decoded)
-                return self.vmExecOKResponse(id: id, stdout: "")
-            }
-            if command.hasPrefix("mv ") {
-                let digest = Self.sha256Hex(received.bytes())
-                return self.vmExecOKResponse(id: id, stdout: "\(digest)  payload.bin\n")
-            }
-            return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected command \(command)"])
-        }
-
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["vm", "push", "brave-otter", localFile.path, "payload.bin"],
-            environment: environment,
-            timeout: 30
-        )
-
-        wait(for: [serverHandled], timeout: 30)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
-        XCTAssertTrue(result.stdout.contains("Pushed"), result.stdout)
-        XCTAssertEqual(received.bytes(), payload, "reassembled remote bytes must match the pushed file")
-        XCTAssertEqual(Self.sha256Hex(received.bytes()), expectedDigest)
-    }
-
-    func testVMPushFailsOnDigestMismatch() throws {
-        let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("vm-push-corrupt")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-        }
-
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-vm-push-corrupt-\(UUID().uuidString.prefix(8))")
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-        let localFile = tempDir.appendingPathComponent("payload.bin")
-        try Data("hello agent".utf8).write(to: localFile)
-
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if line.hasPrefix("auth ") { return "OK" }
-            guard let request = self.jsonObject(line),
-                  let id = request["id"] as? String else {
-                return self.malformedRequestResponse(raw: line)
-            }
-            guard let params = request["params"] as? [String: Any],
-                  let command = params["command"] as? String else {
-                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "missing command"])
-            }
-            if command.hasPrefix("mv ") {
-                // A machine reporting the wrong digest must fail the push.
-                let bogus = String(repeating: "0", count: 64)
-                return self.vmExecOKResponse(id: id, stdout: "\(bogus)  payload.bin\n")
-            }
-            return self.vmExecOKResponse(id: id, stdout: "")
-        }
-
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["vm", "push", "brave-otter", localFile.path, "payload.bin"],
-            environment: environment,
-            timeout: 30
-        )
-
-        wait(for: [serverHandled], timeout: 30)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertNotEqual(result.status, 0, "digest mismatch must exit non-zero; stdout=\(result.stdout)")
-        XCTAssertTrue(result.stderr.contains("Digest mismatch"), result.stderr)
     }
 
     func testVMPullFileReassemblesChunksAndWritesLocalFile() throws {
@@ -514,6 +398,88 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(pool?["machines"] as? [String], ["fresh-1"], "membership must be persisted, not inferred from the label")
     }
 
+    func testVMRunReusesCreateKeyAfterLostCreateResponse() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-run-create-retry")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let attempts = VMRunCreateAttemptState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let isolatedHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-run-home-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: isolatedHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: isolatedHome) }
+
+        let serverHandled = startMockServerAllowingNoResponse(listenerFD: listenerFD, state: state) { line in
+            if line.hasPrefix("auth ") { return "OK" }
+            guard let request = self.jsonObject(line),
+                  let id = request["id"] as? String,
+                  let method = request["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "vm.list":
+                return self.v2Response(id: id, ok: true, result: ["vms": []])
+            case "vm.create":
+                let params = request["params"] as? [String: Any] ?? [:]
+                let key = params["idempotency_key"] as? String
+                let attempt = attempts.record(key: key)
+                if attempt == 1 {
+                    // The backend accepted this request, but the response is
+                    // truncated in transit, leaving the outcome unknown.
+                    return ""
+                }
+                return self.v2Response(id: id, ok: true, result: ["id": "recovered-1", "provider": "freestyle", "status": "running", "image": "cmuxd-ws:tooling-20260509f"])
+            case "vm.rename":
+                return self.v2Response(id: id, ok: true, result: ["id": "recovered-1", "displayName": "agent-pool"])
+            case "vm.status":
+                return self.v2Response(id: id, ok: true, result: ["id": "recovered-1", "provider": "freestyle", "status": "running"])
+            case "vm.exec":
+                return self.vmExecOKResponse(id: id, stdout: "recovered\n")
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected method \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = isolatedHome.path
+
+        let first = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "run", "--", "echo", "recovered"],
+            environment: environment,
+            timeout: 30
+        )
+        wait(for: [serverHandled], timeout: 30)
+        XCTAssertFalse(first.timedOut, first.stderr)
+        XCTAssertNotEqual(first.status, 0, "the lost response must surface as a retryable failure")
+
+        let second = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "run", "--", "echo", "recovered"],
+            environment: environment,
+            timeout: 30
+        )
+        XCTAssertFalse(second.timedOut, second.stderr)
+        XCTAssertEqual(second.status, 0, "the retry should recover the accepted create: stderr=\(second.stderr)")
+        XCTAssertEqual(second.stdout, "recovered\n")
+        let keys = attempts.snapshot()
+        XCTAssertEqual(keys.count, 2, "one create attempt should be retried with the same key")
+        guard keys.count == 2 else { return }
+        XCTAssertEqual(keys[0], keys[1], "a lost response must not create a second paid machine")
+
+        let poolData = try Data(contentsOf: isolatedHome.appendingPathComponent(".cmuxterm/vm-run-pool.json"))
+        let pool = try JSONSerialization.jsonObject(with: poolData) as? [String: Any]
+        XCTAssertEqual(pool?["machines"] as? [String], ["recovered-1"])
+    }
+
     /// Two routers provisioning at the same moment must both end up in the pool
     /// store; a plain load-modify-save would let the last writer drop the other id.
     func testVMRunConcurrentProvisionsKeepBothMachinesInPool() throws {
@@ -707,6 +673,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        // The mock answers instantly, so do not wait out the three second poll.
+        environment["CMUX_VM_WAIT_POLL_SECONDS"] = "0.05"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -722,6 +690,60 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             state.snapshot().filter { $0.contains(#""method":"vm.status""#) }.count >= 2,
             "wait must poll status more than once before ready"
+        )
+    }
+
+    func testVMWaitBoundsOversizedPollIntervalToCommandDeadline() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-wait-infinite-delay")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let pollCounter = VMTransferMockState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if line.hasPrefix("auth ") { return "OK" }
+            guard let request = self.jsonObject(line),
+                  let id = request["id"] as? String,
+                  let method = request["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "vm.status" else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected method \(method)"])
+            }
+            let status = pollCounter.nextCount() == 1 ? "creating" : "running"
+            return self.v2Response(id: id, ok: true, result: [
+                "id": "brave-otter",
+                "provider": "freestyle",
+                "status": status,
+            ])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        // Exercise the shipped CLI's bounded override. The mock answers instantly,
+        // so the fallback cadence allows the second poll before this deadline.
+        environment["CMUX_VM_WAIT_POLL_SECONDS"] = "3600"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "wait", "brave-otter", "--timeout", "8"],
+            environment: environment,
+            timeout: 8
+        )
+
+        wait(for: [serverHandled], timeout: 8)
+        XCTAssertFalse(result.timedOut, "an oversized injected delay must not outlive the command deadline")
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(
+            state.snapshot().filter { $0.contains(#""method":"vm.status""#) }.count,
+            2,
+            "wait must poll again after rejecting the override"
         )
     }
 }
@@ -929,110 +951,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(badMode.stderr.contains("--mode must be three or four octal digits"), badMode.stderr)
 
         XCTAssertTrue(state.snapshot().isEmpty, "local validation must not reach the socket: \(state.snapshot())")
-    }
-
-    func testVMPushWatchPushesAgainWhenAFileChanges() throws {
-        try assertVMPushWatchPushesAgainWhenAFileChanges(jsonOutput: false)
-    }
-
-    func testVMPushJSONWatchReportsInitialAndSubsequentSyncs() throws {
-        try assertVMPushWatchPushesAgainWhenAFileChanges(jsonOutput: true)
-    }
-
-    private func assertVMPushWatchPushesAgainWhenAFileChanges(jsonOutput: Bool) throws {
-        let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("vm-push-watch")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-        let pushes = VMPushAccumulator()
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-        }
-        let tempDir = try vmTransferTempDir("watch")
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-        try Data("one\n".utf8).write(to: tempDir.appendingPathComponent("one.txt"))
-        // Excluded trees must neither be pushed nor wake the watcher.
-        try FileManager.default.createDirectory(at: tempDir.appendingPathComponent("node_modules"), withIntermediateDirectories: true)
-
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if line.hasPrefix("auth ") { return "OK" }
-            guard let request = self.jsonObject(line),
-                  let id = request["id"] as? String,
-                  let method = request["method"] as? String else {
-                return self.malformedRequestResponse(raw: line)
-            }
-            guard method == "vm.exec",
-                  let params = request["params"] as? [String: Any],
-                  let command = params["command"] as? String else {
-                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected method \(method)"])
-            }
-            if command.hasPrefix(": > ") {
-                pushes.reset()
-                return self.vmExecOKResponse(id: id, stdout: "")
-            }
-            if command.contains("| base64 -d >>") {
-                guard let start = command.range(of: "printf %s '"),
-                      let end = command.range(of: "' | base64 -d >>"),
-                      let decoded = Data(base64Encoded: String(command[start.upperBound..<end.lowerBound])) else {
-                    return self.v2Response(id: id, ok: false, error: ["code": "bad_chunk", "message": "Unparseable chunk command"])
-                }
-                pushes.append(decoded)
-                return self.vmExecOKResponse(id: id, stdout: "")
-            }
-            if command.contains("sha256sum") {
-                // The watcher re-pushes the whole tree: every finalize is one sync, and
-                // the digest must be the tarball's or the CLI refuses the transfer.
-                return self.vmExecOKResponse(id: id, stdout: pushes.finalizeReport(name: "push.tgz"))
-            }
-            if command.hasPrefix("mkdir -p ") && command.contains("tar -xzf") {
-                return self.vmExecOKResponse(id: id, stdout: "")
-            }
-            return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected command \(command)"])
-        }
-
-        // Mutate the tree once the first push has extracted and the watcher has taken
-        // its baseline: a new file, then the excluded folder (which must not count).
-        DispatchQueue.global().async {
-            let deadline = Date().addingTimeInterval(15)
-            while Date() < deadline, !state.snapshot().contains(where: { $0.contains("tar -xzf") }) {
-                Thread.sleep(forTimeInterval: 0.05)
-            }
-            Thread.sleep(forTimeInterval: 0.8)
-            try? Data("ignored\n".utf8).write(to: tempDir.appendingPathComponent("node_modules/dep.js"))
-            try? Data("two\n".utf8).write(to: tempDir.appendingPathComponent("two.txt"))
-        }
-
-        var environment = vmTransferEnvironment(socketPath: socketPath)
-        environment["CMUX_VM_PUSH_WATCH_ROUNDS"] = "1"
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: (jsonOutput ? ["--json"] : []) + ["vm", "push", "brave-otter", tempDir.path, "work/app", "--watch", "--interval", "0.2"],
-            environment: environment,
-            timeout: 30
-        )
-
-        wait(for: [serverHandled], timeout: 30)
-        XCTAssertFalse(result.timedOut, "watch did not end after one sync: \(result.stderr)")
-        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
-        if jsonOutput {
-            let events = try result.stdout.split(separator: "\n").map { line in
-                try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
-            }
-            XCTAssertEqual(events.count, 2, result.stdout)
-            XCTAssertEqual(events.compactMap { $0["event"] as? String }, ["synced", "synced"])
-            XCTAssertEqual(events.compactMap { $0["sync"] as? Int }, [0, 1])
-            XCTAssertEqual(events.compactMap { $0["files"] as? Int }, [1, 2])
-            XCTAssertFalse(result.stderr.contains("Pushed"), result.stderr)
-        } else {
-            XCTAssertTrue(result.stdout.contains("Pushed"), "the initial push reports like a one-shot push: \(result.stdout)")
-            XCTAssertTrue(result.stdout.contains("synced 2 files at "), "the re-push names the tracked files: \(result.stdout)")
-        }
-        XCTAssertEqual(pushes.finalizedCount, 2, "one initial push plus one re-push")
-        XCTAssertEqual(
-            state.snapshot().filter { $0.contains("tar -xzf") }.count, 2,
-            "each sync extracts on the machine"
-        )
     }
 
     func testVMAgentWaitPollsExitAndPagesOutput() throws {
@@ -1345,5 +1263,26 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let deleteRequests = state.snapshot().filter { $0.contains(#""method":"vm.snapshot_delete""#) }
         XCTAssertEqual(deleteRequests.count, 3, state.snapshot().description)
         XCTAssertTrue(deleteRequests.allSatisfy { $0.contains(#""id":"brave-otter""#) }, deleteRequests.description)
+    }
+}
+
+
+@Suite("Cloud SCP with OpenSSH")
+struct CloudSCPIntegrationTests {
+    @Test func transferUsesRealSFTPAndChecksTheHostKey() throws {
+        let cli = try BundledCLITestSupport.bundledCLIPath(for: CLINotifyProcessIntegrationRegressionTests.self)
+        let script = SwiftTestingAssertions.sourceURL().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("tests/test_vm_scp.py")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = [script.path, cli]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = output
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let report = String(bytes: data, encoding: .utf8) ?? "Invalid UTF-8 test output"
+        #expect(process.terminationStatus == 0, "\(report)")
+        #expect(report.contains("PASS watch and bounded control messages without file bytes"), "\(report)")
     }
 }

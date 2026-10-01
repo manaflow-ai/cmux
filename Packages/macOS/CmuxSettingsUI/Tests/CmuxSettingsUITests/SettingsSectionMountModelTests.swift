@@ -10,10 +10,17 @@ import Testing
 struct SettingsSectionMountModelTests {
     private let order: [SettingsSectionID] = [.account, .app, .terminal, .browser, .reset]
 
+    @Test func devicesSitsBetweenCloudAndNetworkingInTheDetailStack() throws {
+        let order = SettingsSectionMountModel.displayOrder
+        let mobile = try #require(order.firstIndex(of: .mobile))
+        #expect(Array(order[(mobile + 1)...].prefix(3)) == [.cloudMachines, .computers, .networking])
+    }
+
     @Test func displayOrderGivesEverySectionASlotExceptTheEmbeddedBrowserImport() {
         let slots = Set(SettingsSectionMountModel.displayOrder)
         #expect(slots.count == SettingsSectionMountModel.displayOrder.count)
         #expect(slots == Set(SettingsSectionID.allCases).subtracting([.browserImport]))
+        #expect(SettingsSectionMountModel.hostSection(for: .computers) == .computers)
     }
 
     @Test func firstPassMountsOnlyTheInitialSection() {
@@ -114,14 +121,5 @@ struct SettingsSectionMountModelTests {
         model.pin(first)
         model.pin(second)
         #expect(model.pinnedScroll == second)
-    }
-
-    @Test func isAboveFollowsDisplayOrder() {
-        let model = SettingsSectionMountModel(initial: .account, order: order)
-        #expect(model.isAbove(.account, .reset))
-        #expect(!model.isAbove(.reset, .account))
-        #expect(!model.isAbove(.app, .app))
-        #expect(model.isAbove(.terminal, .browserImport))
-        #expect(!model.isAbove(.cloudMachines, .reset))
     }
 }

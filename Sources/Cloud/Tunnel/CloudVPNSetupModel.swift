@@ -1,13 +1,14 @@
 import Foundation
 import Observation
+import CmuxCloud
+import CmuxCloudBannerCore
 
-/// UI projection only. Opening the guide observes status without enrolling or
-/// activating the extension; the existing coordinator owns the connection.
+/// Projects the existing tunnel coordinator. Reading help never activates it.
 @MainActor
 @Observable
 final class CloudVPNSetupModel {
-    let tunnelStatus = CloudTunnelStatusModel()
     private var coordinator: CloudTunnelCoordinator?
+    private(set) var status: CloudTunnelStatus?
     private(set) var isSubmitting = false
     private(set) var errorMessage: String?
 
@@ -15,40 +16,66 @@ final class CloudVPNSetupModel {
         self.coordinator = coordinator
     }
 
-    /// Owners can be built before the app installs its shared coordinator.
-    /// Attaching late is what turns this model from a dead card into one that
-    /// reports status and can connect.
-    func attach(coordinator: CloudTunnelCoordinator) {
-        guard self.coordinator == nil else { return }
+    @discardableResult
+    func attachIfNeeded(_ coordinator: CloudTunnelCoordinator) -> Bool {
+        guard self.coordinator == nil else { return false }
         self.coordinator = coordinator
+        status = nil
+        return true
     }
 
-    var state: CloudTunnelState { tunnelStatus.status?.state ?? .off }
+    var isAttached: Bool { coordinator != nil }
+    var state: CloudTunnelState { status?.state ?? .off }
+    var isSupported: Bool { coordinator?.backend.isNetworkExtension == true }
+    var isCheckingStatus: Bool { coordinator == nil || (isSupported && status == nil) }
+    var canConnect: Bool { isSupported && status != nil && !isSubmitting && !state.isSettling && state != .up }
+    var canDisconnect: Bool { !isSubmitting && (state == .up || state == .starting || state == .awaitingApproval) }
 
     var unavailableMessage: String? {
-        guard coordinator?.backend.isNetworkExtension == true else {
-            return String(localized: "cloud.vpn.setup.unavailable", defaultValue: "This copy of cmux does not include a signed VPN extension. Use a cmux release with Cloud VPN support. Cloud terminals, Ports, and Desktop remain available without the VPN.")
-        }
-        return nil
+        guard coordinator != nil, !isSupported else { return nil }
+        return String(localized: "cloud.vpn.setup.unavailable", defaultValue: "This copy of cmux does not include a signed VPN extension. Use a cmux release with Cloud VPN support. Cloud terminals, Ports, and Desktop remain available without the VPN.")
     }
 
-    var canConnect: Bool {
-        unavailableMessage == nil && !isSubmitting && !state.isSettling && state != .up
+    var statusTitle: String {
+        if isCheckingStatus { return String(localized: "cloud.vpn.setup.waiting", defaultValue: "Waiting") }
+        if !isSupported { return String(localized: "cloud.vpn.setup.openUnavailable", defaultValue: "Cloud VPN setup is unavailable") }
+        switch state {
+        case .off: return String(localized: "cloud.vpn.setup.off", defaultValue: "Off")
+        case .starting: return String(localized: "cloud.vpn.setup.waiting", defaultValue: "Waiting")
+        case .awaitingApproval: return String(localized: "cloud.vpn.setup.waiting", defaultValue: "Waiting")
+        case .up: return String(localized: "cloud.vpn.setup.connected", defaultValue: "Connected")
+        case .stopping: return String(localized: "cloud.vpn.setup.waiting", defaultValue: "Waiting")
+        case .failed: return String(localized: "cloud.vpn.setup.failed", defaultValue: "Needs attention")
+        }
+    }
+
+    var statusMessage: String? {
+        errorMessage ?? unavailableMessage ?? status.flatMap(CloudTunnelBanner.init(status:))?.text
+    }
+
+    /// The shared banner projection used by the richer setup page.
+    var tunnelBanner: CloudTunnelBanner? {
+        status.flatMap(CloudTunnelBanner.init(status:))
     }
 
     func observe() async {
         guard let coordinator else { return }
         for await _ in await coordinator.stateUpdates() {
+            guard !Task.isCancelled else { return }
             await refresh()
         }
     }
 
     func refresh() async {
         guard let coordinator else { return }
-        await tunnelStatus.refresh(coordinator)
-        if state == .off, let refusal = await coordinator.recordedStartRefusal() {
-            errorMessage = refusal.error.description
-        } else if state == .starting || state == .up {
+        let next = await coordinator.status()
+        guard !Task.isCancelled else { return }
+        status = next
+        if next.state == .off {
+            let refusal = await coordinator.recordedStartRefusal()
+            guard !Task.isCancelled else { return }
+            if let refusal { errorMessage = refusal.error.description }
+        } else {
             errorMessage = nil
         }
     }
@@ -58,20 +85,18 @@ final class CloudVPNSetupModel {
         isSubmitting = true
         errorMessage = nil
         defer { isSubmitting = false }
-        // Admission can fail before the coordinator enters starting. Keep that
-        // refusal visible instead of silently leaving the pane in its off state.
         if let refusal = await coordinator.beginUp(pin: true) {
             errorMessage = refusal.error.description
         }
-        await tunnelStatus.refresh(coordinator)
+        await refresh()
     }
 
     func disconnect() async {
-        guard !isSubmitting, let coordinator else { return }
+        guard canDisconnect, let coordinator else { return }
         isSubmitting = true
         errorMessage = nil
         defer { isSubmitting = false }
         await coordinator.requestDown()
-        await tunnelStatus.refresh(coordinator)
+        await refresh()
     }
 }

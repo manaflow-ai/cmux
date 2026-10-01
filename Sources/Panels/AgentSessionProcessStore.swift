@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import CmuxSettings
 
 @MainActor
 final class AgentSessionProcessStore {
@@ -21,17 +22,19 @@ final class AgentSessionProcessStore {
             throw AgentSessionBridgeError.sessionAlreadyRunning
         }
         let sessionId = UUID().uuidString
-        let process = Process()
         let launchArguments = plan.arguments
-        let launchEnvironment = plan.environment(overridingWorkingDirectory: workingDirectory)
-        process.executableURL = plan.executableURL
-        process.arguments = launchArguments
-        process.environment = launchEnvironment
-        if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !workingDirectory.isEmpty {
-            process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory, isDirectory: true)
-                .standardizedFileURL
+        var launchEnvironment = plan.environment(overridingWorkingDirectory: workingDirectory)
+        if AutomationCatalogSection().canonicalAgentScratch.value(in: .standard) {
+            let scratchDirectory = try AgentSessionScratchDirectory.prepare(
+                sessionID: sessionId,
+                provider: plan.provider
+            )
+            launchEnvironment["TMPDIR"] = scratchDirectory.path
+            launchEnvironment["CMUX_AGENT_ARTIFACT_ROOT"] = scratchDirectory.path
         }
+        let process = try AgentSessionOwnedProcessLauncher().prepare(
+            plan: plan, workingDirectory: workingDirectory, environment: launchEnvironment
+        )
 
         let stdin = Pipe()
         let stdout = Pipe()

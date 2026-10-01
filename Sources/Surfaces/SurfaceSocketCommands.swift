@@ -1,5 +1,7 @@
+import CmuxCloud
 import CmuxControlSocket
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 
 // The socket face of the surface catalog: `surface.catalog`, `surface.project`,
@@ -11,8 +13,10 @@ import Foundation
 // Lane (ControlCommandExecutionPolicy): socket worker. These await main-actor catalog work
 // that can sit on the network (a cloud provider materializing a pane), so they must never
 // hold the main actor; `v2VmCall` parks the worker while the catalog runs on the main actor.
-// Focus policy: `focus` defaults to true for explicit opens (the caller asked for a pane)
-// and false for desktop/port opens; the catalog never activates the app either way.
+// Focus policy: `focus` defaults to false for every open, so an agent or script never
+// pulls the person away from what they are typing in; the CLI sends `focus: true` for an
+// interactive open or an explicit `--focus`. A pane opened without focus is marked
+// unread (`markBackgroundOpen`). The catalog never activates the app either way.
 extension TerminalController {
     private nonisolated func cloudDisabledSocketError(id: Any?) -> String? {
         guard ManagedDevicePolicy().isEnforced(.disableCloud) || !CloudMachinesFeature.offMainIsEnabled() else { return nil }
@@ -28,10 +32,20 @@ extension TerminalController {
         case "surface.catalog":
             let machine = Self.surfaceMachineFilter(params["machine"])
             if let machine, machine.cloudMachineID != nil, let error = cloudDisabledSocketError(id: id) { return error }
-            let refresh = Self.surfaceBool(params["refresh"]) ?? false
+            // `refresh` forces a provider pass; `ensure_linked` only connects a
+            // machine that has no live graph yet (a just-created VM) and is free
+            // for one that is already linked. `refresh` wins when both are sent.
+            let mode: SurfaceCatalogReadMode
+            if Self.surfaceBool(params["refresh"]) == true {
+                mode = .forced
+            } else if Self.surfaceBool(params["ensure_linked"]) == true {
+                mode = .linked
+            } else {
+                mode = .cached
+            }
             return v2VmCall(id: id, timeoutSeconds: 120) {
                 let query = await Self.surfaceCatalogQuery(catalog: .shared)
-                let export = await query.read(machine: machine, refresh: refresh)
+                let export = await query.read(machine: machine, mode: mode)
                 return Self.surfaceCatalogPayload(export, machine: machine)
             }
 
@@ -40,12 +54,17 @@ extension TerminalController {
                 return v2Error(id: id, code: "invalid_params", message: "surface.project requires `resource` (an id from `cmux surface ls --json`, e.g. vivid-newt/terminal/term_…).")
             }
             if resource.machine.cloudMachineID != nil, let error = cloudDisabledSocketError(id: id) { return error }
-            let focus = Self.surfaceBool(params["focus"]) ?? true
+            let focus = Self.surfaceBool(params["focus"]) ?? false
             let reuse = Self.surfaceBool(params["reuse"]) ?? true
             let remoteTabID = Self.surfaceString(params["remote_tab_id"])
             let remoteWorkspaceID = Self.surfaceString(params["remote_workspace_id"])
             guard let workspaceID = surfaceTargetWorkspaceID(params) else {
-                return v2Error(id: id, code: "invalid_params", message: "surface.project: no target workspace (pass `workspace_id`, or select one).")
+                let requested = ["workspace_id", "pane_id", "surface_id"]
+                    .compactMap { Self.surfaceString(params[$0]) }.joined(separator: ", ")
+                let message = requested.isEmpty
+                    ? "surface.project: no target workspace (pass `workspace_id`, or select one)."
+                    : SurfaceCatalogError.destinationNotFound(requested).localizedDescription
+                return v2Error(id: id, code: "invalid_params", message: message)
             }
             let destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
             return v2VmCall(id: id, timeoutSeconds: 180) {
@@ -62,7 +81,7 @@ extension TerminalController {
                     reuseExisting: reuse,
                     remoteView: remoteView
                 )
-                return Self.surfaceProjectPayload(opened.projection, reused: opened.reused)
+                return await Self.markBackgroundOpen(Self.surfaceProjectPayload(opened.projection, reused: opened.reused), focus: focus)
             }
 
         case "surface.new_terminal":
@@ -76,14 +95,14 @@ extension TerminalController {
             let name = Self.surfaceString(params["name"])
             let remoteWorkspaceID = Self.surfaceString(params["remote_workspace_id"])
             let open = Self.surfaceBool(params["open"]) ?? true
-            let focus = Self.surfaceBool(params["focus"]) ?? true
-            let workspaceID = open ? surfaceTargetWorkspaceID(params) : nil
+            let focus = Self.surfaceBool(params["focus"]) ?? false
+            let workspaceID = open ? surfaceTargetWorkspaceID(params, strictExplicit: true) : nil
             if open, workspaceID == nil {
                 return v2Error(id: id, code: "invalid_params", message: "surface.new_terminal: no target workspace to open into (pass `workspace_id`, select one, or send `open: false`).")
             }
             let destination = workspaceID.map { Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: $0) }
             return v2VmCall(id: id, timeoutSeconds: 240) {
-                try await Self.surfaceNewTerminal(
+                let payload = try await Self.surfaceNewTerminal(
                     machine: machine,
                     command: command.isEmpty ? nil : command,
                     cwd: cwd,
@@ -92,6 +111,7 @@ extension TerminalController {
                     destination: destination,
                     focus: focus
                 )
+                return await Self.markBackgroundOpen(payload, focus: focus)
             }
 
         default:
@@ -126,10 +146,10 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_open requires `terminal_id` (a `term_…` id from `cmux vm tree`).")
         }
         let resource = SurfaceResourceID(machine: .cloud(vmId), kind: .terminal, key: terminalId)
-        let focus = Self.surfaceBool(params["focus"]) ?? true
+        let focus = Self.surfaceBool(params["focus"]) ?? false
         let remoteTabID = Self.surfaceString(params["remote_tab_id"])
         let remoteWorkspaceID = Self.surfaceString(params["remote_workspace_id"])
-        guard let workspaceID = surfaceTargetWorkspaceID(params) else {
+        guard let workspaceID = surfaceTargetWorkspaceID(params, strictExplicit: true) else {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_open: no target workspace (pass `workspace_id`, or select one).")
         }
         let destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
@@ -147,7 +167,7 @@ extension TerminalController {
                 reuseExisting: true,
                 remoteView: remoteView
             )
-            return Self.surfaceProjectPayload(opened.projection, reused: opened.reused)
+            return await Self.markBackgroundOpen(Self.surfaceProjectPayload(opened.projection, reused: opened.reused), focus: focus)
         }
     }
 
@@ -162,12 +182,12 @@ extension TerminalController {
         let cwd = Self.surfaceString(params["cwd"])
         let name = Self.surfaceString(params["name"])
         let open = Self.surfaceBool(params["open"]) ?? true
-        let focus = Self.surfaceBool(params["focus"]) ?? true
+        let focus = Self.surfaceBool(params["focus"]) ?? false
         // The legacy shape names the local target `local_workspace_id`; the catalog shape
         // uses `workspace_id` for it. Map before resolving.
         var targetParams = params
         targetParams["workspace_id"] = params["local_workspace_id"]
-        let workspaceID = open ? surfaceTargetWorkspaceID(targetParams) : nil
+        let workspaceID = open ? surfaceTargetWorkspaceID(targetParams, strictExplicit: true) : nil
         if open, workspaceID == nil {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_new: no local workspace to open into (pass `local_workspace_id`, select one, or send `open: false`).")
         }
@@ -182,6 +202,7 @@ extension TerminalController {
                 destination: destination,
                 focus: focus
             )
+            payload = await Self.markBackgroundOpen(payload, focus: focus)
             // Legacy result: `workspace_id` is the REMOTE workspace here.
             payload["local_workspace_id"] = payload["workspace_id"] ?? NSNull()
             payload["workspace_id"] = payload["remote_workspace_id"] ?? NSNull()
@@ -200,7 +221,7 @@ extension TerminalController {
         }
         let resource = SurfaceResourceID(machine: .cloud(vmId), kind: .display, key: SurfaceResourceID.desktopDisplayKey)
         let focus = Self.surfaceBool(params["focus"]) ?? false
-        guard let workspaceID = surfaceTargetWorkspaceID(params) else {
+        guard let workspaceID = surfaceTargetWorkspaceID(params, strictExplicit: true) else {
             return v2Error(id: id, code: "invalid_params", message: "vm.desktop_open: no target workspace (pass `workspace_id`, or select one).")
         }
         let destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
@@ -245,7 +266,7 @@ extension TerminalController {
         }
         let hasExplicitTarget = explicitTargetKey != nil
         let explicitWorkspaceID = hasExplicitTarget
-            ? surfaceTargetWorkspaceID(params, strictExplicit: true)
+            ? surfaceTargetWorkspaceID(params)
             : nil
         if hasExplicitTarget, explicitWorkspaceID == nil {
             return v2Error(
@@ -338,12 +359,12 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "vm.workspace_new: `reuse` needs a `name` to look for.")
         }
         return v2VmCall(id: id, timeoutSeconds: 240) {
-            let machine = SurfaceMachineID.cloud(vmId)
+            let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = await SurfaceCatalog.shared
             guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
                 throw SurfaceCatalogError.noProvider(machine)
             }
-            let focus = Self.surfaceBool(params["focus"]) ?? true
+            let focus = Self.surfaceBool(params["focus"]) ?? false
             // `open: false` stages the workspace on the machine only (`--no-open`).
             let open = Self.surfaceBool(params["open"]) ?? true
             var precreatedWorkspace: SurfaceRemoteWorkspace?
@@ -379,7 +400,7 @@ extension TerminalController {
                         catalog: catalog,
                         focus: focus
                     )
-                    return [
+                    return await Self.markBackgroundOpen([
                         "machine": machine.rawValue,
                         "remote_workspace_id": workspace.id,
                         "remote_workspace_name": workspace.name,
@@ -388,7 +409,7 @@ extension TerminalController {
                         "terminal_id": opened.starterTerminalID ?? NSNull(),
                         "workspace_id": opened.workspaceID.uuidString,
                         "surface_id": opened.projections.first?.panelID.uuidString ?? NSNull(),
-                    ]
+                    ], focus: focus)
                 case .ambiguous(let matches):
                     throw SurfaceCatalogError.destinationNotFound(
                         "several workspaces on \(vmId) are named '\(name)' (\(matches.map(\.id).joined(separator: ", "))); open one by id with `cmux vm workspace open \(vmId) <ws_…>` or pick a unique --name"
@@ -406,7 +427,7 @@ extension TerminalController {
                 openLocally: open,
                 existingWorkspace: precreatedWorkspace
             )
-            return [
+            return await Self.markBackgroundOpen([
                 "machine": machine.rawValue,
                 "remote_workspace_id": created.workspace.id,
                 "remote_workspace_name": created.workspace.name,
@@ -415,7 +436,7 @@ extension TerminalController {
                 "terminal_id": created.terminal.id.key,
                 "workspace_id": created.opened?.workspaceID.uuidString ?? NSNull(),
                 "surface_id": created.opened?.projections.first?.panelID.uuidString ?? NSNull(),
-            ]
+            ], focus: focus)
         }
     }
 
@@ -477,13 +498,13 @@ extension TerminalController {
         // `workspace_id` is the REMOTE workspace here; the local target rides as `target_workspace_id`.
         var destinationParams = params
         destinationParams["workspace_id"] = params["target_workspace_id"]
-        let localWorkspaceID: UUID? = here ? surfaceTargetWorkspaceID(destinationParams) : nil
+        let localWorkspaceID: UUID? = here ? surfaceTargetWorkspaceID(destinationParams, strictExplicit: true) : nil
         if here, localWorkspaceID == nil {
             return v2Error(id: id, code: "invalid_params", message: "vm.workspace_open: no target workspace for `here` (pass `target_workspace_id`, or select one).")
         }
         let destination = localWorkspaceID.map { Self.surfaceDestination(surfaceResolvedParams(destinationParams), workspaceID: $0) }
         return v2VmCall(id: id, timeoutSeconds: 240) {
-            let machine = SurfaceMachineID.cloud(vmId)
+            let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = await SurfaceCatalog.shared
             // Resolve the selector with the same rules as the sidebar, then build
             // one placement-aware group. Never use the first view of a terminal:
@@ -497,7 +518,7 @@ extension TerminalController {
                 machine: machine,
                 workspaceID: workspace.id
             )
-            let focus = Self.surfaceBool(params["focus"]) ?? true
+            let focus = Self.surfaceBool(params["focus"]) ?? false
             let workspaceID: UUID
             let projections: [SurfaceProjection]
             if let destination {
@@ -529,7 +550,7 @@ extension TerminalController {
                     )
                 )
             }
-            return [
+            return await Self.markBackgroundOpen([
                 "machine": machine.rawValue,
                 // The resolved `ws_…` id, not the selector as given (which may be a name).
                 "remote_workspace_id": workspace.id,
@@ -538,7 +559,7 @@ extension TerminalController {
                 "surface_ids": projections.map { $0.panelID.uuidString },
                 "opened": projections.count,
                 "here": destination != nil,
-            ]
+            ], focus: focus)
         }
     }
 
@@ -551,7 +572,7 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "vm.workspace_close requires `id` and `workspace_id`.")
         }
         return v2VmCall(id: id, timeoutSeconds: 120) {
-            let machine = SurfaceMachineID.cloud(vmId)
+            let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = await SurfaceCatalog.shared
             guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
                 throw SurfaceCatalogError.noProvider(machine)
@@ -570,7 +591,7 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "vm.workspace_delete requires `id` and `workspace_id`.")
         }
         return v2VmCall(id: id, timeoutSeconds: 240) {
-            let machine = SurfaceMachineID.cloud(vmId)
+            let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = await SurfaceCatalog.shared
             guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
                 throw SurfaceCatalogError.noProvider(machine)
@@ -597,7 +618,7 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "vm.workspace_rename requires a non-empty `name`.")
         }
         return v2VmCall(id: id, timeoutSeconds: 120) {
-            let machine = SurfaceMachineID.cloud(vmId)
+            let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = await SurfaceCatalog.shared
             try await catalog.renameRemoteWorkspace(on: machine, id: remoteWorkspaceID, name: name)
             return ["machine": machine.rawValue, "remote_workspace_id": remoteWorkspaceID, "name": name, "renamed": true]
@@ -616,7 +637,7 @@ extension TerminalController {
         }
         let name = CloudRemoteRenameName(rawValue: rawName).wireValue
         return v2VmCall(id: id, timeoutSeconds: 120) {
-            let machine = SurfaceMachineID.cloud(vmId)
+            let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = await SurfaceCatalog.shared
             try await catalog.renameTerminal(
                 on: machine,
@@ -643,7 +664,7 @@ extension TerminalController {
         }
         let name = CloudRemoteRenameName(rawValue: rawName).wireValue
         do {
-            let machine = SurfaceMachineID.cloud(vmId)
+            let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = SurfaceCatalog.shared
             try await catalog.renameTerminal(
                 on: machine,
@@ -674,7 +695,7 @@ extension TerminalController {
         }
         let name = CloudRemoteRenameName(rawValue: rawName).wireValue
         return v2VmCall(id: id, timeoutSeconds: 120) {
-            let machine = SurfaceMachineID.cloud(vmId)
+            let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = await SurfaceCatalog.shared
             try await catalog.renameRemoteTab(on: machine, id: tabID, name: name)
             return ["machine": machine.rawValue, "tab_id": tabID, "name": name, "renamed": true]
@@ -694,7 +715,7 @@ extension TerminalController {
         }
         let name = CloudRemoteRenameName(rawValue: rawName).wireValue
         do {
-            let machine = SurfaceMachineID.cloud(vmId)
+            let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = SurfaceCatalog.shared
             try await catalog.renameRemoteTab(on: machine, id: tabID, name: name)
             return v2Ok(id: id, result: [
@@ -732,7 +753,7 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_close requires `id` and `terminal_id`.")
         }
         return v2VmCall(id: id, timeoutSeconds: 120) {
-            let machine = SurfaceMachineID.cloud(vmId)
+            let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = await SurfaceCatalog.shared
             guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
                 throw SurfaceCatalogError.noProvider(machine)
@@ -920,7 +941,13 @@ extension TerminalController {
 
     @MainActor
     private static func surfaceCatalogQuery(catalog: SurfaceCatalog) -> SurfaceCatalogQueryService {
-        SurfaceCatalogQueryService(catalog: catalog) { machineID in
+        SurfaceCatalogQueryService(catalog: catalog, projectionIdentities: { projections in
+            let owners = AppDelegate.shared?.workspacesForRead(tabIds: Set(projections.map(\.workspaceID))) ?? [:]
+            return SurfaceProjectionIdentity.capture(
+                projections: projections,
+                workspacesByID: owners
+            )
+        }) { machineID in
             _ = await CmuxTuiSurfaceProviderRegistry.shared.providerRefreshingIfMissing(machineID: machineID)
         }
     }
@@ -955,34 +982,56 @@ extension TerminalController {
         }
     }
 
-    /// Creates a terminal on `machine` through its provider and, when a destination is given,
-    /// projects it there. Payload: `resource`, `terminal_id` (the provider key), `machine`,
-    /// `remote_workspace_id`, and — when opened — `workspace_id` (local) + `surface_id`.
     /// The local workspace an open lands in: `workspace_id` (UUID or `workspace:N` ref), else
     /// the workspace of a given `pane_id`/`surface_id`, else the selected workspace. When
     /// `strictExplicit` is true, an explicit but stale/malformed pane or surface is rejected
     /// instead of silently falling through to the selected workspace (used by `vm.port_open`).
-    nonisolated func surfaceTargetWorkspaceID(_ params: [String: Any], strictExplicit: Bool = false) -> UUID? {
+    nonisolated func surfaceTargetWorkspaceID(_ params: [String: Any], strictExplicit: Bool = true) -> UUID? {
         if strictExplicit {
+            var explicitWorkspaceID: UUID?
             if v2HasNonNullParam(params, "workspace_id") {
                 guard let explicit = v2UUID(params, "workspace_id") else { return nil }
-                return explicit
+                let exists = v2MainSync {
+                    self.tabManager?.tabs.contains { $0.id == explicit }
+                        == true
+                        || AppDelegate.shared?.tabManagerFor(tabId: explicit)?.tabs.contains { $0.id == explicit }
+                        == true
+                }
+                guard exists else { return nil }
+                explicitWorkspaceID = explicit
             }
             if v2HasNonNullParam(params, "pane_id") {
-                guard let paneID = v2UUID(params, "pane_id"),
-                      let located = v2MainSync({ self.v2LocatePane(paneID) }) else {
+                guard let paneID = v2UUID(params, "pane_id") else {
                     return nil
                 }
-                return located.workspace.id
+                let locatedWorkspaceID = v2MainSync { () -> UUID? in
+                    if let explicitWorkspaceID {
+                        let workspace = self.tabManager?.tabs.first(where: { $0.id == explicitWorkspaceID })
+                            ?? AppDelegate.shared?.tabManagerFor(tabId: explicitWorkspaceID)?.tabs.first(where: { $0.id == explicitWorkspaceID })
+                        return workspace?.bonsplitController.allPaneIds.contains(where: { $0.id == paneID }) == true
+                            ? explicitWorkspaceID
+                            : nil
+                    }
+                    return self.v2LocatePane(paneID)?.workspace.id
+                }
+                guard let locatedWorkspaceID else { return nil }
+                if let explicitWorkspaceID, explicitWorkspaceID != locatedWorkspaceID {
+                    return nil
+                }
+                explicitWorkspaceID = locatedWorkspaceID
             }
             if v2HasNonNullParam(params, "surface_id") {
                 guard let surfaceID = v2UUID(params, "surface_id") else { return nil }
                 let owner = v2MainSync { () -> UUID? in
-                    guard let tabManager = self.tabManager else { return nil }
-                    return tabManager.tabs.first(where: { $0.panels[surfaceID] != nil })?.id
+                    self.surfaceWorkspace(containing: surfaceID, preferredWorkspaceID: explicitWorkspaceID)?.id
                 }
-                return owner
+                guard let owner else { return nil }
+                if let explicitWorkspaceID, explicitWorkspaceID != owner {
+                    return nil
+                }
+                explicitWorkspaceID = owner
             }
+            if let explicitWorkspaceID { return explicitWorkspaceID }
         }
         if let explicit = v2UUID(params, "workspace_id") {
             return explicit
@@ -992,12 +1041,28 @@ extension TerminalController {
         }
         if let surfaceID = v2UUID(params, "surface_id") {
             let owner = v2MainSync { () -> UUID? in
-                guard let tabManager = self.tabManager else { return nil }
-                return tabManager.tabs.first(where: { $0.panels[surfaceID] != nil })?.id
+                self.surfaceWorkspace(containing: surfaceID)?.id
             }
             if let owner { return owner }
         }
         return v2MainSync { self.tabManager?.selectedTabId }
+    }
+
+    /// Resolves the live surface owner across windows, including projected panes.
+    /// A surface UUID is never used as a workspace lookup key.
+    @MainActor
+    private func surfaceWorkspace(containing surfaceID: UUID, preferredWorkspaceID: UUID? = nil) -> Workspace? {
+        if let preferredWorkspaceID,
+           let workspace = tabManager?.workspacesById[preferredWorkspaceID],
+           workspace.surfaceOwnershipTarget(for: surfaceID) != nil {
+            return workspace
+        }
+        if let owner = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: surfaceID, preferredWorkspaceId: preferredWorkspaceID
+        ) {
+            return owner.workspace
+        }
+        return tabManager?.tabs.first { $0.surfaceOwnershipTarget(for: surfaceID) != nil }
     }
 
     /// `pane_id` / `surface_id` may be UUIDs or handle refs (`pane:3`, `surface:7`); the pure
@@ -1009,10 +1074,12 @@ extension TerminalController {
             resolved["pane_id"] = paneID.uuidString
         }
         if resolved["pane_id"] == nil, let surfaceID = v2UUID(params, "surface_id") {
+            let preferredWorkspaceID = v2UUID(params, "workspace_id")
             let paneID = v2MainSync { () -> String? in
-                guard let tabManager = self.tabManager,
-                      let workspace = tabManager.tabs.first(where: { $0.panels[surfaceID] != nil }) else { return nil }
-                return SurfacePaneFactory.paneID(ofPanel: surfaceID, in: workspace.id)
+                guard let workspace = self.surfaceWorkspace(
+                    containing: surfaceID, preferredWorkspaceID: preferredWorkspaceID
+                ) else { return nil }
+                return workspace.controlSurfaceTarget(for: surfaceID)?.paneID?.uuidString
             }
             if let paneID {
                 resolved["pane_id"] = paneID
@@ -1071,32 +1138,15 @@ extension TerminalController {
         return [
             "machines": machines.map(surfaceMachinePayload),
             "resources": resources.map { surfaceResourcePayload($0, projections: openPanels[$0.id] ?? []) },
-            "projections": projections.map(surfaceProjectionPayload),
+            "projections": projections.map {
+                surfaceProjectionPayload($0, identity: export.projectionIdentities[$0])
+            },
             "cloud_states": cloudStates.map { state in
                 surfaceCloudStatePayload(
                     state,
                     observation: cloudStateObservations[state.machine] ?? .current
                 )
             },
-        ]
-    }
-
-    nonisolated static func surfaceMachinePayload(_ info: SurfaceMachineInfo) -> [String: Any] {
-        [
-            "id": info.id.rawValue,
-            "local": info.id.isLocal,
-            "name": info.name,
-            "status": info.status,
-            "image": info.image ?? NSNull(),
-            "has_desktop": info.hasDesktop,
-            "memory_mb": info.memoryMb ?? NSNull(),
-            "disk_mb": info.diskMb ?? NSNull(),
-            "link_state": info.linkState.rawValue,
-            "link_error": info.linkError ?? NSNull(),
-            "cpu_percent": info.cpuPercent ?? NSNull(),
-            "memory_used_mb": info.memoryUsedMb ?? NSNull(),
-            "disk_used_mb": info.diskUsedMb ?? NSNull(),
-            "remote_workspaces": info.remoteWorkspaces.map { $0.map(surfaceRemoteWorkspacePayload) } ?? NSNull(),
         ]
     }
 
@@ -1158,15 +1208,33 @@ extension TerminalController {
         ]
     }
 
-    nonisolated static func surfaceProjectionPayload(_ projection: SurfaceProjection) -> [String: Any] {
+    nonisolated static func surfaceProjectionPayload(
+        _ projection: SurfaceProjection,
+        identity: SurfaceProjectionIdentity? = nil
+    ) -> [String: Any] {
         [
             "resource": projection.resource.rawValue,
             "workspace_id": projection.workspaceID.uuidString,
             "panel_id": projection.panelID.uuidString,
             "surface_id": projection.panelID.uuidString,
+            "stable_surface_id": identity?.stableSurfaceID.uuidString ?? NSNull(),
+            "stable_workspace_id": identity?.stableWorkspaceID.uuidString ?? NSNull(),
             "remote_workspace_id": projection.remoteWorkspaceID ?? NSNull(),
             "remote_tab_id": projection.remoteTabID ?? NSNull(),
         ]
+    }
+
+    /// An open that did not take focus marks the pane it created unread, so the person
+    /// sees that something landed without being pulled to it
+    /// (`SurfacePaneFactory.markOpenedInBackground`). A reused pane was already there.
+    /// Returns `payload` unchanged.
+    nonisolated static func markBackgroundOpen(_ payload: [String: Any], focus: Bool) async -> [String: Any] {
+        guard !focus, payload["reused"] as? Bool != true,
+              let workspaceID = (payload["workspace_id"] as? String).flatMap(UUID.init(uuidString:)),
+              let panelID = ((payload["surface_id"] as? String) ?? (payload["surface_ids"] as? [String])?.first)
+                .flatMap(UUID.init(uuidString:)) else { return payload }
+        await SurfacePaneFactory.markOpenedInBackground(panelID: panelID, in: workspaceID)
+        return payload
     }
 
     nonisolated static func surfaceProjectPayload(_ projection: SurfaceProjection, reused: Bool) -> [String: Any] {
@@ -1292,12 +1360,4 @@ extension TerminalController {
         guard let array = raw as? [Any] else { return [] }
         return array.compactMap { surfaceString($0) }
     }
-}
-
-extension SurfaceResourceID {
-    /// The key every provider uses for a machine's one VNC display (T10 makes this a list).
-    static let desktopDisplayKey = "display:1"
-
-    /// The key for the browser that shows a forwarded HTTP port.
-    static func portKey(_ port: Int) -> String { "port:\(port)" }
 }

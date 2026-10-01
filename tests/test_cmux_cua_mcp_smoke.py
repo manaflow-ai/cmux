@@ -17,6 +17,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from cmux_cua_onboarding_fixture import run_admission_contract
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CORE_TOOLS = {"get_window_state", "click", "scroll", "zoom"}
@@ -143,6 +145,8 @@ def main() -> int:
         shutil.rmtree(home, ignore_errors=True)
 
     print(f"PASS: cmux-cua MCP smoke ({cmux_cua})")
+    if sys.platform == "darwin":
+        run_admission_contract(cmux_cua, send, read_json_line)
     return 0
 
 
