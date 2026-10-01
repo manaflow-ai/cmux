@@ -16,7 +16,7 @@ function fakeClock() {
   /** Advances by one frame of `interval` ms, running due timers first. */
   const frame = (interval: number) => {
     now += interval;
-    for (const [handle, timer] of [...timers]) if (timer.at <= now) { timers.delete(handle); timer.callback(); }
+    for (const [handle, timer] of Array.from(timers)) if (timer.at <= now) { timers.delete(handle); timer.callback(); }
     const pending = [...frames];
     frames.clear();
     for (const [, callback] of pending) callback(now);
