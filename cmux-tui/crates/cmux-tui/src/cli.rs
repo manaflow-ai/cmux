@@ -250,7 +250,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
                 command::run_provider_authority(global, authority)
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
-            CommandPlan::AgentMessage(plan) => agent_message::run_message(global, plan),
+            CommandPlan::AgentMessage(plan) => agent_message::run_message(global, *plan),
             CommandPlan::AgentInbox(plan) => agent_message::run_inbox(global, plan),
         },
         Err(failure) => {
