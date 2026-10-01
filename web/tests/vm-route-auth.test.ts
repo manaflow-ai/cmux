@@ -628,6 +628,31 @@ describe("VM REST auth", () => {
     expect(listTeams).toHaveBeenNthCalledWith(2, { cursor: "page-2", limit: 100 });
   });
 
+  test("falls back to the user plan when complete team pagination is incomplete", async () => {
+    const listTeams = mock(async (options?: { cursor?: string }) => Object.assign([
+      {
+        id: options?.cursor ? "team-other" : "team-first",
+        clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 },
+      },
+    ], { nextCursor: "stuck" }));
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      clientReadOnlyMetadata: { cmuxPlan: "free" },
+      selectedTeam: { id: "team-1" },
+      listTeams,
+    });
+
+    const user = await verifyRequest(new Request("https://cmux.test/api/vm"));
+
+    expect(user).toMatchObject({
+      billingTeamId: "team-1",
+      billingPlanId: "free",
+      billingSeats: null,
+    });
+    expect(listTeams).toHaveBeenNthCalledWith(1, { cursor: undefined, limit: 100 });
+    expect(listTeams).toHaveBeenNthCalledWith(2, { cursor: "stuck", limit: 100 });
+  });
+
   test("does not borrow another paid team's details when the selected team is absent from the lookup", async () => {
     getUser.mockResolvedValue({
       ...authedStackUser(),
