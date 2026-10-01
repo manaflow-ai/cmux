@@ -6,9 +6,9 @@ import argparse
 import configparser
 import os
 import re
+import signal
 import subprocess
 import sys
-from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -19,40 +19,29 @@ MAX_DEEPEN_ROUNDS = 8
 
 
 def run(*args: str, cwd: str | None = None, timeout: float = FETCH_TIMEOUT_SECONDS) -> subprocess.CompletedProcess[str]:
-    try:
-        return subprocess.run(
-            args, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout,
-        )
-    except subprocess.TimeoutExpired as exc:
-        def text(value: str | bytes | None, fallback: str) -> str:
-            if isinstance(value, bytes):
-                return value.decode(errors="replace")
-            return value or fallback
-
-        return subprocess.CompletedProcess(
-            args, 124, stdout=text(exc.stdout, ""), stderr=text(exc.stderr, "command timed out"),
-        )
-
-
-def clear_stale_shallow_lock(path: str) -> None:
-    """Remove a shallow.lock left by a timed-out fetch when no fetch remains."""
-    git_dir = run("git", "-C", path, "rev-parse", "--git-dir", timeout=5)
-    if git_dir.returncode:
-        return
-    lock = Path(git_dir.stdout.strip())
-    if not lock.is_absolute():
-        lock = Path(path) / lock
-    lock /= "shallow.lock"
-    if not lock.exists():
-        return
-    active = run("pgrep", "-af", f"git.*{re.escape(path)}.*fetch", timeout=2)
-    if active.returncode == 0:
-        return
-    try:
-        lock.unlink()
-        print(f"submodule-forward-only: removed stale {lock}", file=sys.stderr)
-    except FileNotFoundError:
-        pass
+    # Git owns its locks. Give it and its transport children a bounded chance
+    # to clean up on SIGTERM; never infer lock ownership from process names.
+    with subprocess.Popen(
+        args, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=True,
+    ) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+            return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                stdout, stderr = process.communicate(timeout=1)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                stdout, stderr = process.communicate()
+            return subprocess.CompletedProcess(args, 124, stdout, stderr or "command timed out")
 
 
 def gitlink(ref: str, path: str) -> str | None:
@@ -122,7 +111,6 @@ def deepened_relation(path: str, base: str, new: str) -> str | None:
     if shallow.returncode != 0 or shallow.stdout.strip() != "true":
         return None
     for round_number in range(1, MAX_DEEPEN_ROUNDS + 1):
-        clear_stale_shallow_lock(path)
         fetched = run(
             "git", "-C", path, "fetch", "--quiet", "--filter=blob:none",
             f"--deepen={DEEPEN_CHUNK}", "origin", base, new,
