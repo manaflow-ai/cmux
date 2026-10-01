@@ -183496,6 +183496,12 @@
             "value": "リモートホストで tmux new-session が失敗しました。ワークスペースは作成されませんでした。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux new-session បានបរាជ័យនៅលើម៉ាស៊ីនពីចម្ងាយ។ មិនមានកន្លែងធ្វើការត្រូវបានបង្កើតទេ។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -183613,6 +183619,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ で tmux セッションを作成できませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចបង្កើត tmux session នៅលើ %@ បានទេ"
           }
         },
         "ko": {
@@ -242178,6 +242190,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "新規ローカルワークスペース"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការមូលដ្ឋានថ្មី"
           }
         },
         "ko": {
@@ -378096,6 +378114,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "新規ローカルワークスペース"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការមូលដ្ឋានថ្មី"
           }
         },
         "ko": {
