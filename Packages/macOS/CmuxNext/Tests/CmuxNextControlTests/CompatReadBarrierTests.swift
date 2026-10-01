@@ -18,7 +18,7 @@ import Testing
         return (router, service)
     }
 
-    private func readWithoutWaiting(_ request: ControlRequest, on router: ControlRouter) async throws -> JSONValue {
+    private func readWithoutWaiting(_ request: ControlRequest, on router: ControlRouter) async throws -> CmuxNextSettings.JSONValue {
         let finished = Atomic(false)
         let read = Task {
             defer { finished.store(true, ordering: .releasing) }
