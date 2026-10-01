@@ -77,10 +77,10 @@ public struct CmuxPluginInvocation: Equatable, Sendable {
             if environment[key] == nil { environment[key] = "" }
         }
         var contextObject: [String: String] = ["plugin_id": name]
-        contextObject["action_id"] = context.actionID
-        contextObject["workspace_id"] = context.workspaceID
-        contextObject["surface_id"] = context.surfaceID
-        contextObject["socket_path"] = context.socketPath
+        contextObject["action_id"] = context.actionID ?? ""
+        contextObject["workspace_id"] = context.workspaceID ?? ""
+        contextObject["surface_id"] = context.surfaceID ?? ""
+        contextObject["socket_path"] = context.socketPath ?? ""
         if let data = try? JSONSerialization.data(withJSONObject: contextObject, options: [.sortedKeys]),
            let json = String(data: data, encoding: .utf8) {
             environment["CMUX_PLUGIN_CONTEXT_JSON"] = json

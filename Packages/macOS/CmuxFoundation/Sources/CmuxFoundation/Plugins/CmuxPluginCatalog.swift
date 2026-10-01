@@ -106,7 +106,7 @@ public struct CmuxPluginCatalog: Equatable, Sendable {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               let type = attributes[.type] as? FileAttributeType,
               type == .typeRegular else {
-            throw CmuxPluginManifestError("(CmuxPluginManifest.fileName) is not a regular file")
+            throw CmuxPluginManifestError("\(CmuxPluginManifest.fileName) is not a regular file")
         }
         let handle: FileHandle
         do {
