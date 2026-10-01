@@ -282,7 +282,7 @@ final class NotificationsAnchorRegistry {
 
     func closestAnchor(in window: NSWindow, to pointInWindow: NSPoint) -> NSView? {
         anchors.allObjects
-            .compactMap { view -> (view: NSView, frame: NSRect, distance: CGFloat)? in
+            .compactMap { view -> (view: NSView, distance: CGFloat)? in
                 guard view.window === window else { return nil }
                 guard notificationsPopoverAnchorIsVisible(view) else { return nil }
                 let frameInWindow = view.convert(view.bounds, to: nil)
@@ -290,22 +290,9 @@ final class NotificationsAnchorRegistry {
                 let center = NSPoint(x: frameInWindow.midX, y: frameInWindow.midY)
                 let dx = center.x - pointInWindow.x
                 let dy = center.y - pointInWindow.y
-                return (view, frameInWindow, (dx * dx) + (dy * dy))
+                return (view, (dx * dx) + (dy * dy))
             }
-            .min { lhs, rhs in
-                if lhs.distance != rhs.distance {
-                    return lhs.distance < rhs.distance
-                }
-                // NSHashTable does not promise iteration order. Use the
-                // converted frame as a stable tie-breaker when two anchors
-                // are equally close to the requested point.
-                let lhsFrame = lhs.frame
-                let rhsFrame = rhs.frame
-                if lhsFrame.minX != rhsFrame.minX { return lhsFrame.minX < rhsFrame.minX }
-                if lhsFrame.minY != rhsFrame.minY { return lhsFrame.minY < rhsFrame.minY }
-                if lhsFrame.width != rhsFrame.width { return lhsFrame.width < rhsFrame.width }
-                return lhsFrame.height < rhsFrame.height
-            }?
+            .min { $0.distance < $1.distance }?
             .view
     }
 

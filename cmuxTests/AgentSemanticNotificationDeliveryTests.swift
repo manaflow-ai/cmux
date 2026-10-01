@@ -33,13 +33,6 @@ extension AgentNotificationRegressionTests {
         let fixture = try makeFixture()
         defer { fixture.restore() }
 
-        // Direct PTY prompt delivery still needs a live hook binding so the
-        // notification target can admit the session before the answer clears it.
-        fixture.source.surfaceResumeBindingsByPanelId[fixture.panelId] = SurfaceResumeBindingSnapshot(
-            name: source, kind: source, command: "agent resume", checkpointId: "session",
-            source: "agent-hook", updatedAt: 1
-        )
-
         #expect(
             AgentNotificationDelivery().enqueue(
                 workspaceID: fixture.source.id,
@@ -175,10 +168,6 @@ extension AgentNotificationRegressionTests {
     @Test func terminalInputClearsCodexPromptRingAndWorkspaceCount() throws {
         let fixture = try makeFixture()
         defer { fixture.restore() }
-        fixture.source.surfaceResumeBindingsByPanelId[fixture.panelId] = SurfaceResumeBindingSnapshot(
-            name: "codex", kind: "codex", command: "agent resume", checkpointId: "session",
-            source: "agent-hook", updatedAt: 1
-        )
         #expect(AgentNotificationDelivery().enqueue(
             workspaceID: fixture.source.id,
             surfaceID: fixture.panelId,
