@@ -27,7 +27,7 @@ public actor CloudTuiPersistentResourceConnection {
     private var pumpTask: Task<Void, Never>?
     private var closed = false
     private let pendingLimit = 128
-    private static let protocolFailure = CloudMachineLink.LinkError.exited(status: 3, output: "transport closed: invalid resource response")
+    private static let protocolFailure = CloudMachineLink.LinkError.transportLost
 
     public init(socketPath: String, clock: any Clock<Duration> = ContinuousClock()) {
         connection = CloudTuiManualIOConnection(socketPath: socketPath, deliversJSONMessages: true)

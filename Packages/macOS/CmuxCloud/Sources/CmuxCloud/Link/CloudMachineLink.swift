@@ -80,6 +80,8 @@ public actor CloudMachineLink {
         case clientMissing
         case spawnFailed(String)
         case exited(status: Int32, output: String)
+        /// The daemon transport closed or returned an invalid resource frame.
+        case transportLost
         case timedOut
         case inputTooLarge
 
@@ -94,6 +96,8 @@ public actor CloudMachineLink {
             case .exited(let status, let output):
                 let tail = output.split(separator: "\n").suffix(3).joined(separator: " · ")
                 return "cmux-tui link exited with status \(status)" + (tail.isEmpty ? "" : ": \(tail)")
+            case .transportLost:
+                return "The Cloud VM service connection was lost. Refresh to reconnect."
             case .timedOut:
                 return "cmux-tui link did not report a socket within the connect timeout."
             }
@@ -304,7 +308,7 @@ public actor CloudMachineLink {
         state = .connected
         _ = await startEventsSubscription(socketPath: socketPath, cursor: nil)
         guard state == .connected, self.connected != nil else {
-            throw LinkError.exited(status: 3, output: "transport closed: event subscription unavailable")
+            throw LinkError.transportLost
         }
         changesContinuation.yield(.connected)
         return connected
@@ -470,8 +474,8 @@ public actor CloudMachineLink {
     /// Identifies failures that mean the local daemon socket is no longer usable.
     private nonisolated static func isTransportFailure(_ error: Error) -> Bool {
         if let linkError = error as? LinkError,
-           case .exited(let status, let output) = linkError {
-            return status == 3 && output.hasPrefix("transport closed:")
+           case .transportLost = linkError {
+            return true
         }
         let nsError = error as NSError
         guard nsError.domain == "cmux.cloud.manual-io",
@@ -592,7 +596,7 @@ public actor CloudMachineLink {
         guard eventsSubscriptionID == subscriptionID else { return }
         if !receivedStreamEnd, await channel.isClosed {
             await retireForTransportFailure(
-                LinkError.exited(status: 3, output: "transport closed: event stream ended"),
+                LinkError.transportLost,
                 resourceConnection: channel,
                 channel: channel
             )

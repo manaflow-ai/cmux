@@ -72,6 +72,7 @@ public enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
         }
         if let error = error as? CloudMachineLink.LinkError {
             switch error {
+            case .transportLost: return .network
             case .timedOut: return .timeout
             case .inputTooLarge: return .resourceLimit
             case .clientMissing, .spawnFailed, .exited: return .process
