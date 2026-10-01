@@ -64,6 +64,8 @@ struct AgentNotificationRegressionTests {
         let destination = manager.addWorkspace(select: false)
         let panelId = try #require(source.focusedPanelId)
 
+        // Resolve the only throwing fixture lookup before mutating shared
+        // application state, so a failed setup cannot leak those mutations.
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }
         store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }

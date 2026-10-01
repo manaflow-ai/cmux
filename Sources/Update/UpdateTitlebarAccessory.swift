@@ -2027,6 +2027,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         super.init(nibName: nil, bundle: nil)
 
         view = containerView
+        containerView.onWindowChange = { [weak self] window in
+            self?.setObservedWindow(window)
+        }
         containerView.translatesAutoresizingMaskIntoConstraints = true
         // The shortcut-hint pills (and button backgrounds) sit below the button
         // row and overflow the accessory's titlebar-height content frame on
@@ -2117,7 +2120,11 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
     @discardableResult
     private func updateObservedWindowIfNeeded() -> Bool {
-        let currentWindow = view.window
+        setObservedWindow(view.window)
+    }
+
+    @discardableResult
+    private func setObservedWindow(_ currentWindow: NSWindow?) -> Bool {
         let currentWindowIdentifier = currentWindow.map(ObjectIdentifier.init)
         guard currentWindowIdentifier != observedWindowIdentifier else { return false }
         removeWindowGeometryObservers()

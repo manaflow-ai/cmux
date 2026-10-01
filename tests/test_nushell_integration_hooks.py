@@ -341,7 +341,7 @@ def test_nushell_integration_background_sends_deliver() -> None:
                     os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-                stdout, stderr = process.communicate()
+                stdout, stderr = process.communicate(timeout=5)
             raise
         proc = subprocess.CompletedProcess(
             args=process.args,
