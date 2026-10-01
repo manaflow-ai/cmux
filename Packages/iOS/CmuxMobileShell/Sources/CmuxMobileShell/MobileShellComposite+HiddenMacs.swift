@@ -41,13 +41,13 @@ extension MobileShellComposite {
         hiddenIDs: Set<String>
     ) -> Bool {
         let expectedDeviceID = cmxCanonicalDeviceID(key.canonicalMacDeviceID)
-        let expectedTag = macInstanceTagAuthority.normalize(key.normalizedInstanceTag)
+        let expectedTag = macInstanceTagAuthority.normalize(key.normalizedInstanceTag)?.lowercased()
         return hiddenIDs.contains { marker in
             let identity = MobilePairedMac.pairingIdentity(from: marker)
             guard cmxCanonicalDeviceID(identity.macDeviceID) == expectedDeviceID else {
                 return false
             }
-            return macInstanceTagAuthority.normalize(identity.instanceTag) == expectedTag
+            return macInstanceTagAuthority.normalize(identity.instanceTag)?.lowercased() == expectedTag
         }
     }
 
