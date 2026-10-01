@@ -4017,89 +4017,6 @@ final class SocketClient {
         }
     }
 
-    static func waitForFilesystemPathAbsence(_ path: String, timeout: TimeInterval) throws {
-        try waitForFilesystemPathCondition(
-            path,
-            timeout: timeout,
-            timeoutMessage: "Timed out waiting for \(path) to be removed",
-            isConditionMet: { !FileManager.default.fileExists(atPath: path) }
-        )
-    }
-
-    /// Blocks until `isConditionMet` becomes true, waking only on filesystem
-    /// events in the path's parent directory rather than polling.
-    private static func waitForFilesystemPathCondition(
-        _ path: String,
-        timeout: TimeInterval,
-        timeoutMessage: @autoclosure () -> String,
-        isConditionMet: @escaping () -> Bool
-    ) throws {
-        if isConditionMet() {
-            return
-        }
-
-        guard let watchDirectory = existingWatchDirectory(forPath: path) else {
-            throw CLIError(message: timeoutMessage())
-        }
-        let watchFD = open(watchDirectory, O_EVTONLY)
-        guard watchFD >= 0 else {
-            throw CLIError(message: timeoutMessage())
-        }
-
-        let queue = DispatchQueue(label: "com.cmux.cli.path-watch.\(UUID().uuidString)")
-        let semaphore = DispatchSemaphore(value: 0)
-        var met = false
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: watchFD,
-            eventMask: [.write, .rename, .delete, .attrib, .extend, .link],
-            queue: queue
-        )
-
-        func checkCondition() {
-            guard !met else { return }
-            if isConditionMet() {
-                met = true
-                semaphore.signal()
-            }
-        }
-
-        source.setEventHandler {
-            checkCondition()
-        }
-        source.setCancelHandler {
-            Darwin.close(watchFD)
-        }
-        source.resume()
-        queue.async {
-            checkCondition()
-        }
-
-        guard semaphore.wait(timeout: .now() + timeout) == .success else {
-            source.cancel()
-            throw CLIError(message: timeoutMessage())
-        }
-
-        source.cancel()
-    }
-
-    private static func existingWatchDirectory(forPath path: String) -> String? {
-        let fileManager = FileManager.default
-        var candidate = URL(fileURLWithPath: (path as NSString).deletingLastPathComponent, isDirectory: true)
-
-        while !candidate.path.isEmpty {
-            var isDirectory: ObjCBool = false
-            if fileManager.fileExists(atPath: candidate.path, isDirectory: &isDirectory), isDirectory.boolValue {
-                return candidate.path
-            }
-            let parent = candidate.deletingLastPathComponent()
-            if parent.path == candidate.path {
-                break
-            }
-            candidate = parent
-        }
-        return nil
-    }
-
     func streamV2(
         method: String,
         params: [String: Any] = [:],
@@ -27925,21 +27842,6 @@ struct CMUXCLI {
         return (process.terminationStatus, stdout, stderr)
     }
 
-    /// A lock file name must distinguish every channel name, so the readable
-    /// sanitized form is only a prefix: `a/b` and `a.b` both sanitize to `a_b`
-    /// and would otherwise share one lock, letting either channel block or
-    /// unlock the other. The appended digest is taken over the raw name, so
-    /// distinct names always land on distinct files.
-    private func tmuxWaitForLockURL(name: String) -> URL {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
-        let sanitized = String(name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" })
-        let digest = SHA256.hash(data: Data(name.utf8))
-            .prefix(8)
-            .map { String(format: "%02x", $0) }
-            .joined()
-        return URL(fileURLWithPath: "/tmp/cmux-wait-for-\(sanitized.prefix(64))-\(digest).lock")
-    }
-
     private func runTmuxCompatCommand(
         command: String,
         commandArgs: [String],
@@ -28072,40 +27974,16 @@ struct CMUXCLI {
                 return
             }
             if unlock {
-                // Unlocking an unlocked channel is a no-op, but a removal that
-                // actually failed (permissions, I/O) must not report success:
-                // the lock file survives and every waiter stays blocked while
-                // the caller believes the channel is free.
-                let lockURL = tmuxWaitForLockURL(name: name)
-                if unlink(lockURL.path) != 0, errno != ENOENT {
-                    throw CLIError(message: "wait-for failed to unlock '\(name)': \(String(cString: strerror(errno)))")
-                }
+                try waitForSignal.unlock()
                 print("OK")
                 return
             }
             if lock {
-                let lockURL = tmuxWaitForLockURL(name: name)
-                let deadline = Date().addingTimeInterval(timeout)
-                while true {
-                    let fd = open(lockURL.path, O_CREAT | O_EXCL | O_WRONLY, 0o644)
-                    if fd >= 0 {
-                        Darwin.close(fd)
-                        print("OK")
-                        return
-                    }
-                    guard errno == EEXIST else {
-                        throw CLIError(message: "wait-for failed to lock '\(name)': \(String(cString: strerror(errno)))")
-                    }
-                    let remaining = deadline.timeIntervalSinceNow
-                    guard remaining > 0 else {
-                        throw CLIError(message: "wait-for timed out waiting to lock '\(name)'")
-                    }
-                    do {
-                        try SocketClient.waitForFilesystemPathAbsence(lockURL.path, timeout: remaining)
-                    } catch {
-                        throw CLIError(message: "wait-for timed out waiting to lock '\(name)'")
-                    }
+                guard try waitForSignal.lock(timeout: timeout) else {
+                    throw CLIError(message: "wait-for timed out waiting to lock '\(name)'")
                 }
+                print("OK")
+                return
             }
             if try waitForSignal.wait(timeout: timeout) {
                 print("OK")
