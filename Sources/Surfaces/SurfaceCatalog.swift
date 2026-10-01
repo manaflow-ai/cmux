@@ -1245,16 +1245,21 @@ final class SurfaceCatalog {
     }
 
     func setRemotePlacement(for source: SurfaceProjection, workspaceID: String?, tabID: String?) {
+        // Only views whose coordinates change; an unchanged placement notifies nobody.
         let matching = projections.filter {
             $0.resource == source.resource && ($0.panelID == source.panelID
                 || (tabID != nil && $0.remoteTabID == tabID))
+                && ($0.remoteWorkspaceID != workspaceID || $0.remoteTabID != tabID)
         }
+        guard !matching.isEmpty else { return }
+        var next = projections
         for var projection in matching {
-            projections.remove(projection)
+            next.remove(projection)
             projection.remoteWorkspaceID = workspaceID
             projection.remoteTabID = tabID
-            projections.insert(projection)
+            next.insert(projection)
         }
+        projections = next
         notifyChange(for: source.resource.machine)
     }
 
@@ -1264,23 +1269,20 @@ final class SurfaceCatalog {
     @discardableResult
     private func attachRemoteView(_ view: SurfaceRemoteView?, to projection: SurfaceProjection) -> SurfaceProjection {
         guard let view else { return projection }
-        if view.isCloudDisplayMembershipView {
-            guard projection.remoteTabID == nil else { return projection }
-            projections.remove(projection)
-            var updated = projection
-            updated.remoteWorkspaceID = view.workspace.id
-            updated.remoteTabID = nil
-            projections.insert(updated)
-            reconcileCloudWorkspaceBinding(localWorkspaceID: updated.workspaceID)
-            notifyChange(for: updated.resource.machine)
-            return updated
-        }
-        guard projection.remoteTabID == nil || projection.remoteTabID == view.tabID else { return projection }
-        projections.remove(projection)
+        // A display membership view attaches only to a tabless preview.
+        let tabID = view.isCloudDisplayMembershipView ? nil : view.tabID
+        guard projection.remoteTabID == nil || projection.remoteTabID == tabID else { return projection }
         var updated = projection
         updated.remoteWorkspaceID = view.workspace.id
-        updated.remoteTabID = view.tabID
-        projections.insert(updated)
+        updated.remoteTabID = tabID
+        // Reconcile reprojects through here. Rewriting unchanged coordinates
+        // would request the next reconcile of this machine, forever.
+        guard updated != projection else { return projection }
+        // One assignment, so observers never see the pane briefly unprojected.
+        var next = projections
+        next.remove(projection)
+        next.insert(updated)
+        projections = next
         reconcileCloudWorkspaceBinding(localWorkspaceID: updated.workspaceID)
         notifyChange(for: updated.resource.machine)
         return updated
