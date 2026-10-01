@@ -861,7 +861,7 @@ public struct CmuxTuiSnapshotParser: Sendable {
                 next.lookupIndex.upsertBrowser(decoded)
             case ("agent", "upsert"), ("agents", "upsert"):
                 guard let value else { return rejectTyped("applyingTypedDelta#8") }
-                guard applyAgentUpsert(value: value, change: change, to: &next) else { return rejectTyped("applyingTypedDelta#9") }
+                guard applyAgentUpsert(value: value, change: change, resolvedID: id, to: &next) else { return rejectTyped("applyingTypedDelta#9") }
             case (_, "upsert") where !["workspace", "screen", "pane", "tab", "terminal", "browser", "agent", "agents"].contains(resource):
                 // The canonical document was already updated above. Opaque
                 // entities are a read projection of that document, so no
@@ -896,7 +896,7 @@ public struct CmuxTuiSnapshotParser: Sendable {
                 next.browsers.removeAll { $0.id == id }
                 next.lookupIndex.removeBrowser(id: id)
             case ("agent", "delete"), ("agents", "delete"):
-                guard applyAgentDelete(change: change, to: &next) else { return rejectTyped("applyingTypedDelta#10") }
+                guard applyAgentDelete(change: change, resolvedID: id, to: &next) else { return rejectTyped("applyingTypedDelta#10") }
             case (_, "delete") where !["workspace", "screen", "pane", "tab", "terminal", "browser", "agent", "agents"].contains(resource):
                 break
             default:
@@ -1073,12 +1073,13 @@ public struct CmuxTuiSnapshotParser: Sendable {
     private static func applyAgentUpsert(
         value: [String: Any],
         change: [String: Any],
+        resolvedID: String,
         to state: inout CloudVMState
     ) -> Bool {
         guard var decoded = agentState(from: value),
               let terminalID = nonEmptyString(value["terminal_id"])
         else { return false }
-        let explicitID = nonEmptyString(change["id"])
+        let explicitID = nonEmptyString(change["id"]) ?? nonEmptyString(value["id"]) ?? resolvedID
         let targetIndex = explicitID.flatMap { id in state.agents.firstIndex { $0.id == id } }
             ?? state.agents.firstIndex { $0.terminalID == terminalID }
         if targetIndex == nil, explicitID != nil,
@@ -1100,8 +1101,8 @@ public struct CmuxTuiSnapshotParser: Sendable {
         return true
     }
 
-    private static func applyAgentDelete(change: [String: Any], to state: inout CloudVMState) -> Bool {
-        let explicitID = nonEmptyString(change["id"])
+    private static func applyAgentDelete(change: [String: Any], resolvedID: String, to state: inout CloudVMState) -> Bool {
+        let explicitID = nonEmptyString(change["id"]) ?? (change["value"] as? [String: Any]).flatMap { nonEmptyString($0["id"]) } ?? resolvedID
         let terminalID = nonEmptyString(change["terminal_id"])
             ?? (change["value"] as? [String: Any]).flatMap { nonEmptyString($0["terminal_id"]) }
         if let explicitID,
