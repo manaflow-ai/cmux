@@ -395,6 +395,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         // state with an immediate clamp.
         scrollView.bounces = true
         scrollView.alwaysBounceHorizontal = true
+        scrollView.decelerationRate = .normal
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         // The scroll view's FRAME starts flush at the composer button's
         // trailing edge; the 4pt visual gap the frame constant used to carry
@@ -638,6 +639,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
                     - scrollView.bounds.width
                     + scrollView.adjustedContentInset.right
             )
+            let isOverscrolling = scrollView.contentOffset.x < minimumOffset - 0.5
+                || scrollView.contentOffset.x > maximumOffset + 0.5
+            // A rubber-band offset is UIKit's transient state. Leave it alone
+            // even if a parent layout also changed the strip's geometry; the
+            // native spring will return it to the new boundary.
+            guard !isOverscrolling else { return }
             let targetOffset: CGFloat
             if wasAtLeadingEdge {
                 targetOffset = minimumOffset

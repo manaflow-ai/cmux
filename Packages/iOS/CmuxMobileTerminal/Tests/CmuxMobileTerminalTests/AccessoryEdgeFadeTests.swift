@@ -56,6 +56,7 @@ struct AccessoryEdgeFadeTests {
 
         #expect(scrollView.bounces)
         #expect(scrollView.alwaysBounceHorizontal)
+        #expect(scrollView.decelerationRate == .normal)
     }
 
     @MainActor
