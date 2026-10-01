@@ -598,6 +598,7 @@ mod tests {
                 state: None,
                 term: None,
                 initial_host_colors: None,
+                terminal_reap_grace: None,
             }
         }
 
