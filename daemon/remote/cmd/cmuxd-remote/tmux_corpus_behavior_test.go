@@ -265,6 +265,35 @@ func TestTmuxSplitWindowCarriesHudMetadata(t *testing.T) {
 	}
 }
 
+func TestTmuxCommandLooksLikeHudRecognizesOMP(t *testing.T) {
+	t.Run("command word", func(t *testing.T) {
+		t.Setenv("CMUX_OMX_CMUX_BIN", "")
+		t.Setenv("CMUX_OMP_CMUX_BIN", "")
+		t.Setenv("CMUX_AGENT_LAUNCH_KIND", "")
+		if !tmuxCommandLooksLikeAgentHud([]string{"omp", "hud", "--watch"}) {
+			t.Fatal("omp hud command should use the startup path")
+		}
+	})
+
+	t.Run("launch marker", func(t *testing.T) {
+		t.Setenv("CMUX_OMX_CMUX_BIN", "")
+		t.Setenv("CMUX_OMP_CMUX_BIN", "")
+		t.Setenv("CMUX_AGENT_LAUNCH_KIND", "omp")
+		if !tmuxCommandLooksLikeAgentHud([]string{"hud", "--watch"}) {
+			t.Fatal("OMP launch marker should use the startup path")
+		}
+	})
+
+	t.Run("omp cmux marker", func(t *testing.T) {
+		t.Setenv("CMUX_OMX_CMUX_BIN", "")
+		t.Setenv("CMUX_AGENT_LAUNCH_KIND", "")
+		t.Setenv("CMUX_OMP_CMUX_BIN", "/tmp/omp")
+		if !tmuxCommandLooksLikeAgentHud([]string{"hud", "--watch"}) {
+			t.Fatal("OMP cmux marker should use the startup path")
+		}
+	})
+}
+
 func (r *tmuxCorpusRPCRecorder) methods() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()

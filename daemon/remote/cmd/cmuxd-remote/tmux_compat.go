@@ -1812,7 +1812,7 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 
 	focusNewPane := !p.hasFlag("-d")
 	commandText := strings.TrimSpace(strings.Join(p.positional, " "))
-	isOMXHud := tmuxCommandLooksLikeOMXHud(p.positional)
+	isOMXHud := tmuxCommandLooksLikeAgentHud(p.positional)
 	startupScriptPath := ""
 	params := map[string]any{
 		"workspace_id": targetWs,
@@ -1988,17 +1988,22 @@ func tmuxPaneIdForSurface(rc *rpcContext, workspaceID, surfaceID string) (string
 	return "", fmt.Errorf("surface %s has no pane", surfaceID)
 }
 
-func tmuxCommandLooksLikeOMXHud(commandTokens []string) bool {
+func tmuxCommandLooksLikeAgentHud(commandTokens []string) bool {
 	commandText := strings.Join(commandTokens, " ")
 	if !tmuxCommandTextContainsWord(commandText, "hud") {
 		return false
 	}
 	env := os.Getenv
-	if env("CMUX_OMX_CMUX_BIN") != "" || strings.EqualFold(env("CMUX_AGENT_LAUNCH_KIND"), "omx") {
+	if env("CMUX_OMX_CMUX_BIN") != "" ||
+		env("CMUX_OMP_CMUX_BIN") != "" ||
+		strings.EqualFold(env("CMUX_AGENT_LAUNCH_KIND"), "omx") ||
+		strings.EqualFold(env("CMUX_AGENT_LAUNCH_KIND"), "omp") {
 		return true
 	}
-	lowered := strings.ToLower(commandText)
-	return strings.Contains(lowered, "omx") || strings.Contains(lowered, "oh-my-codex")
+	return tmuxCommandTextContainsWord(commandText, "omx") ||
+		tmuxCommandTextContainsWord(commandText, "oh-my-codex") ||
+		tmuxCommandTextContainsWord(commandText, "omp") ||
+		tmuxCommandTextContainsWord(commandText, "oh-my-pi")
 }
 
 func tmuxCommandTextContainsWord(text, word string) bool {
