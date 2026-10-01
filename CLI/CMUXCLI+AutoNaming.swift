@@ -232,14 +232,20 @@ struct CodexAutoNamingArguments: Sendable {
             arguments.insert("--ignore-user-config", at: arguments.firstIndex(of: "--ignore-rules")!)
         }
         guard let configToml else { return arguments }
-        let overrides = providerOverrides(from: configToml, usesTemporaryConfig: usesTemporaryConfig)
+        let overrides = providerOverrides(
+            from: configToml,
+            usesTemporaryConfig: usesTemporaryConfig
+        )
         for override in overrides.reversed() {
             arguments.insert(contentsOf: ["-c", override], at: 1)
         }
         return arguments
     }
 
-    private static func providerOverrides(from toml: String, usesTemporaryConfig: Bool) -> [String] {
+    private static func providerOverrides(
+        from toml: String,
+        usesTemporaryConfig: Bool
+    ) -> [String] {
         var model: String?
         var modelProvider: String?
         var providerEntries: [(section: String, key: String, value: String)] = []
@@ -298,6 +304,160 @@ struct CodexAutoNamingArguments: Sendable {
     private static func providerNameFromValue(_ value: String) -> String? {
         guard value.count >= 2, value.first == "\"", value.last == "\"" else { return nil }
         return String(value.dropFirst().dropLast())
+    }
+}
+
+/// Strict argument parsing for the small set of native tmux-compat commands
+/// that perform state-changing actions. The old handlers used `optionValue`
+/// and filtered unknown flags, which made a typo execute against the default
+/// target. Keep this parser pure so the accepted forms and rejection behavior
+/// stay testable without a socket or app process.
+struct TmuxCompatParsedArguments: Equatable, Sendable {
+    let workspace: String?
+    let surface: String?
+    let window: String?
+    let name: String?
+    let bracketed: Bool
+    let printOnly: Bool
+    let commandText: String?
+    let message: String?
+}
+
+enum TmuxCompatArgumentParser {
+    private struct ScanResult {
+        var values: [String: String] = [:]
+        var flags: Set<String> = []
+        var positional: [String] = []
+    }
+
+    static func parseClearHistory(_ args: [String]) throws -> TmuxCompatParsedArguments {
+        let result = try scan(
+            args,
+            command: "clear-history",
+            valueOptions: ["--workspace", "--surface", "--window"],
+            flagOptions: []
+        )
+        guard result.positional.isEmpty else {
+            throw CLIError(message: "clear-history: unexpected arguments: \(result.positional.joined(separator: " "))")
+        }
+        return make(result)
+    }
+
+    static func parsePasteBuffer(_ args: [String]) throws -> TmuxCompatParsedArguments {
+        let result = try scan(
+            args,
+            command: "paste-buffer",
+            valueOptions: ["--workspace", "--surface", "--window", "--name"],
+            flagOptions: ["--bracketed"]
+        )
+        guard result.positional.isEmpty else {
+            throw CLIError(message: "paste-buffer: unexpected arguments: \(result.positional.joined(separator: " "))")
+        }
+        return make(result)
+    }
+
+    static func parseRespawnPane(_ args: [String]) throws -> TmuxCompatParsedArguments {
+        let result = try scan(
+            args,
+            command: "respawn-pane",
+            valueOptions: ["--workspace", "--surface", "--window", "--command"],
+            flagOptions: [],
+            allowsPositional: true
+        )
+        if result.values["--command"] != nil, !result.positional.isEmpty {
+            throw CLIError(message: "respawn-pane: unexpected arguments: \(result.positional.joined(separator: " "))")
+        }
+        let command = result.values["--command"] ?? result.positional.joined(separator: " ")
+        return make(result, commandText: command.isEmpty ? nil : command)
+    }
+
+    static func parseDisplayMessage(_ args: [String]) throws -> TmuxCompatParsedArguments {
+        let result = try scan(
+            args,
+            command: "display-message",
+            valueOptions: [],
+            flagOptions: ["-p", "--print"],
+            allowsPositional: true
+        )
+        let message = result.positional.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        return make(result, message: message.isEmpty ? nil : message)
+    }
+
+    private static func make(
+        _ result: ScanResult,
+        commandText: String? = nil,
+        message: String? = nil
+    ) -> TmuxCompatParsedArguments {
+        TmuxCompatParsedArguments(
+            workspace: result.values["--workspace"],
+            surface: result.values["--surface"],
+            window: result.values["--window"],
+            name: result.values["--name"],
+            bracketed: result.flags.contains("--bracketed"),
+            printOnly: result.flags.contains("-p") || result.flags.contains("--print"),
+            commandText: commandText,
+            message: message
+        )
+    }
+
+    private static func scan(
+        _ args: [String],
+        command: String,
+        valueOptions: Set<String>,
+        flagOptions: Set<String>,
+        allowsPositional: Bool = false
+    ) throws -> ScanResult {
+        var result = ScanResult()
+        var index = 0
+        var terminated = false
+        while index < args.count {
+            let arg = args[index]
+            if terminated {
+                guard allowsPositional else {
+                    throw CLIError(message: "\(command): unexpected argument: \(arg)")
+                }
+                result.positional.append(arg)
+                index += 1
+                continue
+            }
+            if arg == "--" {
+                terminated = true
+                index += 1
+                continue
+            }
+            if let option = valueOptions.first(where: { arg == $0 || arg.hasPrefix("\($0)=") }) {
+                let value: String
+                if arg.hasPrefix("\(option)=") {
+                    value = String(arg.dropFirst(option.count + 1))
+                } else {
+                    guard index + 1 < args.count, args[index + 1] != "--", !args[index + 1].hasPrefix("-") else {
+                        throw CLIError(message: "\(command): \(option) requires a value")
+                    }
+                    value = args[index + 1]
+                    index += 1
+                }
+                guard !value.isEmpty else {
+                    throw CLIError(message: "\(command): \(option) requires a value")
+                }
+                result.values[option] = value
+                index += 1
+                continue
+            }
+            if flagOptions.contains(arg) {
+                result.flags.insert(arg)
+                index += 1
+                continue
+            }
+            if arg.hasPrefix("-") {
+                throw CLIError(message: "\(command): unknown option '\(arg)'")
+            }
+            guard allowsPositional else {
+                throw CLIError(message: "\(command): unexpected argument: \(arg)")
+            }
+            result.positional.append(arg)
+            index += 1
+        }
+        return result
     }
 }
 
@@ -429,12 +589,53 @@ struct AutoNamingEngine: Sendable {
             }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
-            // Codex injects framework context as user messages wrapped in
-            // angle-bracket tags; they describe the harness, not the topic.
-            if trimmed.hasPrefix("<"), trimmed.contains(">") { continue }
+            // Codex injects a small set of framework envelopes as user
+            // messages. Filter only those known wrappers; ordinary HTML-like
+            // conversation text is part of the user's topic.
+            if role == "user", isCodexInjectedContext(trimmed) { continue }
             messages.append(AutoNamingTranscriptMessage(role: role, text: trimmed))
         }
         return messages
+    }
+
+    private func isCodexInjectedContext(_ text: String) -> Bool {
+        if text.hasPrefix("# AGENTS.md instructions for "),
+           text.contains("\n<INSTRUCTIONS>") {
+            return true
+        }
+
+        let tagNames = [
+            "environment_context",
+            "user_instructions",
+            "subagent_notification",
+            "permissions",
+            "collaboration_mode",
+            "turn_aborted"
+        ]
+        return tagNames.contains { tagName in
+            let openPrefix = "<\(tagName)"
+            guard text.hasPrefix(openPrefix), text.count > openPrefix.count else {
+                return false
+            }
+            let openBoundary = text[text.index(text.startIndex, offsetBy: openPrefix.count)]
+            guard openBoundary == ">" || openBoundary.isWhitespace else {
+                return false
+            }
+
+            let closePrefix = "</\(tagName)"
+            guard let closeRange = text.range(of: closePrefix, options: .backwards),
+                  closeRange.upperBound < text.endIndex else {
+                return false
+            }
+            let closeBoundary = text[closeRange.upperBound]
+            guard closeBoundary == ">" || closeBoundary.isWhitespace,
+                  let closeEnd = text[closeRange.upperBound...].firstIndex(of: ">") else {
+                return false
+            }
+            let trailing = text[text.index(after: closeEnd)...]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return trailing.isEmpty
+        }
     }
 
     // MARK: - Transcript extraction (Grok chat_history JSONL)
@@ -602,7 +803,6 @@ struct AutoNamingEngine: Sendable {
         }
         return withoutMetadata.trimmingCharacters(in: .whitespacesAndNewlines)
     }
-
     private func taggedContent(named tag: String, in text: String) -> String? {
         let openTag = "<\(tag)>"
         let closeTag = "</\(tag)>"
@@ -613,7 +813,6 @@ struct AutoNamingEngine: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return body.isEmpty ? nil : body
     }
-
     private func removingTaggedContent(named tag: String, from text: String) -> String {
         let openTag = "<\(tag)>"
         let closeTag = "</\(tag)>"
@@ -625,7 +824,6 @@ struct AutoNamingEngine: Sendable {
         }
         return result
     }
-
     private func firstString(in object: [String: Any], keys: [String]) -> String? {
         for key in keys {
             guard let value = object[key] as? String else { continue }
@@ -634,7 +832,6 @@ struct AutoNamingEngine: Sendable {
         }
         return nil
     }
-
     private func firstText(in object: [String: Any], keys: [String]) -> String? {
         for key in keys {
             guard let text = firstTextValue(object[key]) else { continue }
@@ -642,7 +839,6 @@ struct AutoNamingEngine: Sendable {
         }
         return nil
     }
-
     private func firstTextValue(_ value: Any?) -> String? {
         if let string = value as? String {
             let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -659,7 +855,6 @@ struct AutoNamingEngine: Sendable {
         }
         return nil
     }
-
     private func firstTextBlock(_ value: Any) -> String? {
         if let string = value as? String {
             let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)

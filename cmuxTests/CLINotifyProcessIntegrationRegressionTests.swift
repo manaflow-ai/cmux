@@ -2745,7 +2745,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             #"{"type":"turn_context","payload":{"turn_id":"old-turn"}}"#,
             #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-turn"}}"#,
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
-        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        let launchEnvironment = codexLaunchEnvironment(
+            context: context,
+            sessionId: sessionId,
+            observedHookPID: "2"
+        )
         startAgentHookMockServerAccepting(context: context)
 
         let oldPrompt = runCodexHook(
@@ -2780,6 +2784,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"current-turn"}}"#,
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
 
+        // The late terminal monitor is asynchronous. Wait for its old-turn
+        // completion journal before invoking the current Stop; this preserves
+        // the race discriminator covered by upstream PR #10143 rather than
+        // allowing the test to pass or fail on monitor scheduling.
+        XCTAssertTrue(
+            waitForMockSocketCommand(in: context.state) {
+                AgentJournalAppendCapture.captures(in: [$0]).contains {
+                    $0.kind == "agent.turn.completed"
+                        && $0.isSubagent
+                        && ($0.draft["attention"] as? [String: Any])?["turnIdentity"] as? String == "old-turn"
+                }
+            },
+            "The late terminal monitor event must be observed before the current Stop"
+        )
+
         let currentStopStart = context.state.commands.count
         let currentStop = runCodexHook(
             context: context,
@@ -2792,8 +2811,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
 
         XCTAssertTrue(
-            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
-            "A late terminal prior turn must not suppress the current top-level completion notification, saw \(currentStopCommands)"
+            AgentJournalAppendCapture.captures(in: currentStopCommands).contains { capture in
+                guard capture.kind == "agent.turn.completed",
+                      capture.agentKey == "codex",
+                      capture.workspaceId == context.workspaceId,
+                      capture.surfaceId == context.surfaceId,
+                      let attention = capture.draft["attention"] as? [String: Any],
+                      let notification = attention["notification"] as? [String: Any]
+                else { return false }
+                return notification["category"] as? String == "turn-complete"
+                    && notification["body"] as? String == "current done"
+            },
+            "A late terminal prior turn must not suppress the current top-level completion journal, saw \(currentStopCommands)"
         )
         XCTAssertTrue(
             currentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
@@ -3571,7 +3600,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(terminalObservations.allSatisfy { ($0["attention"] as? [String: Any])?["notification"] == nil })
 
         XCTAssertTrue(
-            currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            AgentJournalAppendCapture.captures(in: currentStopCommands).contains { capture in
+                guard capture.kind == "agent.turn.completed",
+                      capture.agentKey == "codex",
+                      capture.workspaceId == context.workspaceId,
+                      capture.surfaceId == context.surfaceId,
+                      let attention = capture.draft["attention"] as? [String: Any],
+                      let notification = attention["notification"] as? [String: Any]
+                else { return false }
+                return notification["category"] as? String == "turn-complete"
+                    && notification["body"] as? String == "current done"
+            },
             "A Stop after a missed prompt-submit must clear terminal stale turns and notify, saw \(currentStopCommands)"
         )
         XCTAssertTrue(
@@ -9577,13 +9616,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
-    private func codexLaunchEnvironment(context: ClaudeHookContext, sessionId: String) -> [String: String] {
-        agentLaunchEnvironment(
+    private func codexLaunchEnvironment(
+        context: ClaudeHookContext,
+        sessionId: String,
+        observedHookPID: String? = nil
+    ) -> [String: String] {
+        var environment = agentLaunchEnvironment(
             context: context,
             kind: "codex",
             executable: "/usr/local/bin/codex",
             arguments: ["/usr/local/bin/codex", "--model", "gpt-5.4"]
         )
+        if let observedHookPID {
+            environment["CMUX_CODEX_HOOK_PID"] = observedHookPID
+        }
+        return environment
     }
 
     func agentLaunchEnvironment(
@@ -9946,7 +9993,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                   let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(raw: line)
             }
-
             XCTAssertEqual(method, "browser.import.dialog")
             guard method == "browser.import.dialog" else {
                 return self.v2Response(
@@ -9959,19 +10005,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertNil(params["scope"])
             return self.v2Response(id: id, ok: true, result: ["opened": true])
         }
-
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CODEX_THREAD_ID"] = "codex-thread-browser-import"
-
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["browser", "import", "--interactive"],
             environment: environment,
             timeout: 5
         )
-
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
@@ -9982,25 +10025,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "Expected --interactive to force the dialog in coding-agent env, saw \(state.commands)"
         )
     }
-
     func testBrowserProfilesListRoutesToSocketMethod() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("browser-profile-list")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
-
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
-
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(raw: line)
             }
-
             XCTAssertEqual(method, "browser.profiles.list")
             return self.v2Response(
                 id: id,
@@ -10017,18 +10056,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 ]
             )
         }
-
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["browser", "profiles", "list"],
             environment: environment,
             timeout: 5
         )
-
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
@@ -10038,7 +10074,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "Expected browser profiles list to call browser.profiles.list, saw \(state.commands)"
         )
     }
-
     func testBrowserProfilesCreateClearAndDeleteRouteToSocketMethods() throws {
         let cliPath = try bundledCLIPath()
         let cases: [(name: String, arguments: [String], expectedMethod: String, expectedParams: [String], responseResult: [String: Any])] = [
@@ -10089,42 +10124,35 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 ]
             ),
         ]
-
         for testCase in cases {
             let socketPath = makeSocketPath("browser-profile-\(testCase.name)")
             let listenerFD = try bindUnixSocket(at: socketPath)
             let state = MockSocketServerState()
-
             defer {
                 Darwin.close(listenerFD)
                 unlink(socketPath)
             }
-
             let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
                 guard let payload = self.jsonObject(line),
                       let id = payload["id"] as? String,
                       let method = payload["method"] as? String else {
                     return self.malformedRequestResponse(raw: line)
                 }
-
                 XCTAssertEqual(method, testCase.expectedMethod)
                 for expectedParam in testCase.expectedParams {
                     XCTAssertTrue(line.contains(expectedParam), line)
                 }
                 return self.v2Response(id: id, ok: true, result: testCase.responseResult)
             }
-
             var environment = ProcessInfo.processInfo.environment
             environment["CMUX_SOCKET_PATH"] = socketPath
             environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: testCase.arguments,
                 environment: environment,
                 timeout: 5
             )
-
             wait(for: [serverHandled], timeout: 5)
             XCTAssertFalse(result.timedOut, result.stderr)
             XCTAssertEqual(result.status, 0, result.stderr)
@@ -10134,14 +10162,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             )
         }
     }
-
     private struct MockedSSHRun {
         let requests: [[String: Any]]
         let stdout: String
         let workspaceId: String
         let surfaceId: String
     }
-
     /// Runs `cmux ssh` against a mock app socket. TTY sessions are handed to
     /// cmux-tui through `workspace.ssh.open`, so the mock answers only that
     /// method; a regression to the legacy `workspace.create` flow fails fast.
@@ -10160,19 +10186,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "33333333-3333-3333-3333-333333333333"
         let windowId = "22222222-2222-2222-2222-222222222222"
-
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
-
         startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(raw: line)
             }
-
             switch method {
             case "workspace.ssh.open":
                 return self.v2Response(
@@ -10194,7 +10217,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 )
             }
         }
-
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
@@ -10205,7 +10227,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         for (key, value) in environmentOverrides {
             environment[key] = value
         }
-
         let commandArguments = jsonOutput
             ? ["--json", "--id-format", "uuids", "ssh", "example.test", "--no-focus"] + sshArguments
             : ["ssh", "example.test", "--no-focus"] + sshArguments
@@ -10215,7 +10236,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             environment: environment,
             timeout: 5
         )
-
         let sawOpenRequest = waitForMockSocketCommand(in: state) { line in
             line.contains(#""method":"workspace.ssh.open""#)
         }
@@ -10223,7 +10243,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr, file: file, line: line)
         XCTAssertEqual(result.status, 0, result.stderr, file: file, line: line)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr, file: file, line: line)
-
         let requests = state.snapshot().compactMap { jsonObject($0) }
         return MockedSSHRun(
             requests: requests,
@@ -10232,21 +10251,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             surfaceId: surfaceId
         )
     }
-
     private func makeExistingAgentSocketPath() throws -> String {
         let directory = try makeTemporaryDirectory(prefix: "cmux-agent")
         let url = directory.appendingPathComponent("agent.sock")
         try createExistingFile(at: url)
         return url.path
     }
-
     /// Returns a unique short root so local-tmux fixture sockets stay below
     /// Darwin's AF_UNIX path-length limit on CI runners with long temp paths.
     func makeLocalTmuxTestRoot(_ label: String) -> URL {
         URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("cmux-lt-\(label)-\(UUID().uuidString)", isDirectory: true)
     }
-
     private func makeTemporaryDirectory(prefix: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
@@ -10256,7 +10272,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         return url
     }
-
     private func createExistingFile(at url: URL) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
@@ -10267,7 +10282,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "Expected to create \(url.path)"
         )
     }
-
     private func waitForMockSocketCommand(
         in state: MockSocketServerState,
         timeout: TimeInterval = 5,
@@ -10286,9 +10300,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         requests
             .first { $0["method"] as? String == method }?["params"] as? [String: Any]
     }
-
 }
-
 extension CLINotifyProcessIntegrationRegressionTests {
     // E2E for #4920: the REAL CLI launcher env builder (configureTmuxCompatEnvironment, exercised via
     // the hidden __debug-tmux-compat-env seam) must stamp the LAUNCH surface (the launcher's own
@@ -10309,7 +10321,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let listenerFD = try bindUnixSocket(at: socketPath)
         defer { Darwin.close(listenerFD); unlink(socketPath) }
         let state = MockSocketServerState()
-
         // The operator's FOCUSED pane is surface A (what system.identify returns).
         let focusedWorkspace = "11111111-1111-1111-1111-111111111111"
         let focusedSurface = "22222222-2222-2222-2222-222222222222"
@@ -10351,7 +10362,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             // Any unexpected launch-context query fails closed.
             return self.v2Response(id: id, ok: false, error: ["code": "unsupported", "message": method])
         }
-
         // ...but the launcher RUNS in surface B (its own inherited env). Seed stale legacy aliases
         // too: the launcher must make the entire identity coherent with the validated surface.
         let staleTab = "55555555-5555-5555-5555-555555555555"
@@ -10372,13 +10382,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 30
         )
         wait(for: [handled], timeout: 30)
-
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             ["surface.list"],
             "a complete launch identity must resolve without consulting mutable global focus"
         )
-
         XCTAssertTrue(
             result.stdout.contains("CMUX_SURFACE_ID=\(launchSurface)"),
             "launcher must stamp the LAUNCH surface; stdout:\n\(result.stdout)\nstderr:\n\(result.stderr)"
