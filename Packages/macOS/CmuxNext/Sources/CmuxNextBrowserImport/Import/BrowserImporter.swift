@@ -31,7 +31,7 @@ public actor BrowserImporter {
                                         kind: kind, fraction: Double(step) / Double(steps), counts: counts))
             }
             do {
-                var batch = ImportBatch(source: try await record(for: item.profile))
+                var batch = ImportBatch(source: try await record(for: item.profile), kinds: item.kinds)
                 for kind in ImportDataKind.allCases where item.kinds.contains(kind) {
                     report(kind, running + batch.counts, done)
                     try Task.checkCancellation()

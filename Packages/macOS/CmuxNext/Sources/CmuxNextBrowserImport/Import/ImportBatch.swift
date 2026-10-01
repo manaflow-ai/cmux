@@ -7,11 +7,41 @@ public struct ImportBatch: Sendable, Codable, Equatable {
     public var history: [ImportedHistoryEntry] = []
     public var openTabs: [ImportedTab] = []
     public var extensions: [ImportedExtension] = []
+    /// The kinds the user picked for this profile (an empty list then means
+    /// "the source has none", not "not imported").
+    public var kinds: Set<ImportDataKind> = []
     public var importedAt: Date
 
-    public init(source: ImportSourceRecord, importedAt: Date = Date()) {
+    public init(source: ImportSourceRecord, kinds: Set<ImportDataKind> = [], importedAt: Date = Date()) {
         self.source = source
+        self.kinds = kinds
         self.importedAt = importedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case source, bookmarks, history, openTabs, extensions, kinds, importedAt
+    }
+
+    /// Files saved before `kinds` existed decode with the kinds that hold data.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        source = try container.decode(ImportSourceRecord.self, forKey: .source)
+        bookmarks = try container.decodeIfPresent([ImportedBookmark].self, forKey: .bookmarks) ?? []
+        history = try container.decodeIfPresent([ImportedHistoryEntry].self, forKey: .history) ?? []
+        openTabs = try container.decodeIfPresent([ImportedTab].self, forKey: .openTabs) ?? []
+        extensions = try container.decodeIfPresent([ImportedExtension].self, forKey: .extensions) ?? []
+        importedAt = try container.decode(Date.self, forKey: .importedAt)
+        kinds = try container.decodeIfPresent(Set<ImportDataKind>.self, forKey: .kinds) ?? Self.kindsWithData(
+            bookmarks: !bookmarks.isEmpty, history: !history.isEmpty, openTabs: !openTabs.isEmpty, extensions: !extensions.isEmpty)
+    }
+
+    private static func kindsWithData(bookmarks: Bool, history: Bool, openTabs: Bool, extensions: Bool) -> Set<ImportDataKind> {
+        var kinds: Set<ImportDataKind> = []
+        if bookmarks { kinds.insert(.bookmarks) }
+        if history { kinds.insert(.history) }
+        if openTabs { kinds.insert(.openTabs) }
+        if extensions { kinds.insert(.extensions) }
+        return kinds
     }
 
     public var counts: ImportCounts {

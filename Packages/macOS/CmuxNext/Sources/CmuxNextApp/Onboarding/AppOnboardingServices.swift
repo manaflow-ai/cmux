@@ -52,7 +52,7 @@ final class AppOnboardingServices: OnboardingServices {
 
     func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
         let cache = services.cache!
-        let destination = AppImportDestination(store: owner.importStore) { id in
+        let destination = AppImportDestination(store: owner.importStore, bookmarks: services.importedBookmarkSink) { id in
             cache.history(for: BrowserProfileRecord.engineProfile(for: id) ?? .default)
         }
         let importer = BrowserImporter(provisioning: AppBrowserProfileProvisioning(profiles: services.browserProfiles), store: owner.importStore)

@@ -5,6 +5,7 @@ import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextPalette
+import CmuxNextBrowserImport
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextUpdater
@@ -92,6 +93,9 @@ final class AppServices {
     let popups = BrowserPopupPanels()
     /// Browser profiles: records, the new-tab cascade, each tab's store.
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
+    /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps
+    /// them in the import store only.
+    var importedBookmarkSink: (any ImportedBookmarkSink)?
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
     private(set) var remoteTerminals: RemoteTerminalService!
 
