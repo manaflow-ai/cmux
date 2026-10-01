@@ -10,22 +10,12 @@ public protocol UpdateActionDelegate: AnyObject {
     /// through its normal entry point.
     func updaterRequestsRetryCheckForUpdates()
 
-    /// Runs before any update relaunch, while the app can still take its time. The host should
-    /// capture what the relaunch save needs fresh (the live agent sessions and their resume
-    /// bindings), so ``updaterWillRelaunchApplication()`` can save them synchronously. It must
-    /// finish in a few seconds; the relaunch waits for it.
-    func updaterPrepareForRelaunch() async
-
     /// Sparkle is about to relaunch the app to finish installing. The host should persist
     /// session state, stop its terminal/runtime, and invalidate restorable state so the
     /// relaunched instance starts cleanly.
     func updaterWillRelaunchApplication()
 
-    /// What relaunching right now would interrupt. An automatic install waits while this is
-    /// non-empty (see ``UpdateRelaunchBlockers``).
+    /// What relaunching right now would interrupt. The updater holds a ready update's
+    /// relaunch while this is non-empty (see ``UpdateRelaunchBlockers``).
     func updaterRelaunchBlockers() -> UpdateRelaunchBlockers
-
-    /// How long ago the user last pressed a key, clicked, or moved the pointer, anywhere on the
-    /// Mac. An automatic install waits for a quiet moment.
-    func updaterTimeSinceLastUserInput() -> Duration
 }
