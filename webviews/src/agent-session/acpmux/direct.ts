@@ -71,6 +71,12 @@ export function toolDiffs(content: any, locations: any): AcpmuxFileDiff[] | unde
   return diffs.length ? diffs : undefined;
 }
 
+/// Diffs placed again by an update that brings only locations.
+function placeDiffs(diffs: AcpmuxFileDiff[] | undefined, locations: any): AcpmuxFileDiff[] | undefined {
+  if (!diffs || !Array.isArray(locations)) return diffs;
+  return toolDiffs(diffs.map((diff) => ({ type: "diff", ...diff })), locations) ?? diffs;
+}
+
 /// A tool call folded with an update to it. ACP updates carry only the fields that changed;
 /// content, when present, replaces the call's content.
 export function mergeToolItem(previous: AcpmuxActivity | undefined, update: any, callId: string, output: string): AcpmuxActivity {
@@ -86,7 +92,8 @@ export function mergeToolItem(previous: AcpmuxActivity | undefined, update: any,
       status: String(update.status ?? before?.status ?? "in_progress"),
       inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,
       output: output || (update.content === undefined ? before?.output : undefined),
-      diffs: update.content === undefined ? before?.diffs : toolDiffs(update.content, update.locations),
+      locations: Array.isArray(update.locations) ? update.locations : before?.locations,
+      diffs: update.content === undefined ? placeDiffs(before?.diffs, update.locations) : toolDiffs(update.content, Array.isArray(update.locations) ? update.locations : before?.locations),
     },
   };
 }

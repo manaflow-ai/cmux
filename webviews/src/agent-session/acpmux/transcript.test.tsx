@@ -7,18 +7,25 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual:
 const globals = globalThis as Record<string, unknown>;
 /// Every ResizeObserver callback, so a test can report a viewport resize.
 const resizeCallbacks: (() => void)[] = [];
-const saved = Object.fromEntries(["window", "document", "navigator", "HTMLElement", "ResizeObserver", "requestAnimationFrame", "cancelAnimationFrame", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]));
+const saved = Object.fromEntries(["window", "document", "navigator", "HTMLElement", "customElements", "Node", "IntersectionObserver", "ResizeObserver", "requestAnimationFrame", "cancelAnimationFrame", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]));
 Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  customElements: dom.window.customElements,
+  Node: dom.window.Node,
+  IntersectionObserver: class { observe() {} unobserve() {} disconnect() {} },
   ResizeObserver: class { constructor(callback: () => void) { resizeCallbacks.push(callback); } observe() {} unobserve() {} disconnect() {} },
   requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
   cancelAnimationFrame: (handle: number) => clearTimeout(handle),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
-afterAll(() => Object.assign(globals, saved));
+// The changes view renders @pierre/diffs and @pierre/trees web components, which reach for
+// DOM classes (HTMLTemplateElement, SVGElement, ...) by their global names.
+const domClasses = Object.getOwnPropertyNames(dom.window).filter((key) => /^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in globals));
+for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
+afterAll(() => { Object.assign(globals, saved); for (const key of domClasses) delete globals[key]; });
 
 const { act, createElement } = await import("react").then((react) => ({ act: react.act, createElement: react.createElement }));
 const { createRoot } = await import("react-dom/client");
@@ -471,18 +478,16 @@ describe("acpmux turn diff", () => {
       const review = [...document.querySelectorAll("button")].find((button) => button.textContent === "Review changes");
       expect(review).toBeDefined();
       await act(async () => review!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
-      const panel = document.querySelector('section.acpmux-diff-panel')!;
+      const panel = document.querySelector("section.acpmux-diff-panel")!;
       expect(panel.querySelector(".acpmux-diff-header strong")?.textContent).toBe("2 files changed");
-      expect([...panel.querySelectorAll(".acpmux-diff-tree-file .acpmux-diff-tree-name")].map((node) => node.textContent)).toEqual(["main.ts", "notes.md"]);
-      expect([...panel.querySelectorAll(".acpmux-diff-file-path")].map((node) => node.textContent)).toEqual(["src/main.ts", "notes.md"]);
-      expect([...panel.querySelectorAll(".acpmux-diff-file")][0].querySelectorAll("tr.acpmux-diff-del, tr.acpmux-diff-add").length).toBe(2);
+      expect(document.activeElement?.getAttribute("aria-label")).toBe("Back to transcript");
+      // Each edit is one Pierre diff with the pane's own file header, in turn order.
+      expect([...panel.querySelectorAll(".acpmux-diff-file")].map((node) => (node as HTMLElement).dataset.path)).toEqual(["/repo/src/main.ts", "/repo/notes.md"]);
+      expect([...panel.querySelectorAll(".acpmux-diff-file")].map((node) => node.querySelector("diffs-container") !== null)).toEqual([true, true]);
+      expect(panel.querySelector(".acpmux-diff-tree file-tree-container, .acpmux-diff-tree [class*=tree]")).not.toBeNull();
       const split = [...panel.querySelectorAll(".acpmux-diff-layout button")].find((button) => button.textContent === "Split")!;
       await act(async () => split.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
       expect(split.getAttribute("aria-pressed")).toBe("true");
-      const firstFile = panel.querySelectorAll(".acpmux-diff-file")[0];
-      expect(firstFile.querySelector("table")?.classList.contains("acpmux-diff-split")).toBe(true);
-      const changed = [...firstFile.querySelectorAll("tr")].find((row) => row.querySelector("td.acpmux-diff-del"))!;
-      expect(changed.querySelector("td.acpmux-diff-add")?.textContent).toBe("+B");
       const back = panel.querySelector('[aria-label="Back to transcript"]')!;
       await act(async () => back.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
       expect(document.querySelector(".acpmux-diff-panel")).toBeNull();
@@ -499,7 +504,7 @@ describe("acpmux turn diff", () => {
     try {
       await act(async () => root.render(createElement(VirtualTranscript, { rows: [row], onToggleActivity: () => {}, onOpenDiff: (rowId: string, path?: string) => opened.push([rowId, path]), expanded: new Set<string>() })));
       const file = dom.window.document.querySelector(".acpmux-edited-file")!;
-      expect(file.textContent).toBe("▤ a.ts");
+      expect(file.textContent).toBe("a.ts");
       await act(async () => file.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
       expect(opened).toEqual([["activity-1", "/repo/a.ts"]]);
     } finally {

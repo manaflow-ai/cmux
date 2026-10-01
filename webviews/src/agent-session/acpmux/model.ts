@@ -19,7 +19,7 @@ export type AcpmuxActivity = {
   kind: string;
   text: string;
   status?: string;
-  tool?: { id: string; title: string; kind?: string; status: string; inputSummary?: string; output?: string; diffs?: AcpmuxFileDiff[] };
+  tool?: { id: string; title: string; kind?: string; status: string; inputSummary?: string; output?: string; diffs?: AcpmuxFileDiff[]; locations?: { path: string; line?: number }[] };
 };
 
 /// A file change from an ACP tool call's `diff` content: `oldText` is absent for a new file.

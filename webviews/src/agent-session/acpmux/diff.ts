@@ -6,9 +6,6 @@ export type DiffHunk = { lines: DiffLine[] };
 /// sent whole, or an edit whose tool call located its first line; a bare fragment has none.
 export type DiffEdit = { toolId: string; hunks: DiffHunk[]; numbered: boolean };
 export type TurnFile = { path: string; displayPath: string; edits: DiffEdit[]; additions: number; deletions: number; created: boolean };
-export type SplitCell = { line?: number; text: string; type: "context" | "add" | "del" | "empty" };
-export type SplitRow = { left: SplitCell; right: SplitCell };
-export type FileTreeNode = { name: string; path: string; file?: TurnFile; children: FileTreeNode[] };
 
 /// Lines unchanged around a change that a hunk keeps, as `git diff` does.
 const CONTEXT_LINES = 3;
@@ -101,28 +98,6 @@ export function diffHunks(ops: Op[], firstLine = 1, context = CONTEXT_LINES): Di
   return hunks;
 }
 
-/// Lays a hunk out side by side: a run of removed lines pairs with the added lines after it.
-export function splitRows(hunk: DiffHunk): SplitRow[] {
-  const rows: SplitRow[] = [];
-  const empty: SplitCell = { text: "", type: "empty" };
-  let index = 0;
-  const lines = hunk.lines;
-  while (index < lines.length) {
-    const line = lines[index];
-    if (line.type === "context") { rows.push({ left: { line: line.oldLine, text: line.text, type: "context" }, right: { line: line.newLine, text: line.text, type: "context" } }); index += 1; continue; }
-    const dels: DiffLine[] = [];
-    const adds: DiffLine[] = [];
-    while (index < lines.length && lines[index].type === "del") dels.push(lines[index++]);
-    while (index < lines.length && lines[index].type === "add") adds.push(lines[index++]);
-    for (let row = 0; row < Math.max(dels.length, adds.length); row += 1) {
-      const del = dels[row];
-      const add = adds[row];
-      rows.push({ left: del ? { line: del.oldLine, text: del.text, type: "del" } : empty, right: add ? { line: add.newLine, text: add.text, type: "add" } : empty });
-    }
-  }
-  return rows;
-}
-
 /// The rows of the turn `rowId` belongs to: from its user message up to the next one.
 export function turnRows(rows: AcpmuxRow[], rowId: string): AcpmuxRow[] {
   const index = rows.findIndex((row) => row.id === rowId);
@@ -172,28 +147,17 @@ function fileEdit(toolId: string, change: AcpmuxFileDiff): DiffEdit {
   return { toolId, hunks: diffHunks(diffLines(change.oldText, change.newText), change.line ?? 1), numbered };
 }
 
-/// Files as a directory tree; a directory with a single child directory folds into it ("src/app").
-export function fileTree(files: TurnFile[]): FileTreeNode[] {
-  const root: FileTreeNode = { name: "", path: "", children: [] };
-  for (const file of files) {
-    const parts = file.displayPath.split("/");
-    let node = root;
-    parts.forEach((part, index) => {
-      const path = parts.slice(0, index + 1).join("/");
-      const leaf = index === parts.length - 1;
-      let child = node.children.find((entry) => entry.name === part && Boolean(entry.file) === leaf);
-      if (!child) { child = { name: part, path, children: [], file: leaf ? file : undefined }; node.children.push(child); }
-      node = child;
-    });
+/// One edit as a unified patch Pierre can render, with the edit's hunks and line numbers.
+export function editPatch(file: TurnFile, edit: DiffEdit): string {
+  const name = file.displayPath;
+  const lines = [`diff --git a/${name} b/${name}`, file.created ? "--- /dev/null" : `--- a/${name}`, `+++ b/${name}`];
+  for (const hunk of edit.hunks) {
+    const oldLines = hunk.lines.filter((line) => line.type !== "add");
+    const newLines = hunk.lines.filter((line) => line.type !== "del");
+    const oldStart = oldLines[0]?.oldLine ?? Math.max(0, (newLines[0]?.newLine ?? 1) - 1);
+    const newStart = newLines[0]?.newLine ?? Math.max(0, (oldLines[0]?.oldLine ?? 1) - 1);
+    lines.push(`@@ -${oldStart},${oldLines.length} +${newStart},${newLines.length} @@`);
+    for (const line of hunk.lines) lines.push(`${line.type === "add" ? "+" : line.type === "del" ? "-" : " "}${line.text}`);
   }
-  const fold = (node: FileTreeNode): FileTreeNode => {
-    let current = node;
-    while (!current.file && current.children.length === 1 && !current.children[0].file) {
-      const only = current.children[0];
-      current = { ...only, name: `${current.name}/${only.name}` };
-    }
-    return { ...current, children: order(current.children.map(fold)) };
-  };
-  const order = (nodes: FileTreeNode[]) => nodes.sort((a, b) => Number(Boolean(a.file)) - Number(Boolean(b.file)) || a.name.localeCompare(b.name));
-  return order(root.children.map(fold));
+  return `${lines.join("\n")}\n`;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { diffHunks, diffLines, fileTree, splitRows, turnFiles, turnRows } from "./diff";
+import { diffHunks, diffLines, editPatch, turnFiles, turnRows } from "./diff";
 import { mergeToolItem, toolDiffs } from "./direct";
 import type { AcpmuxRow } from "./model";
 
@@ -42,15 +42,6 @@ describe("hunks", () => {
     expect(hunk.lines.map((line) => [line.oldLine, line.newLine])).toEqual([[40, 40], [41, undefined], [undefined, 41]]);
   });
 
-  test("split rows pair removed lines with the added lines after them", () => {
-    const [hunk] = diffHunks(diffLines("a\nb\nc\nd\n", "a\nB\nd\n"));
-    expect(splitRows(hunk).map((row) => `${row.left.type}:${row.left.text}|${row.right.type}:${row.right.text}`)).toEqual([
-      "context:a|context:a",
-      "del:b|add:B",
-      "del:c|empty:",
-      "context:d|context:d",
-    ]);
-  });
 });
 
 const edit = (id: string, diffs: { path: string; oldText?: string; newText: string; line?: number }[]): AcpmuxRow["items"] => [{ kind: "tool", text: id, tool: { id, title: id, kind: "edit", status: "completed", diffs } }];
@@ -81,10 +72,10 @@ describe("turn changes", () => {
     expect(readme).toMatchObject({ created: true, additions: 1, deletions: 0 });
   });
 
-  test("the file tree folds single-child directories and lists directories first", () => {
-    const tree = fileTree(turnFiles(turnRows(rows, "activity-4")));
-    expect(tree.map((node) => node.name)).toEqual(["src/app", "README.md"]);
-    expect(tree[0].children.map((node) => node.name)).toEqual(["main.ts"]);
+  test("each edit becomes a patch Pierre can render, a new file from /dev/null", () => {
+    const [main, readme] = turnFiles(turnRows(rows, "activity-4"));
+    expect(editPatch(main, main.edits[0])).toBe(["diff --git a/src/app/main.ts b/src/app/main.ts", "--- a/src/app/main.ts", "+++ b/src/app/main.ts", "@@ -10,2 +10,2 @@", " x", "-y", "+z", ""].join("\n"));
+    expect(editPatch(readme, readme.edits[0])).toBe(["diff --git a/README.md b/README.md", "--- /dev/null", "+++ b/README.md", "@@ -0,0 +1,1 @@", "+hi", ""].join("\n"));
   });
 });
 
@@ -95,6 +86,13 @@ describe("ACP tool call diffs", () => {
       { path: "/b.ts", oldText: undefined, newText: "new", line: undefined },
     ]);
     expect(toolDiffs([{ type: "content", content: { type: "text", text: "ok" } }], [])).toBeUndefined();
+  });
+
+  test("an update with content but no locations keeps the call's line", () => {
+    const first = mergeToolItem(undefined, { toolCallId: "t", kind: "edit", locations: [{ path: "/a.ts", line: 12 }] }, "t", "");
+    expect(mergeToolItem(first, { toolCallId: "t", content: [{ type: "diff", path: "/a.ts", oldText: "1", newText: "2" }] }, "t", "").tool?.diffs?.[0].line).toBe(12);
+    const unplaced = mergeToolItem(undefined, { toolCallId: "t", kind: "edit", content: [{ type: "diff", path: "/a.ts", oldText: "1", newText: "2" }] }, "t", "");
+    expect(mergeToolItem(unplaced, { toolCallId: "t", locations: [{ path: "/a.ts", line: 7 }] }, "t", "").tool?.diffs?.[0].line).toBe(7);
   });
 
   test("an update without kind or content keeps what the call already had", () => {
