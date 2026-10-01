@@ -34,6 +34,38 @@ afterAll(() => {
 });
 
 describe("feedback route", () => {
+  test("rejects urlencoded feedback before parsing or sending email", async () => {
+    process.env.VERCEL = "1";
+    const request = new Request("https://cmux.test/api/feedback", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ email: "user@example.test", message: "hello" }),
+    });
+    const parse = mock(() => Promise.resolve(new FormData()));
+    request.formData = parse;
+
+    const res = await POST(request);
+
+    expect(res.status).toBe(415);
+    expect(await res.json()).toEqual({ error: "Invalid multipart payload" });
+    expect(parse).not.toHaveBeenCalled();
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  test("checks the configured firewall before parsing the body", async () => {
+    process.env.VERCEL = "1";
+    checkRateLimit.mockResolvedValue({ rateLimited: true, error: "blocked" });
+    const request = feedbackRequest();
+    const parse = mock(() => Promise.resolve(new FormData()));
+    request.formData = parse;
+
+    const res = await POST(request);
+
+    expect(res.status).toBe(429);
+    expect(parse).not.toHaveBeenCalled();
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
   test("fails open when the Vercel firewall rule is missing", async () => {
     // A deleted rule is an operator action (no limit wanted), not an outage.
     process.env.VERCEL = "1";

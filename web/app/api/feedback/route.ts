@@ -94,6 +94,11 @@ export async function POST(request: Request) {
         }
       }
 
+      const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+      if (contentType !== "multipart/form-data") {
+        return jsonError("Invalid multipart payload", 415);
+      }
+
       let formData: FormData;
       try {
         formData = await request.formData();
