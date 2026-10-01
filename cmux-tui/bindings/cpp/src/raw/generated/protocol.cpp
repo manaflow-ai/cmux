@@ -18487,6 +18487,11 @@ Result<Json> Codec<SetWorkspaceMetadataRequest>::encode(const SetWorkspaceMetada
         if (!encoded) return std::move(encoded).error();
         object.emplace("origin", std::move(encoded).value());
     }
+    if (!value.pinned.is_absent()) {
+        auto encoded = encode_value(value.pinned);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("pinned", std::move(encoded).value());
+    }
     if (!value.title.is_absent()) {
         auto encoded = encode_value(value.title);
         if (!encoded) return std::move(encoded).error();
@@ -18575,6 +18580,16 @@ Result<SetWorkspaceMetadataRequest> Codec<SetWorkspaceMetadataRequest>::decode(c
             auto decoded = decode_value<std::string>(*field_origin);
             if (!decoded) return std::move(decoded).error();
             result.origin = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_pinned = value.find("pinned");
+    if (field_pinned) {
+        if (field_pinned->is_null()) {
+            result.pinned = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_pinned);
+            if (!decoded) return std::move(decoded).error();
+            result.pinned = Field<bool>(std::move(decoded).value());
         }
     }
     const Json* field_title = value.find("title");
@@ -25653,6 +25668,9 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand153FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand157FieldRequirements{{
     {"transaction", 9U, "layout-undo-v1"},
 }};
+constexpr std::array<CommandFieldRequirement, 1> kCommand159FieldRequirements{{
+    {"pinned", 12U, "workspace-pin-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 2> kCommand160FieldRequirements{{
     {"end_terminals", 12U, "terminal-reap-v1"},
     {"force", 10U, "daemon-handoff-force-v1"},
@@ -25828,7 +25846,7 @@ constexpr std::array<CommandMetadata, 188> kCommands{{
     {"set-terminal-keep", "control", 12U, "terminal-reap-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-viewport-pane-width", "control", 9U, "viewport-column-resize-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand157FieldRequirements)},
     {"set-window-title", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-workspace-metadata", "control", 12U, "workspace-metadata-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"set-workspace-metadata", "control", 12U, "workspace-metadata-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand159FieldRequirements)},
     {"shutdown-daemon", "local-admin", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand160FieldRequirements)},
     {"sidebar-plugin", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"split", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand162FieldRequirements)},

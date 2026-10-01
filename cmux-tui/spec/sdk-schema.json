@@ -14238,6 +14238,17 @@
       "nullable": true,
       "default": null
      },
+     "pinned": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "workspace-pin-v1"
+     },
      "origin": {
       "type": {
        "kind": "scalar",

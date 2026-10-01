@@ -7,8 +7,9 @@ import CmuxNextDesign
 /// Workspace names, colors, notifications, identifiers, and Finder reveal.
 /// Colors go through the sidebar bridge (optimistic row update, then
 /// `set-workspace-metadata`), the same path as the row's context menu.
-/// Fields the daemon tree does not have (description, status, checklist,
-/// pin) report the missing daemon capability.
+/// Pin goes through the sidebar bridge the same way (`workspace-pin-v1`).
+/// Fields the daemon tree does not have (description, status, checklist)
+/// report the missing daemon capability.
 enum WorkspaceMetadataHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("palette.clearWorkspaceName", requires: DaemonCapabilities.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in
@@ -21,6 +22,16 @@ enum WorkspaceMetadataHandlers {
                 throw ActionFailure.invalidTarget(RefusalStrings.colorMustBeOneOf(GroupColor.allCases.map(\.rawValue).joined(separator: ", ")))
             }
             try setColor(color, invocation, context)
+        })
+        registry.bind("palette.toggleWorkspacePin", requires: DaemonCapabilities.workspacePin, daemon: context.services.activeDaemon, run: { invocation in
+            try context.require(DaemonCapabilities.workspacePin)
+            let (workspace, key) = try context.workspace(invocation)
+            let pinned = !workspace.pinned
+            if let sidebar = context.activeWindow?.sidebar {
+                sidebar.handle(.setPinned([SidebarWorkspaceID(workspace.id)], pinned))
+            } else {
+                context.services.activeDaemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, pinned: pinned) }
+            }
         })
         registry.bind("palette.resetWorkspaceColor", requires: DaemonCapabilities.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in try setColor(nil, invocation, context) })
         for id: ActionID in ["palette.markWorkspaceRead", "clearWorkspaceNotifications"] {
@@ -42,7 +53,6 @@ enum WorkspaceMetadataHandlers {
         registry.bindUnavailable(["palette.copyWorkspaceLink"], ActionFailure.needsAppCapability("deep-links"))
         registry.bindUnavailable(["palette.workspaceCustomColor"], ActionFailure.needsAppCapability("custom-workspace-colors"))
         registry.bindUnavailable(["palette.markWorkspaceUnread"], ActionFailure.needsDaemonCapability("notification-mark-unread-v1"))
-        registry.bindUnavailable(["palette.toggleWorkspacePin"], ActionFailure.needsDaemonCapability("workspace-pin-v1"))
         let missing: [(ActionID, String)] = [
             ("editWorkspaceDescription", "workspace-description-v1"),
             ("palette.clearWorkspaceDescription", "workspace-description-v1"),

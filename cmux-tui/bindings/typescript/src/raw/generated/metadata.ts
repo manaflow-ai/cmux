@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 8ccbefc38b900aa140ca7b5d109b5e0f9b0f253901c4a77fe2f304f9059f9cf4. */
+/* cmux-tui mux protocol 12, IR 2d0400483f8959286a63f39345a5cb558a1f0969a7bab415f3472617276cdb39. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "8ccbefc38b900aa140ca7b5d109b5e0f9b0f253901c4a77fe2f304f9059f9cf4" as const;
+export const SDK_IR_SHA256 = "2d0400483f8959286a63f39345a5cb558a1f0969a7bab415f3472617276cdb39" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1925,7 +1925,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "workspace-metadata-v1",
-    "fields": {},
+    "fields": {
+      "pinned": {
+        "since": 12,
+        "capability": "workspace-pin-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -15971,6 +15976,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "pinned": {
+          "capability": "workspace-pin-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "title": {
