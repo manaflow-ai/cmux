@@ -30,6 +30,12 @@ static int CmuxAppHostReceiptFD = -1;
 static NSMutableArray<NSWindow *> *CmuxRetainedTestWindows;
 
 static void CmuxRetainTestWindow(NSWindow *window) {
+    // Window-zombie regressions intentionally verify that ordinary AppKit
+    // windows can be released. Retain only the synthetic close-routing class
+    // whose weak identity is exercised after a non-destructive close.
+    if (![NSStringFromClass(window.class) containsString:@"NonDestructiveCloseWindow"]) {
+        return;
+    }
     @synchronized ([NSWindow class]) {
         if (CmuxRetainedTestWindows == nil) {
             CmuxRetainedTestWindows = [NSMutableArray array];
