@@ -15,4 +15,9 @@ struct CloudHandoffTests {
             inspect: cmux cloud machine-tools --target machine:vm-42
             """)
     }
+
+    @Test func missingProviderReadsAsAQuestionMark() {
+        let machine = CloudMachine(id: "vm-7", provider: "")
+        #expect(CloudHandlers.handoff(machine).contains("provider: ?\n"))
+    }
 }

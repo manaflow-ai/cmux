@@ -104,7 +104,7 @@ extension CloudHandlers {
     /// for Open Machine and Machine Tools.
     static func handoff(_ machine: CloudMachine) -> String {
         let target = "--target machine:\(machine.id)"
-        return ["\(machine.title) (\(machine.id))", "provider: \(machine.provider)", "status: \(machine.status.rawValue)",
+        return ["\(machine.title) (\(machine.id))", "provider: \(machine.provider.isEmpty ? "?" : machine.provider)", "status: \(machine.status.rawValue)",
                 "attach: cmux cloud open-machine \(target)", "inspect: cmux cloud machine-tools \(target)"].joined(separator: "\n")
     }
 
