@@ -2,7 +2,7 @@ import type { MuxApiMethods } from "@mux/brain";
 import type { ID, LinkMethod, LinkMethods } from "@mux/protocol";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import type { AgentOrigin } from "./account.ts";
-import { account, conversation, mux, type Env } from "./env.ts";
+import { account, mux, type Env } from "./env.ts";
 
 export interface MuxApiProps {
   muxId: ID;
@@ -69,11 +69,5 @@ export class MuxApi extends WorkerEntrypoint<Env, MuxApiProps> implements MuxApi
 
   async memoryNote(text: string) {
     return mux(this.env, this.ctx.props.muxId).memoryNote(text);
-  }
-
-  async messagesSend(text: string) {
-    await conversation(this.env, this.ctx.props.conversationId).post(this.ctx.props.muxId, [
-      { type: "text", text },
-    ]);
   }
 }

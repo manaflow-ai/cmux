@@ -2,18 +2,18 @@
 
 Loop state for slice 1 (DESIGN.md "Slice 1"). Read first, update last.
 
-| #   | Step                                                                                                                                 | State |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------ | ----- |
-| 1   | `cloud/worker`: Worker + ConversationDO + MuxDO + AccountDO, chat WebSocket protocol, runs under `cf dev`                            | todo  |
-| 2   | Web `ChatSource` over the worker (REST + WebSocket), send and live receive                                                           | todo  |
-| 3   | `packages/brain`: coderouter Responses client (gpt-6.1-sol, high, priority), mux replies in chat                                     | todo  |
-| 4   | OptMem memory in `packages/brain` (log, tree, wake, recall, zoom, compaction policy) behind `MemoryStore`; DO SQLite store for tests | todo  |
-| 5   | Memory host: git-backed memory service on a small `mux-*` Freestyle VM, `MemoryStore` client in `cloud/`                             | todo  |
-| 6   | Code mode: one `run` tool in a Dynamic Worker with the typed `mux` API (`messages`, `memory`, `agents`)                              | todo  |
-| 7   | `link/` (Rust): outbound WebSocket to the worker, drives acpmux (spawn, prompt, status, events)                                      | todo  |
-| 8   | Stack Auth sign-in in web, JWT verification in the worker                                                                            | todo  |
-| 9   | Staging deploy `mux-staging` (worker serves the web build), link pointed at staging                                                  | todo  |
-| 10  | Live end-to-end: sign in, chat, mux spawns an acpmux agent on this Mac and reports back; handoff                                     | todo  |
+| #   | Step                                                                          | State                             |
+| --- | ----------------------------------------------------------------------------- | --------------------------------- |
+| 1   | `cloud/worker`: Account, Conversation and Mux Durable Objects, chat WebSocket | done                              |
+| 2   | Web client on the worker (REST + WebSocket), live send and receive            | done                              |
+| 3   | `packages/brain`: coderouter client (gpt-6.1-sol, high, priority), turn loop  | done                              |
+| 4   | OptMem memory (log, wake, lazy compaction, recall, zoom, note)                | done                              |
+| 5   | Memory host: git repo on a `mux-mem-*` Freestyle VM behind a SQLite cache     | done                              |
+| 6   | Code mode: `run` in a Dynamic Worker with the typed `mux` API                 | done                              |
+| 7   | `link/` (Rust): outbound link that drives acpmux, turn events back to the mux | done                              |
+| 8   | Stack Auth sign-in (email + password), JWT verification                       | done                              |
+| 9   | Staging deploy: https://mux-staging.debussy.workers.dev                       | done                              |
+| 10  | Live end-to-end on staging: sign in, chat, memory, agent on this Mac          | done; awaiting Lawrence's dogfood |
 
 ## Log
 
@@ -27,3 +27,4 @@ Loop state for slice 1 (DESIGN.md "Slice 1"). Read first, update last.
 - 2026-10-01: step 9: `cf deploy` 0.13 sends no Authorization header in its deploy step (even with a fresh OAuth token), so deploy runs `wrangler deploy --experimental-new-config --secrets-file` with CLOUDFLARE_API_TOKEN taken from the cf OAuth file. Staging refuses dev identities (401). Link needs a rustls crypto provider (ring) for wss.
 - 2026-10-01: step 4 live: messages, events and replies go to the log; wake (96 lines) goes into instructions; compaction runs from the alarm when the inbox is empty, 8 summaries per step, levels 1-3 on gpt-6-luna low. Cross-conversation recall and summaries checked live.
 - 2026-10-01: step 5 live: one memory VM per account (`mux-mem-<sha>`), a git repo per mux (LOG.txt, TREE/), every write a commit. No server on the VM: operations run through Freestyle exec-await with data on stdin/env. Freestyle has no size below 4 vCPU / 8 GiB / 32 GiB (grow-only), so the VM pauses after 300 s idle; exec wakes it in ~0.1 s. The Durable Object keeps a SQLite write-through cache (log lines are immutable).
+- 2026-10-01: removed `mux.messages.send`: the model used it and then repeated the same text as its final answer. Staging check: one "Started" reply, then one "Done" from the turn-end event; memory recalled a codeword across conversations.
