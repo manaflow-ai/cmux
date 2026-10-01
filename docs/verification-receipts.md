@@ -49,9 +49,9 @@ base ref to include committed branch changes since its merge-base with HEAD.
 `--affected` with `--swift-changed` to also parse changed Swift files, or use
 `--only` instead when you want to choose checks yourself.
 
-Selection covers the thirteen checks below. Each checker declares its file inputs
+Selection covers the sixteen checks below. Each checker declares its file inputs
 in `CHECK_INPUTS` in `scripts/verify-local.py`; update those declarations when a
-checker gains dependencies. Unknown paths select all thirteen checks. Known prose
+checker gains dependencies. Unknown paths select all sixteen checks. Known prose
 changes omit unrelated checks, while feature-flag expiry policy always runs
 because its result depends on today's date. This does not select native tests
 or the separate CI workflow guards.
@@ -110,7 +110,7 @@ on PATH and runs `-frontend -parse -swift-version 5 -D DEBUG -enable-bare-slash-
 It does not resolve imports, expand macros, typecheck, compile, execute tests, or
 validate every conditional-compilation configuration. Use the intended toolchain;
 parsing with a newer compiler does not prove compatibility with an older one.
-The default Linux CI recipe remains the eleven portable checks below.
+The default Linux CI recipe remains the sixteen portable checks below.
 
 Receipts record the parser version, exact argv, selected-file hashes before and
 after, selection origin/resolved base, and a separate `parsing` result. Missing
@@ -138,6 +138,9 @@ it does not assert that the entire CI checkout equals the PR head.
 | `project` | Xcode project version pin and normalization |
 | `config-schema` | Embedded cmux.json schema matches its source |
 | `test-wiring-sync` | Test-wiring synchronization tool regression suite |
+| `wire-app-sources` | App-source wiring tool regression suite |
+| `ui-lab` | ui-lab harness directive regression suite |
+| `ui-fuzzer` | UI fuzzer engine regression suite |
 | `launch-policy` | Generated Claude launch policy is current |
 | `test-wiring` | Every Swift test file belongs to the Xcode test target |
 | `package-groups` | Workspace Swift package grouping |
@@ -146,7 +149,7 @@ it does not assert that the entire CI checkout equals the PR head.
 | `feature-flags` | Flag names, ownership, expiry, defaults, single evaluation and retired keys |
 
 Each failure prints a bounded diagnostic tail and an exact `--only` rerun command.
-The default runs all thirteen checks so one pass reveals independent failures.
+The default runs all sixteen checks so one pass reveals independent failures.
 `--only` runs the named subset and says which checks actually ran; it does not
 infer affected tests from a diff. `--repo` targets another checkout. Each check
 has a 60-second deadline, adjustable with `--timeout`; Ctrl-C stops the active

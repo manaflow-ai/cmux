@@ -117,6 +117,11 @@ class LocalizationDefaultsTests(unittest.TestCase):
             "; Resources/Localizable.xcstrings carries [(1, '@')]"
         ])
 
+    def test_a_default_the_signature_parser_rejects_is_skipped_not_fatal(self):
+        self.fixture.catalog({"items": ("%lld items", "%lld 項目"), "ok": ("Open %@", "%@ を開く")})
+        self.fixture.swift(swift_call("items", "%#@count@ items") + swift_call("ok", "Open %@"))
+        self.assertEqual(self.fixture.check(), ([], 1))
+
     def test_test_targets_and_vendored_trees_are_not_scanned(self):
         self.fixture.catalog({"age": ("%lld minutes", "%lld 分")})
         for path in ("cmuxTests/AgeTests.swift", "Packages/macOS/Pkg/Tests/PkgTests/T.swift", "vendor/Dep/Sources/D.swift"):

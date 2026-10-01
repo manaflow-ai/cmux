@@ -109,7 +109,10 @@ def check(root: Path, allowlist: dict[str, str]) -> tuple[list[str], int]:
                 catalogs.append((catalog_path, arguments(CATALOG.source(entry))))
             except ValueError:
                 continue  # localization_catalog.py check already names a malformed entry
-        expected = arguments(default)
+        try:
+            expected = arguments(default)
+        except ValueError:
+            continue  # e.g. a %#@name@ substitution in Swift text; localize_changes.py owns that review
         for catalog_path, actual in catalogs:
             compared += 1
             if expected == actual:
