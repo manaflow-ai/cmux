@@ -513,12 +513,26 @@ esac
         "--dangerously-skip-permissions",
         "reply exactly pong",
       ]);
+
+      const interactiveCodex = await runShim(["agent", "codex", "--permission-mode", "full-access"], {}, setup);
+      expect(interactiveCodex.status).toBe(0);
+      expect(interactiveCodex.stdout.trim().split("\n")).toEqual([
+        "--dangerously-bypass-approvals-and-sandbox",
+      ]);
     });
 
     test("rejects full access for agents without a supported bypass", async () => {
-      const run = await runShim(["agent", "opencode", "--permission-mode", "full-access", "--", "do work"]);
+      for (const agent of ["opencode", "pi"]) {
+        const run = await runShim(["agent", agent, "--permission-mode", "full-access", "--", "do work"]);
+        expect(run.status).toBe(2);
+        expect(run.stderr).toContain("full-access permission mode is only supported for Claude and Codex");
+      }
+    });
+
+    test("rejects full access for provider subcommands instead of dropping the mode", async () => {
+      const run = await runShim(["agent", "codex", "--permission-mode", "full-access", "exec", "do work"]);
       expect(run.status).toBe(2);
-      expect(run.stderr).toContain("full-access is only supported for claude and codex");
+      expect(run.stderr).toContain("full-access cannot be combined with provider subcommands");
     });
 
     test("keeps cmux-tui's local agent scope available", async () => {
@@ -923,7 +937,7 @@ describe("in-VM cmux shim: agent primitives", () => {
       "cmux vm ls [--json]",
       "cmux file receive <path> [--mode <octal>]",
       "cmux vm push <machine> <local-file> <remote-path> [--mode <octal>]",
-      "cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--permission-mode prompt|full-access] [--wait [--output] [--timeout <s>]] -- <prompt>",
+      "cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--permission-mode prompt|full-access (Claude/Codex only)] [--wait [--output] [--timeout <s>]] -- <prompt>",
       "cmux agent <claude|codex|opencode|pi> [--timeout <s>] [args...]",
     ]) {
       expect(run.stdout).toContain(line);
@@ -1517,9 +1531,11 @@ describe("in-VM cmux shim: agent primitives", () => {
         "full-access",
         "write docs",
       ]);
-      const unsupported = await runStateful(dir, ["vm", "agent", peer, "--agent", "opencode", "--permission-mode", "full-access", "--", "write docs"]);
-      expect(unsupported.status).toBe(2);
-      expect(unsupported.stderr).toContain("full-access is only supported for claude and codex");
+      for (const agent of ["opencode", "pi"]) {
+        const unsupported = await runStateful(dir, ["vm", "agent", peer, "--agent", agent, "--permission-mode", "full-access", "--", "write docs"]);
+        expect(unsupported.status).toBe(2);
+        expect(unsupported.stderr).toContain("full-access permission mode is only supported for Claude and Codex");
+      }
     });
 
     test("vm env set delivers values only inside the typed base64 payload of the receive handshake", async () => {

@@ -782,7 +782,7 @@ guest_coderouter_agent() {
   while [ "\$#" -gt 0 ]; do
     case "\$1" in
       --wait|--output) shift ;;
-      --permission-mode) [ "\$#" -ge 2 ] || die "agent: --permission-mode needs prompt or full-access" 2; cmux_ag_permission_mode="\$2"; shift 2 ;;
+      --permission-mode) [ "\$#" -ge 2 ] || die_message 2 permissionModeNeedsValue; cmux_ag_permission_mode="\$2"; shift 2 ;;
       --permission-mode=*) cmux_ag_permission_mode="\${1#--permission-mode=}"; shift ;;
       --timeout) [ "\$#" -ge 2 ] || die "agent: --timeout needs seconds" 2; cmux_ag_timeout="\$2"; shift 2 ;;
       --timeout=*) cmux_ag_timeout="\${1#--timeout=}"; shift ;;
@@ -794,17 +794,24 @@ guest_coderouter_agent() {
     full-access)
       case "\$cmux_agent" in
         claude|codex) ;;
-        *) die "agent: --permission-mode full-access is only supported for claude and codex" 2 ;;
+        *) die_message 2 permissionModeProviderUnsupported "\$cmux_agent" ;;
       esac
       ;;
-    *) die "agent: unsupported permission mode '\$cmux_ag_permission_mode' (choose prompt or full-access)" 2 ;;
+    *) die_message 2 permissionModeUnsupported "\$cmux_ag_permission_mode" ;;
   esac
   [ -z "\$cmux_ag_timeout" ] || timeout_ms "\$cmux_ag_timeout" "agent" >/dev/null
   load_agent_config
   # Match the host vm-agent contract: a bare sentence becomes the provider's
   # one-shot form, while flags/subcommands are passed through byte-for-byte.
   if [ "\$#" -eq 0 ]; then
-    agent_exec "\$cmux_agent"
+    if [ "\$cmux_ag_permission_mode" = "full-access" ]; then
+      case "\$cmux_agent" in
+        claude) agent_exec claude --dangerously-skip-permissions ;;
+        codex) agent_exec codex --dangerously-bypass-approvals-and-sandbox ;;
+      esac
+    else
+      agent_exec "\$cmux_agent"
+    fi
   fi
   if [ "\$1" = "--" ]; then
     shift
@@ -825,6 +832,9 @@ guest_coderouter_agent() {
   cmux_first="\$1"
   case "\$cmux_first" in
     -*|mcp|config|doctor|update|install|auth|setup-token|plugin|agents|exec|e|login|logout|apply|resume|completion|debug|sandbox|cloud|app-server|features|run|serve|web|models|upgrade|agent|session|export|import|github|acp|list)
+      if [ "\$cmux_ag_permission_mode" = "full-access" ]; then
+        die_message 2 permissionModePassThroughUnsupported
+      fi
       agent_exec "\$cmux_agent" "\$@"
       ;;
     *)
@@ -2243,7 +2253,7 @@ peer_agent() {
       --cwd=*) cmux_pa_cwd="\${1#--cwd=}"; shift ;;
       --workspace) [ "\$#" -ge 2 ] || die "vm agent: --workspace needs a value" 2; cmux_pa_ws="\$2"; shift 2 ;;
       --workspace=*) cmux_pa_ws="\${1#--workspace=}"; shift ;;
-      --permission-mode) [ "\$#" -ge 2 ] || die "vm agent: --permission-mode needs prompt or full-access" 2; cmux_pa_permission_mode="\$2"; shift 2 ;;
+      --permission-mode) [ "\$#" -ge 2 ] || die_message 2 permissionModeNeedsValue; cmux_pa_permission_mode="\$2"; shift 2 ;;
       --permission-mode=*) cmux_pa_permission_mode="\${1#--permission-mode=}"; shift ;;
       --wait) cmux_pa_wait=1; shift ;;
       --output) cmux_pa_output=1; cmux_pa_wait=1; shift ;;
@@ -2265,10 +2275,10 @@ peer_agent() {
     full-access)
       case "\$cmux_pa_agent" in
         claude|codex) ;;
-        *) die "vm agent: --permission-mode full-access is only supported for claude and codex" 2 ;;
+        *) die_message 2 permissionModeProviderUnsupported "\$cmux_pa_agent" ;;
       esac
       ;;
-    *) die "vm agent: unsupported permission mode '\$cmux_pa_permission_mode' (choose prompt or full-access)" 2 ;;
+    *) die_message 2 permissionModeUnsupported "\$cmux_pa_permission_mode" ;;
   esac
   [ -z "\$cmux_pa_timeout" ] || timeout_ms "\$cmux_pa_timeout" "vm agent" >/dev/null
   use_peer "\$cmux_pa_peer"
