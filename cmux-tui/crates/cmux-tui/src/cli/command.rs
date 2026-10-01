@@ -1412,7 +1412,8 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
     let _ = flags.take("window");
     let _ = flags.take("id-format");
     if let Some(desktop) = flags.take("desktop") {
-        parse_bool("--desktop", &desktop)?;
+        parse_bool("--desktop", &desktop)
+            .map_err(|_| UsageError::new("--desktop must be true|false"))?;
     }
     let workspace = flags.take("workspace");
     if let Some(workspace) = &workspace
