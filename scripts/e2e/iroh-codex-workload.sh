@@ -38,6 +38,47 @@ read_screen() {
   "${CLI[@]}" read-screen --workspace "$1" --surface "$2" --lines 40 2>/dev/null || true
 }
 
+# Scan only the bytes appended since the previous poll. The Codex process can
+# produce arbitrarily large output, so the polling loop must never materialize
+# the full session log or rescan its prefix.
+scan_session_log() {
+  /usr/bin/python3 - "$1" "$2" "$3" "$4" <<'PY'
+import os
+import re
+import sys
+
+path, raw_offset, raw_index, carry = sys.argv[1:]
+offset = max(0, int(raw_offset))
+index = int(raw_index)
+try:
+    size = os.path.getsize(path)
+except OSError:
+    print("0\t0\t0\t0")
+    raise SystemExit
+if size < offset:
+    offset = 0
+ready_marker = f"CMUX_CODEX_{index}_READY"
+iteration_pattern = re.compile(rf"CMUX_CODEX_{index}_ITER_([0-9]+)")
+error_pattern = re.compile(r"command not found|login required|authentication required", re.IGNORECASE)
+ready = False
+error = False
+largest_iteration = 0
+with open(path, "rb") as stream:
+    stream.seek(offset)
+    while True:
+        chunk = stream.read(64 * 1024)
+        if not chunk:
+            break
+        text = carry + chunk.decode("utf-8", errors="replace")
+        ready = ready or ready_marker in text
+        error = error or bool(error_pattern.search(text))
+        for match in iteration_pattern.finditer(text):
+            largest_iteration = max(largest_iteration, int(match.group(1)))
+        carry = text[-256:]
+print(f"{size}\t{int(ready)}\t{largest_iteration}\t{int(error)}")
+PY
+}
+
 shell_quote() {
   printf '%q' "$1"
 }
@@ -46,6 +87,8 @@ declare -a WORKSPACES=()
 declare -a SURFACES=()
 declare -a READY_SESSIONS=()
 declare -a ITERATION_COUNTS=()
+declare -a LOG_OFFSETS=()
+declare -a LOG_TAILS=()
 
 # Closing a workspace terminates the terminal process group that owns the
 # Codex/support command. Always clean up, including when a marker or RPC check
@@ -89,6 +132,8 @@ for ((index=1; index<=COUNT+2; index++)); do
   SURFACES+=("$surface")
   READY_SESSIONS+=(0)
   ITERATION_COUNTS+=(0)
+  LOG_OFFSETS+=(0)
+  LOG_TAILS+=("")
   printf '{"event":"session_started","role":"%s","index":%d,"workspace_id":"%s","surface_id":"%s","model":"%s","working_directory":"%s","started_at":"%s"}\n' \
     "$role" "$index" "$workspace" "$surface" "$MODEL" "$workdir" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"
 done
@@ -99,25 +144,34 @@ while (( $(date +%s) < deadline )); do
     screen="$(read_screen "${WORKSPACES[$index]}" "${SURFACES[$index]}")"
     session_number=$((index + 1))
     session_log="$TASK_ROOT-$session_number/codex-session.log"
-    durable_output="$(cat "$session_log" 2>/dev/null || true)"
-    combined_output="$screen
-$durable_output"
+    combined_output="$screen"
     marker_seen=0
     if (( session_number <= COUNT )); then
       ready_marker="CMUX_CODEX_${session_number}_READY"
-      if grep -qF "$ready_marker" <<<"$combined_output"; then
+      log_scan="$(scan_session_log "$session_log" "${LOG_OFFSETS[$index]}" "$session_number" "${LOG_TAILS[$index]}")"
+      IFS=$'\t' read -r log_size log_ready log_iteration log_error <<<"$log_scan"
+      if [[ "$log_size" =~ ^[0-9]+$ ]]; then
+        LOG_OFFSETS[$index]="$log_size"
+        LOG_TAILS[$index]="$(tail -c 256 "$session_log" 2>/dev/null || true)"
+      fi
+      if [[ "$log_ready" == "1" ]] || grep -qF "$ready_marker" <<<"$combined_output"; then
         READY_SESSIONS[$index]=1
         marker_seen=1
       fi
-      iteration_count="$(grep -oE "CMUX_CODEX_${session_number}_ITER_[0-9]+" <<<"$combined_output" \
+      iteration_count="$log_iteration"
+      if ! [[ "$iteration_count" =~ ^[0-9]+$ ]]; then iteration_count=0; fi
+      screen_iteration="$(grep -oE "CMUX_CODEX_${session_number}_ITER_[0-9]+" <<<"$combined_output" \
         | sed -E 's/.*_ITER_//' | sort -n | tail -1 || true)"
+      if [[ "$screen_iteration" =~ ^[0-9]+$ ]] && (( screen_iteration > iteration_count )); then
+        iteration_count="$screen_iteration"
+      fi
       if [[ "$iteration_count" =~ ^[0-9]+$ ]] \
          && (( iteration_count > ITERATION_COUNTS[index] )); then
         ITERATION_COUNTS[$index]="$iteration_count"
         marker_seen=1
       fi
       if (( READY_SESSIONS[index] == 0 )) \
-         && grep -Eqi 'command not found|login required|authentication required' <<<"$combined_output"; then
+         && { [[ "$log_error" == "1" ]] || grep -Eqi 'command not found|login required|authentication required' <<<"$combined_output"; }; then
         echo "error: Codex session $session_number exited or needs authentication before its ready marker" >&2
         exit 1
       fi
