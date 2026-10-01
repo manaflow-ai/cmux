@@ -2,6 +2,7 @@ import AppKit
 import CmuxExtensionSidebarExamples
 import CmuxFoundation
 import CmuxSettings
+import CmuxSettingsUI
 import CmuxSidebarProviderKit
 import Foundation
 
