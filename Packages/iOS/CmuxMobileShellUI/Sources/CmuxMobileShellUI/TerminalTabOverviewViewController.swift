@@ -5,16 +5,18 @@ import UIKit
 
 @MainActor
 final class TerminalTabOverviewViewController: UIViewController {
-    private let backgroundView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let backgroundView = UIVisualEffectView(effect: nil)
     private let backgroundTint = UIView()
     private let backgroundGradient = CAGradientLayer()
-    private let canvasColor = UIColor(red: 0.902, green: 0.863, blue: 0.835, alpha: 1)
-    private let bottomCanvasColor = UIColor(red: 0.82, green: 0.82, blue: 0.86, alpha: 1)
+    private let canvasColor = UIColor(red: 0.906, green: 0.839, blue: 0.780, alpha: 1)
+    private let bottomCanvasColor = UIColor(red: 0.788, green: 0.776, blue: 0.792, alpha: 1)
     private let topBar = TerminalTabOverviewPassthroughView()
     private let searchButton = UIButton(type: .system)
     private let layoutButton = UIButton(type: .system)
     private let moreButton = UIButton(type: .system)
     private let hintCard = TerminalTabOverviewHintView()
+    private let privateBrowsingView = TerminalTabOverviewPrivateView()
+    private let privateLockView = TerminalTabOverviewPrivateLockView()
     private let bottomBar = UIView()
     private let newTerminalButton = UIButton(type: .system)
     private let groupControl = UISegmentedControl(items: ["Private", "Tabs"])
@@ -32,6 +34,11 @@ final class TerminalTabOverviewViewController: UIViewController {
     private var hasLaidOut = false
     private var isTransitioning = false
     private var hintIsVisible = true
+    private var isPrivateMode = false
+    private var menuDismissControl: UIControl?
+    private var tabMenu: TerminalTabOverviewMenuView?
+    private var searchOverlay: TerminalTabOverviewSearchOverlay?
+    private var draggingID: MobileTerminalPreview.ID?
     private var presentationBackgrounds: [(UIView, UIColor?)] = []
     private var presentationBottomBackdrop: UIView?
 
@@ -69,6 +76,8 @@ final class TerminalTabOverviewViewController: UIViewController {
         configureBackground()
         configureTopBar()
         configureHintCard()
+        configurePrivateBrowsingView()
+        configurePrivateLockView()
         configureBottomBar()
         reconcileCards(animated: false)
         UIAccessibility.post(notification: .screenChanged, argument: searchButton)
@@ -159,6 +168,9 @@ final class TerminalTabOverviewViewController: UIViewController {
         let liveIDs = Set(items.map(\.id))
         removedIDs = removedIDs.intersection(liveIDs)
         reconcileCards(animated: true)
+        if isPrivateMode {
+            privateBrowsingView.setNeedsLayout()
+        }
     }
 
     func stopTransitions() {
@@ -174,11 +186,8 @@ final class TerminalTabOverviewViewController: UIViewController {
     private func configureBackground() {
         backgroundView.translatesAutoresizingMaskIntoConstraints = true
         backgroundView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        backgroundGradient.colors = [
-            UIColor(red: 0.902, green: 0.863, blue: 0.835, alpha: 0.92).cgColor,
-            bottomCanvasColor.withAlphaComponent(0.92).cgColor,
-        ]
-        backgroundGradient.locations = [0, 1]
+        backgroundGradient.colors = [canvasColor.cgColor, bottomCanvasColor.cgColor]
+        backgroundGradient.locations = [0, 0.87]
         backgroundGradient.startPoint = CGPoint(x: 0.1, y: 0)
         backgroundGradient.endPoint = CGPoint(x: 0.9, y: 1)
         backgroundTint.layer.addSublayer(backgroundGradient)
@@ -252,6 +261,21 @@ final class TerminalTabOverviewViewController: UIViewController {
             self?.setHintVisible(false, animated: true)
         }
         view.addSubview(hintCard)
+    }
+
+    private func configurePrivateBrowsingView() {
+        privateBrowsingView.translatesAutoresizingMaskIntoConstraints = true
+        privateBrowsingView.isHidden = true
+        view.addSubview(privateBrowsingView)
+    }
+
+    private func configurePrivateLockView() {
+        privateLockView.translatesAutoresizingMaskIntoConstraints = true
+        privateLockView.isHidden = true
+        privateLockView.onDismiss = { [weak self] in
+            self?.dismissPrivateLock(animated: true)
+        }
+        view.addSubview(privateLockView)
     }
 
     private func configureBottomBar() {
@@ -335,7 +359,17 @@ final class TerminalTabOverviewViewController: UIViewController {
         // into the open space above the centered cards.
         let hintTop = visibleItems.count > 2 ? view.safeAreaInsets.top : view.safeAreaInsets.top + 39
         hintCard.frame = CGRect(x: 16, y: hintTop, width: max(0, bounds.width - 32), height: 151)
-        hintCard.alpha = hintIsVisible ? 1 : 0
+        hintCard.alpha = isPrivateMode ? 0 : (hintIsVisible ? 1 : 0)
+
+        privateBrowsingView.frame = CGRect(
+            x: 16,
+            y: view.safeAreaInsets.top + 80,
+            width: max(0, bounds.width - 32),
+            height: max(0, bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom - 160)
+        )
+        privateBrowsingView.isHidden = !isPrivateMode
+        privateLockView.frame = bounds
+        privateLockView.isHidden = !isPrivateMode || privateLockView.isHidden
 
         let bottomY = bounds.height - view.safeAreaInsets.bottom - 48 - 4
         bottomBar.frame = CGRect(x: 0, y: bottomY, width: bounds.width, height: 48)
@@ -345,8 +379,15 @@ final class TerminalTabOverviewViewController: UIViewController {
         groupControl.frame = CGRect(x: (bounds.width - groupWidth) / 2, y: 0, width: groupWidth, height: 48)
         let groupTitle = visibleItems.count == 1 ? workspaceName : "\(visibleItems.count) Tabs"
         groupControl.setTitle(groupTitle, forSegmentAt: 1)
+        layoutButton.isHidden = isPrivateMode
         view.bringSubviewToFront(topBar)
         view.bringSubviewToFront(bottomBar)
+        if isPrivateMode {
+            view.bringSubviewToFront(privateBrowsingView)
+            if !privateLockView.isHidden {
+                view.bringSubviewToFront(privateLockView)
+            }
+        }
     }
 
     private func reconcileCards(animated: Bool) {
@@ -367,6 +408,9 @@ final class TerminalTabOverviewViewController: UIViewController {
                 )
                 card.onSelect = { [weak self] id in self?.select(id: id) }
                 card.onClose = { [weak self] id in self?.close(id: id) }
+                card.onDrag = { [weak self] id, state, location in
+                    self?.dragChanged(id: id, state: state, location: location)
+                }
                 cards[item.id] = card
                 view.addSubview(card)
             }
@@ -374,10 +418,12 @@ final class TerminalTabOverviewViewController: UIViewController {
         if hasLaidOut {
             layoutCards(animated: animated)
         }
+        cards.values.forEach { $0.isHidden = isPrivateMode }
     }
 
     private func layoutCards(animated: Bool) {
         let visible = visibleItems
+        guard !isPrivateMode else { return }
         guard !visible.isEmpty else { return }
         let compact = visible.count > 1
         let width = compact ? floor((view.bounds.width - 48) / 2) : min(268, view.bounds.width - 32)
@@ -422,7 +468,7 @@ final class TerminalTabOverviewViewController: UIViewController {
         hintIsVisible = visible
         let animations = { [weak self] in
             guard let self else { return }
-            self.hintCard.alpha = visible ? 1 : 0
+            self.hintCard.alpha = self.isPrivateMode ? 0 : (visible ? 1 : 0)
         }
         if animated {
             UIView.animate(withDuration: 0.25, animations: animations)
@@ -432,7 +478,7 @@ final class TerminalTabOverviewViewController: UIViewController {
     }
 
     private func select(id: MobileTerminalPreview.ID) {
-        guard !isTransitioning, let card = cards[id] else { return }
+        guard !isTransitioning, !isPrivateMode, let card = cards[id] else { return }
         isTransitioning = true
         let target = view.bounds.insetBy(dx: -18, dy: -18)
         UIView.animate(
@@ -458,7 +504,7 @@ final class TerminalTabOverviewViewController: UIViewController {
     }
 
     private func close(id: MobileTerminalPreview.ID) {
-        guard !isTransitioning, let card = cards[id] else { return }
+        guard !isTransitioning, !isPrivateMode, let card = cards[id] else { return }
         guard visibleItems.count > 1 else { return }
         removedIDs.insert(id)
         onClose(id)
@@ -480,37 +526,35 @@ final class TerminalTabOverviewViewController: UIViewController {
     }
 
     @objc private func searchTapped() {
-        let alert = UIAlertController(
-            title: L10n.string("mobile.terminal.overview.search", defaultValue: "Search Tabs"),
-            message: L10n.string("mobile.terminal.overview.searchUnavailable", defaultValue: "Search is available when tabs have terminal output."),
-            preferredStyle: .alert
-        )
-        alert.addAction(UIAlertAction(title: L10n.string("mobile.common.done", defaultValue: "Done"), style: .default))
-        present(alert, animated: true)
+        guard searchOverlay == nil else { return }
+        dismissMenu(animated: true)
+        let overlay = TerminalTabOverviewSearchOverlay()
+        overlay.onClose = { [weak self] in
+            self?.dismissSearch(animated: true)
+        }
+        overlay.onTextChanged = { [weak self] text in
+            self?.filterCards(for: text)
+        }
+        overlay.translatesAutoresizingMaskIntoConstraints = true
+        overlay.frame = view.bounds
+        view.addSubview(overlay)
+        searchOverlay = overlay
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState]) {
+            self.topBar.alpha = 0
+            self.bottomBar.alpha = 0
+        }
+        UIView.animate(withDuration: 0.32, delay: 0, options: [.curveEaseOut]) {
+            overlay.alpha = 1
+        }
+        UIAccessibility.post(notification: .screenChanged, argument: overlay.searchField)
     }
 
     @objc private func moreTapped() {
-        let sheet = UIAlertController(
-            title: L10n.string("mobile.terminal.overview.more", defaultValue: "More Tab Options"),
-            message: workspaceName,
-            preferredStyle: .actionSheet
-        )
-        sheet.addAction(UIAlertAction(title: L10n.string("mobile.common.done", defaultValue: "Done"), style: .cancel))
-        if let popover = sheet.popoverPresentationController {
-            popover.sourceView = moreButton
-            popover.sourceRect = moreButton.bounds
-        }
-        present(sheet, animated: true)
+        toggleMenu()
     }
 
     @objc private func layoutTapped() {
-        // The overview is already the grid representation. Keep the control
-        // available for parity with Safari's tab-layout button and provide
-        // immediate button feedback without changing the terminal ordering.
-        layoutButton.alpha = 0.55
-        UIView.animate(withDuration: 0.18) { [weak self] in
-            self?.layoutButton.alpha = 1
-        }
+        toggleMenu()
     }
 
     @objc private func newTerminalTapped() {
@@ -541,9 +585,534 @@ final class TerminalTabOverviewViewController: UIViewController {
     }
 
     @objc private func groupChanged() {
-        // cmux does not expose private terminal groups yet. Keeping this state
-        // local gives the control the same immediate feedback as Safari.
-        groupControl.setTitle("Private", forSegmentAt: 0)
+        setPrivateMode(groupControl.selectedSegmentIndex == 0, animated: true)
+    }
+
+    private func toggleMenu() {
+        guard searchOverlay == nil, !isPrivateMode else { return }
+        if tabMenu != nil {
+            dismissMenu(animated: true)
+            return
+        }
+
+        let dismissControl = UIControl(frame: view.bounds)
+        dismissControl.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        dismissControl.accessibilityIdentifier = "MobileTerminalOverviewMenuDismiss"
+        dismissControl.addTarget(self, action: #selector(menuBackgroundTapped), for: .touchUpInside)
+        view.addSubview(dismissControl)
+        view.bringSubviewToFront(topBar)
+        view.bringSubviewToFront(bottomBar)
+        menuDismissControl = dismissControl
+
+        let menu = TerminalTabOverviewMenuView()
+        menu.onAction = { [weak self] in
+            self?.dismissMenu(animated: true)
+        }
+        menu.translatesAutoresizingMaskIntoConstraints = true
+        let anchor = layoutButton.isHidden ? moreButton : layoutButton
+        let anchorFrame = view.convert(anchor.frame, from: anchor.superview)
+        let menuWidth = min(250, view.bounds.width - 32)
+        menu.frame = CGRect(
+            x: min(max(136, anchorFrame.maxX - 2), view.bounds.width - menuWidth - 16),
+            y: anchorFrame.minY,
+            width: menuWidth,
+            height: 168
+        )
+        menu.alpha = 0
+        menu.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
+        view.addSubview(menu)
+        view.bringSubviewToFront(menu)
+        tabMenu = menu
+        UIView.animate(withDuration: 0.22, delay: 0, options: [.curveEaseOut]) {
+            menu.alpha = 1
+            menu.transform = .identity
+        }
+    }
+
+    @objc private func menuBackgroundTapped() {
+        dismissMenu(animated: true)
+    }
+
+    private func dismissMenu(animated: Bool) {
+        guard let menu = tabMenu else { return }
+        let finish = { [weak self] in
+            menu.removeFromSuperview()
+            self?.menuDismissControl?.removeFromSuperview()
+            self?.menuDismissControl = nil
+            self?.tabMenu = nil
+        }
+        guard animated else {
+            finish()
+            return
+        }
+        UIView.animate(withDuration: 0.16, animations: {
+            menu.alpha = 0
+            menu.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
+        }, completion: { _ in finish() })
+    }
+
+    private func dismissSearch(animated: Bool) {
+        guard let overlay = searchOverlay else { return }
+        let finish = { [weak self] in
+            overlay.removeFromSuperview()
+            self?.searchOverlay = nil
+            self?.filterCards(for: "")
+            UIView.animate(withDuration: 0.2) {
+                self?.topBar.alpha = 1
+                self?.bottomBar.alpha = 1
+            }
+        }
+        guard animated else {
+            finish()
+            return
+        }
+        UIView.animate(withDuration: 0.24, animations: {
+            overlay.alpha = 0
+        }, completion: { _ in finish() })
+    }
+
+    private func filterCards(for text: String) {
+        let query = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else {
+            cards.values.forEach { $0.alpha = 1 }
+            return
+        }
+        cards.forEach { _, card in
+            card.alpha = card.itemTitle.lowercased().contains(query) ? 1 : 0.18
+        }
+    }
+
+    private func setPrivateMode(_ privateMode: Bool, animated: Bool) {
+        guard privateMode != isPrivateMode else { return }
+        isPrivateMode = privateMode
+        dismissMenu(animated: false)
+        groupControl.selectedSegmentIndex = privateMode ? 0 : 1
+        if !privateMode {
+            dismissPrivateLock(animated: false)
+        }
+
+        let changes = { [weak self] in
+            guard let self else { return }
+            self.hintCard.alpha = privateMode ? 0 : (self.hintIsVisible ? 1 : 0)
+            self.cards.values.forEach { $0.alpha = privateMode ? 0 : 1; $0.isHidden = privateMode }
+            self.privateBrowsingView.alpha = privateMode ? 1 : 0
+            self.layoutButton.isHidden = privateMode
+            self.view.setNeedsLayout()
+            self.view.layoutIfNeeded()
+            if privateMode {
+                self.privateLockView.isHidden = false
+                self.privateLockView.alpha = 1
+                self.presentationBottomBackdrop?.backgroundColor = UIColor(red: 0.095, green: 0.095, blue: 0.095, alpha: 1)
+                self.view.bringSubviewToFront(self.privateLockView)
+            }
+        }
+        if animated {
+            UIView.animate(
+                withDuration: 0.32,
+                delay: 0,
+                options: [.curveEaseInOut, .beginFromCurrentState],
+                animations: changes
+            )
+        } else {
+            changes()
+        }
+    }
+
+    private func dismissPrivateLock(animated: Bool) {
+        guard !privateLockView.isHidden else { return }
+        let finish = {
+            self.privateLockView.isHidden = true
+            self.privateLockView.alpha = 1
+            self.presentationBottomBackdrop?.backgroundColor = self.bottomCanvasColor
+            self.view.bringSubviewToFront(self.topBar)
+            self.view.bringSubviewToFront(self.bottomBar)
+            self.view.bringSubviewToFront(self.privateBrowsingView)
+        }
+        guard animated else {
+            finish()
+            return
+        }
+        UIView.animate(withDuration: 0.22, animations: {
+            self.privateLockView.alpha = 0
+        }, completion: { _ in finish() })
+    }
+
+    private func reorder(id: MobileTerminalPreview.ID, at location: CGPoint) {
+        let visible = visibleItems
+        guard let currentIndex = visible.firstIndex(where: { $0.id == id }) else { return }
+        let targetIndex = visible.enumerated()
+            .filter { $0.element.id != id }
+            .min { lhs, rhs in
+                let left = cards[lhs.element.id].map { hypot($0.center.x - location.x, $0.center.y - location.y) } ?? .greatestFiniteMagnitude
+                let right = cards[rhs.element.id].map { hypot($0.center.x - location.x, $0.center.y - location.y) } ?? .greatestFiniteMagnitude
+                return left < right
+            }
+            .map(\.offset) ?? currentIndex
+        guard targetIndex != currentIndex else { return }
+        var order = visible
+        let moved = order.remove(at: currentIndex)
+        order.insert(moved, at: min(targetIndex, order.count))
+        let visibleIDs = Set(visible.map(\.id))
+        var next = order
+        next.append(contentsOf: items.filter { !visibleIDs.contains($0.id) })
+        items = next
+        layoutCards(animated: true)
+    }
+
+    private func dragChanged(id: MobileTerminalPreview.ID, state: UIGestureRecognizer.State, location: CGPoint) {
+        guard !isPrivateMode, let card = cards[id] else { return }
+        switch state {
+        case .began:
+            draggingID = id
+            card.layer.zPosition = 20
+            UIView.animate(withDuration: 0.18) {
+                card.transform = CGAffineTransform(scaleX: 1.04, y: 1.04)
+                card.layer.shadowOpacity = 0.24
+                card.layer.shadowRadius = 18
+            }
+        case .changed:
+            card.center = location
+        case .ended, .cancelled, .failed:
+            reorder(id: id, at: location)
+            draggingID = nil
+            UIView.animate(withDuration: 0.28, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0.1) {
+                card.transform = .identity
+                card.layer.shadowOpacity = 0.13
+                card.layer.shadowRadius = 12
+            } completion: { _ in
+                card.layer.zPosition = 0
+            }
+        default:
+            break
+        }
+    }
+}
+
+@MainActor
+private final class TerminalTabOverviewPrivateView: UIView {
+    private let handView = UIImageView(image: UIImage(systemName: "hand.raised.fill"))
+    private let titleLabel = UILabel()
+    private let messageLabel = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isAccessibilityElement = false
+
+        handView.tintColor = .secondaryLabel
+        handView.contentMode = .scaleAspectFit
+        addSubview(handView)
+
+        titleLabel.text = "Private Browsing"
+        titleLabel.textColor = .secondaryLabel
+        titleLabel.font = .systemFont(ofSize: 24, weight: .regular)
+        titleLabel.textAlignment = .center
+        addSubview(titleLabel)
+
+        messageLabel.text = "Private Browsing adds additional privacy protections for tabs. After you close a tab, Safari won’t remember the pages you visited, your search history, or your AutoFill information."
+        messageLabel.textColor = .secondaryLabel
+        messageLabel.font = .systemFont(ofSize: 16, weight: .regular)
+        messageLabel.textAlignment = .center
+        messageLabel.numberOfLines = 0
+        messageLabel.adjustsFontSizeToFitWidth = true
+        messageLabel.minimumScaleFactor = 0.86
+        addSubview(messageLabel)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let contentWidth = min(bounds.width - 12, 360)
+        let centerX = bounds.midX
+        let centerY = bounds.midY - 63
+        handView.frame = CGRect(x: centerX - 34, y: centerY - 55, width: 68, height: 68)
+        titleLabel.frame = CGRect(x: centerX - contentWidth / 2, y: centerY + 20, width: contentWidth, height: 34)
+        messageLabel.frame = CGRect(x: centerX - contentWidth / 2, y: centerY + 68, width: contentWidth, height: 125)
+    }
+}
+
+@MainActor
+private final class TerminalTabOverviewPrivateLockView: UIView {
+    var onDismiss: (() -> Void)?
+
+    private let iconView = UIImageView(image: UIImage(systemName: "hand.raised.fill"))
+    private let lockBadge = UIImageView(image: UIImage(systemName: "faceid"))
+    private let titleLabel = UILabel()
+    private let messageLabel = UILabel()
+    private let enableButton = UIButton(type: .system)
+    private let notNowButton = UIButton(type: .system)
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = UIColor(red: 0.095, green: 0.095, blue: 0.095, alpha: 1)
+        layer.cornerRadius = 30
+        layer.masksToBounds = true
+        isAccessibilityElement = false
+
+        iconView.tintColor = .white
+        iconView.contentMode = .scaleAspectFit
+        addSubview(iconView)
+
+        lockBadge.tintColor = .white
+        lockBadge.backgroundColor = .clear
+        lockBadge.contentMode = .scaleAspectFit
+        addSubview(lockBadge)
+
+        titleLabel.text = "Locked Private Browsing"
+        titleLabel.textColor = .white
+        titleLabel.font = .systemFont(ofSize: 22, weight: .semibold)
+        titleLabel.textAlignment = .left
+        addSubview(titleLabel)
+
+        messageLabel.text = "Private Browsing will lock when you leave Safari, leave Private Browsing, or lock your iPhone.\n\nYou can unlock Private Browsing with Face ID or your passcode.\n\nYou can change this later in Safari Settings."
+        messageLabel.textColor = UIColor.white.withAlphaComponent(0.72)
+        messageLabel.font = .systemFont(ofSize: 18, weight: .regular)
+        messageLabel.textAlignment = .left
+        messageLabel.numberOfLines = 0
+        addSubview(messageLabel)
+
+        enableButton.setTitle("Turn On Locked Private Browsing", for: .normal)
+        enableButton.setTitleColor(.white, for: .normal)
+        enableButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
+        enableButton.backgroundColor = UIColor(red: 0.26, green: 0.54, blue: 0.97, alpha: 1)
+        enableButton.layer.cornerRadius = 18
+        enableButton.accessibilityLabel = "Turn On Locked Private Browsing"
+        enableButton.accessibilityIdentifier = "MobileTerminalOverviewEnablePrivateLock"
+        enableButton.addTarget(self, action: #selector(dismissTapped), for: .touchUpInside)
+        addSubview(enableButton)
+
+        notNowButton.setTitle("Not Now", for: .normal)
+        notNowButton.setTitleColor(.white, for: .normal)
+        notNowButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .medium)
+        notNowButton.backgroundColor = UIColor.white.withAlphaComponent(0.12)
+        notNowButton.layer.cornerRadius = 18
+        notNowButton.accessibilityLabel = "Not Now"
+        notNowButton.accessibilityIdentifier = "MobileTerminalOverviewPrivateNotNow"
+        notNowButton.addTarget(self, action: #selector(dismissTapped), for: .touchUpInside)
+        addSubview(notNowButton)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let width = min(bounds.width - 64, 342)
+        let centerX = bounds.midX
+        iconView.frame = CGRect(x: centerX - 31, y: bounds.midY - 311, width: 62, height: 62)
+        lockBadge.frame = CGRect(x: centerX + 12, y: bounds.midY - 266, width: 28, height: 28)
+        titleLabel.frame = CGRect(x: centerX - width / 2, y: bounds.midY - 198, width: width, height: 32)
+        messageLabel.frame = CGRect(x: centerX - width / 2, y: bounds.midY - 175, width: width, height: 208)
+        enableButton.frame = CGRect(x: centerX - width / 2, y: bounds.maxY - 120, width: width, height: 44)
+        notNowButton.frame = CGRect(x: centerX - width / 2, y: bounds.maxY - 66, width: width, height: 40)
+    }
+
+    @objc private func dismissTapped() {
+        onDismiss?()
+    }
+}
+
+@MainActor
+private final class TerminalTabOverviewMenuView: UIView {
+    var onAction: (() -> Void)?
+
+    private let stack = UIStackView()
+    private let arrangeButton = UIButton(type: .system)
+    private let arrangeChevron = UIImageView(image: UIImage(systemName: "chevron.right"))
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = UIColor.systemBackground.withAlphaComponent(0.96)
+        layer.cornerRadius = 27
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.18
+        layer.shadowRadius = 18
+        layer.shadowOffset = CGSize(width: 0, height: 8)
+        layer.borderColor = UIColor.separator.withAlphaComponent(0.22).cgColor
+        layer.borderWidth = 0.7
+
+        stack.axis = .vertical
+        stack.alignment = .fill
+        stack.distribution = .fill
+        stack.spacing = 0
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+        ])
+
+        let manage = makeRow(title: "Manage Tab Groups", image: "list.bullet")
+        manage.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
+        stack.addArrangedSubview(manage)
+
+        let select = makeRow(title: "Select Tabs", image: "checkmark.circle")
+        select.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
+        stack.addArrangedSubview(select)
+
+        let divider = UIView()
+        divider.backgroundColor = UIColor.separator.withAlphaComponent(0.25)
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(divider)
+        divider.heightAnchor.constraint(equalToConstant: 1).isActive = true
+
+        arrangeButton.setTitle("Arrange Tabs By", for: .normal)
+        arrangeButton.setImage(UIImage(systemName: "arrow.up.arrow.down"), for: .normal)
+        arrangeButton.setImage(UIImage(systemName: "chevron.right"), for: .focused)
+        arrangeButton.tintColor = .label
+        arrangeButton.setTitleColor(.label, for: .normal)
+        arrangeButton.titleLabel?.font = .systemFont(ofSize: 18, weight: .regular)
+        arrangeButton.contentHorizontalAlignment = .left
+        arrangeButton.semanticContentAttribute = .forceLeftToRight
+        arrangeButton.titleEdgeInsets = UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 0)
+        arrangeButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+        arrangeButton.accessibilityLabel = "Arrange Tabs By"
+        arrangeButton.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
+        stack.addArrangedSubview(arrangeButton)
+        arrangeChevron.tintColor = .label
+        arrangeChevron.contentMode = .scaleAspectFit
+        arrangeChevron.isUserInteractionEnabled = false
+        addSubview(arrangeChevron)
+
+        for row in stack.arrangedSubviews where row !== divider {
+            row.heightAnchor.constraint(equalToConstant: 48).isActive = true
+        }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        arrangeChevron.frame = CGRect(x: bounds.width - 31, y: bounds.height - 42, width: 14, height: 20)
+    }
+
+    private func makeRow(title: String, image: String) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle(title, for: .normal)
+        button.setImage(UIImage(systemName: image), for: .normal)
+        button.tintColor = .label
+        button.setTitleColor(.label, for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 18, weight: .regular)
+        button.contentHorizontalAlignment = .left
+        button.semanticContentAttribute = .forceLeftToRight
+        button.titleEdgeInsets = UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 0)
+        button.accessibilityLabel = title
+        return button
+    }
+
+    @objc private func actionTapped() {
+        onAction?()
+    }
+}
+
+@MainActor
+private final class TerminalTabOverviewSearchOverlay: UIView {
+    var onClose: (() -> Void)?
+    var onTextChanged: ((String) -> Void)?
+    let searchField = UITextField()
+
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterialLight))
+    private let searchContainer = UIView()
+    private let searchIcon = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+    private let microphoneButton = UIButton(type: .system)
+    private let closeButton = UIButton(type: .system)
+    private let searchCaret = UIView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        alpha = 0
+        backgroundColor = .clear
+        accessibilityViewIsModal = true
+
+        blurView.translatesAutoresizingMaskIntoConstraints = true
+        blurView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addSubview(blurView)
+
+        searchContainer.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.88)
+        searchContainer.layer.cornerRadius = 27
+        searchContainer.layer.borderColor = UIColor.separator.withAlphaComponent(0.28).cgColor
+        searchContainer.layer.borderWidth = 0.7
+        searchContainer.layer.shadowColor = UIColor.black.cgColor
+        searchContainer.layer.shadowOpacity = 0.08
+        searchContainer.layer.shadowRadius = 8
+        searchContainer.layer.shadowOffset = CGSize(width: 0, height: 3)
+        addSubview(searchContainer)
+
+        searchIcon.tintColor = .label
+        searchIcon.contentMode = .scaleAspectFit
+        searchContainer.addSubview(searchIcon)
+
+        searchField.attributedPlaceholder = NSAttributedString(
+            string: "Search Tabs",
+            attributes: [.foregroundColor: UIColor.secondaryLabel]
+        )
+        searchField.font = .systemFont(ofSize: 20, weight: .regular)
+        searchField.textColor = .label
+        searchField.tintColor = .systemBlue
+        searchField.borderStyle = .none
+        searchField.returnKeyType = .done
+        searchField.accessibilityLabel = "Search Tabs"
+        searchField.accessibilityIdentifier = "MobileTerminalOverviewSearchField"
+        searchField.addTarget(self, action: #selector(textChanged), for: .editingChanged)
+        searchContainer.addSubview(searchField)
+
+        searchCaret.backgroundColor = .systemBlue
+        searchCaret.layer.cornerRadius = 1
+        searchContainer.addSubview(searchCaret)
+
+        microphoneButton.setImage(UIImage(systemName: "mic.fill"), for: .normal)
+        microphoneButton.tintColor = .label
+        microphoneButton.accessibilityLabel = "Dictate Search"
+        searchContainer.addSubview(microphoneButton)
+
+        closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
+        closeButton.tintColor = .label
+        closeButton.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.88)
+        closeButton.layer.cornerRadius = 24
+        closeButton.layer.borderColor = UIColor.separator.withAlphaComponent(0.28).cgColor
+        closeButton.layer.borderWidth = 0.7
+        closeButton.accessibilityLabel = "Close Search"
+        closeButton.accessibilityIdentifier = "MobileTerminalOverviewSearchClose"
+        closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+        addSubview(closeButton)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        blurView.frame = bounds
+        let bottom = max(0, safeAreaInsets.bottom - 2)
+        let closeSize: CGFloat = 46
+        closeButton.frame = CGRect(x: bounds.width - 62, y: bounds.height - bottom - closeSize, width: closeSize, height: closeSize)
+        searchContainer.frame = CGRect(x: 16, y: bounds.height - bottom - 46, width: max(0, bounds.width - 84), height: 46)
+        searchIcon.frame = CGRect(x: 15, y: 9, width: 28, height: 28)
+        microphoneButton.frame = CGRect(x: searchContainer.bounds.width - 48, y: 0, width: 44, height: 46)
+        searchField.frame = CGRect(x: 49, y: 0, width: max(0, searchContainer.bounds.width - 96), height: 46)
+        searchCaret.frame = CGRect(x: 79, y: 10, width: 2, height: 26)
+    }
+
+    @objc private func closeTapped() {
+        onClose?()
+    }
+
+    @objc private func textChanged() {
+        let text = searchField.text ?? ""
+        searchCaret.isHidden = !text.isEmpty
+        onTextChanged?(text)
     }
 }
 
@@ -632,6 +1201,7 @@ private final class TerminalTabOverviewHintView: UIView {
 private final class TerminalTabOverviewCardView: UIControl {
     var onSelect: ((MobileTerminalPreview.ID) -> Void)?
     var onClose: ((MobileTerminalPreview.ID) -> Void)?
+    var onDrag: ((MobileTerminalPreview.ID, UIGestureRecognizer.State, CGPoint) -> Void)?
 
     private var item: TerminalTabOverviewItem
     private let surface = UIView()
@@ -650,6 +1220,8 @@ private final class TerminalTabOverviewCardView: UIControl {
         configure()
         update(item: item, canClose: canClose)
     }
+
+    var itemTitle: String { item.title }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
@@ -685,6 +1257,11 @@ private final class TerminalTabOverviewCardView: UIControl {
         layer.shadowOffset = CGSize(width: 0, height: 6)
         layer.masksToBounds = false
         addTarget(self, action: #selector(selected), for: .touchUpInside)
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:)))
+        longPress.minimumPressDuration = 0.28
+        longPress.allowableMovement = 80
+        longPress.cancelsTouchesInView = true
+        addGestureRecognizer(longPress)
 
         surface.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.88)
         surface.layer.cornerRadius = 15
@@ -764,6 +1341,11 @@ private final class TerminalTabOverviewCardView: UIControl {
 
     @objc private func closeTapped() {
         onClose?(item.id)
+    }
+
+    @objc private func longPressed(_ gesture: UILongPressGestureRecognizer) {
+        let location = gesture.location(in: superview)
+        onDrag?(item.id, gesture.state, location)
     }
 }
 #endif
