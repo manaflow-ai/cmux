@@ -372,6 +372,7 @@ UI_CAPTURE_WAITER_PID=""
 UI_CAPTURE_DIR=""
 REAL_USAGE_DIR=""
 CODEX_WORKLOAD_PID=""
+CODEX_SHUTDOWN_FILE=""
 STATE_DIR=""
 PROD_ENV_FILE=""
 PROD_CREDENTIALS_FILE=""
@@ -1141,6 +1142,7 @@ if [[ "$REAL_USAGE" -eq 1 ]]; then
   CMUX_CODEX_EVIDENCE_DIR="$REAL_USAGE_DIR" \
   CMUX_CODEX_MODEL="${CMUX_CODEX_MODEL:-gpt-5.5-mini}" \
   CMUX_CODEX_DURATION_SECONDS="${CMUX_CODEX_DURATION_SECONDS:-900}" \
+  CMUX_CODEX_SHUTDOWN_FILE="$REAL_USAGE_DIR/shutdown" \
   "$SCRIPT_DIR/e2e/iroh-codex-workload.sh" \
     > "$REAL_USAGE_DIR/codex-workload.log" 2>&1 &
   CODEX_WORKLOAD_PID=$!
@@ -1323,14 +1325,13 @@ if problems:
 PY
 
 if [[ "$REAL_USAGE" -eq 1 ]]; then
-  if ! wait "$CODEX_WORKLOAD_PID"; then
-    echo "error: real Codex workload failed" >&2
-    cat "$REAL_USAGE_DIR/codex-workload.log" >&2 || true
-    exit 1
-  fi
-  CODEX_WORKLOAD_PID=""
-  read -r TARGET_WORKSPACE_ID TARGET_SURFACE_ID < <(
-    /usr/bin/python3 - "$REAL_USAGE_DIR/codex-workload.jsonl" <<'PY_TARGET'
+  CODEX_SHUTDOWN_FILE="$REAL_USAGE_DIR/shutdown"
+  TARGET_WORKSPACE_ID=""
+  TARGET_SURFACE_ID=""
+  for _ in $(seq 1 30); do
+    if [[ -s "$REAL_USAGE_DIR/codex-workload.jsonl" ]]; then
+      read -r TARGET_WORKSPACE_ID TARGET_SURFACE_ID < <(
+        /usr/bin/python3 - "$REAL_USAGE_DIR/codex-workload.jsonl" <<'PY_TARGET'
 import json
 import sys
 
@@ -1341,7 +1342,17 @@ with open(sys.argv[1], encoding="utf-8") as handle:
             print(row["workspace_id"], row["surface_id"])
             break
 PY_TARGET
-  )
+      )
+    fi
+    [[ -n "$TARGET_WORKSPACE_ID" && -n "$TARGET_SURFACE_ID" ]] && break
+    if ! kill -0 "$CODEX_WORKLOAD_PID" >/dev/null 2>&1; then
+      wait "$CODEX_WORKLOAD_PID" || true
+      echo "error: real Codex workload exited before producing a target workspace/surface" >&2
+      cat "$REAL_USAGE_DIR/codex-workload.log" >&2 || true
+      exit 1
+    fi
+    sleep 1
+  done
   [[ -n "${TARGET_WORKSPACE_ID:-}" && -n "${TARGET_SURFACE_ID:-}" ]] || {
     echo "error: Codex workload produced no target workspace/surface" >&2
     exit 1
@@ -1369,6 +1380,13 @@ PY_TARGET
         --background-seconds "$background_seconds" \
         --video "$cycle_dir/ios-e2e.mp4"
   done
+  touch "$CODEX_SHUTDOWN_FILE"
+  if ! wait "$CODEX_WORKLOAD_PID"; then
+    echo "error: real Codex workload failed" >&2
+    cat "$REAL_USAGE_DIR/codex-workload.log" >&2 || true
+    exit 1
+  fi
+  CODEX_WORKLOAD_PID=""
   REAL_USAGE_DIR="$REAL_USAGE_DIR" /usr/bin/python3 <<'PY_REAL_USAGE'
 import json
 import os

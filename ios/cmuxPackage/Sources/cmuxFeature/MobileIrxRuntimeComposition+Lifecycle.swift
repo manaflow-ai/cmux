@@ -127,7 +127,12 @@ extension MobileIrxRuntimeComposition {
         if scope != nil, cachedWarmupTask != nil, !cachedWarmupFinished {
             let deadline = ContinuousClock.now.advanced(by: .seconds(5))
             while !cachedWarmupFinished, ContinuousClock.now < deadline {
-                try? await Task.sleep(for: .milliseconds(25))
+                guard !Task.isCancelled else { return }
+                do {
+                    try await Task.sleep(for: .milliseconds(25))
+                } catch {
+                    return
+                }
             }
             if !cachedWarmupFinished {
                 journal.record("v2-lifecycle", "cached-warm-timeout")

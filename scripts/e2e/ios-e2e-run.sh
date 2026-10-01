@@ -264,6 +264,7 @@ ensure_terminal_surface() {
 
 wait_for_app_ready_trace() {
   local target_surface="$1"
+  local start_offset="${2:-0}"
   local data_container
   data_container="$(xcrun simctl get_app_container "$SIM_UDID" "$BUNDLE_ID" data 2>/dev/null || true)"
   [[ -n "$data_container" ]] || return 1
@@ -274,14 +275,16 @@ wait_for_app_ready_trace() {
   while (( $(date +%s) < deadline )); do
     if [[ -f "$log_path" ]]; then
       local elapsed
-      elapsed="$(/usr/bin/python3 - "$log_path" "$surface_prefix" <<'PY_TRACE'
+      elapsed="$(/usr/bin/python3 - "$log_path" "$surface_prefix" "$start_offset" <<'PY_TRACE'
 import re
 import sys
 
-path, surface_prefix = sys.argv[1:]
+path, surface_prefix, start_offset = sys.argv[1:]
 scene = None
 try:
-    with open(path, encoding="utf-8", errors="replace") as handle:
+    with open(path, "rb") as raw:
+        raw.seek(int(start_offset))
+        handle = (line.decode("utf-8", errors="replace") for line in raw)
         for line in handle:
             match = re.search(r"LAT scene\.active t=(\d+)", line)
             if match:
@@ -445,6 +448,15 @@ if (( BACKGROUND_SECONDS > 0 )); then
   sleep "$BACKGROUND_SECONDS"
 fi
 FOREGROUND_STARTED="$(monotonic_seconds)"
+TRACE_LOG_PATH=""
+TRACE_START_OFFSET=0
+DATA_CONTAINER="$(xcrun simctl get_app_container "$SIM_UDID" "$BUNDLE_ID" data 2>/dev/null || true)"
+if [[ -n "$DATA_CONTAINER" ]]; then
+  TRACE_LOG_PATH="$DATA_CONTAINER/Library/Application Support/cmux-debug.log"
+  if [[ -f "$TRACE_LOG_PATH" ]]; then
+    TRACE_START_OFFSET="$(wc -c < "$TRACE_LOG_PATH" | tr -d ' ')"
+  fi
+fi
 xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID" >/dev/null
 wait_phone "$MARKC"   # session replay re-renders the pre-background history
 # Relaunch resets first responder exactly like a cold boot; re-establish
@@ -464,15 +476,20 @@ import sys, time
 print(f"{time.monotonic() - float(sys.argv[1]):.6f}")
 PY
 )"
-APP_FOREGROUND_SECONDS="$(wait_for_app_ready_trace "$SURFACE_ID" || true)"
-[[ "$APP_FOREGROUND_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]] || \
-  fail "app-side foreground trace did not reach target terminal frame"
+APP_FOREGROUND_SECONDS=""
+APP_FOREGROUND_SECONDS_JSON="null"
+if [[ -n "$SURFACE_ID" ]]; then
+  APP_FOREGROUND_SECONDS="$(wait_for_app_ready_trace "$SURFACE_ID" "$TRACE_START_OFFSET" || true)"
+  [[ "$APP_FOREGROUND_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]] || \
+    fail "app-side foreground trace did not reach target terminal frame"
+  APP_FOREGROUND_SECONDS_JSON="$APP_FOREGROUND_SECONDS"
+fi
 MARK_RESUME="E2ERESUME$(date +%s)"
 type_line "echo $MARK_RESUME"
 wait_mac_output "$MARK_RESUME"
 printf '{"background_seconds":%s,"resume_to_mac_input_seconds":%s,"app_foreground_to_terminal_ready_seconds":%s,"background_started_monotonic":%s}\n' \
-  "$BACKGROUND_SECONDS" "$RESUME_SECONDS" "$APP_FOREGROUND_SECONDS" "$BACKGROUND_STARTED" > "$EVIDENCE_DIR/background.json"
-if (( BACKGROUND_SECONDS >= 120 )); then
+  "$BACKGROUND_SECONDS" "$RESUME_SECONDS" "$APP_FOREGROUND_SECONDS_JSON" "$BACKGROUND_STARTED" > "$EVIDENCE_DIR/background.json"
+if (( BACKGROUND_SECONDS >= 120 )) && [[ -n "$APP_FOREGROUND_SECONDS" ]]; then
   python3 - "$APP_FOREGROUND_SECONDS" <<'PY'
 import sys
 if float(sys.argv[1]) > 2.0:

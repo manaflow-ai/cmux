@@ -8,6 +8,7 @@ EVIDENCE_DIR="${CMUX_CODEX_EVIDENCE_DIR:-}"
 MODEL="${CMUX_CODEX_MODEL:-gpt-5.5-mini}"
 DURATION_SECONDS="${CMUX_CODEX_DURATION_SECONDS:-900}"
 COUNT="${CMUX_CODEX_SESSION_COUNT:-3}"
+SHUTDOWN_FILE="${CMUX_CODEX_SHUTDOWN_FILE:-}"
 [[ -n "$TAG" && -n "$EVIDENCE_DIR" ]] || {
   echo "Usage: CMUX_E2E_TAG=<tag> CMUX_CODEX_EVIDENCE_DIR=<dir> $0" >&2
   exit 2
@@ -146,3 +147,10 @@ for index in "${!WORKSPACES[@]}"; do
     "$((index + 1))" "${WORKSPACES[$index]}" "${SURFACES[$index]}" "$MODEL" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"
 done
 echo "Codex workload completed: $COUNT sessions plus two supporting workspaces, model=$MODEL"
+if [[ -n "$SHUTDOWN_FILE" ]]; then
+  printf '{"event":"waiting_for_shutdown","observed_at":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"
+  while [[ ! -e "$SHUTDOWN_FILE" ]]; do
+    sleep 1
+  done
+  printf '{"event":"shutdown_requested","observed_at":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"
+fi
