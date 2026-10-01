@@ -535,6 +535,56 @@ import Testing
         #expect(!terminal.surface.hostedView.surfaceView.localRenderedFrameNotificationDemandIsActive)
     }
 
+    @Test func surfaceProgressReissuesDeferredFullSeedBeforeFirstRenderedFrame() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        fixture.connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1,
+            width: 80,
+            height: 24,
+            layout: RemoteTmuxLayoutNode(
+                width: 80, height: 24, x: 0, y: 0, content: .pane(7)
+            )
+        )
+        fixture.connection.windowOrder = [1]
+        fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.isRemoteTmuxMirror = true
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: fixture.connection.host,
+            sessionName: "work",
+            connection: fixture.connection,
+            tabManager: manager,
+            workspace: workspace
+        )
+        defer { sessionMirror.detachObserver() }
+        _ = try #require(sessionMirror.windowMirrorByWindowId[1]?.panel(forPane: 7))
+        publishLaggingPaneGrid(on: fixture.connection, windowId: 1, paneIds: [7])
+
+        sessionMirror.routeSeed(
+            paneId: 7,
+            seed: RemoteTmuxPaneSeed(
+                kind: .fullHistory,
+                discardedOutput: [], snapshot: Data("stale-grid".utf8),
+                catchUpOutput: [], state: Data()
+            )
+        )
+        let deadlineID = try #require(sessionMirror.pendingPaneSeedDeadlineIDs[7])
+        sessionMirror.expirePendingPaneSeedDelivery(paneId: 7, deadlineID: deadlineID)
+        #expect(sessionMirror.deferredFullPaneReseeds == [7])
+        #expect(fixture.connection.pendingPaneSeeds[7] == nil)
+
+        sessionMirror.handlePaneSeedSurfaceProgress(paneId: 7)
+
+        #expect(sessionMirror.deferredFullPaneReseeds.isEmpty)
+        #expect(
+            fixture.connection.pendingPaneSeeds[7]?.first?.kind == .fullHistory,
+            "visible surface progress must reissue the full capture before a rendered frame"
+        )
+    }
+
     /// Crossing the shared seed budget releases the pane that crossed it and leaves the stream alone.
     ///
     /// This asserted `.reconnecting` and a wholly empty seed table, both of which described the old
