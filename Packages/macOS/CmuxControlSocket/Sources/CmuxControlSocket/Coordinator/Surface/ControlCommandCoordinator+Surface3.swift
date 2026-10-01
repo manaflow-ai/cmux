@@ -301,8 +301,20 @@ extension ControlCommandCoordinator {
             environment: stringMap(object, "environment"),
             verificationHome: rawString(object, "verification_home"),
             capturedAt: doubleValue(object["captured_at"]),
-            source: rawString(object, "source")
+            source: rawString(object, "source"),
+            launcherPrefix: launcherPrefix(object["launcher_prefix"])
         )
+    }
+
+    /// A non-empty array of strings, or nil for anything else.
+    private nonisolated func launcherPrefix(_ value: JSONValue?) -> [String]? {
+        guard case .array(let rawTokens) = value else { return nil }
+        let tokens = rawTokens.compactMap { value -> String? in
+            guard case .string(let token) = value else { return nil }
+            return token
+        }
+        guard tokens.count == rawTokens.count, !tokens.isEmpty else { return nil }
+        return tokens
     }
 
     private nonisolated func controlAgentLaunchCommandPayload(
@@ -322,6 +334,7 @@ extension ControlCommandCoordinator {
             "verification_home": orNull(command.verificationHome),
             "captured_at": command.capturedAt.map(JSONValue.double) ?? .null,
             "source": orNull(command.source),
+            "launcher_prefix": command.launcherPrefix.map { .array($0.map(JSONValue.string)) } ?? .null,
         ])
     }
 
@@ -348,6 +361,7 @@ extension ControlCommandCoordinator {
             "permission_mode": orNull(record.permissionMode),
             "legacy_command": orNull(record.legacyCommand),
             "fork_command": orNull(record.forkCommand),
+            "continuation_prompt": orNull(record.continuationPrompt),
         ])
     }
     private func doubleValue(_ value: JSONValue?) -> Double? {

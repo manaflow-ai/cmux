@@ -8,6 +8,9 @@ import UniformTypeIdentifiers
 enum TerminalImageTransferMode: Codable, Sendable {
     case paste
     case drop
+    /// A clipboard read the terminal program started, such as OSC 52. It
+    /// takes the pasteboard's plain-text flavor only, never files or images.
+    case plainText
 }
 
 enum TerminalRemoteUploadTarget: Equatable {
@@ -19,6 +22,16 @@ enum TerminalImageTransferPreparedContent: Codable, Equatable, Sendable {
     case insertText(String)
     case fileURLs([URL])
     case reject
+    /// Rejected because the pasteboard image is over the clipboard image cap.
+    /// Handled exactly like `reject`, except that a paste can say why.
+    case rejectOversizedImage
+
+    var isRejection: Bool {
+        switch self {
+        case .reject, .rejectOversizedImage: return true
+        case .insertText, .fileURLs: return false
+        }
+    }
 }
 
 enum TerminalImageTransferExecutionError: Error {
@@ -132,7 +145,7 @@ enum TerminalImageTransferPlanner {
     ) -> TerminalImageTransferPlan {
         let preparedContent = prepareSynchronously(pasteboard: pasteboard, mode: mode)
         switch preparedContent {
-        case .insertText, .reject:
+        case .insertText, .reject, .rejectOversizedImage:
             return plan(preparedContent: preparedContent, target: .local, mode: mode)
         case .fileURLs:
             return plan(preparedContent: preparedContent, target: resolveTarget(), mode: mode)
@@ -154,6 +167,21 @@ enum TerminalImageTransferPlanner {
     ) async -> TerminalImageTransferPreparedContent {
         let request = TerminalPasteboardReadRequest(pasteboard: pasteboard)
         return await preparationService.prepare(
+            request: request,
+            mode: mode
+        )
+    }
+
+    /// Like ``prepare(pasteboard:mode:using:)``, but also reports why an
+    /// accepted request produced no content (for example, a worker timeout).
+    @MainActor
+    static func prepareReportingFailure(
+        pasteboard: NSPasteboard,
+        mode: TerminalImageTransferMode,
+        using preparationService: TerminalImageTransferPreparationService
+    ) async -> TerminalImageTransferPreparationOutcome {
+        let request = TerminalPasteboardReadRequest(pasteboard: pasteboard)
+        return await preparationService.prepareReportingFailure(
             request: request,
             mode: mode
         )
@@ -186,6 +214,13 @@ enum TerminalImageTransferPlanner {
                 pasteboard: pasteboard,
                 pasteboardService: pasteboardService
             )
+        case .plainText:
+            guard let text = pasteboardService.fallbackPlainTextContents(
+                from: pasteboard
+            ), !text.isEmpty else {
+                return .reject
+            }
+            return .insertText(text)
         }
     }
 
@@ -199,7 +234,7 @@ enum TerminalImageTransferPlanner {
             return .insertText(text)
         case .fileURLs(let fileURLs):
             return plan(fileURLs: fileURLs, target: target, mode: mode)
-        case .reject:
+        case .reject, .rejectOversizedImage:
             return .reject
         }
     }
@@ -375,6 +410,8 @@ enum TerminalImageTransferPlanner {
                 return .fileURLs([imageURL])
             case .rejectedImagePayload:
                 return .reject
+            case .rejectedOversizedImagePayload:
+                return .rejectOversizedImage
             case .noDecodableImagePayload:
                 break
             }
@@ -467,7 +504,7 @@ enum TerminalImageTransferPlanner {
         }
         switch pasteboardService.materializeImageFileURLsIfNeeded(from: pasteboard) {
         case .saved(let urls): return urls
-        case .rejectedImagePayload: return nil
+        case .rejectedImagePayload, .rejectedOversizedImagePayload: return nil
         case .noDecodableImagePayload: return durableURLs()
         }
     }

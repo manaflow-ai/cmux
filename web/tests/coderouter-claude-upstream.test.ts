@@ -253,7 +253,7 @@ describe("claude upstream accounts service", () => {
     expect(pick.kind === "selected" && pick.upstream.accountId).toBe(b.id);
     await svc.update("team-1", b.id, { state: "disabled" });
     const exhausted = await svc.select("team-1", { stickyKey: null });
-    expect(exhausted).toEqual({ kind: "exhausted", total: 2, retryAfterSeconds: 30 });
+    expect(exhausted).toEqual({ kind: "exhausted", total: 2, retryAfterSeconds: 30, capacityRetryAfterSeconds: 30 });
     // Cooldown expiry brings the account back.
     store.clock.now = new Date(T0.getTime() + 31_000);
     const back = await svc.select("team-1", { stickyKey: null });
@@ -261,6 +261,23 @@ describe("claude upstream accounts service", () => {
     // Clamped cooldowns: a second is the floor.
     await svc.cooldown(a.id, 1, "upstream_transport");
     expect(store.rows.get(a.id)!.cooldownUntil!.getTime()).toBe(store.clock.now.getTime() + 1_000);
+  });
+
+  test("a revoked credential's cooldown is not a capacity recovery to hold for", async () => {
+    const { service: svc } = service();
+    const a = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY });
+    const b = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY_2 });
+    await svc.cooldown(a.id, 15 * 60_000, "invalid_credential");
+    await svc.cooldown(b.id, 15 * 60_000, "invalid_credential");
+    expect(await svc.select("team-1", { stickyKey: null })).toEqual({
+      kind: "exhausted",
+      total: 2,
+      retryAfterSeconds: 900,
+      capacityRetryAfterSeconds: null,
+    });
+    await svc.cooldown(b.id, 20_000, "upstream_unavailable");
+    const mixed = await svc.select("team-1", { stickyKey: null });
+    expect(mixed).toMatchObject({ kind: "exhausted", retryAfterSeconds: 20, capacityRetryAfterSeconds: 20 });
   });
 
   test("without a sticky key the least recently used account is chosen", async () => {

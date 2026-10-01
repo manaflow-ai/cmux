@@ -674,14 +674,15 @@ struct ClientReady {
     multiplexer: Arc<ServiceMultiplexer>,
 }
 
+/// An exclusive `flock` on an owner-only lock file, released on drop.
 #[cfg(unix)]
 #[derive(Debug)]
-struct ClientSocketPathLock {
+struct OwnerFileLock {
     file: fs::File,
 }
 
 #[cfg(unix)]
-impl Drop for ClientSocketPathLock {
+impl Drop for OwnerFileLock {
     fn drop(&mut self) {
         use std::os::fd::AsRawFd;
 
@@ -695,7 +696,7 @@ impl Drop for ClientSocketPathLock {
 #[derive(Debug)]
 struct ClientSocketPreparation {
     path: PathBuf,
-    _lock: ClientSocketPathLock,
+    _lock: OwnerFileLock,
 }
 
 #[cfg(unix)]
@@ -787,10 +788,10 @@ async fn run_client(
             let _ = connection.close().await;
             return Err(anyhow!("remote client startup was cancelled"));
         }
-        let local_socket = options
-            .local_socket
-            .clone()
-            .unwrap_or_else(|| default_client_socket(&options.state_dir, options.session));
+        let local_socket = match options.local_socket.clone() {
+            Some(path) => path,
+            None => default_client_socket(&options.state_dir, options.session)?,
+        };
         let socket_preparation =
             prepare_client_socket_with_shutdown(&local_socket, Some(shutdown.clone())).await?;
         if *shutdown.borrow() {
@@ -1568,12 +1569,10 @@ fn client_socket_lock_path(path: &Path) -> anyhow::Result<PathBuf> {
     Ok(path.with_file_name(lock_name))
 }
 
+/// Opens (creating if needed) the owner-only lock file at `path` and checks
+/// that nobody else can own, open or alias it. `what` names it in errors.
 #[cfg(unix)]
-async fn acquire_client_socket_lock(
-    path: &Path,
-    mut shutdown: Option<&mut watch::Receiver<bool>>,
-) -> anyhow::Result<ClientSocketPathLock> {
-    use std::os::fd::AsRawFd;
+fn open_owner_lock_file(path: &Path, what: &str) -> anyhow::Result<fs::File> {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
     let file = OpenOptions::new()
@@ -1584,27 +1583,35 @@ async fn acquire_client_socket_lock(
         .mode(0o600)
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
         .open(path)
-        .with_context(|| format!("could not open client socket lock {}", path.display()))?;
+        .with_context(|| format!("could not open {what} {}", path.display()))?;
     let metadata = file.metadata()?;
     if !metadata.is_file() {
-        return Err(anyhow!("client socket lock {} is not a regular file", path.display()));
+        return Err(anyhow!("{what} {} is not a regular file", path.display()));
     }
     if metadata.uid() != unsafe { libc::geteuid() } {
-        return Err(anyhow!(
-            "client socket lock {} is not owned by the effective user",
-            path.display()
-        ));
+        return Err(anyhow!("{what} {} is not owned by the effective user", path.display()));
     }
     if metadata.permissions().mode() & 0o077 != 0 {
-        return Err(anyhow!("client socket lock {} is accessible by another user", path.display()));
+        return Err(anyhow!("{what} {} is accessible by another user", path.display()));
     }
     if metadata.nlink() != 1 {
-        return Err(anyhow!("client socket lock {} has unexpected hard links", path.display()));
+        return Err(anyhow!("{what} {} has unexpected hard links", path.display()));
     }
+    Ok(file)
+}
+
+#[cfg(unix)]
+async fn acquire_client_socket_lock(
+    path: &Path,
+    mut shutdown: Option<&mut watch::Receiver<bool>>,
+) -> anyhow::Result<OwnerFileLock> {
+    use std::os::fd::AsRawFd;
+
+    let file = open_owner_lock_file(path, "client socket lock")?;
 
     loop {
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-            return Ok(ClientSocketPathLock { file });
+            return Ok(OwnerFileLock { file });
         }
         let error = std::io::Error::last_os_error();
         if error.kind() == std::io::ErrorKind::Interrupted {
@@ -1672,23 +1679,210 @@ fn unix_socket_path_fits(path: &Path) -> bool {
     path.as_os_str().as_bytes().len() < capacity
 }
 
-fn default_client_socket(state_dir: &Path, session: SessionId) -> PathBuf {
+fn default_client_socket(state_dir: &Path, session: SessionId) -> anyhow::Result<PathBuf> {
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
+    client_socket_path_in(state_dir, session, runtime.as_deref(), Path::new("/tmp"))
+}
+
+/// Resolves the client socket for `session`. `runtime` is `XDG_RUNTIME_DIR`
+/// and `shared_tmp` is the world-writable directory used when the state path
+/// is too long for a Unix socket.
+fn client_socket_path_in(
+    state_dir: &Path,
+    session: SessionId,
+    runtime: Option<&Path>,
+    shared_tmp: &Path,
+) -> anyhow::Result<PathBuf> {
     let candidate = state_dir.join("connections").join(format!("{session:?}")).join("mux.sock");
-    #[cfg(unix)]
-    if !unix_socket_path_fits(&candidate) {
-        let uid = unsafe { libc::geteuid() };
-        let name =
-            format!("{}.sock", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(session.0));
-        let runtime = std::env::var_os("XDG_RUNTIME_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("/tmp"));
-        let fallback = runtime.join(format!("cmux-r-{uid}")).join(&name);
-        if unix_socket_path_fits(&fallback) {
-            return fallback;
-        }
-        return PathBuf::from(format!("/tmp/cmux-r-{uid}/{name}"));
+    if unix_socket_path_fits(&candidate) {
+        return Ok(candidate);
     }
-    candidate
+    let prefix = format!("cmux-r-{}", unsafe { libc::geteuid() });
+    let name =
+        format!("{}.sock", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(session.0));
+    let preferred_base = runtime.unwrap_or(shared_tmp);
+    let base = if unix_socket_path_fits(&preferred_base.join(&prefix).join(&name)) {
+        preferred_base
+    } else {
+        shared_tmp
+    };
+    let record = candidate.with_file_name(SOCKET_DIRECTORY_RECORD);
+    let directory =
+        private_socket_directory(base, &prefix, &record, prepare_client_socket_directory)?;
+    let socket = directory.join(name);
+    if !unix_socket_path_fits(&socket) {
+        return Err(anyhow!(
+            "client socket path is too long for this platform: {}",
+            socket.display()
+        ));
+    }
+    Ok(socket)
+}
+
+/// File in a private state directory that records the socket directory chosen
+/// after the fixed shared one was unusable.
+#[cfg(unix)]
+const SOCKET_DIRECTORY_RECORD: &str = "socket-dir";
+
+/// Chooses a private directory for Unix sockets under the world-writable
+/// `base`. `<base>/<prefix>` is preferred, but any local user can create that
+/// name first; `validate` rejects such a directory and a fresh random `0700`
+/// sibling is used instead, like the Go daemon's fallback. The fallback is
+/// recorded in `record`, inside the caller's private state, so every later
+/// process for the same session resolves the same sockets.
+#[cfg(unix)]
+fn private_socket_directory(
+    base: &Path,
+    prefix: &str,
+    record: &Path,
+    validate: impl Fn(&Path) -> anyhow::Result<()>,
+) -> anyhow::Result<PathBuf> {
+    use std::os::unix::fs::DirBuilderExt;
+
+    let preferred = base.join(prefix);
+    let mut preferred_error = None;
+    for _ in 0..8 {
+        if let Some(recorded) = recorded_socket_directory(record, base, prefix)
+            && validate(&recorded).is_ok()
+        {
+            return Ok(recorded);
+        }
+        match validate(&preferred) {
+            Ok(()) => return Ok(preferred),
+            Err(error) => preferred_error = Some(error),
+        }
+        let parent = record.parent().ok_or_else(|| anyhow!("socket record has no parent"))?;
+        ensure_secure_directory(parent, DirectoryAccess::OwnerControlled)
+            .with_context(|| format!("could not prepare {}", parent.display()))?;
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        // Keep the name short: socket paths must fit in sun_path.
+        let candidate = base.join(format!("{prefix}-{}", &suffix[..8]));
+        match fs::DirBuilder::new().mode(0o700).create(&candidate) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("could not create {}", candidate.display()));
+            }
+        }
+        if let Err(error) = validate(&candidate) {
+            let _ = fs::remove_dir(&candidate);
+            return Err(error);
+        }
+        match publish_socket_directory_record(record, &candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                // Another process for this session recorded its directory
+                // first. Use it if it is still private, otherwise replace
+                // the stale record on the next attempt.
+                let _ = fs::remove_dir(&candidate);
+                if let Some(recorded) = recorded_socket_directory(record, base, prefix)
+                    && validate(&recorded).is_ok()
+                {
+                    return Ok(recorded);
+                }
+                before_socket_directory_record_replace();
+                // Only a lock holder removes the record, and a publisher
+                // cannot link over one that exists. So what this reads under
+                // the lock is what it removes, never a record another
+                // process published since the check above.
+                let _lock = lock_socket_directory_record(record)?;
+                if let Some(recorded) = recorded_socket_directory(record, base, prefix)
+                    && validate(&recorded).is_ok()
+                {
+                    return Ok(recorded);
+                }
+                let _ = fs::remove_file(record);
+            }
+            Err(error) => {
+                let _ = fs::remove_dir(&candidate);
+                return Err(error)
+                    .with_context(|| format!("could not record {}", candidate.display()));
+            }
+        }
+    }
+    Err(preferred_error.unwrap_or_else(|| anyhow!("no private socket directory was available")))
+        .with_context(|| {
+            format!("could not create a private socket directory under {}", base.display())
+        })
+}
+
+/// Serializes replacing `record` across processes with an owner-only lock
+/// file beside it. Blocks until the lock is free.
+#[cfg(unix)]
+fn lock_socket_directory_record(record: &Path) -> anyhow::Result<OwnerFileLock> {
+    use std::os::fd::AsRawFd;
+
+    let path = record.with_file_name(format!("{SOCKET_DIRECTORY_RECORD}.lock"));
+    let file = open_owner_lock_file(&path, "socket directory record lock")?;
+    loop {
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
+            return Ok(OwnerFileLock { file });
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error).with_context(|| format!("could not lock {}", path.display()));
+        }
+    }
+}
+
+#[cfg(all(unix, test))]
+thread_local! {
+    /// Test hook run on this thread when a publisher is about to replace a
+    /// record it found unusable.
+    static BEFORE_SOCKET_DIRECTORY_RECORD_REPLACE: std::cell::RefCell<Option<Box<dyn FnMut()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(unix)]
+fn before_socket_directory_record_replace() {
+    #[cfg(test)]
+    BEFORE_SOCKET_DIRECTORY_RECORD_REPLACE.with(|hook| {
+        if let Some(hook) = hook.borrow_mut().as_mut() {
+            hook();
+        }
+    });
+}
+
+/// Reads a recorded fallback directory. Only a `<prefix>-*` child of `base`
+/// is accepted, so a damaged record cannot point sockets anywhere else.
+#[cfg(unix)]
+fn recorded_socket_directory(record: &Path, base: &Path, prefix: &str) -> Option<PathBuf> {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+    let metadata = fs::symlink_metadata(record).ok()?;
+    if !metadata.is_file() || metadata.len() > 4096 {
+        return None;
+    }
+    let path = PathBuf::from(std::ffi::OsString::from_vec(fs::read(record).ok()?));
+    let name = path.file_name()?.as_bytes();
+    (path.parent() == Some(base) && name.starts_with(format!("{prefix}-").as_bytes()))
+        .then_some(path)
+}
+
+/// Publishes `directory` as the session's socket directory without replacing
+/// a record another process already published.
+#[cfg(unix)]
+fn publish_socket_directory_record(record: &Path, directory: &Path) -> std::io::Result<()> {
+    use std::io::Write as _;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let staged = record
+        .with_file_name(format!(".{SOCKET_DIRECTORY_RECORD}.{}", uuid::Uuid::new_v4().simple()));
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(&staged)?;
+        file.write_all(directory.as_os_str().as_bytes())?;
+        file.sync_all()?;
+        fs::hard_link(&staged, record)
+    })();
+    let _ = fs::remove_file(&staged);
+    result
 }
 
 pub fn daemon_paths(
@@ -1720,16 +1914,27 @@ pub fn daemon_paths(
 
 #[cfg(unix)]
 fn daemon_runtime_socket_paths(state: &Path) -> anyhow::Result<(PathBuf, PathBuf)> {
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
+    daemon_runtime_socket_paths_in(state, runtime.as_deref(), Path::new("/tmp"))
+}
+
+/// Resolves the daemon's link and admin sockets for a state path that is too
+/// long for a Unix socket. `runtime` is `XDG_RUNTIME_DIR` and `shared_tmp` is
+/// the world-writable directory used when no runtime directory is usable.
+#[cfg(unix)]
+fn daemon_runtime_socket_paths_in(
+    state: &Path,
+    runtime: Option<&Path>,
+    shared_tmp: &Path,
+) -> anyhow::Result<(PathBuf, PathBuf)> {
     use std::os::unix::ffi::OsStrExt;
 
     let digest = format!("{:x}", Sha256::digest(state.as_os_str().as_bytes()));
     let socket_names = |runtime: &Path| {
         (runtime.join(format!("{digest}-l.sock")), runtime.join(format!("{digest}-a.sock")))
     };
-    if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .map(|path| path.join("cmux-rd"))
+    if let Some(runtime) =
+        runtime.filter(|path| path.is_absolute()).map(|path| path.join("cmux-rd"))
     {
         let (link, admin) = socket_names(&runtime);
         if unix_socket_path_fits(&link)
@@ -1740,10 +1945,16 @@ fn daemon_runtime_socket_paths(state: &Path) -> anyhow::Result<(PathBuf, PathBuf
         }
     }
 
-    let runtime = PathBuf::from(format!("/tmp/cmux-rd-{}", unsafe { libc::geteuid() }));
-    ensure_secure_directory(&runtime, DirectoryAccess::ManagedOwnerOnly).with_context(|| {
-        format!("could not create private remote daemon runtime directory {}", runtime.display())
-    })?;
+    // Every client of this session computes the same paths from `state`, so
+    // a fallback directory is recorded there for them to find.
+    let prefix = format!("cmux-rd-{}", unsafe { libc::geteuid() });
+    let runtime = private_socket_directory(
+        shared_tmp,
+        &prefix,
+        &state.join(SOCKET_DIRECTORY_RECORD),
+        |path| Ok(ensure_secure_directory(path, DirectoryAccess::ManagedOwnerOnly)?),
+    )
+    .context("could not create private remote daemon runtime directory")?;
     let (link, admin) = socket_names(&runtime);
     if !unix_socket_path_fits(&link) || !unix_socket_path_fits(&admin) {
         return Err(anyhow!("remote daemon runtime socket path is too long for this platform"));
@@ -6261,8 +6472,177 @@ mod tests {
     #[test]
     fn long_state_path_uses_a_short_runtime_socket() {
         let state = PathBuf::from("/tmp").join("x".repeat(256));
-        let socket = default_client_socket(&state, SessionId([4; 16]));
+        let socket = default_client_socket(&state, SessionId([4; 16])).unwrap();
         assert!(unix_socket_path_fits(&socket));
         assert!(!socket.starts_with(state));
+    }
+
+    /// Another local user can create `/tmp/cmux-r-<uid>` first. The ownership
+    /// checks must still reject it, and the client must still start in a
+    /// fresh private directory that a second resolution finds again.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn squatted_shared_client_socket_directory_falls_back_to_a_private_directory() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
+
+        // A short root keeps the fallback socket paths inside sun_path, as
+        // they are under the real /tmp.
+        let root = tempfile::Builder::new().prefix("r").rand_bytes(2).tempdir_in("/tmp").unwrap();
+        let shared_tmp = root.path().to_path_buf();
+        let decoy = root.path().join("decoy");
+        fs::create_dir(&decoy).unwrap();
+        let squatted = shared_tmp.join(format!("cmux-r-{}", unsafe { libc::geteuid() }));
+        symlink(&decoy, &squatted).unwrap();
+        let state = root.path().join("x".repeat(160));
+        let session = SessionId([7; 16]);
+
+        let socket = client_socket_path_in(&state, session, None, &shared_tmp).unwrap();
+        let prepared = prepare_client_socket(&socket).await;
+        assert!(
+            prepared.is_ok(),
+            "a squatted shared directory blocked the client socket {}: {:?}",
+            socket.display(),
+            prepared.err()
+        );
+        let directory = socket.parent().unwrap();
+        assert_ne!(directory, squatted);
+        assert!(directory.starts_with(&shared_tmp));
+        let metadata = fs::symlink_metadata(directory).unwrap();
+        assert!(metadata.is_dir());
+        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o700);
+        assert_eq!(client_socket_path_in(&state, session, None, &shared_tmp).unwrap(), socket);
+        assert!(fs::read_dir(&decoy).unwrap().next().is_none());
+    }
+
+    /// The daemon's link and admin sockets fall back the same way, and every
+    /// later `remote-link`, `remote-stop` or status call resolves the same
+    /// directory from the session state.
+    #[cfg(unix)]
+    #[test]
+    fn squatted_shared_daemon_runtime_directory_falls_back_to_a_private_directory() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
+
+        // A short root keeps the fallback socket paths inside sun_path, as
+        // they are under the real /tmp.
+        let root = tempfile::Builder::new().prefix("r").rand_bytes(2).tempdir_in("/tmp").unwrap();
+        let shared_tmp = root.path().to_path_buf();
+        let decoy = root.path().join("decoy");
+        fs::create_dir(&decoy).unwrap();
+        let squatted = shared_tmp.join(format!("cmux-rd-{}", unsafe { libc::geteuid() }));
+        symlink(&decoy, &squatted).unwrap();
+        let state = root.path().join("state").join("sessions").join("session");
+
+        let resolved = daemon_runtime_socket_paths_in(&state, None, &shared_tmp);
+        assert!(resolved.is_ok(), "a squatted shared directory blocked the daemon: {resolved:?}");
+        let (link, admin) = resolved.unwrap();
+        let directory = link.parent().unwrap();
+        assert_eq!(admin.parent().unwrap(), directory);
+        assert_ne!(directory, squatted);
+        assert!(directory.starts_with(&shared_tmp));
+        assert!(unix_socket_path_fits(&link) && unix_socket_path_fits(&admin));
+        let metadata = fs::symlink_metadata(directory).unwrap();
+        assert!(metadata.is_dir());
+        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o700);
+        assert_eq!(
+            daemon_runtime_socket_paths_in(&state, None, &shared_tmp).unwrap(),
+            (link, admin)
+        );
+        assert!(fs::read_dir(&decoy).unwrap().next().is_none());
+    }
+
+    /// Two processes for one session find the same unusable record. The
+    /// first to replace it publishes its own directory; the second, delayed
+    /// on its way to replace the record, must adopt that directory instead
+    /// of deleting the fresh record and publishing another one.
+    #[cfg(unix)]
+    #[test]
+    fn a_delayed_publisher_keeps_the_socket_directory_another_process_recorded() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::DirBuilderExt;
+        use std::sync::mpsc;
+
+        const PREFIX: &str = "cmux-t";
+        fn validate(path: &Path) -> anyhow::Result<()> {
+            if path.file_name() == Some(std::ffi::OsStr::new(PREFIX)) {
+                return Err(anyhow!("the shared directory is squatted"));
+            }
+            if !path.is_dir() {
+                return Err(anyhow!("{} is missing", path.display()));
+            }
+            Ok(())
+        }
+
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().join("tmp");
+        fs::create_dir(&base).unwrap();
+        let state = root.path().join("state");
+        fs::DirBuilder::new().mode(0o700).create(&state).unwrap();
+        let record = state.join(SOCKET_DIRECTORY_RECORD);
+        // The recorded directory was removed, for example by a reboot.
+        fs::write(&record, base.join(format!("{PREFIX}-stale")).as_os_str().as_bytes()).unwrap();
+
+        let (paused_sender, paused) = mpsc::channel();
+        let (resume, resume_receiver) = mpsc::channel::<()>();
+        let delayed = {
+            let (base, record) = (base.clone(), record.clone());
+            thread::spawn(move || {
+                let mut pause = Some((paused_sender, resume_receiver));
+                BEFORE_SOCKET_DIRECTORY_RECORD_REPLACE.with(|hook| {
+                    *hook.borrow_mut() = Some(Box::new(move || {
+                        if let Some((paused, resume)) = pause.take() {
+                            paused.send(()).unwrap();
+                            resume.recv().unwrap();
+                        }
+                    }));
+                });
+                private_socket_directory(&base, PREFIX, &record, validate)
+            })
+        };
+        paused.recv_timeout(Duration::from_secs(30)).unwrap();
+        let first = private_socket_directory(&base, PREFIX, &record, validate).unwrap();
+        resume.send(()).unwrap();
+        let second = delayed.join().unwrap().unwrap();
+
+        assert_eq!(second, first, "two processes for one session use different socket directories");
+        assert_eq!(fs::read(&record).unwrap(), first.as_os_str().as_bytes());
+    }
+
+    /// A stale record is replaced under an owner-only lock beside it, and a
+    /// lock another user could open stops the replacement.
+    #[cfg(unix)]
+    #[test]
+    fn a_stale_socket_directory_record_is_replaced_under_an_owner_only_lock() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+
+        fn validate(path: &Path) -> anyhow::Result<()> {
+            if path.file_name() == Some(std::ffi::OsStr::new("cmux-t")) || !path.is_dir() {
+                return Err(anyhow!("{} is unusable", path.display()));
+            }
+            Ok(())
+        }
+
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().join("tmp");
+        fs::create_dir(&base).unwrap();
+        let state = root.path().join("state");
+        fs::DirBuilder::new().mode(0o700).create(&state).unwrap();
+        let record = state.join(SOCKET_DIRECTORY_RECORD);
+        let lock = state.join(format!("{SOCKET_DIRECTORY_RECORD}.lock"));
+        let stale = base.join("cmux-t-stale");
+        fs::write(&record, stale.as_os_str().as_bytes()).unwrap();
+
+        let directory = private_socket_directory(&base, "cmux-t", &record, validate).unwrap();
+        assert_ne!(directory, stale);
+        assert_eq!(fs::read(&record).unwrap(), directory.as_os_str().as_bytes());
+        assert_eq!(fs::metadata(&lock).unwrap().permissions().mode() & 0o777, 0o600);
+
+        fs::write(&record, stale.as_os_str().as_bytes()).unwrap();
+        fs::set_permissions(&lock, fs::Permissions::from_mode(0o644)).unwrap();
+        let error = private_socket_directory(&base, "cmux-t", &record, validate).unwrap_err();
+        assert!(format!("{error:#}").contains("accessible by another user"), "{error:#}");
+        assert_eq!(fs::read(&record).unwrap(), stale.as_os_str().as_bytes());
     }
 }

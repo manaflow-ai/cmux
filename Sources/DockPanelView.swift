@@ -82,6 +82,8 @@ struct DockPanelView: View {
             )
             .frame(width: 0, height: 0)
         )
+        // Keep the container identifiable without replacing its hosted controls' identities.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("DockPanel")
         .onAppear {
             refreshAppearance(reason: "onAppear")
@@ -101,6 +103,9 @@ struct DockPanelView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: PaneChromeSettings.didChangeNotification)) { _ in
             refreshAppearance(reason: "paneChromeSettingsDidChange")
+        }
+        .onDisplayAccessibilityOptionsChange { _ in
+            refreshAppearance(reason: "displayAccessibilityOptionsDidChange")
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
             refreshAppearance(reason: "ghosttyDefaultBackgroundDidChange")

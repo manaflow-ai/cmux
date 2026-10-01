@@ -423,7 +423,7 @@ public struct AgentExternalLauncher: Codable, Equatable, Sendable {
     }
 
     private static func isValidID(_ value: String) -> Bool {
-        value.range(of: "^[A-Za-z0-9._-]+$", options: .regularExpression) != nil
+        value.range(of: "^[A-Za-z0-9._-]+\\z", options: .regularExpression) != nil
     }
 
     private static func normalized(_ value: String?) -> String? {

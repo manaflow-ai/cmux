@@ -7,19 +7,15 @@ import SwiftUI
 enum AutoNamingAgentDisplay {
     /// Subtitle under the picker describing what the current selection does.
     static func selectionSubtitle(forSlug slug: String) -> String {
-        if slug == AutoNamingAgentCatalog.autoSlug {
+        if slug == AutoNamingAgentCatalog.autoSlug || AutoNamingAgentCatalog.summarizerSupported(slug: slug) {
             return String(
-                localized: "settings.automation.autoNamingAgent.requirement.auto",
-                defaultValue: "Each session is named by its own agent."
+                localized: "settings.automation.autoNamingAgent.subtitle",
+                defaultValue: "Automatic uses each session's own agent. Other supported agents need their command-line tool on the PATH."
             )
         }
+        // An agent from the Other agents section cannot name sessions, so
+        // this status replaces the description while it is selected.
         let name = AutoNamingAgentCatalog.displayName(forSlug: slug)
-        if AutoNamingAgentCatalog.summarizerSupported(slug: slug) {
-            return String(
-                localized: "settings.automation.autoNamingAgent.requirement.supported",
-                defaultValue: "\(name) names every session. Requires its CLI on your PATH; if it can't produce a name, existing names are left unchanged."
-            )
-        }
         return String(
             localized: "settings.automation.autoNamingAgent.requirement.unsupported",
             defaultValue: "\(name) can't generate names yet, so cmux uses each session's own agent."

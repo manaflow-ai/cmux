@@ -63,6 +63,7 @@ extension TerminalNotificationDirectInteractionTests {
             workingDirectory: nil
         )
         let hostedView = surface.hostedView
+        defer { surface.releaseHostedSurfaceForTesting() }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)

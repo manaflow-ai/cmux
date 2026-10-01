@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { runChild } from "./helpers/run-child";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { guestBrowserInstallCommand, GUEST_BROWSER_FILES } from "../services/vms/guestBrowser";
 import { guestResourceReporterInstallCommand } from "../services/vms/guestResourceReporter";
 
 /** Executes the actual guest installer with filesystem paths confined to an owned directory. */
-function fixture(body: (root: string, run: (command: string) => void, calls: () => string[]) => void) {
+async function fixture(body: (root: string, run: (command: string) => Promise<void>, calls: () => string[]) => Promise<void>) {
   const root = mkdtempSync(join(tmpdir(), "cmux-guest-setup-"));
   const bin = join(root, "bin");
   mkdirSync(bin);
@@ -28,47 +28,55 @@ case "$1" in
   restart) touch "$FIXTURE_ROOT/active" ;;
   enable) touch "$FIXTURE_ROOT/active" "$FIXTURE_ROOT/enabled" ;;
 esac`);
-  if (spawnSync("which", ["sha256sum"]).status !== 0) tool("sha256sum", 'exec shasum -a 256 "$@"');
+  if ((await runChild("which", ["sha256sum"])).status !== 0) tool("sha256sum", 'exec shasum -a 256 "$@"');
   const calls = () => {
     try { return readFileSync(join(root, "calls"), "utf8").trim().split("\n").filter(Boolean); }
     catch { return []; }
   };
-  const run = (command: string) => {
+  /** Runs an installer command with its paths rebased into the fixture root. */
+  const run = async (command: string) => {
     const isolated = command.replaceAll("/usr/local/", `${root}/usr/local/`).replaceAll("/etc/", `${root}/etc/`);
-    const result = spawnSync("sh", ["-c", isolated], {
-      encoding: "utf8", env: { NODE_ENV: "test", PATH: `${bin}:${process.env.PATH}`, FIXTURE_ROOT: root, HOME: root },
+    const result = await runChild("sh", ["-c", isolated], {
+      env: { NODE_ENV: "test", PATH: `${bin}:${process.env.PATH}`, FIXTURE_ROOT: root, HOME: root },
     });
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
   };
-  try { body(root, run, calls); }
+  try { await body(root, run, calls); }
   finally { rmSync(root, { recursive: true, force: true }); }
 }
 
-test("an unchanged browser integration does not repeat MIME setup on create or attach", () => fixture((root, run, calls) => {
-  run(guestBrowserInstallCommand());
+test("an unchanged browser integration does not repeat MIME setup on create or attach", () => fixture(async (root, run, calls) => {
+  await run(guestBrowserInstallCommand());
   expect(calls()).toHaveLength(6);
-  run(guestBrowserInstallCommand());
+  await run(guestBrowserInstallCommand());
   expect(calls()).toHaveLength(6);
   const opener = GUEST_BROWSER_FILES[0];
   writeFileSync(join(root, opener.path), "broken");
-  run(guestBrowserInstallCommand());
+  await run(guestBrowserInstallCommand());
   expect(calls()).toHaveLength(12);
   expect(readFileSync(join(root, opener.path), "utf8")).toBe(opener.content);
+  rmSync(join(root, "usr/local/bin/xclip"));
+  await run(guestBrowserInstallCommand());
+  expect(calls()).toHaveLength(12);
+  expect(readFileSync(join(root, "usr/local/bin/xclip"), "utf8")).toContain("\\x1b]52;c;");
+  chmodSync(join(root, "usr/local/bin/xclip"), 0o644);
+  await run(guestBrowserInstallCommand());
+  expect(statSync(join(root, "usr/local/bin/xclip")).mode & 0o777).toBe(0o755);
 }));
 
-test("an unchanged running reporter needs no systemd mutation on attach", () => fixture((root, run, calls) => {
-  run(guestResourceReporterInstallCommand());
+test("an unchanged running reporter needs no systemd mutation on attach", () => fixture(async (root, run, calls) => {
+  await run(guestResourceReporterInstallCommand());
   const mutations = () => calls().filter(call => /^(enable|restart|daemon-reload)( |$)/.test(call));
   const installed = mutations();
   expect(installed).toContain("restart cmux-resource-stats.service");
-  run(guestResourceReporterInstallCommand());
+  await run(guestResourceReporterInstallCommand());
   expect(mutations()).toEqual(installed);
   rmSync(join(root, "active"));
-  run(guestResourceReporterInstallCommand());
+  await run(guestResourceReporterInstallCommand());
   expect(mutations().length).toBeGreaterThan(installed.length);
   const resumed = mutations().length;
   writeFileSync(join(root, "usr/local/lib/cmux/resource-stats.py"), "obsolete");
-  run(guestResourceReporterInstallCommand());
+  await run(guestResourceReporterInstallCommand());
   expect(mutations().slice(resumed)).toContain("restart cmux-resource-stats.service");
 }));

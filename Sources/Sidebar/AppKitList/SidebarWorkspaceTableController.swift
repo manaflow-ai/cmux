@@ -700,6 +700,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             where optimisticallyPaintedRowIds.contains(row.id) {
                 contentChanges.insert(index)
             }
+            // Drop the preview first. configure() early-returns when the
+            // authoritative model equals the stored one, so a preview whose
+            // selection did not land (replaced by a newer click, or an
+            // unrelated apply arriving first) otherwise kept its paint.
+            dropOptimisticPaint(onRowsWithIds: optimisticallyPaintedRowIds)
             optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
         }
         // Release pump geometry only when this apply actually supersedes the
@@ -1418,6 +1423,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         tableView.cacheDisplay(in: rowRect, to: representation)
         let rowImage = NSImage(size: rowRect.size)
         rowImage.addRepresentation(representation)
+        let badgeColor = (AppDelegate.shared?.accentColor ?? CmuxAccentColor()).nsColor(for: tableView.effectiveAppearance)
 
         return NSImage(size: size, flipped: false) { bounds in
             rowImage.draw(in: bounds)
@@ -1430,7 +1436,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 width: badgeDiameter,
                 height: badgeDiameter
             )
-            NSColor.controlAccentColor.setFill()
+            badgeColor.setFill()
             NSBezierPath(ovalIn: badgeRect).fill()
 
             let countText = "\(count)" as NSString
@@ -1472,6 +1478,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             releaseRetainedWorkspaceDragContainerIfPossible()
         }
         isWorkspaceDragSourceActive = true
+        SidebarReorderInteractionState.shared.setDragging(true, owner: self)
         workspaceDragSourceCompletionReceived = false
         if let sourceTableView {
             retainWorkspaceDragSource(sourceTableView)
@@ -1637,6 +1644,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // this same AppKit generation and must not keep the old graph alive.
         clearPendingWorkspaceDragWriters()
         isWorkspaceDragSourceActive = false
+        SidebarReorderInteractionState.shared.setDragging(false, owner: self)
         let sessionId = activeWorkspaceDragSessionId ?? pendingWorkspaceDragSessionId
         let capabilityValue = activeWorkspaceDragCapabilityValue ?? {
             guard let sessionId,
@@ -2061,6 +2069,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             guard let self, !Task.isCancelled, self.applyGeneration == generation else { return }
             self.previewBailoutTask = nil
             self.restoreVisibleCellPaint()
+        }
+    }
+
+    /// `rows` still describes the table here (flushApply calls this before
+    /// installing the next rows), so indexes map to the mounted cells.
+    private func dropOptimisticPaint(onRowsWithIds ids: Set<SidebarWorkspaceRenderItemID>) {
+        guard let table = containerView?.tableView else { return }
+        table.enumerateAvailableRowViews { _, row in
+            guard rows.indices.contains(row), ids.contains(rows[row].id) else { return }
+            let cellView = table.view(atColumn: 0, row: row, makeIfNecessary: false)
+            (cellView as? SidebarWorkspaceRowTableCellView)?.restoreStoredModelPaint()
+            (cellView as? SidebarGroupHeaderTableCellView)?.restoreStoredModelPaint()
         }
     }
 
@@ -2767,6 +2787,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             return
         }
         let rowId = configuration.id
+        cell.setPresentationActive(isPresentationActive)
         cell.configure(
             model: model,
             actions: actions,
@@ -2805,14 +2826,52 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     private func scrollSelectedRowToVisibleIfNeeded() {
-        guard let table = containerView?.tableView,
+        guard let container = containerView,
               let selectedScrollTargetWorkspaceId,
               let row = rows.firstIndex(where: { $0.workspaceId == selectedScrollTargetWorkspaceId }) else {
             return
         }
-        let visibleRect = table.visibleRect
-        guard !visibleRect.contains(table.rect(ofRow: row)) else { return }
-        table.scrollRowToVisible(row)
+        let table = container.tableView
+        let scrollView = container.scrollView
+        let clipView = scrollView.contentView
+        // `visibleRect` and `scrollRowToVisible` count the strips under the
+        // content insets (the titlebar scrim and the footer) as visible, so a
+        // selected row pushed down by a reorder could stay behind the footer.
+        guard let origin = Self.selectedRowScrollOrigin(
+            rowRect: table.convert(table.rect(ofRow: row), to: clipView),
+            clipBounds: clipView.bounds,
+            insets: scrollView.contentInsets,
+            documentHeight: table.frame.height
+        ) else { return }
+        clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: origin))
+        scrollView.reflectScrolledClipView(clipView)
+    }
+
+    /// The clip view origin that brings `rowRect` fully between the top and
+    /// bottom insets, moving as little as possible, or nil when it already is.
+    /// All rects are in the (flipped) clip view's coordinates.
+    nonisolated static func selectedRowScrollOrigin(
+        rowRect: NSRect,
+        clipBounds: NSRect,
+        insets: NSEdgeInsets,
+        documentHeight: CGFloat
+    ) -> CGFloat? {
+        let unobscuredMinY = clipBounds.minY + insets.top
+        let unobscuredMaxY = clipBounds.maxY - insets.bottom
+        let target: CGFloat
+        // A row taller than the clear area aligns its top, like a short row
+        // scrolled down to.
+        if rowRect.minY < unobscuredMinY || rowRect.height > unobscuredMaxY - unobscuredMinY {
+            target = rowRect.minY - insets.top
+        } else if rowRect.maxY > unobscuredMaxY {
+            target = rowRect.maxY + insets.bottom - clipBounds.height
+        } else {
+            return nil
+        }
+        let lowest = -insets.top
+        let highest = max(lowest, documentHeight + insets.bottom - clipBounds.height)
+        let clamped = min(max(target, lowest), highest)
+        return clamped == clipBounds.origin.y ? nil : clamped
     }
 
     private func configureDropViews(

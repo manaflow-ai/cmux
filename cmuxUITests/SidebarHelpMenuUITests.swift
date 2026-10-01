@@ -104,7 +104,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
         )
         XCTAssertTrue(
             app.staticTexts[
-                "A human will read this! You can also reach us at founders@manaflow.com."
+                "You can also reach us at founders@cmux.com."
             ].waitForExistence(timeout: 2.0)
         )
 
@@ -166,7 +166,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
         )
         settingsItem.click()
 
-        let settings = app.windows["Settings"]
+        let settings = app.windows["cmux.settings"]
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 6.0) { settings.exists },
             "Expected Settings to open from the sidebar Help menu"
@@ -198,7 +198,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
         )
         reopenedSettingsItem.click()
         XCTAssertTrue(
-            sidebarHelpPollUntil(timeout: 6.0) { app.windows["Settings"].exists },
+            sidebarHelpPollUntil(timeout: 6.0) { app.windows["cmux.settings"].exists },
             "Expected the Help menu to reopen Settings after closing it"
         )
 
@@ -277,6 +277,9 @@ final class SidebarHelpMenuUITests: XCTestCase {
     }
 
     private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {
+        // Minimal Mode hides the footer's Help button. Pin the standard
+        // layout, since a machine can keep Minimal Mode from an earlier run.
+        app.launchArguments += ["-workspacePresentationMode", "standard"]
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
         XCTExpectFailure("Headless CI may launch the app without foreground activation", options: options) {
@@ -520,20 +523,25 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         let searchField = app.textFields["CommandPaletteSearchField"]
         searchField.typeText("check")
 
-        let row0 = app.descendants(matching: .any).matching(identifier: "CommandPaletteResultRow.0").firstMatch
-        let row1 = app.descendants(matching: .any).matching(identifier: "CommandPaletteResultRow.1").firstMatch
+        // Row identifiers are "CommandPaletteResultRow.<index>.<commandId>".
+        let row0 = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "CommandPaletteResultRow.0."))
+            .firstMatch
+        let row1 = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "CommandPaletteResultRow.1."))
+            .firstMatch
 
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 5.0) {
                 row0.exists &&
                     row1.exists &&
-                    (row0.value as? String) == "palette.checkForUpdates" &&
-                    (row1.value as? String) == "palette.attemptUpdate"
+                    row0.identifier == "CommandPaletteResultRow.0.palette.checkForUpdates" &&
+                    row1.identifier == "CommandPaletteResultRow.1.palette.attemptUpdate"
             },
-            "Expected the check query to rank Check for Updates before Attempt Update. row0=\(String(describing: row0.value)) row1=\(String(describing: row1.value))"
+            "Expected the check query to rank Check for Updates before Attempt Update. row0=\(row0.identifier) row1=\(row1.identifier)"
         )
-        XCTAssertEqual(row0.value as? String, "palette.checkForUpdates")
-        XCTAssertEqual(row1.value as? String, "palette.attemptUpdate")
+        XCTAssertEqual(row0.identifier, "CommandPaletteResultRow.0.palette.checkForUpdates")
+        XCTAssertEqual(row1.identifier, "CommandPaletteResultRow.1.palette.attemptUpdate")
     }
 
     func testCmdPSearchCanIncludeSurfacesFromOtherWorkspacesWhenEnabled() throws {

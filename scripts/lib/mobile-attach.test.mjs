@@ -64,6 +64,7 @@ function waitForUsableSession(
   timeout = "15",
   event = '{"seq":101,"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","client_id":"phone-a","transport":"iroh","stream_id":"events"}}',
   expectedClientID = "phone-a",
+  graceSeconds = "0",
 ) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-admission-test-"));
   const argsPath = path.join(tempRoot, "args");
@@ -94,6 +95,7 @@ function waitForUsableSession(
         CMUX_TEST_ARGS: argsPath,
         CMUX_TEST_EVENT: event,
         CMUX_TEST_STATUS: String(status),
+        CMUX_ATTACH_READY_GRACE_SECONDS: graceSeconds,
       },
     );
     result.eventArgs = fs.existsSync(argsPath) ? fs.readFileSync(argsPath, "utf8").trim() : "";
@@ -547,7 +549,7 @@ test("dogfood readiness rejects an event from another client", () => {
 });
 
 test("dogfood readiness fails when a usable RPC session misses its deadline", () => {
-  const result = waitForUsableSession(1);
+  const result = waitForUsableSession(1, "100", "1");
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /did not establish a usable RPC session.*readiness deadline/i);
@@ -562,6 +564,14 @@ test("dogfood readiness writes a secret-free identity and latency receipt", () =
   assert.deepEqual(result.receipt, {
     schema: "cmux-ios-dogfood-readiness-v1",
     git_sha: "0123456789abcdef0123456789abcdef01234567",
+    tooling_checkout_sha: "0123456789abcdef0123456789abcdef01234567",
+    installed_bundle: {
+      bundle_id: "dev.cmux.ios.iosrdy",
+      executable_sha256: null,
+      source: "legacy_receipt_writer",
+      target: "physical_device",
+      target_id: "phone-a",
+    },
     tag: "iosrdy",
     bundle_id: "dev.cmux.ios.iosrdy",
     target: "physical_device",
@@ -575,6 +585,14 @@ test("dogfood readiness writes a secret-free identity and latency receipt", () =
     workspace_count: 2,
     stream_id: "events",
     transport: "iroh",
+    tooling_checkout_sha: "0123456789abcdef0123456789abcdef01234567",
+    installed_bundle: {
+      bundle_id: "dev.cmux.ios.iosrdy",
+      target: "physical_device",
+      target_id: "phone-a",
+      source: "legacy_receipt_writer",
+      executable_sha256: null,
+    },
   });
   assert.equal(result.directoryMode, 0o700);
   assert.equal(result.receiptMode, 0o600);
@@ -707,11 +725,11 @@ test("physical-device mint accepts the authenticated Tailscale fallback", async 
   assert.equal(result.callCount, 1);
 });
 
-test("physical-device mint waits for asynchronous Iroh publication", async () => {
+test("physical-device mint waits when no route is published yet", async () => {
   const payload = attachPayload("iroh");
   const result = await mintAttachURL(
     "physical_device",
-    [attachPayload("tailscale"), payload],
+    [attachPayload("none"), payload],
     2,
   );
   assert.equal(result.status, 0, result.stderr);

@@ -95,8 +95,6 @@ struct RightSidebarPanelView: View {
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
-    @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
-    private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
     private var cloudMachinesBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
@@ -116,7 +114,6 @@ struct RightSidebarPanelView: View {
         _ = managedPolicyRevision
         return RightSidebarMode.availableModes(
             feedEnabled: feedEnabled,
-            dockEnabled: dockEnabled,
             machinesEnabled: CloudMachinesFeature.isEnabled
         )
     }
@@ -148,10 +145,6 @@ struct RightSidebarPanelView: View {
         availableModes.map { RightSidebarModeBarItem(kind: .mode($0)) }
     }
 
-    private var focusShortcutHintAnimationValue: Bool {
-        alwaysShowShortcutHints || (showModifierHoldHints && focusShortcutHintMonitor.isModifierPressed)
-    }
-
     private func startShortcutHintMonitorsIfNeeded() {
         guard showModifierHoldHints else {
             stopShortcutHintMonitors()
@@ -177,7 +170,7 @@ struct RightSidebarPanelView: View {
             contentForMode
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .shortcutHintVisibilityAnimation(value: focusShortcutHintAnimationValue)
+        .rightSidebarButtonBorderShape()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Keep every mode (including Dock and AppKit-backed file rows) on the
         // same resolved cmux scheme as the window and left sidebar.
@@ -195,6 +188,7 @@ struct RightSidebarPanelView: View {
             }
             .frame(width: 0, height: 0)
         )
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("RightSidebar")
         .onAppear {
             startShortcutHintMonitorsIfNeeded()
@@ -212,7 +206,6 @@ struct RightSidebarPanelView: View {
             else { fileExplorerState.cloudTeamPickerPresentation.isPresented = false }
         }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
-        .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: cloudMachinesBetaEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onReceive(NotificationCenter.default.publisher(for: RightSidebarTabPreferences.didChangeNotification)) { _ in
             refreshModeAvailabilityAndFocusIfNeeded()
@@ -395,7 +388,9 @@ struct RightSidebarPanelView: View {
         .titlebarInteractiveControl()
     }
 
-    @ViewBuilder
+    /// The fade is scoped to the pill. Placing it on the whole panel made
+    /// any mode bar or content change that shared an update with a held
+    /// modifier flip animate along with the hint.
     private var focusShortcutHintOverlay: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let shortcut = KeyboardShortcutSettings.shortcut(for: .focusRightSidebar)
@@ -405,23 +400,27 @@ struct RightSidebarPanelView: View {
             modifierPressed: focusShortcutHintMonitor.isModifierPressed,
             modifierHoldHintsEnabled: showModifierHoldHints
         )
-        if showsFocusShortcutHint {
-            ShortcutHintPill(
-                shortcut: shortcut,
-                fontSize: 9,
-                emphasis: 1.05
-            )
-                .padding(.leading, 6)
-                .padding(.top, 5)
-                .offset(
-                    x: CGFloat(ShortcutHintDebugSettings.clamped(focusShortcutHintXOffset)),
-                    y: CGFloat(ShortcutHintDebugSettings.clamped(focusShortcutHintYOffset))
+        return ZStack(alignment: .topLeading) {
+            if showsFocusShortcutHint {
+                ShortcutHintPill(
+                    shortcut: shortcut,
+                    fontSize: 9,
+                    emphasis: 1.05
                 )
-                .shortcutHintTransition()
-                .accessibilityIdentifier("rightSidebarFocusShortcutHint")
-                .allowsHitTesting(false)
-                .zIndex(10)
+                    .padding(.leading, 6)
+                    .padding(.top, 5)
+                    .offset(
+                        x: CGFloat(ShortcutHintDebugSettings.clamped(focusShortcutHintXOffset)),
+                        y: CGFloat(ShortcutHintDebugSettings.clamped(focusShortcutHintYOffset))
+                    )
+                    .shortcutHintTransition()
+                    .accessibilityIdentifier("rightSidebarFocusShortcutHint")
+                    .allowsHitTesting(false)
+                    .zIndex(10)
+            }
         }
+        .allowsHitTesting(false)
+        .shortcutHintVisibilityAnimation(value: showsFocusShortcutHint)
     }
 
     @ViewBuilder

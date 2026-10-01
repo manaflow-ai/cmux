@@ -490,7 +490,8 @@ struct ControlCommandCoordinatorSurfaceTests {
                 preparedArguments: command.arguments,
                 preparedArgumentsWorkingDirectory: "/tmp/日本語",
                 permissionMode: nil,
-                legacyCommand: nil
+                legacyCommand: nil,
+                continuationPrompt: "Continue where you left off."
             )
         ))
         let coordinator = ControlCommandCoordinator(context: context)
@@ -515,6 +516,7 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(launch["arguments"] == .array(command.arguments.map(JSONValue.string)))
         #expect(launch["verification_home"] == .string("/tmp/launch-user"))
         #expect(record["legacy_command"] == .null)
+        #expect(record["continuation_prompt"] == .string("Continue where you left off."))
         #expect(resumeBinding["resume_evidence_provenance"] == .string("tui"))
         #expect(payload["agent_restore_admission_supported"] == .bool(true))
     }
@@ -642,6 +644,88 @@ struct ControlCommandCoordinatorSurfaceTests {
             return
         }
         #expect(launch["external_launcher"] == .string("teamclaude"))
+    }
+
+    /// The launcher argv recorded at the hook (`sr claude proxy --account x`) carries the account
+    /// pin a routed restore replays, so it has to survive the hook -> app -> CLI round trip.
+    @Test func surfaceResumeTransportsTheLauncherPrefix() throws {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        context.resumeResolution = .setFailed
+        let prefix = ["sr", "claude", "proxy", "--account", "me@example.com"]
+
+        _ = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.set",
+            params: [
+                "command": .string("claude --resume checkpoint"),
+                "kind": .string("claude"),
+                "source": .string("agent-hook"),
+                "launch_command": .object([
+                    "executable_path": .string("/opt/claude"),
+                    "arguments": .array([.string("/opt/claude")]),
+                    "launcher_prefix": .array(prefix.map(JSONValue.string)),
+                ]),
+            ]
+        ))
+        let inputs = try #require(context.resumeSetInputs)
+        #expect(inputs.launchCommand?.launcherPrefix == prefix)
+
+        // Anything but a non-empty array of strings is dropped, not half-kept.
+        for malformed: JSONValue in [.array([]), .array([.string("sr"), .int(1)]), .string("sr claude proxy")] {
+            _ = coordinator.handle(ControlRequest(
+                id: .int(2),
+                method: "surface.resume.set",
+                params: [
+                    "command": .string("claude --resume checkpoint"),
+                    "kind": .string("claude"),
+                    "launch_command": .object([
+                        "arguments": .array([.string("/opt/claude")]),
+                        "launcher_prefix": malformed,
+                    ]),
+                ]
+            ))
+            #expect(context.resumeSetInputs?.launchCommand?.launcherPrefix == nil)
+        }
+
+        context.resumeResolution = .result(ControlSurfaceResumeSnapshot(
+            windowID: nil,
+            workspaceID: UUID(),
+            paneID: nil,
+            surfaceID: UUID(),
+            cleared: false,
+            binding: nil,
+            restoreRecord: ControlSurfaceRestoreRecord(
+                modeRawValue: "resumeAgent",
+                kind: "claude",
+                checkpointID: "checkpoint",
+                source: "agent-hook",
+                workingDirectory: nil,
+                environment: [:],
+                launchCommand: ControlAgentLaunchCommand(
+                    launcher: nil,
+                    executablePath: "/opt/claude",
+                    arguments: ["/opt/claude"],
+                    workingDirectory: nil,
+                    environment: nil,
+                    capturedAt: nil,
+                    source: "agent-hook",
+                    launcherPrefix: prefix
+                ),
+                preparedArguments: nil,
+                preparedArgumentsWorkingDirectory: nil,
+                permissionMode: nil,
+                legacyCommand: nil
+            )
+        ))
+        let result = coordinator.handle(ControlRequest(id: .int(3), method: "surface.resume.get", params: [:]))
+        guard case .ok(.object(let payload)) = result,
+              case .object(let record)? = payload["restore_record"],
+              case .object(let launch)? = record["launch_command"] else {
+            Issue.record("expected structured restore record")
+            return
+        }
+        #expect(launch["launcher_prefix"] == .array(prefix.map(JSONValue.string)))
     }
 
     @Test func surfaceResumeClearForwardsManagedSessionEndProvenance() {

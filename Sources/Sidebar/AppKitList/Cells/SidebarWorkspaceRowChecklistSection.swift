@@ -25,7 +25,7 @@ final class SidebarRowChecklistSection: NSView {
     private var orderedLines: [SidebarRowChecklistItemLine] = []
     private var freeLines: [SidebarRowChecklistItemLine] = []
     private let addRow = SidebarRowChecklistAddRow()
-    private let popoverPresenter = SidebarRowSwiftUIPopoverPresenter()
+    let popoverPresenter = SidebarRowSwiftUIPopoverPresenter()
 
     private var model: SidebarWorkspaceRowModel?
     private var actions: SidebarAppKitRowActions?
@@ -487,6 +487,9 @@ final class SidebarRowChecklistSection: NSView {
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow == nil, popoverPresenter.isShown {
             popoverAnchorDetachedWhilePresented = true
+            // Let the close this detach triggers finish without waiting on
+            // its animation, so the deferred re-present below always runs.
+            popoverPresenter.suppressCloseAnimationForAnchorDetach()
         }
         super.viewWillMove(toWindow: newWindow)
     }
@@ -507,6 +510,7 @@ final class SidebarRowChecklistSection: NSView {
                       self.popoverPresenter.isShown,
                       !self.popoverPresenter.isClosing else { return }
                 self.popoverAnchorDetachedWhilePresented = false
+                self.popoverPresenter.restoreCloseAnimationAfterAnchorReattach()
             }
         }
         if window != nil, pendingPopoverPresentation {

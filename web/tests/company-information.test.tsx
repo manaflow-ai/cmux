@@ -13,7 +13,7 @@ test("publishes the legal entity, contact, address, and both domains", () => {
   expect(html).toContain("18428 Vantage Pointe Dr");
   expect(html).toContain("Rowland Heights");
   expect(html).toContain("91748-5142");
-  expect(html).toContain("founders@manaflow.com");
+  expect(html).toContain("founders@cmux.com");
   expect(html).toContain("manaflow.com");
   expect(html).toContain("cmux.com");
   expect(html).toContain("application/ld+json");

@@ -268,7 +268,7 @@ struct RemoteResumeBindingTests {
             return
         }
 
-        let authorization = await TerminalController.shared.authorizeRemoteRelayRequestAsync(parsed)
+        let authorization = try await TerminalController.shared.authorizeRemoteRelayRequestAsync(parsed)
         #expect(authorization.errorResponse == nil)
         #expect(authorization.request.method == "agent.resolve_delivery_target")
         #expect(authorization.request.params["_cmux_remote_relay_request_authentication_code"] == nil)
@@ -683,13 +683,15 @@ struct RemoteResumeBindingTests {
         #expect(hookParams["checkpoint_id"] as? String == "kiro-remote-session")
         #expect(hookParams["auto_resume"] as? Bool == true)
 
-        // Even a persistent-SSH workspace with a daemon slot no longer accepts
-        // an authenticated relay-originated registration; nothing is stored.
+        // Resume methods are not relay methods: even a persistent-SSH workspace
+        // with a daemon slot rejects the relayed registration at the relay
+        // gate, and nothing is stored.
         let relayedData = workspace.rewriteRemoteRelayCommandLine(try requestData(resumeRequest))
         let relayed = try v2Envelope(requestData: relayedData)
         #expect(relayed["ok"] as? Bool == false, "\(relayed)")
         let relayedError = relayed["error"] as? [String: Any]
-        #expect(relayedError?["message"] as? String == "Failed to set resume binding", "\(relayed)")
+        #expect(relayedError?["code"] as? String == "remote_relay_method_denied", "\(relayed)")
+        #expect(relayedError?["message"] as? String == "Relay method is not permitted", "\(relayed)")
         let bindingAfterRelay = try v2Result(request: [
             "id": "binding-after-relayed-registration",
             "method": "surface.resume.get",

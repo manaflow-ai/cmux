@@ -14,6 +14,10 @@ extension Workspace {
         case .insert(let pane, _), .split(let pane, _, _): target = pane
         }
         guard bonsplitController.allPaneIds.contains(target) else { return false }
+        if case .split(let pane, let orientation, _) = destination,
+           !admitsSplitSpacePreflight(splitting: pane, orientation: orientation) {
+            return false
+        }
         let existing = panels.values.compactMap { $0 as? RightSidebarToolPanel }.first { $0.mode == mode }
         guard let panel = existing ?? newRightSidebarToolSurface(inPane: target, mode: mode, focus: false),
               let tab = surfaceIdFromPanelId(panel.id) else { return false }

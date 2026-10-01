@@ -5,4 +5,8 @@ internal import Foundation
 struct MobileTaskModelCacheEntry: Equatable {
     let result: MobileTaskModelListResult
     let fetchedAt: Date
+    /// The exact live client that produced an authoritative host catalog.
+    /// Backend entries intentionally leave this unset because they are not
+    /// tied to one connection instance.
+    let connectionIdentity: String?
 }

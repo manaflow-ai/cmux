@@ -15,6 +15,7 @@ struct CloudTreeRowHoverButtons: View {
                     incomingAccessEnabled: section.incomingAccessEnabled,
                     discoveryManaged: section.discoveryManaged,
                     incomingAccessManaged: section.incomingAccessManaged,
+                    unavailable: !section.available,
                     setDiscovery: { nodeActions.setDeviceDiscovery($0) },
                     setIncomingAccess: { nodeActions.setDeviceIncomingAccess($0) }
                 )
@@ -25,12 +26,23 @@ struct CloudTreeRowHoverButtons: View {
                     .frame(width: 22, height: 20)
                     .contentShape(Rectangle())
             }
-            .menuStyle(.borderlessButton)
+            // A plain button menu keeps the label's 22×20 frame as the control,
+            // matching the Cloud Machines "+" in size and hit area; the
+            // borderless style shrinks it to the symbol.
+            .menuStyle(.button)
+            .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
             .help(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
             .accessibilityLabel(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
             .accessibilityIdentifier("DevicesOptionsMenu")
+        case .cloudMachinesSection(let canCreateMachine, _):
+            if canCreateMachine {
+                plus(String(localized: "machines.new", defaultValue: "New Machine")) {
+                    nodeActions.newMachine()
+                }
+                .accessibilityIdentifier("CloudMachinesNewMachineButton")
+            }
         case .machine(let machine, _):
             MachinesChromeIconButton(
                 symbolName: "trash",
@@ -77,9 +89,15 @@ struct CloudTreeRowHoverButtons: View {
             }
         case .displaysPool(let machine, _, let canCreate):
             plus(String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display")) {
-                nodeActions.newDisplay(machine)
+                Self.performDisplayCreationIfAvailable(canCreate) {
+                    nodeActions.newDisplay(machine)
+                }
             }
-            .disabled(!canCreate)
+            // Keep the host hit-testable while guest discovery is pending.
+            // Disabling the SwiftUI button makes AppKit hand the click to the
+            // outline row, which collapses Displays instead of starting the
+            // self-starting creation path.
+            .opacity(canCreate ? 1 : 0.55)
             .help(canCreate ? String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display") : CloudGuestDisplaySnapshot.unavailableMessage)
         case .workspacesGroup(let machine):
             plus(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) {
@@ -110,8 +128,10 @@ struct CloudTreeRowHoverButtons: View {
     /// True when this row kind renders any hover button at all.
     static func hasButtons(for kind: CloudTreeNode.Kind) -> Bool {
         switch kind {
-        case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .devicesSection, .cloudMachinesSection:
+        case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .devicesSection:
             return true
+        case .cloudMachinesSection(let canCreateMachine, _):
+            return canCreateMachine
         case .pendingMachine:
             return true
         case .device(let row):
@@ -121,6 +141,15 @@ struct CloudTreeRowHoverButtons: View {
         default:
             return false
         }
+    }
+
+    /// The Displays affordance remains visible while guest discovery is pending
+    /// so its unavailable state can explain itself on hover. Keep that visual
+    /// affordance from dispatching a create operation until the snapshot says
+    /// the machine can accept one.
+    static func performDisplayCreationIfAvailable(_ canCreate: Bool, action: () -> Void) {
+        guard canCreate else { return }
+        action()
     }
 
     private func plus(_ label: String, action: @escaping () -> Void) -> some View {
