@@ -45,6 +45,7 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
     }
     var attach: Result<CloudAttachEndpoint, any Error> = .success(CloudAttachEndpoint(route: "ws://[fd00::10]:1337/v1/link", session: "s1"))
     var approvals: [Bool] = [true]
+    var approvalDelay: Duration?
     var approvalFailure: (any Error)?
     /// Thrown by pause, resume and delete when set.
     var lifecycleFailure: (any Error)?
@@ -209,6 +210,9 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
         let index = lock.withLock { calls -> Int in
             calls.approve.append((machineID, invitationId))
             return calls.approve.count - 1
+        }
+        if let approvalDelay {
+            try await Task.sleep(for: approvalDelay)
         }
         if let approvalFailure { throw approvalFailure }
         return index < approvals.count ? approvals[index] : approvals.last ?? true

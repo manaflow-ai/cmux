@@ -606,6 +606,33 @@ import Testing
         }
     }
 
+    @Test func approvalTimeoutCancelsAnInFlightRequest() async {
+        let service = FakeCloudVMService()
+        service.approvals = [false]
+        service.approvalDelay = .seconds(10)
+        let clock = TestClock()
+        let loop = Task {
+            try await CloudMachineConnection.approveUntilGranted(
+                service: service,
+                machineID: "vm1",
+                invitationId: "inv",
+                clock: clock,
+                timeout: .milliseconds(100)
+            )
+        }
+
+        await settle { clock.sleepers == 1 }
+        clock.advance(by: .seconds(2))
+        await settle { service.calls.approve.count == 1 }
+
+        do {
+            try await loop.value
+            Issue.record("approval unexpectedly succeeded")
+        } catch {
+            #expect(String(describing: error) == "cloud invitation approval timed out")
+        }
+    }
+
     @Test func approvalFailureReachesCatalogBeforeLateConnectReturns() async throws {
         let service = FakeCloudVMService()
         service.machines = .success([CloudMachine(id: "vm1", provider: "p", status: "running")])
@@ -698,6 +725,27 @@ import Testing
         }
         await settle { connector.session.state.disconnected == 1 }
         #expect(connector.session.state.disconnected == 1)
+    }
+
+    @Test func refreshingDuringInitialConnectionRetriesAfterCancellation() async throws {
+        let connector = FakeConnector()
+        let started = TestSignal()
+        let release = TestSignal()
+        connector.connectGate = (started, release)
+        let controller = makeController(connector: connector)
+        controller.sectionDidAppear()
+        await settle { if case .ready = controller.tunnel { return true }; return false }
+        let connection = try #require(controller.connection(for: CloudMachine(id: "vm1", provider: "p", status: "running")))
+
+        connection.refreshTerminals()
+        await started.wait()
+        try? await Task.sleep(for: .milliseconds(20))
+        connection.refreshTerminals()
+        connector.connectGate = nil
+        await release.signal()
+
+        await settle { connection.terminals == .loaded([CloudTerminalSummary(id: "t1", name: "shell")]) }
+        #expect(connection.terminals == .loaded([CloudTerminalSummary(id: "t1", name: "shell")]))
     }
 
     @Test func linkFailureIsReportedOnTheCatalog() async throws {

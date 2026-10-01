@@ -201,6 +201,10 @@ private actor CloudConnectionInFlight {
         !waiters.isEmpty || !deliveredWaiters.isEmpty || activeClaims > 0
     }
 
+    func wasCancelled() -> Bool {
+        cancelled
+    }
+
     private func startMonitoringIfNeeded() {
         guard !isMonitoring else { return }
         isMonitoring = true
@@ -481,6 +485,14 @@ public final class CloudMachineConnection {
                 self.connectionInFlight = nil
                 return session
             } catch {
+                if await connectionInFlight.wasCancelled() {
+                    if self.connectionInFlight === connectionInFlight {
+                        connectTask = nil
+                        self.connectionInFlight = nil
+                    }
+                    guard !closed, !Task.isCancelled else { throw error }
+                    return try await connectedSession()
+                }
                 if !(await connectionInFlight.hasWaiters()) {
                     connectTask = nil
                     self.connectionInFlight = nil
@@ -586,7 +598,31 @@ public final class CloudMachineConnection {
         machineID: String,
         invitationId: String,
         clock: any Clock<Duration>,
-        attemptLimit: Int = 150
+        attemptLimit: Int = 150,
+        timeout: Duration = .seconds(5 * 60)
+    ) async throws {
+        let pollingTask = Task<Void, any Error> {
+            try await Self.pollForApproval(
+                service: service,
+                machineID: machineID,
+                invitationId: invitationId,
+                clock: clock,
+                attemptLimit: attemptLimit
+            )
+        }
+        do {
+            _ = try await CloudSystemVPNTaskTimeout(timeout: timeout).value(pollingTask)
+        } catch is CloudSystemVPNTaskTimeout.Failure {
+            throw CloudMachineConnectionError.approvalTimedOut
+        }
+    }
+
+    private static func pollForApproval(
+        service: any CloudVMServing,
+        machineID: String,
+        invitationId: String,
+        clock: any Clock<Duration>,
+        attemptLimit: Int
     ) async throws {
         for _ in 0 ..< max(1, attemptLimit) {
             try Task.checkCancellation()
