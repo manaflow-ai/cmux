@@ -19,6 +19,9 @@ final class NotificationCenterService {
     @ObservationIgnored weak var services: AppServices?
     @ObservationIgnored let desktop = DesktopNotifier()
     @ObservationIgnored private var lastKeystroke: [String: ContinuousClock.Instant] = [:]
+    /// The last manual unread clear sent, so key repeat before the daemon's
+    /// echo does not send one per key.
+    @ObservationIgnored private var markClear: (workspace: String, at: ContinuousClock.Instant)?
     /// `timeout` dismissal deadlines per tab id (one-shot `DemandTimer`s).
     @ObservationIgnored private var timeouts: [String: DemandTimer] = [:]
     /// Banner ids posted per tab id, withdrawn once the tab is read.
@@ -88,6 +91,7 @@ final class NotificationCenterService {
     func noteTyping(in window: NSWindow?) {
         guard let tab = focusedTab(in: window) else { return }
         lastKeystroke[tab] = .now
+        if isTerminalFocused(in: window) { clearUnreadMark(ofTab: tab) }
         interacted(.keystroke, tabID: tab)
     }
 
@@ -118,20 +122,23 @@ final class NotificationCenterService {
     }
 
     func interacted(_ trigger: NotificationTrigger, tabID: String) {
-        if trigger == .keystroke { clearUnreadMark(ofTab: tabID) }
         guard let services, let tab = Self.tab(id: tabID, in: services.daemon.store), tab.hasUnread else { return }
         guard NotificationPolicy.clears(trigger, mode: preferences.dismissal(for: source(of: tab))) else { return }
         note("\(trigger.rawValue) read \(tabID)")
         acknowledge(tab)
     }
 
-    /// Typing into a tab clears its workspace's manual unread mark, as
-    /// terminal input did in the old app; focus and selection keep it.
+    /// Typing into a terminal clears its workspace's manual unread mark, as
+    /// terminal input did in the old app; focus, selection, and typing in
+    /// a page or find bar keep it.
     private func clearUnreadMark(ofTab tab: String) {
         // Runs per keystroke: no tab walk unless some workspace is marked.
         guard let services, services.daemon.store.workspaces.contains(where: \.markedUnread),
               let workspace = WorkspaceUnreadMark.workspace(ofTab: tab, in: services.daemon.store),
               workspace.markedUnread else { return }
+        let now = ContinuousClock.now
+        if let sent = markClear, sent.workspace == workspace.id, now - sent.at < .seconds(2) { return }
+        markClear = (workspace.id, now)
         WorkspaceUnreadMark.set(false, on: [workspace], daemon: services.daemon)
     }
 

@@ -23,6 +23,14 @@ extension NotificationCenterService {
         return controller.flatMap { Self.contentTab($0.focus.state.resolved) }
     }
 
+    /// `window`'s focus is a terminal (not a page, address bar, or find bar).
+    func isTerminalFocused(in window: NSWindow?) -> Bool {
+        guard let services, let window = CmuxApplication.accessibilityWindow(for: window),
+              let controller = services.windows.controllers.first(where: { $0.window === window }) else { return false }
+        if case .terminal = controller.focus.state.resolved { return true }
+        return false
+    }
+
     /// The tab is the focused content of the key window while cmux is active.
     func isViewed(_ tabID: String) -> Bool {
         guard let services, NSApp.isActive else { return false }
@@ -49,7 +57,7 @@ extension NotificationCenterService {
     }
 
     /// Unread tabs, plus one per workspace marked unread by hand without
-    /// any, as the old app counted its manual unread.
+    /// any, roughly as the old app counted its manual unread.
     static func unreadCount(_ store: DaemonStore?) -> Int {
         store?.workspaces.reduce(0) { total, workspace in
             let count = workspace.unreadCount
