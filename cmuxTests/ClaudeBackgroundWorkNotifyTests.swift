@@ -22,9 +22,12 @@ struct ClaudeBackgroundWorkNotifyTests {
         // must not mark the completion as pending or poison the later idle signal.
         #expect(notifyLine(result.snapshot, containing: "c=turn-complete;p=0") != nil)
         #expect(journalEvent(result.snapshot, kind: "agent.turn.completed", pendingWork: false) != nil)
-        // A re-entrant Stop is the agent itself still going, not a pane parked
-        // on a deterministic wakeup, so it stays Running.
-        #expect(statusLine(result.snapshot, value: "Running") != nil)
+        // A re-entrant Stop is the last hook of the continuation Claude ran
+        // after a Stop hook blocked once: the turn is complete and no later
+        // hook arrives to settle the pane, so it must land on Idle (#15595),
+        // matching the settled lifecycle and turn-complete ping above.
+        #expect(statusLine(result.snapshot, value: "Idle") != nil)
+        #expect(statusLine(result.snapshot, value: "Running") == nil)
         #expect(statusLine(result.snapshot, value: "Waiting") == nil)
     }
 
