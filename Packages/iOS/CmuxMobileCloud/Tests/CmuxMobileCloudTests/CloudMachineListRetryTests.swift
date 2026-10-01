@@ -45,6 +45,28 @@ import Testing
         #expect(service.calls.list == 2)
     }
 
+    @Test func foregroundRestartsTheInitialRetryCancelledByBackgrounding() async {
+        let service = FakeCloudVMService()
+        service.machines = .failure(CloudAPIError.sessionUnavailable)
+        let clock = TestClock()
+        let controller = makeController(service: service, clock: clock)
+
+        controller.refreshMachines()
+        await settle { clock.sleepers == 1 }
+        #expect(controller.machines.isLoading)
+        controller.sceneDidEnterBackground()
+        clock.advance(by: .seconds(2))
+        for _ in 0..<200 { await Task.yield() }
+        #expect(service.calls.list == 1)
+
+        service.machines = .success([Self.machine])
+        controller.sceneWillEnterForeground()
+        await settle { controller.machines == .loaded([Self.machine]) }
+
+        #expect(controller.machines == .loaded([Self.machine]))
+        #expect(service.calls.list == 2)
+    }
+
     @Test func repeatedTransientFailuresShowAndKeepRetryingWithBackoff() async {
         let service = FakeCloudVMService()
         service.machines = .failure(CloudAPIError.httpStatus(503, message: "provider down", action: nil))

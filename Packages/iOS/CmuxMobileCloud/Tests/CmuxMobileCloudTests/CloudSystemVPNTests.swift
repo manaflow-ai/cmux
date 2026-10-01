@@ -956,7 +956,7 @@ import Testing
     @Test func allPersistedRevocationsAreProcessedBeyondTheWorkingSet() async {
         let pendingStore = InMemoryCloudSystemVPNPendingRevocationStore()
         await pendingStore.save(
-            Set((0..<40).map {
+            Set((0..<80).map {
                 CloudSystemVPNPendingRevocation(
                     deviceFingerprint: "persisted-\($0)",
                     teamID: nil
@@ -967,11 +967,11 @@ import Testing
         let rig = Rig(pendingRevocationStore: pendingStore)
 
         await signedIn(rig)
-        for _ in 0..<100 where rig.service.calls.revoke.count < 40 {
+        for _ in 0..<100 where rig.service.calls.revoke.count < 80 {
             try? await ContinuousClock().sleep(for: .milliseconds(5))
         }
 
-        #expect(rig.service.calls.revoke.count == 40)
+        #expect(rig.service.calls.revoke.count == 80)
         #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1").isEmpty)
     }
 
