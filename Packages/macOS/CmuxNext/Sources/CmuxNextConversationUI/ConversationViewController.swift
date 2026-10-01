@@ -98,7 +98,11 @@ final class ConversationViewController: NSViewController, NSTableViewDataSource,
         let atBottom = scroll.contentView.bounds.maxY >= table.bounds.height - 40
         rows = next
         table.reloadData()
-        if atBottom, !rows.isEmpty { table.scrollRowToVisible(rows.count - 1) }
+        if atBottom, !rows.isEmpty {
+            // Automatic row heights settle on layout; scroll after it.
+            table.layoutSubtreeIfNeeded()
+            table.scrollRowToVisible(rows.count - 1)
+        }
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }

@@ -29,10 +29,15 @@ final class AgentService {
     private var outbox: FileOutboxStore?
     private var dataDirectory: URL?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent")
+    /// No-activate launches never take focus; a test launch also places the window.
+    private var noActivate = false
+    private var testWindow: TestWindowPlacement?
 
     /// Starts the daemon and the backend. Without a bundled acpmux the agent
     /// GUI stays unavailable.
-    func start(launch: LaunchIdentity) {
+    func start(launch: LaunchIdentity, noActivate: Bool = false, testWindow: TestWindowPlacement? = nil) {
+        self.noActivate = noActivate
+        self.testWindow = testWindow
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         guard let configuration = AcpmuxLaunchConfiguration.forApp(tag: launch.tag, bundle: .main, processEnvironment: ProcessInfo.processInfo.environment, applicationSupport: support) else {
             supervisorState = .unavailable
@@ -77,8 +82,16 @@ final class AgentService {
             let workspace = data.appendingPathComponent("workspace", isDirectory: true)
             try? FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
             window = AgentWindowController(backend: backend, outbox: outbox, previewDirectory: data.appendingPathComponent("previews", isDirectory: true), defaultDirectory: workspace.path)
+            if let testWindow, let frame = testWindow.windowFrame(ordinal: 1, visibleFrames: NSScreen.screens.map(\.visibleFrame)) {
+                window?.window?.setFrame(frame, display: false)
+            }
         }
-        window?.showWindow(nil)
+        if noActivate {
+            // Never key, never activating the app (agent preflights).
+            window?.window?.orderFrontRegardless()
+        } else {
+            window?.showWindow(nil)
+        }
         return window
     }
 
