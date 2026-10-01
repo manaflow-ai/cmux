@@ -88,8 +88,8 @@ extension PageInfoPages {
     static func connectionSymbol(_ connection: PageInfoConnection) -> String {
         switch connection {
         case .secure: "lock"
-        case .insecure, .mixedContent: PageInfoIndicator.Symbol.notSecure
-        case .certificateError, .dangerous: PageInfoIndicator.Symbol.dangerous
+        case .insecure, .mixedContent: PageInfoIndicator.notSecureSymbol
+        case .certificateError, .dangerous: PageInfoIndicator.dangerousSymbol
         }
     }
 

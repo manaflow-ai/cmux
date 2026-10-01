@@ -21,8 +21,8 @@ enum CookieFixtures {
             priority INTEGER NOT NULL, samesite INTEGER NOT NULL, source_scheme INTEGER NOT NULL)
             """,
         ]
-        let future = BrowserTime.chromiumMicroseconds(Date().addingTimeInterval(86_400 * 30))
-        let created = BrowserTime.chromiumMicroseconds(Date(timeIntervalSince1970: 1_700_000_000))
+        let future = BrowserTime().chromiumMicroseconds(Date().addingTimeInterval(86_400 * 30))
+        let created = BrowserTime().chromiumMicroseconds(Date(timeIntervalSince1970: 1_700_000_000))
         for row in rows {
             let blob = try crypto.encrypt(row.value, hostKey: row.host, databaseVersion: version).map { String(format: "%02x", $0) }.joined()
             statements.append("""

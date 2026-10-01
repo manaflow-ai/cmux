@@ -41,9 +41,9 @@ public struct CookieImporter: Sendable {
                 return CookieReadResult(cookies: [])
             }
             let password = try keys.password(service: service)
-            return try ChromiumCookieReader.read(file, crypto: ChromiumCookieCrypto(safeStoragePassword: password), now: now)
+            return try ChromiumCookieReader().read(file, crypto: ChromiumCookieCrypto(safeStoragePassword: password), now: now)
         case .firefox:
-            return try FirefoxCookieReader.read(profile.path.appending(path: "cookies.sqlite"), now: now)
+            return try FirefoxCookieReader().read(profile.path.appending(path: "cookies.sqlite"), now: now)
         case .safari:
             // `path` is ~/Library/Safari; the cookie file is in Safari's container.
             guard let relative = browser.safariCookieFile else { return CookieReadResult(cookies: []) }
@@ -52,7 +52,7 @@ public struct CookieImporter: Sendable {
             switch FileAccess.probe(file) {
             case .denied: throw CookieImportError.needsFullDiskAccess
             case .missing: return CookieReadResult(cookies: [])
-            case .readable: return try SafariBinaryCookies.parse(Data(contentsOf: file), now: now)
+            case .readable: return try SafariBinaryCookies().parse(Data(contentsOf: file), now: now)
             }
         case .webkit:
             throw CookieImportError.malformed(browser.displayName)

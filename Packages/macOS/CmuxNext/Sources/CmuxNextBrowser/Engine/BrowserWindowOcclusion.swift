@@ -11,12 +11,12 @@ public protocol BrowserWindowOcclusionProviding: AnyObject {
     var browserOcclusionRectsInWindow: [CGRect] { get }
 }
 
-public enum BrowserChildWindowPages {
+extension Notification.Name {
     /// Post (object: the `NSWindow`) to make every child-window page of that
     /// window re-apply its geometry, clip and occlusion: when
     /// ``BrowserWindowOcclusionProviding/browserOcclusionRectsInWindow``
     /// changes, and after the window moved or resized by any means (drag,
     /// Accessibility clients such as Rectangle, display or Space changes,
     /// fullscreen, deminiaturize).
-    public static let needsUpdate = Notification.Name("CmuxBrowserChildWindowPagesNeedUpdate")
+    public static let browserChildWindowPagesNeedUpdate = Notification.Name("CmuxBrowserChildWindowPagesNeedUpdate")
 }

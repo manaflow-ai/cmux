@@ -370,10 +370,10 @@ final class CEFRuntime {
         hosts = hosts.filter { $0.key.profile != profile || !$0.value.tabs.isEmpty }
     }
 
-    func host(for key: CEFPaneKey) -> CEFPaneHost {
+    func host(for key: CEFPaneKey, lifecycleTrace: BrowserLifecycleTrace = .shared, contextMenus: BrowserContextMenuBuilder = .shared) -> CEFPaneHost {
         if let host = hosts[key] { return host }
         usedProfiles.insert(key.profile)
-        let host = CEFPaneHost(key: key, runtime: self)
+        let host = CEFPaneHost(key: key, runtime: self, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         hosts[key] = host
         return host
     }

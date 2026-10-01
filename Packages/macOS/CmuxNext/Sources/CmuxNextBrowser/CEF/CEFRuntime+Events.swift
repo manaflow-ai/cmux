@@ -188,12 +188,12 @@ extension CEFRuntime {
             // one again: that stale completion jumped the selection back.
             if let tab = tabsByBrowser[browser], tab.host.visibleTab !== tab {
                 guard tab.host.isForeignActivation(of: tab) else {
-                    BrowserLifecycleTrace.record(tab.id, "chromium-activated echo dropped")
+                    tab.host.lifecycleTrace.record(tab.id, "chromium-activated echo dropped")
                     return
                 }
                 Task { @MainActor [weak tab] in
                     guard let tab, tab.host.isForeignActivation(of: tab) else { return }
-                    BrowserLifecycleTrace.record(tab.id, "chromium-activated selects tab")
+                    tab.host.lifecycleTrace.record(tab.id, "chromium-activated selects tab")
                     tab.emit(.activate)
                 }
             }
