@@ -262,7 +262,9 @@ def validate_localization(english: str, localization: dict, locale: str, allow_i
         referenced.update(name for token in placeholders(value) if (name := substitution_name(token)) is not None)
         try:
             actual = signature(value, substitutions)
-            if actual != expected:
+            # Numbered placeholders may appear in any order; what must match
+            # is which arguments are consumed and with which specifiers.
+            if sorted(actual) != sorted(expected):
                 errors.append(f"{location}: placeholders {actual!r} != {expected!r}")
             for category in expansion_categories:
                 expanded = expand_text(value, substitutions, category)
