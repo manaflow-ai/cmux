@@ -421,6 +421,27 @@ import Testing
         #expect(connector.session.state.disconnected == 1)
     }
 
+    @Test func closedConnectionCannotDialAgain() async throws {
+        let service = FakeCloudVMService()
+        service.machines = .success([CloudMachine(id: "vm1", provider: "freestyle", status: "running")])
+        let connector = FakeConnector()
+        let controller = makeController(service: service, connector: connector)
+        controller.sectionDidAppear()
+        await settle { if case .ready = controller.tunnel { return true } else { return false } }
+
+        let machine = CloudMachine(id: "vm1", provider: "freestyle", status: "running")
+        let connection = try #require(controller.connection(for: machine))
+        _ = try await connection.loadCatalog()
+        #expect(service.calls.attach.count == 1)
+
+        connection.close()
+        await #expect(throws: CancellationError.self) {
+            _ = try await connection.loadCatalog()
+        }
+        #expect(service.calls.attach.count == 1)
+        #expect(connector.session.state.disconnected == 1)
+    }
+
     @Test func firstUseOfTrustedCloudMachineDoesNotRequireInvitation() async throws {
         let service = FakeCloudVMService()
         service.machines = .success([CloudMachine(id: "vm-new", provider: "freestyle", status: "running")])

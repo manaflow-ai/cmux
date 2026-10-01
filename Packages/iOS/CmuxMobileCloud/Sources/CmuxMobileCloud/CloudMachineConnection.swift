@@ -184,8 +184,16 @@ public final class CloudMachineConnection {
     }
 
     private func connectedSession() async throws -> any CloudTerminalSession {
+        guard !closed else { throw CancellationError() }
         if let session { return session }
-        if let connectTask { return try await connectTask.value }
+        if let connectTask {
+            let session = try await connectTask.value
+            guard !closed else {
+                session.disconnect()
+                throw CancellationError()
+            }
+            return session
+        }
         let task = Task<any CloudTerminalSession, any Error> { [service, connector, tunnel, identity, stateDirectory, deviceName, approvalClock, machine] in
             let endpoint = try await service.openAttach(machineID: machine.id, deviceFingerprint: identity.fingerprint)
             cloudLinkLog.notice("Cloud link started trustedCarrier=\(endpoint.trustedCarrier, privacy: .public) invitation=\(endpoint.invitation != nil, privacy: .public)")
