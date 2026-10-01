@@ -1,6 +1,6 @@
 import { accountAccessForIdentity, type CoderouterAccountAccess } from "./accountAccess";
 import { lookup as dnsLookup } from "node:dns/promises";
-import { request as httpRequest, type IncomingMessage } from "node:http";
+import { request as httpRequest, type ClientRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP, type LookupFunction } from "node:net";
 import { Readable, pipeline } from "node:stream";
@@ -808,15 +808,72 @@ function pinnedFetch(pin: ProviderPin): typeof fetch {
       });
       outgoing.on("error", reject);
       if (body) {
-        // pipeline destroys the request when the client body fails.
-        pipeline(Readable.fromWeb(body as import("node:stream/web").ReadableStream), outgoing, (error) => {
-          if (error) reject(error);
+        // Read the web stream directly. Bun 1.3 can surface a stream error
+        // from Readable.fromWeb as an unhandled error even when pipeline's
+        // callback receives it, leaving the test runner and request hanging.
+        void writeRequestBody(body, outgoing, reject).catch((error) => {
+          outgoing.destroy(error instanceof Error ? error : new Error(String(error)));
+          reject(error);
         });
       } else {
         outgoing.end();
       }
     });
   }) as typeof fetch;
+}
+
+async function writeRequestBody(
+  body: ReadableStream<Uint8Array>,
+  outgoing: ClientRequest,
+  reject: (reason?: unknown) => void,
+): Promise<void> {
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  const cancelBody = (reason: unknown) => {
+    if (reader) void reader.cancel(reason).catch(() => {});
+  };
+  const onOutgoingError = (error: Error) => cancelBody(error);
+  outgoing.once("error", onOutgoingError);
+  try {
+    reader = body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        outgoing.end();
+        return;
+      }
+      if (!outgoing.write(value)) await waitForRequestDrain(outgoing);
+    }
+  } catch (error) {
+    const reason = error instanceof Error ? error : new Error(String(error));
+    outgoing.destroy(reason);
+    reject(reason);
+  } finally {
+    outgoing.off("error", onOutgoingError);
+    try {
+      reader?.releaseLock();
+    } catch {
+      // A failed or already-cancelled source is fully closed by the reader.
+    }
+  }
+}
+
+function waitForRequestDrain(outgoing: ClientRequest): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      outgoing.off("drain", onDrain);
+      outgoing.off("error", onError);
+    };
+    const onDrain = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    outgoing.once("drain", onDrain);
+    outgoing.once("error", onError);
+  });
 }
 
 const BODY_DECODERS: Record<string, () => NodeJS.ReadWriteStream> = {

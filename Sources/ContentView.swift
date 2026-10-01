@@ -5,6 +5,7 @@ import CmuxCommandPalette
 import CmuxCore
 import CmuxFeedback
 import CmuxFoundation
+import CmuxAgentJournal
 import CmuxNotifications
 import CmuxPanes
 import CmuxSettings
@@ -943,6 +944,8 @@ struct ContentView: View {
     @StateObject private var sessionIndexStore = SessionIndexStore()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
+    @State private var tmuxOverlayExperiment = TmuxOverlayExperimentTargetObserver()
+    @State private var tmuxOverlayCoordinator = TmuxWorkspacePaneOverlayCoordinator()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
     @State private var workspacePresentationModeRuntimeCache = WorkspacePresentationModeRuntimeCache()
     @State private var fileExplorerWidth: CGFloat = 220
@@ -956,7 +959,11 @@ struct ContentView: View {
     @State private var isResizerBandActive = false
     @State private var isSidebarResizerCursorActive = false
     @State private var sidebarResizerCursorStabilizer = MainActorRepeatingActionScheduler()
-    @State private var isCommandPalettePresented = false
+    @State private var commandPaletteOverlayState: CommandPaletteOverlayState = .closed
+    @State private var agentInboxItems: [AgentInboxItem] = []
+    @State private var agentInboxMoveRequest = 0
+    @State private var agentInboxSubmitRequest = 0
+    @State private var agentInboxOpenGeneration = 0
     @State private var commandPaletteQuery: String = ""
     @State private var commandPaletteCurrentWorkSnapshot: CurrentWorkSnapshot?
     @State private var commandPaletteCurrentWorkRevision = 0
@@ -973,6 +980,14 @@ struct ContentView: View {
     @State private var commandPaletteSearchCorpus: [CommandPaletteSearchCorpusEntry<String>] = []
     @State private var commandPaletteSearchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>] = [:]
     @State private var commandPaletteSearchCommandsByID: [String: CommandPaletteCommand] = [:]
+
+    private var isCommandPalettePresented: Bool {
+        commandPaletteOverlayState.isCommandPalettePresented
+    }
+
+    private var isAgentInboxPresented: Bool {
+        commandPaletteOverlayState.isAgentInboxPresented
+    }
     @State private var commandPaletteNucleoSearchIndex: CommandPaletteNucleoSearchIndex<String>?
     @State private var commandPaletteTaskStore = MainActorTaskStore<CommandPaletteTaskKey>()
     @State private var commandPaletteSearchIndexBuildGeneration: UInt64 = 0
@@ -1059,187 +1074,19 @@ struct ContentView: View {
         return rectInContent
     }
 
-    /// Builds window-overlay geometry in the same coordinate space as its canvas.
-    private func tmuxWorkspacePaneWindowOverlayState(
-        for window: NSWindow,
-        unreadSnapshot explicitUnreadSnapshot: SidebarUnreadSnapshot? = nil
-    ) -> TmuxWorkspacePaneOverlayRenderState? {
-        guard let workspace = tabManager.selectedWorkspace else { return nil }
-        let unreadSnapshot = explicitUnreadSnapshot ?? sidebarUnread.snapshot
-        let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
-        let resolvedActivePaneBorderColorHex = WorkspaceTabColorSettings.normalizedHex(activePaneBorderColorHex)
-        let shouldShowActivePaneBorder = shouldShowActivePaneBorder(for: workspace, colorHex: resolvedActivePaneBorderColorHex)
-        guard usesWorkspacePaneOverlay || shouldShowActivePaneBorder else { return nil }
-
-        let layoutSnapshot = WorkspaceContentView.effectiveTmuxLayoutSnapshot(
-            cachedSnapshot: workspace.tmuxLayoutSnapshot,
-            liveSnapshot: workspace.bonsplitController.layoutSnapshot()
-        )
-        let contentView = WindowTmuxWorkspacePaneOverlayController.controller(
-            for: window,
-            createIfNeeded: true
-        )?.coordinateReferenceView ?? window.contentView
-
-        let unreadRects: [CGRect]
-        if usesWorkspacePaneOverlay {
-            let isWorkspaceManuallyUnread = unreadSnapshot.hasManualUnread(forWorkspaceId: workspace.id)
-            let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
-            if let layoutSnapshot, let contentView {
-                unreadRects = layoutSnapshot.panes.compactMap { pane in
-                    guard let selectedTabId = pane.selectedTabId,
-                          let tabUUID = UUID(uuidString: selectedTabId),
-                          let panelId = workspace.panelIdFromSurfaceId(TabID(uuid: tabUUID)),
-                          let panel = workspace.panels[panelId] else {
-                        return nil
-                    }
-
-                    let shouldShowUnread = Workspace.shouldShowUnreadIndicator(
-                        hasUnreadNotification: unreadSnapshot.hasVisibleNotificationIndicator(
-                            forWorkspaceId: workspace.id,
-                            surfaceId: panelId
-                        ),
-                        hasPanelUnreadIndicator: workspace.manualUnreadPanelIds.contains(panelId) ||
-                            workspace.restoredUnreadPanelIds.contains(panelId),
-                        isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
-                        isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panelId
-                    )
-                    guard shouldShowUnread else { return nil }
-
-                    let paneRect = WorkspaceContentView.tmuxWorkspacePaneWindowOverlayRect(
-                        layoutSnapshot: layoutSnapshot,
-                        paneId: workspace.paneId(forPanelId: panelId)
-                    )
-                    let exactRect = Self.tmuxWorkspacePaneExactRect(for: panel, in: contentView)
-                    return WorkspaceContentView.tmuxPaneOverlayGeometry.preferredWindowOverlayRect(
-                        exactRect: exactRect,
-                        paneRect: paneRect
-                    )
-                }
-            } else {
-                unreadRects = WorkspaceContentView.tmuxWorkspacePaneWindowUnreadRects(
-                    workspace: workspace,
-                    notificationStore: notificationStore,
-                    layoutSnapshot: layoutSnapshot
-                )
-            }
-        } else {
-            unreadRects = []
-        }
-
-        let flashRect: CGRect?
-        if usesWorkspacePaneOverlay {
-            if let panelId = workspace.tmuxWorkspaceFlashPanelId,
-               let panel = workspace.panels[panelId],
-               let contentView {
-                let paneRect = WorkspaceContentView.tmuxWorkspacePaneWindowOverlayRect(
-                    layoutSnapshot: layoutSnapshot,
-                    paneId: workspace.paneId(forPanelId: panelId)
-                )
-                let exactRect = Self.tmuxWorkspacePaneExactRect(for: panel, in: contentView)
-                flashRect = WorkspaceContentView.tmuxPaneOverlayGeometry.preferredWindowOverlayRect(
-                    exactRect: exactRect,
-                    paneRect: paneRect
-                )
-            } else {
-                flashRect = WorkspaceContentView.tmuxWorkspacePaneWindowOverlayRect(
-                    layoutSnapshot: layoutSnapshot,
-                    paneId: workspace.tmuxWorkspaceFlashPanelId.flatMap { workspace.paneId(forPanelId: $0) }
-                )
-            }
-        } else {
-            flashRect = nil
-        }
-
-        let activePaneBorderRect: CGRect?
-        if shouldShowActivePaneBorder,
-           let panelId = workspace.focusedPanelId,
-           let panel = workspace.panels[panelId] {
-            let paneRect = WorkspaceContentView.tmuxWorkspacePaneWindowOverlayRect(
-                layoutSnapshot: layoutSnapshot,
-                paneId: workspace.paneId(forPanelId: panelId)
-            )
-            let exactRect = contentView.flatMap { Self.tmuxWorkspacePaneExactRect(for: panel, in: $0) }
-            let isSplitZoomed = workspace.bonsplitController.isSplitZoomed
-            // Bonsplit's zoomed container covers the visible pane; hosted terminal
-            // views can include a tab-chrome offset during the zoom transition.
-            activePaneBorderRect = WorkspaceContentView.tmuxPaneOverlayGeometry.preferredWindowOverlayRect(
-                exactRect: exactRect,
-                paneRect: paneRect,
-                isSplitZoomed: isSplitZoomed,
-                zoomedContainerRect: isSplitZoomed
-                    ? WorkspaceContentView.tmuxPaneOverlayGeometry.zoomedWindowOverlayRect(layoutSnapshot: layoutSnapshot)
-                    : nil
-            )
-        } else {
-            activePaneBorderRect = nil
-        }
-
-        if unreadRects.isEmpty, flashRect == nil, activePaneBorderRect == nil {
-            guard usesWorkspacePaneOverlay else { return nil }
-            return TmuxWorkspacePaneOverlayRenderState(
-                workspaceId: workspace.id,
-                unreadRects: [],
-                flashRect: nil,
-                activePaneBorderRect: nil,
-                activePaneBorderColorHex: nil,
-                flashToken: workspace.tmuxWorkspaceFlashToken,
-                flashReason: workspace.tmuxWorkspaceFlashReason,
+    /// Builds and refreshes the window's workspace pane overlay from this view's inputs.
+    private var tmuxWorkspacePaneOverlayStateBuilder: TmuxWorkspacePaneOverlayStateBuilder {
+        TmuxWorkspacePaneOverlayStateBuilder(
+            tabManager: tabManager,
+            sidebarUnread: sidebarUnread,
+            experiment: tmuxOverlayExperiment,
+            notificationStore: notificationStore,
+            settings: TmuxWorkspacePaneOverlaySettings(
+                activePaneBorderColorHex: WorkspaceTabColorSettings.normalizedHex(activePaneBorderColorHex),
+                rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus,
                 workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: paneFlashColorHex, accent: cmuxAccent)
             )
-        }
-
-        return TmuxWorkspacePaneOverlayRenderState(
-            workspaceId: workspace.id,
-            unreadRects: unreadRects,
-            flashRect: flashRect,
-            activePaneBorderRect: activePaneBorderRect,
-            activePaneBorderColorHex: activePaneBorderRect == nil ? nil : resolvedActivePaneBorderColorHex,
-            flashToken: workspace.tmuxWorkspaceFlashToken,
-            flashReason: workspace.tmuxWorkspaceFlashReason,
-            workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: paneFlashColorHex, accent: cmuxAccent)
         )
-    }
-
-    private func refreshTmuxWorkspacePaneWindowOverlay(
-        in window: NSWindow?,
-        unreadSnapshot: SidebarUnreadSnapshot? = nil
-    ) {
-        guard let window else { return }
-        let tmuxOverlayState = tmuxWorkspacePaneWindowOverlayState(
-            for: window,
-            unreadSnapshot: unreadSnapshot
-        )
-        WindowTmuxWorkspacePaneOverlayController.controller(
-            for: window,
-            createIfNeeded: tmuxOverlayState != nil
-        )?.update(state: tmuxOverlayState)
-    }
-
-    private func shouldShowActivePaneBorder(for workspace: Workspace, colorHex: String?) -> Bool {
-        colorHex != nil && workspace.layoutMode != .canvas && !fileExplorerState.rightSidebarOwnsInputFocus && workspace.bonsplitController.allPaneIds.count > 1
-    }
-
-    private func shouldScheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in window: NSWindow) -> Bool {
-        if TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay { return true }
-        if WindowTmuxWorkspacePaneOverlayController.controller(
-            for: window,
-            createIfNeeded: false
-        )?.hasRenderedState == true { return true }
-        guard let workspace = tabManager.selectedWorkspace else { return false }
-        return shouldShowActivePaneBorder(for: workspace, colorHex: WorkspaceTabColorSettings.normalizedHex(activePaneBorderColorHex))
-    }
-
-    private func scheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in window: NSWindow?) {
-        guard let window,
-              shouldScheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in: window),
-              let controller = WindowTmuxWorkspacePaneOverlayController.controller(
-                  for: window,
-                  createIfNeeded: true
-              ) else { return }
-        controller.scheduleGeometryRefresh { [weak window] in
-            guard let window else { return nil }
-            return tmuxWorkspacePaneWindowOverlayState(for: window)
-        }
     }
 
     private struct CommandPaletteSwitcherWindowContext {
@@ -2947,58 +2794,25 @@ struct ContentView: View {
                 clearWorkspaceSwitchPortalSignalsIfFinished()
             }
             let focusTransactionId = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID
-            refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
             attemptCommandPaletteFocusRestoreIfNeeded(focusTransactionId: focusTransactionId)
             scheduleTitlebarTextRefresh()
         })
 
         view = AnyView(view.background {
             // Update the AppKit-owned pane overlay from a dedicated Observation
-            // leaf, without making ContentView itself an unread observer.
-            SidebarUnreadSnapshotObserver(source: sidebarUnread) { snapshot in
-                refreshTmuxWorkspacePaneWindowOverlay(
-                    in: observedWindow,
-                    unreadSnapshot: snapshot
-                )
-            }
+            // leaf, without making ContentView itself an overlay input observer.
+            TmuxWorkspacePaneOverlayRefresher(builder: tmuxWorkspacePaneOverlayStateBuilder, coordinator: tmuxOverlayCoordinator).equatable()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .workspacePaneGeometryDidChange)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
-            scheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in: observedWindow)
             noteSelectedTerminalPortalPresentedIfReady()
-        })
-
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .workspaceLayoutModeDidChange)) { notification in
-            guard (notification.object as? Workspace)?.id == tabManager.selectedTabId else { return }
-            refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
-        })
-
-        view = AnyView(view.onChange(of: activePaneBorderColorHex) { _, _ in
-            refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
-        })
-
-        view = AnyView(view.onChange(of: paneFlashColorHex) { _, newValue in
-            guard let window = observedWindow else { return }
-            WindowTmuxWorkspacePaneOverlayController.controller(
-                for: window,
-                createIfNeeded: false
-            )?.updateWorkspaceAttentionColor(
-                WorkspaceAttentionColor(configuredHex: newValue, accent: cmuxAccent)
-            )
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: CmuxAccentColor.didChangeNotification)) { notification in
             guard let observer = notification.object as? CmuxAccentColorObserver else { return }
             cmuxAccent = observer.current
-            guard let window = observedWindow else { return }
-            WindowTmuxWorkspacePaneOverlayController.controller(
-                for: window,
-                createIfNeeded: false
-            )?.updateWorkspaceAttentionColor(
-                WorkspaceAttentionColor(configuredHex: paneFlashColorHex, accent: observer.current)
-            )
         })
 
         view = AnyView(view.onChange(of: titlebarThemeGeneration) { oldValue, newValue in
@@ -3220,6 +3034,18 @@ struct ContentView: View {
             openCommandPaletteCommands()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .agentInboxRequested)) { notification in
+            guard CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled else { return }
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            openAgentInbox()
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .savedLayoutSaveRequested)) { notification in
             if Self.shouldHandleSavedLayoutSaveRequest(observedWindow: observedWindow, requestedWindow: notification.object as? NSWindow, keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow) {
                 presentSavedLayoutSavePrompt()
@@ -3250,7 +3076,11 @@ struct ContentView: View {
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
             ) else { return }
-            handleCommandPaletteSubmitRequest()
+            if isAgentInboxPresented {
+                agentInboxSubmitRequest &+= 1
+            } else {
+                handleCommandPaletteSubmitRequest()
+            }
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteDismissRequested)) { notification in
@@ -3262,7 +3092,11 @@ struct ContentView: View {
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
             ) else { return }
-            dismissCommandPalette()
+            if isAgentInboxPresented {
+                dismissAgentInbox()
+            } else {
+                dismissCommandPalette()
+            }
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameTabRequested)) { notification in
@@ -3320,7 +3154,6 @@ struct ContentView: View {
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteMoveSelection)) { notification in
             guard isCommandPalettePresented else { return }
-            guard case .commands = commandPaletteMode else { return }
             let requestedWindow = notification.object as? NSWindow
             guard Self.shouldHandleCommandPaletteRequest(
                 observedWindow: observedWindow,
@@ -3329,7 +3162,12 @@ struct ContentView: View {
                 mainWindow: NSApp.mainWindow
             ) else { return }
             guard let delta = notification.userInfo?["delta"] as? Int, delta != 0 else { return }
-            moveCommandPaletteSelection(by: delta)
+            if isAgentInboxPresented {
+                agentInboxMoveRequest &+= delta
+            } else {
+                guard case .commands = commandPaletteMode else { return }
+                moveCommandPaletteSelection(by: delta)
+            }
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameInputInteractionRequested)) { notification in
@@ -3370,12 +3208,15 @@ struct ContentView: View {
         })
 
         view = AnyView(view.background(WindowAccessor(dedupeByWindow: false) { window in
-            refreshTmuxWorkspacePaneWindowOverlay(in: window)
             let overlayController = commandPaletteWindowOverlayController(for: window)
             overlayController.update(
                 isVisible: isCommandPalettePresented,
                 onDismiss: { dismissal in
-                    dismissCommandPalette(for: dismissal, in: window)
+                    if isAgentInboxPresented {
+                        dismissAgentInbox()
+                    } else {
+                        dismissCommandPalette(for: dismissal, in: window)
+                    }
                 }
             ) { AnyView(commandPaletteOverlay) }
         }))
@@ -3581,6 +3422,7 @@ struct ContentView: View {
                     \.workspaceAttentionColor,
                     WorkspaceAttentionColor(configuredHex: paneFlashColorHex, accent: cmuxAccent)
                 )
+                .environment(\.tmuxOverlayExperimentTarget, tmuxOverlayExperiment.target)
                 .cmuxAppearanceColorScheme(appearanceMode)
         )
     }
@@ -3635,12 +3477,16 @@ struct ContentView: View {
 #endif
         let backdropResult = windowChrome.backdropController.apply(plan: backdropPlan, to: window)
         if backdropResult.didChangeGlassRoot {
-            refreshTmuxWorkspacePaneWindowOverlay(in: window)
+            tmuxOverlayCoordinator.refresh(builder: tmuxWorkspacePaneOverlayStateBuilder, in: window)
             commandPaletteWindowOverlayController(for: window)
                 .update(
                     isVisible: isCommandPalettePresented,
                     onDismiss: { dismissal in
-                        dismissCommandPalette(for: dismissal, in: window)
+                        if isAgentInboxPresented {
+                            dismissAgentInbox()
+                        } else {
+                            dismissCommandPalette(for: dismissal, in: window)
+                        }
                     }
                 ) { commandPaletteOverlayView }
             TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
@@ -4005,7 +3851,9 @@ struct ContentView: View {
     private var commandPaletteOverlay: some View {
         GeometryReader { proxy in
             let maxAllowedWidth = max(340, proxy.size.width - 260)
-            let targetWidth = min(560, maxAllowedWidth)
+            let targetWidth = isAgentInboxPresented
+                ? min(920, maxAllowedWidth)
+                : min(560, maxAllowedWidth)
             let workspaceDescriptionMaxEditorHeight = max(
                 CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight,
                 proxy.size.height - 120
@@ -4022,18 +3870,27 @@ struct ContentView: View {
                     .accessibilityIdentifier("CommandPaletteBackdrop")
 
                 VStack(spacing: 0) {
-                    switch commandPaletteMode {
-                    case .commands:
-                        commandPaletteCommandListView
-                    case .renameInput(let target):
-                        commandPaletteRenameInputView(target: target)
-                    case let .renameConfirm(target, proposedName):
-                        commandPaletteRenameConfirmView(target: target, proposedName: proposedName)
-                    case .workspaceDescriptionInput(let target):
-                        commandPaletteWorkspaceDescriptionInputView(
-                            target: target,
-                            maxEditorHeight: workspaceDescriptionMaxEditorHeight
+                    if isAgentInboxPresented {
+                        AgentInboxView(
+                            items: agentInboxItems,
+                            onDismiss: dismissAgentInbox,
+                            moveRequest: agentInboxMoveRequest,
+                            submitRequest: agentInboxSubmitRequest
                         )
+                    } else {
+                        switch commandPaletteMode {
+                        case .commands:
+                            commandPaletteCommandListView
+                        case .renameInput(let target):
+                            commandPaletteRenameInputView(target: target)
+                        case let .renameConfirm(target, proposedName):
+                            commandPaletteRenameConfirmView(target: target, proposedName: proposedName)
+                        case .workspaceDescriptionInput(let target):
+                            commandPaletteWorkspaceDescriptionInputView(
+                                target: target,
+                                maxEditorHeight: workspaceDescriptionMaxEditorHeight
+                            )
+                        }
                     }
                 }
                 .frame(width: targetWidth)
@@ -4045,7 +3902,11 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onExitCommand {
-            dismissCommandPalette()
+            if isAgentInboxPresented {
+                dismissAgentInbox()
+            } else {
+                dismissCommandPalette()
+            }
         }
         .zIndex(2000)
     }
@@ -10110,6 +9971,48 @@ struct ContentView: View {
         handleCommandPaletteListRequest(scope: .commands)
     }
 
+    private func openAgentInbox() {
+        guard CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled else { return }
+        agentInboxOpenGeneration &+= 1
+        let request = AgentInboxOpenRequest(generation: agentInboxOpenGeneration)
+        let workspaces = (AppDelegate.shared?.mainWindowContexts.values.flatMap { $0.tabManager.tabs } ?? tabManager.tabs)
+        let workspaceTitles = Dictionary(
+            workspaces.map { ($0.id.uuidString, $0.title) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let feedItems = FeedCoordinator.shared.snapshot(pendingOnly: false)
+        let workstreamIDs = AgentInboxProjection.uniqueWorkstreamIDs(from: feedItems)
+        let messages = AgentMessageCenter.store.messages(limit: AgentMessageStore.retainedMessageCount)
+
+        agentInboxItems = AgentInboxProjection.project(
+            messages: messages,
+            workstreamItems: feedItems,
+            workspaceTitles: workspaceTitles
+        )
+        commandPaletteOverlayState = .agentInbox
+
+        Task { @MainActor in
+            let targets = await FeedCoordinator.shared.resolveTargets(for: workstreamIDs)
+            guard !Task.isCancelled,
+                  CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled,
+                  request.isCurrent(generation: agentInboxOpenGeneration, isPresented: isAgentInboxPresented) else { return }
+            agentInboxItems = AgentInboxProjection.project(
+                messages: messages,
+                workstreamItems: feedItems,
+                workspaceTitles: workspaceTitles,
+                workstreamWorkspaceIds: targets.reduce(into: [:]) { result, entry in
+                    result[entry.key] = entry.value.workspaceId
+                }
+            )
+        }
+    }
+
+    private func dismissAgentInbox() {
+        agentInboxOpenGeneration &+= 1
+        commandPaletteOverlayState = .closed
+        agentInboxItems = []
+    }
+
     private func openCommandPaletteSwitcher() {
         handleCommandPaletteListRequest(scope: .switcher)
     }
@@ -10289,7 +10192,7 @@ struct ContentView: View {
         } else {
             commandPaletteRestoreFocusTarget = nil
         }
-        isCommandPalettePresented = true
+        commandPaletteOverlayState = .palette
         commandPaletteAgentLauncherAvailabilityGeneration &+= 1
         commandPaletteAgentLauncherAvailability = nil
         commandPaletteForkableAgentActivePanelKey = nil
@@ -10424,7 +10327,7 @@ struct ContentView: View {
         commandPaletteForkableAgentActivePanelKey = nil
         pruneCommandPaletteForkableAgentProbeResults()
         commandPaletteSearchRequestID &+= 1
-        isCommandPalettePresented = false
+        commandPaletteOverlayState = .closed
         commandPaletteCurrentWorkSnapshot = nil
         commandPaletteMode = .commands
         commandPaletteQuery = ""

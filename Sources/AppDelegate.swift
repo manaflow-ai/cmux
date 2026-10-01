@@ -869,6 +869,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var windowKeyObservers: [NSObjectProtocol] = []
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
+    private weak var agentInboxReplyFieldWindow: NSWindow?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var mobileHostSettingsObserver: NSObjectProtocol?
     /// Applies MDM managed-policy transitions (browser/remote-control) while
@@ -1349,12 +1350,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastSessionAutosavePersistedAt: Date = .distantPast
     private var lastPersistedSessionWindowIds: [UUID] = []
     private(set) var lastTypingActivityAt: TimeInterval = 0
-    /// Fresh resume indexes captured by `updaterPrepareForRelaunch()` just before an update
-    /// relaunch, for the synchronous relaunch save.
-    var updateRelaunchIndexCapture = UpdateRelaunchIndexCapture()
-    /// Panels whose agent was mid-task when `updaterPrepareForRelaunch()` ran, with the uptime
-    /// they were captured at. The relaunch save marks them to continue after the relaunch.
-    var updateRelaunchMidTaskCapture: (panelIds: Set<UUID>, capturedAt: TimeInterval)?
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
@@ -1767,6 +1762,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self,
             selector: #selector(handleFeedRequestSendText(_:)),
             name: .feedRequestSendText,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAgentInboxReplyFieldFocusChanged(_:)),
+            name: .agentInboxReplyFieldFocusChanged,
             object: nil
         )
 
@@ -2526,62 +2527,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
         mainWindowLifecycleCoordinator.cancelAllWindowlessRouteFreezeTasks()
-        // Stays set for the terminate-path save that follows. If the app is still running a
-        // minute later the install failed, and ordinary saves must not mark these panels.
-        UpdateRelaunchContinuationNudges.shared.arm(
-            panelIds: takeUpdateRelaunchMidTaskPanelIds(),
-            expiresAtUptime: ProcessInfo.processInfo.systemUptime + 60
+        _ = saveSessionSnapshotUsingCachedProcessDetectedIndexes(
+            includeScrollback: true,
+            removeWhenEmpty: false
         )
-        if let prepared = updateRelaunchIndexCapture.take(now: ProcessInfo.processInfo.systemUptime) {
-            _ = saveSessionSnapshot(
-                includeScrollback: true,
-                removeWhenEmpty: false,
-                restorableAgentIndex: prepared.restorableAgentIndex,
-                surfaceResumeBindingIndex: prepared.surfaceResumeBindingIndex
-            )
-        } else {
-            _ = saveSessionSnapshotUsingCachedProcessDetectedIndexes(
-                includeScrollback: true,
-                removeWhenEmpty: false
-            )
-        }
         ClosedItemHistoryStore.shared.flushPendingSaves()
-    }
-
-    /// Captures fresh resume indexes for the update relaunch save. The cached index misses an
-    /// agent session started since the last scan, which the save would then record as not
-    /// running, so it would not resume after the relaunch.
-    func prepareUpdateRelaunchIndexes() async {
-        let ttyDeviceBindings = currentSurfaceTTYDeviceBindings()
-        guard let indexes = await ProcessDetectedResumeIndexes.loadFreshWithDeadline(
-            ttyDeviceBindings: ttyDeviceBindings
-        ) else {
-            StartupBreadcrumbLog.append("appDelegate.updateRelaunch.freshIndexTimedOut")
-            return
-        }
-        guard !Task.isCancelled else {
-            StartupBreadcrumbLog.append("appDelegate.updateRelaunch.freshIndexCancelled")
-            return
-        }
-        updateRelaunchIndexCapture.store(indexes, capturedAt: ProcessInfo.processInfo.systemUptime)
-    }
-
-    /// Remembers which agents the update relaunch is about to cut off mid-task.
-    func captureUpdateRelaunchMidTaskPanels() {
-        updateRelaunchMidTaskCapture = (
-            updaterRelaunchBlockers().midTaskPanelIds,
-            ProcessInfo.processInfo.systemUptime
-        )
-    }
-
-    /// The recent pre-relaunch capture, or the current mid-task panels when there is none.
-    private func takeUpdateRelaunchMidTaskPanelIds() -> Set<UUID> {
-        defer { updateRelaunchMidTaskCapture = nil }
-        if let capture = updateRelaunchMidTaskCapture,
-           ProcessInfo.processInfo.systemUptime - capture.capturedAt <= UpdateRelaunchIndexCapture.lifetime {
-            return capture.panelIds
-        }
-        return updaterRelaunchBlockers().midTaskPanelIds
     }
 
     func configure(
@@ -6291,6 +6241,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func requestCommandPaletteSwitcher(preferredWindow: NSWindow? = nil, source: String = "api.commandPaletteSwitcher") {
         postCommandPaletteRequest(
             kind: .switcher,
+            preferredWindow: preferredWindow,
+            source: source
+        )
+    }
+
+    func requestAgentInbox(preferredWindow: NSWindow? = nil, source: String = "api.agentInbox") {
+        guard CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled else { return }
+        postCommandPaletteRequest(
+            kind: .agentInbox,
             preferredWindow: preferredWindow,
             source: source
         )
@@ -11361,6 +11320,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    @objc private func handleAgentInboxReplyFieldFocusChanged(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        let isFocused = notification.userInfo?["focused"] as? Bool ?? false
+        if isFocused {
+            agentInboxReplyFieldWindow = window
+        } else if agentInboxReplyFieldWindow === window {
+            agentInboxReplyFieldWindow = nil
+        }
+    }
+
     @objc private func handleReactGrabDidCopySelection(_ notification: Notification) {
         let browserPanelId = notification.userInfo?[ReactGrabPastebackNotificationKey.browserPanelId] as? UUID
         guard let workspaceId = notification.userInfo?[ReactGrabPastebackNotificationKey.workspaceId] as? UUID,
@@ -12683,18 +12652,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if startWithHiddenSidebar {
                 context.sidebarState.setVisible(false)
             }
+            if env["CMUX_UI_TEST_BONSPLIT_CLOUD_WORKSPACE"] == "1" {
+                // Binds the workspace to a Cloud machine without a transport, so the
+                // Cloud pane destinations (CloudSurfaceDropGate) cover its tab strips.
+                workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "ui-test-cloud-vm", isBase: false)
+            }
             if showRightSidebar {
                 guard let fileExplorerState = context.fileExplorerState else {
                     self.writeBonsplitTabDragUITestData(["setupError": "Missing right sidebar state"])
                     return
                 }
-                fileExplorerState.mode = .files
+                fileExplorerState.mode = env["CMUX_UI_TEST_BONSPLIT_RIGHT_SIDEBAR_MODE"]
+                    .flatMap(RightSidebarMode.init(rawValue:)) ?? .files
                 fileExplorerState.setVisible(true)
             }
             self.writeBonsplitTabDragUITestData([
                 "ready": "1",
                 "sidebarVisible": startWithHiddenSidebar ? "0" : "1",
                 "rightSidebarVisible": context.fileExplorerState?.isVisible == true ? "1" : "0",
+                "cloudWorkspace": workspace.isManagedCloudVMWorkspace ? "1" : "0",
                 "workspaceId": workspace.id.uuidString,
                 "workspaceTitle": workspaceTitle,
                 "alphaTitle": alphaTitle,
@@ -15048,13 +15024,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let paletteUsesInlineTextHandling = commandPaletteShortcutWindow.map { isCommandPaletteMultilineTextResponderActive(in: $0) } ?? false
+        let isAgentInboxReplyFieldFocused = commandPaletteShortcutWindow.map {
+            agentInboxReplyFieldWindow === $0
+        } ?? false
 
         let paletteSelectionDelta = contextAwareCommandPaletteSelectionDelta(for: event)
 
         if shouldRouteCommandPaletteSelectionNavigation(
             delta: paletteSelectionDelta,
             isInteractive: commandPaletteInteractiveInTargetWindow,
-            usesInlineTextHandling: paletteUsesInlineTextHandling
+            usesInlineTextHandling: paletteUsesInlineTextHandling,
+            isAgentInboxReplyFieldFocused: isAgentInboxReplyFieldFocused
         ),
            let delta = paletteSelectionDelta,
            let paletteWindow = commandPaletteShortcutWindow {
@@ -15062,7 +15042,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        let shouldRouteConfiguredPaletteSelection = commandPaletteShortcutWindow != nil && shouldRouteCommandPaletteSelectionNavigation(delta: 1, isInteractive: commandPaletteInteractiveInTargetWindow, usesInlineTextHandling: paletteUsesInlineTextHandling)
+        let shouldRouteConfiguredPaletteSelection = commandPaletteShortcutWindow != nil && shouldRouteCommandPaletteSelectionNavigation(
+            delta: 1,
+            isInteractive: commandPaletteInteractiveInTargetWindow,
+            usesInlineTextHandling: paletteUsesInlineTextHandling,
+            isAgentInboxReplyFieldFocused: isAgentInboxReplyFieldFocused
+        )
 
         if shouldRouteConfiguredPaletteSelection, let paletteWindow = commandPaletteShortcutWindow {
             for (action, delta) in [(KeyboardShortcutSettings.Action.commandPaletteNext, 1), (.commandPalettePrevious, -1)] {
@@ -15136,6 +15121,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let hasFocusedAddressBarInShortcutContext = focusedAddressBarPanelIdInShortcutContext != nil
 
         if shouldRouteConfiguredPaletteSelection, activeConfiguredShortcutChordPrefixForCurrentEvent == nil, armConfiguredShortcutChordIfNeeded(event: event, actions: [.commandPaletteNext, .commandPalettePrevious]) {
+            return true
+        }
+
+        if CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled,
+           matchConfiguredShortcut(event: event, action: .agentInbox) {
+            let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
+            requestAgentInbox(preferredWindow: targetWindow, source: "shortcut.agentInbox")
             return true
         }
 
@@ -20572,21 +20564,6 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
         checkForUpdates(nil)
     }
 
-    func updaterPrepareForRelaunch() async {
-        await prepareUpdateRelaunchIndexes()
-        guard !Task.isCancelled else { return }
-        captureUpdateRelaunchMidTaskPanels()
-    }
-
-    func updaterTimeSinceLastUserInput() -> Duration {
-        let seconds = MacPresenceMonitor.liveSecondsSinceLastHardwareInput() ?? 0
-        return .milliseconds(Int64(seconds * 1000))
-    }
-
-    func installUpdatesAutomaticallyDidChange() {
-        updateController.installAutomaticallyDidChange()
-    }
-
     func updaterWillRelaunchApplication() {
         persistSessionForUpdateRelaunch()
         TerminalController.shared.stop(cleanupDiscoveryState: true)
@@ -20609,21 +20586,41 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
             let isRemote = workspace.isRemoteWorkspace || workspace.isRemoteTmuxMirror
             for panelId in workspace.panels.keys {
                 activity.append(UpdateRelaunchPanelActivity(
-                    panelId: panelId,
-                    location: workspace.title,
                     agentLifecycles: workspace.agentLifecycleStatesByPanelId[panelId] ?? [:],
                     shellActivity: workspace.panelShellActivityStates[panelId],
                     isRemote: isRemote
                 ))
             }
             if let dock = workspace._dockSplit {
-                activity += dock.updateRelaunchPanelActivity(location: workspace.title, isRemote: isRemote)
+                activity += dock.updateRelaunchPanelActivity(isRemote: isRemote)
             }
         }
         for dock in existingWindowDocks {
-            activity += dock.updateRelaunchPanelActivity(location: "", isRemote: false)
+            activity += dock.updateRelaunchPanelActivity(isRemote: false)
         }
         return Self.updateRelaunchBlockers(panels: activity)
+    }
+
+    /// Counts what an update relaunch would interrupt. A panel with a mid-turn agent is a busy
+    /// agent. A local panel running some other foreground command is a running command; panels
+    /// with agent lifecycle state are left to the agent count, and remote panels are skipped
+    /// because their processes live on the remote host. Manual `cmux workspace loading` keys
+    /// are not agents and are ignored.
+    nonisolated static func updateRelaunchBlockers(
+        panels: [UpdateRelaunchPanelActivity]
+    ) -> UpdateRelaunchBlockers {
+        var blockers = UpdateRelaunchBlockers.empty
+        for panel in panels {
+            let agentStates = panel.agentLifecycles
+                .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
+                .values
+            if agentStates.contains(.running) {
+                blockers.busyAgentCount += 1
+            } else if agentStates.isEmpty, !panel.isRemote, panel.shellActivity == .commandRunning {
+                blockers.runningCommandCount += 1
+            }
+        }
+        return blockers
     }
 
     func attemptUpdate() {
@@ -20643,6 +20640,25 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 }
 
 /// One terminal panel's agent and shell activity, as read by ``AppDelegate/updaterRelaunchBlockers()``.
+struct UpdateRelaunchPanelActivity: Sendable {
+    var agentLifecycles: [String: AgentHibernationLifecycleState]
+    var shellActivity: PanelShellActivityState?
+    var isRemote: Bool
+}
+
+extension DockSplitStore {
+    /// Dock panels keep agent lifecycle in their runtime map and shell state on the panel.
+    func updateRelaunchPanelActivity(isRemote: Bool) -> [UpdateRelaunchPanelActivity] {
+        panels.map { panelId, panel in
+            UpdateRelaunchPanelActivity(
+                agentLifecycles: agentRuntimeByPanelId[panelId]?.agentLifecycleStates ?? [:],
+                shellActivity: (panel as? TerminalPanel)?.shellActivity.state,
+                isRemote: isRemote || terminalLinkIsRemoteTerminal(panelId)
+            )
+        }
+    }
+}
+
 // MARK: - CmuxAppKitSupportUI seam conformance
 
 extension AppDelegate: WindowDecorating {}
