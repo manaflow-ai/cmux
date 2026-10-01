@@ -1514,6 +1514,8 @@
 		C7A509000000000000000002 /* CmuxTopSnapshotScopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A509000000000000000001 /* CmuxTopSnapshotScopeTests.swift */; };
 		D9F800000000000000000001 /* CmuxTuiRemoteRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9F800000000000000000002 /* CmuxTuiRemoteRouting.swift */; };
 		D9F800000000000000000003 /* CmuxTuiRemoteRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9F800000000000000000002 /* CmuxTuiRemoteRouting.swift */; };
+		9A1AE2D805738CFC3CE38382 /* CmuxTuiRemoteTreeRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BCD9ABC9D6C13310D39A98 /* CmuxTuiRemoteTreeRendering.swift */; };
+		A012B052BF6F5FCBA400CFE6 /* CmuxTuiRemoteTreeRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BCD9ABC9D6C13310D39A98 /* CmuxTuiRemoteTreeRendering.swift */; };
 		3312CA2585324CF9B4CA9D9A /* CmuxTuiSurfaceProvider+AgentNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3528E32A29B49E99C636F0B /* CmuxTuiSurfaceProvider+AgentNaming.swift */; };
 		81A1621623F83B61D4C5FFA9 /* CmuxTuiSurfaceProvider+AttachmentRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D8BE7D3234A1F44E2A1C52B /* CmuxTuiSurfaceProvider+AttachmentRecovery.swift */; };
 		5633045E23E44075B22C08CA /* CmuxTuiSurfaceProvider+CloseTerminal.swift in Sources */ = {isa = PBXBuildFile; fileRef = E655249E82FC412B9EC2CD21 /* CmuxTuiSurfaceProvider+CloseTerminal.swift */; };
@@ -5830,6 +5832,7 @@
 		C7A5090000000000000005A1 /* CmuxTopSnapshotScopeCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshotScopeCacheTests.swift; sourceTree = "<group>"; };
 		C7A509000000000000000001 /* CmuxTopSnapshotScopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshotScopeTests.swift; sourceTree = "<group>"; };
 		D9F800000000000000000002 /* CmuxTuiRemoteRouting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CmuxTuiRemoteRouting.swift; sourceTree = "<group>"; };
+		C7BCD9ABC9D6C13310D39A98 /* CmuxTuiRemoteTreeRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTuiRemoteTreeRendering.swift; sourceTree = "<group>"; };
 		E3528E32A29B49E99C636F0B /* CmuxTuiSurfaceProvider+AgentNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+AgentNaming.swift"; sourceTree = "<group>"; };
 		4D8BE7D3234A1F44E2A1C52B /* CmuxTuiSurfaceProvider+AttachmentRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+AttachmentRecovery.swift"; sourceTree = "<group>"; };
 		E655249E82FC412B9EC2CD21 /* CmuxTuiSurfaceProvider+CloseTerminal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+CloseTerminal.swift"; sourceTree = "<group>"; };
@@ -9250,6 +9253,7 @@
 				905C49B3C3B96FE5AE1D9D0F /* CmuxTuiSurfaceProvider+CloudDisplayMembership.swift */,
 				316418AB818C4081081DA326 /* SurfaceCatalog+CloudDisplayMembership.swift */,
 				56434762F98EC43868C86D56 /* SurfaceCatalog+CloudDisplayProjection.swift */,
+				C7BCD9ABC9D6C13310D39A98 /* CmuxTuiRemoteTreeRendering.swift */,
 			);
 			name = Surfaces;
 			path = Surfaces;
@@ -14545,6 +14549,7 @@
 				C7A501000000000000000002 /* CmuxTopSnapshot.swift in Sources */,
 				C7A508000000000000000002 /* CmuxTopSnapshotScopeCache.swift in Sources */,
 				D9F800000000000000000001 /* CmuxTuiRemoteRouting.swift in Sources */,
+				A012B052BF6F5FCBA400CFE6 /* CmuxTuiRemoteTreeRendering.swift in Sources */,
 				3312CA2585324CF9B4CA9D9A /* CmuxTuiSurfaceProvider+AgentNaming.swift in Sources */,
 				81A1621623F83B61D4C5FFA9 /* CmuxTuiSurfaceProvider+AttachmentRecovery.swift in Sources */,
 				5633045E23E44075B22C08CA /* CmuxTuiSurfaceProvider+CloseTerminal.swift in Sources */,
@@ -16663,6 +16668,7 @@
 				F0316A711615C3D2D3008A82 /* CMUXCLI+WindowDispatch.swift in Sources */,
 				06CC2F6C1340C7424D1C7E0A /* CMUXCLI+WorkspaceTodo.swift in Sources */,
 				D9F800000000000000000003 /* CmuxTuiRemoteRouting.swift in Sources */,
+				9A1AE2D805738CFC3CE38382 /* CmuxTuiRemoteTreeRendering.swift in Sources */,
 				918100000000000000000051 /* CodexHookFailureCandidate.swift in Sources */,
 				918100000000000000000041 /* CodexHookFailureSummary.swift in Sources */,
 				918100000000000000000061 /* CodexHookUserInputCandidate.swift in Sources */,
