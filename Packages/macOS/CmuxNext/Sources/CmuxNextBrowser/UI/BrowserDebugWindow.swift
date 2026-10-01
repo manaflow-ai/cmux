@@ -51,7 +51,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
         }
     }
 
-    private let contextMenus = BrowserContextMenuBuilder()
+    private let contextMenus = BrowserContextMenuBuilder.shared
 
     private init(tab: any BrowserTab, report: URL?, activate: Bool) {
         tabs = [tab]

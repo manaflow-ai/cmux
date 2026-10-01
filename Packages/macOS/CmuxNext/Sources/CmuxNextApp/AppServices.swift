@@ -114,7 +114,7 @@ final class AppServices {
     private(set) var remoteTerminals: RemoteTerminalService!
 
     init(environment: AppEnvironment) {
-        let contextMenus = BrowserContextMenuBuilder()
+        let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
         popups = BrowserPopupPanels(contextMenus: contextMenus)
         self.environment = environment
@@ -122,10 +122,10 @@ final class AppServices {
         machines = MachineRegistry(local: daemon)
         cloud = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)
         ssh = SSHService(machines: machines, bundleID: environment.launch.bundleID)
-        let lifecycleTrace = BrowserLifecycleTrace { tab, event in
+        BrowserLifecycleTrace.shared.configure { tab, event in
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
         }
-        cache = TabContentCache(daemon: daemon, cef: CEFEngine(lifecycleTrace: lifecycleTrace, contextMenus: contextMenus))
+        cache = TabContentCache(daemon: daemon, cef: CEFEngine(lifecycleTrace: .shared, contextMenus: contextMenus))
         themes = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))
         remoteLocalhost = RemoteLocalhostService(machines: machines)
         cache.configureBrowser = { [weak self] tab, url, base in

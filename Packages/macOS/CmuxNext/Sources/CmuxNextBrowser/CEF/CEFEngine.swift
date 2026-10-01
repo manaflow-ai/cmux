@@ -27,8 +27,8 @@ public final class CEFEngine: BrowserEngine {
     ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
     public init(layout: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
-                lifecycleTrace: BrowserLifecycleTrace = BrowserLifecycleTrace(),
-                contextMenus: BrowserContextMenuBuilder = BrowserContextMenuBuilder()) {
+                lifecycleTrace: BrowserLifecycleTrace = .shared,
+                contextMenus: BrowserContextMenuBuilder = .shared) {
         self.layout = layout
         self.lifecycleTrace = lifecycleTrace
         self.contextMenus = contextMenus

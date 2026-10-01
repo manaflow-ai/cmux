@@ -41,8 +41,8 @@ final class CEFPaneHost {
     let lifecycleTrace: BrowserLifecycleTrace
     let contextMenus: BrowserContextMenuBuilder
 
-    init(key: CEFPaneKey, runtime: CEFRuntime, lifecycleTrace: BrowserLifecycleTrace = BrowserLifecycleTrace(),
-         contextMenus: BrowserContextMenuBuilder = BrowserContextMenuBuilder()) {
+    init(key: CEFPaneKey, runtime: CEFRuntime, lifecycleTrace: BrowserLifecycleTrace = .shared,
+         contextMenus: BrowserContextMenuBuilder = .shared) {
         self.key = key
         self.runtime = runtime
         self.lifecycleTrace = lifecycleTrace

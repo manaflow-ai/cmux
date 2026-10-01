@@ -5,7 +5,7 @@ public import Foundation
 public struct FirefoxProfileList {
     private let fileManager: FileManager
 
-    /// Creates a reader with the filesystem used to discover profiles and sessions.
+    /// Creates a reader with the filesystem used to discover Firefox profiles.
     ///
     /// - Parameter fileManager: Filesystem access for discovery.
     public init(fileManager: FileManager = FileManager()) {
@@ -20,7 +20,7 @@ public struct FirefoxProfileList {
 
     public func entries(in firefoxDirectory: URL) -> [Entry] {
         let ini = firefoxDirectory.appending(path: "profiles.ini")
-        guard let text = try? String(contentsOf: ini, encoding: .utf8) else { return folderProfiles(in: firefoxDirectory) }
+        guard let data = fileManager.contents(atPath: ini.path), let text = String(data: data, encoding: .utf8) else { return folderProfiles(in: firefoxDirectory) }
         return parse(text, base: firefoxDirectory)
             .filter { fileManager.fileExists(atPath: $0.path.path) }
     }

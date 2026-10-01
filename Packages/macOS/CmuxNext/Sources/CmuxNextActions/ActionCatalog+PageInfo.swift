@@ -1,5 +1,5 @@
 // Page Info (the omnibar's "View site information" bubble). Titles live in
-// PageInfoActions.xcstrings. Ids match `PageInfoCommand.ActionID` in
+// PageInfoActions.xcstrings. Ids match the PageInfo action constants in
 // CmuxNextBrowser; every bubble control runs one of these.
 
 nonisolated extension ActionCatalog {

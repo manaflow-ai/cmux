@@ -6,7 +6,7 @@ public import Foundation
 public struct ChromiumProfileList {
     private let fileManager: FileManager
 
-    /// Creates a reader with the filesystem used to discover profiles and sessions.
+    /// Creates a reader with the filesystem used to discover Chromium profiles.
     ///
     /// - Parameter fileManager: Filesystem access for discovery.
     public init(fileManager: FileManager = FileManager()) {
@@ -21,7 +21,7 @@ public struct ChromiumProfileList {
     public func entries(in userDataDirectory: URL) -> [Entry] {
         let localState = userDataDirectory.appending(path: "Local State")
         var entries: [Entry] = []
-        if let data = try? Data(contentsOf: localState),
+        if let data = fileManager.contents(atPath: localState.path),
            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let profile = root["profile"] as? [String: Any],
            let cache = profile["info_cache"] as? [String: Any] {

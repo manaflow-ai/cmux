@@ -3,6 +3,9 @@ public import AppKit
 /// Turns an engine's context menu model into an `NSMenu` and shows it. The
 /// host may append its own items (cmux actions) after the engine's.
 public final class BrowserContextMenuBuilder {
+    /// The process-wide presenter used by default browser hosts and diagnostics.
+    public static let shared = BrowserContextMenuBuilder()
+
     /// Creates a presenter whose open menu can be inspected by its host.
     public init() {}
 

@@ -12,7 +12,7 @@ import CmuxNextDesign
 final class BrowserPopupPanels {
     private let contextMenus: BrowserContextMenuBuilder
 
-    init(contextMenus: BrowserContextMenuBuilder = BrowserContextMenuBuilder()) {
+    init(contextMenus: BrowserContextMenuBuilder = .shared) {
         self.contextMenus = contextMenus
     }
 

@@ -12,7 +12,7 @@ public import Foundation
 public struct ChromiumExtensionsReader {
     private let fileManager: FileManager
 
-    /// Creates a reader with the filesystem used to discover profiles and sessions.
+    /// Creates a reader with the filesystem used to read extension metadata.
     ///
     /// - Parameter fileManager: Filesystem access for discovery.
     public init(fileManager: FileManager = FileManager()) {
@@ -39,7 +39,7 @@ public struct ChromiumExtensionsReader {
     public func read(profile: URL) -> [ImportedExtension] {
         var settings: [String: [String: Any]] = [:]
         for name in ["Preferences", "Secure Preferences"] {
-            guard let data = try? Data(contentsOf: profile.appending(path: name)),
+            guard let data = fileManager.contents(atPath: profile.appending(path: name).path),
                   let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let extensions = (root["extensions"] as? [String: Any])?["settings"] as? [String: Any] else { continue }
             for (id, value) in extensions {
@@ -79,7 +79,7 @@ public struct ChromiumExtensionsReader {
         let sorted = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
         for version in sorted {
             let folder = extensionFolder.appending(path: version, directoryHint: .isDirectory)
-            if let data = try? Data(contentsOf: folder.appending(path: "manifest.json")),
+            if let data = fileManager.contents(atPath: folder.appending(path: "manifest.json").path),
                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 return Manifest(json: json, folder: folder)
             }
@@ -95,7 +95,7 @@ public struct ChromiumExtensionsReader {
         let locales = [manifest.json["default_locale"] as? String, "en", "en_US"].compactMap { $0 }
         for locale in locales {
             let file = manifest.folder.appending(path: "_locales/\(locale)/messages.json")
-            guard let data = try? Data(contentsOf: file),
+            guard let data = fileManager.contents(atPath: file.path),
                   let messages = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
             // Message keys are case-insensitive.
             if let entry = messages.first(where: { $0.key.lowercased() == key })?.value as? [String: Any],

@@ -4,7 +4,7 @@ public import AppKit
 /// (`debug.extensions.menu`, UI tests). Row controls run through the row
 /// view; other items through the menu.
 public struct ExtensionMenuDriver {
-    /// Creates the menu operations used by this browser UI.
+    /// Stateless driver the debug CLI and UI tests use to pick menu items.
     public init() {}
 
     /// `operation` is a row control (`run`, `pin`, `unpin`, `more`) of

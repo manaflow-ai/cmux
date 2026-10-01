@@ -7,7 +7,7 @@ import Compression
 public struct FirefoxSessionReader {
     private let fileManager: FileManager
 
-    /// Creates a reader with the filesystem used to discover profiles and sessions.
+    /// Creates a reader with the filesystem used to discover Firefox sessions.
     ///
     /// - Parameter fileManager: Filesystem access for discovery.
     public init(fileManager: FileManager = FileManager()) {
