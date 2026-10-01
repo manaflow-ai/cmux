@@ -29,7 +29,7 @@ struct MobilePrimaryTabNavigationHost<Content: View, Toolbar: ToolbarContent>: V
                 .toolbar {
                     toolbar
                 }
-                .toolbar(toolbarVisibility, for: .navigationBar)
+                .mobileToolbarVisibility(toolbarVisibility, for: .navigationBar)
                 .mobileToolbarVisibility(tabBarVisibility, for: .tabBar)
         }
     }

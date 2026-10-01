@@ -19,7 +19,7 @@ struct MobilePrimarySearchNavigationStack<Root: View, Destination: View>: View {
     var body: some View {
         NavigationStack(path: $path) {
             root()
-                .toolbar(rootNavigationBarVisibility, for: .navigationBar)
+                .mobileToolbarVisibility(rootNavigationBarVisibility, for: .navigationBar)
                 .modifier(MobilePrimarySearchLifecycleModifier(
                     scope: searchCoordinator.scope,
                     update: { scope, isSearching in
