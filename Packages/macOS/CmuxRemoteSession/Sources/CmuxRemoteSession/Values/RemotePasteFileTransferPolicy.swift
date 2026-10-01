@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Owns the private remote directory and cleanup contract for pasted files.
 public struct RemotePasteFileTransferPolicy: Equatable, Sendable {
