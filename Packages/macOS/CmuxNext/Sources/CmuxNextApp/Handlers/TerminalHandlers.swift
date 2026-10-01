@@ -14,6 +14,7 @@ enum TerminalHandlers {
         TerminalHandlers.bindFind(into: registry, context: ctx)
         TerminalHandlers.bindInput(into: registry, context: ctx)
         bindKeep(registry, ctx)
+        bindCopyMode(registry, ctx)
         bindUnported(registry)
     }
 
@@ -79,8 +80,16 @@ enum TerminalHandlers {
         })
     }
 
+    /// Vim-style keyboard copy mode over the scrollback (⇧⌘M); the terminal
+    /// view takes the keys until Esc, q, or a copy.
+    private static func bindCopyMode(_ registry: ActionRegistry, _ ctx: AppActionContext) {
+        registry.bind("toggleTerminalCopyMode", invoke: { invocation in
+            guard let entry = ctx.terminal(invocation) else { return }
+            if !entry.session.surfaceView.toggleCopyMode() { ctx.refuse(RefusalStrings.ghosttyRejected("keyboard_copy_cursor_set")) }
+        })
+    }
+
     private static func bindUnported(_ registry: ActionRegistry) {
-        registry.bindUnavailable("toggleTerminalCopyMode", reason: RefusalStrings.copyModeUnported)
         let textBox = RefusalStrings.textBoxUnported
         for id: ActionID in ["focusTextBoxInput", "palette.terminalToggleTextBoxInput", "cycleTextBoxSubmitAction", "attachTextBoxFile"] {
             registry.bindUnavailable(id, reason: textBox)
