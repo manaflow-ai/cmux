@@ -296,6 +296,26 @@ describe("acpmux measured rows", () => {
     }
   });
 
+  /// A permission card or a taller composer shortens the viewport without moving the offset,
+  /// so the latest row's end drops below the fold unless the transcript follows it.
+  test("at the latest row, a shorter viewport keeps the latest row in view", async () => {
+    const size = { width: 760, height: 600 };
+    const restore = fakeViewport(size);
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
+      const spacer = dom.window.document.querySelector(".acpmux-spacer") as HTMLElement;
+      expect(scroller.scrollTop).toBe(parseFloat(spacer.style.height) - 600);
+      size.height = 400;
+      await act(async () => { for (const callback of resizeCallbacks) callback(); });
+      expect(scroller.scrollTop).toBe(parseFloat(spacer.style.height) - 400);
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
   /// Rows that draw shorter than estimated shrink the content under a viewport at the latest row,
   /// and the browser clamps the offset before the layout effect sees it.
   test("opened at the latest row, it stays there as rows draw shorter than estimated", async () => {
