@@ -410,6 +410,7 @@ impl Hub {
                 .and_then(Value::as_str)
                 .unwrap_or("default")
                 .to_owned();
+            let model = current_model(&meta).unwrap_or_else(|| "default".into());
             let plan = crate::claude_stdio::spawn_plan(
                 profile,
                 resume,
@@ -417,8 +418,8 @@ impl Hub {
                 fresh_id.as_deref(),
                 Some(&effort),
                 &mode,
+                Some(&model),
             );
-            let model = current_model(&meta).unwrap_or_else(|| "default".into());
             let tr =
                 crate::claude_stdio::Translator::new(session.id.clone(), &mode, &model, &effort);
             if !fork {

@@ -34,8 +34,16 @@ impl Hub {
                     }
                     self.append(&session, "mux", "stderr", json!({"text": line}));
                 }
-                Inbound::Exited(code) => {
-                    *session.child.lock().await = None;
+                Inbound::Exited { pid, code } => {
+                    {
+                        let mut slot = session.child.lock().await;
+                        // A late exit from a process that was already replaced
+                        // must not detach the new one.
+                        if slot.as_ref().is_some_and(|c| c.pid != pid) {
+                            continue;
+                        }
+                        *slot = None;
+                    }
                     self.cancel_pending_permissions(&session);
                     let intentional =
                         matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
