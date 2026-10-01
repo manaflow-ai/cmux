@@ -36,13 +36,13 @@ struct MachineRowActions {
     ) -> MachineRowActions {
         MachineRowActions(
             openShell: { id in
-                onWillMutate(String(format: String(localized: "machines.operation.openShell", defaultValue: "Opening %@…"), id))
+                onWillMutate(String(format: String(localized: "machines.operation.openShell", defaultValue: "Opening %@\u{2026}"), id))
                 if !launch(arguments: ["vm", "shell", id], onDidMutate: onDidMutate) {
                     onDidMutate()
                 }
             },
             openDesktop: { id in
-                onWillMutate(String(format: String(localized: "machines.operation.openDesktop", defaultValue: "Opening %@’s desktop…"), id))
+                onWillMutate(String(format: String(localized: "machines.operation.openDesktop", defaultValue: "Opening %@\u{2019}s desktop\u{2026}"), id))
                 if !launch(arguments: ["vm", "desktop", id], onDidMutate: onDidMutate) {
                     onDidMutate()
                 }
@@ -109,19 +109,19 @@ struct MachineRowActions {
     private static func operationLabel(verb: [String], id: String) -> String {
         let format: String
         if verb.contains("snapshot") {
-            format = String(localized: "machines.operation.checkpoint", defaultValue: "Checkpointing %@…")
+            format = String(localized: "machines.operation.checkpoint", defaultValue: "Checkpointing %@\u{2026}")
         } else if verb.contains("resize") {
-            format = String(localized: "machines.operation.resize", defaultValue: "Resizing %@…")
+            format = String(localized: "machines.operation.resize", defaultValue: "Resizing %@\u{2026}")
         } else if verb.contains("fork") {
-            format = String(localized: "machines.operation.fork", defaultValue: "Forking %@…")
+            format = String(localized: "machines.operation.fork", defaultValue: "Forking %@\u{2026}")
         } else if verb.contains("status") {
-            format = String(localized: "machines.operation.status", defaultValue: "Checking %@…")
+            format = String(localized: "machines.operation.status", defaultValue: "Checking %@\u{2026}")
         } else if verb.contains("rename") {
-            format = String(localized: "machines.operation.rename", defaultValue: "Renaming %@…")
+            format = String(localized: "machines.operation.rename", defaultValue: "Renaming %@\u{2026}")
         } else if verb.contains("rm") {
-            format = String(localized: "machines.operation.delete", defaultValue: "Deleting %@…")
+            format = String(localized: "machines.operation.delete", defaultValue: "Deleting %@\u{2026}")
         } else {
-            format = String(localized: "machines.operation.generic", defaultValue: "Working on %@…")
+            format = String(localized: "machines.operation.generic", defaultValue: "Working on %@\u{2026}")
         }
         return String(format: format, id)
     }
@@ -187,8 +187,10 @@ struct MachineRowActions {
     ) {
         let alert = NSAlert()
         alert.alertStyle = .informational
-        let format = String(localized: "machines.rename.title", defaultValue: "Rename “%@”")
-        alert.messageText = String(format: format, CloudMachineRenamePresentation.promptName(for: machine))
+        let format = String(localized: "machines.rename.title", defaultValue: "Rename \u{201C}%@\u{201D}")
+        let fallbackName = String(localized: "machines.rename.fallbackName", defaultValue: "Cloud machine")
+        let promptName = CloudMachineRenamePresentation().promptName(for: machine, fallbackName: fallbackName)
+        alert.messageText = String(format: format, promptName)
         alert.informativeText = String(
             localized: "machines.rename.message",
             defaultValue: "The label is display-only. The machine keeps its name as its address."

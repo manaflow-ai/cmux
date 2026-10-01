@@ -43,15 +43,16 @@ struct CloudMachineRenamePromptTests {
     func usesShortFallback() {
         let machine = Self.machine(label: nil, slug: nil)
 
-        #expect(CloudMachineRenamePresentation.promptName(for: machine) == "Cloud machine")
-        #expect(CloudMachineRenamePresentation.promptName(for: machine) != machine.id)
+        let presentation = CloudMachineRenamePresentation()
+        #expect(presentation.promptName(for: machine, fallbackName: "Cloud machine") == "Cloud machine")
+        #expect(presentation.promptName(for: machine, fallbackName: "Cloud machine") != machine.id)
     }
 
     @Test("whitespace-only names also use the short fallback")
     func ignoresWhitespaceName() {
         let machine = Self.machine(label: "   ", slug: "\n")
 
-        #expect(CloudMachineRenamePresentation.promptName(for: machine) == "Cloud machine")
+        #expect(CloudMachineRenamePresentation().promptName(for: machine, fallbackName: "Cloud machine") == "Cloud machine")
     }
 
     private static func machine(label: String?, slug: String?) -> MachineSnapshot {
