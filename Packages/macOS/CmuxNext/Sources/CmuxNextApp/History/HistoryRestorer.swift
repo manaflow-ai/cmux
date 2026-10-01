@@ -16,7 +16,7 @@ struct HistoryRestorer {
         case .page(let url, let profile): openPage(url, profile: profile, newTab: newTab)
         case .location(let location, _):
             if !services.locationTrail.goTo(location) { services.registry.refuse(HistoryAppStrings.entryGone) }
-        case .closed(let item): reopen(closedID: item.id)
+        case .closed(let item): reopen(item)
         case .agent(let session): resume(session)
         case .command(let command):
             if let text = command.command { copy(text) }
@@ -36,6 +36,26 @@ struct HistoryRestorer {
             return
         }
         pane.newBrowserTab(url: url, profile: profile)
+    }
+
+    /// Reopens a closed tab, screen or workspace from a history list.
+    func reopen(_ item: ClosedItem) {
+        let context = AppActionContext(services: services)
+        switch item.kind {
+        case .terminalTab, .browserTab:
+            reopen(closedID: item.id)
+        case .screen:
+            guard let record = services.closedScreens.take(id: item.id), ScreenHandlers.reopen(record, context) else {
+                return services.registry.refuse(HistoryAppStrings.entryGone)
+            }
+        case .workspace:
+            guard let record = services.closedWorkspaces.take(item.id) else { return services.registry.refuse(HistoryAppStrings.entryGone) }
+            guard record.machine == services.activeDaemon.machineID else {
+                services.closedWorkspaces.restore(record)
+                return services.registry.refuse(HistoryAppStrings.reopenWorkspaceOnMachine(record.machine))
+            }
+            WorkspaceHandlers.createAndShow(context, name: record.name, cwd: record.cwd)
+        }
     }
 
     /// Reopens one closed tab (`nil`: the newest) where it was.

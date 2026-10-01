@@ -19,6 +19,14 @@ enum HistoryAppStrings {
         String(format: t("history.refusal.undoClosesPanes", "Undo closes %lld pane(s). Run Undo Layout Change again to confirm."), count)
     }
 
+    static func screenTitle(_ number: Int) -> String {
+        String(format: t("history.closed.screenTitle", "Screen %lld"), number)
+    }
+
+    static func reopenWorkspaceOnMachine(_ machine: String) -> String {
+        String(format: t("history.refusal.reopenWorkspaceOnMachine", "Switch a window to %@ to reopen this workspace there"), machine)
+    }
+
     static var locationsTitle: String { t("history.page.locations", "Location History") }
     static var closedTitle: String { t("history.page.closed", "Recently Closed") }
     static var searchTitle: String { t("history.page.search", "Search History") }
