@@ -87,4 +87,6 @@ public enum CookieImportError: Error, Equatable, Sendable, Codable {
     case needsFullDiskAccess
     /// The file is not in the expected format.
     case malformed(String)
+    /// cmux's cookie store could not start (Chromium is not available).
+    case storeUnavailable
 }

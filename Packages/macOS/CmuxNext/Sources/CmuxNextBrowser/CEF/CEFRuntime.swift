@@ -33,7 +33,7 @@ final class CEFRuntime {
     var hosts: [CEFPaneKey: CEFPaneHost] = [:]
     /// Profiles Chromium opened in this process (their files stay open
     /// until shutdown, so a deleted one's directory waits for the next launch).
-    private(set) var usedProfiles: Set<BrowserProfileID> = []
+    var usedProfiles: Set<BrowserProfileID> = []
     /// create_window tokens waiting for OnAfterCreated.
     var pendingWindows: [Int32: CEFPaneHost] = [:]
     /// The tab inside a synchronous cmux_tab_add call.

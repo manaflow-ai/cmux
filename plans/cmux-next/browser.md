@@ -636,3 +636,18 @@ still receives no link (MiscHandlerStrings.linkTarget) and is not shown by
 any surface. When a surface passes a link to actions, add
 `browserProfile.openLink` to `ContextMenuCatalog.link` and remove the
 `hoveredLink` special case in `TerminalHostDelegate`.
+
+## Browser import: cookies and security (2026-09-30)
+
+Owners: `CmuxNextBrowserImport/Cookies/` (read and decrypt), `CmuxNextBrowser/CEF/CEFRuntime+CookieImport.swift` and shim `shim_cookie_import.mm` (write), `CmuxNextApp/Onboarding/AppCookieDestination.swift` (glue).
+
+Path: the user picks "Cookies" for a source profile in onboarding or Settings > Browser > Import from Browser. Chromium sources: copy `Network/Cookies` (or `Cookies`) to a private temp folder (the source may be running), read the "<Name> Safe Storage" Keychain item, derive the key (PBKDF2-HMAC-SHA1, salt `saltysalt`, 1003 rounds, 16 bytes), decrypt each `v10` value (AES-128-CBC, IV of 16 spaces) and check and strip the SHA-256(host) prefix of database version 24+. Firefox family: `cookies.sqlite` in plain text. Safari: `Cookies.binarycookies` in its container, readable only with Full Disk Access. Then `cmux_shim_import_cookies` writes batches of 500 into the target profile's request context with `CefCookieManager::SetCookie` (after `GetCookieManager`'s storage-ready callback, so a profile with no open tab works too). The reply is counts only.
+
+Not imported, with counts shown: partitioned (CHIPS) cookies and Firefox container cookies (CEF 154's `cef_cookie_t` has no partition key), expired cookies, and rows the key cannot decrypt (`v11` is Linux, `v20` is Windows app-bound; neither exists on macOS, but a browser with its own scheme, such as Yandex, lands here). Session cookies (no expiry) end when cmux quits, because cmux's request contexts do not persist session cookies (`persist_session_cookies = false`, see `RequestContextFor`). Tor Browser cookies and history are refused.
+
+Threat model. The import copies the user's own data between the user's own apps on the user's own Mac. It adds no new trust boundary: cmux runs as the same user as the source browser.
+- The OS gates both sensitive reads: macOS shows its Keychain prompt for "<Name> Safe Storage" (cmux never pre-answers, scripts or bypasses it; Deny fails only that profile's cookies and its bookmarks and history still import), and Safari needs Full Disk Access that only the user can grant in System Settings (cmux explains this and opens the pane; it never asks silently).
+- The real import runs only when the user starts it. Detection reads folder listings, `Local State` and `profiles.ini`, never cookies or the Keychain.
+- Values stay in memory: `ImportedCookie` and `ChromiumCookieWrite` redact the value in every description; nothing logs a cookie, a key or the Keychain password; saved import batches hold counts (`CookieImportReport`). The decrypted key lives for one profile's read. The temp copy of a source database is in the per-user temp folder (mode 700) and is deleted when the read ends; for Chromium it holds only encrypted values, for Firefox the plain values the source already keeps on disk.
+- The write goes only into a persistent cmux profile's own cookie store (never an incognito context), the same store that profile's pages use. After import, any page or extension in that cmux profile can use those sessions, exactly as in the source browser, so importing into a profile means trusting that profile's extensions.
+- Tests and test launches never touch real browser data: a fixture home (`CMUX_NEXT_BROWSER_IMPORT_HOME`) replaces the home folder and keys come from `CMUX_NEXT_BROWSER_IMPORT_KEYS`; with a fixture home cmux never reads the real Keychain.

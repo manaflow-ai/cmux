@@ -362,6 +362,15 @@ CMUX_SHIM_EXPORT int cmux_shim_visit_cookies(int browser_id, int reply);
 // Deletes the host and domain cookies of url named name (every name when
 // name is NULL or ""). REPLY with `reply` follows, a = deleted count.
 CMUX_SHIM_EXPORT int cmux_shim_delete_cookies(int browser_id, int reply, const char* url, const char* name);
+// Browser import: writes cookies into the request context of
+// profile_cache_path (a persistent profile; an off-the-record key returns 0),
+// creating the context when no tab opened it yet. json = [{"url","name",
+// "value","domain","path","secure","httponly","same_site" (cef_cookie_same_site_t),
+// "has_expires","expires","creation","last_access" (decimal strings,
+// microseconds since 1601)}]. REPLY with `reply` and browser 0 follows once
+// every cookie was handled: a = written, s1 = {"written","rejected"}.
+// Returns 0 when nothing was started (bad path or JSON).
+CMUX_SHIM_EXPORT int cmux_shim_import_cookies(const char* profile_cache_path, int reply, const char* json);
 // The visible entry's SSL status as JSON {"secure","certStatus",
 // "contentStatus","sslVersion","url","chain":[base64 DER, leaf first]}, or
 // NULL. Free with cmux_shim_free_owned.

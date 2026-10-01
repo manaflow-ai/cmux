@@ -113,6 +113,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setContentSetting: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32) -> Int32
     let visitCookies: @convention(c) (Int32, Int32) -> Int32
     let deleteCookies: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+    /// Browser import: cookies into a profile's request context.
+    let importCookies: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?) -> Int32
     let sslStatus: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     let freeOwned: @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
     /// Distinct renderer client ids hosting the tab's frames.
@@ -236,6 +238,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setContentSetting = try r("cmux_shim_set_content_setting")
         visitCookies = try r("cmux_shim_visit_cookies")
         deleteCookies = try r("cmux_shim_delete_cookies")
+        importCookies = try r("cmux_shim_import_cookies")
         sslStatus = try r("cmux_shim_ssl_status")
         freeOwned = try r("cmux_shim_free_owned")
         rendererClientIDs = try r("cmux_shim_renderer_client_ids")
