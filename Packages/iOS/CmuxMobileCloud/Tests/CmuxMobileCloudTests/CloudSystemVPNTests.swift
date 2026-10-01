@@ -1076,6 +1076,21 @@ import Testing
         #expect(await pendingFingerprints(pendingStore, scope: "user-1/team-1").isEmpty)
     }
 
+    @Test func accountSwitchStopsTheOldVPNBeforeUnavailableCleanup() async {
+        let rig = Rig()
+        await signedIn(rig, scope: "user-1/team-1")
+        rig.controller.enable()
+        await rig.controller.waitForPendingOperation()
+
+        rig.manager.isAvailable = false
+        rig.controller.setScope("user-2/team-9")
+        await rig.controller.waitForPendingOperation()
+
+        #expect(rig.manager.cancelPendingOperationCount == 1)
+        #expect(rig.manager.phase == .off)
+        #expect(rig.controller.phase == .failed(.unavailable))
+    }
+
     @Test func signingOutKeepsLocalCleanupPendingWhileVPNIsUnavailable() async {
         let rig = Rig()
         await signedIn(rig)

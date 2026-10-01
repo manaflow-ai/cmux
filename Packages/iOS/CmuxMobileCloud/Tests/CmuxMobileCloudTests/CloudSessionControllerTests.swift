@@ -227,7 +227,11 @@ import Testing
         let store = InMemoryCloudDeviceIdentityStore()
         let controller = makeController(service: service, store: store)
         controller.setShellLease(true)
-        await settle { controller.machines.elements.count == 1 }
+        await settle {
+            guard controller.machines.elements.count == 1 else { return false }
+            if case .ready = controller.tunnel { return true }
+            return false
+        }
         let identityBefore = await store.stored
 
         controller.resetForSignOut()

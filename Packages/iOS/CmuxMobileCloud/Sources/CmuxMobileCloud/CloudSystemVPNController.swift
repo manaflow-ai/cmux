@@ -191,10 +191,19 @@ public final class CloudSystemVPNController {
                 }
                 guard manager.isAvailable else {
                     guard self.isCurrent(generation) else { return }
-                    // Server cleanup does not require the local Network
-                    // Extension. Keep platform removal pending for the next
-                    // foreground refresh once iOS makes it available.
+                    let hasActiveConfiguration = manager.hasSavedConfiguration
+                        || manager.phase != .off
+                    // Stop the old profile before leaving this transition. A
+                    // later refresh will remove its saved configuration once
+                    // the platform is available again.
+                    if hasActiveConfiguration {
+                        manager.cancelPendingOperation()
+                    }
                     browserTunnel = nil
+                    if hasActiveConfiguration {
+                        needsPlatformReconciliation = true
+                        publish(.failed(.unavailable))
+                    }
                     scheduleCleanupRetry()
                     return
                 }
