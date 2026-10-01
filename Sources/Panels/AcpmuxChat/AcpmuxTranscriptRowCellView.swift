@@ -153,6 +153,10 @@ final class AcpmuxTranscriptRowCellView: NSTableCellView {
         fade.fromValue = 0
         fade.toValue = layer.opacity
         fade.duration = 0.18
+        // Backwards fill: if the render server shows a frame before the animations begin,
+        // it shows their start values, not the final state.
+        spring.fillMode = .backwards
+        fade.fillMode = .backwards
         layer.add(spring, forKey: "acpmuxChat.arrive.scale")
         layer.add(fade, forKey: "acpmuxChat.arrive.fade")
     }

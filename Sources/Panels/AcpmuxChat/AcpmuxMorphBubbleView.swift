@@ -145,7 +145,10 @@ final class AcpmuxMorphBubbleView: NSView {
     }
 
     private func add(_ animation: CAAnimation, to layer: CALayer) {
-        animation.fillMode = .forwards
+        // Both: before an animation begins (a frame can render between the commit and its
+        // start) the layer shows the start value, and after it ends the end value, never
+        // the layer's model value.
+        animation.fillMode = .both
         animation.isRemovedOnCompletion = false
         layer.add(animation, forKey: (animation as? CAPropertyAnimation)?.keyPath)
     }

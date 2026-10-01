@@ -715,6 +715,7 @@ final class AcpmuxTranscriptView: NSView, NSTableViewDataSource, NSTableViewDele
         fade.fromValue = 0
         fade.toValue = 1
         fade.duration = 0.2
+        fade.fillMode = .backwards
         return fade
     }
 }
