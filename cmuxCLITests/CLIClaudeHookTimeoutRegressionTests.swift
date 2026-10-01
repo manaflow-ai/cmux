@@ -1391,6 +1391,9 @@ struct CLIClaudeHookTimeoutRegressionTests {
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ]
+            if let runtimeRoot = ProcessInfo.processInfo.environment["CMUX_CI_RUNTIME_SOURCE_ROOT"] {
+                environment["CMUX_CI_RUNTIME_SOURCE_ROOT"] = runtimeRoot
+            }
             environment.merge(producer.environment, uniquingKeysWith: { _, value in value })
             let result = runCodexHookProcess(
                 executablePath: cliPath,
@@ -1429,9 +1432,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
     }
 
     private var repositoryRoot: URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
+        BundledCLITestSupport.repositoryRoot(file: #filePath)
     }
 
     private func makeSettingsCapturingClaude(at url: URL) throws {
@@ -1452,7 +1453,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
         settings: URL,
         socketPath: String
     ) -> [String: String] {
-        [
+        var environment = [
             "HOME": root.path,
             "PATH": "\(binDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin",
             "TMPDIR": root.path,
@@ -1463,6 +1464,10 @@ struct CLIClaudeHookTimeoutRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "FAKE_CLAUDE_SETTINGS_OUTPUT": settings.path,
         ]
+        if let runtimeRoot = ProcessInfo.processInfo.environment["CMUX_CI_RUNTIME_SOURCE_ROOT"] {
+            environment["CMUX_CI_RUNTIME_SOURCE_ROOT"] = runtimeRoot
+        }
+        return environment
     }
 
     private func settingsObject(at url: URL) throws -> [String: Any] {
