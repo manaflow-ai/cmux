@@ -11,6 +11,9 @@
       location = "container:Packages/Shared"
       name = "Packages (Shared)">
       <FileRef
+         location = "group:CmuxAcpmux">
+      </FileRef>
+      <FileRef
          location = "group:CmuxAgentChat">
       </FileRef>
       <FileRef

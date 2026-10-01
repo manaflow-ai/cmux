@@ -61,6 +61,12 @@ public enum JSONValue: Hashable, Sendable, Codable {
         return nil
     }
 
+    /// The numeric value, when this is a number.
+    public var numberValue: Double? {
+        if case let .number(n) = self { return n }
+        return nil
+    }
+
     /// The numeric value as `UInt64`, when this is a non-negative number.
     public var uint64Value: UInt64? {
         if case let .number(n) = self, n >= 0 { return UInt64(n) }

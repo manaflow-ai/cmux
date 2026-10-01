@@ -44,6 +44,9 @@ public final class ConversationModel {
     @ObservationIgnored private var uploads: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var localFiles: [String: OutgoingAttachment] = [:]
     @ObservationIgnored private var savedOutbox: [ClientMessageID] = []
+    /// Messages leave in the order they were sent: one consumer delivers them.
+    @ObservationIgnored private var outgoing: AsyncStream<OutgoingMessage>.Continuation?
+    @ObservationIgnored private var deliveryTask: Task<Void, Never>?
 
     /// Creates a model.
     /// - Parameters:
@@ -88,6 +91,9 @@ public final class ConversationModel {
     /// Closes the feed and stops following the connection.
     public func stop() async {
         connectionTask?.cancel()
+        outgoing?.finish()
+        outgoing = nil
+        deliveryTask?.cancel()
         feedTask?.cancel()
         for t in uploads.values {
             t.cancel()
@@ -119,6 +125,8 @@ public final class ConversationModel {
                         self.reducer.setHasOlder(hasOlder, in: &self.state)
                     }
                     await self.persistOutboxIfChanged()
+                case let .metadata(m):
+                    self.reducer.applyMetadata(m, to: &self.state)
                 case .reconnected:
                     await self.deliverUnconfirmed()
                 }
@@ -141,10 +149,8 @@ public final class ConversationModel {
         for a in attachments {
             localFiles[a.uploadID] = a
         }
-        Task {
-            await persistOutboxIfChanged()
-            await deliver(message)
-        }
+        Task { await persistOutboxIfChanged() }
+        enqueueDelivery(message)
         return message.clientMessageID
     }
 
@@ -242,8 +248,24 @@ public final class ConversationModel {
     private func deliverUnconfirmed() async {
         for message in reducer.unconfirmedSends(in: state) {
             reducer.setLocalSendFailed(message.clientMessageID, failed: false, in: &state)
-            await deliver(message)
+            // A message still in flight is sent again; the backend runs a
+            // client message id once.
+            enqueueDelivery(message)
         }
+    }
+
+    private func enqueueDelivery(_ message: OutgoingMessage) {
+        if outgoing == nil {
+            // Unbounded: it holds only messages the user typed, in order.
+            let (stream, continuation) = AsyncStream<OutgoingMessage>.makeStream()
+            outgoing = continuation
+            deliveryTask = Task { [weak self] in
+                for await m in stream {
+                    await self?.deliver(m)
+                }
+            }
+        }
+        outgoing?.yield(message)
     }
 
     private func startUpload(_ attachment: OutgoingAttachment, to id: ConversationID) {

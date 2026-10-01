@@ -48,6 +48,17 @@ public struct ConversationReducer: Sendable {
         state.hasOlder = hasOlder
     }
 
+    /// Applies the latest title, status, mode and model.
+    /// - Parameters:
+    ///   - metadata: The facts; `nil` fields are left as they are.
+    ///   - state: The state to update.
+    public func applyMetadata(_ metadata: ConversationMetadata, to state: inout ConversationState) {
+        if let t = metadata.title { state.title = t }
+        if let s = metadata.status, state.status != .deleted { state.status = s }
+        if let m = metadata.mode { state.mode = m }
+        if let m = metadata.model { state.model = m }
+    }
+
     /// Shows a message the user just sent, before the backend confirms it.
     /// - Parameters:
     ///   - message: The outgoing message.
