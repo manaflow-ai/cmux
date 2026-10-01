@@ -878,7 +878,7 @@ import SwiftUI
 
     @MainActor
     private static func middleMouseDownEvent() -> NSEvent? {
-        NSEvent.otherMouseEvent(
+        NSEvent.mouseEvent(
             with: .otherMouseDown,
             location: .zero,
             modifierFlags: [],
@@ -886,7 +886,7 @@ import SwiftUI
             windowNumber: 0,
             context: nil,
             eventNumber: 0,
-            buttonNumber: 2,
+            clickCount: 1,
             pressure: 1
         )
     }
