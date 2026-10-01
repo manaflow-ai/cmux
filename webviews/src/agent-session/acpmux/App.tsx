@@ -106,6 +106,9 @@ const speaker = (kind: string) => kind === "user" ? "You" : kind === "assistant"
 const rowKind = (row: AcpmuxRow) => row.kind === "activity" && row.items?.some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ? "editedFiles" : row.kind;
 const currentRegistry = (): NativeRegistry => ({ ...defaultRegistry, ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined) });
 
+/// Where a scroller sits, read while its content still matches `totalHeight`.
+const scrollPosition = (node: HTMLElement, totalHeight: number) => ({ top: node.scrollTop, atLatest: node.scrollTop >= totalHeight - node.clientHeight - 1 });
+
 /// Scroll steps of rows mounted ahead in the scroll direction, capped in viewports.
 /// A scroll commits from its event, a frame after the offset moved, so without the
 /// lead a fling shows a blank edge on every frame.
@@ -148,11 +151,12 @@ export function VirtualTranscript({ rows, onToggleActivity, expanded, registry =
   }, []);
   const observer = useMemo(() => typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver((entries?: ResizeObserverEntry[]) => {
     for (const entry of entries ?? []) {
-      const id = (entry.target as HTMLElement).dataset.rowId;
-      const row = id === undefined ? undefined : rowsRef.current.find((candidate) => candidate.id === id);
-      if (row) reportDrawn(row.id, row.version, (entry.target as HTMLElement).getBoundingClientRect().height);
+      const target = entry.target as HTMLElement;
+      const row = rowsRef.current[Number(target.getAttribute("aria-posinset")) - 1];
+      if (row && row.id === target.dataset.rowId) reportDrawn(row.id, row.version, target.getBoundingClientRect().height);
     }
-    flushDrawn();
+    // A late size change (a font loading) must not paint a frame of overlap first.
+    flushSync(flushDrawn);
   }), [reportDrawn, flushDrawn]);
   useEffect(() => () => observer?.disconnect(), [observer]);
   // Forget rows that left the transcript (a session switch, older history unloaded).
@@ -171,6 +175,7 @@ export function VirtualTranscript({ rows, onToggleActivity, expanded, registry =
   const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
   useEffect(() => { const node = ref.current; if (!node) return; const observer = new ResizeObserver(() => { setHeight(node.clientHeight); setWidth(node.clientWidth); }); observer.observe(node); setWidth(node.clientWidth); return () => observer.disconnect(); }, []);
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
+  const scrolledTo = useRef({ top: 0, atLatest: false });
   // Scroll frames re-render with the same rows; only rows, width, measured custom
   // heights or the registry can move a row.
   const measured = useMemo(() => {
@@ -200,16 +205,23 @@ export function VirtualTranscript({ rows, onToggleActivity, expanded, registry =
   useLayoutEffect(() => {
     const old = previousLayout.current;
     const node = ref.current;
-    if (old && node && old.tops.length === layout.tops.length && node.scrollTop > 0) {
-      if (didOpenAtLatest.current && node.scrollTop >= old.totalHeight - node.clientHeight - 1) {
+    if (old && node && old.tops.length === layout.tops.length) {
+      // Content that shrank under the viewport has already clamped the live offset to
+      // the new end; the offset recorded before this commit is where the reader was.
+      const live = node.scrollTop;
+      const clamped = live < scrolledTo.current.top - 0.5 && live >= layout.totalHeight - node.clientHeight - 1;
+      const top = clamped ? scrolledTo.current.top : live;
+      const atLatest = clamped ? scrolledTo.current.atLatest : top >= old.totalHeight - node.clientHeight - 1;
+      // At the first row nothing above can move it.
+      if (top > 0 && didOpenAtLatest.current && atLatest) {
         // At the latest row: stay there as rows settle to their drawn heights.
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
         if (Math.abs(latest - node.scrollTop) > 0.5) node.scrollTop = latest;
-      } else {
+      } else if (top > 0) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
-        const anchor = visibleLayoutRange(old, node.scrollTop, 0, 0).first;
+        const anchor = visibleLayoutRange(old, top, 0, 0).first;
         const delta = layout.tops[anchor] - old.tops[anchor];
-        if (Math.abs(delta) > 0.5) node.scrollTop += delta;
+        if (clamped || Math.abs(delta) > 0.5) node.scrollTop = top + delta;
       }
     }
     // Runs on height too: rows that fit and then overflow on a height-only shrink keep the same memoized layout.
@@ -220,9 +232,10 @@ export function VirtualTranscript({ rows, onToggleActivity, expanded, registry =
       didOpenAtLatest.current = true;
     }
     previousLayout.current = layout;
+    if (node) scrolledTo.current = scrollPosition(node, layout.totalHeight);
   }, [layout, range.first, height]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
-  const onScroll = (event: React.UIEvent<HTMLDivElement>) => { const next = event.currentTarget.scrollTop; flushSync(() => setScroll((current) => ({ top: next, delta: next - current.top }))); };
+  const onScroll = (event: React.UIEvent<HTMLDivElement>) => { const next = event.currentTarget.scrollTop; scrolledTo.current = scrollPosition(event.currentTarget, layout.totalHeight); flushSync(() => setScroll((current) => ({ top: next, delta: next - current.top }))); };
   return <div ref={ref} className="acpmux-scroll" role="feed" aria-label="Transcript" onScroll={onScroll}><div className="acpmux-spacer" style={{ height: layout.totalHeight }}><div className="acpmux-thread">{rows.slice(range.first, range.last).map((row, index) => { const absoluteIndex = range.first + index; const kind = rowKind(row); const Component = registry[kind] ?? NoticeRow; const isExpanded = expanded.has(row.id); return <RowFrame key={row.id} row={row} kind={kind} index={absoluteIndex} setSize={canLoadOlder ? -1 : rows.length} top={layout.tops[absoluteIndex]} rowWidth={transcriptRowWidth(width)} expanded={isExpanded} observer={observer} report={reportDrawn}><Component row={row} onToggleActivity={onToggleActivity} expanded={isExpanded} /></RowFrame>; })}</div></div></div>;
 }
 
