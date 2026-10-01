@@ -37,6 +37,7 @@ struct AutomationCLISyntaxTests {
             ("logs", ["--unknown"]),
             ("test", ["rule", "--event"]),
             ("test", ["rule", "--event", #"{"name":"agent.needs_input"}"#, "extra"]),
+            ("test", ["rule", "extra", "--event", #"{"name":"agent.needs_input"}"#]),
             ("test", ["rule", "--typo", #"{"name":"agent.needs_input"}"#])
         ]
         for (subcommand, arguments) in malformed {

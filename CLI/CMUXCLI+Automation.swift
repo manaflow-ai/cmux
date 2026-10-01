@@ -142,6 +142,9 @@ extension CMUXCLI {
                 defaultValue: "automation test requires --event <json>"
             ))
         }
+        guard markerIndex == 0 else {
+            throw CLIError(message: Self.automationUsage())
+        }
         let marker = args[markerIndex]
         if marker == "--event" {
             guard markerIndex + 1 == args.count - 1 else {
