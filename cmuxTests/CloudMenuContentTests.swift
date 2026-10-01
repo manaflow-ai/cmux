@@ -204,7 +204,8 @@ struct CloudMenuContentTests {
             label: " ",
             slug: "\t"
         )
-        #expect(MachineRowActions.deleteConfirmationTitle(for: blank) == String(format: format, "Unnamed machine"))
+        let unnamed = String(localized: "machines.delete.unnamed", defaultValue: "Unnamed machine")
+        #expect(MachineRowActions.deleteConfirmationTitle(for: blank) == String(format: format, unnamed))
     }
 
     @Test("Status item renders machines with a status dot and dimmed state")
