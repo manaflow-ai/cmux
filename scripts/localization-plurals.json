@@ -734,14 +734,14 @@
       1
     ]
   },
-  "update.relaunch.resumesMidTask": {
-    "source": "%lld agents will be resumed mid-task.",
+  "update.readyWaiting.agents": {
+    "source": "Installs and relaunches when %lld agents finish. Agents resume after the relaunch.",
     "arguments": [
       1
     ]
   },
-  "update.relaunch.runningCommands": {
-    "source": "%lld running commands",
+  "update.readyWaiting.commands": {
+    "source": "Relaunching will stop %lld running commands. Choose Install Now when you're ready.",
     "arguments": [
       1
     ]

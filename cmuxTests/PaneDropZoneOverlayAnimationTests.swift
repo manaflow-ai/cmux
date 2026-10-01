@@ -414,9 +414,13 @@ struct PaneDropZoneOverlayAnimationTests {
             #expect((overlay.layer?.animationKeys() ?? []).isEmpty, "the highlight started fading out")
             #expect(Probe.approximatelyEqual(overlay.frame, zoneFrame))
 
-            // Leaving the pane hides the preview at once (PaneDropTargetIdentityTests).
             target.draggingExited(draggingInfo)
-            #expect(overlay.isHidden, "leaving the pane should hide the highlight")
+            // A pane drag owns the preview, so exiting the target clears it
+            // immediately. This also prevents a stale preview from remaining
+            // in a pane after the drag target changes.
+            #expect(overlay.isHidden)
+            #expect(overlay.alphaValue == 1)
+            #expect((overlay.layer?.animationKeys() ?? []).isEmpty)
         }
     }
 }

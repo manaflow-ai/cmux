@@ -178,7 +178,7 @@ struct CloudMachinesHeaderCountTests {
                 "Header is \(height)pt; the toolbar alone is \(RightSidebarChromeMetrics.secondaryBarHeight)pt")
     }
 
-    @Test("List status and tree errors keep their row", arguments: ["listStatus", "treeError"])
+    @Test("Persistent list status and tree errors keep their row", arguments: ["listStatus", "treeError"])
     func fleetStatusStillShows(message: String) {
         let height = headerHeight {
             fleetStatus(
