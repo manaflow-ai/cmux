@@ -139,13 +139,13 @@ fn env_value(name: &str) -> Option<String> {
 
 type Reader = BufReader<Box<dyn cmux_tui_core::platform::transport::Stream>>;
 
-struct Connection {
+pub(super) struct Connection {
     reader: Reader,
     route: Map<String, Value>,
 }
 
 impl Connection {
-    fn open(global: &GlobalArgs) -> Result<Self, Failure> {
+    pub(super) fn open(global: &GlobalArgs) -> Result<Self, Failure> {
         let (socket, derived) = super::wire::resolve_socket_with_origin(global).map_err(|_| {
             Failure::Transport(format!(
                 "cmux: {}",
@@ -172,7 +172,11 @@ impl Connection {
         Ok(Self { reader: BufReader::new(stream), route })
     }
 
-    fn read(&mut self, operation: ResourceOperation, fields: Value) -> Result<Value, Failure> {
+    pub(super) fn read(
+        &mut self,
+        operation: ResourceOperation,
+        fields: Value,
+    ) -> Result<Value, Failure> {
         let params = self.params(fields);
         call(&mut self.reader, operation, params, None)
     }
@@ -716,7 +720,7 @@ fn inbox_text(messages: &[Value], recipient: Option<&str>) -> String {
 }
 
 #[cfg(unix)]
-mod acp {
+pub(super) mod acp {
     //! acpmux, linked into this binary, reached at the same home `cmux acp`
     //! uses. A message never starts the acpmux daemon: an acpmux recipient
     //! exists only while its daemon runs.
@@ -740,6 +744,20 @@ mod acp {
         })
     }
 
+    /// The running daemon's sessions; none when it does not run or does
+    /// not answer within three seconds.
+    pub(in crate::cli) fn sessions() -> Vec<serde_json::Value> {
+        let Ok(runtime) = runtime() else { return Vec::new() };
+        runtime.block_on(async {
+            let listed = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                let client = acpmux::deliver::connect().await.ok()?;
+                acpmux::deliver::sessions(&client).await.ok()
+            })
+            .await;
+            listed.ok().flatten().unwrap_or_default()
+        })
+    }
+
     pub(super) fn deliver(session: &str, text: &str, prompt_id: &str) -> Result<(), String> {
         runtime()?.block_on(async {
             let client = acpmux::deliver::connect().await.map_err(|error| format!("{error:#}"))?;
@@ -752,11 +770,15 @@ mod acp {
 }
 
 #[cfg(not(unix))]
-mod acp {
+pub(super) mod acp {
     const UNSUPPORTED: &str = "acpmux sessions are not available on this platform";
 
     pub(super) fn resolve(_key: &str) -> Result<String, String> {
         Err(UNSUPPORTED.to_owned())
+    }
+
+    pub(in crate::cli) fn sessions() -> Vec<serde_json::Value> {
+        Vec::new()
     }
 
     pub(super) fn deliver(_session: &str, _text: &str, _prompt_id: &str) -> Result<(), String> {

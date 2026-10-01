@@ -309,7 +309,7 @@ session <selector> config reload
 session <selector> window title set|clear
 session <selector> terminal defaults set
 
-agent list
+agent list [--terminal <id>] [--state <state>]
 agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
 agent message --reply-to <message-id> [--from <name>] [--] <text...|->
 agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
@@ -446,6 +446,16 @@ never open a protocol connection or send a plugin ID to a session. Optional
 plugin names are slugs matching `[a-z0-9-_]+`.
 
 ## Agent messages
+
+`agent list` lists every agent `agent message` can reach: the terminal agents
+of `agent.list` and, when the acpmux daemon runs, its sessions. Terminal rows
+keep the `agent.list` fields; every row adds `address` (the `<agent>` that
+`agent message` takes), `kind` (`terminal` or `acp`) and `queued_messages`.
+An acpmux row has `name`, `agent` (the harness), `state` (`running` is
+`working`, `waiting` is `blocked`, `idle` and `ready` are `idle`, `closed` is
+`done`), `status`, `cwd`, `model`, `agent_session_id` and `updated_at_ms`.
+`--state` filters both kinds. `--terminal <id>` lists that terminal's agents
+with `agent.list` alone.
 
 `agent message` stores a message with `agent.message.send` and then delivers
 it. `<agent>` is a terminal agent (`term_...`), an agent (`agent_...`, sent to
