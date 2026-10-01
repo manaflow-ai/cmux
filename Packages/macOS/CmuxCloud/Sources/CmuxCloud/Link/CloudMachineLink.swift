@@ -302,7 +302,10 @@ public actor CloudMachineLink {
         self.connected = connected
         self.resourceConnection = CloudTuiPersistentResourceConnection(socketPath: socketPath)
         state = .connected
-        await startEventsSubscription(socketPath: socketPath, cursor: nil)
+        _ = await startEventsSubscription(socketPath: socketPath, cursor: nil)
+        guard state == .connected, self.connected != nil else {
+            throw LinkError.exited(status: 3, output: "transport closed: event subscription unavailable")
+        }
         changesContinuation.yield(.connected)
         return connected
     }
@@ -471,7 +474,14 @@ public actor CloudMachineLink {
             return status == 3 && output.hasPrefix("transport closed:")
         }
         let nsError = error as NSError
-        return nsError.domain == "cmux.cloud.manual-io"
+        guard nsError.domain == "cmux.cloud.manual-io",
+              let description = nsError.userInfo[NSLocalizedDescriptionKey] as? String
+        else { return false }
+        // Only peer-connect failures prove that an already-live link lost its
+        // daemon. Local descriptor, path, and nonblocking setup failures can
+        // occur before any transport was established and must not retire it.
+        return description.hasPrefix("Cloud terminal socket connect failed")
+            || description.hasPrefix("Cloud terminal socket connect status failed")
     }
 
     /// Fences a dead link only when the failed request still belongs to the
@@ -486,30 +496,7 @@ public actor CloudMachineLink {
               self.resourceConnection === requestChannel else { return }
         state = .error
         lastError = Self.transportFailureMessage
-        eventsSubscriptionID = nil
-        eventsReaderTask?.cancel()
-        eventsReaderTask = nil
-        eventsRecoveryTask?.cancel()
-        eventsRecoveryTask = nil
-        cancelEventsStabilityReset()
-        eventsRecoveryPhase = .healthy
-        await cancelEventsStream()
-        connected = nil
-        await resourceConnection?.close()
-        resourceConnection = nil
-        changesContinuation.yield(.streamEnded(reason: "transport_failure", cursor: eventsCursor))
-        changesContinuation.finish()
-
-        // Fence the termination callback before killing the stale client so an
-        // ordinary process-exit callback cannot overwrite the recovery state.
-        let staleProcess = process
-        let staleExit = processExit
-        process = nil
-        processExit = nil
-        if let staleProcess, let staleExit {
-            await Self.terminateAndWait(staleProcess, exit: staleExit)
-        }
-        await releaseHubLeaseOnce()
+        await finishLink(reason: "transport_failure", cursor: eventsCursor, terminateProcess: true)
     }
 
     private func cancelEventsStream() async {
@@ -530,8 +517,10 @@ public actor CloudMachineLink {
         await cancelEventsStream()
         let subscriptionID = UUID()
         eventsSubscriptionID = subscriptionID
+        var requestChannel: CloudTuiPersistentResourceConnection?
         do {
             let channel = try await controlConnection()
+            requestChannel = channel
             let opened = try await channel.events(cursor: cursor)
             guard eventsSubscriptionID == subscriptionID, state == .connected else {
                 await channel.cancelStream(opened.id)
@@ -545,12 +534,27 @@ public actor CloudMachineLink {
                     if case .streamEnded = change { receivedStreamEnd = true }
                     await self?.eventChange(change, subscriptionID: subscriptionID)
                 }
-                await self?.eventReaderDidEnd(subscriptionID: subscriptionID, receivedStreamEnd: receivedStreamEnd)
+                await self?.eventReaderDidEnd(
+                    subscriptionID: subscriptionID,
+                    receivedStreamEnd: receivedStreamEnd,
+                    channel: channel
+                )
             }
             return true
         } catch {
             guard eventsSubscriptionID == subscriptionID else { return false }
             eventsSubscriptionID = nil
+            if Self.isTransportFailure(error) {
+                let channel = requestChannel ?? resourceConnection
+                if let channel {
+                    await retireForTransportFailure(
+                        error,
+                        resourceConnection: channel,
+                        channel: channel
+                    )
+                }
+                return false
+            }
             changesContinuation.yield(.streamEnded(reason: "events_open_failed", cursor: eventsCursor))
             scheduleEventsRecovery()
             return false
@@ -580,8 +584,20 @@ public actor CloudMachineLink {
         changesContinuation.yield(change)
     }
 
-    private func eventReaderDidEnd(subscriptionID: UUID, receivedStreamEnd: Bool) async {
+    private func eventReaderDidEnd(
+        subscriptionID: UUID,
+        receivedStreamEnd: Bool,
+        channel: CloudTuiPersistentResourceConnection
+    ) async {
         guard eventsSubscriptionID == subscriptionID else { return }
+        if !receivedStreamEnd, await channel.isClosed {
+            await retireForTransportFailure(
+                LinkError.exited(status: 3, output: "transport closed: event stream ended"),
+                resourceConnection: channel,
+                channel: channel
+            )
+            return
+        }
         await finishEventsSubscription(
             subscriptionID: subscriptionID,
             reason: receivedStreamEnd ? nil : "eof"
@@ -718,6 +734,16 @@ public actor CloudMachineLink {
 
     private func linkProcessDidExit(_ exitedProcess: Process, status: Int32) async {
         guard process === exitedProcess else { return }
+        if state != .unavailable {
+            state = status == 0 ? .unavailable : .error
+            lastError = status == 0 ? nil : LinkError.exited(status: status, output: stderrTail.joined(separator: "\n")).errorDescription
+        }
+        await finishLink(reason: "link_exit", cursor: nil, terminateProcess: false)
+    }
+
+    /// Finishes a link exactly once after either the child exits or transport
+    /// retirement fences it. The caller sets the final state and error first.
+    private func finishLink(reason: String, cursor: CloudVMCursor?, terminateProcess: Bool) async {
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
@@ -726,16 +752,18 @@ public actor CloudMachineLink {
         cancelEventsStabilityReset()
         eventsRecoveryPhase = .healthy
         await cancelEventsStream()
+        connected = nil
+
+        let staleProcess = process
+        let staleExit = processExit
         process = nil
         processExit = nil
-        connected = nil
-        if state != .unavailable {
-            state = status == 0 ? .unavailable : .error
-            lastError = status == 0 ? nil : LinkError.exited(status: status, output: stderrTail.joined(separator: "\n")).errorDescription
+        if terminateProcess, let staleProcess, let staleExit {
+            await Self.terminateAndWait(staleProcess, exit: staleExit)
         }
         await resourceConnection?.close()
         resourceConnection = nil
-        changesContinuation.yield(.streamEnded(reason: "link_exit", cursor: nil))
+        changesContinuation.yield(.streamEnded(reason: reason, cursor: cursor))
         changesContinuation.finish()
         await releaseHubLeaseOnce()
     }
