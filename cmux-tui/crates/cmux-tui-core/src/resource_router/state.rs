@@ -196,6 +196,7 @@ pub(super) fn dispatch(
                 color: nullable_string(fields, "color"),
                 icon: nullable_string(fields, "icon"),
                 title: nullable_string(fields, "title"),
+                ..WorkspacePresentationUpdate::default()
             };
             let commit = mux
                 .state_update_workspace(
