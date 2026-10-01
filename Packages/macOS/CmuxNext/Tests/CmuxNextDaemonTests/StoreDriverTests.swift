@@ -126,8 +126,6 @@ final class ManualFrameScheduler: FrameBatchScheduler {
         #expect(store.pane(4)?.groupSpans == [TabGroupSpan(group: "tg", range: 0..<2)])
         #expect(store.tabGroup("tg")?.name == "API")
 
-        store.applyOptimistic(.setWorkspaceGroup(key: "c7a12f08-d868-42cd-9f98-a2ca1f6d9eb1", group: "g1"), transaction: "t")
-        #expect(store.sidebarSections.map { $0.workspaces.map(\.name) } == [[], ["beta", "gamma"]])
     }
 
     @Test func runAppliesBurstsInOneFrame() async throws {

@@ -39,9 +39,10 @@ extension AppActionContext {
     /// Takes a workspace out of its personal group.
     func ungroupPersonal(_ workspace: WorkspaceModel) {
         guard let qualified = WindowProfiles.qualified(workspace.id, machines: services.machines) else { return }
-        services.machines.local.send("set-personal-workspace") {
-            try await $0.setPersonalWorkspace(SetPersonalWorkspaceRequest(
-                sessionID: qualified.session, workspaceKey: WorkspaceKey(rawValue: qualified.key), group: .clear))
+        let home = services.machines.local, key = WorkspaceKey(rawValue: qualified.key)
+        let resource = home.store.personalStateID(session: qualified.session, key: key)
+        home.send("set-personal-workspace") {
+            try await $0.placePersonalWorkspace(session: qualified.session, key: key, resource: resource, group: .clear)
         }
     }
 

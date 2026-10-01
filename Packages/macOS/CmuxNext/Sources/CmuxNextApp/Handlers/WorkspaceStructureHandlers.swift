@@ -57,8 +57,9 @@ enum WorkspaceStructureHandlers {
                 let key = WorkspaceKey(rawValue: id)
                 try await WorkspaceBlueprintBuilder(connection: connection, key: key, browsers: withBrowsers, defaultEngine: engine).build(blueprint)
                 if metadata, blueprint.color != nil || blueprint.icon != nil {
-                    _ = try await connection.setWorkspaceMetadata(key, color: blueprint.color.map { .set($0) } ?? .unchanged,
-                                                                  icon: blueprint.icon.map { .set($0) } ?? .unchanged)
+                    try await connection.setWorkspaceIdentity(key, resource: daemon.store.stateResourceID(workspace: key),
+                                                              color: blueprint.color.map { .set($0) } ?? .unchanged,
+                                                              icon: blueprint.icon.map { .set($0) } ?? .unchanged)
                 }
                 return nil
             } catch {
@@ -84,7 +85,8 @@ enum WorkspaceStructureHandlers {
         guard daemon.supports(DaemonCapabilities.workspaceMetadata) else {
             throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.workspaceMetadata))
         }
-        daemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, icon: update) }
+        let resource = daemon.store.stateResourceID(workspace: key)
+        daemon.send("set-workspace-metadata") { try await $0.setWorkspaceIdentity(key, resource: resource, icon: update) }
     }
 
     // MARK: Merge and pane moves
