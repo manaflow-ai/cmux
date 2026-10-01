@@ -5676,6 +5676,9 @@ struct CMUXCLI {
                 )
 
             case "ls", "list":
+                guard rest.isEmpty else {
+                    throw CLIError(message: "Usage: cmux vm ls")
+                }
                 let response = try client.sendV2(method: "vm.list")
                 if jsonOutput {
                     print(jsonString(response))
@@ -5827,7 +5830,9 @@ struct CMUXCLI {
                 try runVMOpenTarget(target, workspaceRaw: workspaceOpt, focus: focus, printOnly: printOnly, client: client, jsonOutput: jsonOutput)
 
             case "status", "info":
-                guard let vmId = rest.first else {
+                guard rest.count == 1,
+                      let vmId = rest.first,
+                      !vmId.hasPrefix("-") else {
                     throw CLIError(message: """
                         Usage: cmux vm status <id>
 
