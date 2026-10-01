@@ -913,9 +913,17 @@ fn v1_screen_tables_from_a_feat_cmux_next_daemon_migrate_at_open() {
     let session = Session::new("screen-v1-migration");
     let mux = session.open();
     mux.new_workspace(None, None).unwrap();
-    let (workspace, screen) = mux.with_state(|state| {
+    let workspace_id = mux.with_state(|state| state.workspaces[0].id);
+    mux.new_screen(Some(workspace_id), None).unwrap();
+    // A pinned screen is never in a group, so the pinned one and the grouped
+    // one are different screens.
+    let (workspace, pinned, screen) = mux.with_state(|state| {
         let workspace = &state.workspaces[0];
-        (workspace.public_id.to_string(), workspace.screens[0].public_id.to_string())
+        (
+            workspace.public_id.to_string(),
+            workspace.screens[0].public_id.to_string(),
+            workspace.screens[1].public_id.to_string(),
+        )
     });
     drop(mux);
     {
@@ -945,15 +953,16 @@ fn v1_screen_tables_from_a_feat_cmux_next_daemon_migrate_at_open() {
                 connection.execute(
                     "INSERT INTO screen_presentation(screen_id, color, icon, pinned)
                      VALUES(?1, 'green', NULL, 1)",
-                    [&screen],
+                    [&pinned],
                 )?;
-                connection.execute(
+                let copied = connection.execute(
                     "INSERT INTO screen_groups(group_id, workspace_key, name, color, collapsed)
                      SELECT 'sgrp_00000000000000000000000000000001', workspace_key, 'Build',
                             'orange', 1
                      FROM resource_workspaces WHERE public_id = ?1",
                     [&workspace],
                 )?;
+                assert_eq!(copied, 1, "the workspace has no resource row");
                 connection.execute(
                     "INSERT INTO screen_groups(group_id, workspace_key, name, color)
                      VALUES('sgrp_00000000000000000000000000000002', 'gone', 'Orphan', 'red')",
@@ -971,22 +980,48 @@ fn v1_screen_tables_from_a_feat_cmux_next_daemon_migrate_at_open() {
     }
 
     let mux = session.open();
-    let group = read(
+    let group = send(
         &mux,
         "screen_group.get",
         json!({"screen_group": "sgrp_00000000000000000000000000000001"}),
-    );
+        None,
+    )
+    .unwrap_or_else(|error| {
+        let rows = mux
+            .read_registry_state(|connection| {
+                let mut dump = Vec::new();
+                for query in [
+                    "SELECT group_id || ' ' || workspace_id FROM screen_groups",
+                    "SELECT screen_id || ' ' || group_id FROM screen_group_members",
+                    "SELECT public_id || ' ' || workspace_id || ' ' ||
+                            COALESCE(deleted_revision, '-') FROM resource_screens",
+                ] {
+                    let mut statement = connection.prepare(query)?;
+                    let rows = statement
+                        .query_map([], |row| row.get::<_, String>(0))?
+                        .collect::<Result<Vec<_>, _>>()?;
+                    dump.push(rows);
+                }
+                Ok(dump)
+            })
+            .unwrap();
+        panic!("screen_group.get failed: {error:?}; tables {rows:?}")
+    });
     assert_eq!(group["workspace_id"], workspace);
     assert_eq!(group["name"], "Build");
     assert_eq!(group["screen_ids"], json!([screen]));
     let listed = read(&mux, "screen_group.list", json!({}));
     assert_eq!(listed.as_array().unwrap().len(), 1, "{listed}");
     let snapshot = snapshot(&mux);
-    let value =
-        snapshot["screens"].as_array().unwrap().iter().find(|value| value["id"] == screen).unwrap();
-    assert_eq!(value["extra"]["pinned"], true);
-    assert_eq!(value["extra"]["color"], "green");
-    assert_eq!(value["extra"]["screen_group_id"], "sgrp_00000000000000000000000000000001");
+    let screen_value = |id: &str| {
+        snapshot["screens"].as_array().unwrap().iter().find(|value| value["id"] == id).unwrap()
+    };
+    assert_eq!(screen_value(&pinned)["extra"]["pinned"], true);
+    assert_eq!(screen_value(&pinned)["extra"]["color"], "green");
+    assert_eq!(
+        screen_value(&screen)["extra"]["screen_group_id"],
+        "sgrp_00000000000000000000000000000001"
+    );
     drop(mux);
     // The copied v1 tables are gone, so the next open does not migrate again.
     let registry = WorkspaceRegistry::open(&session.root, session.name).unwrap();

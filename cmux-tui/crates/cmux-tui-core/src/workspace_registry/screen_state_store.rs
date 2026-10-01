@@ -306,6 +306,12 @@ pub(super) fn migrate_v1_screen_state(connection: &Connection) -> anyhow::Result
         )?;
         tx.execute_batch("DROP TABLE screen_groups_v1;")?;
     }
+    // The state resources never group a pinned screen.
+    tx.execute(
+        "DELETE FROM screen_group_members
+         WHERE screen_id IN (SELECT screen_id FROM screen_state WHERE pinned = 1)",
+        [],
+    )?;
     tx.commit()?;
     Ok(())
 }
