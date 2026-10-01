@@ -898,23 +898,6 @@ struct cmuxApp: App {
                     }
                 }
 
-                if activeTabManager.selectedTab?.isRemoteTmuxMirror == true {
-                    // Keep an explicit local path available when the selected
-                    // workspace is a remote-tmux mirror. This deliberately has
-                    // no key equivalent so Cmd+N remains the ordinary New
-                    // Workspace shortcut everywhere.
-                    Button(String(localized: "menu.file.newLocalWorkspace", defaultValue: "New Local Workspace")) {
-                        if let appDelegate = AppDelegate.shared {
-                            _ = appDelegate.performNewLocalWorkspaceAction(
-                                tabManager: activeTabManager,
-                                debugSource: "menu.newLocalWorkspace"
-                            )
-                        } else {
-                            _ = activeTabManager.addWorkspaceIfActive()
-                        }
-                    }
-                }
-
                 if offersBrowserMenuItems {
                     splitCommandButton(title: String(localized: "menu.file.newBrowserWorkspace", defaultValue: "New Browser Workspace"), shortcut: menuShortcut(for: .newBrowserWorkspace)) {
                         if let appDelegate = AppDelegate.shared {

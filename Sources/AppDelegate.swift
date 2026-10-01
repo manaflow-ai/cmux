@@ -8621,27 +8621,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    /// Creates a workspace on this Mac even when the selected workspace is a
-    /// remote-tmux mirror (or belongs to another remote machine). This is the
-    /// explicit escape hatch for users who want a local workspace while keeping
-    /// Cmd+N's context-following behavior intact.
-    @discardableResult
-    func performNewLocalWorkspaceAction(
-        tabManager: TabManager? = nil,
-        debugSource: String = "newLocalWorkspace"
-    ) -> Bool {
-        if let tabManager {
-            return tabManager.addWorkspaceIfActive(inheritWorkingDirectory: false) != nil
-        }
-        performNewWorkspaceCreationAction(
-            initialSurface: .terminal,
-            preferredTabManager: tabManager,
-            event: nil,
-            debugSource: debugSource,
-            skipConfiguredAction: true
-        )
-    }
-
     /// Empty-area double-click in the sidebar. A configured
     /// `ui.newWorkspace.action` applies here exactly as it does for the `+`
     /// button and File > New Workspace; without one, a plain workspace lands
@@ -8861,8 +8840,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialBrowserTransparentBackground: Bool = false,
         applyCreationTitleAsCustomTitle: Bool = true,
         focusInitialBrowserAddressBarOnCreate: Bool = true,
-        createdWorkspaceHandler: ((Workspace) -> Void)? = nil,
-        skipConfiguredAction: Bool = false
+        createdWorkspaceHandler: ((Workspace) -> Void)? = nil
     ) -> Bool {
         let preferredContext = preferredTabManager.flatMap { mainWindowContext(for: $0) }
         let livePreferredContext: MainWindowContext? = {
@@ -8889,13 +8867,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let initialWorkspace = context.tabManager.selectedWorkspace
                 switch initialSurface {
                 case .terminal:
-                    if !skipConfiguredAction {
-                        _ = executeConfiguredNewWorkspaceActionIfAvailable(
-                            in: context,
-                            debugSource: debugSource,
-                            replacingInitialWorkspace: initialWorkspace
-                        )
-                    }
+                    _ = executeConfiguredNewWorkspaceActionIfAvailable(
+                        in: context,
+                        debugSource: debugSource,
+                        replacingInitialWorkspace: initialWorkspace
+                    )
                 case .browser:
                     // The fresh window boots with a terminal workspace; add the
                     // browser workspace and close that initial one so the
@@ -8945,7 +8921,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // plain New Workspace behavior; the browser variant keeps its own
         // fixed semantics and skips it.
         if initialSurface == .terminal,
-           !skipConfiguredAction,
            let context,
            executeConfiguredNewWorkspaceActionIfAvailable(
                in: context,
