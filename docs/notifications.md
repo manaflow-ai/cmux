@@ -86,9 +86,10 @@ Inside a machine:
 - `--title`, `--body`, and `--level info|warning|error` are honored; `--subtitle` is folded
   into the body (cmux-tui has no subtitle field) and the machine's name becomes the subtitle
   on the Mac.
-- `--workspace`, `--surface`, `--window`, `--tab`, `--panel`, `--reply`, and `--desktop` are
-  ignored: the Mac decides where a machine's notification lands and how it is delivered, and
-  a machine never sees a Mac workspace, surface, or socket.
+- `--workspace`, `--surface`, `--window`, `--tab`, `--panel`, and `--reply` are ignored, and
+  `--desktop` is validated as `true|false` (except with `--clear`) but otherwise ignored: the
+  Mac decides where a machine's notification lands and how it is delivered, and a machine
+  never sees a Mac workspace, surface, or socket.
 - Text is treated as untrusted: escape sequences, control characters, and bidi/invisible
   characters are stripped, titles are capped at 128 bytes and bodies at 1 KiB, and each
   machine gets a burst of 5 notifications refilling at 1 per second (identical text within
