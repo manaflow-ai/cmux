@@ -18,9 +18,9 @@ import Testing
 struct WorkspacesModelReadCostTests {
     /// Before #15439 the generic reads cost about 1 µs each in the debug
     /// package lane, 6.7x to 10.6x the control, and 70x to 150x in an
-    /// optimized build. The benchmark prints the paired measurements; it
-    /// deliberately has no wall-clock pass/fail threshold because scheduler
-    /// preemption makes a timing assertion unsuitable for shared CI.
+    /// optimized build. The paired ratio is independent of absolute machine
+    /// speed, so keep a generous regression bound while avoiding a wall-clock
+    /// assertion that would be sensitive to scheduler preemption.
     private static let readsPerTrial = 4_000
     private static let trials = 9
 
@@ -58,6 +58,10 @@ struct WorkspacesModelReadCostTests {
         }
 
         let ratio = modelNanoseconds / controlNanoseconds
+        #expect(
+            ratio < 3.0,
+            "generic WorkspacesModel read is \(ratio)× the non-generic control"
+        )
         print(
             "WorkspacesModelReadCost member=\(member.rawValue) tracked=\(tracked) "
                 + "model_ns=\(Self.format(modelNanoseconds, unit: "")) "

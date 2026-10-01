@@ -27,6 +27,19 @@ final class TmuxWorkspacePaneOverlayCoordinator {
             for: window, createIfNeeded: inputs.isVisible
         )
         let reference = controller?.coordinateReferenceView ?? window.contentView
+        let windowID = ObjectIdentifier(window)
+        let referenceID = reference.map(ObjectIdentifier.init)
+        if let previous = lastSnapshot,
+           previous.inputs == inputs,
+           previous.window == windowID,
+           previous.referenceView == referenceID,
+           previous.referenceBounds == reference?.bounds {
+            // No model or coordinate-space input changed, so the exact panel
+            // conversions from the last admitted snapshot remain valid. In
+            // particular, repeated geometry/focus notifications do not pay
+            // the AppKit conversion cost before the equality gate below.
+            return
+        }
         var exactRects: [UUID: CGRect] = [:]
         if inputs.isVisible, let reference, let workspace = builder.tabManager.selectedWorkspace {
             for id in inputs.panelIdentities.keys {
@@ -36,8 +49,8 @@ final class TmuxWorkspacePaneOverlayCoordinator {
         }
         let snapshot = TmuxWorkspacePaneOverlayRefreshSnapshot(
             inputs: inputs,
-            window: ObjectIdentifier(window),
-            referenceView: reference.map(ObjectIdentifier.init),
+            window: windowID,
+            referenceView: referenceID,
             referenceBounds: reference?.bounds,
             exactRects: exactRects
         )

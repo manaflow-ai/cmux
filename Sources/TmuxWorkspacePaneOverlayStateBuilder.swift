@@ -63,6 +63,7 @@ struct TmuxWorkspacePaneOverlayStateBuilder {
                 unread.hasVisibleNotificationIndicator(forWorkspaceId: workspace.id, surfaceId: $0)
             })
             result.isWorkspaceManuallyUnread = unread.hasManualUnread(forWorkspaceId: workspace.id)
+            result.manualUnreadRepresentative = workspace.representativePanelIdForWorkspaceManualUnread()
         }
         return result
     }

@@ -43,16 +43,11 @@ final class TmuxOverlayExperimentTargetObserver {
         target = resolved
     }
 
-    /// KVO reports a defaults change on the thread that wrote it. Main-thread
-    /// writes refresh before the writer continues, so the next read sees the
-    /// new target; writes from other threads hop to the main actor.
+    /// KVO reports a defaults change on the thread that wrote it. Always enqueue
+    /// the refresh on the main actor because a main-thread callback is not
+    /// necessarily executing inside a MainActor isolation context.
     private nonisolated static func defaultsDidChange(observer: TmuxOverlayExperimentTargetObserver?) {
-        guard let observer else { return }
-        if Thread.isMainThread {
-            MainActor.assumeIsolated { observer.refresh() }
-        } else {
-            Task { @MainActor [weak observer] in observer?.refresh() }
-        }
+        Task { @MainActor [weak observer] in observer?.refresh() }
     }
 }
 

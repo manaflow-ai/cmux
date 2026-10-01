@@ -6,18 +6,22 @@ struct TmuxWorkspacePaneOverlayRefresher: View, Equatable {
     let builder: TmuxWorkspacePaneOverlayStateBuilder
     let coordinator: TmuxWorkspacePaneOverlayCoordinator
     private let dependencyIdentity: [ObjectIdentifier]
+    private let workspaceIdentity: ObjectIdentifier?
     private let settings: TmuxWorkspacePaneOverlaySettings
 
     init(builder: TmuxWorkspacePaneOverlayStateBuilder, coordinator: TmuxWorkspacePaneOverlayCoordinator) {
         self.builder = builder
         self.coordinator = coordinator
         settings = builder.settings
+        workspaceIdentity = builder.tabManager.selectedWorkspace.map { ObjectIdentifier($0) }
         dependencyIdentity = [ObjectIdentifier(builder.tabManager), ObjectIdentifier(builder.sidebarUnread),
                               ObjectIdentifier(builder.experiment), ObjectIdentifier(coordinator)]
     }
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.dependencyIdentity == rhs.dependencyIdentity && lhs.settings == rhs.settings
+        lhs.dependencyIdentity == rhs.dependencyIdentity
+            && lhs.workspaceIdentity == rhs.workspaceIdentity
+            && lhs.settings == rhs.settings
     }
 
     var body: some View {

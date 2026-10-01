@@ -3,9 +3,9 @@ import Foundation
 /// Immutable settings used to render the window's workspace pane overlay.
 struct TmuxWorkspacePaneOverlaySettings: Equatable, Sendable {
     /// The normalized active pane border color; `nil` hides the border.
-    var activePaneBorderColorHex: String?
+    let activePaneBorderColorHex: String?
     /// The right sidebar owns input focus, which hides the border.
-    var rightSidebarOwnsInputFocus: Bool
+    let rightSidebarOwnsInputFocus: Bool
     /// The unread ring and flash color.
-    var workspaceAttentionColor: WorkspaceAttentionColor
+    let workspaceAttentionColor: WorkspaceAttentionColor
 }
