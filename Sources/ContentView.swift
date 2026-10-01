@@ -708,8 +708,10 @@ private func installFileDropOverlayWhenReady(
 
     // Defer retrying until the next main-loop turn so we don't mutate the
     // NSThemeFrame hierarchy while SwiftUI/AppKit is still attaching views.
-    DispatchQueue.main.async { [weak window, weak tabManager] in
-        guard let window, let tabManager else { return }
+    let windowIdentifier = ObjectIdentifier(window)
+    DispatchQueue.main.async { [weak tabManager] in
+        guard let window = NSApp.windows.first(where: { ObjectIdentifier($0) == windowIdentifier }),
+              let tabManager else { return }
         installFileDropOverlayWhenReady(
             on: window,
             tabManager: tabManager,
