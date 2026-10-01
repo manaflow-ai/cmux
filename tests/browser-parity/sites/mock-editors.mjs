@@ -140,7 +140,7 @@ function pptx(file) {
   return zip(entries);
 }
 
-const docText = (file) => file.blocks.map((b) => (b.type === "table" ? b.rows.map((r) => r.join("\t")).join("\n") : b.text)).join("\n");
+const docText = (file) => file.blocks.map((b) => (b.type === "table" ? b.rows.map((r) => r.join("\t")).join("\n") : b.type === "list" ? b.items.map((x) => "* " + x).join("\n") : b.text)).join("\n");
 function docHtml(file) {
   const body = file.blocks
     .map((b) => {
@@ -204,11 +204,20 @@ function sheetEditor(file) {
 let range = "A1";
 const box = document.getElementById("t-name-box");
 const cell = document.querySelector(".cell-input");
-box.addEventListener("keydown", (e) => { if (e.key === "Enter") { range = box.value.toUpperCase(); cell.textContent = ""; cell.focus(); } });
+box.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); range = box.value.toUpperCase(); cell.textContent = ""; cell.focus(); } });
 const write = (text) => post("cells", { range, tsv: text });
 // A real paste (the app) or typed text (the dev driver's paste) lands in the cell input.
 cell.addEventListener("paste", (e) => { e.preventDefault(); write(e.clipboardData.getData("text/plain")); });
-cell.addEventListener("input", () => { const t = cell.textContent; if (t) { cell.textContent = ""; write(t); } });
+// The dev driver's paste arrives as typed text: collect it from beforeinput.
+let typed = "", timer = null;
+cell.addEventListener("beforeinput", (e) => {
+  if (e.inputType === "insertText") typed += e.data || "";
+  else if (e.inputType === "insertParagraph" || e.inputType === "insertLineBreak") typed += "\\n";
+  else return;
+  e.preventDefault();
+  clearTimeout(timer);
+  timer = setTimeout(() => { const t = typed; typed = ""; write(t); }, 150);
+});
 cell.addEventListener("keydown", (e) => { if (e.key === "Delete" || e.key === "Backspace") post("clear", { range }); });
 </script>`,
   );

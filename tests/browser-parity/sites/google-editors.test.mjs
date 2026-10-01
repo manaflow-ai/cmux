@@ -21,7 +21,7 @@ test("googleSheets.cells reads values and formulas (A1 range, any tab) from the 
 });
 
 test("googleSheets.find returns the cells whose value contains the text", async () => {
-  assert.deepEqual(await s.value(`sites.googleSheets.find(${JSON.stringify(SHEET)}, "o")`), [{ sheet: "Budget", cell: "A3", value: "Food" }, { sheet: "Budget", cell: "A4", value: "Total" }, { sheet: "Budget", cell: "B1", value: "Cost" }, { sheet: "Notes", cell: "A1", value: "remember" }].sort((a, b) => (a.sheet + a.cell).localeCompare(b.sheet + b.cell)));
+  assert.deepEqual(await s.value(`sites.googleSheets.find(${JSON.stringify(SHEET)}, "o")`), [{ sheet: "Budget", cell: "A3", value: "Food" }, { sheet: "Budget", cell: "A4", value: "Total" }, { sheet: "Budget", cell: "B1", value: "Cost" }].sort((a, b) => (a.sheet + a.cell).localeCompare(b.sheet + b.cell)));
 });
 
 test("googleSheets.write to a shared sheet is a draft; the confirmed draft pastes TSV at the range and verifies", async () => {
