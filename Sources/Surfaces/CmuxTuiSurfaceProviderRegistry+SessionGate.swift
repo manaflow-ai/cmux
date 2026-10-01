@@ -36,8 +36,4 @@ extension CmuxTuiSurfaceProviderRegistry {
         }
     }
 
-    func removeSessionGateObservers() {
-        if let sessionRejectedObserver { NotificationCenter.default.removeObserver(sessionRejectedObserver) }
-        if let sessionRecoveredObserver { NotificationCenter.default.removeObserver(sessionRecoveredObserver) }
-    }
 }

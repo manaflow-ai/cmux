@@ -10,7 +10,6 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var catalog: SurfaceCatalog?
     var providers: [String: CmuxTuiSurfaceProvider] = [:]
     let links: CloudMachineLinkManager
-    /// client is bundled (then no link can be made at all).
     nonisolated let wireGuardHub: CloudWireGuardHub?
     /// Loopback forwards to VM ports over the hub (Ports and Desktop rows); nil
     /// without a hub. One table for the fleet so a (machine, port) keeps its
@@ -193,7 +192,8 @@ final class CmuxTuiSurfaceProviderRegistry {
     var isPolling: Bool { pollTask != nil }
     deinit {
         if let accessObserver { notificationCenter.removeObserver(accessObserver) }
-        removeSessionGateObservers()
+        if let sessionRejectedObserver { NotificationCenter.default.removeObserver(sessionRejectedObserver) }
+        if let sessionRecoveredObserver { NotificationCenter.default.removeObserver(sessionRecoveredObserver) }
         if let themeObserver { notificationCenter.removeObserver(themeObserver) }
         if let activationObserver { notificationCenter.removeObserver(activationObserver) }
         if let featureFlagObserver { notificationCenter.removeObserver(featureFlagObserver) }
