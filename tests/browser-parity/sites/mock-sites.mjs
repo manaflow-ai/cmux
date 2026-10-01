@@ -9,6 +9,8 @@
 // `state`, so tests can prove a tool used the signed-in session, kept tokens
 // in the page, and wrote only after a confirmed draft.
 
+import { createEditors } from "./mock-editors.mjs";
+
 export const SECRETS = {
   googleSID: "google-sid-secret",
   slackToken: "xoxc-slack-token-secret",
@@ -45,7 +47,7 @@ const cookieOf = (req, name) => {
 };
 
 export function createState() {
-  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [] };
+  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors() };
 }
 
 // ---------------------------------------------------------------------------
@@ -86,8 +88,10 @@ const SHEETS = {
   },
 };
 
-function docs(req, url) {
+function docs(req, url, body, state) {
   if (!signedInGoogle(req)) return { redirect: GOOGLE_LOGIN + encodeURIComponent(url.href) };
+  const edited = state.editors.handle(req, url, body);
+  if (edited) return edited;
   const m = /^\/(document|spreadsheets|presentation)\/d\/([\w-]+)\/(export|htmlview)$/.exec(url.pathname);
   if (!m) return { status: 404, html: html("Not found") };
   const [, kind, id, op] = m;
