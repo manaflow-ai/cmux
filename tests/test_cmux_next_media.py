@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -137,6 +138,44 @@ class Comment(unittest.TestCase):
         (media / "core" / "shots" / "01-launch.png").write_bytes(b"\x89PNG\r\n\x1a\n")
         (media / "core" / "manifest.json").write_text(json.dumps(self.MANIFEST), encoding="utf-8")
         self.assertEqual(publish.main(["--media", str(media), "--pr", "1", "--sha", "b" * 40, "--dry-run"]), 0)
+
+
+class ArtifactIsData(unittest.TestCase):
+    """The tour artifact comes from a job that ran the pull request's code."""
+
+    def tour(self, manifest, name="core") -> Path:
+        media = Path(tempfile.mkdtemp())
+        (media / name / "shots").mkdir(parents=True)
+        (media / name / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        return media
+
+    def test_only_shot_paths_tour_py_writes_are_uploaded(self) -> None:
+        media = self.tour({"steps": []})
+        directory = media / "core"
+        (directory / "shots" / "01-launch.png").write_bytes(b"x")
+        (directory / "secret.png").write_bytes(b"x")
+        os.symlink("/etc/hosts", directory / "shots" / "02-link.png")
+        self.assertEqual(publish.shot_file(directory, "shots/01-launch.png"), directory / "shots/01-launch.png")
+        for bad in ("../core/shots/01-launch.png", "secret.png", "shots/02-link.png", "/etc/hosts",
+                    "shots/../../x.png", ["shots/01-launch.png"], None):
+            with self.subTest(bad=bad):
+                self.assertIsNone(publish.shot_file(directory, bad))
+
+    def test_folders_that_are_not_tour_slugs_are_skipped(self) -> None:
+        self.assertEqual(publish.manifests(self.tour({"steps": []}, name="Bad Name")), [])
+        self.assertEqual(len(publish.manifests(self.tour({"steps": [1, {"title": "x"}]}))), 1)
+        self.assertEqual(publish.manifests(self.tour(["not", "an", "object"])), [])
+
+    def test_manifest_text_is_escaped(self) -> None:
+        section = publish.tour_section({"title": "<img src=x>", "steps": [
+            {"index": 1, "title": "<script>", "status": "ok", "shot": ["odd"]}]}, {})
+        self.assertNotIn("<script>", section)
+        self.assertNotIn("<img src=x>", section)
+
+    def test_no_capture_is_explained(self) -> None:
+        section = publish.tour_section({"title": "T", "capture_mode": "none (direct: no permission)",
+                                        "steps": [{"index": 1, "title": "Launch", "status": "ok"}]}, {})
+        self.assertIn("screen capture is unavailable on this runner", section)
 
 
 if __name__ == "__main__":

@@ -56,6 +56,9 @@ DEFAULT_WAIT = 1.5
 STEP_TIMEOUT = 20.0
 SOCKET_TIMEOUT = 60.0
 FRAME_INTERVAL = 0.5
+# scripts/release-media/host_agent.py on main looks in the same places.
+HELPER_CANDIDATES = (Path.home() / "Applications/CuaSshScreenCapture.app",
+                     Path("/Applications/CuaSshScreenCapture.app"))
 # A long tour would make a GIF past the inline limit; split it instead.
 MAX_STEPS = 30
 # Inherited caller context a cmux terminal exports. Left in place, a local run
@@ -122,10 +125,11 @@ class Session:
     """Runs commands in the console user's GUI session.
 
     `prefix` reaches that session from another user (app launch, kill).
-    `capture_prefix` is the route screencapture works through: on owned Macs
-    it fails from the runner's own process ("could not create image") and
-    works through `launchctl asuser`, as main's E2E recorder runs it, so both
-    are probed once and the first that writes an image wins.
+    Capture needs Screen Recording, which a job's process may not have, so
+    three routes are probed once and the first that writes an image wins:
+    screencapture from this process, screencapture through `launchctl
+    asuser` (main's E2E recorder; needs passwordless sudo), and an approved
+    CuaSshScreenCapture.app (main's scripts/release-media helper backend).
     """
 
     def __init__(self) -> None:
@@ -143,6 +147,7 @@ class Session:
         self.capture_prefix = self.prefix
         self.capture_mode = "unprobed"
         self.capture_routes = [("direct", self.prefix)] + ([("launchctl asuser", asuser)] if asuser and asuser != self.prefix else [])
+        self.helper: Path | None = None
 
     def run(self, argv: list[str], timeout: float = 15) -> subprocess.CompletedProcess[str]:
         return subprocess.run(self.prefix + argv, capture_output=True, text=True, timeout=timeout)
@@ -165,7 +170,29 @@ class Session:
                 self.capture_prefix, self.capture_mode = prefix, mode
                 return
             notes.append(f"{mode}: {said}")
+        for helper in HELPER_CANDIDATES:
+            if not helper.is_dir():
+                continue
+            image = scratch / "probe-helper.png"
+            if self.helper_capture(helper, ["desktop"], image) is None:
+                self.helper, self.capture_mode = helper, "helper"
+                return
+            notes.append(f"{helper.name}: wrote no image (not approved for Screen Recording?)")
+        if not any(helper.is_dir() for helper in HELPER_CANDIDATES):
+            notes.append("no CuaSshScreenCapture.app")
         self.capture_mode = "none (" + "; ".join(notes) + ")"
+
+    def helper_capture(self, helper: Path, what: list[str], path: Path) -> str | None:
+        """One helper capture (`desktop` or `window <id>`) to a PNG; None on success."""
+        try:
+            path.unlink(missing_ok=True)
+            done = subprocess.run(["/usr/bin/open", "-g", "-n", "-W", str(helper), "--args", *what, str(path)],
+                                  capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.SubprocessError) as error:
+            return str(error)
+        if path.is_file() and path.stat().st_size > 0:
+            return None
+        return (done.stderr or done.stdout).strip() or "the helper wrote no image"
 
     def shareable(self, path: Path) -> Path:
         """A directory the session's user can write when that user is someone else."""
@@ -182,14 +209,15 @@ class Screen:
         self.session = session
         self.rect: tuple[int, int, int, int] | None = None
         self.primary_height: float | None = None
+        self.primary_width: float | None = None
         script = ('ObjC.import("AppKit");'
                   'var f = $.NSScreen.screens.objectAtIndex(0).frame;'
                   'JSON.stringify([f.size.width, f.size.height])')
         try:
             done = session.capture(["osascript", "-l", "JavaScript", "-e", script])
-            self.primary_height = float(json.loads(done.stdout)[1])
+            self.primary_width, self.primary_height = (float(value) for value in json.loads(done.stdout)[:2])
         except (subprocess.SubprocessError, ValueError, IndexError, TypeError):
-            self.primary_height = None
+            self.primary_width = self.primary_height = None
 
     def follow(self, frame: list[float] | None) -> None:
         """Aim at a window frame (NSWindow coordinates: bottom-left origin on the primary screen)."""
@@ -203,6 +231,8 @@ class Screen:
 
     def capture(self, path: Path, kind: str = "png") -> str | None:
         """Write a screenshot; None on success, else what went wrong."""
+        if self.session.helper:
+            return self.helper_capture(path, kind)
         argv = ["/usr/sbin/screencapture", "-x", "-t", kind]
         argv += [f"-R{','.join(map(str, self.rect))}"] if self.rect else ["-D", "1"]
         try:
@@ -221,6 +251,26 @@ class Screen:
             if path.is_file() and path.stat().st_size > 0:
                 return None
         return problem
+
+
+    def helper_capture(self, path: Path, kind: str) -> str | None:
+        """The whole display through the helper, cropped to the rect with sips."""
+        raw = path.with_name(path.stem + ".raw.png")
+        problem = self.session.helper_capture(self.session.helper, ["desktop"], raw)
+        if problem:
+            return problem
+        argv = ["sips", "-s", "format", "jpeg" if kind == "jpg" else "png"]
+        if self.rect and self.primary_width:
+            pixels = subprocess.run(["sips", "-g", "pixelWidth", str(raw)], capture_output=True, text=True).stdout
+            match = re.search(r"pixelWidth:\s*(\d+)", pixels)
+            scale = int(match.group(1)) / self.primary_width if match else 1.0
+            x, y, width, height = (round(value * scale) for value in self.rect)
+            argv += ["--cropOffset", str(y), str(x), "-c", str(height), str(width)]
+        done = subprocess.run(argv + [str(raw), "--out", str(path)], capture_output=True, text=True)
+        raw.unlink(missing_ok=True)
+        if path.is_file() and path.stat().st_size > 0:
+            return None
+        return (done.stderr or done.stdout).strip() or "sips wrote no image"
 
 
 class Recorder(threading.Thread):

@@ -10,7 +10,9 @@ name: cmux-next media
 # at a locked screen and cannot capture: with no owned gui runner the tour
 # does not run and the comment says why (scripts/ci/cmux_next_media_runner.py).
 # Same-repository heads only: owned Macs run trusted code, and the publish job
-# holds the pr-media write token.
+# holds the pr-media write token. That job never checks out or runs the pull
+# request's code: its scripts come from the base revision, and it reads the
+# tour artifact as data (publish.py validates names and paths before upload).
 
 on:
   pull_request:
@@ -154,8 +156,12 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # The publisher comes from the base revision, never the head: this job
+      # holds a write token and runs no pull request code.
+      - name: Checkout the publisher from the base revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
           sparse-checkout: |
             scripts/pr-media.py
@@ -193,5 +199,9 @@ jobs:
                 note="The tour job failed before the tour ran (build or setup); the run log has the output."
               fi ;;
           esac
+          if [ ! -f scripts/cmux-next/media/publish.py ]; then
+            echo "::notice::The base revision has no cmux-next media publisher yet; the media stays in the run artifact."
+            exit 0
+          fi
           python3 scripts/cmux-next/media/publish.py --repo "$GITHUB_REPOSITORY" \
             --media "$RUNNER_TEMP/media" --pr "$PR" --sha "$HEAD_SHA" --run-url "$RUN_URL" --note "$note"

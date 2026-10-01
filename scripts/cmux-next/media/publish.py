@@ -21,6 +21,7 @@ import argparse
 import html
 import importlib.util
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -36,6 +37,8 @@ BOT = "github-actions[bot]"
 VIDEO_FPS = 4
 GIF_FPS = 4
 GIF_WIDTHS = (720, 560, 440)
+TOUR_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
+SHOT_PATH = re.compile(r"shots/[0-9]{2}-[a-z0-9-]{1,40}(?:-failed)?\.png")
 STATUS_TEXT = {"ok": "ok", "failed": "**failed**", "unavailable": "unavailable"}
 
 
@@ -50,13 +53,34 @@ def load_pr_media() -> Any:
 
 
 def manifests(media: Path) -> list[tuple[Path, dict[str, Any]]]:
+    """Each tour's folder and manifest. The artifact came from a job that ran
+    the pull request's code, so it is data: a folder whose name is not a tour
+    slug, or a manifest that is not an object, is skipped."""
     found = []
     for path in sorted(media.glob("*/manifest.json")):
+        if not TOUR_NAME.fullmatch(path.parent.name) or path.is_symlink():
+            print(f"warning: skipping {path}: not a tour folder", file=sys.stderr)
+            continue
         try:
-            found.append((path.parent, json.loads(path.read_text(encoding="utf-8"))))
+            manifest = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as error:
             print(f"warning: skipping {path}: {error}", file=sys.stderr)
+            continue
+        if isinstance(manifest, dict) and isinstance(manifest.get("steps", []), list):
+            manifest["steps"] = [step for step in manifest.get("steps", []) if isinstance(step, dict)]
+            found.append((path.parent, manifest))
     return found
+
+
+def shot_file(directory: Path, shot: Any) -> Path | None:
+    """The screenshot a step names, when it is one tour.py could have written:
+    shots/NN-slug.png inside the tour folder, a regular file, not a link."""
+    if not isinstance(shot, str) or not SHOT_PATH.fullmatch(shot):
+        return None
+    path = directory / shot
+    if path.is_symlink() or not path.is_file():
+        return None
+    return path
 
 
 def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: Any,
@@ -90,8 +114,8 @@ def step_row(step: dict[str, Any]) -> str:
 
 
 def cell(text: Any) -> str:
-    """Table cell text: a pipe or newline would end the cell."""
-    return str(text).replace("|", "\\|").replace("\n", " ")
+    """Table cell text, escaped: it comes from the tour's manifest, which is data."""
+    return html.escape(str(text), quote=False).replace("|", "\\|").replace("\n", " ")
 
 
 def image(url: str, title: str, width: int) -> str:
@@ -103,23 +127,26 @@ def tour_section(manifest: dict[str, Any], urls: dict[str, str]) -> str:
     counts = {status: sum(1 for step in steps if step.get("status") == status)
               for status in ("ok", "failed", "unavailable")}
     summary = ", ".join(f"{count} {status}" for status, count in counts.items() if count)
-    lines = [f"### {manifest.get('title', manifest.get('name'))}: {summary or 'no steps ran'}", ""]
+    lines = [f"### {cell(manifest.get('title', manifest.get('name')))}: {summary or 'no steps ran'}", ""]
     if manifest.get("error"):
-        lines += [f"> {manifest['error'].splitlines()[0][:300]}", ""]
+        lines += [f"> {cell(str(manifest['error']).splitlines()[0][:300])}", ""]
+    capture = str(manifest.get("capture_mode") or "")
+    if capture.startswith("none") and not any(urls.get(str(step.get("shot"))) for step in steps):
+        lines += [f"> No screenshots: screen capture is unavailable on this runner ({cell(capture[:400])}).", ""]
     if urls.get("tour.gif"):
         lines.append(image(urls["tour.gif"], "tour", 720))
     if urls.get("tour.mp4"):
         lines += ["", f"[Video (mp4)]({urls['tour.mp4']})"]
     lines += ["", "| # | Step | Result | Command |", "| --- | --- | --- | --- |"]
     lines += [step_row(step) for step in steps]
-    failed = [step for step in steps if step.get("status") == "failed" and urls.get(step.get("shot", ""))]
+    failed = [step for step in steps if step.get("status") == "failed" and urls.get(str(step.get("shot", "")))]
     if failed:
         lines += ["", "Failed steps:", ""]
-        lines += [image(urls[step["shot"]], f"{step['index']} {step['title']}", 480) for step in failed]
-    rest = [step for step in steps if step not in failed and urls.get(step.get("shot", ""))]
+        lines += [image(urls[str(step["shot"])], f"{step.get('index')} {step.get('title')}", 480) for step in failed]
+    rest = [step for step in steps if step not in failed and urls.get(str(step.get("shot", "")))]
     if rest:
         lines += ["", f"<details><summary>Screenshots ({len(rest)})</summary>", ""]
-        lines += [f"**{step['index']}. {html.escape(step['title'])}**<br>{image(urls[step['shot']], step['title'], 480)}<br>"
+        lines += [f"**{cell(step.get('index'))}. {cell(step.get('title'))}**<br>{image(urls[str(step['shot'])], str(step.get('title')), 480)}<br>"
                   for step in rest]
         lines += ["", "</details>"]
     return "\n".join(lines)
@@ -174,12 +201,13 @@ def main(argv: list[str] | None = None) -> int:
     sections = []
     with tempfile.TemporaryDirectory() as scratch:
         for directory, manifest in manifests(args.media) if args.media.is_dir() else []:
-            name = manifest.get("name") or directory.name
+            name = directory.name
             folder = f"{args.pr}/{args.sha[:8]}/next-{name}"
             files: dict[str, Path] = {}
-            for step in manifest.get("steps") or []:
-                shot = directory / step.get("shot", "")
-                if step.get("shot") and shot.is_file() and shot.stat().st_size <= pr_media.INLINE_MAX_BYTES:
+            for step in manifest["steps"]:
+                shot = shot_file(directory, step.get("shot"))
+                if shot and shot.stat().st_size <= pr_media.INLINE_MAX_BYTES \
+                        and pr_media.family_of_content(shot) == "png":
                     files[step["shot"]] = shot
             into = Path(scratch) / name
             into.mkdir()
