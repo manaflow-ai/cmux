@@ -122,6 +122,10 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
                 "same-identity redial was refused (\(reason)) instead of replacing its dead predecessor"
             )
         }
+        // The close signal is delivered while the replacement handler is
+        // still between promotion and its recording step, so wait for the
+        // second admission event instead of sampling the actor immediately.
+        #expect(await recorder.next().identity == clientIdentity)
         #expect(await recorder.recordedCount() == 2)
         #expect(await redial.observedCloseCallCount() == 0)
 
@@ -196,6 +200,7 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
                 "same-identity redial was refused (\(reason)) while its own dead predecessor held the global slot"
             )
         }
+        #expect(await recorder.next().identity == deadClientIdentity)
         #expect(await recorder.recordedCount() == 3)
         #expect(await redial.observedCloseCallCount() == 0)
         // Replacing your own dead predecessor must never disturb another
