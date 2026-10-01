@@ -13,11 +13,23 @@ Requires:
 import os
 import sys
 import time
+import urllib.parse
 from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from cmux import cmux, cmuxError
+
+# Use an inline data: URL so the webview loads a real page without depending on
+# live external network reachability. The stability assertions below only check
+# WKWebView first-responder/focus behavior under view-lifecycle churn, never page
+# content, so an external host (example.com) added nondeterministic load failures
+# in CI for non-code reasons. Mirrors the data: URL pattern used by the sibling
+# browser tests (e.g. test_browser_api_comprehensive.py).
+BROWSER_TEST_URL = "data:text/html;charset=utf-8," + urllib.parse.quote(
+    "<!doctype html><html><head><title>cmux stability</title></head>"
+    "<body><h1>cmux browser stability</h1></body></html>"
+)
 
 
 def wait_for_socket(path: str, timeout_s: float = 5.0) -> None:
@@ -54,7 +66,7 @@ def test_open_browser_then_new_surface_loop(client: cmux) -> tuple[bool, str]:
 
     # Keep one "base" terminal surface around so close_surface never hits the last-surface guard.
     for i in range(10):
-        browser_id = client.new_surface(panel_type="browser", url="https://example.com")
+        browser_id = client.new_surface(panel_type="browser", url=BROWSER_TEST_URL)
         time.sleep(0.8)
         ensure_webview_focused(client, browser_id, timeout_s=2.0)
 
@@ -107,7 +119,7 @@ def test_focus_panes_with_loaded_browser(client: cmux) -> tuple[bool, str]:
     time.sleep(0.5)
 
     # Create a browser pane (split). This should leave us with at least 2 panes.
-    browser_id = client.new_pane(direction="right", panel_type="browser", url="https://example.com")
+    browser_id = client.new_pane(direction="right", panel_type="browser", url=BROWSER_TEST_URL)
     time.sleep(1.5)
     ensure_webview_focused(client, browser_id, timeout_s=2.0)
 

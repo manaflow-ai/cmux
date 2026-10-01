@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
 
 
 def _wait_for(pred, timeout_s: float, step_s: float = 0.05) -> None:
@@ -178,8 +178,7 @@ def _wait_for_tmp_write(c: cmux, panel_id: str, tmp: str, token: str) -> None:
             pass
         time.sleep(0.05)
 
-    print(f"WARN: Timed out waiting for tmp file write: {tmp}; continuing in v2 VM mode")
-    return
+    raise cmuxError(f"Timed out waiting for tmp file write: {tmp}")
 
 
 def main() -> int:

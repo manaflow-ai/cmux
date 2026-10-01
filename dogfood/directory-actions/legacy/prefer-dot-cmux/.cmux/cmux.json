@@ -1,0 +1,31 @@
+{
+  "actions": {
+    "cmux.newTerminal": {
+      "type": "command",
+      "title": "Dot CMUX Wins",
+      "subtitle": "Same-directory .cmux/cmux.json should beat cmux.json",
+      "command": "echo 'DOT CMUX WINS'; echo 'SOURCE=legacy/prefer-dot-cmux/.cmux/cmux.json'; pwd",
+      "target": "newTabInCurrentPane",
+      "shortcut": "cmd+shift+4",
+      "icon": { "type": "image", "path": "./icons/winner-terminal.svg" }
+    },
+    "winner.echo": {
+      "type": "command",
+      "title": "Winner Echo",
+      "subtitle": "If you see this, .cmux precedence is working",
+      "command": "echo 'WINNER ECHO'; echo 'SOURCE=legacy/prefer-dot-cmux/.cmux/cmux.json'; pwd",
+      "target": "newTabInCurrentPane",
+      "shortcut": "cmd+shift+p",
+      "icon": { "type": "emoji", "value": "🏆" }
+    }
+  },
+  "ui": {
+    "surfaceTabBar": {
+      "buttons": [
+        "cmux.newTerminal",
+        "winner.echo",
+        "cmux.newBrowser"
+      ]
+    }
+  }
+}

@@ -19,6 +19,7 @@
 
 # production
 /build
+/.cmux-cloud-build
 
 # misc
 .DS_Store
@@ -32,10 +33,18 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.envrc
 
 # vercel
 .vercel
 
+# build-time copy of the repository changelog (tools/sync-changelog.ts)
+/CHANGELOG.md
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+.env*.local
+
+# Playwright output
+test-results/

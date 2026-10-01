@@ -1,16 +1,18 @@
 import Foundation
 import AppKit
+import CmuxUpdater
 
-final class UpdateLogStore {
-    static let shared = UpdateLogStore()
-
+// @unchecked Sendable: all mutable state (`entries`) is confined to the serial `queue`; the
+// other stored properties are immutable. Conforms to CmuxUpdater's `UpdateLogging` seam so the
+// updater package can log through this app-owned file logger.
+final class UpdateLogStore: UpdateLogging, @unchecked Sendable {
     private let queue = DispatchQueue(label: "cmux.update.log")
     private var entries: [String] = []
     private let maxEntries = 200
     private let logURL: URL
     private let formatter: ISO8601DateFormatter
 
-    private init() {
+    init() {
         formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let logsDir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
@@ -64,16 +66,17 @@ final class UpdateLogStore {
     }
 }
 
-final class FocusLogStore {
-    static let shared = FocusLogStore()
-
+// @unchecked Sendable: all mutable state (`entries`) is confined to the serial `queue`; the other
+// stored properties are immutable. Owned and injected by `AppDelegate` (see `AppDelegate.focusLog`)
+// rather than self-vending a global, so its lifecycle has a single composition root.
+final class FocusLogStore: @unchecked Sendable {
     private let queue = DispatchQueue(label: "cmux.focus.log")
     private var entries: [String] = []
     private let maxEntries = 400
     private let logURL: URL
     private let formatter: ISO8601DateFormatter
 
-    private init() {
+    init() {
         formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let logsDir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first

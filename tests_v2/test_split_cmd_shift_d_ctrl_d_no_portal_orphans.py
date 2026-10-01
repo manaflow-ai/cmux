@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
 LOG_PATH_OVERRIDE = os.environ.get("CMUX_DEBUG_LOG")
 ITERATIONS = int(os.environ.get("CMUX_PORTAL_ORPHAN_ITERS", "16"))
 PANE_TIMEOUT_S = float(os.environ.get("CMUX_PORTAL_ORPHAN_PANE_TIMEOUT_S", "3.0"))

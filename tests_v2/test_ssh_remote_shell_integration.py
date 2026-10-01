@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
 DOCKER_SSH_HOST = os.environ.get("CMUX_SSH_TEST_DOCKER_HOST", "127.0.0.1")
 DOCKER_PUBLISH_ADDR = os.environ.get("CMUX_SSH_TEST_DOCKER_BIND_ADDR", "127.0.0.1")
 FIXTURE_REMOTE_HTTP_PORT = int(os.environ.get("CMUX_SSH_TEST_FIXTURE_HTTP_PORT", "43173"))
@@ -283,14 +283,19 @@ def _launch_startup_command_pty(startup_command: str, workspace_id: str, surface
     env["CMUX_PANEL_ID"] = surface_id
 
     master_fd, slave_fd = pty.openpty()
-    proc = subprocess.Popen(
-        ["/bin/sh", "-lc", startup_command],
-        stdin=slave_fd,
-        stdout=slave_fd,
-        stderr=slave_fd,
-        env=env,
-        start_new_session=True,
-    )
+    try:
+        proc = subprocess.Popen(
+            ["/bin/sh", "-lc", startup_command],
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            env=env,
+            start_new_session=True,
+        )
+    except Exception:
+        os.close(slave_fd)
+        os.close(master_fd)
+        raise
     os.close(slave_fd)
     return proc, master_fd
 

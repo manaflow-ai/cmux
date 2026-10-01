@@ -1,1 +1,0 @@
-{"version":3,"file":"index.js","sourceRoot":"","sources":["../src/index.ts"],"names":[],"mappings":";;;AAEA,qCAAkC;AAAzB,iGAAA,MAAM,OAAA;AACf,2BAAyB;AAAhB,wFAAA,EAAE,OAAA","sourcesContent":["export type { EdgeVMOptions, EdgeContext } from './edge-vm'\nexport type { VMOptions, VMContext } from './vm'\nexport { EdgeVM } from './edge-vm'\nexport { VM } from './vm'\n"]}

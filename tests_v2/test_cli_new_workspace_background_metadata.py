@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
 
 
 def _must(cond: bool, msg: str) -> None:
@@ -122,7 +122,7 @@ def _create_git_repo(root: Path) -> tuple[Path, str]:
         stderr=subprocess.DEVNULL,
     )
     subprocess.run(
-        ["git", "-c", "commit.gpgsign=false", "commit", "-m", "init"],
+        ["git", "-c", "commit.gpgsign=false", "-c", "maintenance.auto=false", "commit", "-m", "init"],
         cwd=repo,
         check=True,
         stdout=subprocess.DEVNULL,
