@@ -277,7 +277,9 @@ opt-in.
 Extension sidebars should bootstrap from the v2 socket method
 `extension.sidebar.snapshot`, then subscribe to `cmux events --category
 workspace --category notification --category sidebar` and reduce
-events from the returned `seq`. The snapshot returns `selected_workspace_id`
+events from the returned `seq`. `cmux events` exits when the socket closes, so
+the sidebar must restart it with `--after <last processed seq>` to keep
+receiving updates. The snapshot returns `selected_workspace_id`
 and an ordered `workspaces` array containing workspace ids/refs, title,
 description, pinned state, root/project paths, branch summary, remote status,
 latest submitted prompt preview/time, listening ports, pull request URLs,
