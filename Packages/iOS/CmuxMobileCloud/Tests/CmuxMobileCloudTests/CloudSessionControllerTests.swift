@@ -519,6 +519,85 @@ import Testing
         #expect(connector.session.state.disconnected == 1)
     }
 
+    @Test func cancelledAttachCannotDetachANewerAttachment() async throws {
+        let connector = FakeConnector()
+        let firstStarted = TestSignal()
+        let firstRelease = TestSignal()
+        let secondStarted = TestSignal()
+        let secondRelease = TestSignal()
+        connector.session.attachGates = [
+            (started: firstStarted, release: firstRelease),
+            (started: secondStarted, release: secondRelease),
+        ]
+        let controller = makeController(connector: connector)
+        controller.sectionDidAppear()
+        await settle { if case .ready = controller.tunnel { return true } else { return false } }
+        let connection = try #require(controller.connection(for: CloudMachine(id: "vm1", provider: "freestyle", status: "running")))
+        _ = try await connection.loadCatalog()
+
+        let first = Task { try await connection.attach(terminalID: "t1") { _ in } }
+        await firstStarted.wait()
+        first.cancel()
+
+        let second = Task { try await connection.attach(terminalID: "t2") { _ in } }
+        await secondStarted.wait()
+        await secondRelease.signal()
+        let secondAttachment = try await second.value
+        await firstRelease.signal()
+
+        do {
+            _ = try await first.value
+            Issue.record("cancelled attach unexpectedly succeeded")
+        } catch is CancellationError {
+            // The cancelled attach must not detach the newer terminal.
+        }
+        #expect(connector.session.state.attached == "t2")
+        #expect(connector.session.state.detached == 0)
+
+        secondAttachment.detach()
+        #expect(connector.session.state.detached == 1)
+    }
+
+    @Test func overlappingWorkspaceCreatesAreRejected() async throws {
+        let connector = FakeConnector()
+        let started = TestSignal()
+        let release = TestSignal()
+        connector.session.createWorkspaceGate = (started, release)
+        let controller = makeController(connector: connector)
+        controller.sectionDidAppear()
+        await settle { if case .ready = controller.tunnel { return true } else { return false } }
+        let connection = try #require(controller.connection(for: CloudMachine(id: "vm1", provider: "freestyle", status: "running")))
+
+        let first = Task { await connection.createWorkspace(name: "first") }
+        await started.wait()
+        #expect(connection.isCreatingWorkspace)
+        #expect(await connection.createWorkspace(name: "second") == nil)
+        await release.signal()
+
+        #expect(await first.value == "workspace-created")
+        #expect(!connection.isCreatingWorkspace)
+    }
+
+    @Test func overlappingTerminalCreatesAreRejected() async throws {
+        let connector = FakeConnector()
+        let started = TestSignal()
+        let release = TestSignal()
+        connector.session.createTerminalGate = (started, release)
+        let controller = makeController(connector: connector)
+        controller.sectionDidAppear()
+        await settle { if case .ready = controller.tunnel { return true } else { return false } }
+        let connection = try #require(controller.connection(for: CloudMachine(id: "vm1", provider: "freestyle", status: "running")))
+
+        let first = Task { await connection.createTerminal(name: "first") }
+        await started.wait()
+        #expect(connection.isCreatingTerminal)
+        #expect(await connection.createTerminal(name: "second") == nil)
+        await release.signal()
+
+        #expect(await first.value == "t2")
+        #expect(!connection.isCreatingTerminal)
+    }
+
     @Test func closedConnectionCannotDialAgain() async throws {
         let service = FakeCloudVMService()
         service.machines = .success([CloudMachine(id: "vm1", provider: "freestyle", status: "running")])

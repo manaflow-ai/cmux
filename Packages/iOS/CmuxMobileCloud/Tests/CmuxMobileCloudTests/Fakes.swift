@@ -280,8 +280,10 @@ final class FakeTerminalSession: CloudTerminalSession, @unchecked Sendable {
     var terminals: [CloudTerminalSummary] = [CloudTerminalSummary(id: "t1", name: "shell")]
     var workspaces: [CloudWorkspaceSummary] = []
     var loadCatalogCalls = 0
+    var createWorkspaceGate: (started: TestSignal, release: TestSignal)?
     var createTerminalGate: (started: TestSignal, release: TestSignal)?
     var attachGate: (started: TestSignal, release: TestSignal)?
+    var attachGates: [(started: TestSignal, release: TestSignal)] = []
     var attachFailure: (any Error)?
     var outputHandler: (@Sendable (CloudTerminalOutputEvent) -> Void)? {
         lock.withLock { _ in handlerBox.withLock { $0 } }
@@ -290,6 +292,14 @@ final class FakeTerminalSession: CloudTerminalSession, @unchecked Sendable {
 
     func listWorkspaces() async throws -> [CloudWorkspaceSummary] { workspaces }
     func listTerminals() async throws -> [CloudTerminalSummary] { terminals }
+
+    func createWorkspace(name: String?) async throws -> String {
+        if let createWorkspaceGate {
+            await createWorkspaceGate.started.signal()
+            await createWorkspaceGate.release.wait()
+        }
+        return "workspace-created"
+    }
 
     func loadCatalog() async throws -> (workspaces: [CloudWorkspaceSummary], terminals: [CloudTerminalSummary]) {
         loadCatalogCalls += 1
@@ -308,12 +318,18 @@ final class FakeTerminalSession: CloudTerminalSession, @unchecked Sendable {
     }
 
     func attach(terminalID: String, output: @escaping @Sendable (CloudTerminalOutputEvent) -> Void) async throws {
-        if let attachGate {
-            await attachGate.started.signal()
-            await attachGate.release.wait()
-        }
         if let attachFailure { throw attachFailure }
         lock.withLock { $0.attached = terminalID }
+        let gate: (started: TestSignal, release: TestSignal)? = {
+            attachGateLock.lock()
+            defer { attachGateLock.unlock() }
+            if attachGates.isEmpty { return attachGate }
+            return attachGates.removeFirst()
+        }()
+        if let gate {
+            await gate.started.signal()
+            await gate.release.wait()
+        }
         handlerBox.withLock { $0 = output }
     }
 
@@ -321,6 +337,8 @@ final class FakeTerminalSession: CloudTerminalSession, @unchecked Sendable {
     func send(_ bytes: Data) { lock.withLock { $0.sent.append(bytes) } }
     func resize(cols: Int, rows: Int) { lock.withLock { $0.resizes.append((cols, rows)) } }
     func disconnect() { lock.withLock { $0.disconnected += 1 } }
+
+    private let attachGateLock = NSLock()
 }
 
 final class FakeConnector: CloudTerminalConnecting, @unchecked Sendable {

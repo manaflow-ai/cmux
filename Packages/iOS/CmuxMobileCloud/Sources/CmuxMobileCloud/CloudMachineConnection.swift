@@ -277,6 +277,7 @@ public final class CloudMachineConnection {
     private var listTask: Task<Void, Never>?
     private var closed = false
     private var operationGeneration: UInt64 = 0
+    private var attachmentGeneration: UInt64 = 0
 
     init(
         machine: CloudMachine,
@@ -324,6 +325,7 @@ public final class CloudMachineConnection {
     /// Create a remote workspace with a starter terminal.
     @discardableResult
     public func createWorkspace(name: String? = nil) async -> String? {
+        guard !isCreatingWorkspace else { return nil }
         let generation = operationGeneration
         isCreatingWorkspace = true
         defer { isCreatingWorkspace = false }
@@ -345,6 +347,7 @@ public final class CloudMachineConnection {
     /// Create a terminal and return its id, refreshing the catalog.
     @discardableResult
     public func createTerminal(name: String? = nil) async -> String? {
+        guard !isCreatingTerminal else { return nil }
         let generation = operationGeneration
         isCreatingTerminal = true
         defer { isCreatingTerminal = false }
@@ -367,6 +370,7 @@ public final class CloudMachineConnection {
     /// the catalog.
     @discardableResult
     public func createTerminal(inWorkspace workspaceID: String, name: String? = nil) async -> String? {
+        guard !isCreatingTerminal else { return nil }
         let generation = operationGeneration
         isCreatingTerminal = true
         defer { isCreatingTerminal = false }
@@ -392,6 +396,8 @@ public final class CloudMachineConnection {
         output: @escaping @Sendable (CloudTerminalOutputEvent) -> Void
     ) async throws -> CloudTerminalAttachment {
         let generation = operationGeneration
+        attachmentGeneration &+= 1
+        let attachGeneration = attachmentGeneration
         do {
             let session = try await connectedSession()
             // A superseded caller cancels this attach while the dial above runs;
@@ -401,7 +407,7 @@ public final class CloudMachineConnection {
             try Task.checkCancellation()
             try await session.attach(terminalID: terminalID, output: output)
             guard isCurrentOperation(generation), !Task.isCancelled else {
-                session.detach()
+                detachIfCurrent(attachGeneration, session: session)
                 throw CancellationError()
             }
             lastError = nil
@@ -456,6 +462,11 @@ public final class CloudMachineConnection {
 
     private func isCurrentOperation(_ generation: UInt64) -> Bool {
         !closed && operationGeneration == generation
+    }
+
+    private func detachIfCurrent(_ generation: UInt64, session: any CloudTerminalSession) {
+        guard attachmentGeneration == generation else { return }
+        session.detach()
     }
 
     private func connectedSession() async throws -> any CloudTerminalSession {
