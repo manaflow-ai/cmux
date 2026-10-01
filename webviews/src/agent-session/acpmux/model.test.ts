@@ -34,3 +34,28 @@ test("a one-line user row leaves room for its bubble and the gap below it", () =
   const gap = 16;
   expect(heights[0]).toBeGreaterThanOrEqual(bubblePadding + line + gap);
 });
+
+/// Every row below measures one row through the estimator and compares it with what the CSS draws.
+const height = (kind: string, text: string, width: number) => layoutConversation([{ id: `${kind}-${width}-${text}`, version: 1, at: 0, kind, text }], width).heights[0]!;
+const paragraph = "word ".repeat(120).trim();
+
+/// The bubble is at most 78% of the row and its 12px side padding sits inside that, so its text
+/// wraps at 0.78 * width - 24, well short of the row's own width.
+test("a long user message wraps at the bubble's width", () => {
+  expect(height("user", paragraph, 724)).toBeGreaterThanOrEqual(height("assistant", paragraph, 0.78 * 724 - 24) + 18);
+});
+
+/// A single newline starts a new block when the next line is a heading or a list, and blocks are
+/// 8px apart (styles.css), so splitting on blank lines alone missed the gap and the extra line.
+test("a heading or a list after a single newline is its own block", () => {
+  const line = 20;
+  const gap = 8;
+  const rowGap = 16;
+  expect(height("assistant", "## Title\nSome text", 724)).toBeGreaterThanOrEqual(rowGap + 2 * line + gap);
+  expect(height("assistant", "Intro:\n- one\n- two", 724)).toBeGreaterThanOrEqual(rowGap + 3 * line + gap);
+});
+
+/// List items are indented 40px (the browser's list padding), so their text wraps sooner.
+test("a list item wraps at the list's indented width", () => {
+  expect(height("assistant", `- ${paragraph}`, 724)).toBeGreaterThanOrEqual(height("assistant", paragraph, 724 - 40));
+});
