@@ -740,12 +740,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         wait(for: [serverHandled], timeout: 8)
-        XCTAssertFalse(result.timedOut, "an oversized injected delay must not outlive the command deadline")
+        XCTAssertFalse(result.timedOut, "the valid short override must complete before the command deadline")
         XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
         XCTAssertEqual(
             state.snapshot().filter { $0.contains(#""method":"vm.status""#) }.count,
             2,
-            "wait must poll again after rejecting the override"
+            "wait must poll status again before reporting ready"
         )
     }
 }
