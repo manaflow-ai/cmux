@@ -116,7 +116,7 @@ struct CmuxCodexConfigEditorTests {
         let installed = editor.installingHooks(in: original, trustEntries: [])
         let restored = editor.uninstallingHooks(from: installed.content)
 
-        #expect(installed.content.contains("[features]\n"))
+        #expect(installed.content.contains("[features]\n" + Self.featureBegin + "\n"))
         #expect(installed.content.contains("hooks = true\n"))
         #expect(restored == original)
     }

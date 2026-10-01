@@ -3654,6 +3654,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
         startAgentHookMockServerAccepting(context: context)
 
+        let oldPromptEnd = context.state.commands.count
         let oldPrompt = runCodexHook(
             context: context,
             subcommand: "prompt-submit",
@@ -3663,7 +3664,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(oldPrompt.timedOut, oldPrompt.stderr)
         XCTAssertEqual(oldPrompt.status, 0, oldPrompt.stderr)
 
-        let oldPromptEnd = context.state.commands.count
         let currentStopStart = context.state.commands.count
         let currentStop = runCodexHook(
             context: context,

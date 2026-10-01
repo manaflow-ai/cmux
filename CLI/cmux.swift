@@ -30890,6 +30890,7 @@ struct CMUXCLI {
                 sawRelevantTurn = true
                 candidate = nil
                 candidateCanPublishBeforeTerminal = false
+                sawAbortedTurn = false
             case "error":
                 let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
                 if let turnId, let payloadTurnId {
