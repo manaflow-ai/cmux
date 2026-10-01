@@ -105,6 +105,12 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published var viewReattachToken: UInt64 = 0
 
     @Published var agentHibernationPhase: AgentHibernationPanelPhase = .live
+    /// Set when an agent woken from hibernation did not come back; drives
+    /// `AgentWakeFailureBanner`.
+    @Published var agentWakeFailure: AgentWakeFailure?
+    /// Set by the owning workspace while `agentWakeFailure` is shown.
+    var onRequestAgentWakeRetry: (() -> Void)?
+    var onDismissAgentWakeFailure: (() -> Void)?
     /// A native cloud pane's live attachment state (nil for local terminals).
     /// Written only by the owning cloud session; the view shows it.
     var cloudAttachment: CloudTerminalAttachmentStatus?
@@ -116,6 +122,10 @@ final class TerminalPanel: Panel, ObservableObject {
     /// Optional owner hook for a manual mirror that becomes the active pane.
     /// Ordinary terminals leave this unset.
     var onTerminalFocus: (() -> Void)?
+    /// Optional input hook owned by a manual-mirror session. Workspace routing
+    /// composes this hook into its current owner callback so a panel that moves
+    /// between workspaces keeps its Cloud input behavior.
+    var onManualMirrorExplicitInput: (() -> Void)?
 
     private var cancellables = Set<AnyCancellable>()
     /// Shared monotonic gate for AppKit and workspace-overlay flash renderers.

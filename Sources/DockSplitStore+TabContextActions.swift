@@ -32,20 +32,24 @@ extension DockSplitStore {
         case .copyIdentifiers:
             copyDockIdentifiers(panelId: panelId, paneId: pane)
         case .close:
+            guard controller.configuration.allowCloseTabs, !tab.isPinned else { return }
             _ = closePanel(panelId, force: false)
         case .closeToLeft:
+            guard controller.configuration.allowCloseTabs else { return }
             _ = closeDockTabs(
                 dockTabIds(toLeftOf: tab.id, inPane: pane),
                 inPane: pane,
                 confirmationPolicy: .tabsRequiringConfirmation
             )
         case .closeToRight:
+            guard controller.configuration.allowCloseTabs else { return }
             _ = closeDockTabs(
                 dockTabIds(toRightOf: tab.id, inPane: pane),
                 inPane: pane,
                 confirmationPolicy: .tabsRequiringConfirmation
             )
         case .closeOthers:
+            guard controller.configuration.allowCloseTabs else { return }
             _ = closeDockTabs(
                 controller.tabs(inPane: pane).lazy
                     .filter { $0.id != tab.id }

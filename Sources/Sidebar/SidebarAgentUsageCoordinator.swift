@@ -67,6 +67,8 @@ final class SidebarAgentUsageCoordinator {
     private var dirtyWhileReading: Set<String> = []
     private var readingSessionIDs: Set<String> = []
     private var rowsShowingUsage: Set<RowKey> = []
+    /// Session whose snapshot currently owns each visible row.
+    private var rowOwners: [RowKey: String] = [:]
     private var epochCounter: UInt64 = 0
     private var lastKnownEnabled: Bool
     private var observationTasks: [Task<Void, Never>] = []
@@ -176,6 +178,9 @@ final class SidebarAgentUsageCoordinator {
         let isNewSession = sessions[sessionID] == nil
         let newTranscriptPath = event.transcriptPath.flatMap { $0.isEmpty ? nil : $0 }
         let transcriptChanged = newTranscriptPath != nil && newTranscriptPath != record.transcriptPath
+        if event.hookEventName == .sessionStart {
+            cancelPending(sessionID: sessionID)
+        }
         if event.hookEventName == .sessionStart || isNewSession || transcriptChanged {
             // Discard any in-flight read. Usage is cumulative per transcript,
             // so a SessionStart for the same transcript (resume, compaction)
@@ -202,9 +207,7 @@ final class SidebarAgentUsageCoordinator {
     }
 
     private func endSession(_ sessionID: String) {
-        flushTasks.removeValue(forKey: sessionID)?.cancel()
-        dirtyWhileReading.remove(sessionID)
-        readingSessionIDs.remove(sessionID)
+        cancelPending(sessionID: sessionID)
         guard let record = sessions.removeValue(forKey: sessionID) else { return }
         if let path = record.transcriptPath {
             // Also discards a sample of this transcript that is still running.
@@ -215,7 +218,17 @@ final class SidebarAgentUsageCoordinator {
                 await sampler.forget(transcriptPath: path)
             }
         }
-        publish(RowKey(workspaceID: record.workspaceID, source: record.source))
+        let row = RowKey(workspaceID: record.workspaceID, source: record.source)
+        if rowOwners[row] == sessionID {
+            rowOwners.removeValue(forKey: row)
+            publish(row)
+        }
+    }
+
+    private func cancelPending(sessionID: String) {
+        flushTasks.removeValue(forKey: sessionID)?.cancel()
+        dirtyWhileReading.remove(sessionID)
+        readingSessionIDs.remove(sessionID)
     }
 
     private func scheduleFlush(sessionID: String) {
@@ -268,17 +281,19 @@ final class SidebarAgentUsageCoordinator {
         // events arrive in batches and `receivedAt` is not fine grained. The
         // session id breaks the tie, so the row does not flip between two
         // panes' numbers across refreshes that the user did not cause.
-        let owner = sessions
+        let ownerPair = sessions
             .filter { $0.value.workspaceID == row.workspaceID && $0.value.source == row.source }
             .max { ($0.value.lastEventAt, $0.key) < ($1.value.lastEventAt, $1.key) }?
-            .value
+        let owner = ownerPair?.value
         let usage = isEnabled ? owner?.snapshot.map(Self.sidebarUsage) : nil
         if usage == nil, !rowsShowingUsage.contains(row) { return }
         metadataLookup(row.workspaceID)?.updateAgentUsage(usage, forStatusKey: row.source.sidebarStatusKey)
         if usage == nil {
             rowsShowingUsage.remove(row)
+            rowOwners.removeValue(forKey: row)
         } else {
             rowsShowingUsage.insert(row)
+            rowOwners[row] = ownerPair?.key
         }
     }
 
@@ -301,6 +316,7 @@ final class SidebarAgentUsageCoordinator {
             metadataLookup(row.workspaceID)?.updateAgentUsage(nil, forStatusKey: row.source.sidebarStatusKey)
         }
         rowsShowingUsage.removeAll()
+        rowOwners.removeAll()
         let previousReset = resetTask
         resetTask = Task { [sampler] in
             await previousReset?.value

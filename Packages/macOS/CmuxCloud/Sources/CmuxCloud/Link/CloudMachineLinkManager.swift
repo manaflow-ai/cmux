@@ -71,6 +71,13 @@ public actor CloudMachineLinkManager {
     private var browserProxies: [String: CloudBrowserProxyProcess] = [:]
     private var browserProxyStarts: [String: Task<CloudBrowserProxyEndpoint, Error>] = [:]
     private var lastFailure: [String: (at: Date, error: String)] = [:]
+    private var machineStatuses: [String: String] = [:]
+    private var localStatusChanges: [String: Date] = [:]
+    /// Explicit connects share one resume operation per machine. The token lets
+    /// each waiter clean up only the task it joined if a later resume starts.
+    private var resumesInFlight: [String: Task<String, Error>] = [:]
+    private var resumeTokens: [String: UUID] = [:]
+    private let resumeMachine: @Sendable (String) async throws -> String
     /// A failed link is not retried for this long, so a polling sidebar does not hammer
     /// a machine whose route is broken. Only background upkeep waits it out
     /// (``backoffRejects(failedAt:now:backoff:)``).
@@ -107,6 +114,12 @@ public actor CloudMachineLinkManager {
         hub: CloudWireGuardHub? = nil,
         operations: CloudOperationRecorder? = nil,
         isCloudEnabled: @escaping @Sendable () -> Bool = { true },
+        resumeMachine: @escaping @Sendable (String) async throws -> String = { machineID in
+            guard let client = await MainActor.run(body: { VMClient.shared }) else {
+                throw ManagerError.clientMissing
+            }
+            return try await client.resume(id: machineID)
+        },
         hostThemeColors: @escaping @Sendable () async -> (foreground: String, background: String)?,
         breadcrumb: @escaping @Sendable (_ event: String, _ fields: [String: String]) -> Void = { _, _ in },
         privateRouteConnector: CloudHubConnector = CloudHubConnector()
@@ -114,6 +127,7 @@ public actor CloudMachineLinkManager {
         self.privateRouteConnector = privateRouteConnector
         self.breadcrumb = breadcrumb
         self.isCloudEnabled = isCloudEnabled
+        self.resumeMachine = resumeMachine
         self.operations = operations
         self.paths = paths
         self.clientURL = clientURL
@@ -195,6 +209,31 @@ public actor CloudMachineLinkManager {
     }
 
     private func connectMeasured(machineID: String) async throws -> CloudMachineLink.Connected {
+        if let status = machineStatuses[machineID], Self.isAsleepStatus(status) {
+            if Self.isBackgroundUpkeep {
+                throw ManagerError.retryLater("Cloud machine is \(status); waiting for it to run.")
+            }
+            let token: UUID
+            let task: Task<String, Error>
+            if let existing = resumesInFlight[machineID], let existingToken = resumeTokens[machineID] {
+                task = existing
+                token = existingToken
+            } else {
+                token = UUID()
+                let resume = resumeMachine
+                task = Task { try await resume(machineID) }
+                resumesInFlight[machineID] = task
+                resumeTokens[machineID] = token
+            }
+            defer {
+                if resumeTokens[machineID] == token {
+                    resumesInFlight[machineID] = nil
+                    resumeTokens[machineID] = nil
+                }
+            }
+            let resumed = try await task.value
+            recordLocalMachineStatus(resumed, for: machineID)
+        }
         if let link = links[machineID], await link.isConnected, let connected = await link.connected {
             return connected
         }
@@ -344,6 +383,26 @@ public actor CloudMachineLinkManager {
 
     public func link(machineID: String) -> CloudMachineLink? {
         links[machineID]
+    }
+
+    public static func backgroundUpkeepShouldConnect(status: String) -> Bool {
+        !isAsleepStatus(status)
+    }
+
+    public static func isAsleepStatus(_ status: String) -> Bool {
+        ["paused", "pausing", "stopped", "suspended"].contains(status)
+    }
+
+    @discardableResult
+    public func setMachineStatus(_ status: String, for machineID: String, observedAt: Date = Date()) -> Bool {
+        guard resumesInFlight[machineID] == nil, localStatusChanges[machineID].map({ $0 <= observedAt }) != false else { return false }
+        machineStatuses[machineID] = status
+        return true
+    }
+
+    public func recordLocalMachineStatus(_ status: String, for machineID: String) {
+        localStatusChanges[machineID] = Date()
+        machineStatuses[machineID] = status
     }
 
     /// A browser carrier can present the machine's stored device identity directly.
@@ -525,6 +584,8 @@ public actor CloudMachineLinkManager {
     public func retainAddresses(machineIDs: Set<String>) {
         privateRoutes = privateRoutes.filter { machineIDs.contains($0.key) }
         privateAddressCandidates = privateAddressCandidates.filter { machineIDs.contains($0.key) }
+        machineStatuses = machineStatuses.filter { machineIDs.contains($0.key) }
+        localStatusChanges = localStatusChanges.filter { machineIDs.contains($0.key) }
         ownerTeams = ownerTeams.filter { machineIDs.contains($0.key) }
     }
 

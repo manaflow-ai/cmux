@@ -12,6 +12,8 @@ import Foundation
 public struct CloudTerminalSizingRelay: Sendable {
     /// The daemon capability that enables shared sizing.
     public static let capability = "shared-sizing-v1"
+    /// The daemon capability that detaches only this Mac's own view.
+    public static let viewDetachCapability = "sizing-view-detach-v1"
 
     /// One phone behind this Mac.
     public struct RelayedView: Hashable, Sendable {
@@ -31,12 +33,18 @@ public struct CloudTerminalSizingRelay: Sendable {
         /// phones that lost their path to the terminal with it and must get
         /// the same detach; empty when the Mac reconnects automatically.
         case mirror(TerminalDetachReason, phoneClientIDs: [String])
+        /// Only this Mac's own view was detached: the connection and every
+        /// phone it relays stay. The Mac shows the detached card and stops
+        /// sending its own viewport, activity and input.
+        case ownView(TerminalDetachReason)
         /// A phone behind this Mac was detached; the Mac keeps its attachment.
         case phone(clientID: String, reason: TerminalDetachReason)
     }
 
     /// Whether the current daemon connection supports shared sizing.
     public private(set) var isSupported = false
+    /// Whether the daemon detaches this Mac's view without dropping the relay.
+    public private(set) var supportsViewDetach = false
     /// This Mac's participant id on the host.
     public private(set) var selfParticipantID: String?
     /// The latest host state for this terminal.
@@ -66,6 +74,7 @@ public struct CloudTerminalSizingRelay: Sendable {
     /// - Parameter capabilities: the daemon's `identify` capabilities.
     public mutating func connectionStarted(capabilities: Set<String>) {
         isSupported = capabilities.contains(Self.capability)
+        supportsViewDetach = isSupported && capabilities.contains(Self.viewDetachCapability)
         selfParticipantID = nil
         state = nil
         reportSentAt.removeAll()
@@ -165,8 +174,10 @@ public struct CloudTerminalSizingRelay: Sendable {
     /// - Parameters:
     ///   - reason: the parsed reason.
     ///   - view: the relay sub-view the event names, if any.
+    ///   - viewOnly: the event had `scope:"view"`: only this Mac's view left.
     /// - Returns: the route, or `nil` for an unknown sub-view.
-    public mutating func routeDetached(reason: TerminalDetachReason, view: String?) -> DetachRoute? {
+    public mutating func routeDetached(reason: TerminalDetachReason, view: String?, viewOnly: Bool = false) -> DetachRoute? {
+        if viewOnly, view == nil { return .ownView(reason) }
         guard let view else {
             // A network drop reconnects this Mac and its phones stay relayed.
             // Any other detach leaves them with no path to the terminal: they
