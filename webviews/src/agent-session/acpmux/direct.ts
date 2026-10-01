@@ -225,18 +225,34 @@ export class AcpmuxDirectClient {
 
   /// The daemon dropped events for this client. Fetch what came after the last
   /// one seen and merge it in, keeping the transcript on screen meanwhile.
+  /// agent-gui daemons send {sessionIds, watch, dropped}; older ones send only
+  /// {dropped}, so a notice without sessionIds resyncs the selected session.
   private resyncAfterLag(params: any): void {
-    const sessionId = String(params?.sessionId ?? "");
-    if (!sessionId || sessionId !== this.selectedSessionId) return;
-    const generation = this.selectionGeneration;
-    const afterSeq = this.lastSeq;
+    if (params?.watch === true) void this.refreshSessions().catch(() => undefined);
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) return;
+    if (Array.isArray(params?.sessionIds) && !params.sessionIds.map(String).includes(sessionId)) return;
     this.emit("resyncing");
-    void this.request("_acpmux/events", { sessionId, afterSeq, limit: 5_000 }).then((result) => {
+    void this.fetchMissedEvents(sessionId, this.selectionGeneration).catch(() => undefined);
+  }
+
+  private async fetchMissedEvents(sessionId: string, generation: number): Promise<void> {
+    for (;;) {
+      const result = await this.request("_acpmux/events", { sessionId, afterSeq: this.lastSeq, limit: 5_000 });
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
-      this.events = mergeEventRecords(this.events, result?.events ?? []);
+      const missed: EventRecord[] = result?.events ?? [];
+      this.events = mergeEventRecords(this.events, missed);
       this.rebuild();
-      this.emit("resynced");
-    }).catch(() => undefined);
+      if (result?.more !== true || missed.length === 0) break;
+    }
+    this.emit("resynced");
+  }
+
+  /// session_changed notices dropped by a watch lag: reread the whole list.
+  private async refreshSessions(): Promise<void> {
+    const watched = await this.request("_acpmux/watch", { enabled: true });
+    this.sessions = (watched?.sessions ?? []).filter((session: Session) => session.sessionId);
+    this.emit("session changed");
   }
 
   private request(method: string, params: Record<string, unknown>): Promise<any> {
@@ -416,7 +432,7 @@ export class AcpmuxDirectClient {
     this.summary = summary;
     this.queue = queue;
     this.pendingPermission = permission;
-    this.historyExhausted = result?.hasMore === false || older.length === 0 || (this.firstSeq ?? 1) <= 1;
+    this.historyExhausted = result?.more === false || older.length === 0 || (this.firstSeq ?? 1) <= 1;
     this.emit("history");
   }
   close(): void { this.closed = true; if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined; this.socket?.close(); this.socket = undefined; }
