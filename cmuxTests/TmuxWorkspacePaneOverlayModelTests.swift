@@ -131,6 +131,7 @@ struct TmuxWorkspacePaneOverlayModelTests {
     @Test @MainActor
     func refreshIgnoresLiveLayoutSamplingTimestamp() {
         let defaults = UserDefaults(suiteName: "TmuxWorkspacePaneOverlayModelTests")!
+        defer { defaults.removePersistentDomain(forName: "TmuxWorkspacePaneOverlayModelTests") }
         defaults.removePersistentDomain(forName: "TmuxWorkspacePaneOverlayModelTests")
         defaults.set(true, forKey: TmuxOverlayExperimentSettings.enabledKey)
         defaults.set(TmuxOverlayExperimentTarget.bonsplitPane.rawValue,
