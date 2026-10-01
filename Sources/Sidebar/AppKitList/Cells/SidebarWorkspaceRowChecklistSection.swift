@@ -25,7 +25,7 @@ final class SidebarRowChecklistSection: NSView {
     private var orderedLines: [SidebarRowChecklistItemLine] = []
     private var freeLines: [SidebarRowChecklistItemLine] = []
     private let addRow = SidebarRowChecklistAddRow()
-    private let popoverPresenter = SidebarRowSwiftUIPopoverPresenter()
+    let popoverPresenter = SidebarRowSwiftUIPopoverPresenter()
 
     private var model: SidebarWorkspaceRowModel?
     private var actions: SidebarAppKitRowActions?
@@ -517,6 +517,12 @@ final class SidebarRowChecklistSection: NSView {
             needsLayout = true
         }
     }
+
+#if DEBUG
+    /// Whether the shown checklist popover animates its close, or nil when
+    /// no popover is presented.
+    var checklistPopoverAnimatesForTesting: Bool? { popoverPresenter.animatesForTesting }
+#endif
 
     private func checklistPopoverModel(_ model: SidebarWorkspaceRowModel) -> SidebarWorkspaceChecklistPopoverModel {
         let snapshot = model.snapshot

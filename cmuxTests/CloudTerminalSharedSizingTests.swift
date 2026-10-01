@@ -23,7 +23,7 @@ import Testing
             "view": "mobile:p1",
         ])
         let frame = try #require(CloudTuiManualIOFrameDecoder().decode(line))
-        guard case let .detached(surfaceID, reason, view) = frame else {
+        guard case let .detached(surfaceID, reason, view, _) = frame else {
             Issue.record("expected a detached frame, got \(frame)")
             return
         }
