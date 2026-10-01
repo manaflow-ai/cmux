@@ -1779,12 +1779,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             SystemWideHotkeySettings.reset()
             KeyboardShortcutSettings.resetAll()
             if TestProcessDefaults.isolatedDomainName == nil {
-                Self.forgetPersistedWindowGeometryForTestProcess()
+                Self.removeLegacyPersistedWindowGeometry()
+                UserDefaults.standard.removeObjectIfPresent(forKey: Self.persistedWindowGeometryDefaultsKey)
             }
         }
-#endif
 
-#if DEBUG
         uiTestDiagnosticsWriter.write(stage: "didFinishLaunching")
         CmuxMainRunLoopStallMonitor.shared.installIfNeeded()
         CmuxMainThreadTurnProfiler.shared.installIfNeeded()
