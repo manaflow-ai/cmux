@@ -88,8 +88,12 @@ struct CloudVMErrorContractTests {
     @Test("local attachment failures stop after the finite episode")
     func localRetryEpisodeStops() {
         var episode = CloudVMRetryEpisode()
-        for _ in 1...5 { #expect(episode.recordFailure(nil) != .stop) }
-        #expect(episode.recordFailure(nil) == .stop)
+        for _ in 1...5 {
+            let decision = episode.recordFailure(nil)
+            #expect(decision != .stop)
+        }
+        let exhausted = episode.recordFailure(nil)
+        #expect(exhausted == .stop)
         #expect(episode.isStopped)
     }
 }
