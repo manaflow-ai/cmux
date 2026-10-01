@@ -33,6 +33,7 @@ public final class BookmarksBarView: NSView {
             button.bezelStyle = .accessoryBarAction
             button.target = self
             button.imagePosition = .imageLeading
+            button.title = ""
             addSubview(button)
         }
         overflow.image = NSImage(systemSymbolName: "chevron.right.2", accessibilityDescription: BookmarkStrings.moreBookmarks)

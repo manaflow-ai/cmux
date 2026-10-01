@@ -43,7 +43,8 @@ final class BookmarkBarItemView: NSView {
     var preferredWidth: CGFloat {
         let iconSize = Metrics.smallIconSize
         let text = node.displayTitle.isEmpty ? 0 : ceil((node.displayTitle as NSString).size(withAttributes: [.font: Typography.body]).width)
-        let gap = text > 0 ? Metrics.space2 : 0
+        // NSTextField draws its text with a small inset on each side.
+        let gap = text > 0 ? Metrics.space2 + Metrics.space2 : 0
         return min(Metrics.space4 * 2 + iconSize + gap + text, Self.maxWidth)
     }
 
