@@ -98,7 +98,14 @@ import SwiftUI
             focus: false,
             isLoading: false
         )
-        Workspace.bindCloudManualMirrorInputConvergence(panel: cloudPanel, onExplicitInput: {})
+        var sessionActive = true
+        Workspace.bindCloudManualMirrorInputConvergence(
+            panel: cloudPanel,
+            isActive: { sessionActive },
+            onExplicitInput: {
+                #expect(Workspace.liveWorkspace(id: cloudPanel.workspaceId)?.focusedPanelId == cloudPanel.id)
+            }
+        )
 
         #expect(workspace.focusedPanelId == localPanelID)
         cloudPanel.surface.onExplicitInput?()
@@ -117,6 +124,13 @@ import SwiftUI
         #expect(destination.focusedPanelId != cloudPanel.id)
         cloudPanel.surface.onExplicitInput?()
         #expect(destination.focusedPanelId == cloudPanel.id)
+
+        // A stopped session must not steal focus if its panel is later reused.
+        sessionActive = false
+        let localDestinationPanel = try #require(destination.panels.keys.first { $0 != cloudPanel.id })
+        destination.focusPanelFromTerminalInput(localDestinationPanel)
+        cloudPanel.surface.onExplicitInput?()
+        #expect(destination.focusedPanelId == localDestinationPanel)
     }
 
     @Test("Cloud shortcut inheritance uses the live remote foreground cwd")

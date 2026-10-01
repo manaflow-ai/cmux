@@ -121,12 +121,13 @@ extension Workspace {
     /// resolves its current workspace at input time.
     static func bindCloudManualMirrorInputConvergence(
         panel: TerminalPanel,
+        isActive: @escaping @MainActor () -> Bool = { true },
         onExplicitInput: @escaping @MainActor () -> Void
     ) {
         panel.onManualMirrorExplicitInput = { [weak panel] in
-            guard let panel else { return }
-            onExplicitInput()
+            guard let panel, isActive() else { return }
             Workspace.liveWorkspace(id: panel.workspaceId)?.focusPanelFromTerminalInput(panel.id)
+            onExplicitInput()
         }
     }
 

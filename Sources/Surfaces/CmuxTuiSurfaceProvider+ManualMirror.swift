@@ -133,6 +133,10 @@ extension CmuxTuiSurfaceProvider {
             if let createdPanel = Workspace.liveWorkspace(id: created.workspaceID)?.panels[created.panelID] as? TerminalPanel {
                 Workspace.bindCloudManualMirrorInputConvergence(
                     panel: createdPanel,
+                    isActive: { [weak session, weak createdPanel] in
+                        guard let session, let createdPanel else { return false }
+                        return session.phase != .stopped && session.surface === createdPanel.surface
+                    },
                     onExplicitInput: { [weak session] in session?.noteExplicitInput() }
                 )
             }
