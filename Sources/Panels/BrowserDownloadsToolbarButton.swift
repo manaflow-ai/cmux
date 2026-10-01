@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import SwiftUI
 
 /// Adapts a completed browser download to the app's existing file drop path.
@@ -42,6 +43,7 @@ enum BrowserDownloadDragSource {
 /// crosses the popover's `ForEach` boundary (CLAUDE.md snapshot-boundary rule).
 struct BrowserDownloadsToolbarButton: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let downloads: [BrowserDownloadRecord]
     let isDownloading: Bool
@@ -54,10 +56,6 @@ struct BrowserDownloadsToolbarButton: View {
     @State private var isPresented = false
     @State private var seenIDs: Set<String> = []
 
-    private var completedCount: Int {
-        downloads.reduce(0) { $0 + ($1.state == .saved ? 1 : 0) }
-    }
-
     /// Downloads not yet viewed in the popover — drives the notification bubble.
     private var unseenCount: Int {
         downloads.reduce(0) { $0 + (seenIDs.contains($1.id) ? 0 : 1) }
@@ -68,12 +66,9 @@ struct BrowserDownloadsToolbarButton: View {
             isPresented.toggle()
         } label: {
             ZStack(alignment: .topTrailing) {
-                // Monochrome to match the rest of the omnibar — motion carries
-                // the state instead of a persistent accent tint: a spinner while
-                // a download is in flight, and a bounce each time one lands.
-                // (A repeating `.bounce` would need macOS 15; plain SF Symbol so
-                // the discrete `.bounce` applies — CmuxSystemSymbolImage is
-                // NSImage-backed and ignores `.symbolEffect`.)
+                // Monochrome to match the rest of the omnibar: a spinner while
+                // a download is in flight, and the unseen-count badge when one
+                // lands. No bounce; the badge already says something changed.
                 Group {
                     if isDownloading {
                         ProgressView()
@@ -82,7 +77,6 @@ struct BrowserDownloadsToolbarButton: View {
                         Image(systemName: "arrow.down.circle")
                             .font(.system(size: iconPointSize, weight: .medium))
                             .foregroundStyle(Color.primary)
-                            .symbolEffect(.bounce, value: completedCount)
                     }
                 }
                 .frame(width: hitSize, height: hitSize, alignment: .center)
@@ -99,12 +93,12 @@ struct BrowserDownloadsToolbarButton: View {
                         .background(Capsule().fill(Color.red))
                         .overlay(Capsule().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
                         .offset(x: 6, y: -4)
-                        .transition(.scale.combined(with: .opacity))
+                        .transition(.opacity)
                 }
             }
             .frame(width: hitSize, height: hitSize, alignment: .center)
             .contentShape(Rectangle())
-            .animation(.spring(response: 0.32, dampingFraction: 0.55), value: unseenCount)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: unseenCount)
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .safeHelp(String(localized: "browser.downloads.title", defaultValue: "Downloads"))

@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceCatalog {
@@ -32,6 +34,18 @@ extension SurfaceCatalog {
     func currentCloudWorkspace(_ group: SurfaceResourceGroup) throws -> (group: SurfaceResourceGroup, layout: SurfaceProjectionLayout?)? {
         if let workspaceID = group.remoteWorkspaceID, let machine = group.placements.first?.resource.machine {
             try checkCloudWorkspaceNavigation(machine: machine, workspaceID: workspaceID)
+            // A resource can retain its last remote placement while the
+            // machine graph has already removed the workspace. Never reopen
+            // that stale identity from resource rows alone.
+            guard let info = snapshot.machines.first(where: { $0.id == machine }),
+                  info.remoteWorkspaces?.contains(where: { $0.id == workspaceID }) == true else {
+                return nil
+            }
+            if let state = cloudStates[machine],
+               cloudStateObservations[machine]?.freshness == .current,
+               !state.workspaceIDs.contains(workspaceID) {
+                return nil
+            }
         }
         guard group.representsWorkspace, let workspaceID = group.remoteWorkspaceID,
               let machine = group.placements.first?.resource.machine,
@@ -67,7 +81,7 @@ extension SurfaceCatalog {
 
     func requestCloudWorkspaceProjection(_ workspaceID: UUID) {
         guard let binding = cloudWorkspaceProjectionCoordinator.environment.bindings()[workspaceID] else { return }
-        cloudWorkspaceProjectionCoordinator.request(machine: .cloud(binding.vmID), catalog: self)
+        cloudWorkspaceProjectionCoordinator.request(machine: SurfaceMachineID(rawValue: binding.vmID), catalog: self)
     }
 
 }

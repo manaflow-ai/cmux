@@ -1,4 +1,6 @@
+import CmuxCloud
 import AppKit
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -237,6 +239,14 @@ struct SurfaceSocketCommandTests {
             let betaKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
             let previousBeta = UserDefaults.standard.object(forKey: betaKey)
             let app = try VaultPaneAppFixture()
+            // `vm.workspace_new` admits its optimistic local workspace through the
+            // active main window before it asks the provider for anything; a
+            // context without a window is pruned and the call is cancelled. Bind
+            // a bare window the way the shortcut tests do.
+            let window = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
+            window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(app.windowID.uuidString)")
+            app.appDelegate.mainWindowContexts.values.first { $0.windowId == app.windowID }?.window = window
+            defer { withExtendedLifetime(window) {} }
             defer {
                 app.tearDown()
                 TerminalController.shared.setActiveTabManager(previousManager)
@@ -326,7 +336,9 @@ struct SurfaceSocketCommandTests {
             #expect(first["workspace_id"] as? String == fixture.workspaceID.uuidString, "no target → the selected workspace")
             #expect(fixture.provider.materialized.count == 1)
             #expect(fixture.provider.materialized[0].destination == .workspace(id: fixture.workspaceID, placement: .split))
-            #expect(fixture.provider.materialized[0].focus == true)
+            // A socket client that does not ask for focus opens in the background: an agent
+            // must not pull the person away from what they are typing in.
+            #expect(fixture.provider.materialized[0].focus == false)
 
             // The catalog reuses the pane already showing the resource…
             let again = try Self.ok(try await Self.call("surface.project", ["resource": resource]))
@@ -352,9 +364,16 @@ struct SurfaceSocketCommandTests {
                 "pane_id": pane, "placement": "tab",
             ]))
             #expect(fixture.provider.materialized.last?.destination == .tab(workspaceID: fixture.workspaceID, paneID: pane, index: nil))
+            #expect(fixture.provider.materialized.last?.focus == false)
+
+            // An explicit `focus: true` (an interactive `cmux surface open`, or `--focus`) is honored.
+            _ = try Self.ok(try await Self.call("surface.project", [
+                "resource": resource, "reuse": false, "workspace_id": fixture.workspaceID.uuidString, "focus": true,
+            ]))
+            #expect(fixture.provider.materialized.last?.focus == true)
 
             let projections = try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID]))["projections"] as? [[String: Any]]
-            #expect(projections?.filter { ($0["resource"] as? String) == resource }.count == 3)
+            #expect(projections?.filter { ($0["resource"] as? String) == resource }.count == 4)
         }
     }
 
@@ -445,6 +464,7 @@ struct SurfaceSocketCommandTests {
             #expect((opened["surface_id"] as? String).flatMap(UUID.init(uuidString:)) != nil)
             #expect(fixture.provider.materialized.count == 1)
             #expect(fixture.provider.materialized[0].resource.key == "term_new_2")
+            #expect(fixture.provider.materialized[0].focus == false, "no `focus` param: a background open")
 
             // The legacy `vm.terminal_new` shape: `workspace_id` is the REMOTE workspace in
             // and out; the local target rides as `local_workspace_id`.
@@ -461,6 +481,27 @@ struct SurfaceSocketCommandTests {
             let unresolvable = try Self.error(try await Self.call("surface.new_terminal", ["machine": fixture.machineID, "workspace_id": "workspace:999999"]))
             #expect(unresolvable["code"] as? String == "invalid_params")
             #expect(fixture.provider.createdTerminals.count == 3, "a bad target creates nothing")
+        }
+    }
+
+    // MARK: - background opens
+
+    @Test func backgroundOpenMarksThePaneUnreadUnlessThePersonIsLookingAtIt() async throws {
+        try await Self.withFixture { fixture in
+            let manager = fixture.manager
+            let selected = try #require(manager.selectedWorkspace)
+            let background = try #require(manager.addWorkspaceIfActive(select: false, autoWelcomeIfNeeded: false))
+            defer { manager.closeWorkspace(background, recordHistory: false) }
+            #expect(manager.selectedTabId == selected.id)
+            let landed = try #require(background.focusedPanelId)
+            #expect(!background.panelIsUnread(landed))
+
+            SurfacePaneFactory.markOpenedInBackground(panelID: landed, in: background.id)
+            #expect(background.panelIsUnread(landed), "something landed where the person is not looking")
+
+            let onScreen = try #require(selected.focusedPanelId)
+            SurfacePaneFactory.markOpenedInBackground(panelID: onScreen, in: selected.id)
+            #expect(!selected.panelIsUnread(onScreen), "the pane the person is looking at is not news")
         }
     }
 
@@ -552,7 +593,10 @@ struct SurfaceSocketCommandTests {
 
             let response = try await Self.call("vm.workspace_new", ["id": fixture.machineID, "name": "feature"])
             #expect(fixture.provider.mutations.first == "workspace create feature")
-            #expect(fixture.provider.refreshes == 0, "creation consumes its receipt without a blocking snapshot")
+            // This fake answers like an older daemon: its receipt carries no
+            // starter terminal, so creation takes exactly one snapshot to look
+            // for one before creating the starter (CloudWorkspaceCreationCoordinator).
+            #expect(fixture.provider.refreshes == 1, "a receipt without a starter costs one snapshot, not a re-sync per step")
             try #require(fixture.provider.createdTerminals.count == 1)
             #expect(fixture.provider.createdTerminals[0].remoteWorkspaceID == "ws_created")
             if response["ok"] as? Bool == true {

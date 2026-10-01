@@ -1,7 +1,39 @@
+import CMUXAgentLaunch
 import XCTest
 import Darwin
 
 final class OpenCodeHookRegressionTests: XCTestCase {
+    func testOpenCodePathOverridesFollowEnvironment() {
+        let environment = [
+            "HOME": "/tmp/home",
+            "XDG_CONFIG_HOME": "/tmp/xdg-config",
+            "XDG_DATA_HOME": "/tmp/xdg-data",
+            "OPENCODE_CONFIG_DIR": "~/custom-config",
+            "OPENCODE_DB": "~/custom.sqlite"
+        ]
+
+        XCTAssertEqual(OpenCodePaths(environment: environment).configDirectory.path, "/tmp/home/custom-config")
+        XCTAssertEqual(OpenCodePaths(environment: environment).databaseURL.path, "/tmp/home/custom.sqlite")
+    }
+
+    func testOpenCodePathResolutionUsesXDGLocations() {
+        let environment = [
+            "HOME": "/tmp/home",
+            "XDG_CONFIG_HOME": "~/xdg-config",
+            "XDG_DATA_HOME": "~/xdg-data"
+        ]
+
+        XCTAssertEqual(OpenCodePaths(environment: environment).configDirectory.path, "/tmp/home/xdg-config/opencode")
+        XCTAssertEqual(OpenCodePaths(environment: environment).databaseURL.path, "/tmp/home/xdg-data/opencode/opencode.db")
+    }
+
+    func testOpenCodePathResolutionKeepsLegacyDefaults() {
+        let environment = ["HOME": "/tmp/home"]
+
+        XCTAssertEqual(OpenCodePaths(environment: environment).configDirectory.path, "/tmp/home/.config/opencode")
+        XCTAssertEqual(OpenCodePaths(environment: environment).databaseURL.path, "/tmp/home/.local/share/opencode/opencode.db")
+    }
+
     private struct ProcessRunResult {
         let status: Int32
         let stdout: String
@@ -11,7 +43,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
 
     func testOpenCodeFeedPluginEmitsCompletionForBothIdleEventShapes() throws {
         let fileManager = FileManager.default
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let pluginURL = repoRoot.appendingPathComponent("Resources/opencode-plugin.js", isDirectory: false)
@@ -23,7 +55,11 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let socketPath = root.appendingPathComponent("cmux.sock").path
+        // WHY /tmp: a Unix socket path must fit sun_path (104 bytes). Under a
+        // runner's `/private/var/folders/.../T/` the temporary directory plus
+        // this UUID-named root overflows it and the harness `listen` fails.
+        let socketPath = "/tmp/cmux-oc-\(UUID().uuidString.prefix(8)).sock"
+        defer { unlink(socketPath) }
         let harnessURL = root.appendingPathComponent("harness.js")
         try Self.openCodeFeedEventHarness.write(to: harnessURL, atomically: true, encoding: .utf8)
         let bunURL = try Self.bunExecutableURL()
@@ -78,6 +114,9 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let pluginURL = configDir.appendingPathComponent("plugins", isDirectory: true).appendingPathComponent("cmux-session.js", isDirectory: false)
         let pluginSource = try String(contentsOf: pluginURL, encoding: .utf8)
         XCTAssertTrue(pluginSource.contains("cmux-opencode-session-plugin-marker"))
+        XCTAssertTrue(pluginSource.contains("id: \"cmux.session\""))
+        XCTAssertTrue(pluginSource.contains("ctx.event.subscribe({ signal"))
+        XCTAssertTrue(pluginSource.contains("event.properties || event.data"))
         XCTAssertTrue(pluginSource.contains("\"hooks\", \"enqueue\", \"opencode\""))
         XCTAssertTrue(pluginSource.contains("CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC: \"1\""))
 
@@ -86,10 +125,49 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertEqual(secondResult.status, 0, secondResult.stderr)
         XCTAssertFalse(secondResult.stdout.contains("Will write OpenCode cmux plugin"), secondResult.stdout)
         XCTAssertTrue(secondResult.stdout.contains("OpenCode hooks already up to date"), secondResult.stdout)
-        XCTAssertTrue(try String(contentsOf: configDir.appendingPathComponent("plugins/cmux-feed.js"), encoding: .utf8).contains("cmux-feed-plugin-marker"))
+        let feedSource = try String(contentsOf: configDir.appendingPathComponent("plugins/cmux-feed.js"), encoding: .utf8)
+        XCTAssertTrue(feedSource.contains("cmux-feed-plugin-marker"))
+        XCTAssertTrue(feedSource.contains("id: \"cmux.feed\""))
+        XCTAssertTrue(feedSource.contains("ctx.event.subscribe({ signal"))
 
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: try Data(contentsOf: configURL), options: []) as? [String: Any])
-        XCTAssertEqual(try XCTUnwrap(json["plugin"] as? [String]), ["other-plugin", "./plugins/cmux-session.js"])
+        XCTAssertNil(json["plugin"])
+        XCTAssertEqual(try XCTUnwrap(json["plugins"] as? [String]), ["other-plugin", "./plugins"])
+    }
+
+    // Regression for https://github.com/manaflow-ai/cmux/issues/7140: opencode resolves
+    // `{file:...}` templates on the raw config text before JSON parsing, so a `\/` written by
+    // slash-escaping serialization turns `{file:./AGENTS.md}` into a bad file reference.
+    func testOpenCodeInstallPreservesFileReferencesWithoutSlashEscaping() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-opencode-slash-\(UUID().uuidString)", isDirectory: true)
+        let configDir = root.appendingPathComponent("opencode", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false)
+        try #"{"$schema":"https://opencode.ai/config.json","agent":{"myagent":{"mode":"primary","prompt":"{file:./AGENTS.md}"}},"instructions":["./AGENTS.md"]}"#
+            .write(to: configURL, atomically: true, encoding: .utf8)
+        let fakeOpenCodeURL = binDir.appendingPathComponent("opencode", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: fakeOpenCodeURL, atomically: true, encoding: .utf8)
+        chmod(fakeOpenCodeURL.path, 0o755)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["OPENCODE_CONFIG_DIR"] = configDir.path
+        environment["PATH"] = "\(binDir.path):\(environment["PATH"] ?? "/usr/bin")"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(executablePath: cliPath, arguments: ["hooks", "opencode", "install", "--yes"], environment: environment, timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        // Check the raw bytes: a JSON parser would decode `\/` back to `/` and hide the bug.
+        let rawConfig = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertFalse(rawConfig.contains("\\/"), rawConfig)
+        XCTAssertTrue(rawConfig.contains("{file:./AGENTS.md}"), rawConfig)
+        XCTAssertTrue(rawConfig.contains("https://opencode.ai/config.json"), rawConfig)
+        XCTAssertTrue(rawConfig.contains("./plugins"), rawConfig)
     }
 
     func testLegacyHookAliasesAreHiddenFromHelp() throws {
@@ -176,10 +254,9 @@ const fs = require("node:fs");
   }
 
   process.env.CMUX_SOCKET_PATH = activeSocketPath;
-  const source = fs.readFileSync(pluginPath, "utf8")
-    .replace("export const CMUXFeed = async", "globalThis.CMUXFeed = async");
-  eval(source);
-  const hooks = await globalThis.CMUXFeed({ directory: "/tmp/opencode-project" });
+  const { pathToFileURL } = await import("node:url");
+  const plugin = await import(pathToFileURL(pluginPath).href);
+  const hooks = await plugin.CMUXFeed({ directory: "/tmp/opencode-project" });
   await hooks.event({ event: {
     type: "session.created",
     properties: { info: { id: "ses-feed-shape", directory: "/tmp/opencode-project" } }
@@ -227,15 +304,10 @@ const fs = require("node:fs");
         } catch {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(process, timeout: 1)
         }
         return ProcessRunResult(
             status: process.terminationStatus,

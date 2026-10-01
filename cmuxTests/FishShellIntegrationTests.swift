@@ -73,7 +73,7 @@ struct FishShellIntegrationTests {
     @Test(.enabled(if: fishExecutablePath != nil))
     func testFishIntegrationConfigParsesWhenFishIsAvailable() throws {
         let fishExecutable = try requireFishExecutable()
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let integrationPath = repoRoot.appendingPathComponent("Resources/shell-integration/fish/config.fish")
@@ -424,7 +424,7 @@ struct FishShellIntegrationTests {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let integrationDir = repoRoot.appendingPathComponent("Resources/shell-integration", isDirectory: true)
@@ -491,16 +491,11 @@ struct FishShellIntegrationTests {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(process, timeout: 1)
         }
 
         return ProcessRunResult(

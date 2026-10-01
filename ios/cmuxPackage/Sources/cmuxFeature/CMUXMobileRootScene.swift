@@ -36,7 +36,7 @@ private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mo
 public struct CMUXMobileRootScene: View {
     private let runtime: CMUXMobileRuntime
     private let macListAuthState: MobileMacListAuthState
-    private let auth: MobileAuthComposition
+    let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
     private let analyticsClientID: String?
@@ -51,8 +51,7 @@ public struct CMUXMobileRootScene: View {
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
     private let featureFlags: MobileFeatureFlags
-    /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
-    /// the shell store (dial ordering) and the Settings/onboarding UI.
+    /// The legacy connection-method choice used only by onboarding and migration UI.
     private let connectionMethodStore: MobileConnectionMethodStore
     /// The one-time Auto-Connect migration eligibility and acknowledgement.
     private let autoConnectMigrationStore: MobileAutoConnectMigrationStore
@@ -119,8 +118,7 @@ public struct CMUXMobileRootScene: View {
     ///   - displaySettings: The app-root mobile display settings injected into
     ///     the environment (drives workspace-title wrapping).
     ///   - featureFlags: The live PostHog-backed mobile feature flags.
-    ///   - connectionMethodStore: The shared Auto-Connect vs Tailscale choice
-    ///     used by both connection routing and Settings.
+    ///   - connectionMethodStore: The legacy onboarding and migration choice.
     ///   - autoConnectMigrationStore: The versioned, one-time migration
     ///     eligibility and acknowledgement injected into the root view.
     ///   - onboardingStore: The app-root first-run onboarding "seen" flag store,
@@ -382,6 +380,14 @@ public struct CMUXMobileRootScene: View {
             .environment(whatsNewCenter)
             .environment(macCompatCenter)
             .environment(\.mobileWebAppSession, webAppSession)
+            #if DEBUG
+            .environment(
+                \.mobileWhatsNewPresentationPolicy,
+                MobileWhatsNewPresentationPolicy(
+                    suppressLaunchPresentation: UITestConfig.suppressWhatsNewLaunch
+                )
+            )
+            #endif
             #endif
     }
 
@@ -389,7 +395,15 @@ public struct CMUXMobileRootScene: View {
     private var content: some View {
         #if os(iOS)
         #if DEBUG
-        if UITestConfig.taskComposerPreviewEnabled {
+        if ProcessInfo.processInfo.environment["CMUX_UITEST_FEED_DECISION_PREVIEW"] == "1" {
+            AgentFeedDecisionPreviewView()
+        } else if ProcessInfo.processInfo.environment["CMUX_UITEST_FEED_FULL_TEXT_PREVIEW"] == "1" {
+            AgentFeedFullTextPreviewView(
+                failsOnce: ProcessInfo.processInfo.environment["CMUX_UITEST_FEED_FULL_TEXT_FAIL_ONCE"] == "1"
+            )
+        } else if ProcessInfo.processInfo.environment["CMUX_UITEST_COMPUTER_PICKER_PERSISTENCE"] == "1" {
+            ComputerPickerPersistencePreviewView()
+        } else if UITestConfig.taskComposerPreviewEnabled {
             TaskComposerAccessibilityPreviewView()
         } else if UITestConfig.pushTabNavigationPreviewEnabled {
             PushTabNavigationPreviewView()
@@ -529,13 +543,12 @@ public struct CMUXMobileRootScene: View {
             runtime: runtime,
             macListAuthState: macListAuthState,
             pairedMacStore: backedUpPairedMacStore,
-            connectionMethodStore: connectionMethodStore,
             buildCompatibilityPolicy: buildCompatibilityPolicy,
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             personalIrohDiscovery: personalIrohDiscovery,
             personalIrohForget: resolvedPersonalIrohForget,
-            presence: nil,
+            presence: nil, workspacePresenceAnnouncer: makeWorkspacePresenceAnnouncer(),
             identityProvider: identityProvider,
             phonePushKeyExchangeHooks: makePhonePushKeyExchangeHooks(),
             teamIDProvider: { await coordinator.resolvedTeamID },
@@ -555,8 +568,16 @@ public struct CMUXMobileRootScene: View {
                 diagnosticLog: diagnosticLog
             ),
             browserStreamEvents: browserStreamEvents,
-            simulatorStreamStore: simulatorStreamStore
+            simulatorStreamStore: simulatorStreamStore,
+            // SSH hosts and keys are device-local and account-independent
+            // (docs/prd/ios-direct-ssh.md D5): Application Support, never
+            // cleared by sign-out.
+            sshComputers: MobileSSHComputers(
+                directory: URL.applicationSupportDirectory.appending(path: "ssh", directoryHint: .isDirectory)
+            ),
+            workspaceSnapshotStore: MobileWorkspaceSnapshotStore(defaults: .standard)
         )
+        Task { await store.startSSHComputers() }
         #if os(iOS)
         // Install the cached (or baked) Mac minimum-version list before the
         // store is handed to any view, so the first stored-Mac reconnect can

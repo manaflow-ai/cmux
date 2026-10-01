@@ -4,6 +4,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -12,6 +13,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import web_validation as gate
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 
 class WebValidationTests(unittest.TestCase):
@@ -27,6 +29,22 @@ class WebValidationTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(gate.requires_web([path, "README.md"]))
         self.assertFalse(gate.requires_web(["README.md", "docs/cli.md", "Sources/AppDelegate.swift"]))
+
+    def test_native_artifact_transport_does_not_select_web(self):
+        paths = [
+            ".github/workflows/ci-artifact-transport.yml",
+            ".github/workflows/ci-macos.yml",
+            "scripts/ci/app_host_layer_transport.py",
+            "scripts/ci/parallel_artifact_download.py",
+            "scripts/ci/restore-app-host-test-product.sh",
+            "tests/test-execution.toml",
+            "tests/test_ci_change_areas.py",
+            "tests/test_ci_parallel_artifact_transport.py",
+            "tests/test_ci_selective_layer_wiring.py",
+        ]
+        self.assertFalse(gate.requires_web(paths))
+        self.assertTrue(gate.requires_web(paths + ["web/app/page.tsx"]))
+        self.assertTrue(gate.requires_web(["scripts/ci/future_unknown_helper.py"]))
 
     def test_pull_request_routes_from_the_merge_parent_when_the_event_base_is_gone(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -139,6 +157,27 @@ class WebValidationTests(unittest.TestCase):
         self.assertIn(delegated, status)
         self.assertGreaterEqual(status.count(standalone), 2)
         self.assertIn("required ci-status check", status)
+
+    def test_ci_web_caches_bun_packages_for_each_install_lockfile(self):
+        workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        expected = {
+            "web-typecheck": "web/bun.lock",
+            "web-production-build": "web/bun.lock",
+            "web-tests": "web/bun.lock",
+            "web-instant-navigation": "web/bun.lock",
+            "diff-sidecar-check": "webviews/bun.lock",
+            "web-db-migrations": "web/bun.lock",
+            "agent-session-web-resources": "bun.lock",
+        }
+        for job, lockfile in expected.items():
+            with self.subTest(job=job):
+                start = workflow.index(f"  {job}:")
+                match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
+                next_job = -1 if match is None else start + 3 + match.start()
+                block = workflow[start:] if next_job < 0 else workflow[start:next_job]
+                self.assertIn("uses: actions/cache@", block)
+                self.assertIn("path: ~/.bun/install/cache", block)
+                self.assertIn(f"hashFiles('{lockfile}')", block)
 
     def test_pr_and_merge_group_checks_belong_to_ci(self):
         delegated = {"changes": {"result": "success", "outputs": {"required": "true"}},

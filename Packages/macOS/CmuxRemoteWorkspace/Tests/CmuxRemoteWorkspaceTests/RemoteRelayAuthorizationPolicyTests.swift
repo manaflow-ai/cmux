@@ -5,6 +5,21 @@ import Testing
 
 @Suite("Remote relay authorization policy")
 struct RemoteRelayAuthorizationPolicyTests {
+    @Test("An SSH peer cannot start another local SSH workspace", arguments: [false, true])
+    func sshWorkspaceCreationRemainsLocalOnly(withCommand: Bool) {
+        let owner = UUID()
+        var parameters: [String: Any] = ["workspace_id": owner.uuidString, "destination": "another-host"]
+        if withCommand { parameters["initial_command"] = "echo remote-command" }
+        let decision = RemoteRelayAuthorizationPolicy().validate(
+            method: "workspace.ssh.open", parameters: parameters,
+            ownerWorkspaceID: owner, surfaceIDs: []
+        )
+        guard case .denied = decision else {
+            Issue.record("workspace.ssh.open must remain unavailable to remote relay callers")
+            return
+        }
+    }
+
     @Test("tmux surface mutations require exact in-workspace selectors")
     func tmuxSurfaceSelectors() {
         let policy = RemoteRelayAuthorizationPolicy()
@@ -133,6 +148,84 @@ struct RemoteRelayAuthorizationPolicyTests {
             ownerWorkspaceID: workspaceID,
             surfaceIDs: [surfaceID]
         ) == .allowed)
+    }
+
+    @Test("agent message relay methods stay inside the authenticated session")
+    func agentMessageSelectorsStayOwned() {
+        let policy = RemoteRelayAuthorizationPolicy()
+        let owner = UUID()
+        let surface = UUID()
+        let foreign = UUID()
+        let ownedSurface = Set([surface])
+
+        #expect(policy.validate(
+            method: "agent.message.poll",
+            parameters: ["surface_id": surface.uuidString],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) == .allowed)
+        #expect(policy.validate(
+            method: "agent.message.claim",
+            parameters: ["surface_id": surface.uuidString],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) == .allowed)
+        #expect(policy.validate(
+            method: "agent.message.mark_read",
+            parameters: ["surface_id": surface.uuidString],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) == .allowed)
+        #expect(policy.validate(
+            method: "agent.message.list",
+            parameters: ["surface": surface.uuidString],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) == .allowed)
+        #expect(policy.validate(
+            method: "agent.message.send",
+            parameters: [
+                "target": owner.uuidString,
+                "sender_surface_id": surface.uuidString,
+                "sender_workspace_id": owner.uuidString,
+            ],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) == .allowed)
+
+        #expect(policy.validate(
+            method: "agent.message.list",
+            parameters: [:],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) != .allowed)
+        #expect(policy.validate(
+            method: "agent.message.send",
+            parameters: ["target": foreign.uuidString],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) != .allowed)
+        #expect(policy.validate(
+            method: "agent.message.send",
+            parameters: ["target": owner.uuidString, "reply_to": "message-id"],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) != .allowed)
+        #expect(policy.validate(
+            method: "agent.message.send",
+            parameters: [
+                "target": owner.uuidString,
+                "sender_surface_id": foreign.uuidString,
+            ],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) != .allowed)
+        #expect(policy.validate(
+            method: "agent.message.mark_read",
+            parameters: ["surface_id": surface.uuidString, "id": "message-id"],
+            ownerWorkspaceID: owner,
+            surfaceIDs: ownedSurface
+        ) != .allowed)
     }
 
     @Test("respawn planner quotes remote directories and classifies transports")

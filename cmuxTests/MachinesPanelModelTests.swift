@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Bonsplit
 import Testing
@@ -160,18 +162,18 @@ final class MachinesPanelModelTests: XCTestCase {
 
         // Availability follows the Cloud VM UI flag, independent of feed/dock.
         XCTAssertTrue(
-            RightSidebarMode.machines.isAvailable(feedEnabled: false, dockEnabled: false, machinesEnabled: true)
+            RightSidebarMode.machines.isAvailable(feedEnabled: false, machinesEnabled: true)
         )
         XCTAssertFalse(
-            RightSidebarMode.machines.isAvailable(feedEnabled: true, dockEnabled: true, machinesEnabled: false)
+            RightSidebarMode.machines.isAvailable(feedEnabled: true, machinesEnabled: false)
         )
         XCTAssertEqual(
-            RightSidebarMode.availableModes(feedEnabled: false, dockEnabled: false, machinesEnabled: true),
-            [.files, .find, .sessions, .machines]
+            RightSidebarMode.availableModes(feedEnabled: false, machinesEnabled: true),
+            [.files, .find, .sessions, .dock, .machines]
         )
         XCTAssertEqual(
-            RightSidebarMode.availableModes(feedEnabled: false, dockEnabled: false, machinesEnabled: false),
-            [.files, .find, .sessions]
+            RightSidebarMode.availableModes(feedEnabled: false, machinesEnabled: false),
+            [.files, .find, .sessions, .dock]
         )
     }
 
@@ -340,7 +342,7 @@ final class MachinesPanelModelTests: XCTestCase {
             now: now
         )
         XCTAssertEqual(single?.isSingleMachinePlan, true)
-        XCTAssertEqual(single?.countLabel, "1 of 1 machine")
+        XCTAssertEqual(single?.usage.countLabel, "1 of 1 machine")
         XCTAssertEqual(single?.freeAccessExpiresAt, serverExpiry)
         XCTAssertEqual(single?.freeAccessBanner, .expiresIn(countdown: "2d 1h"))
 
@@ -350,7 +352,7 @@ final class MachinesPanelModelTests: XCTestCase {
             now: now
         )
         XCTAssertEqual(plural?.isSingleMachinePlan, false)
-        XCTAssertEqual(plural?.countLabel, "2 of 5 machines")
+        XCTAssertEqual(plural?.usage.countLabel, "2 of 5 machines")
         XCTAssertEqual(plural?.freeAccessBanner, MachinePlanSnapshot.FreeAccessBanner.none)
     }
 
@@ -780,12 +782,8 @@ final class MachinesPanelModelTests: XCTestCase {
         catalog.register(provider)
         XCTAssertTrue(catalog.replaceResources([resource], on: machine, info: provider.info, from: provider))
 
-        XCTAssertThrowsError(try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)) { error in
-            XCTAssertEqual(
-                error as? SurfaceCatalogError,
-                .destinationNotFound("workspace ws_legacy on legacy-group-test has no projectable resources")
-            )
-        }
+        let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)
+        XCTAssertEqual(group.placements.map(\.resource), [resource.id])
     }
 
     func testCloudTreeLocalBrowsersGroupAndEmptyLocalPlaceholder() {
@@ -892,13 +890,15 @@ final class MachinesPanelModelTests: XCTestCase {
 
     @MainActor
     func testProjectGroupLandsTheFirstAtTheDropAndTheRestAsTabsOfThatPane() async throws {
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
         let provider = GroupFakeProvider(machine: .cloud("m"))
         catalog.register(provider)
         let a = terminal(.cloud("m"), "term_a"), b = terminal(.cloud("m"), "term_b")
         let browser = SurfaceResource(id: SurfaceResourceID(machine: .cloud("m"), kind: .browser, key: "port:3000"), title: ":3000", detail: nil, lifecycle: .running, agent: nil, remoteWorkspace: nil, port: 3000, url: nil)
         catalog.replaceResources([a, b, browser], on: .cloud("m"))
-        let ws = UUID()
+        let ws = live.id()
         let missing = SurfaceResourceID(machine: .cloud("m"), kind: .terminal, key: "term_gone")
         let drop = SurfaceDestination.split(workspaceID: ws, paneID: "pane-drop", direction: .left)
 
@@ -996,6 +996,26 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
         var declared = summary
         declared.capabilities = VMCapabilities(json: ["snapshot": false, "restore": false, "fork": false])
         XCTAssertFalse(declared.capabilities.snapshot)
+    }
+
+    func testSocketCloudVMSummaryPreservesAttachTransports() {
+        let summary = VMSummary(
+            id: "transport-limited",
+            provider: "freestyle",
+            status: "running",
+            image: "cmux-devbox",
+            createdAt: 0,
+            capabilities: VMCapabilities(
+                snapshot: true,
+                restore: true,
+                fork: true,
+                attachTransports: ["ssh"]
+            )
+        )
+
+        let payload = TerminalController.socketWorkerVMSummaryPayload(summary)
+        let capabilities = payload["capabilities"] as? [String: Any]
+        XCTAssertEqual(capabilities?["attach_transports"] as? [String], ["ssh"])
     }
 
     private func terminal(_ machine: SurfaceMachineID, _ key: String, title: String = "shell", cwd: String? = "/root") -> SurfaceResource {

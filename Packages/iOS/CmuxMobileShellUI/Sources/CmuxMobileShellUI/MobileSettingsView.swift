@@ -57,6 +57,13 @@ struct MobileSettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
+    /// Keeps the picker responsive while Stack Auth persists the selection.
+    /// The coordinator remains the confirmed scope authority; this value is
+    /// cleared when that request finishes or fails.
+    @State private var pendingTeamID: String?
+    @State private var pendingTeamRequestID: UUID?
+    @State private var teamSelectionTask: Task<Void, Never>?
+    @State private var teamSelectionFailed = false
     /// Mirrors ``MobilePushCoordinator/isEnabled`` so the toggle's label/icon
     /// update after the async enable/disable. The coordinator exposes
     /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
@@ -130,10 +137,20 @@ struct MobileSettingsView: View {
                             systemImage: "person.2"
                         )
                     } footer: {
-                        Text(L10n.string(
-                            "mobile.settings.teamFooter",
-                            defaultValue: "Switches which cmux team's computers and devices this app shows."
-                        ))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(L10n.string(
+                                "mobile.settings.teamFooter",
+                                defaultValue: "Switches which cmux team's computers and devices this app shows."
+                            ))
+                            if teamSelectionFailed {
+                                Text(L10n.string(
+                                    "mobile.settings.teamSwitchFailed",
+                                    defaultValue: "Could not switch teams. Try again."
+                                ))
+                                .foregroundStyle(.red)
+                                .accessibilityIdentifier("MobileSettingsTeamSwitchError")
+                            }
+                        }
                     }
                 }
 
@@ -215,6 +232,24 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
                 }
 
+                if let store {
+                    Section {
+                        NavigationLink {
+                            SSHKeysView(computers: store.sshComputers)
+                        } label: {
+                            Label(SSHCopy().keysTitle, systemImage: "key")
+                        }
+                        .accessibilityIdentifier("ssh.settings.keys")
+                    } header: {
+                        Text(SSHCopy().sectionTitle)
+                    } footer: {
+                        Text(L10n.string(
+                            "mobile.ssh.settings.keys.footer",
+                            defaultValue: "Keys this iPhone uses to log in to SSH computers."
+                        ))
+                    }
+                }
+
                 if let irohSettingsController {
                     Section(L10n.string("mobile.settings.networking", defaultValue: "Networking")) {
                         NavigationLink {
@@ -248,6 +283,22 @@ struct MobileSettingsView: View {
                         ))
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalFolderTapToggle")
+
+                    Toggle(isOn: $displaySettings.useLegacyTerminalSizing) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(L10n.string(
+                                "mobile.settings.legacyTerminalSizing",
+                                defaultValue: "Use Full Terminal Height"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.legacyTerminalSizing.description",
+                                defaultValue: "Let apps like Vim extend beneath the keyboard and toolbars."
+                            ))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsLegacyTerminalSizingToggle")
 
                     Button {
                         showingShortcuts = true
@@ -375,6 +426,23 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsTaskComposerFullLiquidGlass")
 
+                    Toggle(isOn: $displaySettings.feedBubbleQuotes) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.string(
+                                "mobile.settings.feedBubbleQuotes",
+                                defaultValue: "Feed Bubble Quotes"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.feedBubbleQuotesCaption",
+                                defaultValue:
+                                    "Show quoted messages and replies in Feed as iMessage-style bubbles instead of a side bar."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsFeedBubbleQuotes")
+
                     NavigationLink {
                         TaskComposerShellIconLabView()
                     } label: {
@@ -424,6 +492,41 @@ struct MobileSettingsView: View {
                         Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))
                     }
                     .accessibilityIdentifier("MobileSettingsWrapTitles")
+
+                    Toggle(isOn: Binding(
+                        get: { !displaySettings.feedReplacesNotifications },
+                        set: { displaySettings.feedReplacesNotifications = !$0 }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.string(
+                                "mobile.settings.legacyNotificationsTab",
+                                defaultValue: "Legacy Notifications Tab"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.legacyNotificationsTabCaption",
+                                defaultValue: "The Feed replaced Notifications. Turn this on to bring the legacy tab back."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsLegacyNotificationsTab")
+
+                    Toggle(isOn: $displaySettings.feedShowsTab) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.string(
+                                "mobile.settings.feedShowsTab",
+                                defaultValue: "Show Tab in Feed"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.feedShowsTabCaption",
+                                defaultValue: "Show the tab each Feed event came from next to its workspace."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsFeedShowsTab")
 
                     Picker(selection: $displaySettings.workspacePreviewLineCount) {
                         Text(L10n.string("mobile.settings.previewLines.one", defaultValue: "1 Line"))
@@ -538,6 +641,8 @@ struct MobileSettingsView: View {
 
                 MobileSettingsLegalSupportSection()
 
+                MobileSettingsResetSection()
+
                 Section(L10n.string("mobile.settings.about", defaultValue: "About")) {
                     LabeledContent {
                         Text(AppVersionInfo.current().displayString)
@@ -630,21 +735,12 @@ struct MobileSettingsView: View {
                 SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
             }
         }
-        .onChange(of: connectionMethodStore?.method) { oldMethod, newMethod in
-            guard oldMethod != newMethod, store != nil else { return }
-            let stackUserID = authManager.currentUser?.id
-            Task {
-                _ = await store?.retryActiveMacReconnect(
-                    stackUserID: stackUserID,
-                    force: true
-                )
-            }
-        }
         .accessibilityIdentifier("MobileSettingsView")
         .onAppear {
             diagnosticLog?.recordAppEvent(.settingsOpened)
         }
         .onDisappear {
+            teamSelectionTask?.cancel()
             diagnosticLog?.recordAppEvent(.settingsClosed)
         }
         .onChange(of: sendAnonymousTelemetry) { _, value in
@@ -917,10 +1013,32 @@ struct MobileSettingsView: View {
     /// through the shared coordinator action (persisted; observed by the root for the lazy re-scope).
     private var teamSelection: Binding<String?> {
         Binding(
-            get: { authManager.resolvedTeamID },
+            get: { pendingTeamID ?? authManager.resolvedTeamID },
             set: { newValue in
-                if let newValue, newValue != authManager.selectedTeamID {
-                    Task { try? await authManager.selectTeam(id: newValue) }
+                guard let newValue,
+                      newValue != (pendingTeamID ?? authManager.resolvedTeamID) else { return }
+                let requestID = UUID()
+                teamSelectionTask?.cancel()
+                pendingTeamID = newValue
+                pendingTeamRequestID = requestID
+                teamSelectionFailed = false
+                teamSelectionTask = Task { @MainActor in
+                    do {
+                        try await authManager.selectTeam(id: newValue)
+                    } catch is CancellationError {
+                        guard pendingTeamRequestID == requestID else { return }
+                        pendingTeamID = nil
+                        pendingTeamRequestID = nil
+                    } catch {
+                        guard pendingTeamRequestID == requestID else { return }
+                        pendingTeamID = nil
+                        pendingTeamRequestID = nil
+                        teamSelectionFailed = true
+                        return
+                    }
+                    guard pendingTeamRequestID == requestID else { return }
+                    pendingTeamID = nil
+                    pendingTeamRequestID = nil
                 }
             }
         )

@@ -6,17 +6,15 @@ final class BrowserHiddenWebViewMemoryPressureResponder: MemoryPressureResponder
     let memoryPressureMinimumSeverity: MemoryPressureSeverity = .warning
     let memoryPressurePriority = 90
 
-    private let tabManagers: @MainActor () -> [TabManager]
+    private let browserPanels: @MainActor () -> [BrowserPanel]
 
-    init(tabManagers: @escaping @MainActor () -> [TabManager]) {
-        self.tabManagers = tabManagers
+    init(browserPanels: @escaping @MainActor () -> [BrowserPanel]) {
+        self.browserPanels = browserPanels
     }
 
     func shedMemory(for snapshot: MemoryPressureSnapshot) -> MemoryPressureShedResult {
-        let discardedCount = tabManagers().reduce(0) { count, manager in
-            count + manager.discardHiddenBrowserWebViewsForSystemMemoryPressure(
-                now: snapshot.sampledAt
-            )
+        let discardedCount = browserPanels().reduce(0) { count, panel in
+            panel.discardHiddenWebViewForSystemMemoryPressure(now: snapshot.sampledAt) ? count + 1 : count
         }
         return MemoryPressureShedResult(
             reclaimedItemCount: discardedCount,

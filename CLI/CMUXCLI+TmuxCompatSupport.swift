@@ -3,6 +3,103 @@ import CmuxFoundation
 import Foundation
 
 extension CMUXCLI {
+    func tmuxStripUnresolvedLongFormatTokens(_ value: String) -> String {
+        var cleaned = ""
+        cleaned.reserveCapacity(value.count)
+        var index = value.startIndex
+
+        while index < value.endIndex {
+            guard value[index] == "#" else {
+                cleaned.append(value[index])
+                index = value.index(after: index)
+                continue
+            }
+
+            let markerIndex = value.index(after: index)
+            guard markerIndex < value.endIndex, value[markerIndex] == "{" else {
+                cleaned.append("#")
+                index = markerIndex
+                continue
+            }
+
+            let keyStart = value.index(after: markerIndex)
+            guard let close = value[keyStart...].firstIndex(of: "}") else {
+                cleaned.append(contentsOf: value[index...])
+                break
+            }
+            index = value.index(after: close)
+        }
+
+        return cleaned
+    }
+
+    func tmuxRenderFormatContent(
+        _ format: String,
+        context: [String: String]
+    ) -> String {
+        let shortKeys: [Character: String] = [
+            "D": "pane_id",
+            "F": "window_flags",
+            "I": "window_index",
+            "P": "pane_index",
+            "S": "session_name",
+            "T": "pane_title",
+            "W": "window_name",
+        ]
+
+        var rendered = ""
+        rendered.reserveCapacity(format.count)
+        var index = format.startIndex
+        while index < format.endIndex {
+            let character = format[index]
+            guard character == "#" else {
+                rendered.append(character)
+                index = format.index(after: index)
+                continue
+            }
+
+            let markerIndex = format.index(after: index)
+            guard markerIndex < format.endIndex else {
+                rendered.append(character)
+                break
+            }
+            let marker = format[markerIndex]
+
+            if marker == "#" {
+                rendered.append("#")
+                index = format.index(after: markerIndex)
+                continue
+            }
+
+            if marker == "{" {
+                let keyStart = format.index(after: markerIndex)
+                guard let close = format[keyStart...].firstIndex(of: "}") else {
+                    rendered.append(contentsOf: format[index...])
+                    break
+                }
+                let key = String(format[keyStart..<close])
+                if let value = context[key] {
+                    rendered.append(tmuxStripUnresolvedLongFormatTokens(value))
+                }
+                index = format.index(after: close)
+                continue
+            }
+
+            if let key = shortKeys[marker] {
+                if let value = context[key] {
+                    rendered.append(tmuxStripUnresolvedLongFormatTokens(value))
+                }
+                index = format.index(after: markerIndex)
+                continue
+            }
+
+            rendered.append("#")
+            index = markerIndex
+        }
+
+        return rendered
+    }
+
     func tmuxPaneHasTargetableSurface(_ pane: [String: Any]) -> Bool {
         if let surfaceCount = intFromAny(pane["surface_count"]) {
             return surfaceCount > 0

@@ -367,7 +367,7 @@ cmux 免費且開放原始碼，並將一直如此。如果您想支持開發並
 
 ### 我有功能請求或發現了 bug？
 
-我們很想聽到。請在 GitHub 上提交 [issue](https://github.com/manaflow-ai/cmux/issues) 或 [pull request](https://github.com/manaflow-ai/cmux/pulls)，或者 [寄電子郵件給我們](mailto:founders@manaflow.com?subject=cmux%20feature%20request)。
+我們很想聽到。請在 GitHub 上提交 [issue](https://github.com/manaflow-ai/cmux/issues) 或 [pull request](https://github.com/manaflow-ai/cmux/pulls)，或者 [寄電子郵件給我們](mailto:founders@cmux.com?subject=cmux%20feature%20request)。
 
 ## Star History
 
@@ -418,6 +418,6 @@ cmux 免費、開放原始碼，並將一直如此。如果您想支持開發並
 
 ## 授權
 
-cmux 以 [GPL-3.0-or-later](LICENSE) 開放原始碼。
+cmux 以 [GPL-3.0-or-later](LICENSE) 開放原始碼。cmux 伺服器軟體（`web/`、Cloudflare Worker 以及 [LICENSE](LICENSE) 中列出的中繼服務）改用 [Business Source License 1.1](web/LICENSE)：您可以為非正式環境用途閱讀、修改與執行它，正式環境使用或自行架設需要商業授權。
 
-如果您的組織無法遵守 GPL，可提供商業授權。詳情請聯絡 [founders@manaflow.com](mailto:founders@manaflow.com)。
+如果您的組織無法遵守 GPL，可提供商業授權。詳情請聯絡 [founders@cmux.com](mailto:founders@cmux.com)。

@@ -1,3 +1,4 @@
+import CmuxBrowser
 import Combine
 import CmuxFoundation
 import CmuxSettings
@@ -624,11 +625,38 @@ final class CmuxSettingsFileStore {
                 snapshot.managedUserDefaults[setting.defaultsKey] = .bool(value)
             }
         }
+        if section.keys.contains("workspaceDescriptionColor"),
+           let value = parseNullableHex(
+               section["workspaceDescriptionColor"],
+               path: "sidebar.workspaceDescriptionColor",
+               sourcePath: sourcePath
+           ) {
+            snapshot.managedUserDefaults[
+                SidebarCatalogSection().workspaceDescriptionColorHex.userDefaultsKey
+            ] = .nullableString(value)
+        }
         if let raw = jsonString(section["branchLayout"]) {
             if let value = SidebarSettingsFileMapping.branchLayoutStoredValue(raw) {
                 snapshot.managedUserDefaults[SidebarCatalogSection().branchVerticalLayout.userDefaultsKey] = .bool(value)
             } else {
                 logInvalid("sidebar.branchLayout", sourcePath: sourcePath)
+            }
+        }
+        if section.keys.contains("compactStatusIcons") {
+            if let rawIcons = section["compactStatusIcons"] as? [String: Any] {
+                var icons: [String: String] = [:]
+                for (key, rawValue) in rawIcons {
+                    guard SidebarCompactStatusGlyph.IconSlot(rawValue: key) != nil,
+                          let symbol = jsonString(rawValue)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                          !symbol.isEmpty else {
+                        logInvalid("sidebar.compactStatusIcons.\(key)", sourcePath: sourcePath)
+                        continue
+                    }
+                    icons[key] = symbol
+                }
+                snapshot.managedUserDefaults[SidebarCatalogSection().compactStatusIcons.userDefaultsKey] = .stringDictionary(icons)
+            } else {
+                logInvalid("sidebar.compactStatusIcons", sourcePath: sourcePath)
             }
         }
         if let rawBeta = section["beta"], let beta = rawBeta as? [String: Any] {
@@ -671,6 +699,13 @@ final class CmuxSettingsFileStore {
                 sourcePath: sourcePath
             ) else { return }
             snapshot.managedUserDefaults["sidebarSelectionColorHex"] = .nullableString(value)
+        }
+        if section.keys.contains("subtleSelection") {
+            if let value = jsonBool(section["subtleSelection"]) {
+                snapshot.managedUserDefaults[SettingCatalog().workspaceColors.subtleSelection.userDefaultsKey] = .bool(value)
+            } else {
+                logInvalid("workspaceColors.subtleSelection", sourcePath: sourcePath)
+            }
         }
         if section.keys.contains("notificationBadgeColor") {
             guard let value = parseNullableHex(
@@ -881,13 +916,7 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[BrowserThemeSettings.modeKey] = .string(mode.rawValue)
         }
-        if let value = jsonDouble(section["hiddenWebViewDiscardDelaySeconds"]) {
-            guard let delay = BrowserHiddenWebViewDiscardPolicy.resolvedHiddenDelay(value) else {
-                logInvalid("browser.hiddenWebViewDiscardDelaySeconds", sourcePath: sourcePath)
-                return
-            }
-            snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey] = .double(delay)
-        }
+        _ = parseBrowserMemorySaverSettings(section, sourcePath: sourcePath, snapshot: &snapshot)
         applyNormalizedStringArraySettings(BrowserSettingsFileMapping.stringArraySettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
     }
 

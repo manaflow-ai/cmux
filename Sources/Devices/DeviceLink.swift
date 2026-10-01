@@ -1,6 +1,8 @@
 import CMUXMobileCore
 import CmuxCore
 import CmuxMobileRPC
+import CmuxMobileHost
+import CmuxSurfaceCatalogModel
 import Foundation
 import OSLog
 
@@ -30,7 +32,7 @@ enum DeviceLinkError: Error, LocalizedError, Equatable {
         case .identityUnproven:
             return String(localized: "devices.link.error.identityUnproven", defaultValue: "This Mac did not confirm it is signed into your account.")
         case .identityMismatch:
-            return String(localized: "devices.link.error.identityMismatch", defaultValue: "A different Mac answered at this address. Pair it again from Settings \u{203A} Computers.")
+            return String(localized: "devices.link.error.identityMismatch", defaultValue: "A different Mac answered at this address. Pair it again from Settings › Devices.")
         }
     }
 }
@@ -52,12 +54,19 @@ enum DeviceLinkError: Error, LocalizedError, Equatable {
 final class DeviceLink {
     typealias Phase = DeviceLinkReconnectPolicy.Phase
 
-    static let eventTopics: Set<String> = ["mobile.sync.delta", "workspace.updated", "terminal.bytes", "terminal.updated", DeviceWorkspaceLayoutHost.eventTopic]
+    /// The host's notification history moved; `notification.feed.list` has the rows.
+    static let notificationFeedTopic = "notification.feed.changed"
+    static let eventTopics: Set<String> = [
+        "mobile.sync.delta", "workspace.updated", "terminal.bytes", "terminal.updated", notificationFeedTopic,
+        DeviceTerminalGridPublisher.eventTopic, DeviceWorkspaceLayoutHost.eventTopic,
+        // Shared sizing: this Mac is a participant of the host's terminals.
+        DeviceTerminalEvent.sizeStateTopic, DeviceTerminalEvent.detachedTopic,
+    ]
 
     let instance: SurfaceDeviceInstanceID
     private(set) var record: DeviceDirectoryRecord
     private(set) var phase: Phase = .idle
-    private(set) var lastFailure: String?
+    private(set) var lastFailure: DeviceLinkFailure?
     /// The device is online and this account's, but the pairing store holds no
     /// grant for any of its routes; the row says so instead of dialing.
     private(set) var needsAuthorization = false
@@ -69,11 +78,15 @@ final class DeviceLink {
     /// Fires after any change a provider should publish (phase, mirror, record).
     var onChange: (@MainActor () -> Void)?
     var onLayoutChange: (@MainActor (DeviceWorkspaceLayoutSnapshot) -> Void)?
+    /// Fires when the host's notification feed changed, and after every
+    /// (re)connect, since changes while the link was down sent no event.
+    var onNotificationFeedChange: (@MainActor () -> Void)?
 
     private let runtime: DeviceLinkRuntime
     private let authorization: any DeviceLinkAuthorizationSource
     private let routeSelector: DeviceRouteSelector
     private let clock: any Clock<Duration>
+    private let diagnostics: DeviceLinkDiagnostics?
     private var policy = DeviceLinkReconnectPolicy()
     private var client: MobileCoreRPCClient?
     private var connectTask: Task<Void, Never>?
@@ -88,7 +101,8 @@ final class DeviceLink {
         runtime: DeviceLinkRuntime,
         authorization: any DeviceLinkAuthorizationSource,
         routeSelector: DeviceRouteSelector? = nil,
-        clock: any Clock<Duration> = ContinuousClock()
+        clock: any Clock<Duration> = ContinuousClock(),
+        diagnostics: DeviceLinkDiagnostics? = nil
     ) {
         instance = record.instance
         self.record = record
@@ -96,6 +110,7 @@ final class DeviceLink {
         self.authorization = authorization
         self.routeSelector = routeSelector ?? runtime.routeSelector
         self.clock = clock
+        self.diagnostics = diagnostics
     }
 
     var isConnected: Bool { phase == .connected }
@@ -119,6 +134,15 @@ final class DeviceLink {
         if phase == .connected { scheduleFetch() }
     }
 
+    /// The control plane issued a new directory revision. A host's refusal
+    /// was its reading of the previous revision, so this is the one signal
+    /// that retries it; identity and route blocks wait for a refresh or a
+    /// pairing change.
+    func directoryRevisionAdvanced() {
+        transition(applyPolicy(.directoryRevisionAdvanced))
+        onChange?()
+    }
+
     func stop() {
         transition(applyPolicy(.stopped))
         mirror.reset()
@@ -128,7 +152,7 @@ final class DeviceLink {
     /// A session or mutation saw the transport fail; reconnect from a fresh dial.
     func reportTransportLost(_ error: any Error) {
         deviceLinkLog.error("device link lost \(self.instance.wireValue, privacy: .private(mask: .hash)): \(String(describing: error), privacy: .private)")
-        lastFailure = Self.classify(error).reason
+        lastFailure = DeviceLinkFailure.classify(error, hostName: record.deviceName)
         transition(applyPolicy(.transportLost))
         onChange?()
     }
@@ -140,9 +164,15 @@ final class DeviceLink {
     private func reevaluate(unblock: Bool) {
         var granted = false
         var needsAuthorization = false
+        var precondition: DeviceLinkFailure?
         do {
-            _ = try selectRoute()
+            let selection = try selectRoute()
             granted = true
+            // The directory already says whether the Devices service can have
+            // told the host to admit this Mac; a dial cannot change that answer.
+            if selection.route.kind == .iroh, record.controlPlaneSupport == .outdated {
+                precondition = .controlPlaneOutdated()
+            }
         } catch DeviceRouteSelector.SelectionError.needsAuthorization {
             needsAuthorization = true
         } catch {
@@ -152,7 +182,13 @@ final class DeviceLink {
         if unblock, case .blocked = phase {
             policy = DeviceLinkReconnectPolicy()
         }
-        transition(applyPolicy(.directory(dialable: record.isDialable && granted)))
+        if let precondition {
+            lastFailure = precondition
+        } else if lastFailure?.kind == .controlPlaneOutdated {
+            // The directory now names the rule; the next dial starts clean.
+            lastFailure = nil
+        }
+        transition(applyPolicy(.directory(dialable: record.isDialable && granted, precondition: precondition)))
         onChange?()
     }
 
@@ -204,6 +240,7 @@ final class DeviceLink {
         let previous = phase
         phase = next
         deviceLinkLog.info("device link \(self.instance.wireValue, privacy: .private(mask: .hash)): \(String(describing: previous), privacy: .private) -> \(String(describing: next), privacy: .private)")
+        diagnostics?.record(phase: next, failure: lastFailure, instance: instance, deviceName: record.deviceName)
         switch next {
         case .connecting(let attempt):
             tearDownClient(notify: previous == .connected)
@@ -261,14 +298,15 @@ final class DeviceLink {
                 guard !Task.isCancelled, generation == self.generation, self.phase == .connected else { return }
                 self.terminalEvents.broadcast(.linkReconnected)
                 self.onChange?()
-            } catch is CancellationError {
-                return
+                self.onNotificationFeedChange?()
             } catch {
                 guard !Task.isCancelled, generation == self.generation else { return }
-                let classified = Self.classify(error)
-                self.lastFailure = classified.reason
-                deviceLinkLog.error("device link connect failed \(self.instance.wireValue, privacy: .private(mask: .hash)) attempt=\(attempt): \(classified.reason, privacy: .private)")
-                self.transition(self.applyPolicy(.connectFailed(retryable: classified.retryable, reason: classified.reason)))
+                let classified = DeviceLinkFailure.classify(error, hostName: record.deviceName)
+                self.lastFailure = classified
+                deviceLinkLog.error("device link connect failed \(self.instance.wireValue, privacy: .private(mask: .hash)) attempt=\(attempt): \(classified.code, privacy: .public)")
+                let event: DeviceLinkReconnectPolicy.Event = error is CancellationError
+                    ? .connectInterrupted : .connectFailed(classified)
+                self.transition(self.applyPolicy(event))
                 self.onChange?()
             }
         }
@@ -334,40 +372,6 @@ final class DeviceLink {
         }
     }
 
-    private static func classify(_ error: any Error) -> (retryable: Bool, reason: String) {
-        if let error = error as? DeviceRouteSelector.SelectionError {
-            switch error {
-            case .noRoutes:
-                return (false, String(localized: "devices.link.error.noRoutes", defaultValue: "This Mac has not published a route yet."))
-            case .needsAuthorization:
-                return (false, String(localized: "devices.link.error.needsAuthorization", defaultValue: "Pair this Mac in Settings \u{203A} Computers to connect."))
-            case .noDialableRoute:
-                return (false, String(localized: "devices.link.error.noDialableRoute", defaultValue: "This Mac has no supported connection route. Update cmux on both Macs and try again."))
-            }
-        }
-        if let error = error as? DeviceLinkError {
-            switch error {
-            case .identityUnproven, .identityMismatch:
-                return (false, error.errorDescription ?? String(describing: error))
-            case .blocked(let reason):
-                return (false, reason)
-            case .notConnected, .hostRejected, .malformedResponse:
-                return (true, error.errorDescription ?? String(describing: error))
-            }
-        }
-        if let error = error as? MobileShellConnectionError {
-            switch error {
-            case .accountMismatch, .authorizationFailed:
-                return (false, DeviceLinkError.identityUnproven.localizedDescription)
-            case .insecureManualRoute:
-                return (false, String(localized: "devices.link.error.needsAuthorization", defaultValue: "Pair this Mac in Settings \u{203A} Computers to connect."))
-            default:
-                break
-            }
-        }
-        return (true, String(localized: "devices.link.error.connectionFailed", defaultValue: "Could not connect to this Mac. Check that it is online and try again."))
-    }
-
     // MARK: - Sync and events
 
     /// The explicit Refresh verb's awaitable half: re-fetch the synced tree now
@@ -425,8 +429,14 @@ final class DeviceLink {
         }
     }
 
-    private func handle(_ envelope: MobileEventEnvelope) {
+    /// Route one host event: layout snapshots to `onLayoutChange`, sync
+    /// deltas to the mirror, feed changes to `onNotificationFeedChange`, and
+    /// every other topic to the terminal fan-out, which drops the topics it
+    /// does not decode.
+    func handle(_ envelope: MobileEventEnvelope) {
         switch envelope.topic {
+        case Self.notificationFeedTopic:
+            onNotificationFeedChange?()
         case DeviceWorkspaceLayoutHost.eventTopic:
             guard let payload = envelope.payloadJSON,
                   let snapshot = try? JSONDecoder().decode(DeviceWorkspaceLayoutSnapshot.self, from: payload),
@@ -434,12 +444,8 @@ final class DeviceLink {
             onLayoutChange?(snapshot)
         case "mobile.sync.delta":
             applyDelta(envelope.payloadJSON)
-        case "terminal.bytes", "terminal.updated":
-            if let decoded = DeviceTerminalEvent.decode(envelope) {
-                terminalEvents.send(decoded.event, surfaceID: decoded.surfaceID)
-            }
         default:
-            break
+            terminalEvents.receive(envelope)
         }
     }
 

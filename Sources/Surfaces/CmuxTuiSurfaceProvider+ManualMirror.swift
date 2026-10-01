@@ -1,3 +1,6 @@
+import CmuxCloud
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import CmuxTerminal
 import CmuxRemoteSession
 import Foundation
@@ -95,6 +98,10 @@ extension CmuxTuiSurfaceProvider {
                       ) else {
                     throw CancellationError()
                 }
+                workspace.updateCloudTerminalTabIcon(
+                    panelID: adopted.panelID,
+                    assetName: resource.terminalAgentIconAssetName
+                )
                 created = adopted
                 reservation.inputRelay.attach(inputRouter)
                 // The card's grace counts from the moment the pane appeared.
@@ -103,6 +110,7 @@ extension CmuxTuiSurfaceProvider {
                 created = try SurfacePaneFactory.makeCloudManualMirrorPane(
                     at: destination,
                     focus: focus,
+                    iconAssetName: resource.terminalAgentIconAssetName,
                     onInput: { input in inputRouter.send(input) },
                     keyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value },
                     onResize: { [weak session] sample in
@@ -114,7 +122,8 @@ extension CmuxTuiSurfaceProvider {
                     onFocus: { [weak session] in
                         session?.claimGeometry()
                     },
-                    attachment: session.attachmentStatus
+                    attachment: session.attachmentStatus,
+                    allowsRemoteClipboardWrites: machine.cloudMachineID != nil
                 )
             }
             session.bind(surface: created.surface)
@@ -125,7 +134,7 @@ extension CmuxTuiSurfaceProvider {
             let existingExplicitInput = created.surface.onExplicitInput
             created.surface.onExplicitInput = { [weak session] in
                 existingExplicitInput?()
-                session?.claimGeometry()
+                session?.noteExplicitInput()
             }
             manualMirrorSessions[created.panelID] = session
             session.reconnect(socketPath: connected.socketPath)
@@ -255,7 +264,7 @@ extension CmuxTuiSurfaceProvider {
             if let state = cloudState {
                 let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
                 guard catalog.projections(of: resourceID).contains(where: {
-                    catalog.cloudWorkspaceProjectionCoordinator.retainsProjection($0, in: state)
+                    catalog.cloudWorkspaceProjectionCoordinator.retainsProjection($0, in: state, catalog: catalog)
                 }) else { continue }
             }
             for session in sessionsByTerminal[terminalID] ?? [] {

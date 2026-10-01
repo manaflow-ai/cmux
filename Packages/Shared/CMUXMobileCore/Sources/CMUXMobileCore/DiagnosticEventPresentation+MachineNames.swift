@@ -9,6 +9,11 @@ extension DiagnosticEventPresentation {
         String(describing: kind)
     }
 
+    /// The stable machine name of a task-model retry stop reason.
+    public func name(_ reason: DiagnosticTaskModelRetryStopReason) -> String {
+        String(describing: reason)
+    }
+
     /// The stable machine name of a transport kind.
     public func name(_ kind: DiagnosticTransportKind) -> String {
         String(describing: kind)

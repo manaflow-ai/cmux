@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceProvider {
@@ -31,7 +33,8 @@ extension SurfaceProvider {
         }
         guard projection.resource == resource.id,
               projection.workspaceID == destination.workspaceID,
-              reservation == nil || remoteView == nil || projection.remoteTabID == remoteView?.tabID,
+              reservation == nil || remoteView == nil || remoteView?.isCloudDisplayMembershipView == true
+                  || projection.remoteTabID == remoteView?.tabID,
               expectedWorkspace == nil || projection.remoteWorkspaceID == expectedWorkspace else {
             if let reservation, projection.panelID == reservation.panelID {
                 // Stop an adopted transport but retain the manual pane for its

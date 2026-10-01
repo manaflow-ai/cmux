@@ -201,6 +201,86 @@ struct WorkspacePromptSubmitTests {
         #expect(second.latestConversationMessage == "shipped from feed path")
     }
 
+    @Test func testSubmittedPromptLengthReportsTheWholePromptNotTheCap() {
+        // The CLI caps message keys at 240 characters (239 plus U+2026) and
+        // publishes the submitted length beside the truncated value.
+        let truncated = String(repeating: "x", count: 239) + "\u{2026}"
+        let event = WorkstreamEvent(
+            sessionId: "agent-session",
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            workspaceId: UUID().uuidString,
+            extraFieldsJSON: #"{"prompt":"\#(truncated)","prompt_length":1000}"#
+        )
+
+        #expect(event.submittedPromptMessage?.count == 240)
+        #expect(event.submittedPromptLength == 1000)
+    }
+
+    @Test func testSubmittedPromptLengthIsNilWhenTheProducerDidNotReportIt() {
+        let event = WorkstreamEvent(
+            sessionId: "agent-session",
+            hookEventName: .userPromptSubmit,
+            source: "codex",
+            workspaceId: UUID().uuidString,
+            extraFieldsJSON: #"{"prompt":"short prompt"}"#
+        )
+
+        #expect(event.submittedPromptLength == nil)
+    }
+
+    @Test func testPromptSubmitEventPublishesTheSubmittedLengthOverThePreviewLength() throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let manager = TabManager()
+        let workspace = manager.tabs[0]
+        CmuxEventBus.shared.resetForTesting()
+
+        let truncated = String(repeating: "x", count: 239) + "\u{2026}"
+        _ = try #require(
+            manager.handlePromptSubmit(
+                workspaceId: workspace.id,
+                message: truncated,
+                submittedLength: 1000,
+                iMessageModeEnabled: false
+            )
+        )
+
+        let events = CmuxEventBus.shared.retainedSnapshot()
+        let submitted = try #require(
+            events.first { $0["name"] as? String == "workspace.prompt.submitted" }
+        )
+        let payload = try #require(submitted["payload"] as? [String: Any])
+        #expect(payload["message_length"] as? Int == 1000)
+        #expect((payload["message_preview"] as? String)?.count == 240)
+        #expect(payload["message"] is NSNull)
+    }
+
+    @Test func testPromptSubmitWithoutASubmittedLengthStillCountsTheMessage() throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let manager = TabManager()
+        let workspace = manager.tabs[0]
+        CmuxEventBus.shared.resetForTesting()
+
+        _ = try #require(
+            manager.handlePromptSubmit(
+                workspaceId: workspace.id,
+                message: "ship it",
+                iMessageModeEnabled: false
+            )
+        )
+
+        let events = CmuxEventBus.shared.retainedSnapshot()
+        let submitted = try #require(
+            events.first { $0["name"] as? String == "workspace.prompt.submitted" }
+        )
+        let payload = try #require(submitted["payload"] as? [String: Any])
+        #expect(payload["message_length"] as? Int == 7)
+    }
+
     @Test func testFeedPromptSubmitEventFallsBackToContextMessage() {
         let event = WorkstreamEvent(
             sessionId: "agent-session",

@@ -10,9 +10,9 @@ extension CloudTreeNode {
 
     var showsAttentionSlot: Bool {
         switch kind {
-        // Surface, resource, and empty-state rows share a leading attention
-        // column so every nested row uses the same horizontal rhythm.
-        case .workspace, .localWorkspace, .terminal, .display, .browser, .port, .resource, .placeholder: return true
+        // Only rows that can carry the Cloud unread projection reserve the
+        // leading slot. Other nested rows keep their compact identity edge.
+        case .workspace, .terminal: return true
         default: return false
         }
     }

@@ -4,12 +4,16 @@
 from __future__ import annotations
 
 import re
+import os
+import json
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+LANE = "scripts/ci/package-test-lane.sh"
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 from select_package_tests import GLOBAL_INPUTS, select  # noqa: E402
@@ -49,6 +53,8 @@ def job_scripts() -> set[str]:
     workflow = (ROOT / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
     job = workflow.split("\n  swift-package-tests:\n", 1)[1]
     job = re.split(r"\n  [A-Za-z0-9_-]+:\n", job, maxsplit=1)[0]
+    # The job's test steps run the lane script, which calls the rest by path.
+    job += (ROOT / LANE).read_text(encoding="utf-8")
     found = set(re.findall(r"(?:\./)?(scripts/[A-Za-z0-9_./-]+\.(?:sh|py))", job))
     pending = list(found)
     while pending:
@@ -63,7 +69,66 @@ def job_scripts() -> set[str]:
     return found
 
 
+def run_package_step(package: str, attempts: list[tuple[str, int]], bonsplit=False):
+    """Execute the real lane script; only Swift's process boundary is substituted."""
+    script = f"bash '{ROOT / LANE}' {'bonsplit' if bonsplit else 'packages'}\n"
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "Packages/macOS" / package).mkdir(parents=True)
+        (root / "vendor/bonsplit").mkdir(parents=True)
+        (root / "scripts/ci").mkdir(parents=True)
+        for helper in ("require_swift_test_execution.py", "hung_test_watchdog.py", "ci_process_tree.py"):
+            shutil.copyfile(ROOT / "scripts/ci" / helper, root / "scripts/ci" / helper)
+        selected = root / "selected"
+        selected.write_text(package + "\n")
+        fixture = root / "attempts.json"
+        fixture.write_text(json.dumps(attempts))
+        swift = root / "swift"
+        swift.write_text("#!/usr/bin/env python3\nimport json, os, pathlib, sys\n"
+                         "root = pathlib.Path(os.environ['FIXTURE_ROOT'])\n"
+                         "counter = root / 'calls'\n"
+                         "count = int(counter.read_text()) if counter.exists() else 0\n"
+                         "counter.write_text(str(count + 1))\n"
+                         "attempts = json.loads((root / 'attempts.json').read_text())\n"
+                         "output, status = attempts[min(count, len(attempts)-1)]\n"
+                         "sys.stdout.write(output)\n"
+                         "sys.exit(status)\n")
+        swift.chmod(0o755)
+        env = dict(os.environ, PATH=f"{root}:{os.environ['PATH']}", FIXTURE_ROOT=str(root),
+                   SELECTED_PACKAGES=str(selected), SELECTED_COUNT="1")
+        result = subprocess.run(["bash", "-c", script], cwd=root, env=env,
+                                capture_output=True, text=True, timeout=15)
+        count = int((root / "calls").read_text())
+        return result, count
+
+
+def check_package_output_behavior() -> None:
+    padding = "build progress line without diagnostics\n" * 12000
+    passed = "✔ Test run with 4 tests in 1 suites passed after 0.001 seconds.\n"
+    cosmetic = "error: unexpected binary name GhosttyKit\n"
+    for package in ("CmuxTerminal", "CmuxTerminalCore"):
+        result, count = run_package_step(package, [(cosmetic + "error: real compiler failure\n" + padding + passed, 1)])
+        assert result.returncode == 1 and count == 1, f"{package}: real error incorrectly tolerated: {result.returncode}"
+        result, count = run_package_step(package, [(cosmetic + padding + passed, 1)])
+        assert result.returncode == 0 and count == 1, f"{package}: cosmetic diagnostic no longer tolerated"
+        result, count = run_package_step(package, [(cosmetic + "with 1 failure\n" + padding + passed, 1)])
+        assert result.returncode == 1 and count == 1, f"{package}: test failure incorrectly tolerated"
+    for bonsplit in (False, True):
+        for signal in (5, 6):
+            startup = f"Build complete!\nerror: Exited with unexpected signal code {signal}\n" + padding
+            result, count = run_package_step("CmuxSettings", [(startup, 1), (passed, 0)], bonsplit)
+            assert result.returncode == 0 and count == 2, f"startup signal {signal} must retry once (bonsplit={bonsplit})"
+            result, count = run_package_step("CmuxSettings", [(startup, 1)], bonsplit)
+            assert result.returncode == 1 and count == 2, "repeated startup crashes must fail after one retry"
+        for output in ("Build complete!\nerror: Exited with unexpected signal code 10\n" + padding,
+                       "Build complete!\nerror: Exited with unexpected signal code 5\nTest Suite started\n" + padding):
+            result, count = run_package_step("CmuxSettings", [(output, 1)], bonsplit)
+            assert result.returncode == 1 and count == 1, "non-startup failures must not retry"
+    print("PASS: real package CI steps reject true errors and preserve bounded startup retries")
+
+
 def main() -> int:
+    check_package_output_behavior()
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         fixture(root)
@@ -87,6 +152,49 @@ def main() -> int:
         check(root, ["ghostty"], PACKAGES, "the GhosttyKit revision runs everything")
         check(root, ["Loner.swift", "Sources/App.swift"], PACKAGES, "an unknown path runs everything")
 
+        # Exercise the CLI used by the workflow, including mixed package/global
+        # inputs. Full-suite selection retains its existing fail-open policy.
+        for extra in (".github/workflows/ci-macos.yml", "unknown.conf"):
+            changed_file = root / "changed.txt"
+            changed_file.write_text("Packages/macOS/Loner/Sources/A.swift\n" + extra + "\n")
+            command = [sys.executable, str(ROOT / "scripts/ci/select_package_tests.py"),
+                       "--root", str(root), "--changed-files", str(changed_file)]
+            targeted = subprocess.run(command + ["--routed-inputs-only"] + PACKAGES,
+                                      text=True, capture_output=True, check=True)
+            assert targeted.stdout.splitlines() == ["Loner"], targeted
+            full = subprocess.run(command + PACKAGES, text=True, capture_output=True, check=True)
+            assert full.stdout.splitlines() == PACKAGES, full
+
+        # Targeted PR selection must preserve declared local dependencies,
+        # including submodule revision paths, rather than dropping them before
+        # the dependency-aware selector sees the diff.
+        for path in ("vendor/bonsplit", "vendor/bonsplit/Sources/Bonsplit/A.swift"):
+            changed_file = root / "changed.txt"
+            changed_file.write_text(path + "\n.github/workflows/ci-macos.yml\n")
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/ci/select_package_tests.py"),
+                 "--root", str(root), "--changed-files", str(changed_file),
+                 "--routed-inputs-only", *PACKAGES],
+                text=True, capture_output=True, check=True,
+            )
+            assert result.stdout.splitlines() == ["Splitter"], (path, result.stdout)
+
+        # Check the actual PR router too: a normal package selector result is
+        # insufficient if the lane never starts. These are current declared
+        # local dependencies of packages in the workflow's test inventory.
+        for path in ("vendor/bonsplit", "vendor/stack-auth-swift-sdk-prerelease"):
+            changed_file = root / "router-changed.txt"
+            changed_file.write_text(path + "\n")
+            outputs = root / "router-outputs.txt"
+            outputs.unlink(missing_ok=True)
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/ci/detect_ci_change_areas.py"),
+                 "--event-name", "pull_request", "--files-from", str(changed_file),
+                 "--github-output", str(outputs)],
+                cwd=ROOT, text=True, capture_output=True, check=True,
+            )
+            assert "swift_packages=true" in outputs.read_text().splitlines(), (path, result.stdout)
+
         try:
             select(root, ["Missing"], [])
         except SystemExit:
@@ -94,9 +202,9 @@ def main() -> int:
         else:
             raise AssertionError("a listed package that does not exist must fail")
 
-    # Every package the workflow lists must exist, or the job fails before testing anything.
-    workflow = (ROOT / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
-    listed = workflow.split("          PACKAGES=(\n", 1)[1].split("          )\n", 1)[0].split()
+    # Every package the lane lists must exist, or the job fails before testing anything.
+    lane = (ROOT / LANE).read_text(encoding="utf-8")
+    listed = lane.split("  PACKAGES=(\n", 1)[1].split("\n  )\n", 1)[0].split()
     assert len(listed) == len(set(listed)), "PACKAGES lists a package twice"
     result = subprocess.run(
         [sys.executable, str(ROOT / "scripts/ci/select_package_tests.py"), "--root", str(ROOT), *listed],
@@ -105,7 +213,7 @@ def main() -> int:
     assert result.returncode == 0, result.stderr
     assert result.stdout.split() == listed, "without a diff the script must print every listed package in order"
 
-    select_step = workflow.split("      - name: Select package tests\n", 1)[1].split("      - name:", 1)[0]
+    select_step = lane.split("\nselect_packages() {\n", 1)[1].split("\n}\n", 1)[0]
     assert "git diff --no-renames --name-only HEAD^1 HEAD" in select_step, "a move out of a package must list the old path"
     assert "'^vendor/bonsplit(/|$)'" in select_step, "a Bonsplit submodule bump must run the Bonsplit tests"
 

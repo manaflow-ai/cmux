@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension CloudTreeNodeActions {
@@ -34,6 +35,7 @@ extension CloudTreeNodeActions {
         openLocally: Bool = true,
         existingWorkspace: SurfaceRemoteWorkspace? = nil,
         existingTerminal: SurfaceResource? = nil,
+        existingRemoteView: SurfaceRemoteView? = nil,
         host suppliedHost: CloudWorkspaceCreationHost? = nil,
         validateOperation: @escaping @MainActor () throws -> Void = { try Task.checkCancellation() },
         reuseFailedCreation: Bool = false
@@ -56,6 +58,7 @@ extension CloudTreeNodeActions {
         return try await catalog.cloudWorkspaceCreationCoordinator.create(
             provider: provider, name: name, focus: focus, host: host, reuseFailedCreation: reuseFailedCreation,
             existingWorkspace: existingWorkspace, existingTerminal: existingTerminal,
+            existingRemoteView: existingRemoteView,
             validateOperation: validateOperation
         )
     }

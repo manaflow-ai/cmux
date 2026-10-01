@@ -137,8 +137,10 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// A relay-policy refresh failed. `b`, when present, is
     /// ``DiagnosticFailureKind``.
     case relayPolicyRefreshFailed = 39
-    /// The selected network path changed. `a` is ``DiagnosticPathKind``. The
-    /// foreground control session wins over background and feature sessions.
+    /// The selected network path changed. `a` is ``DiagnosticPathKind`` and `c`
+    /// is the positive, process-local session ID when the path belongs to an
+    /// admitted Iroh session. The foreground control session wins over
+    /// background and feature sessions.
     case selectedPathChanged = 40
     /// An established app-transport session closed. `a`, when present, is
     /// ``DiagnosticTransportKind``; `b`, when present, is
@@ -312,6 +314,10 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     case terminalWorkStarted = 81
     /// The phase returned; `ms` is elapsed time, not a PTY acknowledgement.
     case terminalWorkFinished = 82
+    /// A snapshot of native Iroh paths visible to one connection. `a` is the
+    /// relay path count, `b` is the non-relay path count, and `c` is the
+    /// positive, process-local session correlation ID.
+    case transportPathInventory = 83
 }
 
 /// Scene phase carried by ``DiagnosticEventCode/appLifecycleChanged``.

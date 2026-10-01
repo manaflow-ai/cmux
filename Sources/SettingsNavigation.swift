@@ -2,13 +2,16 @@ import SwiftUI
 
 enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case account
-    case computers
     case app
+    case themes
     case terminal
     case textBox
     case sleepyMode
     case mobile
     case cloudMachines
+    /// Devices (My Devices). The raw value predates the rename and stays
+    /// because persisted navigation targets and `cmux settings open` send it.
+    case computers
     case networking
     case sidebarAppearance
     case customSidebars
@@ -28,15 +31,17 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .computers:
-            return String(localized: "settings.section.computers", defaultValue: "Computers")
+            return String(localized: "settings.section.devices", defaultValue: "Devices")
         case .account:
             return String(localized: "settings.section.account", defaultValue: "Account")
         case .app:
             return String(localized: "settings.section.app", defaultValue: "App")
+        case .themes:
+            return String(localized: "settings.section.themes", defaultValue: "Themes")
         case .terminal:
             return String(localized: "settings.section.terminal", defaultValue: "Terminal")
         case .textBox:
-            return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
+            return String(localized: "settings.section.textBox", defaultValue: "TextBox")
         case .sleepyMode:
             return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile:
@@ -56,7 +61,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .automation:
             return String(localized: "settings.section.automation", defaultValue: "Automation")
         case .computerUse:
-            return String(localized: "settings.section.computerUse", defaultValue: "Computer Use")
+            return String(localized: "settings.section.computerUse", defaultValue: "cmux Computer Use")
         case .browser:
             return String(localized: "settings.section.browser", defaultValue: "Browser")
         case .browserImport:
@@ -80,6 +85,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "person.crop.circle"
         case .app:
             return "gearshape"
+        case .themes:
+            return "paintbrush"
         case .terminal:
             return "terminal"
         case .textBox:
@@ -122,15 +129,17 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     var searchText: String {
         switch self {
         case .computers:
-            return String(localized: "settings.computers.keywords", defaultValue: "computers devices mac tailscale pairing remote workspaces")
+            return String(localized: "settings.devices.keywords", defaultValue: "devices my devices computers macs mac discovery discover discoverable incoming access tailscale pairing remote workspaces")
         case .account:
             return "\(title) sign in team sync"
         case .app:
-            return "\(title) appearance language workspace notifications menu bar telemetry default terminal"
+            return "\(title) language workspace notifications menu bar telemetry default terminal"
+        case .themes:
+            return "\(title) theme themes color scheme palette ghostty terminal colors appearance light dark accent browser"
         case .terminal:
             return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev hibernation idle suspend commands approvals prefixes toggle"
         case .textBox:
-            return "\(title) textbox text box rich input prompt beta new terminal workspace split tab focus height"
+            return "\(title) textbox text box rich input prompt new terminal workspace split tab focus height"
         case .sleepyMode:
             return "\(title) sleepy mode screensaver caffeinate keep awake lock touch id battery wifi clock mascot theme glow pixel"
         case .mobile:
@@ -146,13 +155,13 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .customSidebars:
             return "\(title) custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
         case .betaFeatures:
-            return "\(title) beta experimental unstable feed dock right sidebar"
+            return "\(title) beta experimental unstable feed right sidebar"
         case .automation:
             return "\(title) socket integrations hooks ports claude cursor gemini kiro naming auto naming workspace tabs"
         case .computerUse:
             return "\(title) computer use cua accessibility screen recording permissions cursor mcp agents driver menu bar onboarding"
         case .browser:
-            return "\(title) search engine links history theme"
+            return "\(title) search engine links history"
         case .browserImport:
             return "\(title) browser import data bookmarks history cookies"
         case .globalHotkey:

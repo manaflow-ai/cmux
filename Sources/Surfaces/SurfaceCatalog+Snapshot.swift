@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceCatalog {
@@ -6,7 +8,7 @@ extension SurfaceCatalog {
     /// authoritative snapshot must expose the last accepted name for identities
     /// already present in `cloudStates`.
     private func authoritativeMachineInfo(_ info: SurfaceMachineInfo) -> SurfaceMachineInfo {
-        guard case .cloud = info.id,
+        guard info.id.tuiMachineID != nil,
               let state = cloudStates[info.id],
               let workspaces = info.remoteWorkspaces else { return info }
         let accepted = Dictionary(uniqueKeysWithValues: state.workspaces.map { workspace in
@@ -26,7 +28,11 @@ extension SurfaceCatalog {
     /// enumerate destructive operations. Presentation still withholds a stale
     /// graph's cwd, and stale machines are flagged, exactly as `snapshot` does.
     var authoritativeSnapshot: SurfaceCatalogSnapshot {
-        let displayCreationMachines = Set(machines.keys.filter { (provider(for: $0) as? CmuxTuiSurfaceProvider)?.supportsDisplayCreation == true })
+        let displayCreationMachines = Set(machines.keys.filter { machine in
+            guard let provider = provider(for: machine) as? CmuxTuiSurfaceProvider,
+                  provider.supportsDisplayCreation else { return false }
+            return !provider.displayCoordinator.hasAttemptedDiscovery || provider.displayCoordinator.canCreate
+        })
         return SurfaceCatalogSnapshot(
             machines: machines.values.map(authoritativeMachineInfo).sorted {
                 if $0.id.isLocal != $1.id.isLocal { return $0.id.isLocal }
@@ -35,7 +41,8 @@ extension SurfaceCatalog {
             resources: resources.values.map(resourceForPresentation).sorted { $0.catalogPrecedes($1) },
             projections: projections.sorted { $0.panelID.uuidString < $1.panelID.uuidString },
             staleMachineIDs: Set(cloudStateObservations.filter { $0.value.freshness != .current }.keys),
-            displayCreationMachines: displayCreationMachines.isEmpty ? nil : displayCreationMachines
+            displayCreationMachines: displayCreationMachines.isEmpty ? nil : displayCreationMachines,
+            cloudDisplayMemberships: cloudDisplayMemberships()
         )
     }
 

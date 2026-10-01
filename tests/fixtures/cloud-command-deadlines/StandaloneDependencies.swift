@@ -9,7 +9,8 @@ enum CloudMachineLink {
         case exited(status: Int32, output: String)
     }
 }
-struct CloudVMCursor: Sendable {
+// Public because the copied connection names it in public signatures.
+public struct CloudVMCursor: Sendable {
     let generation: String
     let revision: UInt64
 }

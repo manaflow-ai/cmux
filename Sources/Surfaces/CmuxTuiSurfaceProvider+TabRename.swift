@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Placement rename writes share the provider revision/receipt fence for user and agent calls.
@@ -48,7 +49,7 @@ extension CmuxTuiSurfaceProvider {
         switch authority {
         case .currentGraph:
             guard let previous, let observedCursor else {
-                throw ProviderError.stateUnavailable(machineID)
+                throw ProviderError.tabStateUnavailable(machineID)
             }
             do {
                 let receipt = try await sendRenameTab(
@@ -77,7 +78,7 @@ extension CmuxTuiSurfaceProvider {
             }
         case .pendingReceipt:
             guard let receipt = pendingReceipt else {
-                throw ProviderError.stateUnavailable(machineID)
+                throw ProviderError.tabStateUnavailable(machineID)
             }
             let committed = try await sendRenameTab(
                 id: id,
@@ -90,10 +91,14 @@ extension CmuxTuiSurfaceProvider {
         case .snapshotOnly:
             throw ProviderError.snapshotOnly(machineID)
         case .unavailable:
-            throw ProviderError.stateUnavailable(machineID)
+            throw ProviderError.tabStateUnavailable(machineID)
         case .targetMissing:
+            // This path renames any tab by id, whatever its content kind, so a
+            // browser or a display row reaches it too. The terminal-scoped
+            // wording lives on renameTerminal, which really does filter to
+            // terminals.
             throw SurfaceCatalogError.unsupported(
-                String(localized: "cloudTree.error.renameTerminalNoView", defaultValue: "This terminal is not open in a remote workspace.")
+                String(localized: "cloudTree.error.renameNoRemoteTab", defaultValue: "This tab is not open in a remote workspace.")
             )
         }
         // The daemon event normally installs this before the command exits. The

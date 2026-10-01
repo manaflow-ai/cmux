@@ -1,12 +1,26 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxPanes
 import Foundation
 /// The surface-domain lifecycle witnesses (`split` / `respawn` / `create` /
 /// `close` / `move` / `reorder`) plus the browser-disabled mapping and the
 /// localized respawn strings. Split out of `TerminalController+ControlSurfaceContext`
 /// to keep the conformance readable; see that file's doc comment for the overview.
 extension TerminalController {
+    func controlSurfaceCloseStrings() -> ControlSurfaceCloseStrings {
+        ControlSurfaceCloseStrings(
+            confirmationRequired: String(
+                localized: "socket.surface.close.confirmationRequired",
+                defaultValue: "Surface has a running process; retry with force=true"
+            ),
+            failed: String(
+                localized: "socket.surface.close.failed",
+                defaultValue: "Failed to close surface"
+            )
+        )
+    }
+
     func controlSurfaceRespawnStrings() -> ControlSurfaceRespawnStrings {
         ControlSurfaceRespawnStrings(
             invalidFocus: String(
@@ -145,6 +159,16 @@ extension TerminalController {
         let insertFirst = direction.insertFirst
         let dividerPosition = inputs.initialDividerPosition.map { CGFloat($0) }
         let useLocalContext = surfaceRemoteContextWantsLocal(inputs.remoteContextRaw)
+        // Terminal splits check the minimum pane size in
+        // `newTerminalSplitOutcome`; other panel types check it here (#15371).
+        if panelType != .terminal, !ws.isRemoteTmuxMirror,
+           ws.splitSpaceVerdict(
+               splittingPanel: targetSurfaceId,
+               orientation: orientation,
+               dividerPosition: dividerPosition
+           ) == .noSpace {
+            return .noSpace
+        }
         let newId: UUID?
         if panelType == .browser {
             newId = ws.newBrowserSplit(
@@ -189,6 +213,8 @@ extension TerminalController {
                     workspaceID: ws.id,
                     typeRawValue: panelType.rawValue
                 )
+            case .noSpace:
+                return .noSpace
             case .failed:
                 newId = nil
             }
@@ -196,6 +222,10 @@ extension TerminalController {
 
         guard let newId else {
             return .createFailed
+        }
+        // An explicit divider position wins over equalize-on-create.
+        if dividerPosition == nil {
+            ws.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: newId)
         }
         return .created(
             windowID: v2ResolveWindowId(tabManager: tabManager),
@@ -267,7 +297,8 @@ extension TerminalController {
         }
 
         let remoteRespawnRouting = ws.remotePTYRespawnRouting(panelId: surfaceId)
-        if remoteRespawnRouting == .unsupportedRemote {
+        let isNativeSSH = ws.machineOwningSurface(surfaceId)?.isSSH == true
+        if remoteRespawnRouting == .unsupportedRemote, !isNativeSSH {
             // A remote-owned pane must never fall through to a local Ghostty
             // exec when its transport cannot provide the persistent PTY bridge.
             return .respawnFailed(surfaceId)
@@ -306,7 +337,11 @@ extension TerminalController {
                 allowTextBoxFocusDefault: focus == true
             )
         case .unsupportedRemote:
-            return .respawnFailed(surfaceId)
+            replacementPanel = ws.respawnSSHTuiSurface(
+                panelID: surfaceId, command: inputs.command, workingDirectory: inputs.workingDirectory,
+                tmuxStartCommand: inputs.tmuxStartCommand, focus: focus,
+                allowTextBoxFocusDefault: focus == true
+            )
         }
         guard let replacementPanel else {
             return .respawnFailed(surfaceId)
@@ -354,10 +389,6 @@ extension TerminalController {
         if case .invalid(let raw) = placement {
             return .invalidPlacement(rawValue: raw)
         }
-        if case .dock = placement, !RightSidebarMode.dock.isAvailable() {
-            return .dockUnavailable(message: dockUnavailableMessage())
-        }
-
         let url = inputs.urlRaw.flatMap { URL(string: $0) }
         if case .dock = placement,
            let invalid = validateDockSurfaceCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
@@ -460,7 +491,7 @@ extension TerminalController {
                     workspaceID: ws.id,
                     typeRawValue: panelType.rawValue
                 )
-            case .failed:
+            case .failed, .noSpace:
                 newPanelId = nil
             }
         }
@@ -482,7 +513,8 @@ extension TerminalController {
     func controlSurfaceClose(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
-        hasSurfaceIDParam: Bool
+        hasSurfaceIDParam: Bool,
+        force: Bool = false
     ) -> ControlSurfaceCloseResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -499,7 +531,8 @@ extension TerminalController {
             routing: routing,
             surfaceID: surfaceID,
             hasSurfaceIDParam: hasSurfaceIDParam,
-            tabManager: tabManager
+            tabManager: tabManager,
+            force: force
         ) {
             return resolution
         }
@@ -526,7 +559,8 @@ extension TerminalController {
             tabManager: tabManager,
             surfaceID: surfaceId,
             isImplicitTarget: surfaceID == nil && routing.surfaceID == nil,
-            routedPaneID: routing.paneID
+            routedPaneID: routing.paneID,
+            force: force
         ) {
             return remote
         }
@@ -534,7 +568,11 @@ extension TerminalController {
             if windowDockMismatchesExplicitWindow(routing, dock: windowDock) {
                 return .surfaceNotFound(surfaceId)
             }
-            guard windowDock.closePanel(surfaceId, force: true) else {
+            if !force,
+               windowDock.panel(for: TabID(uuid: surfaceId)).map({ windowDock.dockPanelNeedsConfirmClose($0) }) == true {
+                return .confirmationRequired(surfaceId)
+            }
+            guard windowDock.closePanel(surfaceId, force: force) else {
                 return .closeFailed(surfaceId)
             }
             AppDelegate.shared?.notificationStore?.clearNotifications(
@@ -547,7 +585,13 @@ extension TerminalController {
                 surfaceID: surfaceId
             )
         } else if ws.containsDockPanel(surfaceId) {
-            guard ws.closeDockPanelAndClearNotifications(surfaceId, force: true) else {
+            if !force,
+               let dock = ws.dockSplit,
+               let panel = dock.panel(for: TabID(uuid: surfaceId)),
+               dock.dockPanelNeedsConfirmClose(panel) {
+                return .confirmationRequired(surfaceId)
+            }
+            guard ws.closeDockPanelAndClearNotifications(surfaceId, force: force) else {
                 return .closeFailed(surfaceId)
             }
             return .closed(
@@ -562,8 +606,10 @@ extension TerminalController {
         if ws.panels.count <= 1 {
             return .lastSurface
         }
-        // Socket API must be non-interactive: bypass close-confirmation gating.
-        guard controlCloseSurfaceRecordingHistory(in: ws, surfaceId: surfaceId, force: true) else {
+        if !force, ws.panelNeedsConfirmClose(panelId: surfaceId) {
+            return .confirmationRequired(surfaceId)
+        }
+        guard controlCloseSurfaceRecordingHistory(in: ws, surfaceId: surfaceId, force: force) else {
             return .closeFailed(surfaceId)
         }
         return .closed(

@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension DockSplitStore {
@@ -49,11 +50,8 @@ extension DockSplitStore {
             catalog.restore([SurfaceProjectionRecord(panelID: duplicatedPanel.id, resource: resource,
                 remoteWorkspaceID: record?.remoteWorkspaceID)], workspaceID: workspaceId)
             if let model = browser.cloudAccess.model, let url = browser.cloudAccess.remoteURL {
-                duplicatedPanel.prepareCloudBrowserStore(machineID: resource.machine.rawValue)
                 let configuredURL = browser.cloudRestoreURL(on: url)
-                duplicatedPanel.cloudAccess.configure(model: model, url: configuredURL, resourceID: resource)
-                duplicatedPanel.showCloudAddress(configuredURL)
-                model.connect()
+                duplicatedPanel.configureCloudBrowser(model: model, url: configuredURL, resourceID: resource)
             } else {
                 duplicatedPanel.restoreCloudResource(resource, preferredURL: browser.currentURLForTabDuplication)
             }

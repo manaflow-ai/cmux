@@ -25,15 +25,20 @@ extension AppDelegate {
         let revision = manager.cloudWorkspaceSelection.revision
         let windowID = context.windowId
         return operationController.start(key: "new-cloud-workspace.resolved.\(windowID.uuidString)") { [weak self, weak manager] in
-            do {
-                guard let workspaceID = try await coordinator.createOnResolvedMachine(
-                    selection: selection, windowID: windowID, scopeID: scopeID
-                ), !Task.isCancelled, coordinator.isAvailable, coordinator.scopeIdentifier == scopeID else { return }
-                destination?.apply(workspaceID: workspaceID)
-                self?.focusCreatedCloudWorkspace(workspaceID, manager: manager, revision: revision, windowID: windowID)
-            } catch CloudWorkspaceCreationError.noMachines {
-                guard !Task.isCancelled, coordinator.scopeIdentifier == scopeID else { return }
-                self?.presentNoCloudMachineAvailableAlert(windowID: windowID)
+            let reveals = SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals
+            let token = manager.map { reveals.begin(in: $0) }
+            try await reveals.revealing(token) {
+                do {
+                    guard let workspaceID = try await coordinator.createOnResolvedMachine(
+                        selection: selection, windowID: windowID, scopeID: scopeID
+                    ), !Task.isCancelled, coordinator.isAvailable, coordinator.scopeIdentifier == scopeID else { return nil }
+                    destination?.apply(workspaceID: workspaceID)
+                    return self?.focusCreatedCloudWorkspace(workspaceID, manager: manager, revision: revision, windowID: windowID)
+                } catch CloudWorkspaceCreationError.noMachines {
+                    guard !Task.isCancelled, coordinator.scopeIdentifier == scopeID else { return nil }
+                    self?.presentNoCloudMachineAvailableAlert(windowID: windowID)
+                    return nil
+                }
             }
         }
     }
@@ -58,20 +63,41 @@ extension AppDelegate {
         let request = CloudWorkspaceCreationRequest(machineID: vmID, scopeID: scopeID, windowID: context.windowId)
         let revision = tabManager.cloudWorkspaceSelection.revision
         return operationController.start(key: "new-cloud-workspace.\(vmID).\(context.windowId.uuidString)") { [weak self, weak tabManager] in
-            guard let workspaceID = try await coordinator.createOnMachine(request),
-                  !Task.isCancelled, coordinator.isAvailable, coordinator.scopeIdentifier == scopeID else { return }
-            resolvedDestination?.apply(workspaceID: workspaceID)
-            self?.focusCreatedCloudWorkspace(workspaceID, manager: tabManager, revision: revision, windowID: request.windowID)
+            let reveals = SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals
+            let token = tabManager.map { reveals.begin(in: $0) }
+            try await reveals.revealing(token) {
+                guard let workspaceID = try await coordinator.createOnMachine(request),
+                      !Task.isCancelled, coordinator.isAvailable, coordinator.scopeIdentifier == scopeID else { return nil }
+                resolvedDestination?.apply(workspaceID: workspaceID)
+                return self?.focusCreatedCloudWorkspace(workspaceID, manager: tabManager, revision: revision, windowID: request.windowID)
+            }
         }
     }
 
-    private func focusCreatedCloudWorkspace(_ workspaceID: UUID, manager: TabManager?, revision: UInt64, windowID: UUID) {
+    /// The window a finished Cloud creation is allowed to navigate: the window
+    /// that started the creation, and only while that window is still key.
+    /// A creation that lands while the user is working in another window must
+    /// not pull them away from it.
+    ///
+    /// This asks the window itself, the same way every other focus-gated path
+    /// in the app does, rather than comparing against `NSApp.keyWindow`. The
+    /// two agree in the running app, and the window-scoped question is the one
+    /// this rule is actually about.
+    func cloudWorkspaceCreationFocusWindow(windowID: UUID) -> NSWindow? {
+        guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowID }),
+              let window = resolvedWindow(for: context),
+              window.isKeyWindow else { return nil }
+        return window
+    }
+
+    /// Returns the workspace it selected, which the window's Cloud tree then reveals.
+    private func focusCreatedCloudWorkspace(_ workspaceID: UUID, manager: TabManager?, revision: UInt64, windowID: UUID) -> Workspace? {
         guard let manager, manager.cloudWorkspaceSelection.revision == revision,
               tabManagerFor(windowId: windowID) === manager,
-              let window = mainWindowContexts.values.first(where: { $0.windowId == windowID }).flatMap({ resolvedWindow(for: $0) }),
-              window === NSApp.keyWindow,
-              let workspace = manager.workspacesById[workspaceID] else { return }
+              cloudWorkspaceCreationFocusWindow(windowID: windowID) != nil,
+              let workspace = manager.workspacesById[workspaceID] else { return nil }
         manager.selectWorkspace(workspace)
+        return manager.selectedTabId == workspace.id ? workspace : nil
     }
 
     private func presentNoCloudMachineAvailableAlert(windowID: UUID) {

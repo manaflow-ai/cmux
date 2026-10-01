@@ -49,6 +49,8 @@ CODESIGN_TOOL="${CMUX_CODESIGN_TOOL:-/usr/bin/codesign}"
 SPCTL_TOOL="${CMUX_SPCTL_TOOL:-spctl}"
 # shellcheck source=lib/notarization-ticket.sh
 source "$ROOT_DIR/scripts/ci/lib/notarization-ticket.sh"
+# shellcheck source=lib/notary-auth.sh
+source "$ROOT_DIR/scripts/ci/lib/notary-auth.sh"
 # Gatekeeper learns about a fresh notarization ticket from Apple's CDN, which
 # lags the notarytool "Accepted" status: usually by a minute or two, but
 # nightly run 34208928547 (2026-09-08) was still rejected 4m50s after
@@ -100,10 +102,10 @@ if [ ! -f "$HELPER_ENTITLEMENTS" ]; then
   echo "Computer Use helper entitlements not found: $HELPER_ENTITLEMENTS" >&2
   exit 1
 fi
-if [ -z "${APPLE_ID:-}" ] \
-  || [ -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] \
-  || [ -z "${APPLE_TEAM_ID:-}" ]; then
-  echo "Missing notarization secrets (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID)" >&2
+if [ -z "${ASC_API_KEY_ID:-}" ] \
+  || [ -z "${ASC_API_ISSUER_ID:-}" ] \
+  || [ -z "${ASC_API_KEY_P8_BASE64:-}" ]; then
+  echo "Missing notarization secrets (ASC_API_KEY_ID, ASC_API_ISSUER_ID, ASC_API_KEY_P8_BASE64)" >&2
   exit 1
 fi
 
@@ -112,6 +114,8 @@ cleanup() {
   rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
+# The decoded API key lives in TMP_DIR, which the EXIT trap removes.
+notary_auth_init "$TMP_DIR"
 
 HELPER_ZIP="$TMP_DIR/cmux-cua-notary.zip"
 STANDALONE_DIR="$TMP_DIR/standalone"
@@ -162,9 +166,7 @@ start_submission() {
   "$DITTO_TOOL" -c -k --sequesterRsrc --keepParent "$HELPER_PATH" "$HELPER_ZIP"
 
   submit_json="$("$XCRUN_TOOL" notarytool submit "$HELPER_ZIP" \
-    --apple-id "$APPLE_ID" \
-    --team-id "$APPLE_TEAM_ID" \
-    --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+    "${NOTARY_AUTH_ARGS[@]}" \
     --output-format json)"
   submit_id="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$submit_json")"
   submit_status="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("status", "unknown"))' <<<"$submit_json")"
@@ -207,9 +209,7 @@ finish_submission() {
 
   set +e
   wait_json="$("$XCRUN_TOOL" notarytool wait "$submit_id" \
-    --apple-id "$APPLE_ID" \
-    --team-id "$APPLE_TEAM_ID" \
-    --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+    "${NOTARY_AUTH_ARGS[@]}" \
     --output-format json)"
   wait_status=$?
   set -e
@@ -221,16 +221,12 @@ finish_submission() {
   if [ "$wait_status" -ne 0 ] || [ "$submit_status" != "Accepted" ]; then
     echo "Computer Use helper notarization failed with status: $submit_status (wait exit $wait_status)" >&2
     "$XCRUN_TOOL" notarytool log "$submit_id" \
-      --apple-id "$APPLE_ID" \
-      --team-id "$APPLE_TEAM_ID" \
-      --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
+      "${NOTARY_AUTH_ARGS[@]}" || true
     exit 1
   fi
 
   "$XCRUN_TOOL" notarytool log "$submit_id" \
-    --apple-id "$APPLE_ID" \
-    --team-id "$APPLE_TEAM_ID" \
-    --password "$APPLE_APP_SPECIFIC_PASSWORD" > "$TMP_DIR/notary-log.json"
+    "${NOTARY_AUTH_ARGS[@]}" > "$TMP_DIR/notary-log.json"
   cat "$TMP_DIR/notary-log.json"
   verify_ticket_contents_cover_slices "$TMP_DIR/notary-log.json" "$HELPER_PATH"
   "$XCRUN_TOOL" stapler staple "$HELPER_PATH"

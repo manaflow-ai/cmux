@@ -7,9 +7,9 @@ import { canonicalJSON, hash } from "./crypto";
 import { DASHBOARD_AUTHORITY_HEADER, DashboardClaimsSchema, type DashboardClaims } from "./dashboard-auth";
 import { acknowledgeDelivery, DeliveryStateSchema, deliveryUsage, emptyDeliveryState, prepareDelivery } from "./delivery";
 import type { Environment } from "./environment";
-import { OperationError } from "./errors";
+import { failureDiagnostics, OperationError, unwrap } from "./errors";
 import { observe } from "./observability";
-import { unwrap, type UserUsage } from "./user-usage-object";
+import type { UserUsage } from "./user-usage-object";
 
 const AttachmentSchema = z.strictObject({
   kind: z.literal("dashboard"), sessionId: identifier, claims: DashboardClaimsSchema,
@@ -24,6 +24,8 @@ type Services = {
   enqueue(ws: WebSocket, bytes: number, action: () => Promise<void>): Promise<void>;
   changed(result: BrokerResult, teamId: string): void;
   opening: Set<string>;
+  /** Supplied by the owning object rather than imported, which would make the module graph cyclic. */
+  limit(): number;
 };
 
 /** Browser sockets live in the existing team DO and share its queues and user budgets. */
@@ -42,7 +44,8 @@ export class DashboardControl {
       const claims = DashboardClaimsSchema.parse(JSON.parse(header));
       const broker = this.services.broker(claims.authority.teamId); // Checks this DO's actual namespace identity.
       this.assertLive(claims);
-      if (this.ctx.getWebSockets().length >= 4096) throw new OperationError("rate_limited", 429, true, 5000);
+      await this.assertTeamAccess(broker, claims);
+      if (this.ctx.getWebSockets().length >= this.services.limit()) throw new OperationError("rate_limited", 429, true, 5000);
       const sessionId = crypto.randomUUID();
       const deviceKey = await hash(canonicalJSON({ purpose: "dashboard-tab", userId: claims.authority.userId,
         teamId: claims.authority.teamId, origin: claims.origin, clientInstanceId: claims.clientInstanceId }));
@@ -50,6 +53,7 @@ export class DashboardControl {
       try {
         await this.services.reserve({ sessionId, identity: claims.authority }, deviceKey);
         this.assertLive(claims);
+        await this.assertTeamAccess(broker, claims);
         const pair = new WebSocketPair(), client = pair[0], server = pair[1];
         this.ctx.acceptWebSocket(server, ["dashboard", "user:" + claims.authority.userId, "device:" + deviceKey]);
         this.save(server, { kind: "dashboard", sessionId, claims, deviceKey, delivery: emptyDeliveryState(),
@@ -64,7 +68,7 @@ export class DashboardControl {
       } finally { this.services.opening.delete(sessionId); }
     } catch (error) {
       const failure = errorResponse(error, requestId).failure;
-      observe(this.ctx, this.env, { event: "iroh.dashboard.failure", requestId, code: failure.code, status: failure.status });
+      observe(this.ctx, this.env, { event: "iroh.dashboard.failure", requestId, code: failure.code, status: failure.status, ...failureDiagnostics(error) });
       return httpFailure(error, requestId);
     }
   }
@@ -152,20 +156,47 @@ export class DashboardControl {
     if (attachment.closed) return;
     const next = prepareDelivery(attachment.delivery, response), outputRevision = attachment.outputRevision + 1;
     const userId = attachment.claims.authority.userId;
-    unwrap(await this.services.user(userId).setOutput(userId, attachment.sessionId, outputRevision, next.bytes, next.messages));
-    if (this.load(ws).closed) return;
+    // Authority and freshness are checked with nothing awaited in between, so
+    // no event can land between the last check and the send. Error replies skip
+    // the liveness check because an expired session still has to be told why it
+    // is being closed.
     if (response.schemaId !== "error.v1") this.assertLive(attachment.claims);
     if (response.schemaId === "dashboard.directory.v1"
       && this.services.broker(attachment.claims.authority.teamId).dependencies.store.readRevision() !== response.directory.revision) {
       throw new OperationError("resync_required", 409, true);
     }
-    this.save(ws, { ...attachment, delivery: next.state, outputRevision });
     ws.send(next.text);
+    // The frame is out, so the accounting has to follow it. Charging first would
+    // leave a rejected frame paid for, and the next frame's revision would then
+    // be refused as a conflict, stalling this socket's output until the client
+    // reconnects and starts a fresh reservation.
+    //
+    // Once the bytes are on the wire they cannot be recalled, so a rejected
+    // charge is fatal for this connection. Without the close, the caller's catch
+    // would answer with a much smaller error.v1 frame that reuses this unsaved
+    // revision, and that frame can fit the headroom this one just overran: the
+    // socket would stay open and keep delivering large frames that are never
+    // charged. Closing here also makes that error reply a no-op, because send
+    // returns early once the attachment is marked closed.
+    try {
+      unwrap(await this.services.user(userId).setOutput(userId, attachment.sessionId, outputRevision, next.bytes, next.messages));
+    } catch (error) {
+      this.close(ws, "slow_consumer");
+      throw error;
+    }
+    if (this.load(ws).closed) return;
+    this.save(ws, { ...attachment, delivery: next.state, outputRevision });
   }
 
   private assertLive(claims: DashboardClaims): void {
     if (claims.authority.environment !== this.env.ENVIRONMENT || claims.authority.projectId !== this.env.STACK_PROJECT_ID) throw new OperationError("environment_mismatch", 403);
     if (claims.expiresAt <= Math.floor(Date.now() / 1000)) throw new OperationError("ticket_expired", 401, true);
+  }
+  private async assertTeamAccess(broker: TeamBroker, claims: DashboardClaims): Promise<void> {
+    if (!await broker.dependencies.verifyTeamMember(claims.authority.teamId, claims.authority.userId)) {
+      throw new OperationError("team_access_revoked", 403);
+    }
+    this.assertLive(claims);
   }
   private load(ws: WebSocket): Attachment { return AttachmentSchema.parse(ws.deserializeAttachment()); }
   private save(ws: WebSocket, value: Attachment): void { ws.serializeAttachment(AttachmentSchema.parse(value)); }

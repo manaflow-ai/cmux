@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -73,6 +75,21 @@ struct CurrentWorkReducerTests {
         #expect(item.freshness.reason == "disconnected")
         #expect(item.possibleHumanObligations.isEmpty)
         #expect(item.agents.first?.lastActivityAt == "2026-09-20T00:00:00Z")
+    }
+
+    @Test("Placement kind preserves the machine kind")
+    func placementKindPreservesMachineKind() throws {
+        let cases: [(SurfaceMachineID, String)] = [
+            (.local, "local"),
+            (.cloud("cloud-machine"), "cloud"),
+            (.ssh("ssh-target"), "ssh"),
+            (.device(.init(deviceID: "device-1", tag: "test")), "device"),
+        ]
+        for (machine, expected) in cases {
+            let item = try #require(CurrentWorkReducer().reduce(fixture(machine: machine)).items.first)
+            #expect(item.placement.kind == expected)
+            #expect(item.placement.machine == machine.rawValue)
+        }
     }
 
     @Test("PR summaries retain workspace association and unknown owner freshness")

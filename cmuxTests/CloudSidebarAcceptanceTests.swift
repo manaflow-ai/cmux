@@ -14,7 +14,7 @@ struct CloudSidebarAcceptanceTests {
     @Test func compactGeometry() throws {
         let geometry = CloudTreeCompactLayoutTests()
         for width in [220.0, 360.0] {
-            for percent in [100, 150] { try geometry.compactRows(width: width, percent: percent) }
+            for percent in [50, 100, 150] { try geometry.compactRows(width: width, percent: percent) }
         }
         let layout = CloudTreeWorkspaceTitleLayoutTests()
         try layout.disclosureSpacing(style: .compact)
@@ -25,8 +25,8 @@ struct CloudSidebarAcceptanceTests {
     @Test func pinsAndUnreadState() throws {
         let pins = CloudSidebarPinGeometryTests()
         for width in [220.0, 380.0] { try pins.machinePinRepaintsImmediately(width: width) }
-        for percent in [75, 100, 150, 200] {
-            try pins.noEmptyAttentionGutter(percent: percent)
+        for percent in [50, 75, 100, 150, 200] {
+            try pins.attentionSlotPrecedesContent(percent: percent)
             for width in [100.0, 320.0] { try pins.leadingPin(width: width, percent: percent) }
         }
         try pins.pinMagnification()
@@ -36,8 +36,9 @@ struct CloudSidebarAcceptanceTests {
         }
         let attention = CloudSidebarAttentionLayoutTests()
         for width in [140.0, 300.0] {
-            for kind in ["workspace", "terminal"] { try attention.attentionPrecedesIcon(width: width, kind: kind) }
+            for kind in ["workspace", "terminal"] { try attention.attentionPlacement(width: width, kind: kind) }
         }
+        for width in [220.0, 380.0] { try attention.outlineAttentionTransitions(width: width) }
         try attention.collapsedFolderAttention()
         try attention.collapsedFolderIsInvalidatedByDescendantReadChanges()
     }

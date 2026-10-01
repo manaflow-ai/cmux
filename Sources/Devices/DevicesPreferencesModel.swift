@@ -1,4 +1,5 @@
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 import Observation
 
@@ -10,11 +11,13 @@ final class DevicesPreferencesModel {
     private(set) var incomingAccessEnabled: Bool
     private(set) var hiddenMacIDs: Set<String>
     private let store: UserDefaultsSettingsStore
+    private let access: DevicesAccessCoordinator
     private let keys = DevicesCatalogSection()
     @ObservationIgnored private var observationTasks: [Task<Void, Never>] = []
 
-    init(store: UserDefaultsSettingsStore) {
+    init(store: UserDefaultsSettingsStore, access: DevicesAccessCoordinator) {
         self.store = store
+        self.access = access
         discoveryEnabled = store.initialValue(for: keys.discoveryEnabled)
         incomingAccessEnabled = store.initialValue(for: keys.incomingAccessEnabled)
         hiddenMacIDs = Set(store.initialValue(for: keys.hiddenMacIDs))
@@ -52,11 +55,11 @@ final class DevicesPreferencesModel {
     }
 
     func setDiscoveryEnabled(_ enabled: Bool) async {
-        await store.set(enabled, for: keys.discoveryEnabled)
+        await access.set(enabled, for: .discovery)
     }
 
     func setIncomingAccessEnabled(_ enabled: Bool) async {
-        await store.set(enabled, for: keys.incomingAccessEnabled)
+        await access.set(enabled, for: .incomingAccess)
     }
 
     func setHidden(_ instance: SurfaceDeviceInstanceID, hidden: Bool) async {

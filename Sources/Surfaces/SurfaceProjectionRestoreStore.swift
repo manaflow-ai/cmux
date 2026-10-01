@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Owns remote projections that were restored before their provider published a resource.
@@ -8,6 +9,8 @@ import Foundation
 struct SurfaceProjectionRestoreStore: Sendable {
     private var entriesByPanelID: [UUID: SurfaceProjection] = [:]
     private var capturedPanelIDs: Set<UUID> = []
+    private var machineIDsByWorkspace: [UUID: Set<SurfaceMachineID>] = [:]
+    private var machineCountsByWorkspace: [UUID: [SurfaceMachineID: Int]] = [:]
 
     var machineIDs: Set<SurfaceMachineID> {
         Set(entriesByPanelID.values.map(\.resource.machine))
@@ -15,6 +18,11 @@ struct SurfaceProjectionRestoreStore: Sendable {
 
     var projections: [SurfaceProjection] {
         Array(entriesByPanelID.values)
+    }
+
+    /// Returns staged machine identity for one workspace without scanning other workspaces.
+    func machineIDs(forWorkspace workspaceID: UUID) -> Set<SurfaceMachineID> {
+        machineIDsByWorkspace[workspaceID] ?? []
     }
 
     /// Looks up a staged panel's identity without scanning other restored panels.
@@ -28,27 +36,34 @@ struct SurfaceProjectionRestoreStore: Sendable {
 
     /// Stages a remote projection until its provider publishes the resource.
     mutating func stage(_ record: SurfaceProjectionRecord, workspaceID: UUID) {
-        entriesByPanelID[record.panelID] = SurfaceProjection(
+        if let previous = entriesByPanelID[record.panelID] {
+            removeIndexedMachine(previous.resource.machine, from: previous.workspaceID)
+        }
+        let projection = SurfaceProjection(
             resource: record.resource,
             workspaceID: workspaceID,
             panelID: record.panelID,
             remoteWorkspaceID: record.remoteWorkspaceID,
             remoteTabID: record.remoteTabID
         )
+        entriesByPanelID[record.panelID] = projection
+        addIndexedMachine(record.resource.machine, to: workspaceID)
         capturedPanelIDs.remove(record.panelID)
     }
 
     /// Removes a staged projection for a panel and reports whether one existed.
     @discardableResult
     mutating func remove(panelID: UUID) -> Bool {
-        let removed = entriesByPanelID[panelID] != nil
-        entriesByPanelID[panelID] = nil
+        guard let removed = entriesByPanelID.removeValue(forKey: panelID) else { return false }
+        removeIndexedMachine(removed.resource.machine, from: removed.workspaceID)
         capturedPanelIDs.remove(panelID)
-        return removed
+        return true
     }
 
     /// Removes all staged projections belonging to a machine.
     mutating func remove(machine: SurfaceMachineID) {
+        let removed = entriesByPanelID.values.filter { $0.resource.machine == machine }
+        for entry in removed { removeIndexedMachine(machine, from: entry.workspaceID) }
         entriesByPanelID = entriesByPanelID.filter { $0.value.resource.machine != machine }
         capturedPanelIDs = capturedPanelIDs.filter { entriesByPanelID[$0] != nil }
     }
@@ -57,8 +72,10 @@ struct SurfaceProjectionRestoreStore: Sendable {
     @discardableResult
     mutating func move(panelID: UUID, to workspaceID: UUID) -> Bool {
         guard var entry = entriesByPanelID[panelID] else { return false }
+        removeIndexedMachine(entry.resource.machine, from: entry.workspaceID)
         entry.workspaceID = workspaceID
         entriesByPanelID[panelID] = entry
+        addIndexedMachine(entry.resource.machine, to: workspaceID)
         return true
     }
 
@@ -73,6 +90,7 @@ struct SurfaceProjectionRestoreStore: Sendable {
         }
         for entry in resolved {
             entriesByPanelID[entry.panelID] = nil
+            removeIndexedMachine(entry.resource.machine, from: entry.workspaceID)
             capturedPanelIDs.remove(entry.panelID)
             StartupBreadcrumbLog.append(
                 "session.restore.projection.assigned",
@@ -86,6 +104,27 @@ struct SurfaceProjectionRestoreStore: Sendable {
             )
         }
         return resolved
+    }
+
+    private mutating func addIndexedMachine(_ machine: SurfaceMachineID, to workspaceID: UUID) {
+        machineCountsByWorkspace[workspaceID, default: [:]][machine, default: 0] += 1
+        machineIDsByWorkspace[workspaceID, default: []].insert(machine)
+    }
+
+    private mutating func removeIndexedMachine(_ machine: SurfaceMachineID, from workspaceID: UUID) {
+        guard var counts = machineCountsByWorkspace[workspaceID], let count = counts[machine] else { return }
+        if count <= 1 {
+            counts[machine] = nil
+            machineIDsByWorkspace[workspaceID]?.remove(machine)
+        } else {
+            counts[machine] = count - 1
+        }
+        if counts.isEmpty {
+            machineCountsByWorkspace[workspaceID] = nil
+            machineIDsByWorkspace[workspaceID] = nil
+        } else {
+            machineCountsByWorkspace[workspaceID] = counts
+        }
     }
 
     /// Returns staged records for capture and emits one breadcrumb per panel.

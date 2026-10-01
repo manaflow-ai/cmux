@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxCommandPalette
 import AppKit
 import Foundation
@@ -6,6 +7,7 @@ extension ContentView {
     static let commandPaletteAuthSignInCommandId = "palette.auth.signIn"
     static let commandPaletteAuthSignOutCommandId = "palette.auth.signOut"
     static let commandPaletteAuthTeamPickerCommandId = "palette.auth.teamPicker"
+    static let commandPaletteAuthTeamMembersCommandId = "palette.auth.teamMembers"
 
     static func commandPaletteAuthCommandContributions() -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
@@ -36,8 +38,18 @@ extension ContentView {
             CommandPaletteCommandContribution(
                 commandId: commandPaletteAuthTeamPickerCommandId,
                 title: constant(String(localized: "command.auth.teamPicker.title", defaultValue: "Open Team Picker")),
-                subtitle: constant(String(localized: "command.auth.subtitle", defaultValue: "Account")),
+                subtitle: constant(String(localized: "command.cloudVM.subtitle", defaultValue: "Cloud")),
                 keywords: ["account", "auth", "team", "teams", "switch", "create"],
+                when: { context in
+                    context.bool(CommandPaletteContextKeys.authSignedIn)
+                        && !context.bool(CommandPaletteContextKeys.authWorking)
+                }
+            ),
+            CommandPaletteCommandContribution(
+                commandId: commandPaletteAuthTeamMembersCommandId,
+                title: constant(String(localized: "command.auth.teamMembers.title", defaultValue: "Invite Team Members")),
+                subtitle: constant(String(localized: "command.cloudVM.subtitle", defaultValue: "Cloud")),
+                keywords: ["account", "auth", "team", "teams", "invite", "members", "roster", "seats"],
                 when: { context in
                     context.bool(CommandPaletteContextKeys.authSignedIn)
                         && !context.bool(CommandPaletteContextKeys.authWorking)
@@ -70,7 +82,17 @@ extension ContentView {
             }
         }
         registry.register(commandId: Self.commandPaletteAuthTeamPickerCommandId) {
-            NotificationCenter.default.post(name: .cmuxTeamPickerShortcutRequested, object: self)
+            _ = AppDelegate.shared?.openCloudTeamPicker(
+                preferredWindow: tabManager.window,
+                debugSource: "palette.auth.teamPicker"
+            )
+        }
+        registry.register(commandId: Self.commandPaletteAuthTeamMembersCommandId) {
+            guard let auth = AppDelegate.shared?.auth else {
+                NSSound.beep()
+                return
+            }
+            auth.accountFlow.showTeamInvite(preferredWindow: tabManager.window)
         }
     }
 }

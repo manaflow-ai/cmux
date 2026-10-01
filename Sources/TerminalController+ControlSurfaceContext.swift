@@ -336,10 +336,8 @@ extension TerminalController: ControlSurfaceContext {
             _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
             setActiveTabManager(tabManager)
         }
-        if tabManager.selectedTabId != ws.id {
-            tabManager.selectWorkspace(ws)
-        }
-        ws.focusPanel(surfaceID)
+        // Record explicit intent before selection schedules focus restoration.
+        tabManager.focusTab(ws.id, surfaceId: surfaceID, suppressFlash: true)
         return .focused(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: ws.id,

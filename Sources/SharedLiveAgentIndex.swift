@@ -50,6 +50,10 @@ final class SharedLiveAgentIndex {
         id: UUID,
         continuation: CheckedContinuation<Void, Never>
     )
+    private typealias ForkSupportValidationWaiter = (
+        id: UUID,
+        continuation: CheckedContinuation<Void, Never>
+    )
     private typealias ForkValidationRequestCompletionWaiter = (
         id: UUID,
         continuation: CheckedContinuation<Void, Never>
@@ -101,10 +105,14 @@ final class SharedLiveAgentIndex {
     private var validatedForkPanels = Set<RestorableAgentSessionIndex.PanelKey>()
     private var validatedMissingForkPanels: [RestorableAgentSessionIndex.PanelKey: Date] = [:]
     private var activeForkSupportValidationKeys = Set<ForkProbeKey>()
-    private var activeForkSupportValidationWaiters: [ForkProbeKey: [CheckedContinuation<Void, Never>]] = [:]
+    private var activeForkSupportValidationWaiters: [ForkProbeKey: [ForkSupportValidationWaiter]] = [:]
     private var activeForkSupportValidationIdentityWaiters: [ForkValidationWaitKey: [ForkValidationIdentityWaiter]] = [:]
     private var forkValidationRequestCompletionWaiters: [UUID: [ForkValidationRequestCompletionWaiter]] = [:]
-    private var deferredForkAvailabilityRefreshAfterActiveValidation = false
+    // Includes suspended contention waiters until they finish or cancel.
+    private var activeForkValidationDrainerCount = 0
+    // A resumed waiter owns the next drain. Keep restart tasks out until that
+    // waiter either re-enters or cancellation returns ownership here.
+    private var pendingForkValidationDrainerHandoffs = 0
     private var pendingForkValidationRequests: ForkValidationRequestsByProbeKey = [:]
     private var processingForkValidationRequestIDs: [ForkProbeKey: Set<UUID>] = [:]
     private var cancelledForkValidationRequestIDs: [ForkProbeKey: Set<UUID>] = [:]
@@ -240,7 +248,7 @@ final class SharedLiveAgentIndex {
         }
         for waiters in activeForkSupportValidationWaiters.values {
             for waiter in waiters {
-                waiter.resume()
+                waiter.continuation.resume()
             }
         }
         for waiters in activeForkSupportValidationIdentityWaiters.values {
@@ -628,7 +636,11 @@ final class SharedLiveAgentIndex {
                 pendingRequestIDsOwnedByRequest[probeKey, default: []].insert(requestID)
             } else if let activeWaitKey = insertion.activeWaitKey {
                 await waitForActiveForkSupportValidationIdentity(activeWaitKey)
-                guard !Task.isCancelled else { return }
+                pendingForkValidationDrainerHandoffs -= 1
+                guard !Task.isCancelled else {
+                    restartForkAvailabilityRefreshIfPending()
+                    return
+                }
                 await refreshForkAvailabilityNow(
                     workspaceId: workspaceId,
                     panelId: panelId,
@@ -659,14 +671,14 @@ final class SharedLiveAgentIndex {
             _ = await applyPendingForkValidations(
                 pendingRequestIDsToRemoveOnCancellation: pendingRequestIDsOwnedByRequest
             )
-            return
+        } else {
+            _ = await reloadIfLiveAgentProcessFingerprintChanged(
+                pendingRequestIDsToRemoveOnCancellation: pendingRequestIDsOwnedByRequest
+            )
         }
-        let reloadResult = await reloadIfLiveAgentProcessFingerprintChanged(
-            pendingRequestIDsToRemoveOnCancellation: pendingRequestIDsOwnedByRequest
-        )
-        if !reloadResult.didReload {
-            await waitForForkValidationRequestCompletions(pendingRequestIDsOwnedByRequest)
-        }
+        // A concurrent drainer may have claimed our request while reload or
+        // contention suspended us. Both paths promise its completed result.
+        await waitForForkValidationRequestCompletions(pendingRequestIDsOwnedByRequest)
     }
 
     private func requestForkAvailabilityRefresh(
@@ -1173,6 +1185,8 @@ final class SharedLiveAgentIndex {
 
     private func restartForkAvailabilityRefreshIfPending() {
         guard !pendingForkValidationRequests.isEmpty,
+              activeForkValidationDrainerCount == 0,
+              pendingForkValidationDrainerHandoffs == 0,
               refreshTask == nil,
               forkAvailabilityRefreshTask == nil else {
             return
@@ -1206,14 +1220,64 @@ final class SharedLiveAgentIndex {
         }
     }
 
-    private func waitForActiveForkSupportValidation(_ probeKey: ForkProbeKey) async {
-        await withCheckedContinuation { continuation in
-            guard activeForkSupportValidationKeys.contains(probeKey) else {
-                continuation.resume()
-                return
+    /// Waits for the active probe that holds `probeKey`, while the caller's own
+    /// requests sit in the pending queue. Cancellation drops those requests
+    /// immediately: the last drainer's exit restarts the single-flight
+    /// refresh for whatever is still pending, and a cancelled caller's request
+    /// must not be among it, or its fallback is probed and replaces the
+    /// surviving request's validation.
+    private func waitForActiveForkSupportValidation(
+        _ probeKey: ForkProbeKey,
+        pendingRequestIDsToRemoveOnCancellation: [ForkProbeKey: Set<UUID>]
+    ) async {
+        let waiterID = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard activeForkSupportValidationKeys.contains(probeKey) else {
+                    continuation.resume()
+                    return
+                }
+                activeForkSupportValidationWaiters[probeKey, default: []].append((
+                    id: waiterID,
+                    continuation: continuation
+                ))
+                pendingForkValidationDrainerHandoffs += 1
+                if Task.isCancelled {
+                    cancelForkSupportValidationWaiter(
+                        waiterID,
+                        for: probeKey,
+                        pendingRequestIDsToRemoveOnCancellation: pendingRequestIDsToRemoveOnCancellation
+                    )
+                }
             }
-            activeForkSupportValidationWaiters[probeKey, default: []].append(continuation)
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancelForkSupportValidationWaiter(
+                    waiterID,
+                    for: probeKey,
+                    pendingRequestIDsToRemoveOnCancellation: pendingRequestIDsToRemoveOnCancellation
+                )
+            }
         }
+    }
+
+    private func cancelForkSupportValidationWaiter(
+        _ waiterID: UUID,
+        for probeKey: ForkProbeKey,
+        pendingRequestIDsToRemoveOnCancellation: [ForkProbeKey: Set<UUID>]
+    ) {
+        guard var waiters = activeForkSupportValidationWaiters[probeKey],
+              let index = waiters.firstIndex(where: { $0.id == waiterID }) else {
+            return
+        }
+        let waiter = waiters.remove(at: index)
+        if waiters.isEmpty {
+            activeForkSupportValidationWaiters.removeValue(forKey: probeKey)
+        } else {
+            activeForkSupportValidationWaiters[probeKey] = waiters
+        }
+        removeOrMarkCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
+        waiter.continuation.resume()
     }
 
     private func waitForActiveForkSupportValidationIdentity(_ waitKey: ForkValidationWaitKey) async {
@@ -1228,6 +1292,7 @@ final class SharedLiveAgentIndex {
                     id: waiterID,
                     continuation: continuation
                 ))
+                pendingForkValidationDrainerHandoffs += 1
                 if Task.isCancelled {
                     cancelForkSupportValidationIdentityWaiter(waiterID, for: waitKey)
                 }
@@ -1366,25 +1431,25 @@ final class SharedLiveAgentIndex {
     }
 
     @discardableResult
-    private func resumeForkSupportValidationWaiters(for probeKey: ForkProbeKey) -> Bool {
+    private func resumeForkSupportValidationWaiters(for probeKey: ForkProbeKey) -> Int {
         guard let waiters = activeForkSupportValidationWaiters.removeValue(forKey: probeKey) else {
-            return false
-        }
-        for waiter in waiters {
-            waiter.resume()
-        }
-        return !waiters.isEmpty
-    }
-
-    @discardableResult
-    private func resumeForkSupportValidationIdentityWaiters(for waitKey: ForkValidationWaitKey) -> Bool {
-        guard let waiters = activeForkSupportValidationIdentityWaiters.removeValue(forKey: waitKey) else {
-            return false
+            return 0
         }
         for waiter in waiters {
             waiter.continuation.resume()
         }
-        return !waiters.isEmpty
+        return waiters.count
+    }
+
+    @discardableResult
+    private func resumeForkSupportValidationIdentityWaiters(for waitKey: ForkValidationWaitKey) -> Int {
+        guard let waiters = activeForkSupportValidationIdentityWaiters.removeValue(forKey: waitKey) else {
+            return 0
+        }
+        for waiter in waiters {
+            waiter.continuation.resume()
+        }
+        return waiters.count
     }
 
     private var pendingForkValidationPanels: Set<ForkProbeKey> {
@@ -1512,6 +1577,14 @@ final class SharedLiveAgentIndex {
     private func applyPendingForkValidations(
         pendingRequestIDsToRemoveOnCancellation: [ForkProbeKey: Set<UUID>] = [:]
     ) async -> [UUID: Set<UUID>] {
+        activeForkValidationDrainerCount += 1
+        defer {
+            // Resuming a contention waiter hands draining back to that caller.
+            // Keep its ownership across suspension; the last drainer to exit
+            // restarts leftover work even if the resumed caller was cancelled.
+            activeForkValidationDrainerCount -= 1
+            restartForkAvailabilityRefreshIfPending()
+        }
         var processedPanelIdsByWorkspaceId: [UUID: Set<UUID>] = [:]
         let pendingRequestsByProbeKey = pendingForkValidationRequests
         let pendingRequestBatches = Self.forkValidationRequestBatches(from: pendingRequestsByProbeKey)
@@ -1612,13 +1685,15 @@ final class SharedLiveAgentIndex {
                     restartIfPending: false
                 )
                 requeuedPendingRequests = true
-                deferredForkAvailabilityRefreshAfterActiveValidation = true
-                await waitForActiveForkSupportValidation(resolvedProbeKey)
+                await waitForActiveForkSupportValidation(
+                    resolvedProbeKey,
+                    pendingRequestIDsToRemoveOnCancellation: pendingRequestIDsToRemoveOnCancellation
+                )
+                pendingForkValidationDrainerHandoffs -= 1
                 guard !Task.isCancelled else {
                     removeOrMarkCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
                     return processedPanelIdsByWorkspaceId
                 }
-                deferredForkAvailabilityRefreshAfterActiveValidation = false
                 let recursivelyProcessedPanelIdsByWorkspaceId = await applyPendingForkValidations(
                     pendingRequestIDsToRemoveOnCancellation: pendingRequestIDsToRemoveOnCancellation
                 )
@@ -1638,10 +1713,10 @@ final class SharedLiveAgentIndex {
                 if resolvedProbeKey != probeKey {
                     removeActiveForkSupportValidationIdentities(activeRequestIdentities, for: resolvedProbeKey)
                 }
-                let resumedResolvedWaiters = resumeForkSupportValidationWaiters(for: resolvedProbeKey)
-                let resumedOriginalWaiters = resolvedProbeKey != probeKey
-                    ? resumeForkSupportValidationWaiters(for: probeKey)
-                    : false
+                resumeForkSupportValidationWaiters(for: resolvedProbeKey)
+                if resolvedProbeKey != probeKey {
+                    resumeForkSupportValidationWaiters(for: probeKey)
+                }
                 let resolvedIdentityWaitKey = Self.forkValidationWaitKey(
                     probeKey: resolvedProbeKey,
                     identity: activeRequestIdentity
@@ -1650,21 +1725,9 @@ final class SharedLiveAgentIndex {
                     probeKey: probeKey,
                     identity: activeRequestIdentity
                 )
-                let resumedResolvedIdentityWaiters = resumeForkSupportValidationIdentityWaiters(
-                    for: resolvedIdentityWaitKey
-                )
-                let resumedOriginalIdentityWaiters = resolvedIdentityWaitKey != originalIdentityWaitKey
-                    ? resumeForkSupportValidationIdentityWaiters(for: originalIdentityWaitKey)
-                    : false
-                let resumedWaiters = resumedResolvedWaiters
-                    || resumedOriginalWaiters
-                    || resumedResolvedIdentityWaiters
-                    || resumedOriginalIdentityWaiters
-                if activeForkSupportValidationKeys.isEmpty,
-                   deferredForkAvailabilityRefreshAfterActiveValidation,
-                   !resumedWaiters {
-                    deferredForkAvailabilityRefreshAfterActiveValidation = false
-                    restartForkAvailabilityRefreshIfPending()
+                resumeForkSupportValidationIdentityWaiters(for: resolvedIdentityWaitKey)
+                if resolvedIdentityWaitKey != originalIdentityWaitKey {
+                    resumeForkSupportValidationIdentityWaiters(for: originalIdentityWaitKey)
                 }
             }
             if let identity = AgentForkSupport.forkValidationIdentity(
@@ -1799,9 +1862,6 @@ final class SharedLiveAgentIndex {
             } else {
                 removeForkSupportValidation(for: resolvedProbeKey)
             }
-        }
-        if activeForkSupportValidationKeys.isEmpty {
-            restartForkAvailabilityRefreshIfPending()
         }
         return processedPanelIdsByWorkspaceId
     }
@@ -2124,7 +2184,18 @@ final class SharedLiveAgentIndex {
                 eventMask: [.write, .delete, .rename, .revoke, .extend, .attrib, .link],
                 queue: watchQueue
             )
-            source.setEventHandler { [weak self] in
+            let statusChangeTimeAtInstall = Self.forkExecutableWatchStatusChangeTime(fileDescriptor)
+            source.setEventHandler { [weak self, weak source] in
+                // Executing a file whose access time predates its last change
+                // (e.g. the fork probe's first run of a freshly installed
+                // executable) updates only atime, which Darwin still reports
+                // as NOTE_ATTRIB. That leaves ctime alone; a real chmod, chown
+                // or xattr change does not, so only those invalidate.
+                if let source, source.data == .attrib,
+                   let statusChangeTimeAtInstall,
+                   Self.forkExecutableWatchStatusChangeTime(fileDescriptor) == statusChangeTimeAtInstall {
+                    return
+                }
                 Task { @MainActor [weak self] in
                     self?.invalidateForkExecutableWatchRecord(
                         for: watchKey,
@@ -2325,6 +2396,14 @@ final class SharedLiveAgentIndex {
         }
 
         return watchPaths.sorted()
+    }
+
+    /// The inode status-change time in nanoseconds, which an access-time-only
+    /// update leaves unchanged.
+    nonisolated private static func forkExecutableWatchStatusChangeTime(_ fileDescriptor: Int32) -> Int64? {
+        var status = stat()
+        guard fstat(fileDescriptor, &status) == 0 else { return nil }
+        return Int64(status.st_ctimespec.tv_sec) * 1_000_000_000 + Int64(status.st_ctimespec.tv_nsec)
     }
 
     nonisolated private static func openForkExecutableWatchFileDescriptors(

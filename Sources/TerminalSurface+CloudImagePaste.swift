@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxCloudImagePaste
 import CmuxTerminal
@@ -18,6 +19,11 @@ extension TerminalSurface {
             ownsPreparation = true
             defer {
                 session.imagePaste.endPreparation()
+                // A replay refetch can be deferred while the image transaction
+                // owns the attachment. The paste coordinator clears its active
+                // token before this defer runs, so retry the fidelity decision
+                // after releasing the preparation reservation.
+                session.scheduleFidelityCheck()
                 pasteboard.cleanupTransferredTemporaryImageFiles(urls)
             }
             try Task.checkCancellation()

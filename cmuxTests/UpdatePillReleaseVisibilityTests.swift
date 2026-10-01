@@ -168,7 +168,9 @@ struct BrowserInsecureHTTPSettingsTests {
         checkEqual(prepared.httpMethod, "POST")
         checkEqual(prepared.httpBody, Data("token=abc123".utf8))
         checkEqual(prepared.value(forHTTPHeaderField: "Content-Type"), "application/x-www-form-urlencoded")
-        checkEqual(prepared.cachePolicy, .useProtocolCachePolicy)
+        // #13003: the prepared request keeps the caller's cache policy so refreshing a
+        // failed navigation replays the original request semantics.
+        checkEqual(prepared.cachePolicy, .reloadIgnoringLocalAndRemoteCacheData)
     }
 
     @Test
@@ -821,6 +823,31 @@ struct NotificationsPopoverAnchorPolicyTests {
         bellAnchor.isHidden = true
         checkTrue(
             NotificationsAnchorRegistry.shared.closestAnchor(in: window, to: pointNearBell) === plusAnchor
+        )
+    }
+
+    @Test
+    func testNotificationAnchorRegistryDoesNotReturnHiddenAnchor() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 260, height: 100),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            Issue.record("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 90, y: 60, width: 20, height: 20))
+        contentView.addSubview(anchor)
+        NotificationsAnchorRegistry.shared.register(anchor)
+        anchor.isHidden = true
+
+        #expect(
+            NotificationsAnchorRegistry.shared.visibleAnchor(in: window) == nil,
+            "A hidden titlebar accessory anchor must not be selected for keyboard-opened notifications."
         )
     }
 }

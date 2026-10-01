@@ -173,7 +173,8 @@ struct PortScannerIdentityContinuityTests {
         )
         let root = AgentPortRootIdentity(pid: 100, processIdentity: recordedRootIdentity)
         let nestedRoot = AgentPortRootIdentity(pid: 101, processIdentity: descendantIdentity)
-        // The first two root reads are expandAgentProcessTree's pre/post-ps fence.
+        // The first two root reads are expandAgentProcessTree's fence around
+        // the process-table read.
         // The third simulates PID reuse immediately before PID identity capture.
         let state = OSAllocatedUnfairLock(initialState: RootReuseState(
             rootIdentityReads: 0,
@@ -181,15 +182,9 @@ struct PortScannerIdentityContinuityTests {
             replacementRootIdentity: replacementRootIdentity,
             descendantIdentity: descendantIdentity
         ))
-        let runner = RootReuseCommandRunner(result: CommandResult(
-            stdout: "100 1\n101 100\n",
-            stderr: "",
-            exitStatus: 0,
-            timedOut: false,
-            executionError: nil
-        ))
+        let processTable = RootReuseProcessTable(parents: [100: 1, 101: 100])
         let scanner = PortScanner(
-            commandRunner: runner,
+            processTable: processTable,
             processIdentityProvider: { pid in state.withLock { $0.identity(for: pid) } },
             processPresenceProvider: { _ in .present }
         )
@@ -233,24 +228,12 @@ struct PortScannerIdentityContinuityTests {
         let rootIdentity = AgentPIDProcessIdentity(pid: 100, startSeconds: 10, startMicroseconds: 0)
         let replacementIdentity = AgentPIDProcessIdentity(pid: 101, startSeconds: 20, startMicroseconds: 0)
         let root = AgentPortRootIdentity(pid: 100, processIdentity: rootIdentity)
-        let runner = RootReuseCommandRunner(
-            firstResult: CommandResult(
-                stdout: "100 1\n101 100\n",
-                stderr: "",
-                exitStatus: 0,
-                timedOut: false,
-                executionError: nil
-            ),
-            secondResult: CommandResult(
-                stdout: "100 1\n101 999\n",
-                stderr: "",
-                exitStatus: 0,
-                timedOut: false,
-                executionError: nil
-            )
+        let processTable = RootReuseProcessTable(
+            firstParents: [100: 1, 101: 100],
+            secondParents: [100: 1, 101: 999]
         )
         let scanner = PortScanner(
-            commandRunner: runner,
+            processTable: processTable,
             processIdentityProvider: { pid in
                 switch pid {
                 case 100: rootIdentity
@@ -289,15 +272,9 @@ struct PortScannerIdentityContinuityTests {
             absentWorkspaceID: Set([AgentPortRootIdentity(pid: 100, processIdentity: absentIdentity)]),
             validWorkspaceID: Set([AgentPortRootIdentity(pid: 200, processIdentity: validIdentity)]),
         ]
-        let runner = RootReuseCommandRunner(result: CommandResult(
-            stdout: "200 1\n",
-            stderr: "",
-            exitStatus: 1,
-            timedOut: false,
-            executionError: nil
-        ))
+        let processTable = RootReuseProcessTable(parents: [200: 1], completeness: .incomplete)
         let scanner = PortScanner(
-            commandRunner: runner,
+            processTable: processTable,
             processIdentityProvider: { pid in pid == validIdentity.pid ? validIdentity : nil },
             processPresenceProvider: { pid in pid == absentIdentity.pid ? .absent : .present }
         )
@@ -321,14 +298,8 @@ struct PortScannerIdentityContinuityTests {
     @Test("No agent ownership skips post-capture process enumeration")
     func noAgentOwnershipSkipsFreshProcessGraph() async {
         let workspaceID = UUID()
-        let runner = RootReuseCommandRunner(result: CommandResult(
-            stdout: "",
-            stderr: "",
-            exitStatus: 0,
-            timedOut: false,
-            executionError: nil
-        ))
-        let scanner = PortScanner(commandRunner: runner)
+        let processTable = RootReuseProcessTable(parents: [:])
+        let scanner = PortScanner(processTable: processTable)
 
         let finalized = await scanner.finalizeAgentPIDOwnership(
             rootsByWorkspace: [:],
@@ -336,7 +307,7 @@ struct PortScannerIdentityContinuityTests {
             capturedIdentitiesByPID: [:],
             workspaceIds: [workspaceID]
         )
-        let runCount = await runner.runCount()
+        let runCount = await processTable.readCount()
 
         #expect(finalized.ownershipByPID.isEmpty)
         #expect(finalized.completenessByWorkspace[workspaceID] == .complete)
@@ -377,38 +348,6 @@ struct PortScannerIdentityContinuityTests {
         #expect(revalidated.completenessByWorkspace[healthyWorkspaceID] == .complete)
     }
 
-    @Test("ps status one is complete only for an empty no-match result")
-    func psNoMatchStatusIsEvidenceSensitive() async {
-        let emptyScan = await PortScanner(commandRunner: RootReuseCommandRunner(result: CommandResult(
-            stdout: "",
-            stderr: "",
-            exitStatus: 1,
-            timedOut: false,
-            executionError: nil
-        ))).runPS(ttyList: "ttys001")
-        let partialScan = await PortScanner(commandRunner: RootReuseCommandRunner(result: CommandResult(
-            stdout: "123 ttys001\n",
-            stderr: "",
-            exitStatus: 1,
-            timedOut: false,
-            executionError: nil
-        ))).runPS(ttyList: "ttys001")
-        let diagnosticScan = await PortScanner(commandRunner: RootReuseCommandRunner(result: CommandResult(
-            stdout: "",
-            stderr: "ps: inspection failed\n",
-            exitStatus: 1,
-            timedOut: false,
-            executionError: nil
-        ))).runPS(ttyList: "ttys001")
-
-        #expect(emptyScan.values.isEmpty)
-        #expect(emptyScan.completeness == .complete)
-        #expect(partialScan.values == [123: "ttys001"])
-        #expect(partialScan.completeness == .incomplete)
-        #expect(diagnosticScan.values.isEmpty)
-        #expect(diagnosticScan.completeness == .incomplete)
-    }
-
     private struct IdentityState: Sendable {
         var identities: [Int: AgentPIDProcessIdentity]
         var presenceByPID: [Int: PIDPresence] = [:]
@@ -443,30 +382,39 @@ struct PortScannerIdentityContinuityTests {
     }
 }
 
-private actor RootReuseCommandRunner: CommandRunning {
-    private let results: [CommandResult]
-    private var nextResultIndex = 0
+/// Replays fixed process-parent maps: the first read gets the first map and
+/// every later read gets the last one.
+private actor RootReuseProcessTable: PortProcessTableReading {
+    private let parentMaps: [[Int: Int]]
+    private let completeness: PortScanCompleteness
+    private var parentReads = 0
+    private var terminalReads = 0
 
-    init(result: CommandResult) {
-        self.results = [result]
+    init(parents: [Int: Int], completeness: PortScanCompleteness = .complete) {
+        self.parentMaps = [parents]
+        self.completeness = completeness
     }
 
-    init(firstResult: CommandResult, secondResult: CommandResult) {
-        self.results = [firstResult, secondResult]
+    init(firstParents: [Int: Int], secondParents: [Int: Int]) {
+        self.parentMaps = [firstParents, secondParents]
+        self.completeness = .complete
     }
 
-    func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        let index = min(nextResultIndex, results.count - 1)
-        nextResultIndex += 1
-        return results[index]
+    func processesOnTerminals(
+        named ttyNames: [String]
+    ) async -> (values: [Int: String], completeness: PortScanCompleteness) {
+        terminalReads += 1
+        return ([:], completeness)
     }
 
-    func runCount() -> Int {
-        nextResultIndex
+    func parentsByPID() async -> (values: [Int: Int], completeness: PortScanCompleteness) {
+        let index = min(parentReads, parentMaps.count - 1)
+        parentReads += 1
+        return (parentMaps[index], completeness)
+    }
+
+    /// Every process-table read, of either kind.
+    func readCount() -> Int {
+        parentReads + terminalReads
     }
 }

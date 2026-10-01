@@ -13,6 +13,18 @@ import tempfile
 import threading
 import uuid
 from pathlib import Path
+from typing import BinaryIO
+
+FIXTURE_SOCKET_PASSWORD = "cmux-cli-fixture-password"
+
+
+def accept_fixture_socket_authentication(line: bytes, stream: BinaryIO) -> bool:
+    """Answer the explicit fixture credential without reading host credentials."""
+    if line.rstrip(b"\r\n") != f"auth {FIXTURE_SOCKET_PASSWORD}".encode():
+        return False
+    stream.write(b"OK\n")
+    stream.flush()
+    return True
 
 FOCUSED_WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
 FOCUSED_WINDOW_ID = "22222222-2222-4222-8222-222222222222"

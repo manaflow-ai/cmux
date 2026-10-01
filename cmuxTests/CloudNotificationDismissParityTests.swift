@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -214,7 +215,7 @@ struct CloudNotificationDismissParityTests {
         let record = try #require(harness.store.notifications.first)
 
         harness.store.markRead(id: record.id)
-        harness.spinStoreSubscription { harness.hub.unreadTerminalIDs[harness.machine.rawValue] == nil }
+        #expect(harness.hub.unreadTerminalIDs[harness.machine.rawValue] == nil)
 
         harness.expectEverythingRead(terminals: ["term_a"])
         await harness.flush()

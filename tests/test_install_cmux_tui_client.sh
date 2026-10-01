@@ -1,9 +1,22 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-client-install.XXXXXX")"
 trap 'rm -rf "$TEST_DIR"' EXIT
+# Most assertions below are a bare `cmp`, `grep -q` or `[ ... ]`, and the
+# installer's own output is redirected into a per-case log. When one of them
+# fails, `set -e` exits 1 having printed nothing after the last PASS line, which
+# is all a CI log preserves. Name the line that failed and dump the event log.
+report_failure() { # <line>
+  local status=$?
+  echo "FAIL: assertion at $(basename "${BASH_SOURCE[0]}"):$1 exited $status" >&2
+  if [[ -n "${EVENTS:-}" && -f "${EVENTS:-}" ]]; then
+    echo "--- installer events ---" >&2
+    cat "$EVENTS" >&2
+  fi
+}
+trap 'report_failure "$LINENO"' ERR
 APP="$TEST_DIR/Test.app"
 mkdir -p "$APP/Contents"
 CLIENT="$TEST_DIR/client"
@@ -53,6 +66,8 @@ COMMIT="$(printf 'a%.0s' $(seq 1 40))"
 SIGNER="manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml"
 cp "$CLIENT" "$SERVE/cmux-tui-aarch64-apple-darwin"
 cp "$CLIENT" "$SERVE/cmux-tui-x86_64-apple-darwin"
+cp "$CLIENT" "$SERVE/cmux-tui-aarch64-unknown-linux-musl"
+cp "$CLIENT" "$SERVE/cmux-tui-x86_64-unknown-linux-musl"
 if command -v shasum >/dev/null 2>&1; then
   slice_sha() { shasum -a 256 "$1" | awk '{print $1}'; }
 else
@@ -63,7 +78,7 @@ fi
 ARM_SHA="$(slice_sha "$SERVE/cmux-tui-aarch64-apple-darwin")"
 X64_SHA="$(slice_sha "$SERVE/cmux-tui-x86_64-apple-darwin")"
 cat > "$SERVE/manifest.json" <<JSON
-{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-x86_64-apple-darwin":"$X64_SHA"}}
+{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-x86_64-apple-darwin":"$X64_SHA","cmux-tui-aarch64-unknown-linux-musl":"$ARM_SHA","cmux-tui-x86_64-unknown-linux-musl":"$ARM_SHA"}}
 JSON
 cat > "$FAKEBIN/curl" <<SH
 #!/bin/bash
@@ -96,11 +111,19 @@ exit 0
 SH
 chmod +x "$FAKEBIN/curl" "$FAKEBIN/gh" "$FAKEBIN/lipo"
 
+# Every case needs its own download cache: the installer skips the curl for a
+# slice already cached under the manifest's commit, and that commit is one
+# constant for the whole file. $RANDOM draws from 32768 values, so across the 25
+# calls made here two cases collided about once in a hundred runs, the second
+# silently served both slices from the first one's cache, and the `curl` and
+# `lipo` assertions below failed with no output. Number the caches instead.
+REMOTE_INSTALL_SEQ=0
 install_remote() { # <app> [installer options]
   local app="$1"; shift
   mkdir -p "$app/Contents"
   : > "$EVENTS"
-  PATH="$FAKEBIN:$PATH" CMUX_TUI_CLIENT_CACHE="$TEST_DIR/cache-$RANDOM" /bin/bash \
+  REMOTE_INSTALL_SEQ=$((REMOTE_INSTALL_SEQ + 1))
+  PATH="$FAKEBIN:$PATH" CMUX_TUI_CLIENT_CACHE="$TEST_DIR/cache-$REMOTE_INSTALL_SEQ" /bin/bash \
     "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$app" \
     --manifest-url "https://files.example.test/cmux-tui/$COMMIT/manifest.json" "$@"
 }
@@ -164,7 +187,7 @@ fi
 echo "PASS: --allow-unattested is the only unverified remote install path"
 
 # Architecture selection is opt-in: the existing default still fetches and
-# verifies both slices, while a native install never requests the other slice.
+# verifies both slices. Native selects only its app executable; SSH companions cover every remote platform.
 install_remote "$TEST_DIR/Universal.app" > "$TEST_DIR/universal.log" 2>&1
 grep -q 'curl .*cmux-tui-aarch64-apple-darwin$' "$EVENTS"
 grep -q 'curl .*cmux-tui-x86_64-apple-darwin$' "$EVENTS"
@@ -183,7 +206,7 @@ echo "PASS: explicit universal mode fetches both slices"
 printf '\n# Intel fixture\n' >> "$SERVE/cmux-tui-x86_64-apple-darwin"
 X64_SHA="$(slice_sha "$SERVE/cmux-tui-x86_64-apple-darwin")"
 cat > "$SERVE/manifest.json" <<JSON
-{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-x86_64-apple-darwin":"$X64_SHA"}}
+{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-x86_64-apple-darwin":"$X64_SHA","cmux-tui-aarch64-unknown-linux-musl":"$ARM_SHA","cmux-tui-x86_64-unknown-linux-musl":"$ARM_SHA"}}
 JSON
 for arch in arm64 x86_64; do
   if [[ "$arch" == arm64 ]]; then slice=aarch64; other=x86_64; else slice=x86_64; other=aarch64; fi
@@ -196,14 +219,15 @@ for arch in arm64 x86_64; do
   [[ "$(sed -n '2p' "$EVENTS" | cut -d' ' -f1-3)" == "gh attestation verify" ]]
   [[ "$(sed -n '3p' "$EVENTS")" == "curl https://files.example.test/cmux-tui/$COMMIT/cmux-tui-$slice-apple-darwin" ]]
 
-  if grep -q "curl .*cmux-tui-$other-apple-darwin\$" "$EVENTS"; then
-    echo "FAIL: $arch fetched the unrequested slice" >&2; exit 1
-  fi
+  for target in aarch64-unknown-linux-musl x86_64-unknown-linux-musl aarch64-apple-darwin x86_64-apple-darwin; do
+    cmp "$SERVE/cmux-tui-$target" "$native_app/Contents/Resources/bin/cmux-tui-ssh/cmux-tui-$target"
+  done
+  cmp "$SERVE/manifest.json" "$native_app/Contents/Resources/bin/cmux-tui-ssh/manifest.json"
   if grep -q '^lipo -create ' "$EVENTS"; then
     echo "FAIL: $arch unnecessarily created a universal binary" >&2; exit 1
   fi
   grep -q "^lipo .* -verify_arch $arch\$" "$EVENTS"
-  echo "PASS: $arch installs only its attested, verified slice"
+  echo "PASS: $arch installs its verified client and all verified SSH companion artifacts"
 
   if FAKE_GH_EXIT=1 install_remote "$TEST_DIR/NativeDenied-$arch.app" --arch "$arch" > "$TEST_DIR/native-denied.log" 2>&1; then
     echo "FAIL: native install skipped manifest attestation" >&2; exit 1
@@ -263,9 +287,7 @@ for scenario in apple-silicon intel rosetta sysctl-unavailable aarch64; do
     --require-capability wireguard-hub > "$TEST_DIR/native-host-$scenario.log" 2>&1
   cmp "$SERVE/cmux-tui-$wanted-apple-darwin" "$TEST_DIR/NativeHost-$scenario.app/Contents/Resources/bin/cmux-tui"
   grep -q "curl .*cmux-tui-$wanted-apple-darwin\$" "$EVENTS"
-  if grep -q "curl .*cmux-tui-$rejected-apple-darwin\$" "$EVENTS"; then
-    echo "FAIL: native $scenario selected the wrong client slice" >&2; exit 1
-  fi
+  cmp "$SERVE/cmux-tui-$rejected-apple-darwin" "$TEST_DIR/NativeHost-$scenario.app/Contents/Resources/bin/cmux-tui-ssh/cmux-tui-$rejected-apple-darwin"
   echo "PASS: native $scenario selects $wanted"
 done
 if FAKE_HOST_ARCH=unsupported install_remote "$TEST_DIR/UnknownNative.app" --arch native > "$TEST_DIR/unknown-native.log" 2>&1; then
@@ -273,3 +295,76 @@ if FAKE_HOST_ARCH=unsupported install_remote "$TEST_DIR/UnknownNative.app" --arc
 fi
 [[ ! -s "$EVENTS" ]]
 echo "PASS: unsupported native host fails before network access"
+
+# --- Stalled download -----------------------------------------------------------
+# To curl, a dead HTTP/2 stream is a server that answers and then sends nothing.
+# With no stall bound one Release job waited twenty minutes per attempt for the
+# server to reset the stream and hit its job timeout (CI run 36685498203). Serve
+# exactly that over TLS and require the real installer and the real curl to give
+# up within the attempt budget instead of hanging.
+STALL_DIR="$TEST_DIR/stall"
+mkdir -p "$STALL_DIR"
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost \
+  -keyout "$STALL_DIR/key.pem" -out "$STALL_DIR/cert.pem" > "$STALL_DIR/openssl.log" 2>&1
+# The server certificate is self-signed; this test is about stalls, not trust.
+printf 'insecure\n' > "$STALL_DIR/.curlrc"
+python3 - "$STALL_DIR" <<'PY' &
+import os, socket, ssl, sys, threading, time
+root = sys.argv[1]
+context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+context.load_cert_chain(f"{root}/cert.pem", f"{root}/key.pem")
+listener = socket.create_server(("127.0.0.1", 0))
+with open(f"{root}/port.tmp", "w") as handle:
+    handle.write(str(listener.getsockname()[1]))
+os.rename(f"{root}/port.tmp", f"{root}/port")
+def stall(connection):
+    try:
+        with context.wrap_socket(connection, server_side=True) as tls:
+            tls.recv(65536)
+            tls.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\n\r\n{")
+            time.sleep(3600)
+    except OSError:
+        pass
+while True:
+    connection, _ = listener.accept()
+    with open(f"{root}/connections", "a") as handle:
+        handle.write("accepted\n")
+    threading.Thread(target=stall, args=(connection,), daemon=True).start()
+PY
+STALL_SERVER_PID=$!
+trap 'kill "$STALL_SERVER_PID" 2>/dev/null || true; rm -rf "$TEST_DIR"' EXIT
+port_deadline=$((SECONDS + 10))
+while (( SECONDS < port_deadline )) && [[ ! -s "$STALL_DIR/port" ]]; do
+  sleep 0.1
+done
+[[ -s "$STALL_DIR/port" ]] || { echo "FAIL: stall server did not start" >&2; exit 1; }
+STALL_PORT="$(cat "$STALL_DIR/port")"
+mkdir -p "$TEST_DIR/Stalled.app/Contents"
+stall_status=0
+started=$SECONDS
+CURL_HOME="$STALL_DIR" CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS=2 CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS=2 \
+  python3 -c 'import os, signal, subprocess, sys
+child = subprocess.Popen(sys.argv[1:], start_new_session=True)
+try:
+    sys.exit(child.wait(timeout=60))
+except subprocess.TimeoutExpired:
+    os.killpg(child.pid, signal.SIGKILL)
+    sys.exit(124)' \
+  /bin/bash "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$TEST_DIR/Stalled.app" --allow-unattested \
+  --cache-dir "$STALL_DIR/cache" --manifest-url "https://127.0.0.1:$STALL_PORT/manifest.json" \
+  > "$TEST_DIR/stalled.log" 2>&1 || stall_status=$?
+if [[ "$stall_status" -eq 124 ]]; then
+  echo "FAIL: a stalled download hung the installer for 60 s" >&2; cat "$TEST_DIR/stalled.log" >&2; exit 1
+fi
+if [[ "$stall_status" -eq 0 ]]; then
+  echo "FAIL: installed from a stalled download" >&2; exit 1
+fi
+[[ ! -e "$TEST_DIR/Stalled.app/Contents/Resources/bin/cmux-tui" ]]
+# The stall bound is what ended each attempt (curl exit 28, twice), the budget
+# is what ended the install, and each attempt dialed its own connection.
+[[ "$(grep -c '^curl: (28)' "$TEST_DIR/stalled.log")" -eq 2 ]] \
+  || { echo "FAIL: the stall bound did not end both attempts" >&2; cat "$TEST_DIR/stalled.log" >&2; exit 1; }
+grep -q "could not download https://127.0.0.1:$STALL_PORT/manifest.json after 2 attempts" "$TEST_DIR/stalled.log"
+[[ "$(wc -l < "$STALL_DIR/connections" | tr -d ' ')" -eq 2 ]] \
+  || { echo "FAIL: a retry reused the stalled connection" >&2; exit 1; }
+echo "PASS: a stalled download fails after $((SECONDS - started)) s instead of hanging"

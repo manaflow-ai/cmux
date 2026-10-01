@@ -10,6 +10,8 @@ final class PaneDropTargetView: NSView {
         didSet {
             if dropContext != oldValue {
                 transferDropRouter.clear()
+                dropRoutingRegistration.clear()
+                clearDragPresentationForContextChange()
             }
         }
     }
@@ -41,6 +43,7 @@ final class PaneDropTargetView: NSView {
         if newSuperview == nil {
             dropRoutingRegistration.clear()
             transferDropRouter.clear()
+            clearDragPresentationForContextChange()
         }
         super.viewWillMove(toSuperview: newSuperview)
     }
@@ -405,10 +408,21 @@ final class PaneDropTargetView: NSView {
     private func setActiveDropZone(_ zone: DropZone?) {
         activeZone = zone
         if let hostedView {
-            hostedView.setDropZoneOverlay(zone: zone)
+            hostedView.setDropZoneOverlay(zone: zone, fromPaneDrag: true)
             dropZoneOverlayView.isHidden = true
+        } else if zone == nil {
+            dropZoneOverlayAnimator.hideImmediately()
         } else {
             updateStandaloneDropZoneOverlay()
+        }
+    }
+    /// Clears a preview whose pane identity is no longer current.
+    private func clearDragPresentationForContextChange() {
+        activeZone = nil
+        if let hostedView {
+            hostedView.clearPaneDropOverlayForContextChange()
+        } else {
+            dropZoneOverlayAnimator.hideImmediately()
         }
     }
 
