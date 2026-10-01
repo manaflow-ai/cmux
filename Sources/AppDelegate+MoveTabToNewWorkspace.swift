@@ -29,7 +29,8 @@ extension AppDelegate {
     func canMoveBonsplitTab(tabId: UUID, toWorkspace targetWorkspaceId: UUID) -> Bool {
         guard locateContainerSurface(tabId: tabId) != nil,
               let destination = workspaceFor(tabId: targetWorkspaceId) else { return false }
-        return destination.surfaceOwnershipPolicy.rejection(for: machineOwningBonsplitTab(tabId)) == nil
+        return browserPanel(for: tabId) != nil
+            || destination.surfaceOwnershipPolicy.rejection(for: machineOwningBonsplitTab(tabId)) == nil
     }
 
     func workspaceMoveTargets(forSurface panelId: UUID) -> [WorkspaceMoveTarget] {

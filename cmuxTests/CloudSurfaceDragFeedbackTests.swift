@@ -58,7 +58,9 @@ struct CloudSurfaceDragFeedbackTests {
             fixture.workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: destination, isBase: false)
             let router = fixture.router()
             let result = router.resolve(pasteboard: fixture.pasteboard, context: fixture.context, proposedZone: .right)
-            if destination == "a" {
+            if kind == .browser || destination == "a" {
+                // Browser surfaces can be moved between Cloud and local
+                // workspaces. Terminal and display ownership stays strict.
                 guard case .accepted = result else { Issue.record("Same-machine drop was rejected"); return }
                 #expect(gate.rejection(for: fixture.pasteboard) == nil)
             } else {
@@ -71,7 +73,22 @@ struct CloudSurfaceDragFeedbackTests {
         }
     }
 
-    @Test("Rebinding after hover is rejected before mutation", arguments: SurfaceResourceKind.allCases)
+    @Test("Browser surface transfers are allowed into and out of Cloud workspaces")
+    func browserTransfersRemainPortable() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "cloud", isBase: false)
+        let transfer = PaneDragTransfer(tabId: UUID(), sourcePaneId: UUID(), sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier))
+        let browserGroup = SurfaceResourceGroup(single: SurfaceResourceID(machine: .local, kind: .browser, key: "browser"))
+        #expect(workspace.surfaceDropRejection(transfer, source: .surfaceResources(browserGroup)) == nil)
+        let mixedGroup = SurfaceResourceGroup(title: "mixed", resources: [
+            SurfaceResourceID(machine: .local, kind: .browser, key: "browser"),
+            SurfaceResourceID(machine: .local, kind: .terminal, key: "terminal")
+        ])
+        #expect(workspace.surfaceDropRejection(transfer, source: .surfaceResources(mixedGroup)) == .cloudMachineMismatch)
+    }
+
+    @Test("Rebinding after hover is rejected before mutation", arguments: [SurfaceResourceKind.terminal, .display])
     func destinationChangesBeforeDrop(kind: SurfaceResourceKind) throws {
         let fixture = try CloudSurfaceDragFixture(kind: kind)
         defer { fixture.finish() }

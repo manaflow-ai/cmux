@@ -90,7 +90,7 @@ struct CloudSurfaceOwnershipTests {
         )
         for source in [SurfaceMachineID.local, .cloud("ownership-a")] {
             let group = SurfaceResourceGroup(single: resource(source, kind: kind))
-            #expect(!workspace.canPerformPortalPaneDrop(transfer, source: .surfaceResources(group)))
+            #expect(workspace.canPerformPortalPaneDrop(transfer, source: .surfaceResources(group)) == (kind == .browser))
         }
         let sameMachine = SurfaceResourceGroup(single: resource(machine, kind: kind))
         #expect(workspace.canPerformPortalPaneDrop(transfer, source: .surfaceResources(sameMachine)))

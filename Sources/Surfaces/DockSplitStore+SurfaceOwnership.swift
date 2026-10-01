@@ -22,11 +22,14 @@ extension DockSplitStore {
         let ownershipPolicy = policy ?? surfaceOwnershipPolicy
         switch source {
         case .surfaceResources(let group):
-            return SurfaceCatalog.shared.ownershipRejection(for: group.resources, policy: ownershipPolicy)
+            let ownedResources = group.resources.filter { $0.kind != .browser }
+            guard !ownedResources.isEmpty else { return nil }
+            return SurfaceCatalog.shared.ownershipRejection(for: ownedResources, policy: ownershipPolicy)
         case .surface:
             guard transfer.isFromCurrentProcess else { return ownershipPolicy.rejection(for: nil) }
             // A Dock surface split or reordered within this Dock stays on its machine.
             if surfaceIdToPanelId[TabID(uuid: transfer.tabId)] != nil { return nil }
+            if AppDelegate.shared?.browserPanel(for: transfer.tabId) != nil { return nil }
             return ownershipPolicy.rejection(for: AppDelegate.shared?.machineOwningBonsplitTab(transfer.tabId))
         case .vaultSession, .filePreview, .rightSidebarTool:
             return ownershipPolicy.rejection(for: .local)
