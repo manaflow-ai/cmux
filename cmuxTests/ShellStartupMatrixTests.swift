@@ -19,6 +19,20 @@ struct ShellStartupMatrixTests {
     }
 
     @Test
+    func tmuxBashDefaultCommandResolvesCurrentRelayEnvironment() {
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 64123,
+            shellFeatures: "",
+            terminalProfile: .init(kind: .tmux, tmuxSessionName: "demo")!
+        )
+
+        expectTrue(
+            script.contains("${CMUX_SHELL_INTEGRATION_DIR:-$HOME/.cmux/relay/64123.shell}/.bashrc"),
+            script
+        )
+    }
+
+    @Test
     func zshStartupPreservesUserZdotdirAndLoadsGhosttyIntegration() throws {
         let bundled = try makeBundledIntegrationDir(files: [".zshenv": "# cmux zsh bootstrap stub\n"])
         defer { try? FileManager.default.removeItem(at: bundled.root) }
