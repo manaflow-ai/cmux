@@ -88,9 +88,12 @@ import SwiftUI
         let harness = try Harness()
         defer { harness.tearDown() }
         let workspace = harness.workspace
-        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
         let localPanelID = try #require(workspace.focusedPanelId)
-        let cloudPanel = try #require(workspace.newTerminalSurface(inPane: paneID, focus: false))
+        let cloudPanel = try #require(workspace.newTerminalSplit(
+            from: localPanelID,
+            orientation: .horizontal,
+            focus: false
+        ))
         cloudPanel.cloudAttachment = CloudTerminalAttachmentStatus(machineID: "focus-ring-test")
 
         #expect(workspace.focusedPanelId == localPanelID)
