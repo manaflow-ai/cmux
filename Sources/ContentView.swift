@@ -11155,6 +11155,7 @@ struct VerticalTabsSidebar: View, Equatable {
     let chromeBackgroundColor: NSColor
     var observedWindow: NSWindow? { observedWindowReference.window }
     @EnvironmentObject var tabManager: TabManager
+    @EnvironmentObject var sidebarState: SidebarState
     // Plain reference by design. Native row and titlebar subscribers own the
     // unread invalidation boundary, so this O(workspaces) root stays inert.
     var notificationStore: TerminalNotificationStore { .shared }
@@ -12920,7 +12921,8 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func scheduleWorkspaceSnapshotRefresh(workspaceId: UUID) {
-        workspaceSnapshotRefreshCoalescer.schedule(workspaceId: workspaceId) { workspaceIds in
+        workspaceSnapshotRefreshCoalescer.schedule(workspaceId: workspaceId) { [sidebarState] workspaceIds in
+            guard sidebarState.isVisible else { return }
             refreshWorkspaceSnapshots(workspaceIds: workspaceIds)
         }
     }
@@ -16932,7 +16934,7 @@ private struct SidebarMetadataRows: View {
     }
 
     private var helpText: String {
-        entries.map(\.sidebarDisplayText)
+        entries.map(\.sidebarHelpText)
         .joined(separator: "\n")
     }
 
@@ -16960,7 +16962,7 @@ private struct SidebarMetadataEntryRow: View {
                     rowContent(underlined: true)
                 }
                 .buttonStyle(.plain)
-                .safeHelp(url.absoluteString)
+                .safeHelp(entry.sidebarToolTip(linkURL: url) ?? url.absoluteString)
             } else {
                 rowContent(underlined: false)
                     .contentShape(Rectangle())

@@ -175,6 +175,7 @@ extension CmuxSettingsFileStore {
                     "showPorts": SidebarWorkspaceDetailDefaults.showPorts,
                     "showLog": SidebarWorkspaceDetailDefaults.showLog,
                     "showProgress": SidebarWorkspaceDetailDefaults.showProgress,
+                    "showAgentUsage": SidebarWorkspaceDetailDefaults.showAgentUsage,
                     "showAgentActivity": SidebarWorkspaceDetailDefaults.showAgentActivity,
                     "showCustomMetadata": SidebarWorkspaceDetailDefaults.showCustomMetadata,
                     "compactAgentStatus": SidebarWorkspaceDetailDefaults.compactAgentStatus,
