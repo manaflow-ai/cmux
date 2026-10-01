@@ -108,8 +108,9 @@ class LocalizationCatalogTests(unittest.TestCase):
         self.assertEqual(MODULE.validate_localization("%d%% of %@", unit("%2$@ の %1$d%%"), "ja"), [])
 
     def test_dynamic_width_and_precision_consume_their_own_arguments(self):
-        self.assertEqual(MODULE.signature("Width %*d then %d"), [(1, "*"), (2, "*d"), (3, "d")])
-        self.assertEqual(MODULE.signature("%3$*1$.*2$f"), [(1, "*"), (2, "*"), (3, "*.*f")])
+        self.assertEqual(MODULE.signature("Width %*d then %d"), [(1, "*"), (2, "*1$d"), (3, "d")])
+        self.assertEqual(MODULE.signature("%3$*1$.*2$f"), [(1, "*"), (2, "*"), (3, "*1$.*2$f")])
+        self.assertEqual(MODULE.signature("%*.*f"), MODULE.signature("%3$*1$.*2$f"))
         self.assertEqual(MODULE.canonical_text("Width %-*.*f"), "Width %3$-*1$.*2$f")
         self.assertEqual(MODULE.canonical_text("Width %3$-*1$.*2$f"), "Width %3$-*1$.*2$f")
         for english, translated in (
@@ -128,6 +129,8 @@ class LocalizationCatalogTests(unittest.TestCase):
             ("Positional %3$*1$.*2$f", "精度 %3$f"),
             ("Width %*d", "幅 %1$d 値 %2$d"),
             ("Width %*d", "幅 %2$*1$@"),
+            ("Positional %3$*1$.*2$f", "精度 %3$*2$.*1$f"),
+            ("Width %*d then %*d", "幅 %2$*3$d、%4$*1$d"),
         ):
             with self.subTest(translated=translated):
                 self.assertTrue(MODULE.validate_localization(english, unit(translated), "ja"))

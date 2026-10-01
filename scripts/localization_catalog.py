@@ -155,7 +155,7 @@ def tokens(value: str, substitutions: dict | None = None):
             if field.startswith("*"):
                 argument = position(field[1:-1])
                 arguments.append((argument, "*"))
-                specifier += prefix + "*"
+                specifier += f"{prefix}*{argument}$"
                 canonical += f"{prefix}*{argument}$"
             else:
                 specifier += prefix + field
