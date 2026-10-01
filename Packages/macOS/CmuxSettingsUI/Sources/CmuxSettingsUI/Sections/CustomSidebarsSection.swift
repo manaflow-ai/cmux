@@ -345,6 +345,18 @@ private struct CustomSidebarTemplateGallery: View {
     @ViewBuilder
     private func templateCard(_ template: CustomSidebarTemplateDescriptor) -> some View {
         VStack(alignment: .leading, spacing: 8) {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.accentColor.opacity(0.12))
+                .overlay {
+                    let theme = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua ? "light" : "dark"
+                    if let url = assets.previewImageURL(id: template.id, theme: theme), let image = NSImage(contentsOf: url) {
+                        Image(nsImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .clipped()
+                    }
+                }
+                .frame(height: 105)
             Text(Bundle.module.localizedString(forKey: template.displayNameKey, value: template.displayName, table: nil))
                 .font(.headline)
             Text(Bundle.module.localizedString(forKey: template.descriptionKey, value: template.description, table: nil))
