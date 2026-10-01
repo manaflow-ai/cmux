@@ -164,7 +164,7 @@ final class TypingIndicatorView: UIView {
     private let tailSmall = UIView()
     private var dots: [UIView] = []
 
-    static let bubbleSize = CGSize(width: 62, height: 38)
+    static let bubbleSize = CGSize(width: 62, height: 42)
 
     override init(frame: CGRect) {
         super.init(frame: frame)

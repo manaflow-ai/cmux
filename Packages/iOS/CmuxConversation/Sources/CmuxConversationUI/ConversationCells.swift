@@ -28,6 +28,7 @@ final class MessageCell: UICollectionViewCell {
     let shiftable = UIView()
 
     private(set) var model: MessageRowModel?
+    private var previousRowID: String?
     private(set) var cellLayout: MessageCellLayout?
     private var imageTasks: [Task<Void, Never>] = []
 
@@ -85,6 +86,7 @@ final class MessageCell: UICollectionViewCell {
         super.prepareForReuse()
         imageTasks.forEach { $0.cancel() }
         imageTasks = []
+        previousRowID = nil
         timestampReveal = 0
         replyDrag = 0
         contentView.alpha = 1
@@ -164,6 +166,18 @@ final class MessageCell: UICollectionViewCell {
             reactionBadge.isHidden = true
         }
 
+        // "Delivered" fades in over ~0.4 s when it first lands on this row.
+        let sameRow = previousRowID == model.rowID
+        let footerWasHidden = footerLabel.isHidden
+        defer {
+            if sameRow, footerWasHidden, !footerLabel.isHidden {
+                footerLabel.alpha = 0
+                UIView.animate(withDuration: 0.4, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) { self.footerLabel.alpha = 1 }
+            } else if !footerLabel.isHidden {
+                footerLabel.alpha = 1
+            }
+            previousRowID = model.rowID
+        }
         switch model.footer {
         case .none:
             footerLabel.isHidden = true
@@ -199,14 +213,22 @@ final class MessageCell: UICollectionViewCell {
         }
 
         timeLabel.text = message.sentAt.formatted(date: .omitted, time: .shortened)
-        timeLabel.sizeToFit()
-        let anchorFrame = layout.contentFrame
-        timeLabel.frame = CGRect(x: contentView.bounds.width + 8, y: anchorFrame.midY - timeLabel.bounds.height / 2, width: timeLabel.bounds.width, height: timeLabel.bounds.height)
-        replyArrow.frame = CGRect(x: 0, y: anchorFrame.midY - 15, width: 30, height: 30)
-
+        setNeedsLayout()
         applyShifts()
         accessibilityLabel = [model.senderName, message.text].compactMap { $0 }.joined(separator: ", ")
         isAccessibilityElement = true
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        shiftable.frame = contentView.bounds
+        guard let cellLayout else { return }
+        // The time waits just past the trailing edge until a swipe reveals it.
+        timeLabel.sizeToFit()
+        let anchor = cellLayout.contentFrame
+        timeLabel.frame = CGRect(x: contentView.bounds.width + 8, y: anchor.midY - timeLabel.bounds.height / 2, width: timeLabel.bounds.width, height: timeLabel.bounds.height)
+        replyArrow.frame = CGRect(x: 0, y: anchor.midY - 15, width: 30, height: 30)
+        applyShifts()
     }
 
     private func configureImages(model: MessageRowModel, layout: MessageCellLayout) {
@@ -229,6 +251,12 @@ final class MessageCell: UICollectionViewCell {
             }
             view.isHidden = false
             view.frame = layout.imageFrames[index]
+            // Images take the bubble outline; the last one in a run gets the tail.
+            let tailed = model.showsTail && index == layout.imageFrames.count - 1 && model.message.text.isEmpty
+            let mask = (view.layer.mask as? CAShapeLayer) ?? CAShapeLayer()
+            mask.path = BubbleShape.path(in: view.bounds, side: model.isOutgoing ? .trailing : .leading, tail: tailed).cgPath
+            view.layer.mask = mask
+            view.layer.cornerRadius = 0
             let attachment = model.message.attachments[index]
             let pixelWidth = view.frame.width * (window?.screen.scale ?? 3)
             if let cached = ConversationImageLoader.shared.cachedImage(for: attachment, pixelWidth: pixelWidth) {
@@ -263,7 +291,8 @@ final class MessageCell: UICollectionViewCell {
         footerLabel.transform = CGAffineTransform(translationX: model.isOutgoing ? -reveal : 0, y: 0)
         failedBadge.transform = shiftable.transform
         timeLabel.alpha = timestampReveal
-        timeLabel.transform = CGAffineTransform(translationX: -reveal - 4, y: 0)
+        // Right-aligned at the layout margin once fully revealed.
+        timeLabel.transform = CGAffineTransform(translationX: -(timeLabel.bounds.width + 8 + 16) * min(1, timestampReveal) - max(0, timestampReveal - 1) * revealDistance, y: 0)
         let replyProgress = min(1, replyDrag / 60)
         replyArrow.alpha = replyProgress
         let arrowX = model.isOutgoing ? max(0, layoutOrigin(model) - 34) : max(4, replyDrag - 34)

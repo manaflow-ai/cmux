@@ -87,7 +87,7 @@ final class ConversationHeaderView: UIView {
         avatars.forEach { $0.removeFromSuperview() }
         avatars = shown.map { participant in
             let view = ConversationAvatarView()
-            view.configure(initials: participant.initials, colorHex: info.kind == .group ? participant.colorHex : nil)
+            view.configure(initials: participant.initials, colorHex: nil)
             view.layer.borderWidth = info.kind == .group ? 1.5 : 0
             view.layer.borderColor = ConversationTheme.background.resolvedColor(with: traitCollection).cgColor
             insertSubview(view, belowSubview: namePillGlass)

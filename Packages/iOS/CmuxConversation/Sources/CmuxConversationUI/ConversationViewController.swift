@@ -54,6 +54,7 @@ public final class ConversationViewController: UIViewController {
     var appearances: [String: ConversationTranscriptLayout.Appearance] = [:]
     /// Outgoing rows hidden while their send animation flies.
     var flyingRowIDs: Set<String> = []
+    var activeFlights: [String: UIViewPropertyAnimator] = [:]
     private var hasPositionedInitially = false
     private var lastBottomInset: CGFloat = 0
     var layoutMargin: CGFloat { view.directionalLayoutMargins.leading }
@@ -292,6 +293,12 @@ public final class ConversationViewController: UIViewController {
         }
         let structural = commonOld == commonNew
 
+        // A failed send reshapes its row; never leave its flight hanging.
+        for indexPath in updated {
+            if case let .message(model) = newRows[indexPath.item], model.footer == .notDelivered {
+                landFlightIfNeeded(rowID: model.rowID)
+            }
+        }
         let wasAtBottom = isNearBottom()
         let anchor = captureAnchor()
         let sentByMe: Bool

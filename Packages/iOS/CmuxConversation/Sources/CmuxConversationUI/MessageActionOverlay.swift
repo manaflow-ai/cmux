@@ -22,14 +22,20 @@ final class MessageActionOverlay: UIView {
     private let blur = UIVisualEffectView(effect: nil)
     private let dim = UIView()
     private let snapshot: UIView
+    /// Clips a preview taller than the space between bar and menu.
+    private let snapshotClip = UIView()
     private let sourceFrame: CGRect
     private let reactionBar: UIVisualEffectView
     private let reactionScroll = UIScrollView()
     private var reactionButtons: [UIButton] = []
     private let menu: UIVisualEffectView
+    private let emojiButton = makeGlassView(cornerRadius: 17)
+    private var blurAnimator: UIViewPropertyAnimator?
     private let menuStack = UIStackView()
     private let detailCard: UIVisualEffectView?
     private let isOutgoing: Bool
+    /// Bottom of the header; the bar and preview stay below it.
+    var topInset: CGFloat = 0
     var onReaction: ((ConversationReaction) -> Void)?
     var onDismiss: (() -> Void)?
 
@@ -54,14 +60,18 @@ final class MessageActionOverlay: UIView {
 
         blur.frame = bounds
         dim.frame = bounds
-        dim.backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor.black.withAlphaComponent(0.35) : UIColor.black.withAlphaComponent(0.08) }
+        dim.backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor.black.withAlphaComponent(0.42) : UIColor.black.withAlphaComponent(0.06) }
         dim.alpha = 0
         addSubview(blur)
         addSubview(dim)
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(backgroundTapped)))
 
-        snapshot.frame = sourceFrame
-        addSubview(snapshot)
+        snapshotClip.clipsToBounds = true
+        snapshotClip.layer.cornerCurve = .continuous
+        snapshotClip.frame = sourceFrame
+        snapshot.frame = CGRect(origin: .zero, size: sourceFrame.size)
+        snapshotClip.addSubview(snapshot)
+        addSubview(snapshotClip)
 
         // Tapback bar: the six tapbacks plus an emoji button, scrollable.
         addSubview(reactionBar)
@@ -95,6 +105,13 @@ final class MessageActionOverlay: UIView {
             reactionButtons.append(button)
         }
 
+        addSubview(emojiButton)
+        let face = UIImageView(image: UIImage(systemName: "face.smiling", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .regular)))
+        face.tintColor = .secondaryLabel
+        face.contentMode = .center
+        face.frame = CGRect(x: 0, y: 0, width: 34, height: 34)
+        emojiButton.contentView.addSubview(face)
+
         if let detailCard {
             addSubview(detailCard)
             let stack = UIStackView()
@@ -125,6 +142,7 @@ final class MessageActionOverlay: UIView {
         }
 
         menuStack.axis = .vertical
+        addSubview(menu)
         menu.contentView.addSubview(menuStack)
         for (index, item) in items.enumerated() {
             if index == 1, items.count > 3 {
@@ -161,25 +179,30 @@ final class MessageActionOverlay: UIView {
     private func layoutFinal() -> CGRect {
         let safe = safeAreaInsets
         let barHeight: CGFloat = 52
-        let barWidth = min(bounds.width - 32, CGFloat(reactionButtons.count) * 46 + 12)
+        // Natural width; like Messages the bar may run off the far screen edge and scroll.
+        let barWidth = CGFloat(reactionButtons.count) * 46 + 12
         let menuSize = menuSize
         var target = sourceFrame
-        let topLimit = safe.top + 8 + barHeight + 10 + (detailCard?.bounds.height ?? 0)
+        let topLimit = max(safe.top, topInset) + 8 + barHeight + 10 + (detailCard?.bounds.height ?? 0)
         let bottomLimit = bounds.height - safe.bottom - 12 - (menu.isHidden ? 0 : menuSize.height + 10)
         // Keep the bubble in place when possible; shift only as far as needed.
         if target.maxY > bottomLimit { target.origin.y = bottomLimit - target.height }
         if target.minY < topLimit { target.origin.y = topLimit }
-        if target.maxY > bounds.height - safe.bottom - 12 {
-            // Too tall: keep its top, let it clip under the menu.
+        if target.height > bottomLimit - topLimit {
+            // Too tall to fit between bar and menu: show its top part, clipped.
             target.origin.y = topLimit
+            target.size.height = max(60, bottomLimit - topLimit)
+            snapshotClip.layer.cornerRadius = ConversationTheme.bubbleCornerRadius
         }
-        let barX = isOutgoing ? bounds.width - 16 - barWidth : 16
+        snapshotClip.frame = target
+        let barX = isOutgoing ? min(bounds.width - 16, sourceFrame.maxX) - barWidth : max(16, sourceFrame.minX)
         reactionBar.frame = CGRect(x: barX, y: target.minY - barHeight - 10, width: barWidth, height: barHeight)
         reactionScroll.frame = reactionBar.bounds
         for (index, button) in reactionButtons.enumerated() {
             button.frame = CGRect(x: 6 + CGFloat(index) * 46, y: 4, width: 44, height: 44)
         }
         reactionScroll.contentSize = CGSize(width: CGFloat(reactionButtons.count) * 46 + 12, height: barHeight)
+        emojiButton.frame = CGRect(x: min(bounds.width - 16 - 34, reactionBar.frame.maxX - 40), y: reactionBar.frame.maxY + 4, width: 34, height: 34)
         if let detailCard {
             detailCard.frame = CGRect(
                 x: isOutgoing ? bounds.width - 16 - detailCard.bounds.width : 16,
@@ -197,21 +220,29 @@ final class MessageActionOverlay: UIView {
 
     func present() {
         let target = layoutFinal()
-        for view in [reactionBar, menu] + (detailCard.map { [$0] } ?? []) {
+        snapshotClip.frame = sourceFrame
+        for view in [reactionBar, menu, emojiButton] + (detailCard.map { [$0] } ?? []) {
             // Grow out of the bubble's side and edge.
             let dx = (isOutgoing ? 1 : -1) * view.bounds.width * 0.2
             let dy = (view === menu ? -1 : 1) * view.bounds.height * 0.2
             view.alpha = 0
             view.transform = CGAffineTransform(translationX: dx, y: dy).scaledBy(x: 0.6, y: 0.6)
         }
-        let blurEffect = UIBlurEffect(style: .systemUltraThinMaterial)
+        // A partial blur: the transcript stays faintly legible behind the menu.
+        let animator = UIViewPropertyAnimator(duration: 1, curve: .linear) {
+            self.blur.effect = UIBlurEffect(style: .systemUltraThinMaterial)
+        }
+        animator.pausesOnCompletion = true
+        blurAnimator = animator
         // Main motion ~0.23 s, settled by ~0.5 s.
+        animator.fractionComplete = 0.28
+        blur.alpha = 0
+        UIView.animate(withDuration: 0.23, delay: 0, options: [.curveEaseOut]) { self.blur.alpha = 1 }
         UIView.animate(withDuration: 0.5, delay: 0, usingSpringWithDamping: 0.82, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
-            self.blur.effect = blurEffect
             self.dim.alpha = 1
-            self.snapshot.frame = target
-            self.snapshot.transform = CGAffineTransform(scaleX: 1.02, y: 1.02)
-            for view in [self.reactionBar, self.menu] + (self.detailCard.map { [$0] } ?? []) {
+            self.snapshotClip.frame = target
+            self.snapshotClip.transform = CGAffineTransform(scaleX: 1.02, y: 1.02)
+            for view in [self.reactionBar, self.menu, self.emojiButton] + (self.detailCard.map { [$0] } ?? []) {
                 view.alpha = 1
                 view.transform = .identity
             }
@@ -220,15 +251,17 @@ final class MessageActionOverlay: UIView {
 
     func dismiss(then completion: (() -> Void)? = nil) {
         UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0) {
-            self.blur.effect = nil
+            self.blur.alpha = 0
             self.dim.alpha = 0
-            self.snapshot.frame = self.sourceFrame
-            self.snapshot.transform = .identity
-            for view in [self.reactionBar, self.menu] + (self.detailCard.map { [$0] } ?? []) {
+            self.snapshotClip.frame = self.sourceFrame
+            self.snapshotClip.transform = .identity
+            for view in [self.reactionBar, self.menu, self.emojiButton] + (self.detailCard.map { [$0] } ?? []) {
                 view.alpha = 0
                 view.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
             }
         } completion: { _ in
+            self.blurAnimator?.stopAnimation(true)
+            self.blurAnimator = nil
             self.removeFromSuperview()
             self.onDismiss?()
             completion?()
@@ -332,7 +365,8 @@ extension ConversationViewController {
                 self?.store.react(messageID: message.id, reaction: mine == reaction ? nil : reaction)
             }
         }
-        view.addSubview(overlay)
+        overlay.topInset = header.frame.maxY
+        view.insertSubview(overlay, belowSubview: header)
         overlay.layoutIfNeeded()
         overlay.present()
     }

@@ -57,45 +57,55 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             } else {
                 replyDragRowID = nil
             }
+            // Recognition already consumed some travel; apply it at once.
+            updateHorizontalPan(translation)
         case .changed:
-            if let rowID = replyDragRowID {
-                let raw = max(0, translation)
-                // Rubber band beyond the commit threshold.
-                let threshold: CGFloat = 60
-                let offset = raw <= threshold ? raw : threshold + (raw - threshold) * 0.35
-                replyDragOffset = min(offset, 110)
-                if let indexPath = indexPath(for: rowID), let cell = collectionView.cellForItem(at: indexPath) as? MessageCell {
-                    cell.replyDrag = replyDragOffset
-                }
-                if replyDragOffset >= threshold, !replyHapticFired {
-                    replyHapticFired = true
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                } else if replyDragOffset < threshold {
-                    replyHapticFired = false
-                }
-            } else {
-                let raw = max(0, -translation)
-                let distance: CGFloat = 64
-                let reveal = raw <= distance ? raw / distance : 1 + (raw - distance) / distance * 0.25
-                setTimestampReveal(min(reveal, 1.2), animated: false)
-            }
+            updateHorizontalPan(translation)
         case .ended, .cancelled, .failed:
-            if let rowID = replyDragRowID {
-                let commit = replyDragOffset >= 60 && pan.state == .ended
-                let cell = indexPath(for: rowID).flatMap { collectionView.cellForItem(at: $0) as? MessageCell }
-                UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
-                    cell?.replyDrag = 0
-                }
-                replyDragRowID = nil
-                replyDragOffset = 0
-                if commit, case let .message(model)? = row(for: rowID) {
-                    enterReplyMode(for: model.message)
-                }
-            } else {
-                setTimestampReveal(0, animated: true)
-            }
+            endHorizontalPan(committed: pan.state == .ended)
         default:
             break
+        }
+    }
+
+    private func updateHorizontalPan(_ translation: CGFloat) {
+        if let rowID = replyDragRowID {
+            let raw = max(0, translation)
+            // Rubber band beyond the commit threshold.
+            let threshold: CGFloat = 60
+            let offset = raw <= threshold ? raw : threshold + (raw - threshold) * 0.35
+            replyDragOffset = min(offset, 110)
+            if let indexPath = indexPath(for: rowID), let cell = collectionView.cellForItem(at: indexPath) as? MessageCell {
+                cell.replyDrag = replyDragOffset
+            }
+            if replyDragOffset >= threshold, !replyHapticFired {
+                replyHapticFired = true
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            } else if replyDragOffset < threshold {
+                replyHapticFired = false
+            }
+        } else {
+            let raw = max(0, -translation)
+            let distance: CGFloat = 64
+            let reveal = raw <= distance ? raw / distance : 1 + (raw - distance) / distance * 0.25
+            setTimestampReveal(min(reveal, 1.2), animated: false)
+        }
+    }
+
+    private func endHorizontalPan(committed: Bool) {
+        if let rowID = replyDragRowID {
+            let commit = replyDragOffset >= 60 && committed
+            let cell = indexPath(for: rowID).flatMap { collectionView.cellForItem(at: $0) as? MessageCell }
+            UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
+                cell?.replyDrag = 0
+            }
+            replyDragRowID = nil
+            replyDragOffset = 0
+            if commit, case let .message(model)? = row(for: rowID) {
+                enterReplyMode(for: model.message)
+            }
+        } else {
+            setTimestampReveal(0, animated: true)
         }
     }
 

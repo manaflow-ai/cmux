@@ -115,12 +115,6 @@ extension MessageCellLayout {
         }
 
         var y: CGFloat = 0
-        var senderNameFrame: CGRect?
-        if model.showsSenderName, model.senderName != nil {
-            senderNameFrame = CGRect(x: incomingBodyLeading + 15, y: 0, width: maxBubbleWidth, height: 16)
-            y += 19
-        }
-
         var quoteFrame: CGRect?
         var quoteTextFrame: CGRect?
         if let quote = model.replyQuote {
@@ -139,6 +133,12 @@ extension MessageCellLayout {
             let bodyMinX = quote.isOutgoing ? frame.minX : frame.minX + t.tailWidth
             quoteTextFrame = CGRect(x: bodyMinX + 12, y: y + 7, width: bodyWidth - 24, height: textHeight)
             y += h + 6
+        }
+
+        var senderNameFrame: CGRect?
+        if model.showsSenderName, model.senderName != nil {
+            senderNameFrame = CGRect(x: incomingBodyLeading + 15, y: y, width: maxBubbleWidth, height: 16)
+            y += 19
         }
 
         if hasReactions { y += 18 }
@@ -163,7 +163,7 @@ extension MessageCellLayout {
         if model.isEmojiOnly {
             let emoji = NSAttributedString(string: message.text, attributes: [.font: UIFont.systemFont(ofSize: t.emojiOnlyFontSize)])
             var size = measure(emoji, maxWidth: maxBubbleWidth)
-            size.width += 8
+            size.width += ceil(t.emojiOnlyFontSize * 0.25)
             size.height += 6
             emojiFrame = CGRect(
                 x: model.isOutgoing ? outgoingBodyTrailing - size.width : incomingBodyLeading,
