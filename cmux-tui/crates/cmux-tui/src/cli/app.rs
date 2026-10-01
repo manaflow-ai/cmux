@@ -163,6 +163,7 @@ fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
         params.insert("tab".into(), json!(target));
     }
     let words: Vec<&String> = rest.iter().filter(|arg| !arg.starts_with("--")).collect();
+    let mut timeout = READ_TIMEOUT;
     let method = match (verb.as_str(), words.as_slice()) {
         ("navigate" | "goto" | "open", [url]) => {
             params.insert("url".into(), json!(url));
@@ -204,17 +205,34 @@ fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
             params.insert("text".into(), json!(text));
             if verb == "fill" { "browser.page.fill" } else { "browser.page.type" }
         }
+        ("tabs", []) => {
+            if Options::parse(rest, &[], &["all"])?.flag("all") {
+                params.insert("all".into(), json!(true));
+            }
+            "browser.page.tabs"
+        }
+        // These run the app's tab actions and wait for them, as `action run` does.
+        ("new-tab", [] | [_]) => {
+            if let [url] = words.as_slice() {
+                params.insert("url".into(), json!(url));
+            }
+            timeout = WAITING_RUN_TIMEOUT;
+            "browser.page.open"
+        }
+        ("select" | "switch", []) => {
+            timeout = WAITING_RUN_TIMEOUT;
+            "browser.page.select"
+        }
+        ("close", []) => {
+            timeout = WAITING_RUN_TIMEOUT;
+            "browser.page.close"
+        }
         _ => return Err(usage()),
     };
-    if verb != "snapshot" && words.len() != rest.len() {
+    if !matches!(verb.as_str(), "snapshot" | "tabs") && words.len() != rest.len() {
         return Err(usage());
     }
-    Ok(AppCommand::Call {
-        method,
-        params: Value::Object(params),
-        timeout: READ_TIMEOUT,
-        pick: None,
-    })
+    Ok(AppCommand::Call { method, params: Value::Object(params), timeout, pick: None })
 }
 
 /// `action.run` for an action id or CLI name: `--target ID`, `--no-wait`
@@ -813,6 +831,38 @@ mod tests {
             None
         );
         assert!(parse(&args(&["browser", "page", "fill", "#q"])).is_err());
+    }
+
+    #[test]
+    fn browser_tab_verbs_list_open_select_and_close_app_tabs() {
+        let (method, params) =
+            call(parse(&args(&["browser", "page", "tabs", "--all"])).unwrap().unwrap());
+        assert_eq!(method, "browser.page.tabs");
+        assert_eq!(params, json!({ "all": true }));
+        let command =
+            parse(&args(&["browser", "tab_01ab", "new-tab", "https://cmux.com"])).unwrap().unwrap();
+        let AppCommand::Call { timeout, .. } = &command else { panic!("expected a call") };
+        assert_eq!(*timeout, WAITING_RUN_TIMEOUT);
+        assert_eq!(
+            call(command),
+            ("browser.page.open", json!({ "tab": "tab_01ab", "url": "https://cmux.com" }))
+        );
+        assert_eq!(
+            call(parse(&args(&["browser", "page", "new-tab"])).unwrap().unwrap()),
+            ("browser.page.open", json!({}))
+        );
+        for verb in ["select", "switch"] {
+            assert_eq!(
+                call(parse(&args(&["browser", "tab_01ab", verb])).unwrap().unwrap()),
+                ("browser.page.select", json!({ "tab": "tab_01ab" }))
+            );
+        }
+        assert_eq!(
+            call(parse(&args(&["browser", "tab_01ab", "close"])).unwrap().unwrap()),
+            ("browser.page.close", json!({ "tab": "tab_01ab" }))
+        );
+        assert!(parse(&args(&["browser", "page", "close", "tab_02"])).is_err());
+        assert!(parse(&args(&["browser", "page", "tabs", "--bogus"])).is_err());
     }
 
     #[test]

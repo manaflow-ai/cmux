@@ -113,6 +113,15 @@ On `feat-cmux-next-cli-state` (state-ownership.md step D, CLI part):
   timing flakes (`session_shutdown_exits_an_interactive_detached_owner_client`,
   `closing_one_hundred_terminals…`).
 
+On `feat-cmux-next-browser-tabs` (browser group 2):
+
+- `browser.page.tabs` (snapshot lane: the app browser tabs of the named tab's workspace,
+  the focused one, or `all`) and `browser.page.open|select|close`, which check that the tab
+  is an app browser tab and then run `openBrowser`, `tab.focus` or `closeTab` through
+  `action.run` (same work queue, wait and `created` ids as the keyboard and `cmux tab …`).
+  CLI: `cmux browser <tab_…|page> tabs [--all] | new-tab [URL] | select | close`, the old
+  `cmux browser tab list|new|switch|close`.
+
 ## Remaining
 
 1. App windows get typed ids (`win_<32 hex>`); today they are bare lowercase UUIDs.

@@ -40,12 +40,24 @@ cmux browser "$TAB" text body
 cmux browser "$TAB" value "#email"
 cmux browser "$TAB" fill "#email" "$APP_USERNAME"
 cmux browser "$TAB" type "#search" "query"
+cmux browser "$TAB" tabs
+cmux browser page tabs --all
+cmux browser "$TAB" new-tab https://example.com
+cmux browser "$TAB" select
+cmux browser "$TAB" close
 ```
 
 `goto` and `open` are accepted for `navigate`; `url` and `title` are accepted
 for `state`. `fill` replaces the field's value; `type` types into it.
 Selectors are CSS selectors or snapshot refs (`e3`, `@e3`). Add `--json` before
 the scope for machine-readable output (`cmux --json browser "$TAB" state`).
+
+`tabs` lists the browser tabs of the tab's workspace (`page tabs`: the focused
+workspace; `--all`: every workspace) with id, title, URL, pane and whether each
+is selected or focused. `new-tab [URL]` opens a browser tab in the same pane
+and prints its id under `created`; `select` (or `switch`) shows and focuses the
+tab; `close` closes it. They run the same actions as the tab strip and refuse a
+tab that is not an app browser tab.
 
 ## Daemon browsers (`browser_…`)
 
@@ -84,7 +96,7 @@ The old CLI's `wait`, `cookies`, `storage`, `state save|load`, `console`,
 `dialog`, `frame`, `network`, `trace`, `screencast`, `geolocation`,
 `offline`, `viewport`, `hover`, `dblclick`, `check`, `uncheck`, `select`,
 `scroll`, `scroll-into-view`, `press`, `keydown`, `keyup`, `get attr|count|box|styles|html`,
-`tab list|new|switch|close` inside a browser, `identify`, `profile`,
+`identify`, `profile`,
 `design-mode status` and `--snapshot-after` have no command in the new CLI.
 Waits are not supported yet; do not poll with `eval`. For a one-shot read that
 `text` and `value` do not cover, `eval` returns the script's value.
