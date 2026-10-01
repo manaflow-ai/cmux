@@ -153,6 +153,13 @@ struct CloudTreeResourceNameTests {
             url: nil
         )
         #expect(CloudTreeOutlineView.canRenameRemoteView(resource: onDevice, remoteView: view(name: nil)) == false)
+
+        let forwardedPort = resource(
+            kind: .browser,
+            key: SurfaceResourceID.portKey(8080),
+            title: "Example Domain"
+        )
+        #expect(CloudTreeOutlineView.canRenameRemoteView(resource: forwardedPort, remoteView: view(name: nil)) == false)
     }
 
     /// The prompt and the drag payload hold a resource, not a row, so they

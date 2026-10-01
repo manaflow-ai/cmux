@@ -32,7 +32,7 @@ extension CloudTreeOutlineView {
     /// number, never to a name, so a rename would write something no row
     /// shows. Naming ports is its own change, in the row first.
     static func canRenameRemoteView(resource: SurfaceResource, remoteView: SurfaceRemoteView?) -> Bool {
-        remoteView != nil && !resource.id.machine.isDevice
+        remoteView != nil && !resource.id.machine.isDevice && !resource.id.isForwardedPort
     }
 }
 
