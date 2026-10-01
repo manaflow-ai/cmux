@@ -26,10 +26,8 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let cloudVMSupportsFork = CommandPaletteContextKeys(rawValue: "workspace.cloudVM.supportsFork")
     /// Whether the selected Cloud VM supports checkpoint or template promotion.
     public static let cloudVMSupportsSnapshot = CommandPaletteContextKeys(rawValue: "workspace.cloudVM.supportsSnapshot")
-    /// Whether the selected Cloud VM supports checkpoint restore.
-    public static let cloudVMSupportsRestore = CommandPaletteContextKeys(rawValue: "workspace.cloudVM.supportsRestore")
-    /// Whether the selected Cloud VM supports port previews.
-    public static let cloudVMSupportsPorts = CommandPaletteContextKeys(rawValue: "workspace.cloudVM.supportsPorts")
+    /// Whether the selected Cloud VM permits control-plane command execution.
+    public static let cloudVMSupportsExec = CommandPaletteContextKeys(rawValue: "workspace.cloudVM.supportsExec")
     /// Selected workspace display name.
     public static let workspaceName = CommandPaletteContextKeys(rawValue: "workspace.name")
     /// Whether the workspace has a custom name.

@@ -29,7 +29,6 @@ public struct CommandPaletteCloudCapabilityPolicy: Sendable {
         switch commandId {
         case "palette.cloud.fork",
              "palette.cloud.snapshot",
-             "palette.cloud.restore",
              "palette.cloud.promoteTemplate",
              "palette.cloud.status",
              "palette.cloud.ports",
@@ -52,7 +51,8 @@ public struct CommandPaletteCloudCapabilityPolicy: Sendable {
              "palette.browserSplitRight",
              "palette.browserSplitDown",
              "palette.terminalSplitBrowserRight",
-             "palette.terminalSplitBrowserDown":
+             "palette.terminalSplitBrowserDown",
+             "palette.openTerminalChatView":
             return .localOnly
         default:
             return .shared

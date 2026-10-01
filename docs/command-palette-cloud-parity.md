@@ -9,9 +9,9 @@ the palette only applies the capability gate before it materializes a command.
 
 | Capability | Palette actions | Local workspace | Cloud workspace |
 | --- | --- | --- | --- |
-| Shared | Workspace creation and lifecycle, workspace and tab names/colors/read state, pane navigation and sizing, terminal creation and splits, terminal search and input controls, copy/screen actions, Cloud browser navigation/focus/zoom/devtools/console/React Grab/history/duplicate, canvas/layout controls, notifications, settings, account actions, and **New Cloud Machine** | Shown when the normal context gate passes | Shown when the normal context gate passes; terminal creation/splits use the Cloud terminal reservation and remote placement path |
-| Cloud-only | Fork, checkpoint, restore, promote-to-template, status, ports, tools, and agent handoff for the current Cloud VM | Hidden because there is no selected VM target | Shown only for the selected Cloud VM, and capability-dependent actions are omitted when the server says that VM cannot honor them; handlers resolve that selected workspace rather than another open machine |
-| Local-only | New browser workspace/tab, new Agent Chat, new Simulator pane, open a local folder or VS Code Inline folder, open workspace pull requests, diff viewers, directory search, VS Code serve-web stop/restart, browser splits, terminal-to-browser splits, terminal text-box file attachment, and every `palette.terminalOpenDirectory.*` action | Shown when the normal context gate passes | Omitted because these create or inspect this Mac's local filesystem/browser/simulator resources |
+| Shared | Workspace creation and lifecycle, workspace and tab names/colors/read state, pane navigation and sizing, terminal creation and splits, terminal search and input controls, copy/screen actions, Cloud browser navigation/focus/zoom/devtools/console/React Grab/history/duplicate, canvas/layout controls, notifications, settings, account actions, **New Cloud Machine**, and restoring a Cloud VM from a supplied checkpoint or snapshot ID | Shown when the normal context gate passes; Cloud restore also requires the Cloud feature and account | Shown when the normal context gate passes; terminal creation/splits use the Cloud terminal reservation and remote placement path; Cloud restore creates a new machine from the supplied snapshot and does not target the selected VM |
+| Cloud-only | Fork, checkpoint, promote-to-template, status, ports, tools, and agent handoff for the current Cloud VM | Hidden because there is no selected VM target | Shown only for the selected Cloud VM, and capability-dependent actions are omitted when the server says that VM cannot honor them; ports and tools require the VM's execution capability because their CLI paths run `vm.exec` |
+| Local-only | New browser workspace/tab, new Agent Chat, open terminal as chat, new Simulator pane, open a local folder or VS Code Inline folder, open workspace pull requests, diff viewers, directory search, VS Code serve-web stop/restart, browser splits, terminal-to-browser splits, terminal text-box file attachment, and every `palette.terminalOpenDirectory.*` action | Shown when the normal context gate passes | Omitted because these create or inspect this Mac's local filesystem/browser/simulator resources |
 
 Agent conversation forks remain shared where the existing remote capability
 probe confirms that the selected terminal can fork. A failed probe leaves the
@@ -22,7 +22,9 @@ Cloud browser panes opened from the Cloud tree retain their Cloud resource
 identity for navigation, zoom, developer tools, console, React Grab, history,
 and duplication. Creating a new browser surface still requires a local browser
 creation path, so browser creation and split commands are intentionally omitted
-from a Cloud workspace until a Cloud browser creation route exists.
+from a Cloud workspace until a Cloud browser creation route exists. Opening a
+terminal as chat also creates a local browser split and is omitted for the same
+reason.
 
 The Cloud palette includes **Show Cloud command availability**, which explains
 these local-only categories in the current locale. It is available whenever a

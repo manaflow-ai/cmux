@@ -7157,12 +7157,8 @@ struct ContentView: View {
                 cloudCapabilities?.snapshot ?? true
             )
             snapshot.setBool(
-                CommandPaletteContextKeys.cloudVMSupportsRestore,
-                cloudCapabilities?.restore ?? true
-            )
-            snapshot.setBool(
-                CommandPaletteContextKeys.cloudVMSupportsPorts,
-                cloudCapabilities?.ports ?? true
+                CommandPaletteContextKeys.cloudVMSupportsExec,
+                cloudCapabilities?.exec ?? true
             )
             snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace))
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomName, workspace.customTitle != nil)

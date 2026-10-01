@@ -152,8 +152,7 @@ extension ContentView {
                 commandId: commandPaletteCloudRestoreCommandId,
                 title: constant(String(localized: "command.cloudVM.restore.title", defaultValue: "Restore Cloud VM From Checkpoint")),
                 subtitle: subtitle,
-                keywords: ["cloud", "vm", "restore", "snapshot", "checkpoint"],
-                when: capabilityGate(.cloudVMSupportsRestore)
+                keywords: ["cloud", "vm", "restore", "snapshot", "checkpoint"]
             ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudPromoteTemplateCommandId,
@@ -173,13 +172,14 @@ extension ContentView {
                 title: constant(String(localized: "command.cloudVM.ports.title", defaultValue: "Show Cloud VM Ports")),
                 subtitle: subtitle,
                 keywords: ["cloud", "vm", "ports", "preview", "localhost"],
-                when: capabilityGate(.cloudVMSupportsPorts)
+                when: capabilityGate(.cloudVMSupportsExec)
             ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudToolsCommandId,
                 title: constant(String(localized: "command.cloudVM.tools.title", defaultValue: "Inspect Cloud VM Tools")),
                 subtitle: subtitle,
-                keywords: ["cloud", "vm", "tools", "bootstrap", "zsh", "gh", "htop", "btop"]
+                keywords: ["cloud", "vm", "tools", "bootstrap", "zsh", "gh", "htop", "btop"],
+                when: capabilityGate(.cloudVMSupportsExec)
             ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudHandoffCommandId,

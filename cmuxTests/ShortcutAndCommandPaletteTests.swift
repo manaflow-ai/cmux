@@ -923,22 +923,28 @@ struct CommandPaletteCloudAvailabilityTests {
         context.setBool(CommandPaletteContextKeys.cloudVMCapabilitiesKnown, true)
         context.setBool(CommandPaletteContextKeys.cloudVMSupportsFork, false)
         context.setBool(CommandPaletteContextKeys.cloudVMSupportsSnapshot, false)
-        context.setBool(CommandPaletteContextKeys.cloudVMSupportsRestore, false)
-        context.setBool(CommandPaletteContextKeys.cloudVMSupportsPorts, false)
+        context.setBool(CommandPaletteContextKeys.cloudVMSupportsExec, false)
 
         let hidden = Set(
             contributions.filter { !$0.when(context) }.map(\.commandId)
         )
         #expect(hidden.contains(ContentView.commandPaletteCloudForkCommandId))
         #expect(hidden.contains(ContentView.commandPaletteCloudSnapshotCommandId))
-        #expect(hidden.contains(ContentView.commandPaletteCloudRestoreCommandId))
+        #expect(!hidden.contains(ContentView.commandPaletteCloudRestoreCommandId))
         #expect(hidden.contains(ContentView.commandPaletteCloudPromoteTemplateCommandId))
         #expect(hidden.contains(ContentView.commandPaletteCloudPortsCommandId))
-        #expect(!hidden.contains(ContentView.commandPaletteCloudToolsCommandId))
+        #expect(hidden.contains(ContentView.commandPaletteCloudToolsCommandId))
         #expect(!hidden.contains(ContentView.commandPaletteCloudHandoffCommandId))
         #expect(
             contributions.first { $0.commandId == ContentView.commandPaletteCloudStatusCommandId }?.when(context) == true
         )
+
+        context.setBool(CommandPaletteContextKeys.cloudVMSupportsExec, true)
+        let executionSupportedHidden = Set(
+            contributions.filter { !$0.when(context) }.map(\.commandId)
+        )
+        #expect(!executionSupportedHidden.contains(ContentView.commandPaletteCloudPortsCommandId))
+        #expect(!executionSupportedHidden.contains(ContentView.commandPaletteCloudToolsCommandId))
     }
 }
 
