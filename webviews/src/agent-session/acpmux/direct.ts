@@ -107,6 +107,8 @@ export class AcpmuxDirectClient {
   private hasConnected = false;
   private closed = false;
   private selectionGeneration = 0;
+  /// The selection generation whose attach reply has landed; lag resync waits for it.
+  private attachedGeneration = -1;
   private historyExhausted = false;
 
   private constructor(host: AcpmuxHostConfig, listener: Listener, onLost?: () => void) {
@@ -230,20 +232,23 @@ export class AcpmuxDirectClient {
   private resyncAfterLag(params: any): void {
     if (params?.watch === true) void this.refreshSessions().catch(() => undefined);
     const sessionId = this.selectedSessionId;
-    if (!sessionId) return;
+    // Before the attach reply lands there is no cursor; the reply carries the latest events.
+    if (!sessionId || this.attachedGeneration !== this.selectionGeneration) return;
     if (Array.isArray(params?.sessionIds) && !params.sessionIds.map(String).includes(sessionId)) return;
     this.emit("resyncing");
-    void this.fetchMissedEvents(sessionId, this.selectionGeneration).catch(() => undefined);
+    void this.fetchMissedEvents(sessionId, this.selectionGeneration, this.lastSeq).catch(() => undefined);
   }
 
-  private async fetchMissedEvents(sessionId: string, generation: number): Promise<void> {
-    for (;;) {
-      const result = await this.request("_acpmux/events", { sessionId, afterSeq: this.lastSeq, limit: 5_000 });
+  /// Pages from its own cursor: live events keep advancing lastSeq meanwhile.
+  private async fetchMissedEvents(sessionId: string, generation: number, afterSeq: number): Promise<void> {
+    for (let cursor = afterSeq; ;) {
+      const result = await this.request("_acpmux/events", { sessionId, afterSeq: cursor, limit: 5_000 });
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
       const missed: EventRecord[] = result?.events ?? [];
       this.events = mergeEventRecords(this.events, missed);
       this.rebuild();
       if (result?.more !== true || missed.length === 0) break;
+      cursor = Math.max(cursor, ...missed.map((event) => event.seq));
     }
     this.emit("resynced");
   }
@@ -273,6 +278,7 @@ export class AcpmuxDirectClient {
     this.queue = (detail.queue ?? []).map((entry: any) => ({ id: String(entry.promptId), prompt: String(entry.prompt ?? "") }));
     this.events = mergeEventRecords(result?.events ?? [], this.events);
     this.rebuild();
+    this.attachedGeneration = generation;
     this.emit("attached");
   }
 
