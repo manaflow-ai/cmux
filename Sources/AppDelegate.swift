@@ -869,6 +869,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var windowKeyObservers: [NSObjectProtocol] = []
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
+    private weak var agentInboxReplyFieldWindow: NSWindow?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var mobileHostSettingsObserver: NSObjectProtocol?
     /// Applies MDM managed-policy transitions (browser/remote-control) while
@@ -1769,6 +1770,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             name: .feedRequestSendText,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAgentInboxReplyFieldFocusChanged(_:)),
+            name: .agentInboxReplyFieldFocusChanged,
+            object: nil
+        )
 
 #if DEBUG
         // UI tests run on a shared VM user profile, so persisted shortcuts can drift and make
@@ -2643,6 +2650,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         TerminalController.shared.cloudTunnel = cloudTunnel
         RemotesClient.bootstrap(auth: auth.coordinator)
+        TeamsClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
         CoderouterClient.bootstrap(auth: auth.coordinator)
         MachineUsageClient.bootstrap(auth: auth.coordinator, operations: cloudOperations, readRequests: cloudReads)
@@ -6290,6 +6298,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func requestCommandPaletteSwitcher(preferredWindow: NSWindow? = nil, source: String = "api.commandPaletteSwitcher") {
         postCommandPaletteRequest(
             kind: .switcher,
+            preferredWindow: preferredWindow,
+            source: source
+        )
+    }
+
+    func requestAgentInbox(preferredWindow: NSWindow? = nil, source: String = "api.agentInbox") {
+        guard CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled else { return }
+        postCommandPaletteRequest(
+            kind: .agentInbox,
             preferredWindow: preferredWindow,
             source: source
         )
@@ -10527,9 +10544,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             restoredSessionSnapshotHandler?(restoredPanelIdsByWorkspaceIndex, tabManager)
         }
 
-        let sidebarWidth = sessionWindowSnapshot?.sidebar.width
-            .map { SessionPersistencePolicy.sanitizedSidebarWidth($0) }
-            ?? SessionPersistencePolicy.defaultSidebarWidth
+        let sidebarWidth = SessionPersistencePolicy.sanitizedSidebarWidth(
+            sessionWindowSnapshot?.sidebar.width
+        )
 #if DEBUG
         let shouldStartWithHiddenSidebarForTerminalViewportUITest =
             ProcessInfo.processInfo.environment["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_SIDEBAR"] == "1"
@@ -11357,6 +11374,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "text": text,
                 "submit_key": "return",
             ])
+        }
+    }
+
+    @objc private func handleAgentInboxReplyFieldFocusChanged(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        let isFocused = notification.userInfo?["focused"] as? Bool ?? false
+        if isFocused {
+            agentInboxReplyFieldWindow = window
+        } else if agentInboxReplyFieldWindow === window {
+            agentInboxReplyFieldWindow = nil
         }
     }
 
@@ -15047,13 +15074,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let paletteUsesInlineTextHandling = commandPaletteShortcutWindow.map { isCommandPaletteMultilineTextResponderActive(in: $0) } ?? false
+        let isAgentInboxReplyFieldFocused = commandPaletteShortcutWindow.map {
+            agentInboxReplyFieldWindow === $0
+        } ?? false
 
         let paletteSelectionDelta = contextAwareCommandPaletteSelectionDelta(for: event)
 
         if shouldRouteCommandPaletteSelectionNavigation(
             delta: paletteSelectionDelta,
             isInteractive: commandPaletteInteractiveInTargetWindow,
-            usesInlineTextHandling: paletteUsesInlineTextHandling
+            usesInlineTextHandling: paletteUsesInlineTextHandling,
+            isAgentInboxReplyFieldFocused: isAgentInboxReplyFieldFocused
         ),
            let delta = paletteSelectionDelta,
            let paletteWindow = commandPaletteShortcutWindow {
@@ -15061,7 +15092,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        let shouldRouteConfiguredPaletteSelection = commandPaletteShortcutWindow != nil && shouldRouteCommandPaletteSelectionNavigation(delta: 1, isInteractive: commandPaletteInteractiveInTargetWindow, usesInlineTextHandling: paletteUsesInlineTextHandling)
+        let shouldRouteConfiguredPaletteSelection = commandPaletteShortcutWindow != nil && shouldRouteCommandPaletteSelectionNavigation(
+            delta: 1,
+            isInteractive: commandPaletteInteractiveInTargetWindow,
+            usesInlineTextHandling: paletteUsesInlineTextHandling,
+            isAgentInboxReplyFieldFocused: isAgentInboxReplyFieldFocused
+        )
 
         if shouldRouteConfiguredPaletteSelection, let paletteWindow = commandPaletteShortcutWindow {
             for (action, delta) in [(KeyboardShortcutSettings.Action.commandPaletteNext, 1), (.commandPalettePrevious, -1)] {
@@ -15135,6 +15171,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let hasFocusedAddressBarInShortcutContext = focusedAddressBarPanelIdInShortcutContext != nil
 
         if shouldRouteConfiguredPaletteSelection, activeConfiguredShortcutChordPrefixForCurrentEvent == nil, armConfiguredShortcutChordIfNeeded(event: event, actions: [.commandPaletteNext, .commandPalettePrevious]) {
+            return true
+        }
+
+        if CmuxFeatureFlags.shared.isAgentInboxQuickViewEnabled,
+           matchConfiguredShortcut(event: event, action: .agentInbox) {
+            let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
+            requestAgentInbox(preferredWindow: targetWindow, source: "shortcut.agentInbox")
             return true
         }
 
