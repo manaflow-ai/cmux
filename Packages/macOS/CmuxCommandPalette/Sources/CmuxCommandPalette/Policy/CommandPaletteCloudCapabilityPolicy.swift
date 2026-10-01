@@ -48,6 +48,7 @@ public struct CommandPaletteCloudCapabilityPolicy: Sendable {
              "palette.findInDirectory",
              "palette.vscodeServeWebStop",
              "palette.vscodeServeWebRestart",
+             "palette.terminalAttachTextBoxFile",
              "palette.browserSplitRight",
              "palette.browserSplitDown",
              "palette.terminalSplitBrowserRight",

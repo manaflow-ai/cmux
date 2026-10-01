@@ -883,6 +883,10 @@ final class CommandPaletteCloudCommandTests: XCTestCase {
         XCTAssertTrue(contribution.when(cloudContext))
         XCTAssertEqual(contribution.title(cloudContext), "Show Cloud command availability")
         XCTAssertEqual(contribution.subtitle(cloudContext), "Cloud workspace")
+        XCTAssertEqual(
+            contribution.keywords,
+            ["cloud", "workspace", "availability", "local", "unavailable", "actions"]
+        )
     }
 
     /// Cloud contributions include each supported current-VM operation.

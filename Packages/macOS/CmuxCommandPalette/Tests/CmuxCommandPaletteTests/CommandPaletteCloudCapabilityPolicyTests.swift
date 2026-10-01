@@ -63,6 +63,7 @@ struct CommandPaletteCloudCapabilityPolicyTests {
             "palette.findInDirectory",
             "palette.vscodeServeWebStop",
             "palette.vscodeServeWebRestart",
+            "palette.terminalAttachTextBoxFile",
             "palette.browserSplitRight",
             "palette.browserSplitDown",
             "palette.terminalSplitBrowserRight",

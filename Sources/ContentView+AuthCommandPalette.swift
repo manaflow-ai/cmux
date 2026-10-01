@@ -201,7 +201,13 @@ extension ContentView {
                     locale: locale
                 )
             },
-            keywords: ["cloud", "workspace", "availability", "local", "unavailable", "actions"],
+            keywords: String(
+                localized: "command.cloudVM.availabilityInfo.keywords",
+                defaultValue: "cloud, workspace, availability, local, unavailable, actions",
+                locale: locale
+            )
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) },
             when: { $0.bool(CommandPaletteContextKeys.workspaceIsCloud) }
         )
     }
@@ -218,7 +224,7 @@ extension ContentView {
                 )
                 alert.informativeText = String(
                     localized: "command.cloudVM.availabilityInfo.alertMessage",
-                    defaultValue: "Folder, simulator, local browser creation, directory search, and diff commands are available after selecting a local workspace. Cloud terminal, browser, workspace, and VM commands remain available here."
+                    defaultValue: "Folder, simulator, local browser creation, directory search, and diff commands are available after selecting a local workspace. Cloud VM commands may be unavailable here."
                 )
                 alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
                 alert.runModal()

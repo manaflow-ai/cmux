@@ -600250,121 +600250,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Folder, simulator, local browser creation, directory search, and diff commands are available after selecting a local workspace. Cloud terminal, browser, workspace, and VM commands remain available here."
+            "value": "Folder, simulator, local browser creation, directory search, and diff commands are available after selecting a local workspace. Cloud VM commands may be unavailable here."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ordner-, Simulator-, lokale Browser-, Verzeichnis-Such- und Diff-Befehle sind nach Auswahl eines lokalen Arbeitsbereichs verfügbar. Cloud-Terminal-, Browser-, Arbeitsbereichs- und VM-Befehle bleiben hier verfügbar."
+            "value": "Ordner-, Simulator-, lokale Browser-, Verzeichnis-Such- und Diff-Befehle sind nach Auswahl eines lokalen Arbeitsbereichs verfügbar. Cloud-VM-Befehle sind hier möglicherweise nicht verfügbar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les commandes de dossier, de simulateur, de création de navigateur local, de recherche dans les répertoires et de comparaison sont disponibles après la sélection d’un espace de travail local. Les commandes de terminal, de navigateur, d’espace de travail et de VM Cloud restent disponibles ici."
+            "value": "Les commandes de dossier, de simulateur, de création de navigateur local, de recherche dans les répertoires et de comparaison sont disponibles après la sélection d’un espace de travail local. Les commandes de VM Cloud peuvent être indisponibles ici."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتوفر أوامر المجلد والمحاكي وإنشاء المتصفح المحلي والبحث في الدليل والمقارنة بعد اختيار مساحة عمل محلية. وتبقى أوامر طرفية Cloud والمتصفح ومساحة العمل والآلة الافتراضية متاحة هنا."
+            "value": "تتوفر أوامر المجلد والمحاكي وإنشاء المتصفح المحلي والبحث في الدليل والمقارنة بعد اختيار مساحة عمل محلية. قد لا تتوفر أوامر أجهزة Cloud الافتراضية هنا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los comandos de carpetas, simulador, creación de navegadores locales, búsqueda en directorios y diferencias están disponibles después de seleccionar un espacio de trabajo local. Los comandos de terminal, navegador, espacio de trabajo y VM de Cloud siguen disponibles aquí."
+            "value": "Los comandos de carpetas, simulador, creación de navegadores locales, búsqueda en directorios y diferencias están disponibles después de seleccionar un espacio de trabajo local. Es posible que los comandos de VM de Cloud no estén disponibles aquí."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "選取本機工作區後，即可使用資料夾、模擬器、本機瀏覽器建立、目錄搜尋和差異檢視指令。Cloud 終端機、瀏覽器、工作區和 VM 指令在此仍可使用。"
+            "value": "選取本機工作區後，即可使用資料夾、模擬器、本機瀏覽器建立、目錄搜尋和差異檢視指令。Cloud VM 指令可能無法在此使用。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "选择本地工作区后即可使用文件夹、模拟器、本地浏览器创建、目录搜索和差异查看命令。Cloud 终端、浏览器、工作区和 VM 命令在此仍可使用。"
+            "value": "选择本地工作区后即可使用文件夹、模拟器、本地浏览器创建、目录搜索和差异查看命令。Cloud VM 命令可能无法在此使用。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "로컬 작업 공간을 선택하면 폴더, 시뮬레이터, 로컬 브라우저 생성, 디렉터리 검색 및 diff 명령을 사용할 수 있습니다. Cloud 터미널, 브라우저, 작업 공간 및 VM 명령은 여기서 계속 사용할 수 있습니다."
+            "value": "로컬 작업 공간을 선택하면 폴더, 시뮬레이터, 로컬 브라우저 생성, 디렉터리 검색 및 diff 명령을 사용할 수 있습니다. Cloud VM 명령은 여기서 사용하지 못할 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ローカルワークスペースを選択すると、フォルダ、シミュレータ、ローカルブラウザの作成、ディレクトリ検索、差分表示のコマンドを利用できます。Cloud のターミナル、ブラウザ、ワークスペース、VM コマンドはここで引き続き利用できます。"
+            "value": "ローカルワークスペースを選択すると、フォルダ、シミュレータ、ローカルブラウザの作成、ディレクトリ検索、差分表示のコマンドを利用できます。Cloud VM コマンドはここでは利用できない場合があります。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Naredbe za fascikle, simulator, kreiranje lokalnog preglednika, pretragu direktorija i razlike dostupne su nakon odabira lokalnog radnog prostora. Cloud naredbe za terminal, preglednik, radni prostor i VM ostaju dostupne ovdje."
+            "value": "Naredbe za fascikle, simulator, kreiranje lokalnog preglednika, pretragu direktorija i razlike dostupne su nakon odabira lokalnog radnog prostora. Cloud VM naredbe ovdje možda neće biti dostupne."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kommandoer til mapper, simulator, lokal oprettelse af browsere, katalogsøgning og diff er tilgængelige, når du vælger et lokalt arbejdsområde. Cloud-kommandoer til terminal, browser, arbejdsområde og VM er stadig tilgængelige her."
+            "value": "Kommandoer til mapper, simulator, lokal oprettelse af browsere, katalogsøgning og diff er tilgængelige, når du vælger et lokalt arbejdsområde. Cloud VM-kommandoer er muligvis ikke tilgængelige her."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "I comandi per cartelle, simulatore, creazione di browser locali, ricerca nelle directory e differenze sono disponibili dopo aver selezionato uno spazio di lavoro locale. I comandi Cloud per terminale, browser, spazio di lavoro e VM rimangono disponibili qui."
+            "value": "I comandi per cartelle, simulatore, creazione di browser locali, ricerca nelle directory e differenze sono disponibili dopo aver selezionato uno spazio di lavoro locale. I comandi VM Cloud potrebbero non essere disponibili qui."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការបញ្ជាថត ស៊ីម्युឡាទ័រ ការបង្កើតកម្មវិធីរុករកមូលដ្ឋាន ការស្វែងរកថត និងការប្រៀបធៀប នឹងអាចប្រើបានបន្ទាប់ពីជ្រើសរើសកន្លែងធ្វើការមូលដ្ឋាន។ ការបញ្ជា Cloud សម្រាប់ស្ថានីយ កម្មវិធីរុករក កន្លែងធ្វើការ និង VM នៅតែអាចប្រើបាននៅទីនេះ។"
+            "value": "ការបញ្ជាថត ស៊ីម្យូឡាទ័រ ការបង្កើតកម្មវិធីរុករកមូលដ្ឋាន ការស្វែងរកថត និងការប្រៀបធៀប នឹងអាចប្រើបានបន្ទាប់ពីជ្រើសរើសកន្លែងធ្វើការមូលដ្ឋាន។ ការបញ្ជា Cloud VM អាចមិនអាចប្រើបាននៅទីនេះ។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mappe-, simulator-, lokal nettleseroppretting-, katalogsøk- og diff-kommandoer er tilgjengelige etter at du har valgt et lokalt arbeidsområde. Cloud-kommandoer for terminal, nettleser, arbeidsområde og VM er fortsatt tilgjengelige her."
+            "value": "Mappe-, simulator-, lokal nettleseroppretting-, katalogsøk- og diff-kommandoer er tilgjengelige etter at du har valgt et lokalt arbeidsområde. Cloud VM-kommandoer er kanskje ikke tilgjengelige her."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Polecenia dotyczące folderów, symulatora, tworzenia lokalnej przeglądarki, wyszukiwania w katalogach i porównywania są dostępne po wybraniu lokalnego obszaru roboczego. Polecenia Cloud dotyczące terminala, przeglądarki, obszaru roboczego i maszyny wirtualnej są nadal dostępne tutaj."
+            "value": "Polecenia dotyczące folderów, symulatora, tworzenia lokalnej przeglądarki, wyszukiwania w katalogach i porównywania są dostępne po wybraniu lokalnego obszaru roboczego. Polecenia Cloud VM mogą być tutaj niedostępne."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Os comandos de pasta, simulador, criação de navegador local, pesquisa em diretórios e diferenças ficam disponíveis depois que você seleciona um espaço de trabalho local. Os comandos Cloud de terminal, navegador, espaço de trabalho e VM continuam disponíveis aqui."
+            "value": "Os comandos de pasta, simulador, criação de navegador local, pesquisa em diretórios e diferenças ficam disponíveis depois que você seleciona um espaço de trabalho local. Os comandos de VM do Cloud podem não estar disponíveis aqui."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Команды для папок, симулятора, создания локального браузера, поиска в каталогах и сравнения доступны после выбора локального рабочего пространства. Команды Cloud для терминала, браузера, рабочего пространства и виртуальной машины по-прежнему доступны здесь."
+            "value": "Команды для папок, симулятора, создания локального браузера, поиска в каталогах и сравнения доступны после выбора локального рабочего пространства. Команды Cloud VM могут быть недоступны здесь."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "คำสั่งโฟลเดอร์ โปรแกรมจำลอง การสร้างเบราว์เซอร์ภายในเครื่อง การค้นหาไดเรกทอรี และการเปรียบเทียบ จะใช้งานได้หลังจากเลือกพื้นที่ทำงานภายในเครื่อง คำสั่ง Cloud สำหรับเทอร์มินัล เบราว์เซอร์ พื้นที่ทำงาน และ VM ยังคงใช้งานได้ที่นี่"
+            "value": "คำสั่งโฟลเดอร์ โปรแกรมจำลอง การสร้างเบราว์เซอร์ภายในเครื่อง การค้นหาไดเรกทอรี และการเปรียบเทียบ จะใช้งานได้หลังจากเลือกพื้นที่ทำงานภายในเครื่อง คำสั่ง Cloud VM อาจไม่พร้อมใช้งานที่นี่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klasör, simülatör, yerel tarayıcı oluşturma, dizin arama ve fark komutları, yerel bir çalışma alanı seçildikten sonra kullanılabilir. Terminal, tarayıcı, çalışma alanı ve VM için Cloud komutları burada kullanılmaya devam eder."
+            "value": "Klasör, simülatör, yerel tarayıcı oluşturma, dizin arama ve fark komutları, yerel bir çalışma alanı seçildikten sonra kullanılabilir. Cloud VM komutları burada kullanılamayabilir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Команди для папок, симулятора, створення локального браузера, пошуку в каталогах і порівняння доступні після вибору локального робочого простору. Команди Cloud для термінала, браузера, робочого простору та віртуальної машини залишаються доступними тут."
+            "value": "Команди для папок, симулятора, створення локального браузера, пошуку в каталогах і порівняння доступні після вибору локального робочого простору. Команди Cloud VM можуть бути тут недоступні."
           }
         }
       }
@@ -600490,6 +600490,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "Деякі команди доступні лише локально"
+          }
+        }
+      }
+    },
+    "command.cloudVM.availabilityInfo.keywords": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cloud, workspace, availability, local, unavailable, actions"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, Arbeitsbereich, Verfügbarkeit, lokal, nicht verfügbar, Aktionen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, espace de travail, disponibilité, local, indisponible, actions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السحابة, مساحة العمل, التوفر, محلي, غير متاح, إجراءات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, espacio de trabajo, disponibilidad, local, no disponible, acciones"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, 工作區, 可用性, 本機, 無法使用, 動作"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, 工作区, 可用性, 本地, 不可用, 操作"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, 작업 공간, 사용 가능 여부, 로컬, 사용할 수 없음, 동작"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, ワークスペース, 利用可能性, ローカル, 利用不可, アクション"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, radni prostor, dostupnost, lokalno, nedostupno, radnje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, arbejdsområde, tilgængelighed, lokal, utilgængelig, handlinger"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, spazio di lavoro, disponibilità, locale, non disponibile, azioni"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, កន្លែងធ្វើការ, ភាពអាចប្រើបាន, មូលដ្ឋាន, មិនអាចប្រើបាន, សកម្មភាព"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, arbeidsområde, tilgjengelighet, lokal, utilgjengelig, handlinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, obszar roboczy, dostępność, lokalne, niedostępne, działania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, espaço de trabalho, disponibilidade, local, indisponível, ações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, рабочее пространство, доступность, локальный, недоступно, действия"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, พื้นที่ทำงาน, ความพร้อมใช้งาน, ในเครื่อง, ไม่พร้อมใช้งาน, การทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, çalışma alanı, kullanılabilirlik, yerel, kullanılamıyor, işlemler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, робочий простір, доступність, локальний, недоступно, дії"
           }
         }
       }
