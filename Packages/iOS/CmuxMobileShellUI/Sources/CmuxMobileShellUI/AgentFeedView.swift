@@ -96,7 +96,13 @@ struct AgentFeedView: View {
     }
 
     private var needsInputCount: Int {
-        items.lazy.filter(\.effectiveNeedsInput).count
+        preparedRows.lazy
+            .filter { model in
+                model.item.source.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .caseInsensitiveCompare("notification") != .orderedSame
+            }
+            .filter { $0.item.effectiveNeedsInput }
+            .count
     }
 
     var body: some View {

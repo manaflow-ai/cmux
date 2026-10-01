@@ -818,6 +818,15 @@ struct NotificationFeedHistoryTests {
         let payload = try responsePayload(response)
         let rows = try #require(payload["items"] as? [[String: Any]])
         #expect(rows.allSatisfy { $0["source"] as? String != "notification" })
+
+        let textResponse = TerminalController.shared.v2MobileFeedText(
+            params: ["item_id": notification.id.uuidString, "offset": 0]
+        )
+        guard case let .err(code, _, _) = textResponse else {
+            Issue.record("Expected notification history item to be absent from feed.text")
+            return
+        }
+        #expect(code == "not_found")
     }
 
     @Test func feedListBoundsOversizedLeadingRowWithoutDroppingFeed() async throws {

@@ -1046,8 +1046,7 @@ extension MobileShellComposite {
         let targets = agentFeedTargets()
         guard !targets.isEmpty else { return .requiresMacUpdate }
         let targetOwnerKeys = Set(targets.map(\.ownerKey))
-        if agentFeedItems.isEmpty,
-           agentFeedSuccessfulMacIDs.isDisjoint(with: targetOwnerKeys) {
+        if agentFeedSuccessfulMacIDs.isDisjoint(with: targetOwnerKeys) {
             return .unavailable
         }
         // The Feed is scoped to Macs that advertise `feed.v1`. An older paired
