@@ -426,8 +426,7 @@
         "memberReadOnly": "Bu planı yalnızca ekip yöneticileri değiştirebilir.",
         "grantedBody": "{team} ekibine Team erişimi cmux ekibi tarafından verildi. Yönetilecek bir abonelik yok.",
         "seatsUsed": "{seats} koltuğun {members} tanesi kullanılıyor",
-        "overSeat": "{team} ekibinde {members} üye ve {seats} ücretli koltuk var. Katılım yine de çalışır; herkesi kapsamak için koltuk ekleyin.",
-        "addSeats": "Koltuk ekle"
+        "overSeat": "{team} ekibinde {members} üye ve {seats} ücretli koltuk var. Koltuklar üye sayısını izler, bu yüzden abonelik kendiliğinden güncellenir."
       },
       "teamList": {
         "heading": "Faturalandırma kapsamları",
@@ -942,7 +941,7 @@
         "featurePrioritySupport": "Öncelikli destek",
         "chooseFree": "Ücretsiz ile devam et",
         "chooseTeam": "Team'e yükselt (${price}/koltuk/ay)",
-        "upgradeLater": "Koltuklar esnektir: Ödediğinizden daha fazla kişiyi davet edebilir ve koltukları daha sonra ekleyebilirsiniz.",
+        "upgradeLater": "Koltuklar üye sayısını izler: her üye faturalandırılır ve biri katıldığında ya da ayrıldığında toplam güncellenir.",
         "inviteTitle": "{team} ekibine kişileri davet edin",
         "inviteDescription": "İsteğe bağlı. Kişileri daha sonra ekibin Üyeler sayfasından da davet edebilirsiniz.",
         "inviteByEmail": "E-postayla davet et",
@@ -1059,8 +1058,6 @@
         "revoke": "İptal et",
         "linksTitle": "Davet bağlantıları",
         "linksDescription": "Herkesin üye olarak katılmak için kullanabileceği yeniden kullanılabilir bir bağlantı.",
-        "seatNudge": "{used} kişi üye veya davetli, ancak planda {seats} koltuk var. Davetler çalışmaya devam eder; herkesi kapsamak için {over, plural, one {# koltuk} other {# koltuk}} ekleyin.",
-        "seatNudgeAction": "Koltukları yönet",
         "actions": {
           "makeAdmin": "Yönetici yap",
           "makeMember": "Üye yap",
