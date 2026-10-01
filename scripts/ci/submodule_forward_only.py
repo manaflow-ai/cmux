@@ -13,10 +13,46 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 MARKER_PREFIX = "submodule-forward-only: allow "
+FETCH_TIMEOUT_SECONDS = 15
+DEEPEN_CHUNK = 256
+MAX_DEEPEN_ROUNDS = 8
 
 
-def run(*args: str, cwd: str | None = None) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+def run(*args: str, cwd: str | None = None, timeout: float = FETCH_TIMEOUT_SECONDS) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            args, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        def text(value: str | bytes | None, fallback: str) -> str:
+            if isinstance(value, bytes):
+                return value.decode(errors="replace")
+            return value or fallback
+
+        return subprocess.CompletedProcess(
+            args, 124, stdout=text(exc.stdout, ""), stderr=text(exc.stderr, "command timed out"),
+        )
+
+
+def clear_stale_shallow_lock(path: str) -> None:
+    """Remove a shallow.lock left by a timed-out fetch when no fetch remains."""
+    git_dir = run("git", "-C", path, "rev-parse", "--git-dir", timeout=5)
+    if git_dir.returncode:
+        return
+    lock = Path(git_dir.stdout.strip())
+    if not lock.is_absolute():
+        lock = Path(path) / lock
+    lock /= "shallow.lock"
+    if not lock.exists():
+        return
+    active = run("pgrep", "-af", f"git.*{re.escape(path)}.*fetch", timeout=2)
+    if active.returncode == 0:
+        return
+    try:
+        lock.unlink()
+        print(f"submodule-forward-only: removed stale {lock}", file=sys.stderr)
+    except FileNotFoundError:
+        pass
 
 
 def gitlink(ref: str, path: str) -> str | None:
@@ -46,10 +82,11 @@ def merge_base(base: str, head: str) -> str:
     return result.stdout.strip()
 
 
-def local_relation(path: str, base: str, new: str) -> str | None:
-    fetch = run("git", "-C", path, "fetch", "origin", base, new)
-    # Fetch failure is expected in partial or shallow clones. Try the checks
-    # anyway because the objects may already be present locally.
+def local_relation(path: str, base: str, new: str, *, fetch_remote: bool = True) -> str | None:
+    if fetch_remote:
+        fetch = run("git", "-C", path, "fetch", "origin", base, new)
+        # Fetch failure is expected in partial or shallow clones. Try the checks
+        # anyway because the objects may already be present locally.
     forward = run("git", "-C", path, "merge-base", "--is-ancestor", base, new)
     backward = run("git", "-C", path, "merge-base", "--is-ancestor", new, base)
     if forward.returncode == 0:
@@ -70,6 +107,45 @@ def local_relation(path: str, base: str, new: str) -> str | None:
         if shallow.stdout.strip() == "true":
             return None
         return "diverged"
+    return None
+
+
+def deepened_relation(path: str, base: str, new: str) -> str | None:
+    """Fetches the history a shallow clone lacks, then decides locally.
+
+    The last resort after the GitHub compare, which fails whenever the
+    repository's shared Actions token is out of API quota. Without it, a
+    forward bump whose old pin sits deeper than the clone reads as
+    undecidable. Ancestry needs only commits, so blobs are skipped.
+    """
+    shallow = run("git", "-C", path, "rev-parse", "--is-shallow-repository")
+    if shallow.returncode != 0 or shallow.stdout.strip() != "true":
+        return None
+    for round_number in range(1, MAX_DEEPEN_ROUNDS + 1):
+        clear_stale_shallow_lock(path)
+        fetched = run(
+            "git", "-C", path, "fetch", "--quiet", "--filter=blob:none",
+            f"--deepen={DEEPEN_CHUNK}", "origin", base, new,
+        )
+        if fetched.returncode:
+            detail = fetched.stderr.strip() or "git fetch failed"
+            print(
+                f"submodule-forward-only: bounded history fetch failed for {path} "
+                f"(round {round_number}/{MAX_DEEPEN_ROUNDS}): {detail}",
+                file=sys.stderr,
+            )
+            return None
+        relation = local_relation(path, base, new, fetch_remote=False)
+        if relation:
+            return relation
+        state = run("git", "-C", path, "rev-parse", "--is-shallow-repository")
+        if state.returncode == 0 and state.stdout.strip() != "true":
+            return local_relation(path, base, new, fetch_remote=False)
+    print(
+        f"submodule-forward-only: bounded history fetch reached {MAX_DEEPEN_ROUNDS * DEEPEN_CHUNK} "
+        f"commits for {path} without resolving {base} -> {new}",
+        file=sys.stderr,
+    )
     return None
 
 
@@ -158,7 +234,11 @@ def main() -> int:
         if base_sha == new_sha:
             print(f"PASS {path}: unchanged at {new_sha}")
             continue
-        relation = local_relation(path, base_sha, new_sha) or github_relation(url, new_sha, base_sha)
+        relation = (
+            local_relation(path, base_sha, new_sha)
+            or github_relation(url, new_sha, base_sha)
+            or deepened_relation(path, base_sha, new_sha)
+        )
         if relation == "forward":
             print(f"PASS {path}: {base_sha} -> {new_sha} (forward)")
             continue
