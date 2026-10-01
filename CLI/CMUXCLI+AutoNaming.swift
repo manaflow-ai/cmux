@@ -323,6 +323,12 @@ struct TmuxCompatParsedArguments: Equatable, Sendable {
     let message: String?
 }
 
+struct TmuxCompatArgumentError: Error, LocalizedError, Equatable, Sendable {
+    let message: String
+
+    var errorDescription: String? { message }
+}
+
 enum TmuxCompatArgumentParser {
     private struct ScanResult {
         var values: [String: String] = [:]
@@ -338,7 +344,7 @@ enum TmuxCompatArgumentParser {
             flagOptions: []
         )
         guard result.positional.isEmpty else {
-            throw CLIError(message: "clear-history: unexpected arguments: \(result.positional.joined(separator: " "))")
+            throw TmuxCompatArgumentError(message: "clear-history: unexpected arguments: \(result.positional.joined(separator: " "))")
         }
         return make(result)
     }
@@ -351,7 +357,7 @@ enum TmuxCompatArgumentParser {
             flagOptions: ["--bracketed"]
         )
         guard result.positional.isEmpty else {
-            throw CLIError(message: "paste-buffer: unexpected arguments: \(result.positional.joined(separator: " "))")
+            throw TmuxCompatArgumentError(message: "paste-buffer: unexpected arguments: \(result.positional.joined(separator: " "))")
         }
         return make(result)
     }
@@ -365,7 +371,7 @@ enum TmuxCompatArgumentParser {
             allowsPositional: true
         )
         if result.values["--command"] != nil, !result.positional.isEmpty {
-            throw CLIError(message: "respawn-pane: unexpected arguments: \(result.positional.joined(separator: " "))")
+            throw TmuxCompatArgumentError(message: "respawn-pane: unexpected arguments: \(result.positional.joined(separator: " "))")
         }
         let command = result.values["--command"] ?? result.positional.joined(separator: " ")
         return make(result, commandText: command.isEmpty ? nil : command)
@@ -414,7 +420,7 @@ enum TmuxCompatArgumentParser {
             let arg = args[index]
             if terminated {
                 guard allowsPositional else {
-                    throw CLIError(message: "\(command): unexpected argument: \(arg)")
+                    throw TmuxCompatArgumentError(message: "\(command): unexpected argument: \(arg)")
                 }
                 result.positional.append(arg)
                 index += 1
@@ -431,13 +437,13 @@ enum TmuxCompatArgumentParser {
                     value = String(arg.dropFirst(option.count + 1))
                 } else {
                     guard index + 1 < args.count, args[index + 1] != "--", !args[index + 1].hasPrefix("-") else {
-                        throw CLIError(message: "\(command): \(option) requires a value")
+                        throw TmuxCompatArgumentError(message: "\(command): \(option) requires a value")
                     }
                     value = args[index + 1]
                     index += 1
                 }
                 guard !value.isEmpty else {
-                    throw CLIError(message: "\(command): \(option) requires a value")
+                    throw TmuxCompatArgumentError(message: "\(command): \(option) requires a value")
                 }
                 result.values[option] = value
                 index += 1
@@ -449,10 +455,10 @@ enum TmuxCompatArgumentParser {
                 continue
             }
             if arg.hasPrefix("-") {
-                throw CLIError(message: "\(command): unknown option '\(arg)'")
+                throw TmuxCompatArgumentError(message: "\(command): unknown option '\(arg)'")
             }
             guard allowsPositional else {
-                throw CLIError(message: "\(command): unexpected argument: \(arg)")
+                throw TmuxCompatArgumentError(message: "\(command): unexpected argument: \(arg)")
             }
             result.positional.append(arg)
             index += 1
