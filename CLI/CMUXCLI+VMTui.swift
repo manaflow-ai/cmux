@@ -1544,6 +1544,8 @@ extension CMUXCLI {
         let linkState = (machine["link_state"] as? String) ?? ((machine["link"] as? [String: Any])?["state"] as? String) ?? ""
         let linkError = ((machine["link_error"] as? String) ?? ((machine["link"] as? [String: Any])?["error"] as? String))
             .flatMap { $0.isEmpty ? nil : $0 }
+        let linkErrorMessage = (machine["link_error_message"] as? String)
+            .flatMap { $0.isEmpty ? nil : $0 }
         if !linkState.isEmpty, linkState != "n/a" {
             facts.append(String(format: String(localized: "cli.vm.tree.link", defaultValue: "link %@"), linkState))
         }
@@ -1632,7 +1634,7 @@ extension CMUXCLI {
             lines.append("    " + String(
                 format: String(localized: "cli.vm.tree.link.error", defaultValue: "⚠ link %@: %@"),
                 linkState,
-                linkError ?? linkState
+                linkErrorMessage ?? linkError ?? linkState
             ))
             lines.append("    " + String(
                 format: String(localized: "cli.vm.tree.link.retry", defaultValue: "retry: cmux vm tree %@ --refresh"),

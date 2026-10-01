@@ -17,6 +17,47 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct SurfaceSocketCommandTests {
+    @Test func cloudMachinePayloadCarriesUserFacingLinkFailureCopy() throws {
+        let info = SurfaceMachineInfo(
+            id: .cloud("link-copy-test"),
+            name: "Link copy test",
+            status: "running",
+            hasDesktop: false,
+            linkState: .unavailable,
+            linkError: "cloud_api_unavailable"
+        )
+
+        let payload = TerminalController.surfaceMachinePayload(info)
+        #expect(payload["link_error"] as? String == "cloud_api_unavailable")
+        #expect(payload["link_error_message"] as? String == "cmux cannot reach the Cloud service for this machine right now.")
+
+        let connected = SurfaceMachineInfo(
+            id: .cloud("connected"),
+            name: "Connected",
+            status: "running",
+            hasDesktop: false,
+            linkState: .connected
+        )
+        #expect(TerminalController.surfaceMachinePayload(connected)["link_error_message"] == nil)
+    }
+
+    @Test func vmTreePrintsFriendlyLinkFailureCopy() {
+        let lines = CMUXCLI.vmTreeLines(
+            machine: [
+                "id": "vm-unavailable",
+                "status": "running",
+                "link_state": "unavailable",
+                "link_error": "cloud_api_unavailable",
+                "link_error_message": "cmux cannot reach the Cloud service for this machine right now.",
+                "remote_workspaces": [],
+            ],
+            resources: []
+        )
+
+        #expect(lines.contains { $0.contains("cmux cannot reach the Cloud service") })
+        #expect(lines.contains { $0.contains("cloud_api_unavailable") } == false)
+    }
+
     @Test(arguments: [
         CloudEnvDelivery.DeliveryError.outdatedShim("test-machine"),
         .receiverNotReady("starting"),

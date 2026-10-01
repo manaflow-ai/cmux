@@ -21,7 +21,7 @@ extension TerminalController {
         case .ssh: kind = "ssh"
         case .device: kind = "device"
         }
-        return [
+        var payload: [String: Any] = [
             "id": info.id.rawValue,
             "local": info.id.isLocal,
             "kind": kind,
@@ -40,5 +40,9 @@ extension TerminalController {
             "disk_used_mb": info.diskUsedMb ?? NSNull(),
             "remote_workspaces": info.remoteWorkspaces.map { $0.map(surfaceRemoteWorkspacePayload) } ?? NSNull(),
         ]
+        if info.linkState == .error || info.linkState == .unavailable {
+            payload["link_error_message"] = info.linkFailureMessage
+        }
+        return payload
     }
 }
