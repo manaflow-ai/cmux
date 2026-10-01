@@ -416,6 +416,6 @@ cmux miễn phí, mã nguồn mở, và sẽ luôn như vậy. Nếu bạn muố
 
 ## Giấy phép
 
-cmux là mã nguồn mở theo [GPL-3.0-or-later](LICENSE). Phần mềm máy chủ của cmux (`web/`, các Cloudflare worker và các dịch vụ relay liệt kê trong [LICENSE](LICENSE)) thay vào đó dùng [Business Source License 1.1](web/LICENSE): bạn có thể đọc, sửa đổi và chạy cho mục đích không phải production; sử dụng production hoặc tự host cần giấy phép thương mại.
+cmux là mã nguồn mở theo [GPL-3.0-or-later](LICENSE). Phần mềm máy chủ của cmux (`web/`, các Cloudflare worker và các dịch vụ relay liệt kê trong [LICENSE](LICENSE)) thay vào đó dùng [Business Source License 1.1](web/LICENSE): bạn có thể đọc, sửa đổi và chạy, kể cả tự host cho bản thân hoặc cho mục đích nội bộ của tổ chức. Cung cấp cho người khác dưới dạng dịch vụ được host hoặc được quản lý, hoặc bán hay bán lại, cần giấy phép thương mại.
 
 Nếu tổ chức của bạn không thể tuân thủ GPL, giấy phép thương mại có sẵn. Liên hệ [founders@cmux.com](mailto:founders@cmux.com) để biết chi tiết.

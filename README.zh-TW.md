@@ -418,6 +418,6 @@ cmux 免費、開放原始碼，並將一直如此。如果您想支持開發並
 
 ## 授權
 
-cmux 以 [GPL-3.0-or-later](LICENSE) 開放原始碼。cmux 伺服器軟體（`web/`、Cloudflare Worker 以及 [LICENSE](LICENSE) 中列出的中繼服務）改用 [Business Source License 1.1](web/LICENSE)：您可以為非正式環境用途閱讀、修改與執行它，正式環境使用或自行架設需要商業授權。
+cmux 以 [GPL-3.0-or-later](LICENSE) 開放原始碼。cmux 伺服器軟體（`web/`、Cloudflare Worker 以及 [LICENSE](LICENSE) 中列出的中繼服務）改用 [Business Source License 1.1](web/LICENSE)：您可以閱讀、修改與執行它，包括為自己或組織內部使用而自行架設。將其作為託管或代管服務提供給他人，或販售、轉售它，需要商業授權。
 
 如果您的組織無法遵守 GPL，可提供商業授權。詳情請聯絡 [founders@cmux.com](mailto:founders@cmux.com)。
