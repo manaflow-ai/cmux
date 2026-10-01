@@ -812,6 +812,7 @@ guest_coderouter_agent() {
     else
       agent_exec "\$cmux_agent"
     fi
+    return 0
   fi
   if [ "\$1" = "--" ]; then
     shift
@@ -2253,7 +2254,7 @@ peer_agent() {
       --cwd=*) cmux_pa_cwd="\${1#--cwd=}"; shift ;;
       --workspace) [ "\$#" -ge 2 ] || die "vm agent: --workspace needs a value" 2; cmux_pa_ws="\$2"; shift 2 ;;
       --workspace=*) cmux_pa_ws="\${1#--workspace=}"; shift ;;
-      --permission-mode) [ "\$#" -ge 2 ] || die_message 2 permissionModeNeedsValue; cmux_pa_permission_mode="\$2"; shift 2 ;;
+      --permission-mode) [ "\$#" -ge 2 ] || die_message 2 peerPermissionModeNeedsValue; cmux_pa_permission_mode="\$2"; shift 2 ;;
       --permission-mode=*) cmux_pa_permission_mode="\${1#--permission-mode=}"; shift ;;
       --wait) cmux_pa_wait=1; shift ;;
       --output) cmux_pa_output=1; cmux_pa_wait=1; shift ;;
@@ -2275,10 +2276,10 @@ peer_agent() {
     full-access)
       case "\$cmux_pa_agent" in
         claude|codex) ;;
-        *) die_message 2 permissionModeProviderUnsupported "\$cmux_pa_agent" ;;
+        *) die_message 2 peerPermissionModeProviderUnsupported "\$cmux_pa_agent" ;;
       esac
       ;;
-    *) die_message 2 permissionModeUnsupported "\$cmux_pa_permission_mode" ;;
+    *) die_message 2 peerPermissionModeUnsupported "\$cmux_pa_permission_mode" ;;
   esac
   [ -z "\$cmux_pa_timeout" ] || timeout_ms "\$cmux_pa_timeout" "vm agent" >/dev/null
   use_peer "\$cmux_pa_peer"

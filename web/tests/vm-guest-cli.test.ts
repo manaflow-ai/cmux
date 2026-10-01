@@ -519,6 +519,16 @@ esac
       expect(interactiveCodex.stdout.trim().split("\n")).toEqual([
         "--dangerously-bypass-approvals-and-sandbox",
       ]);
+
+      const timedInteractiveCodex = await runShim(
+        ["agent", "codex", "--permission-mode", "full-access", "--timeout", "5"],
+        {},
+        setup,
+      );
+      expect(timedInteractiveCodex.status).toBe(0);
+      expect(timedInteractiveCodex.stdout.trim().split("\n")).toEqual([
+        "--dangerously-bypass-approvals-and-sandbox",
+      ]);
     });
 
     test("rejects full access for agents without a supported bypass", async () => {
