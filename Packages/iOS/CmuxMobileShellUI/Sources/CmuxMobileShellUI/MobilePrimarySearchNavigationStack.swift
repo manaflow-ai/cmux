@@ -19,9 +19,6 @@ struct MobilePrimarySearchNavigationStack<Root: View, Destination: View>: View {
     var body: some View {
         NavigationStack(path: $path) {
             root()
-                // Before iOS 26, `.searchable` presents from the navigation
-                // bar. Keep that bar available even when the iOS 26 native
-                // search tab uses the shared outer toolbar host.
                 .toolbar(rootNavigationBarVisibility, for: .navigationBar)
                 .modifier(MobilePrimarySearchLifecycleModifier(
                     scope: searchCoordinator.scope,
@@ -53,10 +50,7 @@ struct MobilePrimarySearchNavigationStack<Root: View, Destination: View>: View {
     }
 
     private var rootNavigationBarVisibility: Visibility {
-        if #available(iOS 26.0, *), hidesRootNavigationBar {
-            return .hidden
-        }
-        return .automatic
+        hidesRootNavigationBar ? .hidden : .automatic
     }
 
     private var searchText: Binding<String> {
