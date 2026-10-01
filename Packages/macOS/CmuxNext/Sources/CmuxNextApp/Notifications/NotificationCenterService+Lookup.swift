@@ -48,8 +48,13 @@ extension NotificationCenterService {
         return LocatedTab(tab: tab, pane: pane, workspace: workspace)
     }
 
+    /// Unread tabs, plus one per workspace marked unread by hand without
+    /// any, as the old app counted its manual unread.
     static func unreadCount(_ store: DaemonStore?) -> Int {
-        store?.workspaces.reduce(0) { $0 + $1.unreadCount } ?? 0
+        store?.workspaces.reduce(0) { total, workspace in
+            let count = workspace.unreadCount
+            return total + (count == 0 && workspace.markedUnread ? 1 : count)
+        } ?? 0
     }
 
     /// Sets the Dock tile's unread count. Compares with the label it set
