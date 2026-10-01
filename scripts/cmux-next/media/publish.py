@@ -228,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
         for directory, manifest in manifests(args.media) if args.media.is_dir() else []:
             try:
                 sections.append(publish_tour(directory, manifest, args, pr_media, Path(scratch)))
-            except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as error:
+            except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError, pr_media.MediaError) as error:
                 print(f"warning: tour {directory.name}: {error}", file=sys.stderr)
                 sections.append(f"### {cell(directory.name)}: the media could not be published ({cell(str(error)[:200])})")
 
