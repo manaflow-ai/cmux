@@ -299,7 +299,9 @@ class ManifestTests(unittest.TestCase):
         }
         self.assertEqual(set(difficulty), {f"difficulty:{level}" for level in range(1, 5)})
         for entry in difficulty.values():
-            self.assertTrue(entry.get("description"), f"{entry['name']} needs a description")
+            description = entry.get("description")
+            self.assertIsInstance(description, str, f"{entry['name']} needs a description")
+            self.assertTrue(description.strip(), f"{entry['name']} needs a description")
 
     def test_manifest_passes_its_own_validation(self):
         sync = load("sync_labels", "scripts/ci/sync_labels.py")
