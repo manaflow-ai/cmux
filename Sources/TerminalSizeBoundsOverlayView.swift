@@ -103,6 +103,7 @@ final class TerminalSizeBoundsOverlayView: NSView {
     /// Whether a snapshot is shown; the legacy phone border hides while it is.
     var isPresentingSharing: Bool { snapshot?.showsSizingChrome == true }
 
+    /// Applies a new authoritative sharing snapshot and invalidates presentation only when it changes.
     func update(snapshot: TerminalSharingSnapshot?) {
         guard self.snapshot != snapshot else { return }
         self.snapshot = snapshot
