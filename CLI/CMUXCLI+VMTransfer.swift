@@ -835,9 +835,16 @@ extension CMUXCLI {
             }
             let remainingSeconds = deadline.timeIntervalSinceNow
             if remainingSeconds > 0 {
-                Thread.sleep(forTimeInterval: min(CmuxTuiRemoteRouting.vmReadyPollInterval(), remainingSeconds))
+                Thread.sleep(forTimeInterval: min(Self.vmReadyPollInterval(), remainingSeconds))
             }
         }
+    }
+
+    /// Seconds between `vm.status` polls; see ``VMReadyPollInterval``.
+    static func vmReadyPollInterval(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> TimeInterval {
+        VMReadyPollInterval.resolve(environment: environment)
     }
 
     // MARK: - transfer plumbing

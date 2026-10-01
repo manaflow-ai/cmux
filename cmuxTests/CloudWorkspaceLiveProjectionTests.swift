@@ -332,6 +332,7 @@ struct CloudWorkspaceLiveProjectionTests {
         #expect(passes > 0, "The fixture must reach the layout step")
         #expect(passes <= CloudWorkspaceReconcileBudget.maxPassesPerState)
     }
+
     @Test("A reconcile that keeps making progress is not cut short by the idle limit")
     func progressingPassesStayAdmitted() throws {
         let state = try graph(["first": "a"], revision: 1)
@@ -343,9 +344,10 @@ struct CloudWorkspaceLiveProjectionTests {
         let exhausted = budget.admit(.init(state: state, projectionVersion: 1_000, bindings: [:]))
         #expect(!exhausted)
         let next = try graph(["first": "a"], revision: 2)
-        let newGraphAdmitted = budget.admit(.init(state: next, projectionVersion: 1_000, bindings: [:]))
-        #expect(newGraphAdmitted, "A new graph starts a new budget")
+        let admittedNextGraph = budget.admit(.init(state: next, projectionVersion: 1_000, bindings: [:]))
+        #expect(admittedNextGraph, "A new graph starts a new budget")
     }
+
     @Test("Lifecycle cancellation is not retained as a projection failure")
     func cancelledMaterializationIsNotAnError() async throws {
         let live = LiveWorkspaceFixture()
@@ -363,6 +365,7 @@ struct CloudWorkspaceLiveProjectionTests {
         #expect(coordinator.failures.isEmpty)
         #expect(catalog.projections.isEmpty)
     }
+
     @Test("Reconnect does not recreate an explicitly closed daemon view")
     func reconnectDoesNotUndoRemoteClose() async throws {
         let live = LiveWorkspaceFixture()

@@ -12,13 +12,20 @@ import CmuxTerminal
 
 /// A @MainActor Swift Testing body already runs inside a main queue block, so
 /// the main queue cannot drain until the test returns and every
-/// `spinMainRunLoop` call yields briefly to let product callbacks run.
+/// `drainMainQueueForCloseTest` yields briefly to let product callbacks run.
 private let mainActorTestMainQueueSpin: TimeInterval = 0.1
 
 @MainActor
 @Suite(.serialized)
 struct WorkspaceCloseTabsContextMenuTests {
     private let closeWorkspaceOnLastSurfaceKey = "closeWorkspaceOnLastSurfaceShortcut"
+
+    private func drainMainQueueForCloseTest(timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        } while Date() < deadline
+    }
 
     @Test
     func closeOthersClosesAllTargetedTabsWhenEveryPanelNeedsConfirmation() throws {
@@ -89,8 +96,8 @@ struct WorkspaceCloseTabsContextMenuTests {
                 for: tab,
                 inPane: fixture.paneId
             )
-            spinMainRunLoop()
-            spinMainRunLoop()
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
 
             #expect(promptCount == 1)
             #expect(fixture.workspace.panelIdFromSurfaceId(tabId) == nil)
@@ -183,7 +190,7 @@ struct WorkspaceCloseTabsContextMenuTests {
             let tabId = fixture.tabIds[2]
 
             #expect(fixture.workspace.requestCloseTabRecordingHistory(tabId, force: true))
-            spinMainRunLoop(timeout: mainActorTestMainQueueSpin)
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
 
             let entry = try #require(ClosedItemHistoryStore.shared.menuSnapshot().items.first)
             #expect(entry.title == "Tab 3")
@@ -205,9 +212,9 @@ struct WorkspaceCloseTabsContextMenuTests {
 
                 workspace.markTabCloseButtonClose(surfaceId: surfaceId)
                 _ = workspace.closePanel(panelId)
-                spinMainRunLoop(timeout: mainActorTestMainQueueSpin)
-                spinMainRunLoop(timeout: mainActorTestMainQueueSpin)
-                spinMainRunLoop(timeout: mainActorTestMainQueueSpin)
+                drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+                drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+                drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
 
                 #expect(workspace.panels[panelId] == nil)
                 #expect(workspace.panels.count == 1)
@@ -322,8 +329,8 @@ struct WorkspaceCloseTabsContextMenuTests {
             for: anchorTab,
             inPane: fixture.paneId
         )
-        spinMainRunLoop(timeout: mainActorTestMainQueueSpin)
-        spinMainRunLoop(timeout: mainActorTestMainQueueSpin)
+        drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+        drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
 
         #expect(promptCount == 1, "Expected one confirmation prompt for \(action)")
     }
@@ -351,13 +358,6 @@ struct WorkspaceCloseTabsContextMenuTests {
         try await body()
     }
 
-    private func spinMainRunLoop(timeout: TimeInterval = mainActorTestMainQueueSpin) {
-        let deadline = Date().addingTimeInterval(timeout)
-        repeat {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
-        } while Date() < deadline
-    }
-
     private func waitForMainQueueWork(
         timeout: TimeInterval = 4,
         until condition: () -> Bool
@@ -365,7 +365,8 @@ struct WorkspaceCloseTabsContextMenuTests {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
             if condition() { return }
-            spinMainRunLoop(timeout: mainActorTestMainQueueSpin)
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
         } while Date() < deadline
     }
 

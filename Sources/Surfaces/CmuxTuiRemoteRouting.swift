@@ -2,22 +2,6 @@ import Foundation
 
 /// Pure remote catalog selector and placement resolution shared by the app and CLI.
 enum CmuxTuiRemoteRouting {
-    /// Seconds between Cloud VM status polls. The environment override is
-    /// intentionally bounded so a test or shell setting cannot outlive the
-    /// command's own deadline.
-    static func vmReadyPollInterval(
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> TimeInterval {
-        guard let raw = environment["CMUX_VM_WAIT_POLL_SECONDS"],
-              let parsed = TimeInterval(raw),
-              parsed.isFinite,
-              parsed >= 0.01,
-              parsed <= 3 else {
-            return 3
-        }
-        return parsed
-    }
-
     /// Every `cmux vm agent` option that takes a value, so the alias walk and
     /// the help scan skip the value instead of reading it as the first provider
     /// argument (or as `--help`).
