@@ -74,11 +74,11 @@ public final class RemoteLocalhostProxy: Sendable {
     /// this Mac's loopback to stand in for DNS rebinding.
     let directHost: @Sendable (String) -> NWEndpoint.Host
 
-    public init(secret: String = ProxyCredential.randomToken(bytes: 32)) {
+    public convenience init(secret: String = ProxyCredential.randomToken(bytes: 32)) {
         self.init(secret: secret, directHost: { NWEndpoint.Host($0) })
     }
 
-    init(secret: String = ProxyCredential.randomToken(bytes: 32), directHost: @escaping @Sendable (String) -> NWEndpoint.Host) {
+    init(secret: String, directHost: @escaping @Sendable (String) -> NWEndpoint.Host) {
         self.secret = secret
         self.directHost = directHost
     }
