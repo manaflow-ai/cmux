@@ -9,8 +9,13 @@ private nonisolated struct FailingHost: AgentPaneHostProviding {
 
 private actor RecordingHost: AgentPaneHostProviding {
     private(set) var asked: [String?] = []
+    private(set) var reconnects = 0
     func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
         asked.append(sessionId)
+        return AgentPaneHandshake.acpmux(AcpmuxWebEndpoint(url: URL(fileURLWithPath: "/"), token: "t"), sessionId: sessionId)
+    }
+    func reconnectHandshake(sessionId: String?) async throws -> AgentPaneHandshake {
+        reconnects += 1
         return AgentPaneHandshake.acpmux(AcpmuxWebEndpoint(url: URL(fileURLWithPath: "/"), token: "t"), sessionId: sessionId)
     }
 }
@@ -37,6 +42,17 @@ private actor RecordingHost: AgentPaneHostProviding {
         #expect(await host.asked == [nil, "s-9"])
         #expect(reported == ["s-9"])
         #expect(model.sessionId == "s-9")
+    }
+
+    /// `ready` with `reconnect: true` comes from a page that lost its daemon.
+    @Test func aReconnectingPageGetsAHandshakeThatDoesNotStartTheDaemon() async throws {
+        #expect(AgentPaneRequest(body: ["method": "ready", "params": ["reconnect": true]] as [String: Any]) == .reconnect)
+        #expect(AgentPaneRequest(body: ["method": "ready", "params": [String: Any]()] as [String: Any]) == .ready)
+        let host = RecordingHost()
+        let model = AgentPaneModel(host: host)
+        _ = await model.respond(to: .reconnect)
+        #expect(await host.reconnects == 1)
+        #expect(await host.asked.isEmpty)
     }
 
     @Test func aHostFailureBecomesALocalizedMessage() async throws {
