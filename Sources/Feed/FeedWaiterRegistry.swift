@@ -181,7 +181,8 @@ final class FeedWaiterRegistry: Sendable {
         groups.withLock { groups in
             var invalidated: [(Reply, UUID?)] = []
             for (requestID, var group) in groups {
-                guard group.decision == nil, !group.cleanupClaimed,
+                guard group.decision == nil, group.terminalResult == nil,
+                      !group.cleanupClaimed,
                       group.event.source == source else { continue }
                 let canonical = FeedWorkstreamIdentifier.canonicalizedRawValue(
                     agentID: source, rawValue: group.event.sessionId

@@ -66,27 +66,38 @@ struct FeedWaiterRegistryTests {
     @Test func sessionInvalidationClearsEveryMatchingRequestOnly() throws {
         let registry = FeedWaiterRegistry()
         let firstEvent = event()
+        let matchingEvent = WorkstreamEvent(sessionId: "session", hookEventName: .permissionRequest,
+            source: "claude", toolName: "Tool", toolInputJSON: "{}", requestId: "matching-request")
         let secondEvent = WorkstreamEvent(sessionId: "other", hookEventName: .permissionRequest,
             source: "claude", toolName: "Tool", toolInputJSON: "{}", requestId: "other-request")
         let foreignEvent = WorkstreamEvent(sessionId: "session", hookEventName: .permissionRequest,
             source: "codex", toolName: "Tool", toolInputJSON: "{}", requestId: "codex-request")
         let first = try #require(registry.register(requestID: "request", event: firstEvent))
+        let matching = try #require(registry.register(requestID: "matching-request", event: matchingEvent))
         let second = try #require(registry.register(requestID: "other-request", event: secondEvent))
         let foreign = try #require(registry.register(requestID: "codex-request", event: foreignEvent))
         registry.accepted(first, event: firstEvent, item: item())
+        registry.accepted(matching, event: matchingEvent, item: item())
         registry.accepted(second, event: secondEvent, item: item())
         registry.accepted(foreign, event: foreignEvent, item: item())
 
         let invalidated = registry.invalidate(source: "claude", sessionID: "session")
-        #expect(invalidated.map { $0.0.requestID } == ["request"])
+        #expect(Set(invalidated.map { $0.0.requestID }) == ["request", "matching-request"])
         #expect(first.semaphore.wait(timeout: .now()) == .success)
+        #expect(matching.semaphore.wait(timeout: .now()) == .success)
         #expect(registry.isAwaiting("other-request"))
         #expect(registry.isAwaiting("codex-request"))
         guard case .unavailable = registry.finish(first).outcome.result else {
             Issue.record("Session teardown must invalidate the matching request")
             return
         }
-        registry.cleanupStored(requestID: "request", groupID: invalidated[0].0.groupID)
+        guard case .unavailable = registry.finish(matching).outcome.result else {
+            Issue.record("Session teardown must invalidate every matching request")
+            return
+        }
+        for reply in invalidated {
+            registry.cleanupStored(requestID: reply.0.requestID, groupID: reply.0.groupID)
+        }
         _ = registry.finish(second)
         _ = registry.finish(foreign)
     }

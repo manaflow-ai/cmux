@@ -420,15 +420,8 @@ final class FeedCoordinator: @unchecked Sendable {
     }
 
     private func clearSemanticFeedNotificationOnMain(requestId: String) {
-        let clear: @Sendable () -> Void = { [requestId] in
-            MainActor.assumeIsolated {
-                FeedCoordinator.shared.clearSemanticFeedNotification(requestId: requestId)
-            }
-        }
-        if Thread.isMainThread {
-            clear()
-        } else {
-            DispatchQueue.main.async(execute: clear)
+        Task { @MainActor [requestId] in
+            FeedCoordinator.shared.clearSemanticFeedNotification(requestId: requestId)
         }
     }
 
