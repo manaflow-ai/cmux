@@ -234,3 +234,77 @@ export class ArrayMemoryStore implements MemoryStore {
     this.nodes.delete(key(range));
   }
 }
+
+/**
+ * A primary store (the source of truth, e.g. a git repo on a VM) behind a local
+ * cache. Log lines never change, so cached lines never go stale; summaries
+ * are written through. Recall goes to the primary, which holds everything.
+ */
+export class CachedMemoryStore implements MemoryStore {
+  private synced = false;
+  private readonly primary: MemoryStore;
+  private readonly cache: MemoryStore;
+
+  constructor(primary: MemoryStore, cache: MemoryStore) {
+    this.primary = primary;
+    this.cache = cache;
+  }
+
+  /** Copies log lines the cache lacks (a new Durable Object, or a store moved between hosts). */
+  private async sync(): Promise<void> {
+    if (this.synced) return;
+    const [have, total] = await Promise.all([this.cache.length(), this.primary.length()]);
+    // Lines only the cache has (memory written before this primary existed) move up first.
+    for (let start = total; start < have; start += 500) {
+      await this.primary.append(await this.cache.read(start, Math.min(have, start + 500)));
+    }
+    for (let start = have; start < total; start += 500) {
+      await this.cache.append(await this.primary.read(start, Math.min(total, start + 500)));
+    }
+    this.synced = true;
+  }
+
+  async length() {
+    await this.sync();
+    return this.cache.length();
+  }
+
+  async append(lines: string[]) {
+    await this.sync();
+    const total = await this.primary.append(lines);
+    await this.cache.append(lines);
+    return total;
+  }
+
+  async read(start: number, end: number) {
+    await this.sync();
+    return this.cache.read(start, end);
+  }
+
+  recall(pattern: string, limit: number) {
+    return this.primary.recall(pattern, limit);
+  }
+
+  async getNodes(ranges: Range[]) {
+    const found = await this.cache.getNodes(ranges);
+    const missing = ranges.filter((r) => !found.has(key(r)));
+    if (missing.length > 0) {
+      for (const [k, summary] of await this.primary.getNodes(missing)) {
+        const [lo, hi] = k.split("-").map(Number);
+        await this.cache.putNode({ lo, hi }, summary);
+        found.set(k, summary);
+      }
+    }
+    return found;
+  }
+
+  async putNode(range: Range, summary: string) {
+    await this.primary.putNode(range, summary);
+    await this.cache.putNode(range, summary);
+  }
+
+  async deleteNode(range: Range) {
+    await this.primary.deleteNode(range);
+    await this.cache.deleteNode(range);
+  }
+}

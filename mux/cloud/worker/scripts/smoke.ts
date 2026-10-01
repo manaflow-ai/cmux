@@ -1,11 +1,14 @@
 // Live smoke test against a running mux worker: create a conversation, send a
 // message over the WebSocket, wait for the mux's reply.
 // Usage: bun scripts/smoke.ts [baseUrl] [message] [mux replies to wait for]
-// MUX_DEV_USER picks the dev identity (default "smoke").
+// MUX_ACCESS_TOKEN (a Stack access token) signs in; otherwise MUX_DEV_USER picks
+// the dev identity (default "smoke").
 const base = process.argv[2] ?? "http://localhost:8787";
 const text = process.argv[3] ?? "hello mux";
 let remaining = Number(process.argv[4] ?? 1);
-const auth = `dev_user=${process.env.MUX_DEV_USER ?? "smoke"}`;
+const auth = process.env.MUX_ACCESS_TOKEN
+  ? `access_token=${process.env.MUX_ACCESS_TOKEN}`
+  : `dev_user=${process.env.MUX_DEV_USER ?? "smoke"}`;
 
 const created = await fetch(`${base}/api/conversations?${auth}`, { method: "POST", body: "{}" });
 const { conversation } = (await created.json()) as { conversation: { id: string } };

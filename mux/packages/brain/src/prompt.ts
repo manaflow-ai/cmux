@@ -73,6 +73,6 @@ export function eventInput(event: LinkEvent): InputItem {
       : `Agent "${event.name}" (${event.sessionId}) is waiting for permission: ${event.title} (permission ${event.permissionId}).`;
   return {
     role: "developer",
-    content: `${header}\n\nTell the people in this conversation what they need to know, briefly, and take any next step yourself. If nothing is worth saying, answer with an empty message.`,
+    content: `${header}\n\nTell the people in this conversation what they need to know, briefly, and take any next step yourself. If the conversation already has this result (you reported it earlier), or nothing is worth saying, answer with an empty message.`,
   };
 }
