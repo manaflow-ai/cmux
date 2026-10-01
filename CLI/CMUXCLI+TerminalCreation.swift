@@ -62,8 +62,8 @@ extension CMUXCLI {
         if let cwdOpt {
             params["cwd"] = resolvePath(cwdOpt)
         }
-        if layoutOpt == nil {
-            applyTerminalCreationCommandOption(commandOpt, to: &params)
+        if layoutOpt == nil, let commandOpt {
+            params["initial_command"] = commandOpt
         }
         if let nameOpt { params["title"] = nameOpt }
         if let descriptionOpt { params["description"] = descriptionOpt }
