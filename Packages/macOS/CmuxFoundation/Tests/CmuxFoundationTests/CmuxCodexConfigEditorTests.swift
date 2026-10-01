@@ -90,6 +90,25 @@ struct CmuxCodexConfigEditorTests {
         #expect(result.content.contains(Self.featureBegin))
     }
 
+    @Test("Install preserves marker-like text inside a multiline basic string")
+    func installPreservesMultilineBasicString() {
+        let original = "model_instructions = \"\"\"\n[features]\nhooks = false\ncodex_hooks = illustrative_text\n\"\"\"\nmodel = \"gpt-5.4\"\n"
+
+        let installed = editor.installingHooks(in: original, trustEntries: [])
+        let expected = "model_instructions = \"\"\"\n[features]\nhooks = false\ncodex_hooks = illustrative_text\n\"\"\"\nmodel = \"gpt-5.4\"\n\n[features]\n# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df begin\nhooks = true\n# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df end\n"
+
+        #expect(installed.content == expected)
+    }
+
+    @Test("Uninstall preserves marker-like text inside a multiline literal string")
+    func uninstallPreservesMultilineLiteralString() {
+        let original = "model_instructions = '''\n[features]\nhooks = false\ncodex_hooks = illustrative_text\n'''\nmodel = \"gpt-5.4\"\n"
+        let installed = editor.installingHooks(in: original, trustEntries: [])
+        let restored = editor.uninstallingHooks(from: installed.content)
+
+        #expect(restored == original)
+    }
+
     private static func occurrences(of needle: String, in haystack: String) -> Int {
         haystack.components(separatedBy: needle).count - 1
     }
