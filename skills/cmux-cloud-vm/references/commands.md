@@ -743,12 +743,15 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.diagnostics` | `cmux rpc vm.diagnostics '{}'` returns the app's cloud-operation report; `{"show":true}` also opens the diagnostics window |
 | `vm.resize` | `vm resize <id> [--cpu …] [--memory …] [--disk …]`; machine row › Resize machine |
 | `vm.rename` | `vm new --name` and the router's `agent-pool` label; direct machine-label editing is currently a sidebar action |
+| `vm.pause`, `vm.resume` | `vm pause <id>`, `vm resume <id>` |
+| `vm.reflection` | `vm self <id> [<path>]` |
 | `vm.tab_rename` | `vm tab rename` |
 | `vm.terminal_rename` | `vm terminal rename` |
 | `vm.publication_grant`, `vm.publication_grants`, `vm.publication_ungrant` | publication viewer grant management exposed by the Cloud publication controller |
 | `vm.tunnel_config`, `vm.tunnel_up`, `vm.tunnel_down`, `vm.tunnel_status`, `vm.tunnel_wait`, `vm.tunnel_revoke` | WireGuard enrollment and lifecycle behind `cmux vpn up|down|status|on|off|revoke` |
 
 | `vm.snapshot` | `vm snapshot`, `vm promote-template` |
+| `vm.snapshot_list`, `vm.snapshot_delete` | `vm snapshot ls`, `vm snapshot rm` |
 | `vm.fork`, `vm.restore` | `vm fork`, `vm restore` |
 | `vm.destroy` | Cloud sidebar machine deletion |
 | `vm.exec` | `vm exec`, `vm run`, `vm push`, `vm pull`, `vm wait --wake`, `vm tools`, `vm ports` |
@@ -764,6 +767,9 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.workspace_new`, `vm.workspace_open`, `vm.workspace_rename`, `vm.workspace_close`, `vm.workspace_delete` | `vm workspace new|open|rename|close|rm` |
 | `vm.terminal_close` | `vm terminal close` |
 | `vm.terminal_write`, `vm.terminal_read`, `vm.terminal_wait` | `vm terminal send`, `vm terminal read`, `vm terminal wait` |
+| `vm.terminal_output`, `vm.terminal_wait_exit` | `vm terminal output`, `vm terminal wait-exit` |
+| `vm.env_set` | `vm env set` |
+| `vm.file_put` | secret-safe `vm push` file delivery |
 | `vm.cloud_prompt`, `vm.cloud_agent_open` | `vm prompt`, `vm prompt --open` |
 | `vm.publication_list`, `vm.publication_create`, `vm.publication_verify`, `vm.publication_update`, `vm.publication_delete` | `cloud domains list`, `publish`, `access`, `rm`; `vm.publication_verify` is the app-side publication retry path |
 | `vm.domain_list`, `vm.domain_verify` | `cloud domains zones`, `cloud domains verify` |
