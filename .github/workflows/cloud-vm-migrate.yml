@@ -15,6 +15,25 @@ on:
         default: false
         type: boolean
 
+  workflow_call:
+    inputs:
+      target:
+        description: Migration target (staging or production)
+        required: true
+        type: string
+      ref:
+        description: >-
+          Reviewed main-history commit for production (ancestor checked by the
+          caller). Defaults to main. Staging uses the calling event's sha.
+        required: false
+        default: ""
+        type: string
+      cleanup_iroh_challenges:
+        description: Prune expired, consumed, and duplicate Iroh registration challenges after migration
+        required: false
+        default: false
+        type: boolean
+
 permissions:
   contents: read
 
@@ -36,7 +55,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.target == 'production' && 'refs/heads/main' || github.sha }}
+          ref: ${{ inputs.target == 'production' && (inputs.ref || 'refs/heads/main') || github.sha }}
       - name: Pin migration source
         id: source
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
