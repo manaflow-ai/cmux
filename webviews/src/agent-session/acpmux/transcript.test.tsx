@@ -33,9 +33,11 @@ function fakeViewport(size: { width: number; height: number }) {
   Object.defineProperty(prototype, "clientHeight", { configurable: true, get(this: HTMLElement) { return isScroller(this) ? size.height : 0; } });
   Object.defineProperty(prototype, "clientWidth", { configurable: true, get(this: HTMLElement) { return isScroller(this) ? size.width : 0; } });
   // Like a browser, the offset clamps to the content once it lays out again.
-  const maximum = (node: HTMLElement) => Math.max(0, parseFloat(node.querySelector<HTMLElement>(".acpmux-spacer")?.style.height || "0") - size.height);
+  const contentHeight = (node: HTMLElement) => parseFloat(node.querySelector<HTMLElement>(".acpmux-spacer")?.style.height || "0");
+  const maximum = (node: HTMLElement) => Math.max(0, contentHeight(node) - size.height);
+  Object.defineProperty(prototype, "scrollHeight", { configurable: true, get(this: HTMLElement) { return isScroller(this) ? Math.max(contentHeight(this), size.height) : 0; } });
   Object.defineProperty(prototype, "scrollTop", { configurable: true, get(this: HTMLElement) { const offset = Math.min(offsets.get(this) ?? 0, maximum(this)); offsets.set(this, offset); return offset; }, set(this: HTMLElement, value: number) { offsets.set(this, Math.max(0, Math.min(value, maximum(this)))); } });
-  return () => { for (const key of ["clientHeight", "clientWidth", "scrollTop"]) delete (prototype as unknown as Record<string, unknown>)[key]; };
+  return () => { for (const key of ["clientHeight", "clientWidth", "scrollHeight", "scrollTop"]) delete (prototype as unknown as Record<string, unknown>)[key]; };
 }
 
 const rows: AcpmuxRow[] = Array.from({ length: 200 }, (_, index) => ({ id: `row-${index}`, version: 1, at: index, kind: index % 2 ? "assistant" : "user", text: `message ${index}` }));
@@ -312,6 +314,42 @@ describe("acpmux measured rows", () => {
       expect(scroller.scrollTop).toBe(parseFloat(spacer.style.height) - 400);
     } finally {
       await act(async () => root.unmount());
+      restore();
+    }
+  });
+
+  /// A reader near the end scrolls up, and before that scroll's event a row below draws shorter.
+  /// The offset lands just under the new end without the browser clamping it, so the reader stays.
+  test("a small scroll-up at the latest row survives a row below drawing shorter", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const prototype = dom.window.HTMLElement.prototype;
+    const original = prototype.getBoundingClientRect;
+    let lastHeight = 120;
+    prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const height = this.classList.contains("acpmux-row") && this.getAttribute("aria-posinset") === "200" ? lastHeight : 0;
+      return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: height, width: 0, height, toJSON() { return {}; } } as DOMRect;
+    };
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const reportLatest = async () => {
+      const latest = dom.window.document.querySelector<HTMLElement>('.acpmux-row[aria-posinset="200"]')!;
+      await act(async () => { for (const callback of resizeCallbacks) (callback as (entries: { target: Element }[]) => void)([{ target: latest }]); });
+    };
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      await reportLatest();
+      const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
+      const spacer = dom.window.document.querySelector(".acpmux-spacer") as HTMLElement;
+      const end = parseFloat(spacer.style.height) - 600;
+      expect(scroller.scrollTop).toBe(end);
+      // Up by 10.75px; the latest row then draws 10px shorter, so the new end is 0.75px below the reader.
+      scroller.scrollTop = end - 10.75;
+      lastHeight -= 10;
+      await reportLatest();
+      expect(parseFloat(spacer.style.height) - 600).toBe(end - 10);
+      expect(scroller.scrollTop).toBe(end - 10.75);
+    } finally {
+      await act(async () => root.unmount());
+      prototype.getBoundingClientRect = original;
       restore();
     }
   });
