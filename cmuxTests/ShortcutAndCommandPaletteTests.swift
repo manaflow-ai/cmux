@@ -946,6 +946,39 @@ struct CommandPaletteCloudAvailabilityTests {
         #expect(!executionSupportedHidden.contains(ContentView.commandPaletteCloudPortsCommandId))
         #expect(!executionSupportedHidden.contains(ContentView.commandPaletteCloudToolsCommandId))
     }
+
+    /// Cloud commands keep the tab manager that owns the invoking palette.
+    @MainActor
+    @Test("Cloud command routing prefers the invoking window context")
+    func cloudCommandRoutingPrefersInvokingTabManager() {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let mainManager = TabManager()
+        let paletteManager = TabManager()
+        let mainWindowID = appDelegate.registerMainWindowContextForTesting(
+            windowId: UUID(),
+            tabManager: mainManager
+        )
+        let paletteWindowID = appDelegate.registerMainWindowContextForTesting(
+            windowId: UUID(),
+            tabManager: paletteManager
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: paletteWindowID)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: mainWindowID)
+        }
+
+        let context = appDelegate.contextForCloudVMCommand(
+            preferredTabManager: paletteManager,
+            preferredWindow: nil,
+            debugSource: "test.palette.cloud.routing"
+        )
+        #expect(context?.tabManager === paletteManager)
+        #expect(context?.tabManager !== mainManager)
+    }
 }
 
 final class CommandPaletteCloudCommandTests: XCTestCase {

@@ -225,6 +225,7 @@ extension ContentView {
 
     /// Registers Cloud palette handlers with the shared command dispatcher.
     func registerCloudCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
+        let commandWindow = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         registry.register(commandId: Self.commandPaletteCloudAvailabilityInfoCommandId) {
             // Let the command palette finish dismissing before presenting the modal alert.
             DispatchQueue.main.async {
@@ -243,33 +244,73 @@ extension ContentView {
         }
         registry.register(commandId: Self.commandPaletteCloudNewMachineCommandId) {
             _ = AppDelegate.shared?.performNewCloudMachineAction(
-                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+                tabManager: tabManager,
+                preferredWindow: commandWindow,
                 debugSource: "palette.cloud.newMachine"
             )
         }
         registry.register(commandId: Self.commandPaletteCloudForkCommandId) {
-            _ = AppDelegate.shared?.performCurrentCloudVMCommand(.fork, debugSource: "palette.cloud.fork")
+            _ = AppDelegate.shared?.performCurrentCloudVMCommand(
+                .fork,
+                tabManager: tabManager,
+                preferredWindow: commandWindow,
+                debugSource: "palette.cloud.fork"
+            )
         }
         registry.register(commandId: Self.commandPaletteCloudSnapshotCommandId) {
-            _ = AppDelegate.shared?.performCurrentCloudVMCommand(.snapshot, debugSource: "palette.cloud.snapshot")
+            _ = AppDelegate.shared?.performCurrentCloudVMCommand(
+                .snapshot,
+                tabManager: tabManager,
+                preferredWindow: commandWindow,
+                debugSource: "palette.cloud.snapshot"
+            )
         }
         registry.register(commandId: Self.commandPaletteCloudRestoreCommandId) {
-            _ = AppDelegate.shared?.performCloudVMRestoreCommand(debugSource: "palette.cloud.restore")
+            _ = AppDelegate.shared?.performCloudVMRestoreCommand(
+                tabManager: tabManager,
+                preferredWindow: commandWindow,
+                debugSource: "palette.cloud.restore"
+            )
         }
         registry.register(commandId: Self.commandPaletteCloudPromoteTemplateCommandId) {
-            _ = AppDelegate.shared?.performCurrentCloudVMCommand(.promoteTemplate, debugSource: "palette.cloud.promoteTemplate")
+            _ = AppDelegate.shared?.performCurrentCloudVMCommand(
+                .promoteTemplate,
+                tabManager: tabManager,
+                preferredWindow: commandWindow,
+                debugSource: "palette.cloud.promoteTemplate"
+            )
         }
         registry.register(commandId: Self.commandPaletteCloudStatusCommandId) {
-            _ = AppDelegate.shared?.performCurrentCloudVMCommand(.status, debugSource: "palette.cloud.status")
+            _ = AppDelegate.shared?.performCurrentCloudVMCommand(
+                .status,
+                tabManager: tabManager,
+                preferredWindow: commandWindow,
+                debugSource: "palette.cloud.status"
+            )
         }
         registry.register(commandId: Self.commandPaletteCloudPortsCommandId) {
-            _ = AppDelegate.shared?.performCurrentCloudVMCommand(.ports, debugSource: "palette.cloud.ports")
+            _ = AppDelegate.shared?.performCurrentCloudVMCommand(
+                .ports,
+                tabManager: tabManager,
+                preferredWindow: commandWindow,
+                debugSource: "palette.cloud.ports"
+            )
         }
         registry.register(commandId: Self.commandPaletteCloudToolsCommandId) {
-            _ = AppDelegate.shared?.performCurrentCloudVMCommand(.tools, debugSource: "palette.cloud.tools")
+            _ = AppDelegate.shared?.performCurrentCloudVMCommand(
+                .tools,
+                tabManager: tabManager,
+                preferredWindow: commandWindow,
+                debugSource: "palette.cloud.tools"
+            )
         }
         registry.register(commandId: Self.commandPaletteCloudHandoffCommandId) {
-            _ = AppDelegate.shared?.performCurrentCloudVMCommand(.handoff, debugSource: "palette.cloud.handoff")
+            _ = AppDelegate.shared?.performCurrentCloudVMCommand(
+                .handoff,
+                tabManager: tabManager,
+                preferredWindow: commandWindow,
+                debugSource: "palette.cloud.handoff"
+            )
         }
     }
 }

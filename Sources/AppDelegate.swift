@@ -9207,9 +9207,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             return false
         }
-        let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
-            ?? preferredWindow.flatMap { contextForMainWindow($0) }
-            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
+        let context = contextForCloudVMCommand(
+            preferredTabManager: preferredTabManager,
+            preferredWindow: preferredWindow,
+            debugSource: debugSource
+        )
         guard let context else {
             NSSound.beep()
             return false
@@ -9236,6 +9238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func performCloudVMRestoreCommand(
+        tabManager preferredTabManager: TabManager? = nil,
         preferredWindow: NSWindow? = nil,
         debugSource: String = "cloudVM.restore"
     ) -> Bool {
@@ -9251,8 +9254,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             return false
         }
-        let context = preferredWindow.flatMap { contextForMainWindow($0) }
-            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
+        let context = contextForCloudVMCommand(
+            preferredTabManager: preferredTabManager,
+            preferredWindow: preferredWindow,
+            debugSource: debugSource
+        )
         guard let context else {
             NSSound.beep()
             return false
@@ -9271,6 +9277,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             successTitle: String(localized: "command.cloudVM.restore.result.title", defaultValue: "Cloud VM Restored"),
             presentOutputOnSuccess: true
         )
+    }
+
+    /// Resolves a Cloud palette action to the window that opened the palette.
+    /// The tab manager takes precedence so a secondary window cannot fall back
+    /// to another window's selected workspace.
+    func contextForCloudVMCommand(
+        preferredTabManager: TabManager?,
+        preferredWindow: NSWindow?,
+        debugSource: String
+    ) -> MainWindowContext? {
+        preferredTabManager.flatMap { mainWindowContext(for: $0) }
+            ?? preferredWindow.flatMap { contextForMainWindow($0) }
+            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
     }
 
     enum CurrentCloudVMCommand {

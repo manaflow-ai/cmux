@@ -99,6 +99,11 @@ struct CLIAgentMessageCommandTests {
                         "state": "queued",
                         "sender_name": "coordinator",
                         "body": "first line\nsecond line",
+                    ], [
+                        "id": "fedcba9876543210",
+                        "state": "queued",
+                        "sender_name": "reviewer",
+                        "body": "follow-up",
                     ]],
                 ],
             ]
