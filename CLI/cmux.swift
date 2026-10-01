@@ -5659,7 +5659,7 @@ struct CMUXCLI {
             }
 
         case "agent":
-            // `agent message` and `agent inbox` are local agent messaging;
+            // `agent message`, `inbox` and `messages` are local agent messaging;
             // hibernate and wake act on local agents; everything else stays an
             // alias of `cmux vm agent`.
             if try !runAgentMessageCommandIfMatched(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput) {
@@ -21158,17 +21158,9 @@ struct CMUXCLI {
             print(verbText)
             return true
         }
-        if command == "agent", let verb = commandArgs.first?.lowercased() {
-            switch verb {
-            case "message", "msg":
-                print(Self.agentMessageHelp)
-                return true
-            case "inbox":
-                print(Self.agentInboxHelp)
-                return true
-            default:
-                break
-            }
+        if command == "agent", let text = Self.agentSubcommandHelp(commandArgs.first) {
+            print(text)
+            return true
         }
         guard let text = subcommandUsage(command) else { return false }
         print("cmux \(command)")

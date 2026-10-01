@@ -81,6 +81,28 @@ struct CLIAgentMessageCommandTests {
         #expect(!run.result.stderr.isEmpty)
     }
 
+    @Test func messagesOffDefaultsToTheCallersSurface() throws {
+        let run = try runCLI(arguments: ["agent", "messages", "off"])
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr + run.result.stdout))
+        let params = try #require(run.request("agent.message.settings")?["params"] as? [String: Any])
+        #expect(params["enabled"] as? Bool == false)
+        #expect(params["scope"] as? String == "surface")
+        #expect(params["surface_id"] as? String == Self.callerSurfaceID)
+        #expect(params["target"] == nil)
+    }
+
+    @Test func messagesOnForAWorkspaceTargetAndStatusSetsNothing() throws {
+        let on = try runCLI(arguments: ["agent", "messages", "on", "--workspace", "workspace:3"])
+        let params = try #require(on.request("agent.message.settings")?["params"] as? [String: Any])
+        #expect(params["enabled"] as? Bool == true)
+        #expect(params["scope"] as? String == "workspace")
+        #expect(params["target"] as? String == "workspace:3")
+        let status = try runCLI(arguments: ["agent", "messages", "status", "surface:4"])
+        let statusParams = try #require(status.request("agent.message.settings")?["params"] as? [String: Any])
+        #expect(statusParams["enabled"] == nil)
+        #expect(statusParams["target"] as? String == "surface:4")
+    }
+
     @Test func messageHelpNeedsNoSocket() throws {
         let run = try runCLI(arguments: ["agent", "message", "--help"])
 
