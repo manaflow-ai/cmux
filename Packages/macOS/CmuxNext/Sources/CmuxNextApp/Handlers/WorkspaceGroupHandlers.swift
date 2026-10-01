@@ -93,7 +93,7 @@ enum WorkspaceGroupHandlers {
         registry.bindUnavailable(["workspaceGroup.togglePin"], ActionFailure.needsDaemonCapability("workspace-group-pin-v1"))
         registry.bind("workspaceGroup.markUnread", requires: DaemonCapabilities.shared.notificationMarkUnread, daemon: context.services.activeDaemon, run: { invocation in
             try context.require(DaemonCapabilities.shared.notificationMarkUnread)
-            WorkspaceUnreadMark.set(true, on: try members(invocation, context), daemon: context.services.activeDaemon)
+            WorkspaceUnreadMark.set(true, on: try members(invocation, context), machines: context.services.machines)
         })
     }
 

@@ -21,7 +21,6 @@ final class NotificationCenterService {
     @ObservationIgnored private var lastKeystroke: [String: ContinuousClock.Instant] = [:]
     /// The last manual unread clear sent, so key repeat before the daemon's
     /// echo does not send one per key.
-    @ObservationIgnored private var markClear: (workspace: String, at: ContinuousClock.Instant)?
     /// `timeout` dismissal deadlines per tab id (one-shot `DemandTimer`s).
     @ObservationIgnored private var timeouts: [String: DemandTimer] = [:]
     /// Banner ids posted per tab id, withdrawn once the tab is read.
@@ -136,9 +135,7 @@ final class NotificationCenterService {
         guard let services, services.daemon.store.workspaces.contains(where: \.markedUnread),
               let workspace = WorkspaceUnreadMark.workspace(ofTab: tab, in: services.daemon.store),
               workspace.markedUnread else { return }
-        let now = ContinuousClock.now
-        if let sent = markClear, sent.workspace == workspace.id, now - sent.at < .seconds(2) { return }
-        markClear = (workspace.id, now)
+        // One clear per echo window, however fast the keys come (WorkspaceUnreadMark).
         WorkspaceUnreadMark.set(false, on: [workspace], daemon: services.daemon)
     }
 
