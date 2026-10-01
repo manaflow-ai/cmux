@@ -1,5 +1,6 @@
 public import CmuxAuthRuntime
 import CmuxIrxTransport
+import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
 
@@ -352,71 +353,21 @@ extension MobileIrxRuntimeComposition {
             refreshAfter: Date(timeIntervalSince1970: Double($0.refreshAfter))) }
     }
 
-    private final class WarmupCompletionGate: @unchecked Sendable {
-        private let lock = NSLock()
-        private var continuation: CheckedContinuation<Void, Error>?
-        private var pending: Result<Void, Error>?
-        private var finished = false
-
-        func install(_ continuation: CheckedContinuation<Void, Error>) {
-            lock.lock()
-            if let pending {
-                lock.unlock()
-                continuation.resume(with: pending)
-                return
-            }
-            self.continuation = continuation
-            lock.unlock()
-        }
-
-        func finish(_ result: Result<Void, Error>) {
-            lock.lock()
-            guard !finished else {
-                lock.unlock()
-                return
-            }
-            finished = true
-            let continuation = self.continuation
-            if continuation == nil { pending = result }
-            self.continuation = nil
-            lock.unlock()
-            continuation?.resume(with: result)
-        }
-    }
-
     private static func readyEndpointWithTimeout(
         supervisor: IrxEndpointSupervisor,
         credentials: [IrxRelayCredential]
     ) async throws {
         let operation = Task {
-            try await supervisor.readyEndpoint(credentials: credentials)
+            _ = try await supervisor.readyEndpoint(credentials: credentials)
         }
-        let gate = WarmupCompletionGate()
-        return try await withTaskCancellationHandler(operation: {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                gate.install(continuation)
-                Task {
-                    do {
-                        _ = try await operation.value
-                        gate.finish(.success(()))
-                    } catch {
-                        gate.finish(.failure(error))
-                    }
-                }
-                Task {
-                    do {
-                        try await Task.sleep(for: .seconds(30))
-                        operation.cancel()
-                        gate.finish(.failure(CompositionError.endpointWarmupTimedOut))
-                    } catch {
-                        // Caller cancellation is handled by the outer handler.
-                    }
-                }
-            }
-        }, onCancel: {
-            operation.cancel()
-            gate.finish(.failure(CancellationError()))
-        })
+        do {
+            try await RPCTaskTimeout().value(
+                operation,
+                timeoutNanoseconds: 30_000_000_000
+            )
+        } catch MobileShellConnectionError.requestTimedOut {
+            throw CompositionError.endpointWarmupTimedOut
+        }
     }
 
     func endpointWarmupFailed(epoch expectedEpoch: UInt64) {
