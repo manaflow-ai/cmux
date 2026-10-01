@@ -418,9 +418,19 @@ public actor CloudMachineLink {
     /// Commands are immutable protocol messages on one machine-owned socket.
     /// No child process, CLI parsing, automatic mutation replay or re-authentication.
     public func run(arguments: CloudTuiRequest, timeout: Duration = .seconds(30)) async throws -> Data {
-        try await CloudOperationContext.phase(.process) {
-            let channel = try await self.controlConnection()
-            return try await channel.request(arguments, timeout: timeout)
+        do {
+            return try await CloudOperationContext.phase(.process) {
+                let channel = try await self.controlConnection()
+                return try await channel.request(arguments, timeout: timeout)
+            }
+        } catch {
+            // A link process can remain alive after its local control socket has
+            // lost the daemon. Retire that transport so the manager can create a
+            // fresh client instead of reusing a permanently dead link.
+            if Self.isTransportFailure(error) {
+                await retireForTransportFailure(error)
+            }
+            throw error
         }
     }
 
@@ -432,6 +442,46 @@ public actor CloudMachineLink {
         let channel = CloudTuiPersistentResourceConnection(socketPath: connected.socketPath)
         resourceConnection = channel
         return channel
+    }
+
+    private nonisolated static func isTransportFailure(_ error: Error) -> Bool {
+        if let linkError = error as? LinkError,
+           case .exited(let status, let output) = linkError {
+            return status == 3 && output.hasPrefix("transport closed:")
+        }
+        let nsError = error as NSError
+        return nsError.domain == "cmux.cloud.manual-io"
+    }
+
+    private func retireForTransportFailure(_ error: Error) async {
+        guard state == .connected else { return }
+        state = .error
+        lastError = Self.errorText(error)
+        eventsSubscriptionID = nil
+        eventsReaderTask?.cancel()
+        eventsReaderTask = nil
+        eventsRecoveryTask?.cancel()
+        eventsRecoveryTask = nil
+        cancelEventsStabilityReset()
+        eventsRecoveryPhase = .healthy
+        await cancelEventsStream()
+        connected = nil
+        await resourceConnection?.close()
+        resourceConnection = nil
+        changesContinuation.yield(.streamEnded(reason: "transport_failure", cursor: eventsCursor))
+        changesContinuation.finish()
+
+        // Fence the termination callback before killing the stale client. The
+        // socket error is the useful diagnosis; an ordinary process-exit
+        // callback would otherwise overwrite it with a generic exit message.
+        let staleProcess = process
+        let staleExit = processExit
+        process = nil
+        processExit = nil
+        if let staleProcess, let staleExit {
+            await Self.terminateAndWait(staleProcess, exit: staleExit)
+        }
+        await releaseHubLeaseOnce()
     }
 
     private func cancelEventsStream() async {
