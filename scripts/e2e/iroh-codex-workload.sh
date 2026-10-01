@@ -53,7 +53,7 @@ index = int(raw_index)
 try:
     size = os.path.getsize(path)
 except OSError:
-    print("0\t0\t0\t0")
+    print("0|0||0")
     raise SystemExit
 if size < offset:
     offset = 0
@@ -62,7 +62,7 @@ iteration_pattern = re.compile(rf"CMUX_CODEX_{index}_ITER_([0-9]+)")
 error_pattern = re.compile(r"command not found|login required|authentication required", re.IGNORECASE)
 ready = False
 error = False
-largest_iteration = 0
+iterations = set()
 with open(path, "rb") as stream:
     stream.seek(offset)
     while True:
@@ -73,9 +73,10 @@ with open(path, "rb") as stream:
         ready = ready or ready_marker in text
         error = error or bool(error_pattern.search(text))
         for match in iteration_pattern.finditer(text):
-            largest_iteration = max(largest_iteration, int(match.group(1)))
+            iterations.add(int(match.group(1)))
         carry = text[-256:]
-print(f"{size}\t{int(ready)}\t{largest_iteration}\t{int(error)}")
+markers = ",".join(str(value) for value in sorted(iterations))
+print(f"{size}|{int(ready)}|{markers}|{int(error)}")
 PY
 }
 
@@ -89,6 +90,7 @@ declare -a READY_SESSIONS=()
 declare -a ITERATION_COUNTS=()
 declare -a LOG_OFFSETS=()
 declare -a LOG_TAILS=()
+declare -a ITERATION_MARKERS=()
 
 # Closing a workspace terminates the terminal process group that owns the
 # Codex/support command. Always clean up, including when a marker or RPC check
@@ -134,6 +136,7 @@ for ((index=1; index<=COUNT+2; index++)); do
   ITERATION_COUNTS+=(0)
   LOG_OFFSETS+=(0)
   LOG_TAILS+=("")
+  ITERATION_MARKERS+=("")
   printf '{"event":"session_started","role":"%s","index":%d,"workspace_id":"%s","surface_id":"%s","model":"%s","working_directory":"%s","started_at":"%s"}\n' \
     "$role" "$index" "$workspace" "$surface" "$MODEL" "$workdir" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"
 done
@@ -149,7 +152,7 @@ while (( $(date +%s) < deadline )); do
     if (( session_number <= COUNT )); then
       ready_marker="CMUX_CODEX_${session_number}_READY"
       log_scan="$(scan_session_log "$session_log" "${LOG_OFFSETS[$index]}" "$session_number" "${LOG_TAILS[$index]}")"
-      IFS=$'\t' read -r log_size log_ready log_iteration log_error <<<"$log_scan"
+      IFS='|' read -r log_size log_ready log_markers log_error <<<"$log_scan"
       if [[ "$log_size" =~ ^[0-9]+$ ]]; then
         LOG_OFFSETS[$index]="$log_size"
         LOG_TAILS[$index]="$(tail -c 256 "$session_log" 2>/dev/null || true)"
@@ -158,15 +161,27 @@ while (( $(date +%s) < deadline )); do
         READY_SESSIONS[$index]=1
         marker_seen=1
       fi
-      iteration_count="$log_iteration"
-      if ! [[ "$iteration_count" =~ ^[0-9]+$ ]]; then iteration_count=0; fi
-      screen_iteration="$(grep -oE "CMUX_CODEX_${session_number}_ITER_[0-9]+" <<<"$combined_output" \
-        | sed -E 's/.*_ITER_//' | sort -n | tail -1 || true)"
-      if [[ "$screen_iteration" =~ ^[0-9]+$ ]] && (( screen_iteration > iteration_count )); then
-        iteration_count="$screen_iteration"
+      if [[ -n "$log_markers" ]]; then
+        IFS=',' read -r -a new_markers <<<"$log_markers"
+        for marker in "${new_markers[@]}"; do
+          [[ "$marker" =~ ^[0-9]+$ ]] || continue
+          case ",${ITERATION_MARKERS[$index]}," in
+            *",$marker,"*) ;;
+            *)
+              if [[ -n "${ITERATION_MARKERS[$index]}" ]]; then
+                ITERATION_MARKERS[$index]+=",$marker"
+              else
+                ITERATION_MARKERS[$index]="$marker"
+              fi
+              ;;
+          esac
+        done
       fi
-      if [[ "$iteration_count" =~ ^[0-9]+$ ]] \
-         && (( iteration_count > ITERATION_COUNTS[index] )); then
+      iteration_count=0
+      while [[ ",${ITERATION_MARKERS[$index]}," == *",$((iteration_count + 1)),"* ]]; do
+        iteration_count=$((iteration_count + 1))
+      done
+      if (( iteration_count > ITERATION_COUNTS[index] )); then
         ITERATION_COUNTS[$index]="$iteration_count"
         marker_seen=1
       fi
@@ -197,8 +212,14 @@ for index in "${!WORKSPACES[@]}"; do
       echo "error: Codex session $session_number emitted only ${ITERATION_COUNTS[index]} iterations, expected at least 10" >&2
       exit 1
     fi
-    printf '{"event":"session_verified","index":%d,"workspace_id":"%s","surface_id":"%s","model":"%s","iterations":%d,"observed_at":"%s"}\n' \
-      "$session_number" "${WORKSPACES[$index]}" "${SURFACES[$index]}" "$MODEL" "${ITERATION_COUNTS[index]}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"
+    workdir="$TASK_ROOT-$session_number"
+    [[ -s "$workdir/index.html" ]] || {
+      echo "error: Codex session $session_number did not leave a playable index.html" >&2
+      exit 1
+    }
+    artifact_bytes="$(wc -c < "$workdir/index.html" | tr -d ' ')"
+    printf '{"event":"session_verified","index":%d,"workspace_id":"%s","surface_id":"%s","model":"%s","iterations":%d,"artifact":"%s/index.html","artifact_bytes":%s,"observed_at":"%s"}\n' \
+      "$session_number" "${WORKSPACES[$index]}" "${SURFACES[$index]}" "$MODEL" "${ITERATION_COUNTS[index]}" "$workdir" "$artifact_bytes" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"
   fi
 done
 

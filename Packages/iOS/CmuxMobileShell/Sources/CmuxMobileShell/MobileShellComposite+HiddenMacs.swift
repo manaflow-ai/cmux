@@ -459,16 +459,25 @@ extension MobileShellComposite {
                     )]
                     : deletion.deletedScopes
                 for deletedScope in deletedScopes
-                where deletedScope.stackUserID == snapshotAccountID {
-                    await workspaceSnapshotStore.remove(
-                        userID: snapshotAccountID,
-                        teamID: deletedScope.teamID,
-                        pairing: MacPairingKey(
-                            macDeviceID: deletedScope.macDeviceID,
-                            instanceTag: deletedScope.instanceTag
-                        ),
-                        force: true
-                    )
+                where (deletedScope.stackUserID ?? snapshotAccountID) == snapshotAccountID {
+                    // Legacy paired rows may not carry a team. Their workspace
+                    // snapshot was written under the currently selected team,
+                    // so clear that scoped key as well as the old team-less key.
+                    var snapshotTeamIDs = [deletedScope.teamID]
+                    if deletedScope.teamID == nil, let currentTeamID = scope.teamID {
+                        snapshotTeamIDs.append(currentTeamID)
+                    }
+                    for snapshotTeamID in snapshotTeamIDs {
+                        await workspaceSnapshotStore.remove(
+                            userID: snapshotAccountID,
+                            teamID: snapshotTeamID,
+                            pairing: MacPairingKey(
+                                macDeviceID: deletedScope.macDeviceID,
+                                instanceTag: deletedScope.instanceTag
+                            ),
+                            force: true
+                        )
+                    }
                 }
             }
             rememberForgottenMacRecovery(
