@@ -54,7 +54,7 @@ struct ColumnCloseScrollTests {
         #expect(before == screen.geometry.maxOffset)
 
         // Record every frame from here on, whoever drives it.
-        var frames: [(from: Double, to: Double)] = []
+        var frames: [(from: CGFloat, to: CGFloat)] = []
         let step = view.driver.onFrame
         view.driver.onFrame = { dt in
             let from = screen.scroll.value
