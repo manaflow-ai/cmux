@@ -128,7 +128,7 @@ extension SidebarBridge {
     /// without `workspace-pin-v1` keeps the row where it was.
     private func sendPinned(_ ids: [SidebarWorkspaceID], _ pinned: Bool) {
         for (daemon, key) in keys(ids) {
-            guard daemon.supports(DaemonCapabilities.workspacePin) else {
+            guard daemon.supports(DaemonCapabilities.shared.workspacePin) else {
                 resync()
                 continue
             }

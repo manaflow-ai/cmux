@@ -44,8 +44,8 @@ import Testing
     }
 
     @Test func pinWaitsForTheHostedDaemon() {
-        #expect(DaemonCapabilities.awaitingPin.contains(DaemonCapabilities.workspacePin))
-        #expect(!DaemonCapabilities.optional.contains(DaemonCapabilities.workspacePin))
-        #expect(DaemonCapabilities.advertised.contains("workspace-pin-v1"))
+        #expect(DaemonCapabilities.shared.awaitingPin.contains(DaemonCapabilities.shared.workspacePin))
+        #expect(!DaemonCapabilities.shared.optional.contains(DaemonCapabilities.shared.workspacePin))
+        #expect(DaemonCapabilities.shared.advertised.contains("workspace-pin-v1"))
     }
 }
