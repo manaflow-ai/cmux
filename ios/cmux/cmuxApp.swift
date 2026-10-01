@@ -131,6 +131,9 @@ struct cmuxApp: App {
         runtime.daemonLaneOpener = { request in
             try await irx.openDaemonLane(for: request)
         }
+        runtime.agentLaneOpener = { request, purpose in
+            try await irx.openAcpmuxLane(for: request, purpose: purpose)
+        }
 
         return AppCompositionRoot(
             runtime: runtime,

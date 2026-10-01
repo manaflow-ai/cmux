@@ -1,4 +1,5 @@
 public import CMUXMobileCore
+public import CmuxConversation
 import CmuxIrxTransport
 public import CmuxMobileSSH
 public import CmuxMobileRPC
@@ -182,6 +183,19 @@ extension MobileIrxRuntimeComposition {
         let session = try await ensureSession(forPeer: peerHex, trigger: "daemon-lane")
         let lane = try await session.connection.openLane(IrxLaneDescriptor(lane: .daemon, resource: machine))
         return IrxDaemonLaneCarrier(lane: lane)
+    }
+
+    /// Opens an agent-GUI lane to the peer Mac's acpmux (capability
+    /// `acpmux_lane.v1`): the control lane, or a transfer lane for one file.
+    public func openAcpmuxLane(
+        for request: CmxByteTransportRequest,
+        purpose: ConversationStreamPurpose
+    ) async throws -> any ConversationByteStream {
+        let peerHex = try peerTarget(for: request)
+        let session = try await ensureSession(forPeer: peerHex, trigger: "acpmux-lane")
+        let kind: IrxLaneKind = purpose == .control ? .acpmux : .acpmuxTransfer
+        let lane = try await session.connection.openLane(IrxLaneDescriptor(lane: kind))
+        return IrxConversationByteStream(lane: lane)
     }
 
     /// The Mac's loopback listening ports and tunnel policy.

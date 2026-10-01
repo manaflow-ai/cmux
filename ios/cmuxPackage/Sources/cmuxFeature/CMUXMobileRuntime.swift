@@ -47,6 +47,8 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     /// uses it only while ``MobileDaemonLaneFlag`` is on and the Mac
     /// advertises `daemon_lane.v1`.
     public var daemonLaneOpener: MobileDaemonLaneOpener?
+    /// Opens the agent GUI's lanes to a paired Mac's acpmux (`acpmux_lane.v1`).
+    public var agentLaneOpener: MobileAgentLaneOpener?
 
     /// Builds the production access-token provider over an injected
     /// ``TokenProviding`` (the app-root ``AuthCoordinator``), honoring the DEBUG

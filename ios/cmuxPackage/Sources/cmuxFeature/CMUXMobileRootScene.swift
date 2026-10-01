@@ -563,6 +563,9 @@ public struct CMUXMobileRootScene: View {
             )
         )
         Task { await store.startSSHComputers() }
+        if let open = runtime.agentLaneOpener {
+            store.configureAgentLane(open)
+        }
         if let opener = runtime.daemonLaneOpener {
             store.configureDaemonLane(MobileDaemonLaneConfiguration(
                 isEnabled: MobileDaemonLaneFlag.current().isEnabled,

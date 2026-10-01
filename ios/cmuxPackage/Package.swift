@@ -51,6 +51,7 @@ let package = Package(
         .package(path: "../../Packages/iOS/CmuxMobileTerminalKit"),
         .package(path: "../../Packages/iOS/CmuxMobileTransport"),
         .package(path: "../../Packages/iOS/CmuxMobileWorkspace"),
+        .package(path: "../../Packages/Shared/CmuxConversation"),
         .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
     targets: [
@@ -83,6 +84,7 @@ let package = Package(
                 "CmuxMobileTransport",
                 "CmuxMobileWorkspace",
                 "CmuxMobileSSH",
+                "CmuxConversation",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
             swiftSettings: [

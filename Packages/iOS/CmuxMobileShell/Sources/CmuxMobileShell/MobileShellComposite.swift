@@ -9,6 +9,7 @@ internal import CmuxMobileSupport
 public import CmuxMobileTransport
 public import Foundation
 import Observation
+public import CmuxAcpmux
 internal import OSLog
 
 private let mobileShellLog = Logger(
@@ -196,6 +197,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // real transitions. The throttle's `outageOpen` is the per-outage gate.
             guard oldValue != connectionState else { return }
             syncDaemonLaneComputer()
+            syncAgentBackend()
             // Units sent on the previous connection are resent on the next
             // one with their identity; the Mac drops any it already wrote.
             exactlyOnceInputPathsChanged()
@@ -548,6 +550,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         didSet {
             guard oldValue != supportedHostCapabilities else { return }
             syncDaemonLaneComputer()
+            syncAgentBackend()
             recordAppEvent(
                 .capabilitySnapshotReceived,
                 correlationID: foregroundMacDeviceID,
@@ -1459,6 +1462,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var daemonLane: MobileDaemonLaneConfiguration?
     /// The lane computer standing for the foreground Mac, if one is live.
     @ObservationIgnored var daemonLaneComputer: (id: UUID, macDeviceID: String)?
+    /// Opens the foreground Mac's agent-GUI lanes (`acpmux_lane.v1`). Set once
+    /// by the composition root; see `MobileShellComposite+AgentLane.swift`.
+    @ObservationIgnored var agentLaneOpen: MobileAgentLaneOpener?
+    /// The agent GUI's backend for the foreground Mac, while it offers one.
+    public internal(set) var agentBackend: AcpmuxBackend?
+    /// The Mac ``agentBackend`` talks to.
+    @ObservationIgnored var agentBackendMacDeviceID: String?
     /// DEBUG dogfood: text to type into the lane computer's first terminal
     /// once it attaches (`CMUX_DAEMON_LANE_DOGFOOD_TYPE`).
     @ObservationIgnored var daemonLaneDogfoodInput: (surfaceID: String?, text: String)?

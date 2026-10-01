@@ -94,6 +94,7 @@ extension WorkspaceListView {
                                     machineSnapshots: machineSnapshots
                                 )
                             )
+                            AgentsToolbarButton(store: store)
                             if canCreateWorkspace {
                                 newWorkspaceButton.equatable()
                             }
