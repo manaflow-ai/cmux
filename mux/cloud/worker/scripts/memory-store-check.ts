@@ -18,6 +18,7 @@ await store.append(Array.from({ length: 13 }, (_, i) => `fact ${i}`));
 console.log("length", await store.length());
 console.log("read", await store.read(1, 3));
 console.log("recall", await store.recall("build box|ticks", 5));
+console.log("recall none", await store.recall("nothing-matches-this", 5));
 const view = await wake(store, 6);
 const written = await compact(
   store,

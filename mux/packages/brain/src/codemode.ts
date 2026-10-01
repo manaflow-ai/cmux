@@ -66,7 +66,7 @@ declare const mux: {
     cancel(options: { session: string; machine?: string }): Promise<{ cancelled: true }>;
   };
   memory: {
-    /** Log lines matching a regular expression (case-insensitive), newest first. Exact detail from any time. */
+    /** Log lines matching a POSIX extended regular expression (case-insensitive), newest first. Exact detail from any time. */
     recall(options: { pattern: string; limit?: number }): Promise<{ index: number; line: string }[]>;
     /** What a #lo-hi summary from your memory was made of: its two halves, or raw lines at the bottom. */
     zoom(options: { lo: number; hi: number }): Promise<string[]>;

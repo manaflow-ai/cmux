@@ -154,10 +154,12 @@ Rust link that lets a mux spawn and drive acpmux agents on a Mac.
 
 ## Slice 1 findings (2026-10-01)
 
-- Freestyle has no VM size below 4 vCPU / 8 GiB / 32 GiB, and resize only
-  grows. The memory VM pauses after 300 s idle instead; exec wakes it in about
-  0.1 s. It runs no service: memory operations are git and Python commands
-  through Freestyle exec.
+- VMs boot at their snapshot's size, and `freestyle/busybox` is 1 vCPU /
+  128 MiB / 1 GB. `cloud/worker/scripts/bake-memory-snapshot.ts` bakes
+  `mux-memory-base`: BusyBox plus git and its shared libraries copied from an
+  Ubuntu VM, run through the bundled loader. Memory VMs boot from it and pause
+  after 300 s idle; exec wakes them in about 0.1 s. They run no service:
+  memory operations are BusyBox and git commands through Freestyle exec.
 - `cf deploy` (cf 0.13) sends no Authorization header in its deploy step, so
   `cloud/worker/scripts/deploy-staging.sh` runs wrangler with the cf OAuth
   token. `cf dev` works.

@@ -22,7 +22,12 @@ async function call<T>(apiKey: string, method: string, path: string, body?: unkn
 }
 
 /** The VM with this slug, created (paused when idle, no inbound traffic) if it does not exist. */
-export async function ensureVm(apiKey: string, slug: string, displayName: string): Promise<string> {
+export async function ensureVm(
+  apiKey: string,
+  slug: string,
+  displayName: string,
+  snapshotId?: string,
+): Promise<string> {
   const found = await call<{ vms: { id: string }[] }>(
     apiKey,
     "GET",
@@ -32,6 +37,7 @@ export async function ensureVm(apiKey: string, slug: string, displayName: string
   const created = await call<{ id: string }>(apiKey, "POST", "/v5/vms", {
     slug,
     displayName,
+    ...(snapshotId ? { snapshotId } : {}),
     // Exec wakes a paused VM in ~0.1 s, so idle pausing costs nothing in latency.
     idleTimeoutSeconds: 300,
     metadata: { mux: "memory" },
