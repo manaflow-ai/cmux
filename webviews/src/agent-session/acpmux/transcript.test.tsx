@@ -566,3 +566,31 @@ describe("acpmux turn diff", () => {
     }
   });
 });
+
+describe("acpmux hunk review", () => {
+  test("rejected hunks go to the agent as one revert prompt, and are marked requested", async () => {
+    const { DiffPanel } = await import("./DiffPanel");
+    const { turnFiles } = await import("./diff");
+    const files = turnFiles([{ id: "activity-1", version: 1, at: 1, kind: "activity", items: [{ kind: "tool", text: "Edit", tool: { id: "t1", title: "Edit", kind: "edit", status: "completed", diffs: [{ path: "/repo/a.ts", oldText: "one\ntwo\n", newText: "one\n2\n", line: 4 }] } }] }]);
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const decisions = new Map<string, "accepted" | "rejected" | "requested">();
+    const sent: { keys: string[]; prompt: string }[] = [];
+    const render = () => root.render(createElement(DiffPanel, { files, onClose: () => {}, review: { decisions: new Map(decisions), decide: (key: string, decision?: "accepted" | "rejected" | "requested") => { if (decision) decisions.set(key, decision); else decisions.delete(key); void act(async () => render()); }, requestRevert: (keys: string[], prompt: string) => { sent.push({ keys, prompt }); for (const key of keys) decisions.set(key, "requested"); void act(async () => render()); } } }));
+    const document = dom.window.document;
+    const click = (node: Element) => act(async () => { node.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })); });
+    try {
+      await act(async () => render());
+      for (let tries = 0; tries < 50 && !document.querySelector(".acpmux-hunk-reject"); tries += 1) await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      await click(document.querySelector(".acpmux-hunk-reject")!);
+      expect(document.querySelector(".acpmux-hunk-actions")?.textContent).toBe("RejectedUndo");
+      expect(document.querySelector(".acpmux-revert-count")?.textContent).toBe("1 change rejected");
+      await click([...document.querySelectorAll(".acpmux-revert-send")][0]);
+      expect(sent.length).toBe(1);
+      expect(sent[0].prompt).toContain("@@ -4,2 +4,2 @@\n one\n-two\n+2");
+      expect(document.querySelector(".acpmux-hunk-actions")?.textContent).toBe("Revert requested");
+      expect(document.querySelector(".acpmux-revert-bar")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+});

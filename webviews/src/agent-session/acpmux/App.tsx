@@ -11,13 +11,15 @@ import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpmuxPerf } from "./perf";
 import { ScrollPacing } from "./pacing";
 import { turnFiles, turnRows } from "./diff";
-import { DiffPanel } from "./DiffPanel";
+import { DiffPanel, type HunkDecision, type HunkReview } from "./DiffPanel";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: { userMessage?: string } };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
-/// `onOpenDiff` opens the changes of the turn holding `rowId`, at `path` when given.
-type RowProps = { row: AcpmuxRow; onToggleActivity: (id: string) => void; expanded: boolean; onOpenDiff?: (rowId: string, path?: string) => void };
+/// `onOpenDiff` opens the changes of the turn holding `rowId`, at `path` when given; focus
+/// returns to `opener` when the view closes.
+type OpenDiff = (rowId: string, path?: string, opener?: HTMLElement) => void;
+type RowProps = { row: AcpmuxRow; onToggleActivity: (id: string) => void; expanded: boolean; onOpenDiff?: OpenDiff };
 
 declare global {
   interface Window {
@@ -84,11 +86,11 @@ const PermissionRow = memo(function PermissionRow({ row }: RowProps) { const per
 const EditedFilesRow = memo(function EditedFilesRow({ row, onOpenDiff }: RowProps) {
   const files = (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
   const reviewable = onOpenDiff && files.some((file) => file.tool?.diffs?.length);
-  return <div className="acpmux-edited-files"><div className="acpmux-edited-title"><strong>Edited files</strong>{reviewable && <button type="button" className="acpmux-review-changes" onClick={() => onOpenDiff(row.id)}>Review changes</button>}</div>{files.map((file) => {
+  return <div className="acpmux-edited-files"><div className="acpmux-edited-title"><strong>Edited files</strong>{reviewable && <button type="button" className="acpmux-review-changes" onClick={(event) => onOpenDiff(row.id, undefined, event.currentTarget)}>Review changes</button>}</div>{files.map((file) => {
     const diffs = file.tool?.diffs ?? [];
     if (!diffs.length || !onOpenDiff) return <div key={file.tool?.id || file.text}>▤ {file.tool?.inputSummary || file.text}</div>;
     // One line per file the call changed; each opens the changes at its file.
-    return <div className="acpmux-edited-call" key={file.tool?.id || file.text}>▤ {diffs.map((diff, index) => <React.Fragment key={diff.path}>{index > 0 && ", "}<button type="button" className="acpmux-edited-file" title={diff.path} onClick={() => onOpenDiff(row.id, diff.path)}>{diff.path.split("/").pop()}</button></React.Fragment>)}</div>;
+    return <div className="acpmux-edited-call" key={file.tool?.id || file.text}>▤ {diffs.map((diff, index) => <React.Fragment key={diff.path}>{index > 0 && ", "}<button type="button" className="acpmux-edited-file" title={diff.path} onClick={(event) => onOpenDiff(row.id, diff.path, event.currentTarget)}>{diff.path.split("/").pop()}</button></React.Fragment>)}</div>;
   })}</div>;
 }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.onOpenDiff === b.onOpenDiff);
 
@@ -130,7 +132,7 @@ const scrollPosition = (node: HTMLElement, totalHeight: number) => ({ top: node.
 const SCROLL_LEAD_STEPS = 2;
 const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 
-export function VirtualTranscript({ rows, onToggleActivity, onOpenDiff, expanded, registry = defaultRegistry, canLoadOlder = false }: { rows: AcpmuxRow[]; onToggleActivity: (id: string) => void; onOpenDiff?: (rowId: string, path?: string) => void; expanded: Set<string>; registry?: NativeRegistry; canLoadOlder?: boolean }) {
+export function VirtualTranscript({ rows, onToggleActivity, onOpenDiff, expanded, registry = defaultRegistry, canLoadOlder = false }: { rows: AcpmuxRow[]; onToggleActivity: (id: string) => void; onOpenDiff?: OpenDiff; expanded: Set<string>; registry?: NativeRegistry; canLoadOlder?: boolean }) {
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   const [scroll, setScroll] = useState({ top: 0, delta: 0 });
@@ -287,7 +289,8 @@ function AcpmuxPane() {
   const [diffView, setDiffView] = useState<{ sessionId?: string; rowId: string; path?: string; opener?: HTMLElement }>();
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
-  const openDiff = useCallback((rowId: string, path?: string) => setDiffView({ sessionId: sessionIdRef.current, rowId, path, opener: document.activeElement instanceof HTMLElement ? document.activeElement : undefined }), []);
+  // A click does not focus a button in WebKit, so the clicked control is the opener, not the focus.
+  const openDiff = useCallback<OpenDiff>((rowId, path, opener) => setDiffView({ sessionId: sessionIdRef.current, rowId, path, opener: opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined) }), []);
   const closedByUser = useRef(false);
   const closeDiff = useCallback(() => { closedByUser.current = true; setDiffView(undefined); }, []);
   // Focus returns to the opener once the view is gone: until then the transcript is hidden,
@@ -302,6 +305,19 @@ function AcpmuxPane() {
     closedByUser.current = false;
     diffOpener.current = undefined;
   }, [diffView]);
+  // Hunk decisions outlive the view, so reopening a turn shows what was already decided.
+  const [hunkDecisions, setHunkDecisions] = useState<ReadonlyMap<string, HunkDecision>>(new Map());
+  const hunkReview = useMemo<HunkReview>(() => ({
+    decisions: hunkDecisions,
+    decide: (key, decision) => setHunkDecisions((current) => { const next = new Map(current); if (decision) next.set(key, decision); else next.delete(key); return next; }),
+    requestRevert: (keys, prompt) => {
+      setHunkDecisions((current) => { const next = new Map(current); for (const key of keys) next.set(key, "requested"); return next; });
+      // A failed send leaves the hunks rejected, so the reader can send them again.
+      callNative("chat.send", { text: prompt }).catch(() => setHunkDecisions((current) => { const next = new Map(current); for (const key of keys) if (next.get(key) === "requested") next.set(key, "rejected"); return next; }));
+    },
+  }), [hunkDecisions]);
+  // Tool call ids belong to one session.
+  useEffect(() => setHunkDecisions((current) => current.size ? new Map() : current), [snapshot.sessionId]);
   // Row ids repeat across sessions (they count events), so another session closes the view.
   const diffOpen = diffView !== undefined && diffView.sessionId === snapshot.sessionId && snapshot.rows.some((row) => row.id === diffView.rowId);
   useEffect(() => { if (diffView && !diffOpen) setDiffView(undefined); }, [diffView, diffOpen]);
@@ -398,5 +414,5 @@ function AcpmuxPane() {
   }, []);
   const send = (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = event.currentTarget; const textarea = form.elements.namedItem("prompt") as HTMLTextAreaElement; const text = textarea.value.trim(); if (!text) return; textarea.value = ""; void callNative("chat.send", { text }); };
   const ComposerChips = ((window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as React.ComponentType<{ snapshot: AcpmuxSnapshot }> | undefined) ?? DefaultComposerChips;
-  return <section className="acpmux-shell"><div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}><header className="acpmux-header"><div><strong className="acpmux-title">{snapshot.summary?.title || snapshot.summary?.name || "Agent Chat"}</strong><span className="acpmux-status">{snapshot.isWorking ? "Working" : snapshot.connection}</span></div><select className="acpmux-session" value={snapshot.sessionId ?? ""} onChange={(event) => void callNative("chat.select", { sessionId: event.target.value })}>{snapshot.sessions.map((session) => <option key={session.sessionId} value={session.sessionId}>{session.title || session.name || session.sessionId.slice(0, 8)}</option>)}</select></header><VirtualTranscript rows={snapshot.rows} canLoadOlder={snapshot.canLoadOlder} expanded={expanded} registry={registry} onOpenDiff={openDiff} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} />}</div>{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<form className="acpmux-composer" onSubmit={send}><ComposerChips snapshot={composerSnapshot} /><textarea aria-label="Prompt" name="prompt" rows={2} placeholder="Ask anything" /><button type="submit">Send</button><button type="button" className="acpmux-cancel" onClick={() => void callNative("chat.cancel")}>Stop</button></form></section>;
+  return <section className="acpmux-shell"><div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}><header className="acpmux-header"><div><strong className="acpmux-title">{snapshot.summary?.title || snapshot.summary?.name || "Agent Chat"}</strong><span className="acpmux-status">{snapshot.isWorking ? "Working" : snapshot.connection}</span></div><select className="acpmux-session" value={snapshot.sessionId ?? ""} onChange={(event) => void callNative("chat.select", { sessionId: event.target.value })}>{snapshot.sessions.map((session) => <option key={session.sessionId} value={session.sessionId}>{session.title || session.name || session.sessionId.slice(0, 8)}</option>)}</select></header><VirtualTranscript rows={snapshot.rows} canLoadOlder={snapshot.canLoadOlder} expanded={expanded} registry={registry} onOpenDiff={openDiff} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} review={hunkReview} />}</div>{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<form className="acpmux-composer" onSubmit={send}><ComposerChips snapshot={composerSnapshot} /><textarea aria-label="Prompt" name="prompt" rows={2} placeholder="Ask anything" /><button type="submit">Send</button><button type="button" className="acpmux-cancel" onClick={() => void callNative("chat.cancel")}>Stop</button></form></section>;
 }
