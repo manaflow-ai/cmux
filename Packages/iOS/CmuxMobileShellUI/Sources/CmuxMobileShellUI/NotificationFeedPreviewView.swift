@@ -172,6 +172,10 @@ public struct NotificationFeedPreviewView: View {
         .task {
             guard UITestConfig.notificationFeedPreviewTabSwitchEnabled else { return }
             let clock = ContinuousClock()
+            // Let the UI test establish the initial Notifications toolbar
+            // before the deterministic transition sequence begins.
+            try? await clock.sleep(for: .seconds(8))
+            guard !Task.isCancelled else { return }
             for _ in 0..<6 where !Task.isCancelled {
                 try? await clock.sleep(for: .milliseconds(700))
                 guard !Task.isCancelled else { return }
