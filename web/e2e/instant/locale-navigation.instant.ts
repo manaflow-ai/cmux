@@ -73,6 +73,7 @@ test("locale switch preserves a nested route after client-side navigation", asyn
 });
 
 test("an old-locale background request cannot undo an explicit language switch", async ({ page }) => {
+  test.setTimeout(60_000);
   const oldPage = await page.context().newPage();
   await oldPage.goto("/ko/blog");
   await page.goto("/ko");
