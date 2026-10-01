@@ -8,7 +8,7 @@ import Observation
 /// 5.1): a native view, no engine. Navigating it to a web address asks the
 /// host (`onNavigate`) to turn the tab into a real page.
 @Observable
-final class HistoryPageTab: BrowserTab {
+final class HistoryPageTab: BrowserTab, @unchecked Sendable {
     let id: BrowserTabID
     let engineKind: BrowserEngineKind
     let profileID: BrowserProfileID
