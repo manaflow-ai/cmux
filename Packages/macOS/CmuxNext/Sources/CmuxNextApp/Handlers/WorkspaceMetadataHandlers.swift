@@ -52,7 +52,10 @@ enum WorkspaceMetadataHandlers {
 
         registry.bindUnavailable(["palette.copyWorkspaceLink"], ActionFailure.needsAppCapability("deep-links"))
         registry.bindUnavailable(["palette.workspaceCustomColor"], ActionFailure.needsAppCapability("custom-workspace-colors"))
-        registry.bindUnavailable(["palette.markWorkspaceUnread"], ActionFailure.needsDaemonCapability("notification-mark-unread-v1"))
+        registry.bind("palette.markWorkspaceUnread", requires: DaemonCapabilities.notificationMarkUnread, daemon: context.services.activeDaemon, run: { invocation in
+            try context.require(DaemonCapabilities.notificationMarkUnread)
+            WorkspaceUnreadMark.set(true, on: [try context.workspace(invocation).model], daemon: context.services.activeDaemon)
+        })
         let missing: [(ActionID, String)] = [
             ("editWorkspaceDescription", "workspace-description-v1"),
             ("palette.clearWorkspaceDescription", "workspace-description-v1"),
@@ -83,6 +86,7 @@ enum WorkspaceMetadataHandlers {
     /// daemon rollup reports unread but no tab carries a marker).
     static func acknowledge(_ workspaces: [WorkspaceModel], _ context: AppActionContext) throws {
         try context.require(DaemonCapabilities.notificationAck)
+        WorkspaceUnreadMark.set(false, on: workspaces, daemon: context.services.activeDaemon)
         for workspace in workspaces {
             let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
             let unread = tabs.filter(\.hasUnread)

@@ -115,6 +115,11 @@ revision, and emits `workspace-changed` with the full workspace entity.
 sets it. The daemon keeps the workspace order; frontends list pinned
 workspaces in a Pinned section at the top of the sidebar.
 
+`notification-mark-unread-v1` adds `marked_unread` to every workspace and to
+`set-workspace-metadata`, with the same absent-or-boolean rule. It is a manual
+mark (Mark Workspace as Unread), separate from notification markers and
+`unread_count`; frontends clear it when the workspace is used.
+
 `tab-metadata-v1` adds `pinned`, `cwd`, `git_branch`, and `git_detached` to
 every tab. `set-tab-pinned` pins a tab; pinned tabs sort first, and
 `move-tab` keeps them ahead of unpinned tabs. The daemon resolves `cwd` from
