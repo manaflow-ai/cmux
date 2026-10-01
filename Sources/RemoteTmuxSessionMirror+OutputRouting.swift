@@ -364,11 +364,18 @@ extension RemoteTmuxSessionMirror {
     }
 
     @discardableResult
-    private func startDeferredFullPaneReseedIfReady(paneId: Int) -> Bool {
+    private func startDeferredFullPaneReseedIfReady(
+        paneId: Int,
+        allowBeforeGridReady: Bool = false
+    ) -> Bool {
         guard deferredFullPaneReseeds.contains(paneId),
               pendingPaneSeedBytes[paneId] == nil,
-              let target = authoritativeGrid(forPane: paneId),
-              terminalGridIsReady(paneId: paneId, target: target) else { return false }
+              authoritativeGrid(forPane: paneId) != nil else { return false }
+        if !allowBeforeGridReady,
+           let target = authoritativeGrid(forPane: paneId),
+           !terminalGridIsReady(paneId: paneId, target: target) {
+            return false
+        }
         deferredFullPaneReseeds.remove(paneId)
         guard connection.seedPane(paneId: paneId, clearScrollback: true) != nil else {
             if connection.connectionState == .connected {
@@ -384,6 +391,14 @@ extension RemoteTmuxSessionMirror {
                 || pendingPaneSeedBytes[paneId] != nil else { return }
         retainPaneSeedReadinessSignalsIfNeeded()
         retainPaneSeedFrameDemandIfNeeded(paneId: paneId)
+        // Surface progress means the pane is visible and has a materialized
+        // target, even when the first rendered frame is still missing. Reissue
+        // a deferred reconnect capture now so an idle TUI cannot remain on the
+        // pre-disconnect grid until a later scroll or resize.
+        _ = startDeferredFullPaneReseedIfReady(
+            paneId: paneId,
+            allowBeforeGridReady: true
+        )
         handlePaneSeedReadiness(paneId: paneId)
     }
 
