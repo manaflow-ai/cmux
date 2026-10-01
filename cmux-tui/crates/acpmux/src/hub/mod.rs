@@ -211,6 +211,8 @@ pub struct Hub {
     /// spawns wait for it; every other request is answered at once.
     pub(super) startup_ready: tokio::sync::watch::Sender<bool>,
     pub(super) login_env_requested: AtomicBool,
+    /// Session ids an `import` is writing right now.
+    pub(super) importing: StdMutex<std::collections::HashSet<String>>,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -263,6 +265,7 @@ impl Hub {
             known_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
+            importing: StdMutex::new(std::collections::HashSet::new()),
         });
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {
