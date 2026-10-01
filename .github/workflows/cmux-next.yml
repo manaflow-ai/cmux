@@ -27,6 +27,8 @@ on:
       - scripts/cmux-next/cef-manifest.json
       - scripts/cmux-next/ensure-cef.sh
       - scripts/cmux-next/build-cef-shim.sh
+      - scripts/cmux-next/cmux-tui.pin
+      - scripts/cmux-next/pin-cmux-tui.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/download-prebuilt-ghosttykit.sh
       - .github/workflows/cmux-next.yml
@@ -51,6 +53,8 @@ on:
       - scripts/cmux-next/cef-manifest.json
       - scripts/cmux-next/ensure-cef.sh
       - scripts/cmux-next/build-cef-shim.sh
+      - scripts/cmux-next/cmux-tui.pin
+      - scripts/cmux-next/pin-cmux-tui.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - .github/workflows/cmux-next.yml
   workflow_dispatch:
@@ -176,6 +180,15 @@ jobs:
       # its stacks; each test step timeout stops it holding the runner regardless.
       # Control tests use tight request deadlines and run in their own process so
       # they do not compete with the other MainActor-isolated suites.
+      # The daemon integration tests use the pinned branch build of cmux-tui
+      # (scripts/cmux-next/cmux-tui.pin) when it is in the checkout, and fall
+      # back to the release client in ~/Library/Caches/cmux/cmux-tui-client.
+      # A mini has that cache (release clients lack the cmux-next daemon
+      # flags) and Blacksmith has none (the suite skipped), so the verdict
+      # depended on the runner. The pinned binary is public and sha256-checked.
+      - name: Fetch the pinned cmux-tui
+        run: scripts/cmux-next/pin-cmux-tui.sh fetch
+
       - name: Run package tests (excluding control deadline tests)
         timeout-minutes: 20
         working-directory: Packages/macOS/CmuxNext
