@@ -36,6 +36,23 @@ struct CloudSidebarRenameReconciliationTests {
         #expect(workspace.panelCustomTitleSources[fixture.panelID] == .remote)
     }
 
+    @Test("Removing the authoritative Cloud tab clears stale agent naming but preserves user naming")
+    func missingAuthoritativeTabClearsAgentNameOnly() throws {
+        let fixture = try makeFixture()
+        defer { fixture.close() }
+        #expect(fixture.agentName("Repair PR 16300 cloud layout"))
+        fixture.install(try fixture.state(revision: 2, name: "Repair PR 16300 cloud layout", nameSource: "auto"))
+        fixture.reconcile()
+        fixture.install(try fixture.state(revision: 3, includeMainTab: false))
+        fixture.reconcile()
+        #expect(fixture.workspace.panelCustomTitles[fixture.panelID] == nil)
+        #expect(fixture.workspace.panelTitle(panelId: fixture.panelID) == "terminal")
+        #expect(fixture.userName("Keep this tab"))
+        fixture.install(try fixture.state(revision: 4, includeMainTab: false))
+        fixture.reconcile()
+        #expect(fixture.workspace.panelTitle(panelId: fixture.panelID) == "Keep this tab")
+    }
+
     @Test("The latest user name survives superseded failures and delayed graph callbacks")
     func supersededFailureCannotCompensateNewUserIntent() async throws {
         let fixture = try makeFixture()
