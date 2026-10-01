@@ -886,7 +886,7 @@ struct PortScannerPortRetirementTests {
         let ttyName = "ttys910"
         let rootPID = 9001
         let childPID = 9002
-        let rootPorts = [55936, 55937]
+        let rootPorts: Set<Int> = [55936, 55937]
         let childPort = 5173
         let rootIdentity = AgentPIDProcessIdentity(pid: pid_t(rootPID), startSeconds: 1, startMicroseconds: 0)
         let childIdentity = AgentPIDProcessIdentity(pid: pid_t(childPID), startSeconds: 2, startMicroseconds: 0)
