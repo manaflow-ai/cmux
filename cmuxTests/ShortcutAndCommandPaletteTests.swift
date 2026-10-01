@@ -13,6 +13,7 @@ import Bonsplit
 import UserNotifications
 import Sparkle
 import CmuxUpdater
+import Testing
 // Selective imports: the app target also defines AppIconMode/StoredShortcut/etc.,
 // so a blanket `import CmuxSettings` here makes those names ambiguous. Import only
 // the settings symbols this file needs.
@@ -869,9 +870,11 @@ final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
     }
 }
 
-final class CommandPaletteCloudCommandTests: XCTestCase {
+@Suite("Cloud command palette")
+struct CommandPaletteCloudAvailabilityTests {
     /// Cloud availability guidance is visible only for Cloud workspaces.
-    func testCloudAvailabilityInfoAppearsOnlyForCloudWorkspace() {
+    @Test("availability guidance is visible only for Cloud workspaces")
+    func availabilityInfoAppearsOnlyForCloudWorkspace() {
         let contribution = ContentView.commandPaletteCloudAvailabilityInfoContribution(
             locale: Locale(identifier: "en")
         )
@@ -879,15 +882,59 @@ final class CommandPaletteCloudCommandTests: XCTestCase {
         var cloudContext = CommandPaletteContextSnapshot()
         cloudContext.setBool(CommandPaletteContextKeys.workspaceIsCloud, true)
 
-        XCTAssertFalse(contribution.when(localContext))
-        XCTAssertTrue(contribution.when(cloudContext))
-        XCTAssertEqual(contribution.title(cloudContext), "Show Cloud command availability")
-        XCTAssertEqual(contribution.subtitle(cloudContext), "Cloud workspace")
-        XCTAssertEqual(
-            contribution.keywords,
-            ["cloud", "workspace", "availability", "local", "unavailable", "actions"]
+        #expect(!contribution.when(localContext))
+        #expect(contribution.when(cloudContext))
+        #expect(contribution.title(cloudContext) == "Show Cloud command availability")
+        #expect(contribution.subtitle(cloudContext) == "Cloud workspace")
+        #expect(
+            contribution.keywords == [
+                "cloud", "workspace", "availability", "local", "unavailable", "actions",
+            ]
         )
     }
+
+    /// Server-advertised VM capabilities hide only the operations the selected machine cannot honor.
+    @MainActor
+    @Test("server capabilities gate Cloud VM operations")
+    func cloudVMCapabilitiesGateOperations() {
+        let key = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
+        let defaults = UserDefaults.standard
+        let original = defaults.object(forKey: key)
+        let flag = CmuxFeatureFlags.cloudMachinesFlag
+        let originalOverride = CmuxFeatureFlags.shared.overrideValue(for: flag)
+        defaults.set(true, forKey: key)
+        CmuxFeatureFlags.shared.setOverride(true, for: flag)
+        defer {
+            if let original { defaults.set(original, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+            CmuxFeatureFlags.shared.setOverride(originalOverride, for: flag)
+        }
+        let contributions = ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true)
+        var context = CommandPaletteContextSnapshot()
+        context.setBool(CommandPaletteContextKeys.workspaceIsCloud, true)
+        context.setBool(CommandPaletteContextKeys.cloudVMCapabilitiesKnown, true)
+        context.setBool(CommandPaletteContextKeys.cloudVMSupportsFork, false)
+        context.setBool(CommandPaletteContextKeys.cloudVMSupportsSnapshot, false)
+        context.setBool(CommandPaletteContextKeys.cloudVMSupportsRestore, false)
+        context.setBool(CommandPaletteContextKeys.cloudVMSupportsPorts, false)
+
+        let hidden = Set(
+            contributions.filter { !$0.when(context) }.map(\.commandId)
+        )
+        #expect(hidden.contains(ContentView.commandPaletteCloudForkCommandId))
+        #expect(hidden.contains(ContentView.commandPaletteCloudSnapshotCommandId))
+        #expect(hidden.contains(ContentView.commandPaletteCloudRestoreCommandId))
+        #expect(hidden.contains(ContentView.commandPaletteCloudPromoteTemplateCommandId))
+        #expect(hidden.contains(ContentView.commandPaletteCloudPortsCommandId))
+        #expect(!hidden.contains(ContentView.commandPaletteCloudToolsCommandId))
+        #expect(!hidden.contains(ContentView.commandPaletteCloudHandoffCommandId))
+        #expect(
+            contributions.first { $0.commandId == ContentView.commandPaletteCloudStatusCommandId }?.when(context) == true
+        )
+    }
+}
+
+final class CommandPaletteCloudCommandTests: XCTestCase {
 
     /// Cloud contributions include each supported current-VM operation.
     @MainActor

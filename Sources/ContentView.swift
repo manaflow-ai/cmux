@@ -7277,6 +7277,32 @@ struct ContentView: View {
                 CommandPaletteContextKeys.workspaceIsCloud,
                 workspace.isManagedCloudVMWorkspace || workspace.cloudVMID != nil
             )
+            let cloudCapabilities = workspace.cloudVMID.flatMap { vmID in
+                (SurfaceCatalog.shared.provider(for: .cloud(vmID)) as? CmuxTuiSurfaceProvider)?.capabilities
+            }
+            snapshot.setBool(
+                CommandPaletteContextKeys.cloudVMCapabilitiesKnown,
+                cloudCapabilities != nil
+            )
+            // Legacy managed workspaces can predate the surface provider's capability
+            // snapshot. Preserve their existing command visibility until the provider
+            // publishes authoritative server capabilities.
+            snapshot.setBool(
+                CommandPaletteContextKeys.cloudVMSupportsFork,
+                cloudCapabilities?.fork ?? true
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.cloudVMSupportsSnapshot,
+                cloudCapabilities?.snapshot ?? true
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.cloudVMSupportsRestore,
+                cloudCapabilities?.restore ?? true
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.cloudVMSupportsPorts,
+                cloudCapabilities?.ports ?? true
+            )
             snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace))
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomName, workspace.customTitle != nil)
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomDescription, workspace.hasCustomDescription)

@@ -20,6 +20,16 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     /// The app sets this key from the workspace's explicit Cloud VM identity.
     /// SSH and other remote workspaces intentionally do not set it.
     public static let workspaceIsCloud = CommandPaletteContextKeys(rawValue: "workspace.isCloud")
+    /// Whether the selected Cloud VM has a server-provided capability snapshot.
+    public static let cloudVMCapabilitiesKnown = CommandPaletteContextKeys(rawValue: "workspace.cloudVM.capabilitiesKnown")
+    /// Whether the selected Cloud VM supports fork.
+    public static let cloudVMSupportsFork = CommandPaletteContextKeys(rawValue: "workspace.cloudVM.supportsFork")
+    /// Whether the selected Cloud VM supports checkpoint or template promotion.
+    public static let cloudVMSupportsSnapshot = CommandPaletteContextKeys(rawValue: "workspace.cloudVM.supportsSnapshot")
+    /// Whether the selected Cloud VM supports checkpoint restore.
+    public static let cloudVMSupportsRestore = CommandPaletteContextKeys(rawValue: "workspace.cloudVM.supportsRestore")
+    /// Whether the selected Cloud VM supports port previews.
+    public static let cloudVMSupportsPorts = CommandPaletteContextKeys(rawValue: "workspace.cloudVM.supportsPorts")
     /// Selected workspace display name.
     public static let workspaceName = CommandPaletteContextKeys(rawValue: "workspace.name")
     /// Whether the workspace has a custom name.

@@ -120,6 +120,12 @@ extension ContentView {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
         }
+        func capabilityGate(_ key: CommandPaletteContextKeys) -> (CommandPaletteContextSnapshot) -> Bool {
+            { context in
+                !context.bool(CommandPaletteContextKeys.cloudVMCapabilitiesKnown)
+                    || context.bool(key)
+            }
+        }
         let subtitle = constant(String(localized: "command.cloudVM.subtitle", defaultValue: "Cloud"))
         return [
             CommandPaletteCommandContribution(
@@ -132,25 +138,29 @@ extension ContentView {
                 commandId: commandPaletteCloudForkCommandId,
                 title: constant(String(localized: "command.cloudVM.fork.title", defaultValue: "Fork Current Cloud VM")),
                 subtitle: subtitle,
-                keywords: ["cloud", "vm", "fork", "clone", "branch"]
+                keywords: ["cloud", "vm", "fork", "clone", "branch"],
+                when: capabilityGate(.cloudVMSupportsFork)
             ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudSnapshotCommandId,
                 title: constant(String(localized: "command.cloudVM.snapshot.title", defaultValue: "Checkpoint Current Cloud VM")),
                 subtitle: subtitle,
-                keywords: ["cloud", "vm", "snapshot", "checkpoint", "save"]
+                keywords: ["cloud", "vm", "snapshot", "checkpoint", "save"],
+                when: capabilityGate(.cloudVMSupportsSnapshot)
             ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudRestoreCommandId,
                 title: constant(String(localized: "command.cloudVM.restore.title", defaultValue: "Restore Cloud VM From Checkpoint")),
                 subtitle: subtitle,
-                keywords: ["cloud", "vm", "restore", "snapshot", "checkpoint"]
+                keywords: ["cloud", "vm", "restore", "snapshot", "checkpoint"],
+                when: capabilityGate(.cloudVMSupportsRestore)
             ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudPromoteTemplateCommandId,
                 title: constant(String(localized: "command.cloudVM.promoteTemplate.title", defaultValue: "Promote Current VM to Template")),
                 subtitle: subtitle,
-                keywords: ["cloud", "vm", "template", "promote", "snapshot"]
+                keywords: ["cloud", "vm", "template", "promote", "snapshot"],
+                when: capabilityGate(.cloudVMSupportsSnapshot)
             ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudStatusCommandId,
@@ -162,7 +172,8 @@ extension ContentView {
                 commandId: commandPaletteCloudPortsCommandId,
                 title: constant(String(localized: "command.cloudVM.ports.title", defaultValue: "Show Cloud VM Ports")),
                 subtitle: subtitle,
-                keywords: ["cloud", "vm", "ports", "preview", "localhost"]
+                keywords: ["cloud", "vm", "ports", "preview", "localhost"],
+                when: capabilityGate(.cloudVMSupportsPorts)
             ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudToolsCommandId,
