@@ -1,5 +1,7 @@
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
 import Foundation
 
 /// Search All Windows (⌥⌘F): the query's words across the text of every
