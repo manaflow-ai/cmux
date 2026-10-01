@@ -38,8 +38,12 @@ struct BrowserPanelWindowPresenceProbe: NSViewRepresentable {
 
     func updateNSView(_ nsView: BrowserPanelWindowPresenceView, context: Context) {
         presence.probeView = nsView
+        nsView.onLeaveWindow = {
+            panel.noteWebViewVisibility(false, reason: "view.leftWindow")
+        }
         guard isVisible else {
             nsView.onEnterWindow = nil
+            nsView.onLeaveWindow = nil
             return
         }
         let panel = panel
@@ -51,10 +55,14 @@ struct BrowserPanelWindowPresenceProbe: NSViewRepresentable {
 
 final class BrowserPanelWindowPresenceView: NSView {
     var onEnterWindow: (() -> Void)?
+    var onLeaveWindow: (() -> Void)?
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard window != nil else { return }
+        guard window != nil else {
+            onLeaveWindow?()
+            return
+        }
         // Report after the AppKit move and any SwiftUI update around it finish,
         // using the latest callback, since a report can restore the page.
         Task { @MainActor [weak self] in

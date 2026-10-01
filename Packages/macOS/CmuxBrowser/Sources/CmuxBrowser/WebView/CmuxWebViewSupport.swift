@@ -37,22 +37,22 @@ extension WKWebView {
     public var cmuxIsCapturingMedia: Bool {
         cameraCaptureState != .none
             || microphoneCaptureState != .none
-            || cmuxCaptureState(selectorName: "_displayCaptureState") != 0
-            || cmuxCaptureState(selectorName: "_systemAudioCaptureState") != 0
+            || cmuxCaptureState(selectorName: "_displayCaptureState")
+            || cmuxCaptureState(selectorName: "_systemAudioCaptureState")
     }
 
     /// Reads a capture state WebKit exposes only as SPI, such as the display
     /// capture behind screen sharing. Zero means none.
-    private func cmuxCaptureState(selectorName: String) -> Int {
+    private func cmuxCaptureState(selectorName: String) -> Bool {
         let selector = NSSelectorFromString(selectorName)
         guard responds(to: selector),
               let implementation = method(for: selector) else {
-            return 0
+            return true
         }
 
         typealias CaptureStateFunction = @convention(c) (AnyObject, Selector) -> Int
         let function = unsafeBitCast(implementation, to: CaptureStateFunction.self)
-        return function(self, selector)
+        return function(self, selector) != 0
     }
 
     public var cmuxIsElementFullscreenActiveOrTransitioning: Bool {

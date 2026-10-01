@@ -66,7 +66,7 @@ public struct BrowserPageStateCapture: Equatable, Sendable {
         Self.persistableInteractionState(
             interactionState,
             coversNavigationHistory: coversNavigationHistory,
-            containsFormSubmission: containsFormSubmission,
+            containsFormSubmission: containsFormSubmission || formState?.isEmpty == false,
             maxBytes: maxBytes
         )
     }

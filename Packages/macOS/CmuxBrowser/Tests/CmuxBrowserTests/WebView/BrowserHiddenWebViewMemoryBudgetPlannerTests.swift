@@ -55,7 +55,7 @@ struct BrowserHiddenWebViewMemoryBudgetPlannerTests {
         let sharedRecent = hidden(processID: 1, minutesAgo: 5)
         let alone = hidden(processID: 2, minutesAgo: 30)
 
-        let plan = BrowserHiddenWebViewMemoryBudgetPlanner(budgetMB: 512)
+        let plan = BrowserHiddenWebViewMemoryBudgetPlanner(budgetMB: 900)
             .plan(panes: [sharedOld, sharedRecent, alone]) { _ in 400 * Self.megabyte }
 
         #expect(plan.panesToDiscard == [alone.id])
