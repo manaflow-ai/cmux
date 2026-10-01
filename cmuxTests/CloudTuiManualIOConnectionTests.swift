@@ -385,7 +385,7 @@ import Testing
             let received = buffer.withUnsafeMutableBytes { raw in
                 Darwin.read(descriptor, raw.baseAddress!, wanted)
             }
-            if received < 0, errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK { continue }
+            if received < 0, errno == EINTR { continue }
             guard received > 0 else { throw socketError() }
             result.append(contentsOf: buffer.prefix(received))
         }
