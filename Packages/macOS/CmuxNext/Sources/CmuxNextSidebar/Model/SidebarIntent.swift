@@ -7,6 +7,8 @@ import Foundation
 public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// Activate a workspace (the selection's primary item).
     case select(WorkspaceID)
+    /// Show Home (the pinned row above the list) in place of a workspace.
+    case selectHome
     /// Move workspaces, in tree order, to a position. Covers reorder, moving
     /// into or out of groups, pinning, and unpinning.
     case reorder([WorkspaceID], to: DropPosition)

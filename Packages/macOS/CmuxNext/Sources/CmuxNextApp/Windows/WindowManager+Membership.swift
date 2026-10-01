@@ -105,6 +105,7 @@ extension WindowManager {
 
     /// Sets the window's shown workspace (its own state).
     func select(_ workspaceID: String?, in state: WindowState) {
+        state.showsHome = false
         if let workspaceID { enterProfile(of: workspaceID, in: state) }
         if let workspaceID, let machine = services.machines.daemon(forWorkspace: workspaceID)?.machineID { state.machineID = machine }
         state.workspaceID = workspaceID
@@ -112,6 +113,12 @@ extension WindowManager {
     }
 
     // MARK: Entry points
+
+    /// Shows Home in the window (Cmd+1, the pinned sidebar row).
+    func showHome(in state: WindowState) {
+        state.showsHome = true
+        stateDidChange(state)
+    }
 
     /// Shows `workspaceID`: in the window that lists it (brought forward),
     /// else in `state`'s window, which takes it.

@@ -27,6 +27,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
+    let home = HomePresenter()
     private var startupObservation: Task<Void, Never>?
     /// The room theme: the whole window (sidebar, chrome, and every
     /// workspace without its own theme).
@@ -113,7 +114,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         workspaceObservation = Task { [weak self] in
             for await _ in Observations({ () -> [String] in
                 // Re-run when the request or any machine's workspace list changes.
-                [state.workspaceID ?? "", state.machineID, String(cloud.hasLoadedMachines)]
+                [state.workspaceID ?? "", state.machineID, String(cloud.hasLoadedMachines), String(state.showsHome)]
                     + windows.registry.members(of: state.id)
                     + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.workspaces.map(\.id))" }
             }) {
@@ -136,6 +137,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             guard machines.workspace(id: controller.workspace.id)?.0 !== controller.workspace else { return false }
             controller.teardown()
             return true
+        }
+        if state.showsHome {
+            titleObservation?.cancel()
+            home.show(in: root)
+            return
         }
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
             show(workspace, on: daemon)
@@ -178,7 +184,13 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private func show(_ workspace: WorkspaceModel, on daemon: DaemonService) {
         if state.workspaceID != workspace.id { state.workspaceID = workspace.id }
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
-        guard content?.workspace !== workspace else { return }
+        let leavingHome = home.isShown
+        home.hide()
+        if let current = content, current.workspace === workspace {
+            // Leaving Home onto the workspace that stayed mounted under it.
+            if leavingHome { present(current) }
+            return
+        }
         if let current = content { park(current) }
         let controller: WorkspaceContentController
         if let index = parked.firstIndex(where: { $0.workspace === workspace && $0.daemon === daemon }) {
@@ -188,6 +200,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
         }
         content = controller
+        present(controller)
+    }
+
+    /// Puts `controller`'s view in the window and hands it the title and focus.
+    private func present(_ controller: WorkspaceContentController) {
+        let workspace = controller.workspace
         // One synchronous swap: the old view leaves (its panes stay mounted,
         // paused) and the new one draws in the same frame.
         root.show(controller.contentView)
