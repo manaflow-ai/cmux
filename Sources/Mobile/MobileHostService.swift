@@ -429,6 +429,7 @@ final class MobileHostService {
     let mobileSimulatorStreamCoordinator = MobileSimulatorStreamCoordinator()
     #if DEBUG
     private var debugAcceptedStackAuthToken: String?
+    private var webRTCExperimentHost: MobileWebRTCExperimentalHost?
     #endif
 
     private let defaults: UserDefaults
@@ -785,11 +786,19 @@ final class MobileHostService {
         }
         MobileHostEventSubscriptionTracker.reset()
         MobileHostPublicStatusCache.removeAll()
+        #if DEBUG
+        webRTCExperimentHost?.stop()
+        webRTCExperimentHost = nil
+        #endif
         TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
     }
 
     func statusSnapshot() -> MobileHostServiceStatus {
-        makeStatus(routes: MobileHostPublicStatusCache.snapshot())
+        // WebRTC routes carry a live signaling token. Keep them out of the
+        // status stream consumed by cloud registry, presence, and backup
+        // publishers; authenticated host status and attach-ticket minting read
+        // the cache directly and retain the token-bound route.
+        makeStatus(routes: MobileHostPublicStatusCache.snapshot().filter { $0.kind != .webrtc })
     }
 
     /// Emits the current ``MobileHostServiceStatus`` immediately, then a fresh
@@ -878,8 +887,16 @@ final class MobileHostService {
         Task { @MainActor in await runtime.applyManagedNetworkingPolicy() }
         if runtime.isNetworkingAllowed {
             startNetworkPathMonitorIfNeeded()
+            #if DEBUG
+            syncWebRTCExperiment()
+            #endif
         } else {
             stopNetworkPathMonitor()
+            #if DEBUG
+            webRTCExperimentHost?.stop()
+            webRTCExperimentHost = nil
+            MobileHostPublicStatusCache.clearWebRTCRoutes()
+            #endif
             for connection in MobileHostConnectionRegistry.shared.removeAll() {
                 Task { await connection.close(reason: "iOS pairing disabled") }
             }
@@ -1130,13 +1147,14 @@ final class MobileHostService {
             routeKind: routeKind
         )
         let selectedRoutes = try target.selectRoutes(from: narrowedRoutes)
-        guard selectedRoutes.contains(where: { $0.kind == .iroh }) else {
-            return (selectedRoutes, MobileHostIdentity.deviceID())
+        if let publishedID = publishedStatus.v2DeviceID,
+           !publishedID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return (selectedRoutes, publishedID)
         }
-        guard let publishedID = publishedStatus.v2DeviceID else {
+        if selectedRoutes.contains(where: { $0.kind == .iroh }) {
             throw MobileAttachTicketStoreError.routeUnavailable
         }
-        return (selectedRoutes, publishedID)
+        return (selectedRoutes, MobileHostIdentity.deviceID())
     }
 
     private static func filteredRoutes(
@@ -1395,9 +1413,58 @@ final class MobileHostService {
         pathMonitor = nil
     }
 
+    #if DEBUG
+    private func syncWebRTCExperiment() {
+        let environment = ProcessInfo.processInfo.environment
+        guard CmxWebRTCConfiguration.isExperimentEnabled(
+            environment: environment,
+            infoDictionary: Bundle.main.infoDictionary
+        ) else {
+            webRTCExperimentHost?.stop()
+            webRTCExperimentHost = nil
+            MobileHostPublicStatusCache.clearWebRTCRoutes()
+            return
+        }
+        if webRTCExperimentHost == nil {
+            let host = MobileWebRTCExperimentalHost(
+                defaults: defaults,
+            environment: environment,
+            iceServersProvider: webRTCIceServersProvider()
+            )
+            webRTCExperimentHost = host
+            host.start()
+        } else {
+            webRTCExperimentHost?.refreshRoutes()
+        }
+    }
+
+    private func webRTCIceServersProvider() -> CmxWebRTCIceServersProvider? {
+        guard let auth,
+              let serviceURL = PresenceHeartbeatClient.resolvedServiceURL()?.absoluteString else {
+            return nil
+        }
+        let client = CmxWebRTCIceServerClient(
+            serviceBaseURL: serviceURL,
+            tokenProvider: { [weak auth] in
+                guard let auth else {
+                    throw CmxWebRTCIceServerClientError.notAuthenticated
+                }
+                return try await auth.currentTokens()
+            },
+            teamIDProvider: { [weak auth] in
+                await auth?.resolvedTeamID
+            }
+        )
+        return { try await client.fetch() }
+    }
+#endif
+
     private func handleNetworkPathChange() {
         let runtime = pairingRuntime
         Task { @MainActor in await runtime.foreground() }
+        #if DEBUG
+        webRTCExperimentHost?.refreshRoutes()
+        #endif
     }
 }
 

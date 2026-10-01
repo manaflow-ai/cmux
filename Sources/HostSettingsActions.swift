@@ -1082,6 +1082,8 @@ final class HostSettingsActions: SettingsHostActions {
             return String(localized: "settings.mobile.route.loopback", defaultValue: "Loopback")
         case .iroh:
             return String(localized: "settings.mobile.route.iroh", defaultValue: "Iroh")
+        case .webrtc:
+            return String(localized: "settings.mobile.route.webrtc", defaultValue: "WebRTC")
         case .websocket:
             return String(localized: "settings.mobile.route.websocket", defaultValue: "WebSocket")
         }

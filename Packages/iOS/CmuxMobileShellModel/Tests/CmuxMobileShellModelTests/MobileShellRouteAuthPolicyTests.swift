@@ -49,7 +49,7 @@ import Testing
         #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(irohPeer))
     }
 
-    @Test func allowsStackAuthOnlyForLoopbackRoutes() throws {
+    @Test func allowsStackAuthOnlyForLoopbackOrTokenBoundWebRTCRoutes() throws {
         let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleIPv6 = try hostPortRoute(
@@ -61,6 +61,18 @@ import Testing
         let localDNS = try hostPortRoute(kind: .tailscale, host: "devbox.local", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleMagicDNS = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
         let pretendLoopback = try hostPortRoute(kind: .debugLoopback, host: "127.attacker.example", port: CmxMobileDefaults.defaultHostPort)
+        let webRTCRoute = try CmxAttachRoute(
+            id: CmxAttachTransportKind.webrtc.rawValue,
+            kind: .webrtc,
+            endpoint: .url("webrtc://100.71.210.41:56577?token=listener-token"),
+            priority: -20_000
+        )
+        let webRTCRouteWithoutToken = try CmxAttachRoute(
+            id: "webrtc-invalid",
+            kind: .webrtc,
+            endpoint: .url("webrtc://100.71.210.41:56577"),
+            priority: -20_000
+        )
         let irohPeer = try CmxAttachRoute(
             id: CmxAttachTransportKind.iroh.rawValue,
             kind: .iroh,
@@ -90,6 +102,11 @@ import Testing
 
         // Loopback never leaves the device and may carry the Stack bearer token.
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
+
+        // The experimental WebRTC route is DTLS protected and bound to the
+        // listener's signaling token; an unbound URL remains fail-closed.
+        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(webRTCRoute))
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(webRTCRouteWithoutToken))
 
         // A numeric Tailscale address and an anonymous utun path do not prove
         // which VPN owns that path or which peer accepted plaintext TCP.

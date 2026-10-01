@@ -15,6 +15,9 @@ enabled = true
 # control-plane DO must proxy discovery/mint upstream calls there too.
 [vars]
 CMUX_WEB_BASE_URL = "https://cmux-staging.vercel.app"
+# One-hour temporary credentials are sufficient for tagged dogfood and remain
+# below Cloudflare's 48-hour maximum. The TURN key id and key secret are secrets.
+CLOUDFLARE_TURN_TTL_SECONDS = "3600"
 
 [[durable_objects.bindings]]
 name = "TEAM_PRESENCE"

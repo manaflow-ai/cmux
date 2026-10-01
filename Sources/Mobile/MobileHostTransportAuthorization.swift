@@ -268,6 +268,7 @@ enum MobileHostPublicStatusCache {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var legacyRoutes: [CmxAttachRoute] = []
     private nonisolated(unsafe) static var irohRoute: CmxAttachRoute?
+    private nonisolated(unsafe) static var webRTCRoutes: [CmxAttachRoute] = []
     private nonisolated(unsafe) static var v2DeviceID: String?
 
     static func updateV2DeviceID(_ deviceID: String?) {
@@ -327,10 +328,29 @@ enum MobileHostPublicStatusCache {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
+    /// Publishes the DEBUG-only WebRTC routes after the signaling listener binds.
+    /// The route token is intentionally carried only in authenticated status and
+    /// attach tickets, never in the unauthenticated public payload.
+    static func update(webRTCRoutes nextRoutes: [CmxAttachRoute]) {
+        lock.lock()
+        webRTCRoutes = nextRoutes
+        lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
+
+    /// Removes the experimental WebRTC routes while leaving legacy and Iroh state intact.
+    static func clearWebRTCRoutes() {
+        lock.lock()
+        webRTCRoutes.removeAll()
+        lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
+
     static func removeAll() {
         lock.lock()
         legacyRoutes = []
         irohRoute = nil
+        webRTCRoutes = []
         v2DeviceID = nil
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
@@ -387,7 +407,9 @@ enum MobileHostPublicStatusCache {
         let deviceID = authorizedDeviceID ?? v2DeviceID
         lock.unlock()
         guard includeIdentity else {
-            return .ok(MobileHostService.publicStatusPayload(routes: cachedRoutes))
+            return .ok(MobileHostService.publicStatusPayload(
+                routes: cachedRoutes.filter { $0.kind != .webrtc }
+            ))
         }
         guard let deviceID, !deviceID.isEmpty else {
             return .failure(MobileHostRPCError(
@@ -407,6 +429,6 @@ enum MobileHostPublicStatusCache {
 
     private static func mergedRoutesLocked() -> [CmxAttachRoute] {
         let routes = irohRoute.map { [$0] } ?? []
-        return routes + legacyRoutes
+        return routes + webRTCRoutes + legacyRoutes
     }
 }

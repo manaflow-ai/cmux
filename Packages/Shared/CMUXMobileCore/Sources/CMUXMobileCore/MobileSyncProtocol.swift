@@ -15,6 +15,8 @@ public enum CmxAttachTransportKind: String, Codable, Sendable {
     case tailscale
     case iroh
     case websocket
+    /// An experimental WebRTC data-channel route, enabled only by DEBUG builds.
+    case webrtc
     case debugLoopback = "debug_loopback"
 }
 

@@ -66,6 +66,7 @@ CMUX_IROH_BROKER_BASE_URL =
 CMUX_IROH_V2_ENVIRONMENT =
 CMUX_IROH_V2_BASE_URL =
 CMUX_IROH_V2_FORCE_RELAY = 0
+CMUX_WEBRTC_FORCE_RELAY = 0
 
 // Crash reporting stays enabled for development and TestFlight. The official
 // App Store lane overrides this to NO until its consent lifecycle is proven.

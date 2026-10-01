@@ -11658,12 +11658,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         // The Iroh method is just as strict as Tailscale Only: no raw
-        // host/port fallback, ever. Debug loopback rides alongside Iroh as
-        // the dev-build convenience (compiled out of production route sets):
-        // it is the same-machine lane, not a cross-method fallback, and an
-        // Iroh endpoint advertising no relays and no direct addresses must
-        // not starve it or a dev simulator can never pair.
-        return supportedRoutes.filter { $0.kind == .iroh || $0.kind == .debugLoopback }
+        // host/port fallback, ever. WebRTC is the DEBUG experiment's
+        // authenticated lane, while debug loopback rides alongside both as
+        // the dev-build convenience (compiled out of production route sets).
+        // Neither is a cross-method fallback, and an Iroh endpoint advertising
+        // no relays and no direct addresses must not starve a usable route.
+        return supportedRoutes.filter {
+            $0.kind == .iroh || $0.kind == .webrtc || $0.kind == .debugLoopback
+        }
     }
 
     /// The user-entered pairing-code authorization covering `route`, if any.

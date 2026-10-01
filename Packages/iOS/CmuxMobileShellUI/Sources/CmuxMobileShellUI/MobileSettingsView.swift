@@ -823,6 +823,11 @@ struct MobileSettingsView: View {
                 "mobile.settings.activeTransport.iroh",
                 defaultValue: "Iroh"
             )
+        case .webrtc:
+            L10n.string(
+                "mobile.settings.activeTransport.webrtc",
+                defaultValue: "WebRTC"
+            )
         case .websocket:
             L10n.string(
                 "mobile.settings.activeTransport.websocket",

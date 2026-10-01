@@ -691,9 +691,9 @@ cmux_attach_ensure_mac() {
 # URL on stdout (bearer credential; do not log). Args: <tag> <ttl_seconds>
 # <repo_root> <simulator_injection|physical_device>. The Mac owns route selection
 # and URL encoding for the target. Polls the mint RPC until routes are bound.
-# A physical-device ticket is usable with an authenticated Iroh route or with
-# the exact non-loopback Tailscale route selected by MobileAttachTarget. Both
-# paths authenticate the phone to the Mac before any mobile operation.
+# A physical-device ticket is usable with Iroh, an experimental WebRTC route,
+# or the exact non-loopback Tailscale route selected by MobileAttachTarget.
+# Each path authenticates the phone to the Mac before any mobile operation.
 cmux_attach_mint_url() {
   local tag="$1" ttl="$2" repo_root="$3" target="$4" max="${5:-20}"
   local sock slug payload cli_output cli_stderr url node_status cli_status _i
@@ -742,7 +742,8 @@ const routes = payload?.ticket?.routes;
 if (process.env.ATTACH_TARGET === "physical_device") {
   const hasIroh = Array.isArray(routes) && routes.some((route) => route?.kind === "iroh");
   const hasTailscale = Array.isArray(routes) && routes.some((route) => route?.kind === "tailscale");
-  if (!hasIroh && !hasTailscale) process.exit(2);
+  const hasWebRTC = Array.isArray(routes) && routes.some((route) => route?.kind === "webrtc");
+  if (!hasIroh && !hasTailscale && !hasWebRTC) process.exit(2);
 }
 if (typeof payload.attach_url === "string") process.stdout.write(payload.attach_url);
 NODE

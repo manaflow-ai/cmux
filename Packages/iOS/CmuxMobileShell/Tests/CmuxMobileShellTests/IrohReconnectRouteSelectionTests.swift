@@ -1212,6 +1212,23 @@ extension ReconnectRouteSelectionTests {
         #expect(hints[0].use == .fallbackOnly)
     }
 
+    @Test func storedReconnectRetainsWebRTCRoute() throws {
+        let route = try CmxAttachRoute(
+            id: "webrtc",
+            kind: .webrtc,
+            endpoint: .url("webrtc://100.82.214.112:56584?token=listener-token"),
+            priority: -20_000
+        )
+
+        let routes = MobileShellComposite.storedReconnectRoutes(
+            [route],
+            supportedKinds: [.webrtc],
+            preferNonLoopback: true
+        )
+
+        #expect(routes == [route])
+    }
+
     private func registryIroh(id: String, endpointID: String) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: id,

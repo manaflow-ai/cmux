@@ -24,19 +24,50 @@ import {
 } from "./controlPlane";
 import { captureSentryException, type SentryEnv } from "./sentry";
 import { parseRetryAfterSeconds, rateLimitedJson } from "./retryAfterResponse";
+import {
+  decodeTurnCredentialResponse,
+  normalizeTurnTTLSeconds,
+  turnCredentialsURL,
+  type TurnCredentialResponse,
+} from "./turnCredentials";
 
 export interface ControlPlaneEnv extends SentryEnv {
   /** Vercel web API origin the DO proxies (dev/prod), e.g. https://cmux.com.
    * Same optional-with-production-default pattern as STACK_API_URL. */
   CMUX_WEB_BASE_URL?: string;
+  /** Cloudflare TURN key id. The key itself is never shipped to a client. */
+  CLOUDFLARE_TURN_KEY_ID?: string;
+  /** Cloudflare Realtime TURN key secret, provisioned as a Worker secret. */
+  CLOUDFLARE_TURN_KEY_SECRET?: string;
+  /** Requested lifetime for account-scoped temporary ICE credentials. */
+  CLOUDFLARE_TURN_TTL_SECONDS?: string;
 }
 
 const PRODUCTION_WEB_BASE_URL = "https://cmux.com";
+const TURN_CACHE_KEY = "ctl:webrtc-turn";
+const TURN_CACHE_SAFETY_MS = 5 * 60 * 1_000;
+const MAX_TURN_RESPONSE_BYTES = 64 * 1024;
+
+type CachedTurnCredentials = TurnCredentialResponse & {
+  readonly issuedAt: number;
+  readonly expiresAt: number;
+  readonly ttlSeconds: number;
+};
 
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "content-type": "application/json" },
+  });
+}
+
+function privateJSON(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "content-type": "application/json",
+      "cache-control": "private, no-store",
+    },
   });
 }
 
@@ -154,6 +185,13 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
   }
 
   private async handleFetch(request: Request): Promise<Response> {
+    if (request.method === "GET"
+      && new URL(request.url).pathname === "/v1/webrtc/ice-servers") {
+      if (!request.headers.get("x-control-account-id")?.trim()) {
+        return privateJSON({ error: "account_required" }, 403);
+      }
+      return this.handleWebRTCIceServers();
+    }
     // Device revocation, forwarded by the worker with rebuilt headers after
     // Stack bearer verification. This DO instance IS the verified account
     // scope; the strict-parsed body carries only {endpointId, revoked}.
@@ -207,6 +245,86 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
       ...(namespace ? { namespace } : {}),
     });
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /**
+   * Mint one account-scoped Cloudflare ICE set and keep it in the account DO
+   * until shortly before expiry. Both peers therefore obtain credentials from
+   * the same authenticated backend path without shipping a TURN secret or
+   * making two unnecessary upstream mints during one attach.
+   */
+  private async handleWebRTCIceServers(): Promise<Response> {
+    const now = Date.now();
+    const cached = await this.ctx.storage.get<CachedTurnCredentials>(TURN_CACHE_KEY);
+    if (cached && cached.expiresAt > now + TURN_CACHE_SAFETY_MS) {
+      console.info("webrtc.turn.cache_hit", {
+        ttlSeconds: cached.ttlSeconds,
+        iceServerCount: cached.iceServers.length,
+      });
+      return privateJSON({ iceServers: cached.iceServers }, 200);
+    }
+
+    const keyID = this.env.CLOUDFLARE_TURN_KEY_ID?.trim();
+    const keySecret = this.env.CLOUDFLARE_TURN_KEY_SECRET?.trim();
+    if (!keyID || !keySecret) {
+      return privateJSON({ error: "turn_not_configured" }, 503);
+    }
+    const ttlSeconds = normalizeTurnTTLSeconds(this.env.CLOUDFLARE_TURN_TTL_SECONDS);
+
+    let upstream: Response;
+    try {
+      upstream = await fetch(turnCredentialsURL(keyID), {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${keySecret}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ ttl: ttlSeconds }),
+      });
+    } catch (error) {
+      console.error("webrtc.turn.upstream_network_failure", String(error).slice(0, 300));
+      return privateJSON({ error: "turn_upstream_unavailable" }, 502);
+    }
+
+    const length = Number(upstream.headers.get("content-length") ?? "0");
+    if (Number.isFinite(length) && length > MAX_TURN_RESPONSE_BYTES) {
+      return privateJSON({ error: "turn_upstream_invalid" }, 502);
+    }
+    let raw: unknown;
+    try {
+      const text = await upstream.text();
+      if (text.length > MAX_TURN_RESPONSE_BYTES) {
+        return privateJSON({ error: "turn_upstream_invalid" }, 502);
+      }
+      raw = JSON.parse(text);
+    } catch {
+      return privateJSON({ error: "turn_upstream_invalid" }, 502);
+    }
+    if (!upstream.ok) {
+      console.error(
+        "webrtc.turn.upstream_http_failure",
+        upstream.status,
+      );
+      return privateJSON({ error: "turn_upstream_unavailable" }, 502);
+    }
+    const decoded = decodeTurnCredentialResponse(raw);
+    if (!decoded) {
+      console.error("webrtc.turn.upstream_shape_failure");
+      return privateJSON({ error: "turn_upstream_invalid" }, 502);
+    }
+
+    const credentials: CachedTurnCredentials = {
+      ...decoded,
+      issuedAt: now,
+      expiresAt: now + ttlSeconds * 1_000,
+      ttlSeconds,
+    };
+    await this.ctx.storage.put(TURN_CACHE_KEY, credentials);
+    console.info("webrtc.turn.credentials_issued", {
+      ttlSeconds,
+      iceServerCount: credentials.iceServers.length,
+    });
+    return privateJSON({ iceServers: credentials.iceServers }, 200);
   }
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {

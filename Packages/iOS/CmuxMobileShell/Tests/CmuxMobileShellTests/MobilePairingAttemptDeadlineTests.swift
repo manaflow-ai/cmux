@@ -85,6 +85,39 @@ import Testing
         #expect(store.selectedWorkspace?.id.rawValue == "live-workspace")
     }
 
+    @Test func webRTCAttachUsesWebRTCRouteWhenItIsTheOnlyAuthenticatedRoute() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(router: router, box: box),
+            now: { clock.now },
+            supportedRouteKinds: [.webrtc]
+        )
+        let store = makeStore(runtime: runtime)
+        let route = try CmxAttachRoute(
+            id: "webrtc",
+            kind: .webrtc,
+            endpoint: .url("webrtc://127.0.0.1:56584?token=listener-token"),
+            priority: -20_000
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            routes: [route],
+            expiresAt: clock.now.addingTimeInterval(3600)
+        )
+
+        let result = await store.connectPairingURLResult(try attachURL(for: ticket))
+
+        #expect(result == .connected)
+        #expect(store.activeRoute?.kind == .webrtc)
+        #expect(await router.count(of: "workspace.list") >= 1)
+    }
+
     @Test func hostStatusUsesOnlyTheRemainingPairingAttemptBudget() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
