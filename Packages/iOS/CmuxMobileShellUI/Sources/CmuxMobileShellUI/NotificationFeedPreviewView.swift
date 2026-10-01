@@ -200,7 +200,7 @@ public struct NotificationFeedPreviewView: View {
 
     private var previewRootToolbarVisible: Bool {
         switch selectedTab {
-        case .workspaces, .feed:
+        case .workspaces, .feed, .cloud:
             true
         case .notifications:
             notificationRoute == nil
@@ -211,7 +211,7 @@ public struct NotificationFeedPreviewView: View {
 
     private var previewTabBarVisibility: Visibility {
         switch selectedTab {
-        case .workspaces, .feed:
+        case .workspaces, .feed, .cloud:
             .automatic
         case .notifications:
             notificationRoute == nil ? .automatic : .hidden
