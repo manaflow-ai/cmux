@@ -118,10 +118,15 @@ enum TabMoves {
     static func toWorkspace(_ tab: TabModel, workspace: WorkspaceModel, services: AppServices,
                             transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
-        guard services.machines.daemon(forWorkspace: workspace.id) === daemon else { return completion(false) }
         if services.windows.crossesIncognito(from: services.workspaceID(ofTab: tab.id), to: workspace.id) {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
             return completion(false)
+        }
+        guard let destination = services.machines.daemon(forWorkspace: workspace.id) else { return completion(false) }
+        guard destination === daemon else {
+            // Another session: move the reference, never the process
+            // (plans/cmux-next/data-model.md 1.5).
+            return services.remoteTerminals.move(tab, from: daemon, to: workspace, on: destination, completion: completion)
         }
         let surface = tab.surface, handle = workspace.handle
         let echoes = daemon.supports(DaemonCapabilities.tabDrag)

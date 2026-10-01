@@ -236,6 +236,9 @@ jobs:
       - name: Verify generated webviews assets
         run: ./scripts/build-webviews-app.sh --check
 
+      - name: Verify generated cmux-next agent pane
+        run: ./scripts/cmux-next/build-agent-pane-web.sh --check
+
       - name: Check diff viewer eager JS budget
         run: node ./scripts/check-webviews-diff-budget.mjs
 

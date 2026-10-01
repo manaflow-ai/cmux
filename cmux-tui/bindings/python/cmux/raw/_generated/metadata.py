@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '16b0cbbce9b2cda10369f6a7b3aa64e1f950fef885ef7efd434dd222663ac474'
+IR_SHA256 = 'adbfa89de5ea3e4ee601c468ebe23c608b9eb8532e62701776fa0d86a6831300'
 
 
 @dataclass(frozen=True)
@@ -47,6 +47,19 @@ COMMANDS = {
         None,
         {
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'add-screens-to-screen-group': CommandMetadata(
+        'add-screens-to-screen-group',
+        'control',
+        12,
+        'screen-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'group': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+            'screens': CommandFieldMetadata(None, None),
         },
     ),
     'add-tabs-to-tab-group': CommandMetadata(
@@ -340,6 +353,18 @@ COMMANDS = {
             'screen': CommandFieldMetadata(None, None),
         },
     ),
+    'close-screen-group': CommandMetadata(
+        'close-screen-group',
+        'control',
+        12,
+        'screen-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'end_terminals': CommandFieldMetadata(None, None),
+            'group': CommandFieldMetadata(None, None),
+        },
+    ),
     'close-surface': CommandMetadata(
         'close-surface',
         'control',
@@ -425,6 +450,22 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'create-browser-profile': CommandMetadata(
+        'create-browser-profile',
+        'control',
+        12,
+        'browser-profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'browser_profile': CommandFieldMetadata(None, None),
+            'color': CommandFieldMetadata(None, None),
+            'icon': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
+            'source': CommandFieldMetadata(None, None),
+        },
+    ),
     'create-personal-group': CommandMetadata(
         'create-personal-group',
         'control',
@@ -459,6 +500,19 @@ COMMANDS = {
             'name': CommandFieldMetadata(None, None),
             'profile': CommandFieldMetadata(None, None),
             'theme': CommandFieldMetadata(None, None),
+        },
+    ),
+    'create-screen-group': CommandMetadata(
+        'create-screen-group',
+        'control',
+        12,
+        'screen-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'color': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
+            'screens': CommandFieldMetadata(None, None),
         },
     ),
     'create-surface-with-receipt': CommandMetadata(
@@ -521,6 +575,7 @@ COMMANDS = {
             'name': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(9, None),
             'workspace': CommandFieldMetadata(None, None),
         },
@@ -556,6 +611,17 @@ COMMANDS = {
             'name': CommandFieldMetadata(None, None),
         },
     ),
+    'delete-browser-profile': CommandMetadata(
+        'delete-browser-profile',
+        'control',
+        12,
+        'browser-profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'browser_profile': CommandFieldMetadata(None, None),
+        },
+    ),
     'delete-personal-group': CommandMetadata(
         'delete-personal-group',
         'control',
@@ -577,6 +643,17 @@ COMMANDS = {
         {
             'move_to': CommandFieldMetadata(None, None),
             'profile': CommandFieldMetadata(None, None),
+        },
+    ),
+    'delete-saved-screen-group': CommandMetadata(
+        'delete-saved-screen-group',
+        'control',
+        12,
+        'screen-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'saved': CommandFieldMetadata(None, None),
         },
     ),
     'delete-saved-tab-group': CommandMetadata(
@@ -804,6 +881,16 @@ COMMANDS = {
         {
         },
     ),
+    'list-saved-screen-groups': CommandMetadata(
+        'list-saved-screen-groups',
+        'control',
+        12,
+        'screen-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
     'list-saved-tab-groups': CommandMetadata(
         'list-saved-tab-groups',
         'control',
@@ -909,6 +996,18 @@ COMMANDS = {
             'ttl_ms': CommandFieldMetadata(None, None),
         },
     ),
+    'move-browser-profile': CommandMetadata(
+        'move-browser-profile',
+        'control',
+        12,
+        'browser-profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'browser_profile': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+        },
+    ),
     'move-personal-group': CommandMetadata(
         'move-personal-group',
         'control',
@@ -931,6 +1030,34 @@ COMMANDS = {
         {
             'index': CommandFieldMetadata(None, None),
             'profile': CommandFieldMetadata(None, None),
+        },
+    ),
+    'move-screen': CommandMetadata(
+        'move-screen',
+        'control',
+        12,
+        'screen-metadata-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'index': CommandFieldMetadata(None, None),
+            'new_workspace': CommandFieldMetadata(None, None),
+            'screen': CommandFieldMetadata(None, None),
+            'workspace': CommandFieldMetadata(None, None),
+        },
+    ),
+    'move-screen-group': CommandMetadata(
+        'move-screen-group',
+        'control',
+        12,
+        'screen-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'group': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+            'new_workspace': CommandFieldMetadata(None, None),
+            'workspace': CommandFieldMetadata(None, None),
         },
     ),
     'move-tab': CommandMetadata(
@@ -1174,6 +1301,7 @@ COMMANDS = {
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
         },
     ),
@@ -1191,6 +1319,7 @@ COMMANDS = {
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'width': CommandFieldMetadata(None, None),
         },
@@ -1203,8 +1332,15 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'color': CommandFieldMetadata(None, None),
             'cols': CommandFieldMetadata(None, None),
+            'cwd': CommandFieldMetadata(None, None),
+            'group': CommandFieldMetadata(None, None),
+            'icon': CommandFieldMetadata(None, None),
+            'index': CommandFieldMetadata(None, None),
+            'pinned': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'screen_name': CommandFieldMetadata(None, None),
             'workspace': CommandFieldMetadata(None, None),
         },
     ),
@@ -1222,6 +1358,7 @@ COMMANDS = {
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
         },
     ),
@@ -1260,6 +1397,7 @@ COMMANDS = {
         {
             'body': CommandFieldMetadata(None, None),
             'level': CommandFieldMetadata(None, None),
+            'source': CommandFieldMetadata(12, 'notification-source-v1'),
             'surface': CommandFieldMetadata(None, None),
             'title': CommandFieldMetadata(None, None),
         },
@@ -1450,6 +1588,17 @@ COMMANDS = {
         {
         },
     ),
+    'remove-screens-from-screen-group': CommandMetadata(
+        'remove-screens-from-screen-group',
+        'control',
+        12,
+        'screen-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'screens': CommandFieldMetadata(None, None),
+        },
+    ),
     'remove-tabs-from-tab-group': CommandMetadata(
         'remove-tabs-from-tab-group',
         'control',
@@ -1526,6 +1675,18 @@ COMMANDS = {
             'mutation_id': CommandFieldMetadata(7, None),
             'name': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(7, None),
+            'workspace': CommandFieldMetadata(None, None),
+        },
+    ),
+    'reopen-saved-screen-group': CommandMetadata(
+        'reopen-saved-screen-group',
+        'control',
+        12,
+        'screen-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'saved': CommandFieldMetadata(None, None),
             'workspace': CommandFieldMetadata(None, None),
         },
     ),
@@ -1626,6 +1787,17 @@ COMMANDS = {
             'new_workspace': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+        },
+    ),
+    'save-screen-group': CommandMetadata(
+        'save-screen-group',
+        'control',
+        12,
+        'screen-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'group': CommandFieldMetadata(None, None),
         },
     ),
     'save-tab-group': CommandMetadata(
@@ -1786,6 +1958,19 @@ COMMANDS = {
             'selection_fg': CommandFieldMetadata(9, None),
         },
     ),
+    'set-personal-terminal': CommandMetadata(
+        'set-personal-terminal',
+        'control',
+        12,
+        'personal-terminals-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'session_id': CommandFieldMetadata(None, None),
+            'terminal_key': CommandFieldMetadata(None, None),
+            'theme': CommandFieldMetadata(None, None),
+        },
+    ),
     'set-personal-workspace': CommandMetadata(
         'set-personal-workspace',
         'control',
@@ -1825,6 +2010,31 @@ COMMANDS = {
             'dir': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
             'ratio': CommandFieldMetadata(None, None),
+        },
+    ),
+    'set-screen-metadata': CommandMetadata(
+        'set-screen-metadata',
+        'control',
+        12,
+        'screen-metadata-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'color': CommandFieldMetadata(None, None),
+            'icon': CommandFieldMetadata(None, None),
+            'screen': CommandFieldMetadata(None, None),
+        },
+    ),
+    'set-screen-pinned': CommandMetadata(
+        'set-screen-pinned',
+        'control',
+        12,
+        'screen-metadata-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'pinned': CommandFieldMetadata(None, None),
+            'screen': CommandFieldMetadata(None, None),
         },
     ),
     'set-size-counts': CommandMetadata(
@@ -1992,6 +2202,7 @@ COMMANDS = {
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
         },
     ),
@@ -2055,6 +2266,17 @@ COMMANDS = {
             'revision': CommandFieldMetadata(None, None),
         },
     ),
+    'ungroup-screen-group': CommandMetadata(
+        'ungroup-screen-group',
+        'control',
+        12,
+        'screen-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'group': CommandFieldMetadata(None, None),
+        },
+    ),
     'ungroup-tab-group': CommandMetadata(
         'ungroup-tab-group',
         'control',
@@ -2088,6 +2310,17 @@ COMMANDS = {
         {
         },
     ),
+    'unsave-screen-group': CommandMetadata(
+        'unsave-screen-group',
+        'control',
+        12,
+        'screen-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'group': CommandFieldMetadata(None, None),
+        },
+    ),
     'unsave-tab-group': CommandMetadata(
         'unsave-tab-group',
         'control',
@@ -2097,6 +2330,20 @@ COMMANDS = {
         None,
         {
             'group': CommandFieldMetadata(None, None),
+        },
+    ),
+    'update-browser-profile': CommandMetadata(
+        'update-browser-profile',
+        'control',
+        12,
+        'browser-profiles-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'browser_profile': CommandFieldMetadata(None, None),
+            'color': CommandFieldMetadata(None, None),
+            'icon': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
         },
     ),
     'update-frontend-browser-tab': CommandMetadata(
@@ -2144,6 +2391,20 @@ COMMANDS = {
             'name': CommandFieldMetadata(None, None),
             'profile': CommandFieldMetadata(None, None),
             'theme': CommandFieldMetadata(None, None),
+        },
+    ),
+    'update-screen-group': CommandMetadata(
+        'update-screen-group',
+        'control',
+        12,
+        'screen-groups-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'collapsed': CommandFieldMetadata(None, None),
+            'color': CommandFieldMetadata(None, None),
+            'group': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
         },
     ),
     'update-tab-group': CommandMetadata(
@@ -2288,6 +2549,7 @@ EVENTS = {
     'render-state': EventMetadata('render-state', 7, None, ('attach-render',), 'emitted'),
     'resized': EventMetadata('resized', 6, None, ('attach-byte',), 'emitted'),
     'screen-added': EventMetadata('screen-added', 7, None, ('subscribe-deltas',), 'emitted'),
+    'screen-changed': EventMetadata('screen-changed', 12, 'screen-metadata-v1', ('subscribe-deltas',), 'emitted'),
     'screen-closed': EventMetadata('screen-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'screen-renamed': EventMetadata('screen-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
     'scroll-changed': EventMetadata('scroll-changed', 6, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),

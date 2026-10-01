@@ -8,7 +8,7 @@ struct ThemeCard: View {
         SettingsCard(title: SettingsWindowStrings.themeTitle) {
             HStack(spacing: Metrics.space5) {
                 HStack(spacing: Metrics.space1) {
-                    ForEach(Array(ThemeStore.shared.input.palette.prefix(8).enumerated()), id: \.offset) { _, color in
+                    ForEach(Array(SettingsTheme.shared.input.palette.prefix(8).enumerated()), id: \.offset) { _, color in
                         RoundedRectangle(cornerRadius: Metrics.space1, style: .continuous)
                             .fill(Color(nsColor: color.nsColor))
                             .frame(width: Metrics.iconSize, height: Metrics.iconSize)

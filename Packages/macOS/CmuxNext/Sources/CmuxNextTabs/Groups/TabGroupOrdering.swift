@@ -2,7 +2,8 @@ public import CoreGraphics
 
 /// Pure ordering rules for groups: pinned tabs first and never grouped,
 /// group members contiguous, one chip before each group's members.
-public enum TabGroupOrdering {
+public struct TabGroupOrdering {
+    public init() {}
     /// Pinned tabs first (group cleared), then unpinned tabs in order with
     /// each group's members moved up to its first member. Tabs that name a
     /// group not in `groups` become ungrouped.

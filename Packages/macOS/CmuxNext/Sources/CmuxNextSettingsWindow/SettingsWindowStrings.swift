@@ -19,6 +19,13 @@ nonisolated enum SettingsWindowStrings {
     static var soundNone: String { text("settingsWindow.soundNone", "None") }
     static var blankPage: String { text("settingsWindow.blankPage", "Blank page") }
     static var themeTitle: String { text("settingsWindow.theme", "Theme") }
+    static var themeLevelRoom: String { text("settingsWindow.themeLevel.room", "Room") }
+    static var themeLevelWorkspace: String { text("settingsWindow.themeLevel.workspace", "Workspace") }
+    static var themeLevelTerminal: String { text("settingsWindow.themeLevel.terminal", "Terminal") }
+    static var themeSearch: String { text("settingsWindow.themeSearch", "Search Ghostty themes") }
+    static var themeUseConfig: String { text("settingsWindow.themeUseConfig", "Use Ghostty Config") }
+    static func themeUse(_ spec: String) -> String { format("settingsWindow.themeUse", "Use “%@”", spec) }
+    static var themePickerTitle: String { text("settingsWindow.themePicker", "Themes") }
     static var themeBody: String { text("settingsWindow.themeBody", "Colors come from your Ghostty theme and follow it live.") }
     static var terminalBody: String { text("settingsWindow.terminalBody", "Fonts, colors, cursor and keybinds are Ghostty settings.") }
     static var ghosttyConfig: String { text("settingsWindow.ghosttyConfig", "Ghostty Config") }
@@ -28,6 +35,15 @@ nonisolated enum SettingsWindowStrings {
     static var conflict: String { text("settingsWindow.conflict", "Another action uses this shortcut in the same place.") }
     static var roomsUnavailable: String { text("settingsWindow.roomsUnavailable", "Rooms need a newer cmux-tui on this Mac.") }
     static var roomsEmpty: String { text("settingsWindow.roomsEmpty", "No rooms yet.") }
+    static var browserProfilesTitle: String { text("settingsWindow.browserProfiles", "Browser Profiles") }
+    static var browserProfilesHint: String {
+        text("settingsWindow.browserProfilesHint", "Each profile has its own cookies, logins, history, extensions and site permissions.")
+    }
+    static var newBrowserProfile: String { text("settingsWindow.newBrowserProfile", "New Browser Profile") }
+    static var profileName: String { text("settingsWindow.profileName", "Name") }
+    static var profileColor: String { text("settingsWindow.profileColor", "Color") }
+    static var profileIcon: String { text("settingsWindow.profileIcon", "Icon") }
+    static var deleteProfile: String { text("settingsWindow.deleteProfile", "Delete Profile and Data…") }
     static var machinesEmpty: String { text("settingsWindow.machinesEmpty", "No saved machines.") }
     static var settingsFile: String { text("settingsWindow.settingsFile", "Settings File") }
     static var showInFinder: String { text("settingsWindow.showInFinder", "Show in Finder") }

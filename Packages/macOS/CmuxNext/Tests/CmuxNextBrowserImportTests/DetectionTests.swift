@@ -17,7 +17,7 @@ import Testing
         #expect(personal.availability(of: .bookmarks) == .available)
         #expect(personal.availability(of: .history) == .available)
         #expect(personal.availability(of: .openTabs) == .absent)
-        #expect(personal.availability(of: .passwords) == .unsupported(.needsChromiumImporter))
+        #expect(personal.availability(of: .passwords) == .unsupported(.exportFromSource))
         #expect(personal.importableKinds == [.bookmarks, .history])
     }
 

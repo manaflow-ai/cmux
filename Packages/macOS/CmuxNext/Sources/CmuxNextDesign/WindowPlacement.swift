@@ -12,7 +12,8 @@ public import AppKit
 /// once at launch; the shell windows use ``screenIndex(test:parent:count:)``
 /// too, so both follow one rule.
 @MainActor
-public enum WindowPlacement {
+public struct WindowPlacement {
+    public init() {}
     /// `CMUX_NEXT_TEST_WINDOW_SCREEN`: an `NSScreen.screens` index (0 is the
     /// menu-bar screen) or the last screen.
     public enum TestScreen: Sendable, Equatable {

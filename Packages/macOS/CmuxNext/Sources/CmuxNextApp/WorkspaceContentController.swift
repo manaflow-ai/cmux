@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextLayout
 import Observation
 
@@ -16,6 +17,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// Layout plus the bottom screen bar; what the window shows.
     private(set) var contentView: WorkspaceContentView!
     private(set) var screenBar: ScreenBarController!
+    /// The workspace theme: only this content area, under the window's
+    /// room theme.
+    let themeScope = ThemeScope(level: .workspace)
     unowned let services: AppServices
     unowned let state: WindowState
     private(set) var handles = LayoutHandleMap()
@@ -59,6 +63,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         observe()
         screenBar = ScreenBarController(content: self)
         contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
+        themeScope.root(contentView)
         contentView.showsBar = screenBar.isVisible
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
     }
@@ -81,11 +86,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
                 self?.apply(result)
             }
         }
-        // An empty workspace loaded while disconnected is repaired once the
-        // daemon is back, even if the tree itself does not change.
+        // An empty workspace loaded while disconnected, or drawn from the
+        // launch snapshot, is repaired once the daemon is back and its tree
+        // is live, even if the tree itself does not change.
         let store = daemon.store
         connectionObservation = Task { [weak self] in
-            for await _ in Observations({ store.connectionState }) { self?.repairIfEmpty() }
+            for await _ in Observations({ (String(describing: store.connectionState), store.isLoaded) }) {
+                self?.repairIfEmpty()
+            }
         }
         // Panes with an unread notification draw the attention ring.
         let notifications = services.notifications

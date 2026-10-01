@@ -8,7 +8,7 @@ public nonisolated enum OmnibarRules {
         switch row.kind {
         case .search: row.title
         case .keyword: row.content ?? row.title
-        case .navigate, .history: BrowserURLDisplay.editingText(for: row.url)
+        case .navigate, .history, .bookmark: BrowserURLDisplay.editingText(for: row.url)
         }
     }
 

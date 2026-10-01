@@ -17,18 +17,24 @@ import Testing
         #expect(!registry.entries.contains { $0.id == "tab.new" })
     }
 
-    @Test func sharedShortcutResolvesByContext() {
+    /// Cmd-[ is page Back only (plans/cmux-next/history.md 4.1); the
+    /// location trail's Go Back is Ctrl-Cmd-Left in every context.
+    @Test func bracketIsPageBackAndGoBackHasItsOwnChord() {
         let registry = ActionRegistry.standard()
         var hits: [String] = []
         registry.bind("focusHistoryBack") { hits.append("history") }
         registry.bind("browserBack") { hits.append("browser") }
         let cmdBracket = Shortcut("[", modifiers: [.command])
+        let goBack = Shortcut(Shortcut.leftArrowKey, modifiers: [.control, .command])
 
-        #expect(registry.resolve(cmdBracket)?.id == "focusHistoryBack")
+        #expect(registry.resolve(cmdBracket)?.id != "focusHistoryBack")
+        #expect(registry.resolve(goBack)?.id == "focusHistoryBack")
         registry.context = [.browserFocused]
         #expect(registry.resolve(cmdBracket)?.id == "browserBack")
         #expect(registry.performShortcut(cmdBracket))
-        #expect(hits == ["browser"])
+        #expect(registry.resolve(goBack)?.id == "focusHistoryBack")
+        #expect(registry.performShortcut(goBack))
+        #expect(hits == ["browser", "history"])
     }
 
     @Test func unavailableOrUnboundActionsDoNotRun() {

@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextActions
+import CmuxNextDesign
 
 /// Which page the palette opens on.
 public enum PaletteMode: Sendable, Hashable {
@@ -135,6 +136,16 @@ public final class PaletteController {
         present(relativeTo: window)
     }
 
+    /// Opens the palette on `page` (a keyboard, menu or CLI run of an action
+    /// the palette serves as a page).
+    public func show(page: PalettePageSpec, relativeTo window: NSWindow? = nil) {
+        openStarted = .now
+        captureContext()
+        model.reset(to: page)
+        modelReady = .now
+        present(relativeTo: window)
+    }
+
     /// Opens the palette to collect the missing arguments of `id`, then runs
     /// it. Installed as the registry's `argumentCollector`, so a menu item or
     /// shortcut for an argument-taking action asks inline.
@@ -142,7 +153,7 @@ public final class PaletteController {
         guard let descriptor = registry.descriptor(for: id) else { return }
         captureContext()
         let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: sources.targets,
-                                       captured: capturedTargets)
+                                       captured: capturedTargets, preview: sources.argumentPreview)
         let effect = flow.effect(collected: invocation)
         if case .perform(let handler) = effect {
             // Nothing left to ask.
@@ -184,6 +195,8 @@ public final class PaletteController {
         isVisible = true
         onVisibilityChange?(true)
         parentWindow = parent
+        // The room (theme) of the window it opens over.
+        (parent?.themeScope ?? .app).adopt(panel)
         panel.setFrame(frame(for: parent, size: PaletteLayout.windowSize), display: false)
         if let parent, panel.parent !== parent {
             panel.parent?.removeChildWindow(panel)
@@ -242,6 +255,7 @@ public final class PaletteController {
         model.closeActionsMenu()
         model.shortcutRecorder = nil
         model.hover(nil)
+        model.didHide()
         presentationGeneration += 1
         let generation = presentationGeneration
         // Only a panel that has the keys gives them back.

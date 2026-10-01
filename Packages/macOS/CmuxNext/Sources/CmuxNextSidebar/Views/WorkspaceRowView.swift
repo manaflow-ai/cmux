@@ -4,8 +4,10 @@ import QuartzCore
 
 final class WorkspaceRowView: SidebarRowView {
     private let icon = SidebarIconView()
-    private let title = SidebarRowView.label(font: SidebarStyle.titleFont, color: Palette.textPrimary)
-    private let subtitle = SidebarRowView.label(font: SidebarStyle.subtitleFont, color: Palette.textSecondary)
+    /// Fades a clipped title and scrolls it while the pointer rests on the
+    /// row (TitleFade); NSTextField would end it in an ellipsis instead.
+    let title = MarqueeLabel()
+    private let subtitle = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     private let activity = ActivityIndicatorView()
     private let badge = UnreadBadgeView()
     let closeButton = SidebarIconButton(symbol: "xmark", pointSize: { Metrics.smallIconSize - Metrics.space2 }, weight: .bold, label: Strings.closeButton)
@@ -21,6 +23,7 @@ final class WorkspaceRowView: SidebarRowView {
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
+        title.font = SidebarStyle.titleFont
         [icon, title, subtitle, activity, badge, closeButton].forEach(addSubview)
         closeButton.isHidden = true
         closeButton.onPress = { [weak self] in self?.onClose?() }
@@ -33,6 +36,7 @@ final class WorkspaceRowView: SidebarRowView {
         isSecondarySelected = false
         isDropTarget = false
         onClose = nil
+        title.stopMarquee()
     }
 
     private struct Content: Hashable {
@@ -86,30 +90,52 @@ final class WorkspaceRowView: SidebarRowView {
         return parts.joined(separator: ", ")
     }
 
-    override var titleFrame: NSRect { title.frame }
-    override var titleFont: NSFont { title.font ?? SidebarStyle.titleFont }
+    /// Where an NSTextField label with this text would sit (inline rename
+    /// aligns its field to it): the glyphs start one cell inset inside it.
+    override var titleFrame: NSRect { title.frame.insetBy(dx: -Self.labelInset, dy: 0) }
+    override var titleFont: NSFont { title.font }
     private var renaming = false
     override func setTitleHidden(_ hidden: Bool) {
         renaming = hidden
         title.isHidden = hidden
+        if hidden { title.stopMarquee() }
     }
+
+    /// An AppKit label cell draws its text this far inside its frame; the
+    /// marquee label draws at its edge, so it sits this much further in.
+    static let labelInset = Metrics.space1
 
     override func hoverChanged() {
         super.hoverChanged()
         needsLayout = true
+        guard isHovered, !renaming else {
+            title.stopMarquee()
+            toolTip = nil
+            return
+        }
+        // The x appears on hover and narrows the title first.
+        layoutSubtreeIfNeeded()
+        if !title.startMarquee(), title.isTruncated {
+            // Reduce Motion or animations off: the full title as a tooltip.
+            toolTip = title.stringValue
+        }
     }
 
     override func updateLayer() {
         guard let layer else { return }
-        // Fills only, no borders: drop target, multi-selection, hover.
-        if isDropTarget {
-            layer.backgroundColor = resolvedCGColor(Palette.selectionFill)
-        } else if isSecondarySelected {
-            layer.backgroundColor = resolvedCGColor(Palette.secondarySelectionFill)
-        } else if isHovered {
-            layer.backgroundColor = resolvedCGColor(Palette.hoverFill)
-        } else {
-            layer.backgroundColor = nil
+        performWithTheme {
+            title.textColor = Palette.textPrimary
+            subtitle.textColor = Palette.textSecondary
+            // Fills only, no borders: drop target, multi-selection, hover.
+            if isDropTarget {
+                layer.backgroundColor = Palette.selectionFill.cgColor
+            } else if isSecondarySelected {
+                layer.backgroundColor = Palette.secondarySelectionFill.cgColor
+            } else if isHovered {
+                layer.backgroundColor = Palette.hoverFill.cgColor
+            } else {
+                layer.backgroundColor = nil
+            }
         }
     }
 
@@ -157,16 +183,21 @@ final class WorkspaceRowView: SidebarRowView {
         let textX = side > 0 ? icon.frame.maxX + Metrics.space3 : leading
         let textW = max(0, trailing - textX)
         title.isHidden = renaming
+        // The marquee fades glyphs out across the padding left of them.
+        let inset = Self.labelInset
+        title.leadingPadding = textX + inset - (side > 0 ? icon.frame.maxX : indent)
+        title.fadeWidth = SidebarStyle.titleFadeWidth
         let th = ceil(title.intrinsicContentSize.height)
+        let titleWidth = max(0, textW - 2 * inset)
         if hasSubtitle {
             let sh = ceil(subtitle.intrinsicContentSize.height)
             let total = th + sh
             let top = (b.height - total) / 2
-            title.frame = NSRect(x: textX, y: top, width: textW, height: th)
+            title.frame = NSRect(x: textX + inset, y: top, width: titleWidth, height: th)
             subtitle.frame = NSRect(x: textX, y: top + th, width: textW, height: sh)
             subtitle.isHidden = false
         } else {
-            title.frame = NSRect(x: textX, y: (b.height - th) / 2, width: textW, height: th)
+            title.frame = NSRect(x: textX + inset, y: (b.height - th) / 2, width: titleWidth, height: th)
             subtitle.isHidden = true
         }
         needsDisplay = true

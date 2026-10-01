@@ -705,8 +705,9 @@ Not verified: shared-sizing (`tui02dac3c`) geometry, the app's own claim
 against a second client, closing the last tab of a Cloud workspace in the
 app, iOS against a Cloud daemon (iOS reaches only the local daemon; the
 mobile live tests pass against the pinned daemon build). The `cmux` CLI
-compat verbs address only the local daemon, so the compat script cannot
-target a Cloud machine yet.
+compat verbs now reach every session with qualified ids and `--session`
+(cli-compat.md "Sessions and qualified ids", federation stage 1); the
+compat script's remote cases ran against an SSH session, not a Cloud VM.
 
 ### 5.5 Registry compatibility after the main catch-up (2026-09-30)
 

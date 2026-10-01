@@ -51,8 +51,15 @@ final class AppOnboardingServices: OnboardingServices {
     }
 
     func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
-        let destination = AppImportDestination(store: owner.importStore, history: services.cache.history)
-        let importer = BrowserImporter(provisioning: DefaultProfileOnly(), store: owner.importStore)
+        let cache = services.cache!
+        let destination = AppImportDestination(store: owner.importStore, bookmarks: services.importedBookmarkSink) { id in
+            cache.history(for: BrowserProfileRecord.engineProfile(for: id) ?? .default)
+        }
+        let cef = cache.cef
+        let cookies = CookieImporter(destination: AppCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) },
+                                     keys: SafeStorageKeys.live())
+        let importer = BrowserImporter(provisioning: AppBrowserProfileProvisioning(profiles: services.browserProfiles), store: owner.importStore,
+                                       cookies: cookies)
         return try await importer.run(plan, into: destination) { step in
             Task { @MainActor in progress(step) }
         }
@@ -68,7 +75,7 @@ final class AppOnboardingServices: OnboardingServices {
         for (index, tab) in tabs.enumerated() { pane.newBrowserTab(url: tab.url, background: index > 0) }
     }
 
-    var browserProfilesAvailable: Bool { false }
+    var browserProfilesAvailable: Bool { true }
     var defaultApps: any DefaultAppRegistering { owner.defaultApps }
 
     func openExternal(_ url: URL) {

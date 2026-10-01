@@ -34,7 +34,7 @@ enum RemoteLocalhostStorePlan: Equatable {
     /// on purpose (update, turned off, WebKit), are unrestricted.
     static func plan(route: RemoteLocalhostRoute, url: URL?) -> RemoteLocalhostStorePlan {
         guard case .machine = route else { return .profile(.none) }
-        return url.map(LoopbackHost.isLoopback(url:)) == true ? .derived : .profile(.noLoopback)
+        return url.flatMap(LoopbackHost.init(url:))?.isLoopback == true ? .derived : .profile(.noLoopback)
     }
 }
 

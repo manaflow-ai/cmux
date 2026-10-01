@@ -113,8 +113,8 @@ final class ExtensionActionButton: NSButton {
     }
 
     private func updateFill() {
-        let color: NSColor = isHighlighted ? Palette.selectionFill : (isHovering ? Palette.hoverFill : .clear)
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
+            let color: NSColor = isHighlighted ? Palette.selectionFill : (isHovering ? Palette.hoverFill : .clear)
             layer?.backgroundColor = color.cgColor
         }
     }

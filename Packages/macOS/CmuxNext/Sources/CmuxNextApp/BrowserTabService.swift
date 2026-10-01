@@ -10,8 +10,15 @@ typealias BrowserEngineTag = CmuxNextDaemon.BrowserEngine
 /// the daemon restore them after relaunch. The command closures are seams
 /// for tests.
 final class BrowserTabService {
-    /// `new-frontend-browser-tab` in `pane`. Returns the new surface.
-    var create: @MainActor (_ pane: PaneID, _ url: String, _ engine: BrowserEngineTag) async throws -> SurfaceID
+    /// `new-frontend-browser-tab` in `pane` with a browser profile id (nil
+    /// for an incognito tab). Returns the new surface.
+    var create: @MainActor (_ pane: PaneID, _ url: String, _ engine: BrowserEngineTag, _ profile: String?) async throws -> SurfaceID
+    /// The browser profile a new tab in `pane` gets: the explicit one, else
+    /// the workspace's, the room's or `default` (`BrowserProfileService`).
+    var resolveProfile: @MainActor (_ pane: PaneID, _ explicit: String?) -> String? = { _, explicit in explicit }
+    /// A notice to show on a new tab's page once it exists (Move Tab to
+    /// Browser Profile: session state stayed behind), by surface.
+    private var pendingNotices: [SurfaceID: String] = [:]
     /// `update-frontend-browser-tab`. Returns false when the command failed.
     var update: @MainActor (SurfaceID, BrowserRecordUpdate) async -> Bool
     /// Whether the daemon serves `frontend-browser-tabs-v1`.
@@ -41,9 +48,9 @@ final class BrowserTabService {
     private(set) var openedSurfaces: Set<SurfaceID> = []
 
     init(daemon: DaemonService, cef: CEFEngine) {
-        create = { [weak daemon] pane, url, engine in
+        create = { [weak daemon] pane, url, engine, profile in
             guard let connection = daemon?.connection else { throw DaemonError.notConnected }
-            return try await connection.newFrontendBrowserTab(url: url, engine: engine, in: pane).surface
+            return try await connection.newFrontendBrowserTab(url: url, engine: engine, in: pane, profileID: profile).surface
         }
         update = { [weak daemon] surface, update in
             await daemon?.run("update-frontend-browser-tab") { connection in
@@ -95,16 +102,25 @@ final class BrowserTabService {
     /// of an incognito window (`incognito`, else `isIncognitoPane`) gets an
     /// opaque placeholder record; its URL stays in app memory
     /// (`startURL(for:)`), never in the daemon's database.
-    func open(_ choice: BrowserEngineChoice, in pane: PaneID, url: String, incognito: Bool? = nil) async throws -> SurfaceID {
+    /// The tab's browser profile is fixed here (`profile` when it names a
+    /// known one, else the cascade) and stored on its record; an incognito
+    /// tab stores none (its window's session is its store).
+    func open(_ choice: BrowserEngineChoice, in pane: PaneID, url: String, incognito: Bool? = nil, profile explicit: String? = nil,
+              notice: String? = nil) async throws -> SurfaceID {
         let offTheRecord = incognito ?? isIncognitoPane(pane)
-        let surface = try await create(pane, offTheRecord ? Self.incognitoPlaceholderURL : url, choice.engine)
+        let profile = offTheRecord ? nil : resolveProfile(pane, explicit)
+        let surface = try await create(pane, offTheRecord ? Self.incognitoPlaceholderURL : url, choice.engine, profile)
         if offTheRecord { incognitoURLs[surface] = url }
+        if let notice { pendingNotices[surface] = notice }
         openedSurfaces.insert(surface)
         if let reason = choice.fallback {
             fallbacks.record(reason, source: choice.inherited ? .recordedTab : .newTab, surface: surface)
         }
         return surface
     }
+
+    /// The notice to show on the page of the tab on `surface`, once.
+    func takeNotice(for surface: SurfaceID) -> String? { pendingNotices.removeValue(forKey: surface) }
 
     /// Starts writing `page` back to the daemon record of `tab` (keyed by
     /// tab id; one writer per live page).

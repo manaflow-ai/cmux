@@ -25,14 +25,23 @@ public struct DaemonLauncher: Sendable {
         /// second one that cannot take the session lock, and never connect.
         /// Defaults to the user's Darwin temp directory, which is fixed per user.
         public var runtimeBase: URL
+        /// `server ensure --terminal-reap-grace-seconds`: how long the owner
+        /// keeps a terminal with no tab before it ends it (`keep` exempts
+        /// one). cmux-tui reaps only when started with the option; the app
+        /// keeps a closed tab's terminal 30 s for Reopen Closed Tab and a
+        /// closed workspace, then ends it so closed tabs never leak PTYs.
+        /// An owner that is already running keeps the grace it started with.
+        public var terminalReapGraceSeconds: UInt32
 
         public init(binary: URL, session: String, stateDirectory: URL? = nil, configFile: URL? = nil,
-                    runtimeBase: URL = DaemonLauncher.userTemporaryDirectory()) {
+                    runtimeBase: URL = DaemonLauncher.userTemporaryDirectory(),
+                    terminalReapGraceSeconds: UInt32 = 30) {
             self.binary = binary
             self.session = session
             self.stateDirectory = stateDirectory
             self.configFile = configFile
             self.runtimeBase = runtimeBase
+            self.terminalReapGraceSeconds = terminalReapGraceSeconds
         }
     }
 
@@ -179,12 +188,18 @@ public struct DaemonLauncher: Sendable {
         defer { DaemonLaunchTimings.mark("daemon.ensure_end") }
         let result = try await ProcessRunner.run(
             executable: configuration.binary,
-            arguments: ["--session", configuration.session, "--json", "server", "ensure"],
+            arguments: Self.ensureArguments(configuration),
             environment: environment,
             timeout: ensureTimeout,
             clock: clock
         )
         return try Self.parseEnsure(result)
+    }
+
+    /// The `server ensure` command line for `configuration`.
+    static func ensureArguments(_ configuration: Configuration) -> [String] {
+        ["--session", configuration.session, "--json", "server", "ensure",
+         "--terminal-reap-grace-seconds", String(configuration.terminalReapGraceSeconds)]
     }
 
     /// `server status`: the running owner, or nil when none runs (or the

@@ -75,11 +75,11 @@ extension InputWorld {
             pending.append(.delta(.move(tab: tab, to: target)))
         case .clickPane(let w, let n):
             clickPane(window(w), n)
-        case .pageTakesKey(let w, let n, let placed):
+        case .pageTakesKey(let w, let n, let placed, let parented):
             let window = window(w)
             guard !window.hasSheet, let pane = pane(n, in: window),
                   window.presented[pane.id].flatMap(tab)?.isChromium == true else { return }
-            setKey(.childPage(window.index, pane: pane.id), placed: placed)
+            setKey(.childPage(window.index, pane: pane.id), placed: placed, parented: parented)
         case .clickTab(let w, let n, let m):
             let window = window(w)
             guard !window.hasSheet, let pane = pane(n, in: window), !pane.tabs.isEmpty else { return }
@@ -127,11 +127,11 @@ extension InputWorld {
             let tabs = panes(window.workspace).flatMap(\.tabs)
             guard !tabs.isEmpty else { return }
             let tab = tabs[n % tabs.count].id
-            let pane = stale.flatMap { pane($0, in: window)?.id } ?? panes(window.workspace).first { $0.tabs.contains { $0.id == tab } }?.id
-            guard let pane else { return }
+            let paneID = stale.flatMap { pane($0, in: window)?.id } ?? panes(window.workspace).first { $0.tabs.contains { $0.id == tab } }?.id
+            guard let paneID else { return }
             // `AppCompatFrontend.selectTab`.
-            window.selection.select(tab, in: pane)
-            window.focus.send(.selectTab(pane: pane, tab: tab, workspace: window.workspace, source: .cli))
+            window.selection.select(tab, in: paneID)
+            window.focus.send(.selectTab(pane: paneID, tab: tab, workspace: window.workspace, source: .cli))
         case .keyWindow(let w):
             // A click on a window with a sheet gives the sheet the keys.
             let window = window(w)

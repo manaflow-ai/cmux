@@ -183,6 +183,12 @@ class Run:
                 found = any("/page.html?suite=mv3" in url for url in urls)
             else:
                 found = any(("window=1" if role == "window" else "popup=1") in url for url in urls)
+                if not found and role == "popup-window":
+                    # Fork API 13: the popup keeps its own window, shown in a
+                    # popup panel (debug.popups), not as a pane tab.
+                    panels = (self.app.call("debug.popups").get("result") or {}).get("panels") or []
+                    found = any("popup=1" in (panel.get("url") or "") and panel.get("child_windows") for panel in panels)
+                    self.popup_panels = [(panel.get("url"), len(panel.get("child_windows") or [])) for panel in panels]
             if found:
                 break
             time.sleep(0.15)
@@ -194,7 +200,8 @@ class Run:
                       "cmux shows the window's tab" if found else "chrome.windows.create window missing from the cmux snapshot")
         elif role == "popup-window":
             self.note("mv3", "cmux", "windows.create_popup_mapped", "pass" if found else "fail",
-                      "cmux shows the popup window's tab" if found else "chrome.windows.create(type popup) tab missing from the cmux snapshot")
+                      "cmux shows the popup window's tab" if found else
+                      f"chrome.windows.create(type popup) tab missing from the cmux snapshot and popup panels {getattr(self, 'popup_panels', None)}")
 
     def poll(self, read, done, timeout):
         deadline = time.monotonic() + timeout

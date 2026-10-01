@@ -52,6 +52,8 @@ final class LineTransport: Sendable {
         var sawShutdown = false
         /// Events routed so far; responses capture it as their barrier.
         var eventCount: UInt64 = 0
+        /// Gets resource API stream lines (`stream_item`, `stream_end`).
+        var streamHandler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?
     }
 
     /// An `ok:true` response line plus the number of events routed before it
@@ -129,6 +131,7 @@ final class LineTransport: Sendable {
     }
 
     var isClosed: Bool { state.withLock { $0.closed != nil } }
+    func setStreamHandler(_ handler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?) { state.withLock { $0.streamHandler = handler } }
 
     /// Sends one command and returns the raw `ok:true` response line.
     /// `body` receives the allocated id and returns the encoded JSON object
@@ -261,10 +264,12 @@ final class LineTransport: Sendable {
         var event: String?
         var error: String?
         var errorCode: String?
+        var streamID: String?
 
         enum CodingKeys: String, CodingKey {
             case id, ok, event, error
             case errorCode = "error_code"
+            case streamID = "stream_id"
         }
 
         private struct ResourceError: Decodable {
@@ -280,7 +285,7 @@ final class LineTransport: Sendable {
                 id = UInt64(text)
             }
             ok = try? c.decodeIfPresent(Bool.self, forKey: .ok)
-            event = try? c.decodeIfPresent(String.self, forKey: .event)
+            (event, streamID) = (try? c.decodeIfPresent(String.self, forKey: .event), try? c.decodeIfPresent(String.self, forKey: .streamID))
             errorCode = try? c.decodeIfPresent(String.self, forKey: .errorCode)
             if let text = try? c.decodeIfPresent(String.self, forKey: .error) {
                 error = text
@@ -305,14 +310,21 @@ final class LineTransport: Sendable {
                 closeDetail = "read: \(String(cString: strerror(errno)))"
                 break
             }
+            // Only the new bytes can hold a newline: the buffered rest is one
+            // unfinished line. Rescanning it on every read was quadratic in
+            // the line size (a 10 MiB replay missed the attach deadline).
+            let scanFrom = buffer.count
             buffer.append(contentsOf: chunk[0..<count])
-            var start = buffer.startIndex
-            while let newline = buffer[start...].firstIndex(of: 0x0A) {
-                let line = buffer[start..<newline]
-                start = buffer.index(after: newline)
-                if !line.isEmpty { route(Data(line), decoder: decoder, onEvent: onEvent) }
+            let lineEnds = Self.newlineOffsets(in: buffer, from: scanFrom)
+            var start = 0
+            for end in lineEnds {
+                if end > start {
+                    let base = buffer.startIndex
+                    route(Data(buffer[(base + start)..<(base + end)]), decoder: decoder, onEvent: onEvent)
+                }
+                start = end + 1
             }
-            buffer.removeSubrange(buffer.startIndex..<start)
+            if start > 0 { buffer.removeSubrange(buffer.startIndex..<(buffer.startIndex + start)) }
             if buffer.count > Self.maxLineBytes {
                 closeDetail = "line exceeds \(Self.maxLineBytes) bytes"
                 break reading
@@ -333,6 +345,21 @@ final class LineTransport: Sendable {
         onClose(reason)
     }
 
+    /// Offsets (from `data.startIndex`) of every newline at or after `offset`.
+    static func newlineOffsets(in data: Data, from offset: Int) -> [Int] {
+        data.withUnsafeBytes { raw -> [Int] in
+            guard let base = raw.baseAddress, offset < raw.count else { return [] }
+            var offsets: [Int] = []
+            var position = offset
+            while position < raw.count, let hit = memchr(base + position, 0x0A, raw.count - position) {
+                let found = base.distance(to: UnsafeRawPointer(hit))
+                offsets.append(found)
+                position = found + 1
+            }
+            return offsets
+        }
+    }
+
     /// Events routed so far. Read after a command's reply, it bounds every
     /// event the daemon emitted before that reply (a write barrier).
     var routedEventCount: UInt64 { state.withLock { $0.eventCount } }
@@ -348,6 +375,7 @@ final class LineTransport: Sendable {
             onEvent(name, line, index)
             return
         }
+        if envelope.ok == nil, let streamID = envelope.streamID { return state.withLock { $0.streamHandler }?(streamID, line) ?? () }
         guard envelope.ok != nil || envelope.id != nil else { return }
         let waiter: (UInt64, Waiter)? = state.withLock { state in
             let id = envelope.id ?? state.order.first

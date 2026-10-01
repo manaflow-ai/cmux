@@ -26,10 +26,29 @@ public actor TerminalAttachment: TerminalByteChannel {
         public init(tab: TabSnapshot, generation: DaemonGeneration?) {
             self.init(surface: tab.surface, terminalResourceID: tab.terminalResourceID, generation: generation)
         }
+
+        /// A terminal with no tab on its session (its view lives in another
+        /// session's layout): attached by `term_` id and generation only;
+        /// the first `vt-state` names its surface.
+        public static func unplaced(terminalResourceID: ResourceID, generation: DaemonGeneration) -> Target {
+            Target(surface: unresolvedSurface, terminalResourceID: terminalResourceID, generation: generation)
+        }
     }
 
+    /// The surface of an `unplaced` target until its `vt-state` names one.
+    public static let unresolvedSurface = SurfaceID(rawValue: 0)
+
     public nonisolated let events: AsyncStream<TerminalChannelEvent>
-    public nonisolated let surface: SurfaceID
+    /// The attached surface. For an `unplaced` target it is
+    /// `unresolvedSurface` until the first `vt-state`, which the daemon
+    /// sends before the attach reply, so every later command has it.
+    public nonisolated var surface: SurfaceID { resolvedSurface.value.withLock { $0 } }
+    private nonisolated let resolvedSurface: SurfaceBox
+
+    private final class SurfaceBox: Sendable {
+        let value: Mutex<SurfaceID>
+        init(_ surface: SurfaceID) { value = Mutex(surface) }
+    }
     private nonisolated let transport: LineTransport
     private nonisolated let queue: TerminalEventQueue
     private nonisolated let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.attach")
@@ -67,7 +86,7 @@ public actor TerminalAttachment: TerminalByteChannel {
 
     private init(transport: LineTransport, surface: SurfaceID) {
         self.transport = transport
-        self.surface = surface
+        resolvedSurface = SurfaceBox(surface)
         let queue = TerminalEventQueue()
         self.queue = queue
         events = AsyncStream(unfolding: { await queue.next() }, onCancel: { queue.cancel() })
@@ -78,9 +97,14 @@ public actor TerminalAttachment: TerminalByteChannel {
 
     private func open(target: Target, size: CellSize, claimGeometry: Bool, clientName: String) async throws {
         let queue = queue
-        let surface = target.surface
+        let resolvedSurface = resolvedSurface
         transport.start(
             onEvent: { name, line, _ in
+                var surface = resolvedSurface.value.withLock { $0 }
+                if surface == Self.unresolvedSurface, name == "vt-state", let named = Self.vtStateSurface(line) {
+                    resolvedSurface.value.withLock { $0 = named }
+                    surface = named
+                }
                 guard let event = Self.decodeAttachEvent(name: name, line: line, surface: surface) else { return }
                 if case .closed = event {
                     queue.finish(event)
@@ -103,6 +127,10 @@ public actor TerminalAttachment: TerminalByteChannel {
         )
         let useIdentity = identity.supports("attach-identity-v1") && target.terminalResourceID != nil
             && target.generation == identity.generation
+        if target.surface == Self.unresolvedSurface, !useIdentity {
+            // Only the identity pair can name a terminal with no tab.
+            throw DaemonError.missingCapabilities(["attach-identity-v1"])
+        }
         let request = AttachSurfaceRequest(
             surface: useIdentity ? nil : target.surface,
             expectedGeneration: useIdentity ? target.generation : nil,
@@ -117,7 +145,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         }
         if claimGeometry {
             _ = try await DaemonConnection.perform(
-                SetClientSizingRequest(surface: surface, enabled: true, exclusive: true), on: transport)
+                SetClientSizingRequest(surface: self.surface, enabled: true, exclusive: true), on: transport)
         }
         queue.arm()
     }
@@ -244,16 +272,18 @@ public actor TerminalAttachment: TerminalByteChannel {
         var colors: TerminalColors?
         var kittyImageAliases: [KittyImageAlias]?
         var kittyGraphicsState: KittyGraphicsState?
+        var pending: Data?
 
         enum CodingKeys: String, CodingKey {
-            case surface, cols, rows, data, replay, colors
+            case surface, cols, rows, data, replay, colors, pending
             case kittyImageAliases = "kitty_image_aliases"
             case kittyGraphicsState = "kitty_graphics_state"
         }
 
         var terminalReplay: TerminalReplay {
             TerminalReplay(cols: cols, rows: rows, data: replay ?? data ?? Data(), colors: colors,
-                           kittyImageAliases: kittyImageAliases ?? [], kittyGraphicsState: kittyGraphicsState)
+                           kittyImageAliases: kittyImageAliases ?? [], kittyGraphicsState: kittyGraphicsState,
+                           pending: pending ?? Data())
         }
     }
 
@@ -272,6 +302,11 @@ public actor TerminalAttachment: TerminalByteChannel {
             case surface, scope, offset
             case atBottom = "at_bottom"
         }
+    }
+
+    /// The surface a `vt-state` line names.
+    static func vtStateSurface(_ line: Data) -> SurfaceID? {
+        try? WireCoding.decoder().decode(VTState.self, from: line).surface
     }
 
     /// Maps one attach-connection line to a channel event. Returns nil for

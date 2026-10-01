@@ -60,6 +60,7 @@ final class BrowserPopupPanels {
         panel.onClose = { [weak self] in self?.panelClosed(id) }
         observeParent(parent)
         parent.addChildWindow(panel, ordered: .above)
+        parent.themeScope.adopt(panel)
         guard ordersPanelsIn else { return }
         WindowActivation.show(panel, .raise)
         if panel.isKeyWindow { page.setFocused(true) }
@@ -117,13 +118,36 @@ final class BrowserPopupPanels {
             open(child, request: request, over: parent, openerKey: entry.openerKey)
         case .contextMenu(let request):
             BrowserContextMenuBuilder.present(request, in: page.contentView)
-        case .activate, .download, .notice, .rerouteStore:
-            // A panel has no tab to select, no chrome for notices, and one store.
+        case .resizePopup(let request):
+            resize(entry, to: request)
+        case .activate, .download, .notice, .rerouteStore, .takeFocus:
+            // A panel has no tab to select, no chrome for notices or an
+            // omnibar to take focus, and one store.
             break
         case .openURL, .adoptTab:
             return false
         }
         return true
+    }
+
+    /// `chrome.windows.update` bounds: the new content size (the title bar
+    /// stays), at the new position when the page gave one, else keeping the
+    /// panel's top-left; always inside the screen.
+    private func resize(_ entry: Entry, to request: BrowserPopupRequest) {
+        let panel = entry.panel
+        let screen = panel.screen ?? entry.parent?.screen ?? NSScreen.main
+        let visible = screen?.visibleFrame ?? panel.frame
+        let primaryHeight = NSScreen.screens.first?.frame.maxY ?? visible.maxY
+        var frame = BrowserPopupPanelGeometry.frame(for: request, opener: entry.parent?.frame ?? panel.frame, visibleFrame: visible,
+                                                    primaryHeight: primaryHeight, titleHeight: BrowserPopupPanel.titleHeight)
+        if request.origin == nil {
+            frame.origin = CGPoint(x: panel.frame.minX, y: panel.frame.maxY - frame.height)
+            if visible.width > 0, visible.height > 0 {
+                frame.origin.x = min(max(frame.minX, visible.minX), max(visible.maxX - frame.width, visible.minX))
+                frame.origin.y = min(max(frame.minY, visible.minY), max(visible.maxY - frame.height, visible.minY))
+            }
+        }
+        panel.setFrame(frame, display: true)
     }
 
     // MARK: Keys

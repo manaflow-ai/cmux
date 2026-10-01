@@ -75,7 +75,7 @@ final class NewTabButtonView: NSView {
 
     private func updateColors(animated: Bool) {
         Motion.transaction(animated ? .hover : nil) {
-            effectiveAppearance.performAsCurrentDrawingAppearance {
+            performWithTheme {
                 fillLayer.backgroundColor = isPressed ? Palette.selectionFill.cgColor : (isHovered ? Palette.hoverFill.cgColor : nil)
                 glyphLayer.strokeColor = (isHovered ? Palette.textPrimary : Palette.textSecondary).cgColor
             }

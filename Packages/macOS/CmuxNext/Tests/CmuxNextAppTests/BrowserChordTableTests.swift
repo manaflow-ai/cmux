@@ -77,18 +77,26 @@ struct BrowserChordTableTests {
         }
     }
 
-    /// Chrome chords without a cmux action (Cmd-Y, history) go
+    /// Chrome chords without a cmux action (Cmd-Shift-J, downloads) go
     /// to the page, never to a Ghostty keybind; chords neither defines
     /// (Cmd-Ctrl-H) still take the Ghostty fallback in a page.
     @Test func ghosttyFallbackOnlyForChordsNeitherDefines() throws {
         let services = Self.services()
         services.registry.context.insert(.browserFocused)
-        let devtools = try K.key("y", keyCode: 16, [.command])
+        let devtools = try K.key("j", keyCode: 38, [.command, .shift])
         #expect(BrowserChordTable.isChromeChord(devtools))
         for focus in [K.page, K.omnibar, K.find] {
             #expect(services.keyRouter.candidate(for: devtools, focus: focus) == nil)
         }
-        #expect(services.keyRouter.candidate(for: devtools, focus: K.terminal)?.source == .ghostty(arguments: [:]))
+        // Cmd-Y is Show History in a page (Chrome's History, history.md 5.1).
+        let history = try K.key("y", keyCode: 16, [.command])
+        #expect(services.keyRouter.candidate(for: history, focus: K.page)?.id == "browserShowHistory")
+        // In a terminal (no browser context) the terminal's Ghostty keybind runs.
+        services.registry.context.remove(.browserFocused)
+        services.registry.context.insert(.terminalFocused)
+        #expect(services.keyRouter.candidate(for: history, focus: K.terminal)?.source == .ghostty(arguments: [:]))
+        services.registry.context.remove(.terminalFocused)
+        services.registry.context.insert(.browserFocused)
         let user = try K.key("h", keyCode: 4, [.command, .control])
         #expect(!BrowserChordTable.isChromeChord(user))
         #expect(services.keyRouter.candidate(for: user, focus: K.page) == K.ghosttyFocusLeft)

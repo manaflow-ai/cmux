@@ -146,7 +146,7 @@ final class WindowManager {
     /// snapshot arrives, the launch window becoming the frontmost of them.
     /// Creates a workspace only when the daemon tree is empty.
     func restoreWhenLoaded() {
-        if controllers.isEmpty {
+        if controllers.isEmpty, !showLaunchSnapshot() {
             let id = UUID().uuidString.lowercased()
             launchWindowID = id
             makeController(for: WindowRegistry.Window(id: id))
@@ -163,6 +163,7 @@ final class WindowManager {
     private func restore() async {
         guard !restored else { return }
         restored = true
+        registry.provisional = [:]
         DebugTimings.markLaunch("daemon_snapshot_loaded")
         var document = WindowStateDocument()
         if let windowState = services.daemon.windowState {

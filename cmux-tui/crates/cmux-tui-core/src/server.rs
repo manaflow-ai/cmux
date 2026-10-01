@@ -80,10 +80,10 @@ use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, BrowserAttachState, BrowserFrameStream,
     DefaultColors, Direction, GraphicsStatus, JournalClass, JournalSensitivity, JournalSubject,
     LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, MachineUsage, Mux, MuxEvent,
-    Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb,
-    ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceRenderFrame,
-    TerminalColors, TreeDecorations, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
-    WorkspaceMutation, ZoomMode, assign_short_ids,
+    Node, NotificationLevel, NotificationSource, PairingDecision, PaneId, RenderAttachFrame,
+    RenderAttachStream, Rgb, ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId,
+    SurfaceKind, SurfaceRenderFrame, TerminalColors, TreeDecorations, TreeDelta, TreeDeltaKind,
+    ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
 };
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
@@ -94,7 +94,13 @@ mod loopback_forward;
 pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
+mod browser_profiles;
+mod launch_snapshot;
 mod personal;
+pub use launch_snapshot::{
+    LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
+    start_launch_snapshot_writer_with,
+};
 mod terminal_create;
 mod terminal_resources;
 mod url_open;
@@ -204,6 +210,32 @@ pub const SESSION_IDENTITY_CAPABILITY: &str = "session-identity-v1";
 /// the session registry, personal groups and order, `list-personal`, and the
 /// `personal-changed` event (plans/cmux-next/data-model.md section 3).
 pub const PROFILES_CAPABILITY: &str = "profiles-v1";
+/// Per-terminal themes in the home session's personal state:
+/// `set-personal-terminal` and `list-personal.terminals`.
+pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
+/// Browser profile records in personal state: `browser_profiles` in
+/// `list-personal` and the `*-browser-profile` commands
+/// (plans/cmux-next/data-model.md section 5).
+pub const BROWSER_PROFILES_CAPABILITY: &str = "browser-profiles-v1";
+/// Screen presentation: `set-screen-metadata`, `set-screen-pinned`,
+/// `move-screen`, `new-screen` with `screen_name`/`color`/`icon`/`pinned`/
+/// `index`/`group`/`cwd`, the `color`/`icon`/`pinned`/`group` screen fields,
+/// and `screen-changed` deltas.
+pub const SCREEN_METADATA_CAPABILITY: &str = "screen-metadata-v1";
+/// Chrome-style screen groups: the `*-screen-group` commands, saved screen
+/// groups, and `Workspace.screen_groups`.
+pub const SCREEN_GROUPS_CAPABILITY: &str = "screen-groups-v1";
+/// `launch_snapshot_path` in `identify`: a read-only file with the last
+/// settled tree and frontend projections, for drawing before connecting.
+pub const LAUNCH_SNAPSHOT_CAPABILITY: &str = "launch-snapshot-v1";
+/// `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and
+/// `create-terminal`: arguments for the terminal's shell.
+pub const TERMINAL_SHELL_ARGS_CAPABILITY: &str = "terminal-shell-args-v1";
+/// Notifications name who posted them: `source` (`cli`, `terminal`, `agent`,
+/// `daemon`) on `notify`, the `notification` event, the tab marker and
+/// `list-notifications`; the daemon posts OSC 9, OSC 777 and OSC 99 from
+/// every terminal's output as `terminal`.
+pub const NOTIFICATION_SOURCE_CAPABILITY: &str = "notification-source-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -336,6 +368,13 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         LOOPBACK_FORWARD_CAPABILITY,
         SESSION_IDENTITY_CAPABILITY,
         PROFILES_CAPABILITY,
+        PERSONAL_TERMINALS_CAPABILITY,
+        BROWSER_PROFILES_CAPABILITY,
+        SCREEN_METADATA_CAPABILITY,
+        SCREEN_GROUPS_CAPABILITY,
+        NOTIFICATION_SOURCE_CAPABILITY,
+        TERMINAL_SHELL_ARGS_CAPABILITY,
+        LAUNCH_SNAPSHOT_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -1175,6 +1214,10 @@ enum Command {
         level: Option<String>,
         #[serde(default)]
         surface: Option<SurfaceId>,
+        /// `notification-source-v1`: `cli` (default), `terminal`, `agent` or
+        /// `daemon`.
+        #[serde(default)]
+        source: Option<String>,
     },
     ListAgents {
         #[serde(default)]
@@ -1265,6 +1308,10 @@ enum Command {
         /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
         #[serde(default)]
         terminal_id: Option<String>,
+        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
+        /// `SHELL` in `env`, else the daemon's default shell).
+        #[serde(default)]
+        shell_args: Option<Vec<String>>,
     },
     /// New browser tab whose page the frontend renders (WebKit or CEF).
     /// The daemon persists its location and never attaches a CDP target.
@@ -1431,6 +1478,10 @@ enum Command {
         key: Option<String>,
         #[serde(default)]
         argv: Option<Vec<String>>,
+        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
+        /// `SHELL` in `env`, else the daemon's default shell).
+        #[serde(default)]
+        shell_args: Option<Vec<String>>,
         #[serde(default)]
         command: Option<String>,
         #[serde(default)]
@@ -1462,6 +1513,100 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        #[serde(default)]
+        cwd: Option<String>,
+        /// The new screen's name (`name` would name its terminal).
+        #[serde(default)]
+        screen_name: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        icon: Option<String>,
+        #[serde(default)]
+        pinned: Option<bool>,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        group: Option<String>,
+    },
+    /// Set or clear a screen's color and icon (JSON null clears).
+    SetScreenMetadata {
+        screen: ScreenId,
+        #[serde(default, deserialize_with = "present_nullable")]
+        color: Option<Option<String>>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        icon: Option<Option<String>>,
+    },
+    SetScreenPinned {
+        screen: ScreenId,
+        pinned: bool,
+    },
+    /// Move a screen within its workspace, into another one, or into a new one.
+    MoveScreen {
+        screen: ScreenId,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        new_workspace: bool,
+    },
+    CreateScreenGroup {
+        screens: Vec<ScreenId>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+    },
+    UpdateScreenGroup {
+        group: String,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        collapsed: Option<bool>,
+    },
+    AddScreensToScreenGroup {
+        group: String,
+        screens: Vec<ScreenId>,
+        #[serde(default)]
+        index: Option<usize>,
+    },
+    RemoveScreensFromScreenGroup {
+        screens: Vec<ScreenId>,
+    },
+    MoveScreenGroup {
+        group: String,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        new_workspace: bool,
+    },
+    UngroupScreenGroup {
+        group: String,
+    },
+    CloseScreenGroup {
+        group: String,
+        #[serde(default)]
+        end_terminals: bool,
+    },
+    ListSavedScreenGroups,
+    SaveScreenGroup {
+        group: String,
+    },
+    UnsaveScreenGroup {
+        group: String,
+    },
+    DeleteSavedScreenGroup {
+        saved: String,
+    },
+    ReopenSavedScreenGroup {
+        saved: String,
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
     },
     NewPane {
         pane: PaneId,
@@ -1480,6 +1625,10 @@ enum Command {
         /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
         #[serde(default)]
         terminal_id: Option<String>,
+        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
+        /// `SHELL` in `env`, else the daemon's default shell).
+        #[serde(default)]
+        shell_args: Option<Vec<String>>,
     },
     NewPaneRight {
         pane: PaneId,
@@ -1500,6 +1649,10 @@ enum Command {
         /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
         #[serde(default)]
         terminal_id: Option<String>,
+        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
+        /// `SHELL` in `env`, else the daemon's default shell).
+        #[serde(default)]
+        shell_args: Option<Vec<String>>,
     },
     Split {
         pane: PaneId,
@@ -1520,6 +1673,10 @@ enum Command {
         /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
         #[serde(default)]
         terminal_id: Option<String>,
+        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
+        /// `SHELL` in `env`, else the daemon's default shell).
+        #[serde(default)]
+        shell_args: Option<Vec<String>>,
     },
     SetRatio {
         pane: PaneId,
@@ -1778,6 +1935,42 @@ enum Command {
     },
     /// Every personal record of the home session (`profiles-v1`).
     ListPersonal,
+    /// Create a browser profile (`browser-profiles-v1`). A caller-chosen
+    /// `browser_profile` id makes a retry return the stored record.
+    CreateBrowserProfile {
+        name: String,
+        #[serde(default)]
+        browser_profile: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        icon: Option<String>,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        source: Option<Value>,
+    },
+    /// Update a browser profile. An absent field is unchanged; JSON null
+    /// clears it.
+    UpdateBrowserProfile {
+        browser_profile: String,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        color: Option<Option<String>>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        icon: Option<Option<String>>,
+    },
+    /// Move a browser profile to an insertion index among browser profiles.
+    MoveBrowserProfile {
+        browser_profile: String,
+        index: usize,
+    },
+    /// Delete a browser profile (not `default`); clears the workspace and
+    /// room defaults that name it.
+    DeleteBrowserProfile {
+        browser_profile: String,
+    },
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
         name: String,
@@ -1913,6 +2106,13 @@ enum Command {
         browser_profile_id: Option<Option<String>>,
         #[serde(default, deserialize_with = "present_nullable")]
         theme: Option<Option<String>>,
+    },
+    /// Set or clear (null) the own theme of a session-qualified terminal.
+    SetPersonalTerminal {
+        session_id: String,
+        terminal_key: String,
+        #[serde(default)]
+        theme: Option<String>,
     },
     /// List sidebar workspace groups in order.
     ListWorkspaceGroups,
@@ -2378,6 +2578,21 @@ fn pane_tab_group_json(run: &crate::mux::PaneTabGroup, pane: Option<PaneId>) -> 
         value["pane"] = json!(pane);
     }
     value
+}
+
+fn screen_group_outcome_json(outcome: &crate::ScreenGroupOutcome) -> Value {
+    json!({
+        "group": outcome.group.as_ref().map(|group| json!({
+            "id": group.id,
+            "name": group.name,
+            "color": group.color,
+            "collapsed": group.collapsed,
+            "saved_id": group.saved_id,
+        })),
+        "workspace": outcome.workspace,
+        "key": outcome.key,
+        "screens": outcome.members,
+    })
 }
 
 fn tab_group_outcome_json(outcome: &crate::TabGroupOutcome) -> Value {
@@ -11304,6 +11519,7 @@ fn pane_json(
                         "notification": n.notification,
                         "unread": n.unread,
                         "level": n.level.as_str(),
+                        "source": n.source.as_str(),
                     })
                 }),
                 "name": surface.and_then(|s| s.name()),
@@ -11322,16 +11538,22 @@ fn screen_json(
     state: &State,
     screen: &Screen,
     active: bool,
+    group: Option<&str>,
     short_ids: &HashMap<u64, String>,
     notifications: &TreeDecorations,
 ) -> Value {
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
+    let presentation = notifications.presentation.screens.screen(screen.public_id.as_str());
     let mut value = json!({
         "id": screen.id,
         "resource_id": screen.public_id,
         "short_id": short_ids.get(&screen.id).cloned().unwrap_or_default(),
         "name": screen.name,
+        "color": presentation.and_then(|presentation| presentation.color.as_deref()),
+        "icon": presentation.and_then(|presentation| presentation.icon.as_deref()),
+        "pinned": presentation.is_some_and(|presentation| presentation.pinned),
+        "group": group,
         "active": active,
         "active_pane": screen.active_pane,
         "zoomed_pane": screen.zoomed_pane,
@@ -11404,6 +11626,14 @@ fn workspace_json(
     notifications: &TreeDecorations,
 ) -> Value {
     let presentation = notifications.presentation.workspace(&workspace.key);
+    let screen_groups =
+        crate::mux::workspace_screen_groups(workspace, &notifications.presentation.screens);
+    let group_of = |screen: ScreenId| {
+        screen_groups
+            .iter()
+            .find(|run| run.members.contains(&screen))
+            .map(|run| run.group.id.as_str())
+    };
     json!({
         "id": workspace.id,
         "resource_id": workspace.public_id,
@@ -11421,10 +11651,25 @@ fn workspace_json(
                 state,
                 screen,
                 screen_index == workspace.active_screen,
+                group_of(screen.id),
                 short_ids,
                 notifications,
             )
         }).collect::<Vec<_>>(),
+        "screen_groups": screen_groups.iter().map(screen_group_run_json).collect::<Vec<_>>(),
+    })
+}
+
+fn screen_group_run_json(run: &crate::mux::WorkspaceScreenGroup) -> Value {
+    json!({
+        "id": run.group.id,
+        "name": run.group.name,
+        "color": run.group.color,
+        "collapsed": run.group.collapsed,
+        "saved_id": run.group.saved_id,
+        "start": run.start,
+        "count": run.members.len(),
+        "screens": run.members,
     })
 }
 
@@ -11471,15 +11716,16 @@ pub(crate) fn tree_entity_json(
         | TreeDeltaKind::WorkspaceRenamed
         | TreeDeltaKind::WorkspaceMoved
         | TreeDeltaKind::WorkspaceChanged => unreachable!("workspace deltas returned above"),
-        TreeDeltaKind::ScreenAdded | TreeDeltaKind::ScreenClosed | TreeDeltaKind::ScreenRenamed => {
-            workspaces
-                .iter()
-                .flat_map(|workspace| {
-                    workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
-                })
-                .find(|screen| screen.get("id").and_then(Value::as_u64) == Some(id))
-                .cloned()
-        }
+        TreeDeltaKind::ScreenAdded
+        | TreeDeltaKind::ScreenClosed
+        | TreeDeltaKind::ScreenRenamed
+        | TreeDeltaKind::ScreenChanged => workspaces
+            .iter()
+            .flat_map(|workspace| {
+                workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
+            })
+            .find(|screen| screen.get("id").and_then(Value::as_u64) == Some(id))
+            .cloned(),
         TreeDeltaKind::PaneAdded | TreeDeltaKind::PaneClosed => workspaces
             .iter()
             .flat_map(|workspace| {
@@ -12940,6 +13186,7 @@ fn handle_command_with_cancellation(
                 "terminal_revision": mux.terminal_registry_snapshot()?.revision,
                 "daemon_handoff": 1,
                 "lifecycle_ready": mux.server_lifecycle_ready(),
+                "launch_snapshot_path": mux.launch_snapshot_path(),
             }))
         }
         Command::ShutdownDaemon { pid, generation, force, end_terminals } => {
@@ -13247,15 +13494,7 @@ fn handle_command_with_cancellation(
             mux.emit(MuxEvent::WindowTitleRequested(String::new()));
             Ok(json!({}))
         }
-        Command::ListWorkspaces => {
-            let notifications = mux.tree_decorations();
-            let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
-            let (registry_id, generation) = mux.registry_identity();
-            workspaces["registry_id"] = json!(registry_id);
-            workspaces["generation"] = json!(generation);
-            workspaces["terminal_revision"] = json!(mux.terminal_registry_snapshot()?.revision);
-            Ok(workspaces)
-        }
+        Command::ListWorkspaces => list_workspaces_reply(mux),
         Command::GetFrontendProjection { frontend, scope, subject_key } => {
             let projection = mux.get_frontend_projection(&frontend, &scope, &subject_key)?;
             Ok(match projection {
@@ -13531,15 +13770,20 @@ fn handle_command_with_cancellation(
             Ok(json!({ "text": text, "mode": mode }))
         }
         Command::Ids { kind } => mux.with_state(|state| ids_json(state, kind.as_deref())),
-        Command::Notify { title, body, level, surface } => {
+        Command::Notify { title, body, level, surface, source } => {
             if title.is_empty() {
                 anyhow::bail!("title is required");
             }
             let level = parse_notification_level(level.as_deref().unwrap_or("info"))?;
+            let source = match source.as_deref() {
+                None => NotificationSource::Cli,
+                Some(source) => NotificationSource::parse(source)
+                    .ok_or_else(|| anyhow::anyhow!("bad source {source}"))?,
+            };
             if let Some(surface) = surface {
                 get_surface(mux, surface)?;
             }
-            let notification = mux.post_notification(title, body, level, surface)?;
+            let notification = mux.post_notification_from(title, body, level, surface, source)?;
             Ok(json!({ "notification": notification }))
         }
         Command::ListAgents { surface, state } => {
@@ -13662,8 +13906,8 @@ fn handle_command_with_cancellation(
             mux.set_terminal_keep(&terminal_id, keep)?;
             Ok(json!({ "terminal_id": terminal_id, "keep": keep }))
         }
-        Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id } => {
-            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;
+        Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
+            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args)?;
             let surface =
                 mux.new_tab_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
@@ -13928,6 +14172,7 @@ fn handle_command_with_cancellation(
             workspace,
             key,
             argv,
+            shell_args,
             command,
             cwd,
             name,
@@ -13946,12 +14191,15 @@ fn handle_command_with_cancellation(
             if argv.is_some() && command.is_some() {
                 anyhow::bail!("argv and command are mutually exclusive");
             }
+            if shell_args.is_some() && (argv.is_some() || command.is_some()) {
+                anyhow::bail!("shell_args cannot be combined with argv or command");
+            }
             let argv = match (argv, command) {
                 (Some(argv), None) if !argv.is_empty() => Some(argv),
                 (None, Some(command)) if !command.is_empty() => {
                     Some(vec![platform::default_shell(), "-lc".to_string(), command])
                 }
-                (None, None) => None,
+                (None, None) => shell_argv(&env, shell_args),
                 _ => anyhow::bail!("argv or command must be non-empty when provided"),
             };
             let size = paired_surface_size("create-terminal", cols, rows)?;
@@ -14036,18 +14284,159 @@ fn handle_command_with_cancellation(
                 }))
             }
         }
-        Command::NewScreen { workspace, cols, rows } => {
-            let surface = mux.new_screen(workspace, optional_surface_size(cols, rows))?;
-            Ok(json!({ "surface": surface.id }))
+        Command::NewScreen {
+            workspace,
+            cols,
+            rows,
+            cwd,
+            screen_name,
+            color,
+            icon,
+            pinned,
+            index,
+            group,
+        } => {
+            let spec = crate::ScreenSpec { name: screen_name, color, icon, pinned, index, group };
+            let (surface, screen) =
+                mux.new_screen_with_spec(workspace, cwd, optional_surface_size(cols, rows), spec)?;
+            Ok(json!({ "surface": surface.id, "screen": screen }))
         }
-        Command::NewPane { pane, cols, rows, cwd, env, keep, terminal_id } => {
-            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;
+        Command::SetScreenMetadata { screen, color, icon } => {
+            let changed = mux.set_screen_metadata(screen, color, icon)?;
+            let presentation = mux.presentation_snapshot();
+            let record = mux
+                .with_state(|state| {
+                    state
+                        .workspaces
+                        .iter()
+                        .flat_map(|w| w.screens.iter())
+                        .find(|s| s.id == screen)
+                        .map(|s| {
+                            presentation
+                                .screens
+                                .screen(s.public_id.as_str())
+                                .cloned()
+                                .unwrap_or_default()
+                        })
+                })
+                .unwrap_or_default();
+            Ok(
+                json!({"screen": screen, "color": record.color, "icon": record.icon, "changed": changed}),
+            )
+        }
+        Command::SetScreenPinned { screen, pinned } => {
+            let (changed, index) = mux.set_screen_pinned(screen, pinned)?;
+            Ok(json!({"screen": screen, "pinned": pinned, "index": index, "changed": changed}))
+        }
+        Command::MoveScreen { screen, index, workspace, new_workspace } => {
+            let destination = if new_workspace {
+                crate::ScreenDestination::NewWorkspace
+            } else {
+                crate::ScreenDestination::Workspace { workspace, index }
+            };
+            let outcome = mux.move_screen(screen, destination)?;
+            Ok(json!({
+                "screen": outcome.screen,
+                "workspace": outcome.workspace,
+                "key": outcome.key,
+                "index": outcome.index,
+            }))
+        }
+        Command::CreateScreenGroup { screens, name, color } => {
+            Ok(screen_group_outcome_json(&mux.create_screen_group(&screens, name, color)?))
+        }
+        Command::UpdateScreenGroup { group, name, color, collapsed } => {
+            Ok(screen_group_outcome_json(&mux.update_screen_group(&group, name, color, collapsed)?))
+        }
+        Command::AddScreensToScreenGroup { group, screens, index } => Ok(
+            screen_group_outcome_json(&mux.add_screens_to_screen_group(&group, &screens, index)?),
+        ),
+        Command::RemoveScreensFromScreenGroup { screens } => {
+            let groups = mux.remove_screens_from_screen_group(&screens)?;
+            Ok(json!({ "screens": screens, "groups": groups }))
+        }
+        Command::MoveScreenGroup { group, index, workspace, new_workspace } => {
+            let destination = if new_workspace {
+                crate::ScreenDestination::NewWorkspace
+            } else {
+                crate::ScreenDestination::Workspace { workspace, index }
+            };
+            Ok(screen_group_outcome_json(&mux.move_screen_group(&group, destination)?))
+        }
+        Command::UngroupScreenGroup { group } => {
+            let screens = mux.ungroup_screen_group(&group)?;
+            Ok(json!({ "group": group, "screens": screens }))
+        }
+        Command::CloseScreenGroup { group, end_terminals } => {
+            let closed = mux.close_screen_group(&group, end_terminals)?;
+            Ok(json!({ "group": group, "closed": closed }))
+        }
+        Command::ListSavedScreenGroups => {
+            let presentation = mux.presentation_snapshot();
+            let groups = presentation
+                .saved_screen_groups
+                .iter()
+                .map(|saved| {
+                    let open = presentation
+                        .screens
+                        .groups
+                        .values()
+                        .find(|group| group.saved_id.as_deref() == Some(saved.id.as_str()))
+                        .map(|group| group.id.clone());
+                    json!({
+                        "id": saved.id,
+                        "name": saved.name,
+                        "color": saved.color,
+                        "profile_id": saved.profile_id,
+                        "members": saved.members,
+                        "updated_at_ms": saved.updated_at_ms,
+                        "open_group": open,
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok(json!({ "groups": groups }))
+        }
+        Command::SaveScreenGroup { group } => {
+            let saved = mux.save_screen_group(&group)?;
+            let mut value = screen_group_outcome_json(&mux.screen_group_outcome_public(&group));
+            value["saved"] = json!(saved);
+            Ok(value)
+        }
+        Command::UnsaveScreenGroup { group } => {
+            mux.unsave_screen_group(&group)?;
+            Ok(screen_group_outcome_json(&mux.screen_group_outcome_public(&group)))
+        }
+        Command::DeleteSavedScreenGroup { saved } => {
+            mux.delete_saved_screen_group(&saved)?;
+            Ok(json!({}))
+        }
+        Command::ReopenSavedScreenGroup { saved, workspace } => {
+            let workspace = match workspace {
+                Some(workspace) => workspace,
+                None => mux
+                    .with_state(|state| state.workspaces.get(state.active_workspace).map(|w| w.id))
+                    .context("no workspace to reopen the screen group into")?,
+            };
+            Ok(screen_group_outcome_json(&mux.reopen_saved_screen_group(&saved, workspace)?))
+        }
+        Command::NewPane { pane, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
+            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args)?;
             let surface =
                 mux.new_pane_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
         }
-        Command::NewPaneRight { pane, width, cols, rows, cwd, env, keep, terminal_id } => {
-            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;
+        Command::NewPaneRight {
+            pane,
+            width,
+            cols,
+            rows,
+            cwd,
+            env,
+            keep,
+            terminal_id,
+            shell_args,
+        } => {
+            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args)?;
             let surface = mux.new_pane_right_with_options(
                 pane,
                 width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH),
@@ -14056,9 +14445,9 @@ fn handle_command_with_cancellation(
             )?;
             placed_terminal_result(mux, &surface, keep)
         }
-        Command::Split { pane, dir, cols, rows, cwd, env, keep, terminal_id } => {
+        Command::Split { pane, dir, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
             let dir = parse_split_dir(&dir)?;
-            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;
+            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args)?;
             let surface =
                 mux.split_with_options(pane, dir, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
@@ -14396,6 +14785,7 @@ fn handle_command_with_cancellation(
                             "terminal_id": row.terminal_id,
                             "surface": row.surface,
                             "created_at_ms": row.created_at_ms,
+                            "source": row.source.as_str(),
                             "acknowledged": acknowledged,
                         })
                     })
@@ -14467,6 +14857,32 @@ fn handle_command_with_cancellation(
             }))
         }
         Command::ListPersonal => personal::list(mux),
+        Command::CreateBrowserProfile { name, browser_profile, color, icon, index, source } => {
+            browser_profiles::create(
+                mux,
+                crate::workspace_registry::BrowserProfileInput {
+                    id: browser_profile,
+                    name,
+                    color,
+                    icon,
+                    index,
+                    source,
+                },
+            )
+        }
+        Command::UpdateBrowserProfile { browser_profile, name, color, icon } => {
+            browser_profiles::update(
+                mux,
+                &browser_profile,
+                crate::workspace_registry::BrowserProfileUpdate { name, color, icon },
+            )
+        }
+        Command::MoveBrowserProfile { browser_profile, index } => {
+            browser_profiles::move_to(mux, &browser_profile, index)
+        }
+        Command::DeleteBrowserProfile { browser_profile } => {
+            browser_profiles::delete(mux, &browser_profile)
+        }
         Command::CreateProfile {
             name,
             profile,
@@ -14591,6 +15007,9 @@ fn handle_command_with_cancellation(
                 theme,
             },
         ),
+        Command::SetPersonalTerminal { session_id, terminal_key, theme } => {
+            personal::set_terminal(mux, &session_id, &terminal_key, theme.as_deref())
+        }
         Command::ListWorkspaceGroups => {
             Ok(json!({ "groups": workspace_groups_json(&mux.presentation_snapshot()) }))
         }
@@ -15707,13 +16126,43 @@ fn handle_command_with_cancellation(
 }
 
 /// Validate the start options of a placement command.
+/// The `list-workspaces` reply: the tree plus the registry identity it
+/// belongs to. The launch snapshot stores the same value.
+fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
+    let notifications = mux.tree_decorations();
+    let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
+    let (registry_id, generation) = mux.registry_identity();
+    workspaces["registry_id"] = json!(registry_id);
+    workspaces["generation"] = json!(generation);
+    workspaces["terminal_revision"] = json!(mux.terminal_registry_snapshot()?.revision);
+    Ok(workspaces)
+}
+
 fn placement_spawn_options(
     cwd: Option<String>,
     env: Option<&BTreeMap<String, String>>,
     terminal_id: Option<String>,
+    shell_args: Option<Vec<String>>,
 ) -> anyhow::Result<crate::TerminalSpawnOptions> {
     let env = env.map(crate::mux::validate_terminal_env).transpose()?.unwrap_or_default();
-    Ok(crate::TerminalSpawnOptions { cwd, env, terminal_id })
+    let argv = shell_argv(&env, shell_args);
+    Ok(crate::TerminalSpawnOptions { cwd, env, terminal_id, argv })
+}
+
+/// `terminal-shell-args-v1`: the shell the terminal would run with no
+/// arguments, given `shell_args`, so a frontend can pass the argv Ghostty's
+/// shell integration needs (bash `--posix` with `ENV`, nushell `--execute`).
+/// The shell is the terminal's own `SHELL` from its `env` (the frontend
+/// chose the arguments for it), else the daemon's default shell. None or an
+/// empty list keeps the plain default shell.
+fn shell_argv(env: &[(String, String)], shell_args: Option<Vec<String>>) -> Option<Vec<String>> {
+    let shell_args = shell_args.filter(|arguments| !arguments.is_empty())?;
+    let shell = env
+        .iter()
+        .find(|(key, value)| key == "SHELL" && !value.is_empty())
+        .map(|(_, value)| value.clone())
+        .unwrap_or_else(platform::default_shell);
+    Some(std::iter::once(shell).chain(shell_args).collect())
 }
 
 /// The reply of a placement command: the new view and the terminal it
@@ -15803,6 +16252,7 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "body": notification.body,
             "level": notification.level.as_str(),
             "surface": notification.surface,
+            "source": notification.source.as_str(),
         }),
         MuxEvent::GraphicsStatus(status) => match status {
             GraphicsStatus::KittyImageBudgetWorkerStartFailed { error } => json!({
@@ -15949,6 +16399,14 @@ mod session_identity_tests;
 #[cfg(test)]
 #[path = "server/personal_tests.rs"]
 mod personal_tests;
+
+#[cfg(test)]
+#[path = "server/personal_terminal_tests.rs"]
+mod personal_terminal_tests;
+
+#[cfg(test)]
+#[path = "server/browser_profile_tests.rs"]
+mod browser_profile_tests;
 
 #[cfg(test)]
 mod tests {
@@ -22780,6 +23238,7 @@ mod tests {
                     workspace: Some(workspace),
                     key: None,
                     argv: None,
+                    shell_args: None,
                     command: None,
                     cwd: None,
                     name: None,
@@ -22809,6 +23268,7 @@ mod tests {
             workspace: Some(workspace),
             key: None,
             argv: None,
+            shell_args: None,
             command: None,
             cwd: None,
             name: Some("raw terminal".to_string()),
@@ -24094,6 +24554,80 @@ mod tests {
     }
 
     #[test]
+    fn cmux_next_screen_commands_over_the_wire() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&SCREEN_METADATA_CAPABILITY));
+        assert!(advertised_capabilities(false).contains(&SCREEN_GROUPS_CAPABILITY));
+        mux.new_workspace(None, None).unwrap();
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+        let first = mux.with_state(|state| state.workspaces[0].screens[0].id);
+        let created = run_json_command(
+            &mux,
+            json!({"cmd":"new-screen","workspace":workspace,"screen_name":"logs","color":"green",
+                   "icon":"🚀","index":0,"name":"tail"}),
+        )
+        .unwrap();
+        let screen = created["screen"].as_u64().unwrap();
+        assert!(created["surface"].is_u64());
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        let screens = &tree["workspaces"][0]["screens"];
+        assert_eq!(screens[0]["id"], screen);
+        assert_eq!(screens[0]["name"], "logs");
+        assert_eq!(screens[0]["color"], "green");
+        assert_eq!(screens[0]["icon"], "🚀");
+        assert_eq!(screens[0]["pinned"], false);
+        assert_eq!(screens[1]["group"], Value::Null);
+        assert_eq!(tree["workspaces"][0]["screen_groups"], json!([]));
+
+        let meta = run_json_command(
+            &mux,
+            json!({"cmd":"set-screen-metadata","screen":screen,"color":null,"icon":"server.rack"}),
+        )
+        .unwrap();
+        assert_eq!(meta, json!({"screen":screen,"color":null,"icon":"server.rack","changed":true}));
+        let pinned =
+            run_json_command(&mux, json!({"cmd":"set-screen-pinned","screen":first,"pinned":true}))
+                .unwrap();
+        assert_eq!(pinned["index"], 0);
+        let moved =
+            run_json_command(&mux, json!({"cmd":"move-screen","screen":screen,"index":0})).unwrap();
+        // Pinned screens stay first.
+        assert_eq!(moved["index"], 1);
+
+        let grouped = run_json_command(
+            &mux,
+            json!({"cmd":"create-screen-group","screens":[screen],"name":"Build","color":"orange"}),
+        )
+        .unwrap();
+        let group = grouped["group"]["id"].as_str().unwrap().to_string();
+        assert!(group.starts_with("sgrp_"));
+        assert_eq!(grouped["screens"], json!([screen]));
+        run_json_command(&mux, json!({"cmd":"update-screen-group","group":group,"collapsed":true}))
+            .unwrap();
+        let saved =
+            run_json_command(&mux, json!({"cmd":"save-screen-group","group":group})).unwrap();
+        assert!(saved["saved"].as_str().unwrap().starts_with("ssaved_"));
+        let listed = run_json_command(&mux, json!({"cmd":"list-saved-screen-groups"})).unwrap();
+        assert_eq!(listed["groups"][0]["name"], "Build");
+        assert_eq!(listed["groups"][0]["open_group"], json!(group));
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        assert_eq!(tree["workspaces"][0]["screen_groups"][0]["collapsed"], true);
+        assert_eq!(tree["workspaces"][0]["screen_groups"][0]["screens"], json!([screen]));
+        assert_eq!(tree["workspaces"][0]["screens"][1]["group"], json!(group));
+        let ungrouped =
+            run_json_command(&mux, json!({"cmd":"ungroup-screen-group","group":group})).unwrap();
+        assert_eq!(ungrouped["screens"], json!([screen]));
+        assert!(run_json_command(&mux, json!({"cmd":"close-screen-group","group":group})).is_err());
+        let moved = run_json_command(
+            &mux,
+            json!({"cmd":"move-screen","screen":screen,"new_workspace":true}),
+        )
+        .unwrap();
+        assert_ne!(moved["workspace"], workspace);
+        assert!(moved["key"].is_string());
+    }
+
+    #[test]
     fn cmux_next_close_tabs_and_end_terminals_over_the_wire() {
         let mux = test_mux();
         assert!(advertised_capabilities(false).contains(&BATCH_CLOSE_CAPABILITY));
@@ -24198,6 +24732,102 @@ mod tests {
         )
         .unwrap();
         assert_eq!(pairs, vec![("A".into(), "1".into()), ("B".into(), "2".into())]);
+    }
+
+    /// The argv the created terminal was spawned with (the in-process test
+    /// runtime records it instead of running it).
+    fn spawned_argv(mux: &Arc<Mux>, created: &Value) -> Vec<String> {
+        let surface = created["surface"].as_u64().expect("created surface");
+        mux.surface(surface).and_then(|surface| surface.spawn_argv()).expect("terminal surface")
+    }
+
+    #[test]
+    fn cmux_next_shell_args_start_the_terminals_shell_with_arguments() {
+        // A frontend passes Ghostty's shell-integration argv (bash --posix,
+        // nushell --execute) for the shell it put in the terminal's SHELL.
+        assert!(advertised_capabilities(false).contains(&TERMINAL_SHELL_ARGS_CAPABILITY));
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((60, 8))).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let commands = [
+            ("new-tab", json!({})),
+            ("split", json!({"dir":"right"})),
+            ("new-pane", json!({})),
+            ("new-pane-right", json!({"width":0.5})),
+        ];
+        for (command, extra) in commands {
+            let mut request = json!({
+                "cmd":command,
+                "pane":pane,
+                "cols":60,
+                "rows":8,
+                "env":{"SHELL":"/opt/homebrew/bin/bash"},
+                "shell_args":["--posix"],
+            });
+            for (key, value) in extra.as_object().unwrap() {
+                request[key] = value.clone();
+            }
+            let created = run_json_command(&mux, request).unwrap();
+            assert_eq!(
+                spawned_argv(&mux, &created),
+                vec!["/opt/homebrew/bin/bash".to_string(), "--posix".to_string()],
+                "{command}"
+            );
+        }
+
+        let key = mux.with_state(|state| state.workspaces[0].key.clone());
+        let created = run_json_command(
+            &mux,
+            json!({
+                "cmd":"create-terminal",
+                "key":key,
+                "cols":60,
+                "rows":8,
+                "env":{"SHELL":"/opt/homebrew/bin/nu"},
+                "shell_args":["--execute", "use ghostty *"],
+                "origin":"test",
+                "mutation_id":"shell-args-create",
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            spawned_argv(&mux, &created),
+            vec![
+                "/opt/homebrew/bin/nu".to_string(),
+                "--execute".to_string(),
+                "use ghostty *".to_string()
+            ]
+        );
+        for conflicting in [json!({"argv":["/bin/sh"]}), json!({"command":"true"})] {
+            let mut request = json!({
+                "cmd":"create-terminal",
+                "key":key,
+                "shell_args":["-l"],
+                "origin":"test",
+                "mutation_id":"shell-args-conflict",
+            });
+            for (field, value) in conflicting.as_object().unwrap() {
+                request[field] = value.clone();
+            }
+            assert!(run_json_command(&mux, request).is_err(), "{conflicting}");
+        }
+    }
+
+    #[test]
+    fn cmux_next_shell_args_without_a_shell_env_use_the_default_shell() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((60, 8))).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let created = run_json_command(
+            &mux,
+            json!({"cmd":"new-tab","pane":pane,"cols":60,"rows":8,"shell_args":["-l"]}),
+        )
+        .unwrap();
+        assert_eq!(spawned_argv(&mux, &created), vec![platform::default_shell(), "-l".to_string()]);
+        // No shell_args (or an empty list) keeps the plain default shell.
+        let plain =
+            run_json_command(&mux, json!({"cmd":"new-tab","pane":pane,"shell_args":[]})).unwrap();
+        assert_eq!(spawned_argv(&mux, &plain), vec![platform::default_shell()]);
     }
 
     #[test]
@@ -26895,6 +27525,96 @@ mod tests {
     fn window_title_osc_uses_osc_0_and_2_and_strips_controls() {
         assert_eq!(window_title_osc("hello").as_slice(), b"\x1b]0;hello\x07\x1b]2;hello\x07");
         assert_eq!(window_title_osc("a\x1bb\x07c").as_slice(), b"\x1b]0;a b c\x07\x1b]2;a b c\x07");
+    }
+
+    #[test]
+    fn cmux_next_notify_accepts_a_source_and_reports_it_on_the_wire() {
+        assert!(advertised_capabilities(false).contains(&NOTIFICATION_SOURCE_CAPABILITY));
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+        let events = mux.subscribe();
+        run_json_command(
+            &mux,
+            json!({"cmd":"notify","title":"hook","body":"","surface":surface.id,"source":"agent"}),
+        )
+        .unwrap();
+        run_json_command(
+            &mux,
+            json!({"cmd":"notify","title":"cli","body":"","surface":surface.id}),
+        )
+        .unwrap();
+        let notes = events
+            .try_iter()
+            .filter(|event| matches!(event, MuxEvent::Notification(_)))
+            .map(|event| subscribed_event_json(&event))
+            .collect::<Vec<_>>();
+        assert_eq!(notes.len(), 2, "{notes:?}");
+        assert_eq!(notes[0]["title"], "hook");
+        assert_eq!(notes[0]["source"], "agent");
+        assert_eq!(notes[1]["title"], "cli");
+        assert_eq!(notes[1]["source"], "cli", "notify defaults to the cli source");
+
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        let tab = tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0].clone();
+        assert_eq!(tab["surface"], json!(surface.id));
+        assert_eq!(tab["notification"]["source"], "cli", "{tab}");
+
+        for source in ["daemon", "terminal"] {
+            run_json_command(
+                &mux,
+                json!({"cmd":"notify","title":source,"body":"","surface":surface.id,"source":source}),
+            )
+            .unwrap();
+        }
+        assert!(
+            run_json_command(&mux, json!({"cmd":"notify","title":"x","body":"","source":"bogus"}))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn cmux_next_terminal_osc_notifications_post_from_unattached_terminals() {
+        // No client attaches: the daemon parses the program's output itself,
+        // as for a terminal in a hidden tab or a background workspace. The
+        // pauses keep each sequence outside the 1 s rate limit.
+        let mux = Mux::new(
+            "terminal-osc-notifications-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "printf '\\033]9;nine\\007'; sleep 1.3; \
+                     printf '\\033]777;notify;seven;body\\007'; sleep 1.3; \
+                     printf '\\033]99;;kitty\\033\\\\'; exec cat"
+                        .to_string(),
+                ]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let events = mux.subscribe();
+        let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut notes = Vec::new();
+        while notes.len() < 3 {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            assert!(!remaining.is_zero(), "terminal notifications missing: {notes:?}");
+            if let Ok(MuxEvent::Notification(note)) = events.recv_timeout(remaining) {
+                notes.push(note);
+            }
+        }
+        let summary = notes
+            .iter()
+            .map(|note| (note.title.as_str(), note.body.as_str(), note.source, note.surface))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            summary,
+            vec![
+                ("nine", "", NotificationSource::Terminal, Some(surface.id)),
+                ("seven", "body", NotificationSource::Terminal, Some(surface.id)),
+                ("kitty", "", NotificationSource::Terminal, Some(surface.id)),
+            ]
+        );
+        mux.shutdown();
     }
 
     #[test]

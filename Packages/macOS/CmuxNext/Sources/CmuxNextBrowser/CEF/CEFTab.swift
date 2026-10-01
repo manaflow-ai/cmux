@@ -45,6 +45,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var devToolsViews: (host: CEFHostView, divider: CEFDevToolsDivider)?
     /// The window that holds `devToolsViews.host` while DevTools is not docked.
     @ObservationIgnored var devToolsWindow: CEFDevToolsWindow?
+    /// cmux's header over Chromium's side panel, while it is open.
+    @ObservationIgnored var sidePanelHeader: SidePanelHeaderView?
+    @ObservationIgnored var sidePanelState: CEFSidePanelState?
+    @ObservationIgnored var sidePanelRefreshPending = false
     @ObservationIgnored public weak var devToolsObserver: (any BrowserDevToolsObserving)?
 
     var machine = BrowserTabStateMachine()
@@ -53,6 +57,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var nextNavigation: UInt64 = 0
     @ObservationIgnored var pendingURL: URL?
     @ObservationIgnored var pendingFocus = false
+    /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
+    @ObservationIgnored var isGrantingFocus = false
     /// Navigation state to restore once the browser exists (created with
     /// an empty URL so its history starts empty).
     @ObservationIgnored var pendingRestore: String?
@@ -112,7 +118,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     func attach(browser: Int32) {
         browserID = browser
         isCreationPending = false
-        if pastFirstRealPage { applyPageBackground() }
+        applyPageBackground()
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
         // Focus asked for while the page was being created applies only if
@@ -121,7 +127,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // it back on screen over the pane's current tab.
         let shown = host.visibleTab === self && !isOccluded
         BrowserLifecycleTrace.record(id, "attach pendingFocus=\(pendingFocus) shown=\(shown)")
-        if pendingFocus, shown { runtime.shim?.setFocus(browser, 1) }
+        if pendingFocus, shown { grantFocus(browser) }
         if let state = pendingRestore {
             pendingRestore = nil
             // 1 = restored; fork API 10 reports why not (-1 committed entries,
@@ -149,10 +155,20 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         applyPageBackground()
     }
 
+    /// The tab's view moved or its theme scope changed: a page still on
+    /// the theme color takes the new scope's color.
+    func pageThemeDidChange() {
+        guard !pastFirstRealPage else { return }
+        applyPageBackground()
+    }
+
+    /// Every attached tab owns its background (theme color of its own
+    /// scope until the first real page, then white), so a theme change of
+    /// another room or workspace never repaints it.
     private func applyPageBackground() {
         guard let browser = browserID, let shim = runtime.shim else { return }
         _ = shim.browserSetBackgroundColor(browser, PageBackground.chromiumARGB(pastFirstRealPage: pastFirstRealPage,
-                                                                                 theme: PageBackground.themeARGB))
+                                                                                 theme: PageBackground.themeARGB(in: container)))
     }
 
     func creationFailed() {
@@ -283,8 +299,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         BrowserLifecycleTrace.record(id, "focus(\(focused)) created=\(browserID != nil) shown=\(shown)")
         pendingFocus = focused
         // Never activate a hidden page's window (see `attach`).
-        guard !focused || shown else { return }
-        browserID.map { runtime.shim?.setFocus($0, focused ? 1 : 0) }
+        guard !focused || shown, let browserID else { return }
+        if focused { grantFocus(browserID) } else { runtime.shim?.setFocus(browserID, 0) }
     }
 
     /// Hides the page window (and a docked DevTools) at once, or shows it.

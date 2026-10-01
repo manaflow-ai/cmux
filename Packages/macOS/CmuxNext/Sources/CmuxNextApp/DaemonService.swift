@@ -28,6 +28,15 @@ final class DaemonService {
     @ObservationIgnored private var queuedReconcile: Task<Void, Never>?
     @ObservationIgnored private let scheduler = FrameBatcher(owner: "DaemonStore.drain")
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
+    /// The window records of the daemon's launch snapshot, drawn before the
+    /// first connection (`WindowManager.showLaunchSnapshot`); nil without one.
+    @ObservationIgnored var launchSnapshotWindows: WindowStateDocument?
+    /// The local session whose launch snapshot path each handshake records.
+    @ObservationIgnored var launchSnapshotSession: String?
+    @ObservationIgnored var launchSnapshotLocation = LaunchSnapshotLocation()
+    /// Callers of `endpoint()` waiting for the first connection (terminals
+    /// drawn from the launch snapshot attach as soon as it exists).
+    @ObservationIgnored var connectionWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(machineID: String = "local") {
         self.machineID = machineID
@@ -78,11 +87,16 @@ final class DaemonService {
             noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
             return
         }
+        if let session = try? DaemonLauncher.sessionName(tag: launch.tag) {
+            launchSnapshotSession = session
+            showLaunchSnapshot(session: session)
+        }
         let configuration = DaemonConnection.Configuration(
             retryWake: retryWake,
             terminalEnvironment: terminalEnvironmentProvider)
         start { DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider) }
     }
+
 
     /// Connects with `makeConnection`, retrying the first connect until it
     /// succeeds (`DaemonStartup`), then mirrors the connection into `store`.
@@ -171,6 +185,8 @@ final class DaemonService {
     private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
         DebugTimings.markLaunch("daemon_connected")
         self.connection = connection
+        rememberLaunchSnapshot(identity)
+        resumeConnectionWaiters()
         store.noteHandshake(identity)
         startupDeadlineTimer?.cancel()
         startupDeadlineTimer = nil
@@ -184,7 +200,10 @@ final class DaemonService {
         logger.error("cmux-tui daemon unavailable: \(error.description, privacy: .public)")
         lastStartupError = error
         store.markFailed(error.description)
-        if startup.isUnavailable || DaemonStartup.isPermanent(error) { startup = .unavailable(error) }
+        if startup.isUnavailable || DaemonStartup.isPermanent(error) {
+            startup = .unavailable(error)
+            resumeConnectionWaiters()
+        }
     }
 
     private func armStartupDeadline() {
@@ -194,6 +213,7 @@ final class DaemonService {
         timer.schedule(after: startupDeadline) { @MainActor [weak self] in
             guard let self, self.startup == .connecting else { return }
             self.startup = .unavailable(self.lastStartupError ?? .timedOut("first connection to cmux-tui"))
+            self.resumeConnectionWaiters()
         }
     }
 
@@ -203,9 +223,13 @@ final class DaemonService {
 
     /// The socket for dedicated terminal attachments (re-read on reconnect).
     func endpoint() async throws -> DaemonEndpoint {
+        if connection == nil, startup == .connecting, isStarting { await firstConnection() }
         guard let connection, let endpoint = await connection.endpoint else { throw DaemonError.notConnected }
         return endpoint
     }
+
+    /// True once `start` began connecting.
+    var isStarting: Bool { runTask != nil }
 
     /// Runs a command and logs a failure. Returns false when it threw.
     @discardableResult

@@ -47,10 +47,45 @@ nonisolated extension ActionCatalog {
                 category: .window, symbol: "arrow.up.left.and.arrow.down.right", surfaces: [.palette, .keyboard, .menu],
                 cliName: "app toggle-full-screen", mainMenu: .window
             ),
+            // Quit and the local terminals (user decision 2026-09-30): the
+            // terminals run in cmux-tui and outlive the app. Quit asks while
+            // local terminals exist (setting `app.quitBehavior`); a scripted
+            // run never asks and takes `--keep-sessions`, `--end-sessions` (keeps
+            // the layout) or `--end-everything`.
             ActionDescriptor(
                 id: "quit", title: String(localized: "action.quit", defaultValue: "Quit cmux", bundle: .module),
                 keywords: ["exit", "close"], defaultShortcut: Shortcut("q", modifiers: [.command]), category: .window,
-                symbol: "power", surfaces: [.keyboard, .menu], cliName: "app quit", mainMenu: .app
+                symbol: "power", surfaces: [.keyboard, .menu],
+                arguments: [
+                    ActionArgument(name: "keepSessions",
+                                   title: String(localized: "argument.keepSessions", defaultValue: "Keep Sessions Running", bundle: .module),
+                                   kind: .bool, isRequired: false),
+                    ActionArgument(name: "endSessions",
+                                   title: String(localized: "argument.endSessionsKeepLayout", defaultValue: "End Sessions, Keep Layout", bundle: .module),
+                                   kind: .bool, isRequired: false),
+                    ActionArgument(name: "endEverything",
+                                   title: String(localized: "argument.endEverything", defaultValue: "End Everything", bundle: .module),
+                                   kind: .bool, isRequired: false),
+                ],
+                cliName: "app quit", mainMenu: .app
+            ),
+            ActionDescriptor(
+                id: "quitKeepSessions",
+                title: String(localized: "action.quitKeepSessions", defaultValue: "Quit and Keep Sessions", bundle: .module),
+                keywords: ["exit", "close", "background", "terminals", "cmux-tui", "detach"], category: .window,
+                symbol: "power", surfaces: [.palette, .menu], cliName: "app quit-keep-sessions", mainMenu: .app
+            ),
+            ActionDescriptor(
+                id: "quitEndSessions",
+                title: String(localized: "action.quitEndSessionsKeepLayout", defaultValue: "Quit and End Sessions, Keep Layout", bundle: .module),
+                keywords: ["exit", "close", "kill", "terminals", "cmux-tui", "stop", "layout"], category: .window,
+                symbol: "power", surfaces: [.palette, .menu], cliName: "app quit-end-sessions", mainMenu: .app
+            ),
+            ActionDescriptor(
+                id: "quitEndEverything",
+                title: String(localized: "action.quitEndEverything", defaultValue: "Quit and End Everything", bundle: .module),
+                keywords: ["exit", "close", "kill", "terminals", "cmux-tui", "stop", "workspaces", "fresh", "reset"], category: .window,
+                symbol: "power", surfaces: [.palette, .menu], cliName: "app quit-end-everything", mainMenu: .app
             ),
             ActionDescriptor(
                 id: "showHideAllWindows",
@@ -91,37 +126,6 @@ nonisolated extension ActionCatalog {
                 keywords: ["switch", "jump", "switcher"], defaultShortcut: Shortcut("p", modifiers: [.command]),
                 category: .window, symbol: "arrow.right.square", surfaces: [.keyboard, .menu],
                 arguments: [CatalogArgument.workspaceWorkspace], cliName: "app go-to-workspace", mainMenu: .window
-            ),
-            ActionDescriptor(
-                id: "focusHistoryBack",
-                title: String(localized: "action.focusHistoryBack", defaultValue: "Focus Back", bundle: .module),
-                keywords: ["history", "previous"], defaultShortcut: Shortcut("[", modifiers: [.command]),
-                category: .window, symbol: "chevron.backward", surfaces: [.keyboard, .menu], cliName: "app focus-back",
-                mainMenu: .window
-            ),
-            ActionDescriptor(
-                id: "focusHistoryForward",
-                title: String(localized: "action.focusHistoryForward", defaultValue: "Focus Forward", bundle: .module),
-                keywords: ["history", "next"], defaultShortcut: Shortcut("]", modifiers: [.command]), category: .window,
-                symbol: "chevron.forward", surfaces: [.keyboard, .menu], cliName: "app focus-forward", mainMenu: .window
-            ),
-            ActionDescriptor(
-                id: "focusHistoryLast",
-                title: String(localized: "action.focusHistoryLast", defaultValue: "Focus Last", bundle: .module),
-                keywords: ["history", "toggle", "recent"], category: .window, symbol: "arrow.uturn.backward",
-                surfaces: [.keyboard, .menu], cliName: "app focus-last", mainMenu: .window
-            ),
-            ActionDescriptor(
-                id: "recentlyFocused",
-                title: String(localized: "action.recentlyFocused", defaultValue: "Recently Focused…", bundle: .module),
-                keywords: ["history"], category: .window, symbol: "clock", surfaces: [.menu],
-                cliName: "app recently-focused", mainMenu: .window
-            ),
-            ActionDescriptor(
-                id: "recentlyClosed",
-                title: String(localized: "action.recentlyClosed", defaultValue: "Recently Closed…", bundle: .module),
-                keywords: ["history", "reopen", "undo"], category: .window, symbol: "clock.arrow.circlepath",
-                surfaces: [.menu], cliName: "app recently-closed", mainMenu: .window
             ),
             ActionDescriptor(
                 id: "palette.openTaskManager",

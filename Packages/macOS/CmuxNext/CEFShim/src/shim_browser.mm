@@ -38,6 +38,9 @@ int cmux_shim_tab_add(int window_browser_id, const char* url, int index, int act
 }
 
 int cmux_shim_tab_activate(int browser_id) {
+  // The tab's Browser may not exist yet in OnAfterCreated: watch its side
+  // panel once it is shown (the fork ignores a Browser it already watches).
+  if (fork_api().side_panel_watch) fork_api().side_panel_watch(browser_id);
   return fork_api().tab_activate ? fork_api().tab_activate(browser_id) : 0;
 }
 
@@ -119,6 +122,10 @@ void cmux_shim_stop(int browser_id) {
 
 void cmux_shim_set_focus(int browser_id, int focus) {
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) host->SetFocus(focus != 0);
+}
+
+void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler) {
+  host().focus_request = handler;
 }
 
 void cmux_shim_set_zoom_level(int browser_id, double level) {

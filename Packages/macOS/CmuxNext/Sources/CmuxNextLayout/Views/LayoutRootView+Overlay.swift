@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 
 /// The overlay plane: pane rings and dims follow their hosts' displayed
 /// frames, and the rects of overlays that take the mouse are reported.
@@ -79,14 +80,25 @@ extension LayoutRootView {
         planeHost.interactiveOverlayRectsDidChange(overlayPlane)
     }
 
-    /// Displayed pane rings, for `debug.layers`: pane id, frame in window
-    /// coordinates, and whether the ring shows.
-    public var overlayRings: [(pane: String, frameInWindow: CGRect, showsRing: Bool)] {
+    /// Displayed pane rings, for `debug.layers`: pane id, the pane's frame
+    /// in window coordinates, whether the ring shows, the rect the ring
+    /// strokes and the pane's rounded content rect it must equal (both in
+    /// window coordinates; the plane has the root's coordinates wherever it
+    /// lives, so the ring rect is read from the overlay itself).
+    public var overlayRings: [(pane: String, frameInWindow: CGRect, showsRing: Bool, ringInWindow: CGRect, contentInWindow: CGRect)] {
         guard let active = model.activeScreenID, let screen = screenViews[active], window != nil else { return [] }
         return screen.displayedHosts.map { host in
-            (host.pane.rawValue, host.convert(host.bounds, to: nil), host.chrome.showsRing && !host.chrome.isHidden)
+            let chrome = host.chrome
+            let ring = chrome.ringFrame.offsetBy(dx: chrome.frame.minX, dy: chrome.frame.minY)
+            return (host.pane.rawValue, host.convert(host.bounds, to: nil), chrome.showsRing && !chrome.isHidden,
+                    convert(ring, to: nil), host.convert(host.roundedRect, to: nil))
         }
     }
+
+    /// The drop highlight's material (`debug.layers`), and a pin for it
+    /// (`debug.drop_highlight`; nil follows this Mac).
+    public var dropHighlightMaterial: OverlayMaterial { highlight.surface.material }
+    public func pinDropHighlightMaterial(_ material: OverlayMaterial?) { highlight.surface.materialOverride = material }
 
     /// The drop highlight's frame in window coordinates while it shows.
     public var dropHighlightFrameInWindow: CGRect? {

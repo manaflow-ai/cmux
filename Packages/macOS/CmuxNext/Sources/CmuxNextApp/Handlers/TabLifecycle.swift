@@ -21,6 +21,29 @@ enum TabLifecycle {
         ctx.send("new-tab") { _ = try await $0.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep)) }
     }
 
+    /// `newTab.sameKind` (Cmd-T): a tab of the kind of the pane's selected
+    /// tab (`NewTabKind`), through the New Terminal Tab and New Browser Tab
+    /// paths, so focus and options match them.
+    static func newTabOfPaneKind(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
+        guard let pane = ctx.daemonPane(invocation) else { return }
+        // The targeted tab (CLI `--tab`), else the pane's selected tab (an
+        // empty pane has none and gets a terminal; never a refusal).
+        let selectedID = invocation.target?.kind == .tab ? invocation.target?.id
+            : ctx.services.paneController(for: pane)?.stripModel.selectedID?.rawValue
+            ?? (pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex].id : nil)
+        let tab = pane.tabs.first { $0.id == selectedID }
+        let local = selectedID?.hasPrefix(LocalBrowserTab.prefix) == true
+        switch NewTabKind.resolve(selectedKind: tab?.kind, engine: tab?.browserEngine, isLocalBrowser: local) {
+        case .terminal:
+            newTerminal(ctx, invocation)
+        case .browser(let engine):
+            var invocation = invocation
+            invocation.arguments["cwd"] = nil
+            if let engine { invocation.arguments["engine"] = .string(engine) }
+            newBrowser(ctx, invocation)
+        }
+    }
+
     /// `openBrowser.webkit` and `openBrowser.chromium`: `openBrowser` with a fixed engine.
     static func newBrowser(_ ctx: AppActionContext, _ invocation: ActionInvocation, engine: BrowserEngineTag) {
         var invocation = invocation
@@ -89,6 +112,7 @@ enum TabLifecycle {
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
         if let controller = ctx.services.paneController(for: pane) { return controller.close([StripTabID(tab.id)]) }
         let command = ctx.services.daemon(for: pane).closeCommand(for: tab)
+        if tab.kind == .remoteTerminal { ctx.services.remoteTerminals.viewClosed(tab) }
         ctx.send(command.label, command.run)
     }
 

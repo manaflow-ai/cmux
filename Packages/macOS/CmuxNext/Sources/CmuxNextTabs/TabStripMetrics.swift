@@ -18,10 +18,14 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Extra space between the last pinned tab and the first unpinned tab.
     public var pinnedGroupGap: CGFloat
 
-    /// Hovered inactive tabs show a close button only when at least this wide.
-    public var hoverCloseMinWidth: CGFloat
-    /// Below this width the title is hidden entirely.
-    public var titleMinWidth: CGFloat
+    /// Contents width (the tab less both content insets) from which a
+    /// hovered inactive tab shows its x. Chromium's
+    /// `Tab::kMinimumContentsWidthForCloseButtons` (68 DIP).
+    public var closeMinContentsWidth: CGFloat
+    /// Narrowest title fragment worth showing after the icon; below it the
+    /// icon centers instead (Chromium shows any positive width, which
+    /// with a fade is a smudge of a few points).
+    public var titleMinVisibleWidth: CGFloat
 
     public var contentLeadingInset: CGFloat
     public var contentTrailingInset: CGFloat
@@ -85,7 +89,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         pinnedTabWidth = Metrics.tabMinWidth
         compactTabWidth = (Metrics.tabMaxWidth * 3 / 4).rounded()
         pinnedGroupGap = Metrics.space2
-        contentLeadingInset = Metrics.space4
+        contentLeadingInset = Metrics.tabContentLeadingInset
         contentTrailingInset = Metrics.space2
         iconSize = Metrics.iconSize
         closeButtonSize = Metrics.space6
@@ -95,11 +99,11 @@ public struct TabStripMetrics: Equatable, Sendable {
         titleFadeWidth = Metrics.space6 + Metrics.space2
         badgeSize = Metrics.space3
         minActiveTabWidth = contentLeadingInset + iconSize + titleCloseSpacing + closeButtonSize + contentTrailingInset
-        hoverCloseMinWidth = Metrics.tabMinWidth
-        titleMinWidth = Metrics.tabMinWidth * 2
+        closeMinContentsWidth = 4 * Metrics.space6 + Metrics.space2
+        titleMinVisibleWidth = Metrics.space5
         stripHeight = Metrics.tabStripHeight
         tabHeight = Metrics.tabHeight
-        stripHorizontalPadding = max(0, (Metrics.tabStripHeight - Metrics.tabHeight) / 2)
+        stripHorizontalPadding = Metrics.tabStripEdgeInset
         newTabButtonWidth = Metrics.tabHeight
         trailingButtonSize = Metrics.tabHeight - Metrics.space2
         trailingButtonSpacing = Metrics.space1
@@ -107,7 +111,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         trailingIconSize = Metrics.iconSize
         trailingIconPointSize = Metrics.smallIconSize
         scrollFadeWidth = Metrics.space6 + Metrics.space4
-        tabBackgroundInset = Metrics.space1 / 2
+        tabBackgroundInset = Metrics.tabBackgroundInset
         separatorHeight = Metrics.tabHeight / 2
         tearOffDistance = Metrics.space6 + Metrics.space4
         cornerRadius = Metrics.itemCornerRadius

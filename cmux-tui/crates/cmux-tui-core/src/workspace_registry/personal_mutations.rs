@@ -478,7 +478,8 @@ impl WorkspaceRegistry {
         Ok((record, created))
     }
 
-    /// Forget a session: its row, follows, and personal workspace rows.
+    /// Forget a session: its row, follows, and personal workspace and
+    /// terminal rows.
     /// Refused while a room pins one of its workspaces unless `force`, which
     /// also removes those pins.
     pub(super) fn forget_session_in(
@@ -500,6 +501,7 @@ impl WorkspaceRegistry {
         for sql in [
             "DELETE FROM profile_pins WHERE session_id = ?1",
             "DELETE FROM personal_workspaces WHERE session_id = ?1",
+            "DELETE FROM personal_terminals WHERE session_id = ?1",
             "DELETE FROM profile_follows WHERE session_id = ?1",
             "DELETE FROM sessions WHERE session_id = ?1",
         ] {

@@ -109,6 +109,14 @@ struct FocusReducerTests {
 
     // MARK: R1: selection changes the responder must follow
 
+    @Test func anAgentChatTabTakesTheKeyboardInsteadOfLeavingThePaneEmpty() {
+        var topology = Self.topology()
+        topology.panes[2] = Pane(id: "c", tabs: [Self.terminal("t3"), Tab(id: "local-agent:x", kind: .agent)], selected: "local-agent:x")
+        let (state, effects) = Self.run([.topology(topology), .focusPane("c", source: .mouse)], from: Self.loaded())
+        #expect(state.resolved == .agentPage(pane: "c", tab: "local-agent:x"))
+        #expect(effects.contains(.moveResponder(.agentPage(pane: "c", tab: "local-agent:x"))))
+    }
+
     @Test func closingTheSelectedTabMovesFocusToTheNewSelection() {
         var topology = Self.topology()
         topology.panes[0] = Pane(id: "a", tabs: [Self.terminal("t2")], selected: "t2")

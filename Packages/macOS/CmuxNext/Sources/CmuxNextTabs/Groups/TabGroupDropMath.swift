@@ -19,7 +19,8 @@ public struct TabGroupDropResolution: Equatable, Sendable {
 /// dragged item (chips included, the drop gap excluded). Only their widths,
 /// group ids, and chip/collapsed flags matter: positions are recomputed from
 /// `start`, because the real slots still contain the dragged item's space.
-public enum TabGroupDropMath {
+public struct TabGroupDropMath {
+    public init() {}
     /// Resolves index and group membership for a tab whose leading edge is
     /// at `draggedMinX`.
     ///

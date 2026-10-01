@@ -27,12 +27,13 @@ extension SidebarListView {
         realizeVisibleRows()
         guard let view = rowViews[key] else { return }
         let titleFrame = convert(view.titleFrame, from: view)
-        let field = NSTextField(string: original)
+        // Follows theme changes while open (ThemedTextField).
+        let field = ThemedTextField(string: original)
+        // theme-scoped: ThemedTextField resolves its fill inside performWithTheme.
+        field.fill = { Palette.hoverFill }
         field.font = view.titleFont
         field.isBordered = false
         field.drawsBackground = true
-        field.backgroundColor = Palette.hoverFill
-        field.textColor = Palette.textPrimary
         field.focusRingType = .none
         field.usesSingleLineMode = true
         field.lineBreakMode = .byClipping

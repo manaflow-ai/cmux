@@ -637,23 +637,26 @@ pub(super) fn print_local_error(error: &Value, output: OutputMode, exit_code: i3
             eprintln!();
         }
         OutputMode::Quiet | OutputMode::Human => {
-            let message =
-                error.get("message").and_then(Value::as_str).unwrap_or("operation failed");
-            eprintln!("{message}");
-            if let Some(candidates) = error
-                .get("details")
-                .and_then(|details| details.get("candidates"))
-                .and_then(Value::as_array)
-            {
-                for candidate in candidates {
-                    if let Some(candidate) = candidate.as_str() {
-                        eprintln!("  {candidate}");
-                    }
-                }
-            }
+            let _ = io::stderr().lock().write_all(human_error_text(error).as_bytes());
         }
     }
     exit_code
+}
+
+/// The human form of a local error: its message, then any candidates.
+fn human_error_text(error: &Value) -> String {
+    let message = error.get("message").and_then(Value::as_str).unwrap_or("operation failed");
+    let mut text = format!("{}\n", visible_controls(message));
+    if let Some(candidates) =
+        error.get("details").and_then(|details| details.get("candidates")).and_then(Value::as_array)
+    {
+        for candidate in candidates {
+            if let Some(candidate) = candidate.as_str() {
+                text.push_str(&format!("  {}\n", visible_controls(candidate)));
+            }
+        }
+    }
+    text
 }
 
 pub(super) fn print_local_success(value: &Value, output: OutputMode) -> i32 {
@@ -710,7 +713,7 @@ fn append_human(value: &Value, output: &mut String) {
     match value {
         Value::Null => {}
         Value::String(value) => {
-            output.push_str(value);
+            output.push_str(&visible_controls(value));
             if !value.ends_with('\n') {
                 output.push('\n');
             }
@@ -826,7 +829,7 @@ fn flatten_human_object(
         if let Value::Object(nested) = value {
             flatten_human_object(Some(&path), nested, rows);
         } else {
-            rows.push((path, human_cell(value)));
+            rows.push((visible_controls(&path), human_cell(value)));
         }
     }
 }
@@ -834,15 +837,35 @@ fn flatten_human_object(
 fn human_cell(value: &Value) -> String {
     match value {
         Value::Null => "-".to_string(),
-        Value::String(value) => value.replace(['\r', '\n'], "\\n"),
+        Value::String(value) => visible_controls(&value.replace(['\r', '\n'], "\\n")),
         Value::Bool(value) => value.to_string(),
         Value::Number(value) => value.to_string(),
-        value => serde_json::to_string(value).expect("JSON value serialization cannot fail"),
+        value => visible_controls(
+            &serde_json::to_string(value).expect("JSON value serialization cannot fail"),
+        ),
     }
 }
 
+/// Daemon and terminal-derived text shows control characters as escapes
+/// (`\u{1b}`) so it cannot drive the terminal that runs the CLI. Newlines and
+/// tabs are layout, not commands, and pass through.
+fn visible_controls(text: &str) -> String {
+    if !text.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
+        return text.to_string();
+    }
+    let mut visible = String::with_capacity(text.len());
+    for c in text.chars() {
+        if c.is_control() && c != '\n' && c != '\t' {
+            visible.extend(c.escape_default());
+        } else {
+            visible.push(c);
+        }
+    }
+    visible
+}
+
 fn human_header(key: &str) -> String {
-    key.replace('_', " ").to_uppercase()
+    visible_controls(&key.replace('_', " ").to_uppercase())
 }
 
 fn human_key_rank(key: &str) -> usize {
@@ -986,6 +1009,26 @@ mod tests {
             resolve: Vec::new(),
         };
         assert!(request_value(&read).unwrap().get("idempotency_key").is_none());
+    }
+
+    /// Daemon and terminal-derived strings never write raw control
+    /// sequences (ESC, BEL, C1, OSC, CSI) to the terminal that runs the CLI.
+    #[test]
+    fn sec_audit_human_output_shows_controls_instead_of_sending_them() {
+        let hostile = "title\u{1b}]0;owned\u{7}\u{9b}2J\u{1b}[2Jend";
+        let outputs = [
+            human_text(&json!(hostile)),
+            human_text(&json!([{"name": hostile}])),
+            human_text(&json!({"name": hostile})),
+            human_error_text(&json!({"message": hostile, "details": {"candidates": [hostile]}})),
+        ];
+        for output in outputs {
+            assert!(
+                !output.chars().any(|c| c.is_control() && c != '\n' && c != '\t'),
+                "{output:?}"
+            );
+            assert!(output.contains("title") && output.contains("end"), "{output:?}");
+        }
     }
 
     #[test]

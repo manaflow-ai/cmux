@@ -10,6 +10,7 @@ final class ImportSourceList: NSView {
     private var checks: [String: CheckRowView] = [:]
     private var shownSources: [BrowserSource] = []
     private var loop: RenderLoop?
+    private var scrollFit: ScrollFitElasticity?
 
     init(model: ImportStepModel) {
         self.model = model
@@ -28,6 +29,7 @@ final class ImportSourceList: NSView {
         scroll.autohidesScrollers = true
         scroll.scrollerStyle = .overlay
         scroll.documentView = document
+        scrollFit = ScrollFitElasticity(scrollView: scroll)
         scroll.translatesAutoresizingMaskIntoConstraints = false
         addSubview(scroll)
         NSLayoutConstraint.activate([

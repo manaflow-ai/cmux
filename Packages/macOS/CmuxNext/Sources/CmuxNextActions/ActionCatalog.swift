@@ -20,6 +20,9 @@ public nonisolated enum ActionCatalog {
         "tab.previous": "prevSurface",
         "view.toggleSidebar": "toggleSidebar",
         "palette.show": "commandPalette",
+        // Browser profile placeholders from before browser profiles existed.
+        "browserNewProfile": "browserProfile.new",
+        "browserRenameProfile": "browserProfile.rename",
     ]
 
     private static func makeAll() -> [ActionDescriptor] {
@@ -29,6 +32,7 @@ public nonisolated enum ActionCatalog {
         all += workspaceVerbActions()
         all += workspaceGroupsActions()
         all += profileActions()
+        all += themeActions()
         all += paneActions()
         all += tabActions()
         all += resourceActions()
@@ -39,14 +43,18 @@ public nonisolated enum ActionCatalog {
         all += browserActions()
         all += pageInfoActions()
         all += extensionActions()
+        all += browserProfileActions()
         all += sidebarActions()
         all += notificationsActions()
         all += agentsActions()
         all += cloudActions()
+        all += accountsActions()
         all += remoteActions()
         all += settingsActions()
         all += hibernationActions()
         all += layoutActions()
+        all += historyActions()
+        all += bookmarkActions()
         for index in all.indices where cliActionIDs.contains(all[index].id) { all[index].cli = true }
         return all
     }

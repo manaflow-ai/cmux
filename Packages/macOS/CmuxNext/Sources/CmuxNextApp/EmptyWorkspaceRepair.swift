@@ -28,6 +28,7 @@ import os
 ///
 /// Process-wide per daemon, so two windows showing the same workspace send
 /// one command, and a workspace no window shows closes too.
+@MainActor
 final class EmptyWorkspaceRepair {
     /// Who is giving a workspace its first terminal.
     enum FirstTerminal: Equatable {
@@ -48,15 +49,27 @@ final class EmptyWorkspaceRepair {
     var create: @MainActor (WorkspaceKey) async throws -> SurfaceID?
     /// Closes `key`, a workspace whose last tab closed. Tests replace it.
     var close: @MainActor (WorkspaceKey) async throws -> Void = { _ in }
+    /// Why `key` lost its last pane. Tests replace it.
+    var cause: @MainActor (WorkspaceKey) async -> EmptiedWorkspaceCause
     /// Whether commands can run now. Tests replace it.
     var canCreate: @MainActor () -> Bool
     private(set) var states: [WorkspaceKey: FirstTerminal] = [:]
+    /// The last emptied workspaces and what this app did with each (closed,
+    /// or kept with a new terminal), newest last, for `debug.windows`: a
+    /// workspace that disappears is always explained.
+    private(set) var decisions: [(key: WorkspaceKey, cause: EmptiedWorkspaceCause)] = []
     /// Workspaces seen with a pane, with the connection epoch they were seen
     /// on: one seen on the current connection that has no pane now had its
     /// last tab closed.
     private var populated: [WorkspaceKey: Int] = [:]
     /// The daemon store's connection epoch. Tests replace it.
     var epoch: @MainActor () -> Int
+    /// Whether the store holds a live snapshot. The launch snapshot's
+    /// provisional tree was not seen on any connection, so a workspace it
+    /// shows with a pane must not count as emptied when the live tree shows
+    /// it without one (the daemon restarted without its terminals): that one
+    /// is repaired. Tests replace it.
+    var isLive: @MainActor () -> Bool
     private var observation: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.empty-workspace")
 
@@ -72,6 +85,14 @@ final class EmptyWorkspaceRepair {
             return false
         }
         epoch = { [weak daemon] in daemon?.store.connectionEpoch ?? 0 }
+        isLive = { [weak daemon] in daemon?.store.isLoaded ?? false }
+        cause = { [weak daemon] key in
+            // When the registry cannot be read, keep the workspace: a
+            // needless repair costs one terminal, a needless close loses
+            // the user's workspace.
+            guard let connection = daemon?.connection, let terminals = try? await connection.listTerminals() else { return .terminalLost }
+            return EmptiedWorkspaceCause.from(terminals, workspace: key)
+        }
         close = { [weak daemon] key in
             guard let daemon, let connection = daemon.connection else { throw DaemonError.notConnected }
             // No tab is left, so no terminal to end here.
@@ -89,7 +110,9 @@ final class EmptyWorkspaceRepair {
         observation = Task { [weak self, weak store] in
             for await _ in Observations({ () -> [String] in
                 guard let store else { return [] }
-                return store.workspaces.map { "\($0.key?.rawValue ?? ""):\(Self.hasPane($0))" }
+                // Turning live counts as a change: a tree drawn from the
+                // launch snapshot is first seen on a connection then.
+                return ["live:\(store.isLoaded)"] + store.workspaces.map { "\($0.key?.rawValue ?? ""):\(Self.hasPane($0))" }
             }) {
                 guard let self, let store else { return }
                 self.storeDidChange(store)
@@ -98,6 +121,7 @@ final class EmptyWorkspaceRepair {
     }
 
     private func storeDidChange(_ store: DaemonStore) {
+        guard isLive() else { return }
         for workspace in store.workspaces {
             guard let key = workspace.key else { continue }
             if Self.hasPane(workspace) { notePopulated(key) } else { closeIfEmptied(key) }
@@ -125,10 +149,26 @@ final class EmptyWorkspaceRepair {
         guard populated[key] == epoch(), states[key] == nil, canCreate() else { return states[key] == .closing }
         states[key] = .closing
         populated[key] = nil
-        logger.info("workspace \(key.rawValue, privacy: .public) lost its last tab; closing it")
-        let close = close
-        // task-owner: one close per emptied workspace; the claim is the state above
+        let close = close, cause = cause, create = create
+        // task-owner: one decision per emptied workspace; the claim is the state above
         Task {
+            // A lost terminal (its host died: crash, kill, reboot) is not a
+            // closed tab: the workspace stays and gets a new terminal.
+            if await cause(key) == .terminalLost {
+                guard states[key] == .closing else { return }
+                states[key] = .awaitingPane
+                record(key, .terminalLost)
+                logger.info("workspace \(key.rawValue, privacy: .public) lost its last terminal; keeping it with a new terminal")
+                do {
+                    _ = try await create(key)
+                } catch {
+                    if states[key] == .awaitingPane { states[key] = nil }
+                    logger.error("refilling a workspace with a lost terminal failed: \(String(describing: error), privacy: .public)")
+                }
+                return
+            }
+            record(key, .tabClosed)
+            logger.info("workspace \(key.rawValue, privacy: .public) lost its last tab; closing it")
             do {
                 try await close(key)
             } catch {
@@ -140,11 +180,16 @@ final class EmptyWorkspaceRepair {
         return true
     }
 
+    private func record(_ key: WorkspaceKey, _ cause: EmptiedWorkspaceCause) {
+        decisions.append((key, cause))
+        if decisions.count > 32 { decisions.removeFirst(decisions.count - 32) }
+    }
+
     /// Checks `workspace` (shown in a window) after a store change. An
     /// emptied workspace closes; one empty since this connection first saw
     /// it gets one create-terminal, and `created` gets the new surface.
     func check(_ workspace: WorkspaceModel, created: @escaping @MainActor (SurfaceID) -> Void) {
-        guard let key = workspace.key else { return }
+        guard let key = workspace.key, isLive() else { return }
         guard !Self.hasPane(workspace) else { return notePopulated(key) }
         guard states[key] == nil, !closeIfEmptied(key), canCreate() else { return }
         states[key] = .awaitingPane

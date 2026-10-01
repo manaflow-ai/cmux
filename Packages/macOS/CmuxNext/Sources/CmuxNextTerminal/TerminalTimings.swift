@@ -3,7 +3,8 @@ import os
 /// Main-thread cost of terminal surface creation, for the stall bench
 /// (`debug.timings`, scripts/cmux-next/bench-stalls.py) and Instruments
 /// (signpost interval "createSurface", category "stalls").
-public enum TerminalTimings {
+public struct TerminalTimings {
+    public init() {}
     static let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "stalls")
 
     /// Called on the main actor after each `ghostty_surface_new` with its

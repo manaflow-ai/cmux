@@ -2,20 +2,24 @@ import CmuxNextDesign
 import SwiftUI
 
 /// Theme colors and compact type for the Settings window. Colors are the
-/// Ghostty theme tokens (`Palette`); selection and hover are gray fills.
+/// tokens of the window's theme scope (`SettingsTheme`); selection and hover
+/// are gray fills.
 enum SettingsStyle {
-    static var text: Color { Color(nsColor: Palette.textPrimary) }
-    static var secondary: Color { Color(nsColor: Palette.textSecondary) }
-    static var tertiary: Color { Color(nsColor: Palette.textTertiary) }
-    static var background: Color { Color(nsColor: Palette.windowBackground) }
-    static var card: Color { Color(nsColor: Palette.chromeBackground) }
-    static var selection: Color { Color(nsColor: Palette.selectionFill) }
-    static var hover: Color { Color(nsColor: Palette.hoverFill) }
-    static var separator: Color { Color(nsColor: Palette.separator) }
-    static var danger: Color { Color(nsColor: Palette.danger) }
-    static var attention: Color { Color(nsColor: Palette.attention) }
+    private static var tokens: ThemeTokens { SettingsTheme.shared.tokens }
+    private static func color(_ rgb: ThemeRGB) -> Color { Color(nsColor: rgb.nsColor) }
+
+    static var text: Color { color(tokens.textPrimary) }
+    static var secondary: Color { color(tokens.textSecondary) }
+    static var tertiary: Color { color(tokens.textTertiary) }
+    static var background: Color { color(tokens.windowBackground) }
+    static var card: Color { color(tokens.chromeBackground) }
+    static var selection: Color { color(tokens.selectionFill) }
+    static var hover: Color { color(tokens.hoverFill) }
+    static var separator: Color { color(tokens.separator) }
+    static var danger: Color { color(tokens.danger) }
+    static var attention: Color { color(tokens.attention) }
     /// Control tint (switches, sliders): the theme's focus color, never blue.
-    static var tint: Color { Color(nsColor: Palette.accent) }
+    static var tint: Color { color(tokens.focusRing) }
 
     static var body: Font { Font(Typography.body) }
     static var emphasized: Font { Font(Typography.bodyEmphasized) }

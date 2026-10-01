@@ -174,6 +174,10 @@ pub struct PresentationSnapshot {
     pub tab_groups: TabGroupState,
     /// Saved (pinned) tab groups, in bar order.
     pub saved_tab_groups: Vec<SavedTabGroupRecord>,
+    /// Screen color, icon, pin, and screen groups (`screen_store`).
+    pub screens: super::ScreenPresentationState,
+    /// Saved screen groups, in order.
+    pub saved_screen_groups: Vec<super::SavedScreenGroupRecord>,
 }
 
 /// Chrome's tab group colors. Frontends render them as muted tints.
@@ -952,6 +956,8 @@ impl WorkspaceRegistry {
         }
         let tab_groups = read_tab_group_state(&self.connection)?;
         let saved_tab_groups = read_saved_tab_groups(&self.connection)?;
+        let screens = super::screen_store::read_screen_state(&self.connection)?;
+        let saved_screen_groups = super::screen_store::read_saved_screen_groups(&self.connection)?;
         Ok(PresentationSnapshot {
             groups,
             workspaces,
@@ -959,6 +965,8 @@ impl WorkspaceRegistry {
             frontend_browsers,
             tab_groups,
             saved_tab_groups,
+            screens,
+            saved_screen_groups,
         })
     }
 
@@ -1252,6 +1260,7 @@ impl WorkspaceRegistry {
 
     /// Forget a frontend browser whose tab creation failed.
     pub fn delete_frontend_browser(&mut self, browser_id: &str) -> anyhow::Result<()> {
+        validate_browser_public_id(browser_id)?;
         self.connection
             .execute("DELETE FROM frontend_browser_tabs WHERE browser_id = ?1", [browser_id])?;
         Ok(())

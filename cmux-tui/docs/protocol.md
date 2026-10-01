@@ -266,8 +266,9 @@ that long. The idle clock restarts at every attach and when the owner restarts,
 so a restart can delay a close but never make it early.
 
 When `identify` advertises `terminal-reap-v1`, the owner also ends a terminal
-that has had no tab placement for the reap grace period (default 30 seconds,
-set with `--terminal-reap-grace-seconds`) and emits `terminal-reaped`. Mark a
+that has had no tab placement for the reap grace period and emits
+`terminal-reaped`, but only when the owner was started with
+`--terminal-reap-grace-seconds` (reaping is opt-in). Mark a
 terminal that must outlive its tabs with
 `{"cmd":"set-terminal-keep","terminal_id":"term_...","keep":true}` or pass
 `"keep":true` to `new-tab`, `split`, or `create-terminal`. A close commits and

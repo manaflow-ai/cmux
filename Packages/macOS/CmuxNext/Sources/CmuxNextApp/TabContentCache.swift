@@ -36,10 +36,16 @@ final class TabContentCache {
     let previews = PreviewImageCache()
     let webKit = WebKitEngine()
     let cef = CEFEngine()
-    /// Pages visited this session, shared by every omnibar for suggestions
-    /// and inline autocomplete (in memory; not persisted yet).
+    /// Pages visited in the default browser profile, shared by its omnibars for suggestions and
+    /// inline autocomplete (in memory, durable via `HistoryService`). Others: `history(for:)`.
     let history = InMemoryBrowserHistory()
-    private(set) lazy var suggestionEngine = OmniboxSuggestionEngine(providers: [HistorySuggestionProvider(store: history)])
+    private(set) lazy var suggestionEngine = OmniboxSuggestionEngine(providers: [HistorySuggestionProvider(store: history)] + (extraSuggestionProviders?(.default) ?? []))
+    var extraSuggestionProviders: ((BrowserProfileID) -> [any BrowserSuggestionProvider])? // bookmark rows per profile
+    /// History and suggestions of each non-default browser profile.
+    var profileHistories: [BrowserProfileID: ProfileHistory] = [:]
+    /// A profile's omnibar history was created or dropped (`HistoryService`).
+    var onProfileHistoryCreated: ((BrowserProfileID, InMemoryBrowserHistory) -> Void)?
+    var onProfileHistoryDropped: ((BrowserProfileID) -> Void)?
     /// Incognito pages' history and page installs (`TabContentCache+Incognito`).
     var incognitoMemory = IncognitoPageMemory()
     let pageInstalls = PageInstallCounter()
@@ -54,7 +60,7 @@ final class TabContentCache {
     /// a row (`LaunchRecovery.restartedSafely`).
     var defersRestoredPages = false
     /// Tabs whose deferred page the user started.
-    private var startedDeferred: Set<String> = []
+    var startedDeferred: Set<String> = []
     /// Creates a Chromium page (asynchronous; a seam for tests).
     lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [cef] in
         try await cef.makeTab($0)
@@ -63,6 +69,10 @@ final class TabContentCache {
     /// a tab (`RemoteLocalhostService.configuration`). Nil result: the proxy
     /// could not start, so the page must not load (never this Mac's localhost).
     var configureBrowser: ((TabModel, URL?, BrowserTabConfiguration) async -> BrowserTabConfiguration?)?
+    /// The omnibar's browser profile badge of tab `key` (nil: hidden).
+    var profileBadge: ((String) -> BrowserProfileBadge?)?
+    /// The menu of tab `key`'s browser profile badge.
+    var profileBadgeMenu: ((String) -> NSMenu?)?
     /// The omnibar and tab-strip machine chip of tab `key` for a URL.
     var machineBadge: ((String, URL?) -> (text: String, help: String)?)?
     /// The tab with durable id `key` on any machine (`browserTabs` only
@@ -119,14 +129,15 @@ final class TabContentCache {
         let target = DaemonTerminalIO.Target(
             attachment: TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
                                                   generation: daemon.store.generation),
-            initialSize: tab.size ?? CellSize(cols: 80, rows: 24)
+            initialSize: tab.size ?? CellSize(cols: 80, rows: 24), cursorDefault: .user
         )
         // Paused (and not claiming geometry) until a visible pane presents it.
         let render = ledger.isRendering(tab.id)
         let io = DaemonTerminalIO(target: target, visible: render, endpoint: { try await daemon.endpoint() })
         let session = TerminalSession(io: io, ownsGeometry: true)
         session.delegate = sessionDelegate
-        let entry = TerminalEntry(validity: validity, session: session, io: io)
+        let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
+                                  store: daemon.store, surface: tab.surface)
         terminals[tab.id] = entry
         session.isRenderingSuspended = !render
         contentDidMount(tab.id)
@@ -175,6 +186,7 @@ final class TabContentCache {
             return tracked(install(adopted, for: key), tab)
         }
         let url = recordURL(tab)
+        if let page = appPage(for: tab, url: url) { return page }
         if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.openedSurfaces.contains(tab.surface) {
             return deferred(tab, url: url)
         }
@@ -192,10 +204,13 @@ final class TabContentCache {
                 onBrowserReady?(key)
                 return
             }
-            install(page, for: key)
+            let entry = install(page, for: key)
             // By id, not the captured TabModel: a tab moved while its page
             // started (`cmux browser open` then split) has a new model.
             browserTabs.track(page, tabID: key)
+            if let surface = browserTabs.tabModel(key)?.surface, let notice = browserTabs.takeNotice(for: surface) {
+                entry.chrome.showNotice(notice)
+            }
             onBrowserReady?(key)
         }
         return nil
@@ -254,26 +269,6 @@ final class TabContentCache {
         }
     }
 
-    /// A page that loads nothing until the user reloads it; then the real
-    /// page replaces it (same key, same record).
-    private func deferred(_ tab: TabModel, url: URL?) -> BrowserEntry {
-        let key = tab.id
-        let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
-        let page = DeferredBrowserTab(id: BrowserTabID(rawValue: key), engine: engine, url: url, title: tab.title.isEmpty ? nil : tab.title)
-        page.onStart = { [weak self] url in self?.startDeferred(key, url: url) }
-        let entry = install(page, for: key)
-        entry.chrome.showNotice(CrashStrings.deferredPageNotice)
-        return entry
-    }
-
-    private func startDeferred(_ key: String, url: URL?) {
-        startedDeferred.insert(key)
-        browsers.removeValue(forKey: key)?.close()
-        guard let tab = browserTabs.tabModel(key) else { return }
-        if let entry = browser(for: tab), let url, url.absoluteString != tab.url { entry.tab.load(url) }
-        onBrowserReady?(key)
-    }
-
     /// A WebKit page for a Chromium record, with the fallback recorded and
     /// the one-time notice shown when this is the first.
     private func fallBack(_ tab: TabModel, url: URL?, reason: CEFUnavailableReason) -> BrowserEntry {
@@ -286,6 +281,7 @@ final class TabContentCache {
     private func tracked(_ entry: BrowserEntry, _ tab: TabModel) -> BrowserEntry {
         browserTabs.track(entry.tab, for: tab)
         if let notice = browserTabs.fallbacks.takeNotice(for: tab.surface) { entry.chrome.showNotice(notice) }
+        if let notice = browserTabs.takeNotice(for: tab.surface) { entry.chrome.showNotice(notice) }
         return entry
     }
 
@@ -294,15 +290,18 @@ final class TabContentCache {
     /// `pageRequests`; Chromium pages route app shortcuts to `keyRouter`
     /// (their page window is key, so `ShellWindow` never sees the key).
     @discardableResult
-    private func install(_ page: any BrowserTab, for key: String) -> BrowserEntry {
+    func install(_ page: any BrowserTab, for key: String) -> BrowserEntry {
         page.delegate = pageRequests
         if page.engineKind == .cef { page.keyRouter = keyRouter }
         (page as? CEFTab)?.devToolsObserver = self
         let incognito = OffTheRecordProfiles.shared.isOffTheRecord(page.profileID) ? incognitoMemory : nil
-        let entry = BrowserEntry(tab: page, suggestionEngine: incognito?.suggestions ?? suggestionEngine,
-                                 history: incognito?.history ?? history)
+        let entry = BrowserEntry(tab: page, suggestionEngine: incognito?.suggestions ?? suggestions(for: page.profileID),
+                                 history: incognito?.history ?? history(for: page.profileID))
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
+        serveAppPages(entry, key: key)
         entry.chrome.machineBadge = { [weak self] url in self?.machineBadge?(key, url) }
+        entry.chrome.addressBar.setProfileBadge(profileBadge?(key))
+        entry.chrome.addressBar.profileBadgeMenu = { [weak self] in self?.profileBadgeMenu?(key) }
         onBrowserEntryCreated?(entry)
         if page.engineKind == .cef, let handler = makeExtensionMenuHandler?(key) {
             entry.extensionMenuHandler = handler

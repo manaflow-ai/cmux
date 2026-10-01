@@ -27,10 +27,17 @@ extension ControlTopology {
             }),
             "workspace_groups": .array(workspaceGroups.map(\.json)),
             "workspaces": .array(workspaces.map(\.json)),
+            "sessions": .array(sessions.map(\.json)),
         ]
     }
 }
 
+extension ControlSessionInfo {
+    public var json: JSONValue {
+        ["id": .string(id), "qualifier": .string(qualifier), "machine": .string(machineID), "machine_name": .optional(machineName),
+         "session_name": .optional(sessionName), "home": .bool(isHome), "state": .string(state), "transport": .string(transport)]
+    }
+}
 extension ControlWorkspaceGroupInfo {
     public var json: JSONValue {
         ["id": .string(id), "name": .string(name), "color": .optional(color), "collapsed": .bool(isCollapsed)]
@@ -41,7 +48,7 @@ extension ControlWorkspaceInfo {
     public var json: JSONValue {
         ["id": .string(publicID), "key": .string(id), "handle": .string(handle), "name": .string(name), "title": .optional(title),
          "color": .optional(color), "icon": .optional(icon), "group": .optional(groupID), "unread": JSONValue(unreadCount),
-         "machine": .optional(machine), "screens": .array(screens.map(\.json))]
+         "machine": .optional(machine), "screens": .array(screens.map(\.json)), "session": .optional(sessionID)]
     }
 }
 

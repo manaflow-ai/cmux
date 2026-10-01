@@ -12,6 +12,25 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Config API returns window padding
+
+- Branch: `cmux-config-get-window-padding` ([manaflow-ai/ghostty#251](https://github.com/manaflow-ai/ghostty/pull/251), merge `dcb1d6965`)
+- Base: `9d8d40319` (`9961d09be` plus the styled blank row test fix)
+- Commits: `a230c2b25` (failing test), `b1a49b601` (fix)
+- Summary: `ghostty_config_get` returned false for `window-padding-x` and
+  `window-padding-y` because `WindowPadding` is a non-packed struct without
+  `cval`. `WindowPadding.C` and `cval` return `{top_left, bottom_right}` u32
+  points; `ghostty.h` declares `ghostty_config_window_padding_s`. cmux-next
+  reads it (`GhosttyRuntime.terminalPadding`) to put the terminal's first
+  column on the pane grid under the tab icons.
+- Coverage: the Ghostty test `c_get: window padding` (a step in
+  `build-ghosttykit.yml`), cmux-next `PaneAlignmentTests`.
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b1a49b6015235d2b36a8473ff5ae72aa16db82b0-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `740cd227436bbb9d705158f87479dd58a07c6432715f0e708a7a8d88929443a9`
+- Pinned by `feat-cmux-next` (previous pin there `9961d09be`).
+- Conflict note: if upstream adds its own C value for `WindowPadding`, keep
+  the field order `top_left`, `bottom_right`; cmux reads the header struct.
+
 ### Cloud VT replay keeps the active viewport anchored
 
 - Branch: `issue-15109-replay-fix`

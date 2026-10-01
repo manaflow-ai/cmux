@@ -31,6 +31,9 @@ final class CEFRuntime {
     // Routing tables (main thread).
     var tabsByBrowser: [Int32: CEFTab] = [:]
     var hosts: [CEFPaneKey: CEFPaneHost] = [:]
+    /// Profiles Chromium opened in this process (their files stay open
+    /// until shutdown, so a deleted one's directory waits for the next launch).
+    var usedProfiles: Set<BrowserProfileID> = []
     /// create_window tokens waiting for OnAfterCreated.
     var pendingWindows: [Int32: CEFPaneHost] = [:]
     /// The tab inside a synchronous cmux_tab_add call.
@@ -48,7 +51,7 @@ final class CEFRuntime {
     var windowRequestLog = CEFWindowRequestLog()
     /// Opens `url` in a new cmux tab when no Chromium window of its profile
     /// exists (the App sets it; the runtime has no panes of its own).
-    var openURLWithoutWindow: ((URL, BrowserNewTabDisposition) -> Void)?
+    var openURLWithoutWindow: ((URL, BrowserNewTabDisposition, BrowserProfileID?) -> Void)?
     /// An incognito request: the App opens `url` (nil: a new tab page) in a
     /// cmux incognito window, or in the incognito window of `source`.
     var openOffTheRecord: ((URL?, CEFTab?) -> Void)?
@@ -309,8 +312,10 @@ final class CEFRuntime {
         shim.setExtensionDeveloperMode(loadsUnpackedExtensions ? 1 : 0)
         // Pages use the theme color, never white or Chrome's #292929
         // (PageBackground); theme changes reach live tabs (fork API 12).
-        shim.setBackgroundColor(PageBackground.themeARGB)
+        shim.setBackgroundColor(PageBackground.appThemeARGB)
         ThemeStore.shared.addResponder(self)
+        // Extension popup windows keep their window id (CEFPopupWindows).
+        if CEFPopupWindows.isEnabled(forkAPIVersion: Int(shim.forkAPIVersion())) { shim.setPopupWindowsEnabled(1) }
         // chrome://newtab without an extension override (BrowserNewTabPage).
         shim.setNewTabPageURL(BrowserNewTabPage.blankURL)
         // Google Chrome's native messaging hosts after cmux's own.
@@ -322,9 +327,9 @@ final class CEFRuntime {
         let locale = library.locale
         logger.info("CEF locale \(locale.locale, privacy: .public), accept-languages \(locale.acceptLanguages, privacy: .public)")
         let context = Unmanaged.passUnretained(self).toOpaque()
-        // Chromium never opens a window of its own (fork API 8); the fork
-        // installs it at OnContextInitialized.
+        // Chromium never opens a window (fork API 8) nor focuses a page of its own.
         shim.setWindowRequestHandler(cefWindowRequestCallback)
+        shim.setFocusRequestHandler(cefFocusRequestCallback)
         let ok = switchStorage.withUnsafeBufferPointer { buffer in
             buffer.baseAddress!.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
                 shim.initialize(
@@ -367,6 +372,7 @@ final class CEFRuntime {
 
     func host(for key: CEFPaneKey) -> CEFPaneHost {
         if let host = hosts[key] { return host }
+        usedProfiles.insert(key.profile)
         let host = CEFPaneHost(key: key, runtime: self)
         hosts[key] = host
         return host

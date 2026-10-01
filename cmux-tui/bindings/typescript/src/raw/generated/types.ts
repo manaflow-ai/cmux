@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 16b0cbbce9b2cda10369f6a7b3aa64e1f950fef885ef7efd434dd222663ac474. */
+/* cmux-tui mux protocol 12, IR adbfa89de5ea3e4ee601c468ebe23c608b9eb8532e62701776fa0d86a6831300. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -257,6 +257,7 @@ export type IdentifyResult = {
   "daemon_handoff": 1;
   "generation": string;
   "ghostty_commit"?: (string) | null;
+  "launch_snapshot_path"?: (string) | null;
   "lifecycle_ready"?: boolean;
   "machine_name"?: string;
   "pid": number;
@@ -396,8 +397,11 @@ export type NotificationLevel = "info" | "warning" | "error";
 export type NotificationMarker = {
   "level": NotificationLevel;
   "notification": Id;
+  "source"?: NotificationSource;
   "unread": boolean;
 };
+
+export type NotificationSource = "cli" | "terminal" | "agent" | "daemon";
 
 export type NotifyResult = {
   "notification": Id;

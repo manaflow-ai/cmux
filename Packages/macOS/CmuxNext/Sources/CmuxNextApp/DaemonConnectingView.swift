@@ -18,10 +18,8 @@ final class DaemonConnectingView: NSView {
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
         titleLabel.font = Typography.body
-        titleLabel.textColor = Palette.textSecondary
         titleLabel.alignment = .center
         detailLabel.font = Typography.caption
-        detailLabel.textColor = Palette.textSecondary
         detailLabel.alignment = .center
         detailLabel.maximumNumberOfLines = 4
         detailLabel.isSelectable = true
@@ -44,6 +42,19 @@ final class DaemonConnectingView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        performWithTheme {
+            titleLabel.textColor = Palette.textSecondary
+            detailLabel.textColor = Palette.textSecondary
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        viewDidChangeEffectiveAppearance()
+    }
 
     func apply(_ state: DaemonStartupState) {
         self.state = state

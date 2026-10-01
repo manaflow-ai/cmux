@@ -4,9 +4,16 @@ nonisolated extension ActionCatalog {
     static func tabActions() -> [ActionDescriptor] {
         [
             ActionDescriptor(
+                id: "newTab.sameKind",
+                title: String(localized: "action.newTab.sameKind", defaultValue: "New Tab", bundle: .module),
+                keywords: ["tab", "terminal", "browser", "create"], defaultShortcut: Shortcut("t", modifiers: [.command]),
+                category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard, .menu],
+                arguments: [CatalogArgument.cwdString.optional], targets: [.tab], cliName: "tab new", mainMenu: .file
+            ),
+            ActionDescriptor(
                 id: "newSurface",
                 title: String(localized: "action.newSurface", defaultValue: "New Terminal Tab", bundle: .module),
-                keywords: ["tab", "terminal", "create"], defaultShortcut: Shortcut("t", modifiers: [.command]),
+                keywords: ["tab", "terminal", "create"],
                 category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard, .contextMenu],
                 arguments: [CatalogArgument.cwdString.optional, CatalogArgument.keepBool.optional], targets: [.tab], cliName: "tab new-terminal", startsTerminal: true
             ),

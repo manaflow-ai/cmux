@@ -11,7 +11,8 @@ public enum Density: String, Sendable, CaseIterable, Codable {
     case comfortable
 }
 
-public enum Metrics {
+public struct Metrics {
+    public init() {}
     /// Active density, read from `DesignSettings.shared`. Reading any metric
     /// inside an Observation-tracked scope (view layout, `withObservationTracking`)
     /// registers a dependency, so a density or override change re-lays out live.
@@ -71,6 +72,15 @@ public enum Metrics {
     /// Gap between niri columns.
     public static var columnGap: CGFloat { pick(6, 8, .columnGap) }
     /// Divider thickness between split panes (hit area is wider).
+    /// A room dot at the bottom of the sidebar (drawn size; its hit target
+    /// is `roomDotSlot` wide and the bar's full height).
+    public static var roomDotDiameter: CGFloat { pick(5, 6) }
+    public static var roomDotSlot: CGFloat { pick(16, 18) }
+
+    /// Height of the fade at a scrolling list's top or bottom edge while
+    /// content is hidden beyond it (`ScrollEdgeFade`).
+    public static var scrollEdgeFade: CGFloat { pick(18, 22) }
+
     public static let dividerThickness: CGFloat = 1
     public static let dividerHitWidth: CGFloat = 7
 
@@ -79,6 +89,27 @@ public enum Metrics {
     public static var panePadding: CGFloat {
         DesignSettings.shared.paneChrome.padding ?? (density == .compact ? 2 : 4)
     }
+
+    // MARK: Pane alignment grid
+
+    // Every pane lines up on two vertical lines measured from its content
+    // edge (the rounded border's left side, which the tab strip shares):
+    // the chrome line, where tab pills and toolbar button shapes start, and
+    // the content line, where the tab icon, the terminal's first text
+    // column and the first toolbar glyph start (dogfood nxdog12: "need
+    // proper left alignment here").
+
+    /// Horizontal padding inside a pane's tab strip (its vertical inset, so
+    /// tabs sit in an even frame).
+    public static var tabStripEdgeInset: CGFloat { max(0, (tabStripHeight - tabHeight) / 2) }
+    /// Inset of a tab's rounded background inside its slot.
+    public static let tabBackgroundInset: CGFloat = space1 / 2
+    /// Inset of a tab's icon from its slot's leading edge.
+    public static let tabContentLeadingInset: CGFloat = space4
+    /// The chrome line: tab pills and toolbar button shapes.
+    public static var paneChromeInset: CGFloat { tabStripEdgeInset + tabBackgroundInset }
+    /// The content line: tab icons, the terminal's first column, glyphs.
+    public static var paneContentInset: CGFloat { tabStripEdgeInset + tabContentLeadingInset }
 
     // MARK: Shape
 
@@ -115,7 +146,8 @@ public enum Metrics {
 
 /// Type scale. Compact uses 12 pt body in chrome (terminal fonts come from
 /// the Ghostty config and are not affected).
-public enum Typography {
+public struct Typography {
+    public init() {}
     private static var compact: Bool { Metrics.density == .compact }
     /// User override for chrome body size; other styles scale from it.
     private static var scale: CGFloat {

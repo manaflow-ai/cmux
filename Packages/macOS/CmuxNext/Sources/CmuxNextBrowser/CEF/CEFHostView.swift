@@ -34,7 +34,7 @@ final class CEFHostView: NSView {
     /// Until Chromium's page window shows its first frame, the page area is
     /// the theme color, never white (`PageBackground`).
     private func updateBackground() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             layer?.backgroundColor = Palette.pageBackground.cgColor
         }
     }
@@ -111,9 +111,15 @@ final class CEFTabContentView: NSView {
     // Not flipped, like CEFHostView, so occlusion rects in this view's
     // coordinates are also valid in the host view that fills it.
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        tab?.pageThemeDidChange()
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard let tab else { return }
+        tab.pageThemeDidChange()
         if window != nil {
             tab.contentDidAppear(in: self)
         } else {
@@ -139,7 +145,9 @@ final class CEFTabContentView: NSView {
         let devToolsHost = tab?.devToolsViews?.host
         for subview in subviews {
             let frame: CGRect
-            if subview === devToolsHost {
+            if subview is SidePanelHeaderView {
+                frame = tab?.sidePanelHeaderFrame ?? .zero
+            } else if subview === devToolsHost {
                 frame = frames.devTools
             } else if subview is CEFDevToolsDivider {
                 frame = frames.grab

@@ -28,8 +28,16 @@ import PackageDescription
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
 //   CmuxNextBrowserImport -> system frameworks only (browser detection, parsers, importer; no UI)
 //   CmuxNextOnboarding -> Design, BrowserImport (first-run window; the App supplies OnboardingServices)
+//   CmuxNextHistory -> Design (history model, SQLite visit log, cmux://history page; no daemon)
+//   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
+//     client, pasted-key Keychain store, account row state; no UI, no daemon; plans/cmux-next/coderouter.md)
+//   CmuxNextAccounts -> CodeRouter, Design (Settings > Accounts and the onboarding step; the App supplies AccountsServices)
+//   CmuxNextBookmarks -> Design (bookmark tree per browser profile, Netscape HTML, ranking, file store,
+//     cmux://bookmarks page, bookmarks bar, edit bubble; no daemon; the App supplies the store)
 //   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
+//   CmuxNextAgentPane -> Design, Actions (WKWebView host for the React agent pane and the acpmux
+//     handshake; the page talks to acpmux itself; no daemon)
 
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
 let uiSwiftSettings: [SwiftSetting] = [
@@ -100,10 +108,63 @@ let package = Package(
                 "CmuxNextResources",
                 "CmuxNextBrowserImport",
                 "CmuxNextOnboarding",
+                "CmuxNextAgentPane",
+                "CmuxNextHistory",
+                "CmuxNextCodeRouter",
+                "CmuxNextAccounts",
+                "CmuxNextBookmarks",
             ],
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Agent pane (plans/cmux-next roadmap Phase 1): hosts the React pane
+        // from webviews/src/agent-session/acpmux, built into
+        // Resources/agent-pane by scripts/cmux-next/build-agent-pane-web.sh,
+        // and answers its versioned handshake (find or start acpmux, endpoint,
+        // token, session id). Everything above the handshake is TypeScript.
+        .target(
+            name: "CmuxNextAgentPane",
+            dependencies: ["CmuxNextDesign", "CmuxNextActions"],
+            resources: [
+                .process("Resources/Localizable.xcstrings"),
+                .copy("Resources/agent-pane"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAgentPaneTests",
+            dependencies: ["CmuxNextAgentPane", "CmuxNextActions", "CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // CodeRouter and provider accounts (plans/cmux-next/coderouter.md):
+        // presence-only detection of local sign-ins (Codex, Claude Code, API
+        // keys, clouds, local servers), the /api/coderouter control-plane
+        // client, the pasted-key Keychain store and the row state machine.
+        .target(
+            name: "CmuxNextCodeRouter",
+            dependencies: ["CmuxNextCloud"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextCodeRouterTests",
+            dependencies: ["CmuxNextCodeRouter"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // The Accounts screen (Settings > Accounts, onboarding step). The App
+        // supplies `AccountsServices`.
+        .target(
+            name: "CmuxNextAccounts",
+            dependencies: ["CmuxNextCodeRouter", "CmuxNextDesign"],
+            resources: [
+                .process("Localizable.xcstrings"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAccountsTests",
+            dependencies: ["CmuxNextAccounts", "CmuxNextCodeRouter"],
             swiftSettings: uiSwiftSettings
         ),
         // Browser import (onboarding step 2; data-model.md 5): source detection
@@ -140,6 +201,39 @@ let package = Package(
         // Resource usage for hover cards and `resources` (CPU and memory per
         // tab, per workspace, shared processes apart). Pure aggregation and a
         // sampler that runs only while a card is open.
+        // History (plans/cmux-next/history.md): the location trail, merged
+        // history entries, search, agent sessions from the session journal,
+        // the per-profile page visit log (SQLite), and the cmux://history page.
+        .target(
+            name: "CmuxNextHistory",
+            dependencies: ["CmuxNextDesign"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextHistoryTests",
+            dependencies: ["CmuxNextHistory"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Bookmarks (plans/cmux-next/bookmarks.md): the tree per browser
+        // profile, Netscape HTML import/export, omnibar ranking, the local
+        // file store, the cmux://bookmarks page, the bookmarks bar and the
+        // edit bubble.
+        .target(
+            name: "CmuxNextBookmarks",
+            dependencies: ["CmuxNextDesign"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextBookmarksTests",
+            dependencies: ["CmuxNextBookmarks"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextResources",
             dependencies: ["CmuxNextWakeups", "CmuxNextDesign"],
@@ -242,6 +336,24 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextActions",
+            resources: [
+                .process("AccountsActions.xcstrings"),
+                .process("BookmarkActions.xcstrings"),
+                .process("BrowserProfileActions.xcstrings"),
+                .process("Extensions.xcstrings"),
+                .process("HibernationActions.xcstrings"),
+                .process("HistoryActions.xcstrings"),
+                .process("LayoutActions.xcstrings"),
+                .process("Localizable.xcstrings"),
+                .process("PageInfoActions.xcstrings"),
+                .process("ProfileActions.xcstrings"),
+                .process("RemoteActions.xcstrings"),
+                .process("ScreenActions.xcstrings"),
+                .process("SettingsActions.xcstrings"),
+                .process("ShortcutRecorder.xcstrings"),
+                .process("ThemeActions.xcstrings"),
+                .process("WorkspaceActions.xcstrings"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -289,6 +401,9 @@ let package = Package(
         .target(
             name: "CmuxNextTabs",
             dependencies: ["CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources"],
+            resources: [
+                .process("Resources"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -312,6 +427,9 @@ let package = Package(
         .target(
             name: "CmuxNextPalette",
             dependencies: ["CmuxNextDesign", "CmuxNextActions"],
+            resources: [
+                .process("Localizable.xcstrings"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -337,7 +455,7 @@ let package = Package(
             dependencies: ["CmuxNextWakeups", "CmuxNextDesign"],
             // The CEF shim's C header: its SHA-256 is the shim ABI identity
             // (CEFShimABI, scripts/cmux-next/build-cef-shim.sh).
-            resources: [.copy("CEF/Shim/cmux_cef_shim.h")],
+            resources: [.copy("CEF/Shim/cmux_cef_shim.h"), .process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -359,6 +477,9 @@ let package = Package(
         .target(
             name: "CmuxNextSettings",
             dependencies: ["CmuxNextDesign", "CmuxNextActions", "CmuxNextWakeups"],
+            resources: [
+                .process("Localizable.xcstrings"),
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -369,6 +490,9 @@ let package = Package(
         .target(
             name: "CmuxNextSettingsWindow",
             dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions"],
+            resources: [
+                .process("Localizable.xcstrings"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -379,6 +503,9 @@ let package = Package(
         .target(
             name: "CmuxNextControl",
             dependencies: ["CmuxNextWakeups", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon"],
+            resources: [
+                .process("Localizable.xcstrings"),
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -388,7 +515,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextApp", "CmuxNextActions"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory"],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),

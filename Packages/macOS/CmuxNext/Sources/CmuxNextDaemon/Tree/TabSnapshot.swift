@@ -34,6 +34,8 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
     public var browserProfileID: String?
     /// Chrome-style group membership (`tab-groups-v1`, wire `group`).
     public var tabGroup: TabGroupID?
+    /// The terminal a `remote-terminal` tab references (`remote-terminal-tabs-v1`).
+    public var remote: RemoteTerminalRef?
 
     public init(
         surface: SurfaceID,
@@ -91,11 +93,11 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
 
     /// True when the app draws this tab itself; `attach-surface` refuses it.
     public var isFrontendOwned: Bool {
-        browserRenderer == "frontend"
+        browserRenderer == "frontend" || kind == .remoteTerminal
     }
 
     enum CodingKeys: String, CodingKey {
-        case surface, kind, name, title, size, dead, notification, url, pinned, cwd
+        case surface, kind, name, title, size, dead, notification, url, pinned, cwd, remote
         case tabResourceID = "tab_resource_id"
         case contentResourceID = "content_resource_id"
         case terminalID = "terminal_id"
@@ -144,5 +146,6 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
         faviconURL = try c.decodeIfPresent(String.self, forKey: .faviconURL)
         browserProfileID = try c.decodeIfPresent(String.self, forKey: .browserProfileID)
         tabGroup = try c.decodeIfPresent(TabGroupID.self, forKey: .tabGroup)
+        remote = kind == .remoteTerminal ? try? c.decodeIfPresent(RemoteTerminalRef.self, forKey: .remote) : nil
     }
 }

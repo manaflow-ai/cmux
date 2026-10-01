@@ -31,7 +31,19 @@ enum DebugPopups {
             "child_windows": .array((panel.childWindows ?? []).map { child in
                 .object(["frame": rect(child.frame), "key": .bool(child.isKeyWindow), "visible": .bool(child.isVisible)])
             }),
+            "views": .array(panel.contentView.map { views($0, depth: 0) } ?? []),
         ])
+    }
+
+    /// The panel's view tree (class, frame in the window, hidden), to see
+    /// where the page view sits and whether it has a size.
+    private static func views(_ view: NSView, depth: Int) -> [JSONValue] {
+        var out: [JSONValue] = [.object([
+            "depth": .number(Double(depth)), "class": .string(String(describing: type(of: view))),
+            "frame": rect(view.convert(view.bounds, to: nil)), "hidden": .bool(view.isHidden),
+        ])]
+        if depth < 12 { for sub in view.subviews { out += views(sub, depth: depth + 1) } }
+        return out
     }
 
     private static func rect(_ rect: CGRect) -> JSONValue {

@@ -25,8 +25,6 @@ extension TerminalSurfaceView {
             } else {
                 NSSound.beep()
             }
-        case .desktopNotification(let title, let body):
-            session.delegate?.terminalSession(session, didPostNotification: title, body: body)
         case .openURL(let text):
             guard let url = Self.url(from: text) else { return false }
             if let delegate = session.delegate {

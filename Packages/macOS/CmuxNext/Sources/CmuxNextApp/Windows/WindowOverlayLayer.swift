@@ -47,6 +47,8 @@ final class WindowOverlayLayer {
     let catchers: DividerMouseCatchers
     private var observers: [any NSObjectProtocol] = []
     private var isEvaluating = false
+    /// Set by `teardown` (the window is closing): nothing is placed again.
+    private var isTornDown = false
     /// A window geometry change whose layout pass has not run yet.
     private var pageUpdateAfterLayout = false
     /// Reorders done (for `debug.layers`).
@@ -90,6 +92,7 @@ final class WindowOverlayLayer {
     }
 
     func teardown() {
+        isTornDown = true
         catchers.teardown()
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
@@ -120,7 +123,10 @@ final class WindowOverlayLayer {
 
     /// The layout root finished a layout pass: pages re-apply once after a
     /// window geometry change, now that their host views have final frames.
-    func planeDidLayout() {
+    func planeDidLayout(_ plane: OverlayPlane) {
+        #if DEBUG
+        recordRingLag(plane)
+        #endif
         guard pageUpdateAfterLayout else { return }
         pageUpdateAfterLayout = false
         for plane in planes { plane.syncFrame() }
@@ -184,7 +190,7 @@ final class WindowOverlayLayer {
     /// Moves the planes to where they draw above content, and restores the
     /// child window order when a page window was added above the overlay.
     func evaluate() {
-        guard !isEvaluating else { return }
+        guard !isEvaluating, !isTornDown else { return }
         isEvaluating = true
         defer { isEvaluating = false }
         let wanted: Placement = window.isVisible && !Self.contentChildWindows(of: window).isEmpty ? .overlayWindow : .inWindow
@@ -203,7 +209,7 @@ final class WindowOverlayLayer {
     private func showPanel() {
         let panel = panel ?? WindowOverlayPanel()
         self.panel = panel
-        ThemeStore.shared.adopt(panel)
+        window.themeScope.adopt(panel)
         panel.setFrame(window.frame, display: false)
         if panel.parent !== window { window.addChildWindow(panel, ordered: .above) }
     }
@@ -279,6 +285,24 @@ final class WindowOverlayLayer {
     }
 
     // MARK: Diagnostics
+
+    #if DEBUG
+    /// Layout passes of the root (window resize, sidebar, divider, column
+    /// scroll) that ended with a focus ring off its pane, and the last such
+    /// mismatch (`debug.layers`). The ring must move in the pass that places
+    /// the panes, even while the plane lives in the overlay panel.
+    private(set) var ringLayoutPasses = 0
+    private(set) var ringLagPasses = 0
+    private(set) var lastRingLag: String?
+
+    private func recordRingLag(_ plane: OverlayPlane) {
+        guard let root = plane.home as? LayoutRootView else { return }
+        ringLayoutPasses += 1
+        guard let lag = root.overlayRings.first(where: { $0.showsRing && $0.ringInWindow != $0.contentInWindow }) else { return }
+        ringLagPasses += 1
+        lastRingLag = "\(lag.pane): ring \(lag.ringInWindow), content \(lag.contentInWindow), placement \(placement.rawValue)"
+    }
+    #endif
 
     /// Whether the overlay is above every visible content child window (or
     /// not needed because there is none).

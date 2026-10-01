@@ -2762,6 +2762,10 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     assert 'allowed = {"success", "skipped"}' in block
 
 
+# ci.yml's legacy lanes skip PRs into feat-cmux-next, which cmux-next.yml covers.
+FEAT_CMUX_NEXT_PR_SKIP = "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next')"
+
+
 def test_required_tests_status_waits_for_platform_workflows() -> None:
     block = workflow_job_block("tests")
 
@@ -2770,7 +2774,7 @@ def test_required_tests_status_waits_for_platform_workflows() -> None:
         assert f"      - {job_name}" in block
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
-    assert "if: ${{ always() }}" in block
+    assert f"if: ${{{{ always() && {FEAT_CMUX_NEXT_PR_SKIP} }}}}" in block
     assert 'macos_route not in {"true", "false"}' in block
     assert 'macos_result != "success"' in block
     assert 'web_result not in {"success", "skipped"}' in block

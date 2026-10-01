@@ -18,8 +18,8 @@ public final class ResourceSummaryView: NSView {
     }
 
     private let stack = NSStackView()
-    private let totalLabel = ResourceSummaryView.label(Typography.caption, Palette.textSecondary)
-    private let sharedLabel = ResourceSummaryView.label(Typography.caption, Palette.textTertiary)
+    private let totalLabel = ResourceSummaryView.label(Typography.caption)
+    private let sharedLabel = ResourceSummaryView.label(Typography.caption)
     private var rows: [(title: NSTextField, value: NSTextField, row: NSStackView)] = []
     private var report: ResourceReport?
 
@@ -63,6 +63,28 @@ public final class ResourceSummaryView: NSView {
         }
     }
 
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyColors()
+    }
+
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    /// Theme colors for every label, again on each theme change.
+    private func applyColors() {
+        performWithTheme {
+            totalLabel.textColor = Palette.textSecondary
+            sharedLabel.textColor = Palette.textTertiary
+            for row in rows {
+                row.title.textColor = Palette.textPrimary
+                row.value.textColor = Palette.textSecondary
+            }
+        }
+    }
+
     private func render() {
         totalLabel.font = Typography.caption
         sharedLabel.font = Typography.caption
@@ -101,10 +123,10 @@ public final class ResourceSummaryView: NSView {
 
     private func setRowCount(_ count: Int) {
         while rows.count < count {
-            let title = Self.label(Typography.caption, Palette.textPrimary)
+            let title = Self.label(Typography.caption)
             title.lineBreakMode = .byTruncatingTail
             title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            let value = Self.label(Typography.caption, Palette.textSecondary)
+            let value = Self.label(Typography.caption)
             value.alignment = .right
             value.setContentCompressionResistancePriority(.required, for: .horizontal)
             value.setContentHuggingPriority(.required, for: .horizontal)
@@ -115,14 +137,14 @@ public final class ResourceSummaryView: NSView {
             stack.insertArrangedSubview(row, at: stack.arrangedSubviews.count - 1)
             row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
             rows.append((title, value, row))
+            applyColors()
         }
         for (index, row) in rows.enumerated() { row.row.isHidden = index >= count }
     }
 
-    private static func label(_ font: NSFont, _ color: NSColor) -> NSTextField {
+    private static func label(_ font: NSFont) -> NSTextField {
         let field = NSTextField(labelWithString: "")
         field.font = font
-        field.textColor = color
         field.lineBreakMode = .byTruncatingTail
         field.maximumNumberOfLines = 1
         field.cell?.truncatesLastVisibleLine = true

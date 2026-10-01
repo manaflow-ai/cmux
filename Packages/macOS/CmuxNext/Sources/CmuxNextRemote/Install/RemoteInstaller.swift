@@ -103,7 +103,8 @@ public struct RemoteInstaller: Sendable {
 
 /// The commit of the app's bundled cmux-tui: `cmux-tui.version` next to the
 /// binary (`commit=`), else the commit in `cmux-tui --version`.
-public enum BundledCmuxTUI {
+public struct BundledCmuxTUI {
+    public init() {}
     public static func commit(binary: URL) async -> String? {
         let versionFile = binary.deletingLastPathComponent().appendingPathComponent("cmux-tui.version")
         if let text = try? String(contentsOf: versionFile, encoding: .utf8),

@@ -57,26 +57,59 @@ public enum DaemonCapabilities {
     /// Browser tabs reach the machine's loopback services over a dedicated
     /// connection (`LoopbackForwardClient`, plans/cmux-next/remote-localhost.md).
     public static let loopbackForward = "loopback-forward-v1"
+    /// `source` on notifications (cli, terminal, agent, daemon), and OSC 9,
+    /// OSC 777 and OSC 99 parsed by the daemon from every terminal's output
+    /// (plans/cmux-next/notifications.md).
+    public static let notificationSource = "notification-source-v1"
+    /// `shell_args` on the terminal-creating commands, so bash and nushell
+    /// get Ghostty's argv-based shell integration (`GhosttyShellIntegration`).
+    public static let terminalShellArgs = "terminal-shell-args-v1"
+    /// `launch_snapshot_path` in `identify`: the daemon's last settled tree
+    /// and window records, read before connecting (`LaunchSnapshot`).
+    public static let launchSnapshot = "launch-snapshot-v1"
     /// Profiles (plans/cmux-next/data-model.md): the `*-profile` commands,
     /// `move-workspace-to-profile`, `profiles` in `list-workspaces`, and a
     /// `profile` field on workspaces, groups and saved tab groups.
     public static let profiles = "profiles-v1"
+    /// `identify.session_id` and `identify.machine_name` (data-model.md 1.1);
+    /// informational, the app falls back to `registry_id` and its own names.
+    public static let sessionIdentity = "session-identity-v1"
+    /// Remote-terminal tabs in a home layout: `new-remote-terminal-tab`,
+    /// `update-remote-terminal-tab`, `remote-terminal-snapshot`, tab kind
+    /// `remote-terminal` with `remote` (data-model.md 1.2b, 1.4, 1.5), and
+    /// `terminal_resource_id` in the `set-terminal-keep` result.
+    public static let remoteTerminalTabs = "remote-terminal-tabs-v1"
+    /// `create-terminal {detached: true}`: a kept terminal with no tab.
+    public static let detachedTerminals = "detached-terminals-v1"
     /// Personal state kept only on the home (local) session
     /// (plans/cmux-next/data-model.md): a remote daemon never needs these.
-    public static let homeOnly: [String] = [profiles]
+    /// Per-terminal themes in personal state (`set-personal-terminal`).
+    public static let personalTerminals = "personal-terminals-v1"
+    /// Browser profile records in personal state (plans/cmux-next/data-model.md 5).
+    public static let browserProfiles = "browser-profiles-v1"
+    /// Bookmarks per browser profile in personal state (plans/cmux-next/bookmarks.md).
+    public static let bookmarks = "bookmarks-v1"
+    public static let homeOnly: [String] = [profiles, personalTerminals, browserProfiles, bookmarks]
     /// Written to the local daemon's personal rows instead of each machine's
     /// daemon once the local daemon serves `profiles-v1`.
     public static let personalOnHome: [String] = [workspaceGroups, savedTabGroups]
+    /// A replay taken inside an escape sequence carries the unfinished bytes
+    /// in `pending` (main PR 15533). Without it, cmux-tui ends a view's attach
+    /// stream whenever a PTY resize happens mid-sequence (a relaunch resizes
+    /// every restored terminal), and the view freezes.
+    public static let terminalPendingSequence = "terminal-pending-sequence-v1"
     public static let optional: [String] = [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, batchClose, loopbackForward]
+                                            terminalReap, batchClose, loopbackForward, screenMetadata, screenGroups, profiles,
+                                            terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
+                                            terminalShellArgs, launchSnapshot]
 
     /// Capabilities the app already speaks but the pinned cmux-tui does not
     /// serve yet. They are advertised, so a daemon that has them enables them,
     /// but they are not in `optional` (the pinned daemon must serve every
     /// `optional` capability, BranchDaemonTests). The pin commit that brings
     /// one moves it into `optional`.
-    public static let awaitingPin: [String] = [profiles, screenMetadata, screenGroups]
+    public static let awaitingPin: [String] = [remoteTerminalTabs, detachedTerminals, bookmarks]
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     public static let advertised: [String] = required + optional + awaitingPin + [

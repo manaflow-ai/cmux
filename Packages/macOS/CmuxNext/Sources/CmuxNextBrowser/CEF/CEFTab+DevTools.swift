@@ -95,7 +95,7 @@ extension CEFTab {
     }
 
     private func makeDevToolsWindow() -> CEFDevToolsWindow {
-        let window = CEFDevToolsWindow(frame: CEFDevToolsWindow.frame(near: container.window))
+        let window = CEFDevToolsWindow(frame: CEFDevToolsWindow.frame(near: container.window), owner: container.window)
         window.title = Strings.devToolsWindowTitle(state.title)
         window.onClose = { [weak self] in self?.performDevTools(.close) }
         devToolsWindow = window
@@ -200,6 +200,7 @@ extension CEFTab {
             let pageFrame = host.hostView.frame
             var rects = occlusionRects
             if !frames.grab.isEmpty { rects.append(frames.grab) }
+            if let header = sidePanelHeaderFrame { rects.append(header) }
             host.hostView.occlusionRects = Self.local(rects, in: pageFrame)
         }
         if let views = devToolsViews {

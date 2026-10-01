@@ -28,12 +28,11 @@ extension TabStripView {
         guard let item = model.tab(id), let cell = cells[id] else { return }
         cancelInlineRename()
         hoverCard.hide(allowsQuickReshow: false)
-        let field = NSTextField(string: item.title)
+        // Follows theme changes while open (ThemedTextField).
+        let field = ThemedTextField(string: item.title)
         field.font = Typography.body
         field.isBordered = false
         field.drawsBackground = true
-        field.backgroundColor = Palette.windowBackground
-        field.textColor = Palette.textPrimary
         field.focusRingType = .none
         field.lineBreakMode = .byClipping
         field.cell?.isScrollable = true

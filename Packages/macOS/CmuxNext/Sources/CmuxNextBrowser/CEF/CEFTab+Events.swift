@@ -63,6 +63,8 @@ extension CEFTab {
             if let url = URL(string: url) { emit(.rerouteStore(url)) }
         case .keyUnhandled(_, let keyCode):
             if keyCode == 0x1B { emit(.unhandledEscape) }
+        case .takeFocus(_, let forward):
+            emit(.takeFocus(forward: forward))
         case .renderTerminated(_, let status, let code, _):
             rendererTerminated(.cef(status: status, code: code))
         case .renderUnresponsive:
@@ -88,8 +90,9 @@ extension CEFTab {
             favicon = nil
             return
         }
+        let profile = profileID
         faviconTask = Task { [weak self] in
-            let image = await BrowserFaviconLoader.shared.favicon(at: url)
+            let image = await BrowserFaviconLoader.shared.favicon(at: url, profile: profile)
             guard !Task.isCancelled else { return }
             self?.favicon = image
         }

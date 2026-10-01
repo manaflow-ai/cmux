@@ -69,10 +69,12 @@ extension CEFRuntime {
 }
 
 extension CEFRuntime: ThemeResponsive {
-    /// The Ghostty theme changed: live Chromium tabs repaint their page
-    /// background (fork API 12; the shim skips an unchanged color).
+    /// The Ghostty theme changed: Chromium's process default follows it.
+    /// Each attached tab owns its background, set from its view's theme
+    /// scope (`CEFTab.pageThemeDidChange`), so this reaches only browsers
+    /// still being created (fork API 12; the shim skips an unchanged color).
     func themeDidChange() {
         guard state == .ready else { return }
-        shim?.setBackgroundColor(PageBackground.themeARGB)
+        shim?.setBackgroundColor(PageBackground.appThemeARGB)
     }
 }

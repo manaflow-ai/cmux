@@ -69,18 +69,18 @@ import Testing
     /// border color reset, and Make cmux the Default Browser. Window
     /// counts Minimize (no inventory row; used by idle and visibility checks).
     static let expectedCounts: [ActionCategory: Int] = [
-        .window: 24,
-        .workspace: 135, // 80 + 29 room actions (plans/cmux-next/data-model.md 7) + showResources + 25 workspace verbs
-        .pane: 66, // + Move Pane to New Workspace
+        .window: 31, // + Quit and Keep Sessions, Quit and End Sessions (Keep Layout), Quit and End Everything; + 4 history (history.md)
+        .workspace: 139, // 80 + 29 room actions (plans/cmux-next/data-model.md 7) + showResources + 25 workspace verbs + 4 room/workspace theme actions
+        .pane: 67, // + Move Pane to New Workspace, Undo Layout Change
         .screen: 62,
-        .tab: 75, // + Show Tab (`tab.focus`, state-ownership.md 3)
-        .terminal: 33,
-        .browser: 78,
+        .tab: 76, // + Show Tab (`tab.focus`, state-ownership.md 3) + New Tab of the same kind
+        .terminal: 35, // + Set / Reset Terminal Theme
+        .browser: 110, // 78 - 2 profile placeholders + 18 browser profile actions (data-model.md 5) + Show History (Cmd-Y in a page) + 15 bookmark actions
         .sidebar: 30,
         .notifications: 18,
-        .agents: 16,
-        .cloud: 23,
-        .remote: 6, // SSH machines (Connect to Machine…)
+        .agents: 17, // + Resume Agent Session
+        .cloud: 28, // + accounts.show, refresh, reauthenticate, connect, remove
+        .remote: 7, // SSH machines (Connect to Machine…), Open Terminal on Machine Here
         .settings: 47,
     ]
 

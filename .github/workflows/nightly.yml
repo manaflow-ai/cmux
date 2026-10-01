@@ -1065,13 +1065,23 @@ jobs:
           go-version: '1.26.x'
           cache: false
 
-      # The Embed CEF phase fetches the pinned Chromium engine from the private
-      # manaflow-ai/cef release (scripts/cmux-next/cef-manifest.json). With no
-      # readable token it builds without the engine and the app reports the
+      # The Embed CEF phase embeds the pinned Chromium engine
+      # (scripts/cmux-next/cef-manifest.json) from the ensure-cef cache. This
+      # step fills the cache from the private R2 bucket with the read-only key
+      # (the GitHub release with CMUX_CEF_READ_TOKEN is the fallback); only
+      # this step gets the key, so the build step runs without it. With no
+      # readable source the app builds without the engine and reports the
       # browser unavailable; "Report the embedded Chromium engine" flags that.
-      - name: Build nightly app (Release)
+      - name: Fetch the Chromium engine
         env:
+          CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
+          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          CMUX_CEF_R2_ENV_FILE: /dev/null
           GH_TOKEN: ${{ secrets.CMUX_CEF_READ_TOKEN }}
+        run: scripts/cmux-next/ensure-cef.sh --optional
+
+      - name: Build nightly app (Release)
         run: |
           set -euo pipefail
           if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then
@@ -1235,7 +1245,7 @@ jobs:
           if [[ -d "$framework" ]]; then
             echo "Chromium engine embedded: $(lipo -archs "$framework/Versions/A/Chromium Embedded Framework")"
           else
-            echo "::warning title=No Chromium engine::The CEF artifact was not readable (secret CMUX_CEF_READ_TOKEN); this build ships the browser as unavailable."
+            echo "::warning title=No Chromium engine::The CEF artifact was not readable (secrets CMUX_CEF_R2_*); this build ships the browser as unavailable."
           fi
 
       - name: Archive unsigned nightly app
@@ -1304,6 +1314,9 @@ jobs:
           echo "commit=$cmux_tui_commit" >> "$GITHUB_OUTPUT"
 
   build-sign-notarize-nightly:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
@@ -1748,9 +1761,9 @@ jobs:
 
       - name: Notarize app ticket through final DMG
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           CMUX_CHANNEL: ${{ needs.decide.outputs.channel }}
         run: |
@@ -1835,6 +1848,9 @@ jobs:
           rm -f /tmp/cert.p12
 
   publish-nightly:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
     # rc/** branches share one release. Serialize its mutable aliases and feeds
     # by channel, even when workflow-level groups have different branch names.
     concurrency:

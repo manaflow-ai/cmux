@@ -73,9 +73,10 @@ enum ControlTopologyMapper {
         let kind = switch model.kind {
         case .pty: "terminal"
         case .browser: "browser"
+        case .remoteTerminal: "remote-terminal"
         case .other(let value): value
         }
-        return ControlTabInfo(
+        var info = ControlTabInfo(
             id: model.id,
             surface: model.surface.description,
             kind: kind,
@@ -93,5 +94,8 @@ enum ControlTopologyMapper {
             tabGroupID: model.tabGroup?.rawValue,
             agentState: model.agent?.state.rawValue
         ).withTerminalResource(model.terminalResourceID?.rawValue)
+        info.remoteSessionID = model.remote?.sessionID
+        info.remoteTerminalID = model.remote?.terminalID.rawValue
+        return info
     }
 }

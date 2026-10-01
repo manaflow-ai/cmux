@@ -4,6 +4,10 @@ public enum ContextMenuEntry: Sendable, Hashable {
     case separator
     /// A submenu titled by an action's title (without its ellipsis).
     case submenu(ActionID, [ContextMenuEntry])
+    /// A submenu titled by an action, one item per value of its first
+    /// enumeration argument (Set Room Theme > Nord, Vesper, ...). Hovering
+    /// an item previews it (`ActionRegistry.choicePreview`).
+    case choices(ActionID)
 }
 
 /// Right-click menus declared as ordered action ID lists per context. The
@@ -28,6 +32,9 @@ public enum ContextMenuCatalog {
         case .sshMachine: sshMachine
         case .newTab: newTab
         case .profile: profile
+        case .browserProfile: browserProfile
+        case .bookmark: bookmark
+        case .bookmarksBar: bookmarksBar
         }
     }
 
@@ -38,6 +45,7 @@ public enum ContextMenuCatalog {
             case .action(let id): [id]
             case .separator: []
             case .submenu(let id, let children): [id] + referencedIDs(children)
+            case .choices(let id): [id]
             }
         }
     }
@@ -54,12 +62,13 @@ public enum ContextMenuCatalog {
     /// The + button: one entry per tab kind. Chromium shows disabled, with
     /// its reason, when this build has no CEF runtime.
     static let newTab: [ContextMenuEntry] =
-        actions("newSurface", "openBrowser.webkit", "openBrowser.chromium")
+        actions("newSurface", "openBrowser.webkit", "openBrowser.chromium", "browserProfile.newTab", "palette.newAgentChat")
 
     static let tab: [ContextMenuEntry] =
         actions("newSurface", "openBrowser.webkit", "openBrowser.chromium", "duplicateTab", "reloadTab") + [.separator]
-        + actions("browser.openInChromium", "browser.openInWebKit") + [.separator]
+        + actions("browser.openInChromium", "browser.openInWebKit", "browserProfile.moveTab", "browserProfile.duplicateTab") + [.separator]
         + actions("renameTab", "palette.clearTabName", "palette.toggleTabPin", "palette.toggleTabUnread", "toggleTabAudioMute")
+        + [.choices("terminal.setTheme")] + actions("terminal.clearTheme")
         + [.separator] + actions("tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab") + [.separator]
         + actions("moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
                   "tab.moveToNewSplit", "tab.moveToNewColumn", "palette.moveTabToNewWorkspace", "tab.moveToNewWindow",
@@ -95,7 +104,7 @@ public enum ContextMenuCatalog {
         actions("splitRight", "splitDown", "splitLeft", "splitUp", "newColumn", "splitBrowserRight", "splitBrowserDown")
         + [.separator] + actions("toggleSplitZoom", "equalizeSplits", "triggerFlash", "renamePane") + [.separator]
         + actions("palette.swapWithSession", "reconnectPane") + [.separator]
-        + actions("pane.moveToNewWorkspace") + [.separator]
+        + actions("pane.moveToNewWorkspace", "remote.openTerminalHere") + [.separator]
         + actions("palette.copyPaneID", "palette.copyPaneLink") + [.separator] + actions("closePane")
 
     static let column: [ContextMenuEntry] =
@@ -108,13 +117,15 @@ public enum ContextMenuCatalog {
                 "workspace.duplicate", "workspace.duplicateTerminalsOnly")
         + [.separator]
         + actions("renameWorkspace", "editWorkspaceDescription", "palette.workspaceStatus", "markWorkspaceDone",
-                "palette.workspaceColor", "palette.resetWorkspaceColor", "workspace.setIcon", "workspace.clearIcon",
+                "palette.workspaceColor", "palette.resetWorkspaceColor", "workspace.setIcon", "workspace.clearIcon")
+        + [.choices("workspace.setTheme")] + actions("workspace.clearTheme",
                 "palette.toggleWorkspacePin", "palette.markWorkspaceRead", "palette.markWorkspaceUnread",
                 "notifications.toggleWorkspaceMute")
         + [.separator]
         + actions("moveWorkspaceUp", "moveWorkspaceDown", "palette.moveWorkspaceToTop", "workspace.moveToBottom", "moveWorkspaceToWindow",
                   "moveWorkspaceToNewWindow", "moveWorkspaceToGroup", "workspace.moveToNewGroup", "removeWorkspaceFromGroup",
                   "workspace.moveToRoom", "workspace.duplicateToRoom", "workspace.mergeInto")
+        + [.separator] + actions("browserProfile.setWorkspaceDefault", "browserProfile.clearWorkspaceDefault")
         + [.separator]
         + actions("workspace.showResources", "reconnectWorkspace", "disconnectWorkspace", "revealWorkspaceInFinder", "workspace.copyPath",
                   "palette.copyWorkspaceID", "palette.copyWorkspaceLink")
@@ -139,9 +150,30 @@ public enum ContextMenuCatalog {
         actions("room.newWindow", "room.newWorkspace") + [.separator]
         + actions("room.rename")
         + [.submenu("room.setColor", colors("room") + [.separator] + actions("room.clearColor"))]
-        + actions("room.setIcon", "room.clearIcon", "room.setDefaults") + [.separator]
+        + actions("room.setIcon", "room.clearIcon")
+        + [.choices("room.setTheme")] + actions("room.clearTheme", "room.setDefaults", "browserProfile.setRoomDefault",
+                                                  "browserProfile.clearRoomDefault") + [.separator]
         + actions("room.moveLeft", "room.moveRight") + [.separator]
         + actions("room.new") + [.separator] + actions("room.delete")
+
+    /// A browser profile: the omnibar's profile badge or a Settings row.
+    static let browserProfile: [ContextMenuEntry] =
+        actions("browserProfile.newTab", "browserProfile.newWindow", "browserProfile.newWorkspace") + [.separator]
+        + actions("browserProfile.rename", "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon",
+                  "browserProfile.clearIcon") + [.separator]
+        + actions("browserProfile.manageExtensions") + [.separator]
+        + actions("browserProfile.new") + [.separator] + actions("browserProfile.delete")
+
+    /// A bookmark or folder on the bookmarks bar.
+    static let bookmark: [ContextMenuEntry] =
+        actions("bookmark.open", "bookmark.openInNewTab", "bookmark.openInBackgroundTab", "bookmark.openAll") + [.separator]
+        + actions("bookmark.edit", "bookmark.remove") + [.separator]
+        + bookmarksBar
+
+    /// The bookmarks bar's empty area.
+    static let bookmarksBar: [ContextMenuEntry] =
+        actions("bookmark.addPage", "bookmark.newFolder") + [.separator]
+        + actions("bookmark.toggleBar", "bookmark.manager")
 
     static let workspaceGroup: [ContextMenuEntry] =
         actions("workspaceGroup.newWorkspace", "workspaceGroup.rename")
@@ -169,7 +201,7 @@ public enum ContextMenuCatalog {
 
     static let browserPage: [ContextMenuEntry] =
         actions("browserBack", "browserForward", "browserReload") + [.separator]
-        + actions("palette.browserOpenDefault", "browserScreenshotPage", "browserScreenshotSection") + [.separator]
+        + actions("bookmark.addPage", "palette.browserOpenDefault", "browserScreenshotPage", "browserScreenshotSection") + [.separator]
         + [.submenu("browser.pageInfo", pageInfo)] + actions("toggleBrowserDeveloperTools") + [.separator]
         + actions("browser.extensions.menu", "browser.extensions.manage")
 

@@ -46,6 +46,20 @@ import Testing
         }
     }
 
+    /// Reaping is opt-in on the daemon (`--terminal-reap-grace-seconds`).
+    /// The app keeps a closed tab's terminal 30 s (Reopen Closed Tab, a
+    /// closed workspace) and then ends it, so every owner it ensures gets
+    /// the grace; without it closed tabs' terminals would never end.
+    @Test func ensureStartsTheOwnerWithTheThirtySecondReapGrace() {
+        let configuration = DaemonLauncher.Configuration(binary: URL(fileURLWithPath: "/usr/bin/true"), session: "s")
+        #expect(configuration.terminalReapGraceSeconds == 30)
+        #expect(DaemonLauncher.ensureArguments(configuration)
+                == ["--session", "s", "--json", "server", "ensure", "--terminal-reap-grace-seconds", "30"])
+        var immediate = configuration
+        immediate.terminalReapGraceSeconds = 0
+        #expect(DaemonLauncher.ensureArguments(immediate).suffix(2) == ["--terminal-reap-grace-seconds", "0"])
+    }
+
     @Test func parsesBuildCommit() {
         #expect(DaemonLauncher.parseBuildCommit("cmux 0.1.0 (436909bb4319368e8ecc1b6480f73667bd0f2c1d; ghostty e168fd3)\n")
                 == "436909bb4319368e8ecc1b6480f73667bd0f2c1d")

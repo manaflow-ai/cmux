@@ -7,8 +7,12 @@ import CmuxNextPalette
 enum PaletteSourcesBridge {
     static func make(services: AppServices) -> PaletteSources {
         PaletteSources(workspaces: WorkspaceSource(services: services), tabs: TabSource(services: services),
-                       targets: ScreenTargetSource(services: services, next: WindowTargetSource(services: services)),
-                       context: { [weak services] in services.map(capturedTargets) ?? [] })
+                       targets: ScreenTargetSource(services: services, next: BrowserProfileTargetSource(services: services, next: WindowTargetSource(services: services))),
+                       context: { [weak services] in services.map(capturedTargets) ?? [] },
+                       // Theme pickers preview the highlighted theme live.
+                       argumentPreview: { [weak services] action, _, value, target in
+                           services?.themes.pickerPreview(action, value: value, target: target)
+                       })
     }
 
     /// The active window's focused objects when the palette opens: the
@@ -60,7 +64,7 @@ enum PaletteSourcesBridge {
 
         func closeWorkspace(id: String) {
             guard let (workspace, daemon) = services.machines.workspace(id: id), let key = workspace.key else { return }
-            let terminals = WorkspaceClose.terminals(of: workspace, on: daemon)
+            let terminals = WorkspaceClose.closing(workspace, on: daemon)
             daemon.send("close-workspace") { connection in try await WorkspaceClose.close(key, terminals: terminals, on: connection) }
         }
     }

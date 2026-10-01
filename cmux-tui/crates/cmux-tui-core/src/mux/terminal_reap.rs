@@ -275,7 +275,13 @@ impl Mux {
                         as Box<dyn FnOnce() -> anyhow::Result<ReapOutcome> + Send>
                 })
                 .collect();
-            self.terminal_work.run_all(jobs)
+            self.terminal_work
+                .run_all(jobs)
+                .into_iter()
+                .map(|outcome| {
+                    outcome.unwrap_or_else(|_| Err(anyhow::anyhow!("reap job panicked")))
+                })
+                .collect()
         };
         let mut reaped = Vec::new();
         for (terminal_id, outcome) in due.into_iter().zip(outcomes) {
@@ -461,6 +467,9 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
             }
             let Some(mux) = weak.upgrade() else { break };
             mux.reap_unplaced_terminals(&mut schedule, Instant::now());
+            // Never hold the mux across the wait: the thread must not keep
+            // the mux alive after its other owners are gone.
+            drop(mux);
             let wait =
                 schedule.next_deadline().map(|at| at.saturating_duration_since(Instant::now()));
             let event = match wait {
@@ -479,11 +488,11 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
                     }
                     // The mailbox overflowed: resubscribe, then rescan. The
                     // loop checks `stop` again before it next waits.
+                    let Some(mux) = weak.upgrade() else { break };
                     thread_events = mux.subscribe_terminal_reaper();
                     *shared_events.lock().unwrap() = thread_events.clone();
                 }
             }
-            drop(mux);
         }
     });
     let thread = match thread {

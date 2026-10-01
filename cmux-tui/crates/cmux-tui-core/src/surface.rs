@@ -6,6 +6,8 @@
 //! VT operations.
 
 mod directory;
+#[cfg(unix)]
+mod host_frames;
 use directory::PublishedDirectory;
 
 use std::borrow::Cow;
@@ -1570,9 +1572,16 @@ impl Drop for ReaderCompletionGuard {
 impl PtyTerminalRuntime {
     /// Feed raw child output to the generic terminal metadata parser. The
     /// parser has no knowledge of agents or plugins and keeps only bounded
-    /// terminal protocol state.
-    fn observe_terminal_output(&self, bytes: &[u8]) {
-        self.terminal_metadata.lock().unwrap().observe_output(bytes);
+    /// terminal protocol state. Returns the desktop notifications (OSC 9,
+    /// OSC 777, OSC 99) the output asked for that pass Ghostty's rate limit;
+    /// the caller posts them after it releases the terminal lock.
+    fn observe_terminal_output(
+        &self,
+        bytes: &[u8],
+    ) -> Vec<crate::terminal_metadata::TerminalNotification> {
+        let mut metadata = self.terminal_metadata.lock().unwrap();
+        metadata.observe_output(bytes);
+        metadata.take_admitted_notifications(Instant::now())
     }
 
     fn terminal_osc_progress(&self) -> String {
@@ -2845,6 +2854,7 @@ impl Surface {
                             Err(_) => break,
                         };
                         let mut scroll_changed = None;
+                        let terminal_notifications;
                         let generation = {
                             let mut term = pty.term.lock().unwrap();
                             if let Some(update) = journal_update.as_mut()
@@ -2860,7 +2870,7 @@ impl Surface {
                                 .cursor_activity()
                                 .expect("valid local terminals expose cursor activity");
                             let normalized = term.vt_write_with_normalized(&buf[..n]);
-                            pty.observe_terminal_output(&buf[..n]);
+                            terminal_notifications = pty.observe_terminal_output(&buf[..n]);
                             let cursor_changed = term
                                 .cursor_activity()
                                 .expect("valid local terminals expose cursor activity")
@@ -2919,6 +2929,11 @@ impl Surface {
                             && let Some(mux) = mux.upgrade()
                         {
                             mux.emit_terminal_scroll(surface.id, offset, at_bottom);
+                        }
+                        if !terminal_notifications.is_empty()
+                            && let Some(mux) = mux.upgrade()
+                        {
+                            mux.post_terminal_notifications(surface.id, terminal_notifications);
                         }
                         let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
                         if !responses.is_empty() {
@@ -3336,12 +3351,21 @@ impl Surface {
                 let mut smart_renderer = smart_renderer;
                 let mut applied_color_revision = initial_color_revision;
                 let mut applied_cursor_activity = initial_cursor_activity;
+                // Test seam: slows applying each output frame so tests can
+                // build an output backlog ahead of a targeted host response.
+                let output_apply_delay = std::env::var("CMUX_TUI_TEST_HOSTED_OUTPUT_APPLY_DELAY_MS")
+                    .ok()
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .map(|ms| Duration::from_millis(ms.min(5_000)));
                 // One backoff across consecutive losses: a host that accepts
                 // and then drops at once (or keeps asking for a resync) used
                 // to be reconnected with no delay and no limit, because each
                 // loss started a fresh backoff. It resets only after a
                 // connection stayed up for TERMINAL_HOST_HEALTHY_CONNECTION.
                 let mut flap_backoff = TerminalHostReconnectBackoff::default();
+                // Spaces back-to-back resyncs of a live host without spending
+                // the failure budget that decides whether a real loss fails.
+                let mut resync_backoff = TerminalHostReconnectBackoff::default();
                 // `None` until the first reconnect: the first loss of a
                 // connection keeps its immediate reconnect.
                 let mut connected_at: Option<Instant> = None;
@@ -3356,6 +3380,17 @@ impl Surface {
                     let mut resync_requested = false;
                     let mut journal_target = None;
                     let mut journal_update = None;
+                    // `reader` moves into the demultiplexer; a reconnect
+                    // assigns the replacement before `continue 'connection`.
+                    let frames = match host_frames::HostFrames::spawn(
+                        format!("surface-{id}-host-frames"),
+                        reader,
+                        control_responses.clone(),
+                        protocol_version,
+                    ) {
+                        Ok(frames) => frames,
+                        Err(_) => break 'connection,
+                    };
                     'host_stream: loop {
                         if journal_update.is_none() {
                             journal_target = pty.journal_target();
@@ -3366,12 +3401,9 @@ impl Surface {
                                 break;
                             }
                         }
-                        let frame = match crate::terminal_host_protocol::read_frame(
-                            &mut reader,
-                            crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
-                        ) {
-                            Ok(Some(frame)) => frame,
-                            Ok(None) | Err(_) => break,
+                        let frame = match frames.recv() {
+                            host_frames::HostFrame::Frame(frame) => frame,
+                            host_frames::HostFrame::End => break,
                         };
                         // Targeted responses must be consumed before live staging:
                         // HostedFrameStager intentionally rejects every nonzero request id.
@@ -3415,6 +3447,9 @@ impl Surface {
                         match transition {
                             transition @ (HostedTransition::Output(_)
                             | HostedTransition::OutputWithColors { .. }) => {
+                                if let Some(delay) = output_apply_delay {
+                                    std::thread::sleep(delay);
+                                }
                                 let (output, colors) = match transition {
                                     HostedTransition::Output(output) => (output, None),
                                     HostedTransition::OutputWithColors { output, colors } => {
@@ -3424,6 +3459,7 @@ impl Surface {
                                 };
                                 let mut scroll_changed = None;
                                 let mut title_update = None;
+                                let terminal_notifications;
                                 let defaults = mux
                                     .upgrade()
                                     .map(|mux| mux.default_colors())
@@ -3438,7 +3474,7 @@ impl Surface {
                                     let journal_enabled = journal_update.is_some();
                                     let before = terminal_scroll_position(&term);
                                     let normalized = term.vt_write_with_normalized(&output);
-                                    pty.observe_terminal_output(&output);
+                                    terminal_notifications = pty.observe_terminal_output(&output);
                                     let output = match normalized {
                                         Cow::Borrowed(_) => output,
                                         Cow::Owned(normalized) => normalized,
@@ -3531,6 +3567,14 @@ impl Surface {
                                     && let Some(mux) = mux.upgrade()
                                 {
                                     mux.emit_terminal_scroll(surface.id, offset, at_bottom);
+                                }
+                                if !terminal_notifications.is_empty()
+                                    && let Some(mux) = mux.upgrade()
+                                {
+                                    mux.post_terminal_notifications(
+                                        surface.id,
+                                        terminal_notifications,
+                                    );
                                 }
                             }
                             HostedTransition::Resized { cols, rows, cell_pixels } => {
@@ -3739,12 +3783,12 @@ impl Surface {
                         .is_none_or(|at| at.elapsed() >= TERMINAL_HOST_HEALTHY_CONNECTION)
                     {
                         flap_backoff = TerminalHostReconnectBackoff::default();
+                        resync_backoff = TerminalHostReconnectBackoff::default();
                     } else if resync_requested {
                         // A live host's resync never fails the terminal, but
                         // back-to-back resyncs are spaced.
-                        std::thread::sleep(
-                            flap_backoff.next_delay().unwrap_or(TERMINAL_HOST_RECONNECT_MAX_DELAY),
-                        );
+                        let delay = resync_backoff.next_delay();
+                        std::thread::sleep(delay.unwrap_or(TERMINAL_HOST_RECONNECT_MAX_DELAY));
                     } else if !flap_backoff.wait_or_fail(pty) {
                         return;
                     }
@@ -5078,7 +5122,7 @@ impl Surface {
         let pty = self.as_pty()?;
         let mut term = pty.term.lock().unwrap();
         term.vt_write(bytes);
-        pty.observe_terminal_output(bytes);
+        let _ = pty.observe_terminal_output(bytes);
         pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
         pty.stream_progress.notify();
         Some(())
@@ -5986,9 +6030,23 @@ impl Surface {
         self.as_pty().and_then(|pty| pty.exit.lock().unwrap().clone())
     }
 
+    /// Whether [`Self::begin_host_termination`] would signal a terminal host
+    /// (`Some`) rather than report a local runtime (`None`). It only reads
+    /// the runtime kind; it never waits for the host.
+    #[cfg(unix)]
+    pub(crate) fn has_host_termination(&self) -> bool {
+        let Some(pty) = self.as_pty() else { return false };
+        if pty.host_identity.is_none() || pty.host_exit_record_path.is_none() {
+            return false;
+        }
+        !matches!(&*pty.runtime.lock().unwrap(), PtyRuntime::Local { .. })
+    }
+
     /// Ask a hosted terminal to exit through its existing owner connection,
-    /// without waiting. Local terminals return `None` and keep their existing
-    /// kill path. Pass the result to [`Self::wait_for_host_exit`].
+    /// without waiting for a receipt or the exit. Local terminals return
+    /// `None` and keep their existing kill path. Pass the result to
+    /// [`Self::wait_for_host_exit`], whose durable exit receipt is the
+    /// authoritative completion.
     #[cfg(unix)]
     pub(crate) fn begin_host_termination(&self) -> anyhow::Result<Option<HostTermination>> {
         let Some(pty) = self.as_pty() else { return Ok(None) };
@@ -5996,10 +6054,10 @@ impl Surface {
         let Some(path) = pty.host_exit_record_path.clone() else { return Ok(None) };
         let observed = pty.stream_progress.revision();
         let already_exited = {
-            let mut runtime = pty.runtime.lock().unwrap();
-            match &mut *runtime {
+            let runtime = pty.runtime.lock().unwrap();
+            match &*runtime {
                 PtyRuntime::Hosted(host) => {
-                    host.terminate().map_err(|error| {
+                    host.request_termination().map_err(|error| {
                         anyhow::anyhow!("send terminal-host termination: {error}")
                     })?;
                     false

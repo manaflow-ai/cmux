@@ -3610,6 +3610,94 @@ fn tree_terminal_ids(socket: &Path) -> std::collections::HashSet<String> {
         .collect()
 }
 
+/// A close replies once its commit is durable. It never waits for the host's
+/// termination receipt: that receipt travels behind the terminal's output on
+/// the host stream, and waiting for it inline held the reply (and the
+/// terminal's runtime lock) for the full two-second control timeout whenever
+/// the stream was slow, which made 100 sequential closes take over 15 s.
+#[test]
+fn close_terminal_replies_without_waiting_for_the_host_termination_receipt() {
+    let mut harness = RecoveryHarness::start_unstarted("close-ack-late");
+    let mut command = harness.daemon_command();
+    command.env("CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS", "3000");
+    harness.child = Some(command.spawn().unwrap());
+    wait_for_socket(&harness.socket);
+    let (terminal_id, incarnation) = run_cat_workspace(&harness.socket, 1, "close-ack-late");
+    wait_for_host_records(&harness.host_root(), 1);
+
+    let started = Instant::now();
+    let closed = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 2,
+            "cmd": "close-terminal",
+            "terminal_id": &terminal_id,
+            "terminal_incarnation": &incarnation,
+        }),
+    );
+    let replied_in = started.elapsed();
+    assert_eq!(closed["terminal_id"].as_str(), Some(terminal_id.as_str()), "{closed}");
+    // The control timeout the old inline wait spent is two seconds; the
+    // reply itself needs one durable commit.
+    assert!(
+        replied_in < Duration::from_secs(2),
+        "close-terminal waited {replied_in:?} for the host's termination receipt"
+    );
+    assert!(!tree_terminal_ids(&harness.socket).contains(&terminal_id));
+    wait_for_no_host_records(&harness.host_root());
+}
+
+/// Ending many terminals never waits for each host's termination receipt:
+/// the host-close pool asks every host to end and then waits for the durable
+/// exit receipts. With eight pool workers and receipts that arrive late, a
+/// receipt wait per host serialized the batch (the close_tabs 100-terminal
+/// test took 4.2 s on macOS, run 36769176794).
+#[test]
+fn batch_close_ends_hosts_without_waiting_for_termination_receipts() {
+    const COUNT: usize = 48;
+    let mut harness = RecoveryHarness::start_unstarted("batch-close-ack-late");
+    let mut command = harness.daemon_command();
+    command.env("CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS", "3000");
+    harness.child = Some(command.spawn().unwrap());
+    wait_for_socket(&harness.socket);
+    let mut surfaces = Vec::with_capacity(COUNT);
+    for index in 0..COUNT {
+        let created = request(
+            &harness.socket,
+            serde_json::json!({
+                "id": index + 1,
+                "cmd": "run",
+                "argv": ["/bin/cat"],
+                "new_workspace": true,
+                "name": format!("batch-ack-{index}"),
+            }),
+        );
+        surfaces.push(created["surface"].as_u64().unwrap());
+    }
+    wait_for_host_records(&harness.host_root(), COUNT);
+
+    let started = Instant::now();
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1_000,
+            "cmd": "close-tabs",
+            "surfaces": surfaces,
+            "end_terminals": true,
+        }),
+    );
+    wait_for_no_host_records_within(&harness.host_root(), test_timeout(Duration::from_secs(10)));
+    let hosts_in = started.elapsed();
+    // 48 hosts on eight workers: waiting for each late receipt (up to the 2 s
+    // control timeout) takes at least 12 s. Ending 48 hosts in parallel costs
+    // their exit-receipt fsyncs, a few seconds on a CI Linux VM (16 hosts took
+    // 3.1 s in run 36779722840).
+    assert!(
+        hosts_in < Duration::from_secs(8),
+        "ending {COUNT} hosts waited for their termination receipts: {hosts_in:?}"
+    );
+}
+
 /// A close commits and updates the tree before its host exits, and many
 /// closes end their hosts in parallel instead of one after another.
 #[test]
@@ -3656,13 +3744,23 @@ fn closing_one_hundred_terminals_updates_the_tree_at_once_and_ends_every_host() 
         "closed {COUNT} terminals: replies {closed_in:?}, tree {tree_in:?}, hosts {hosts_in:?}"
     );
     // Each reply waits only for its durable commit (one fsync plus a full
-    // resource projection), never for a host exit.
-    assert!(closed_in < test_timeout(Duration::from_secs(15)), "closes took {closed_in:?}");
-    // Hosts were signaled as each close committed and end in parallel.
-    let hosts_after_last_reply = hosts_in.saturating_sub(closed_in);
+    // resource projection, 10-35 ms on hosted Linux), never for the host's
+    // termination receipt or exit. 100 replies take about 1.7 s there; a
+    // reply that waited for a receipt stalled up to 2 s each (8.5-10 s in
+    // runs 36711759589 and 36736552304).
+    assert!(closed_in < test_timeout(Duration::from_secs(5)), "closes took {closed_in:?}");
+    // Hosts were signaled as each close committed and end in parallel, so
+    // all of them end within the cost of ending 100 hosts at once: about 400
+    // fsyncs (see close_tabs_ends_one_hundred_terminals_in_one_commit), about
+    // 1 s on a Mac and several seconds on a CI Linux VM. Ending them one
+    // after another costs a multiple of that. The old bound (3 s after the
+    // last reply) held only while the replies themselves were slow enough to
+    // hide the teardown.
+    let host_bound = if cfg!(target_os = "macos") { 3 } else { 10 };
     assert!(
-        hosts_after_last_reply < test_timeout(Duration::from_secs(3)),
-        "host exits trailed the last close by {hosts_after_last_reply:?}"
+        hosts_in < closed_in + test_timeout(Duration::from_secs(host_bound)),
+        "host exits trailed the last close by {:?}",
+        hosts_in.saturating_sub(closed_in)
     );
 }
 
@@ -5331,4 +5429,71 @@ fn adopted_template_terminal_is_restored_in_place_after_a_daemon_restart() {
     );
     let surface = resolved["data"]["surface"].as_u64().unwrap();
     assert!(wait_for_screen(&harness.socket, surface, &parked.marker).contains(&parked.marker));
+}
+
+/// A receipted write is acknowledged by the host after the PTY write, but the
+/// acknowledgement travels on the same stream as the terminal's output. The
+/// daemon must hand it to the waiting writer when the frame arrives, not
+/// after it has applied every output frame queued ahead of it: a slow output
+/// backlog otherwise makes the write time out as indeterminate (the flake in
+/// noun_first_cli_covers_resources_output_errors_and_private_raw_escape).
+/// The test seam delays applying each output frame by 400 ms.
+#[test]
+fn receipted_input_is_acknowledged_behind_an_output_backlog() {
+    let mut harness = RecoveryHarness::start_unstarted("input-ack-backlog");
+    let mut command = harness.daemon_command();
+    command.env("CMUX_TUI_TEST_HOSTED_OUTPUT_APPLY_DELAY_MS", "400");
+    harness.child = Some(command.spawn().unwrap());
+    wait_for_socket(&harness.socket);
+    let created = resource_request(
+        &harness.socket,
+        "ack-backlog-workspace",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"Input ack backlog",
+            "initial_content":"empty",
+        }),
+        Some("ack-backlog-workspace"),
+    );
+    let workspace = created["value"]["workspace_id"].as_str().unwrap();
+    // Twenty separate output bursts (8 s of delayed apply), then a reader.
+    let script = "i=0; while [ $i -lt 20 ]; do echo burst$i; i=$((i+1)); sleep 0.05; done; \
+                  echo bursts-done; read line; echo got-$line";
+    let run = resource_request(
+        &harness.socket,
+        "ack-backlog-run",
+        "workspace.run",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspace,
+            "argv":["/bin/sh","-c",script],
+        }),
+        Some("ack-backlog-run"),
+    );
+    let terminal = run["value"]["terminal_id"].as_str().unwrap().to_string();
+    // Let the bursts reach the daemon's host stream before writing.
+    std::thread::sleep(Duration::from_millis(1_500));
+    let started = Instant::now();
+    let write = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"ack-backlog-write",
+            "operation":"terminal.input.write",
+            "idempotency_key":"ack-backlog-write",
+            "params":{
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal,
+                "text":"ok\n",
+            },
+        }),
+    );
+    let elapsed = started.elapsed();
+    assert_eq!(write["ok"], true, "receipted write behind an output backlog failed: {write}");
+    assert!(elapsed < Duration::from_secs(2), "write waited {elapsed:?} for its receipt");
 }

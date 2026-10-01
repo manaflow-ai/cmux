@@ -6042,6 +6042,8 @@ fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColo
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use crate::test_exec::write_executable;
     use ratatui::buffer::CellWidth;
     use std::cell::{Cell, RefCell};
 
@@ -6412,8 +6414,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn packaged_ghostty_resolver_receives_matching_resources() {
-        use std::os::unix::fs::PermissionsExt;
-
         let root = std::env::temp_dir().join(format!(
             "cmux-tui-ghostty-resolver-{}-{}",
             std::process::id(),
@@ -6422,14 +6422,12 @@ mod tests {
         let resources = root.join("ghostty");
         let binary = root.join("ghostty-config-helper");
         std::fs::create_dir_all(&resources).unwrap();
-        std::fs::write(
+        write_executable(
             &binary,
             "#!/bin/sh\n\
              printf 'resource-path = %s\\n' \"$GHOSTTY_RESOURCES_DIR\"\n\
              printf 'background = #272822\\nforeground = #fdfff1\\n'\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+        );
 
         let output = ghostty_show_config_command(&platform::GhosttyInstallation {
             binary,
@@ -6449,8 +6447,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn ghostty_resolver_drains_output_while_the_child_is_running() {
-        use std::os::unix::fs::PermissionsExt;
-
         let root = std::env::temp_dir().join(format!(
             "cmux-tui-ghostty-large-output-{}-{}",
             std::process::id(),
@@ -6458,7 +6454,7 @@ mod tests {
         ));
         let binary = root.join("ghostty-config-helper");
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(
+        write_executable(
             &binary,
             "#!/bin/sh\n\
              i=0\n\
@@ -6467,9 +6463,7 @@ mod tests {
                i=$((i + 1))\n\
              done\n\
              printf 'background = #272822\\nforeground = #fdfff1\\n'\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+        );
 
         let mut command = Command::new(&binary);
         command.stdout(Stdio::piped()).stderr(Stdio::null());
@@ -6724,8 +6718,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn load_uses_file_ghostty_defaults_without_invoking_external_resolver() {
-        use std::os::unix::fs::PermissionsExt;
-
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
         let old_ghostty_bin = std::env::var_os("GHOSTTY_BIN");
         let old_ghostty_resources = std::env::var_os("GHOSTTY_RESOURCES_DIR");
@@ -6740,7 +6732,7 @@ mod tests {
         let resolver = dir.join("ghostty-resolver");
         std::fs::create_dir_all(&ghostty_dir).unwrap();
         std::fs::write(ghostty_dir.join("config"), "foreground = #010203\n").unwrap();
-        std::fs::write(
+        write_executable(
             &resolver,
             format!(
                 "#!/bin/sh\n\
@@ -6748,9 +6740,7 @@ mod tests {
                  printf 'foreground = #aabbcc\\nbackground = #ddeeff\\n'\n",
                 marker.display()
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&resolver, std::fs::Permissions::from_mode(0o700)).unwrap();
+        );
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         unsafe { std::env::set_var("GHOSTTY_BIN", &resolver) };
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
@@ -6783,8 +6773,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn load_resolves_ghostty_resource_theme_without_invoking_external_resolver() {
-        use std::os::unix::fs::PermissionsExt;
-
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
         let old_ghostty_bin = std::env::var_os("GHOSTTY_BIN");
         let old_ghostty_resources = std::env::var_os("GHOSTTY_RESOURCES_DIR");
@@ -6818,7 +6806,7 @@ mod tests {
             "foreground = #aaaaaa\nbackground = #bbbbbb\npalette = 1=#cccccc\n",
         )
         .unwrap();
-        std::fs::write(
+        write_executable(
             &resolver,
             format!(
                 "#!/bin/sh\n\
@@ -6826,9 +6814,7 @@ mod tests {
                  printf 'foreground = #ddeeff\\nbackground = #000000\\n'\n",
                 marker.display()
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&resolver, std::fs::Permissions::from_mode(0o700)).unwrap();
+        );
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         unsafe { std::env::set_var("GHOSTTY_BIN", &resolver) };
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
@@ -6864,8 +6850,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn load_applies_ghostty_config_file_after_root_and_respects_dark_theme_mode() {
-        use std::os::unix::fs::PermissionsExt;
-
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
         let old_ghostty_bin = std::env::var_os("GHOSTTY_BIN");
         let old_ghostty_resources = std::env::var_os("GHOSTTY_RESOURCES_DIR");
@@ -6906,7 +6890,7 @@ mod tests {
             "foreground = #aaaaaa\nbackground = #bbbbbb\npalette = 1=#cccccc\n",
         )
         .unwrap();
-        std::fs::write(
+        write_executable(
             &resolver,
             format!(
                 "#!/bin/sh\n\
@@ -6914,9 +6898,7 @@ mod tests {
                  printf 'foreground = #ddeeff\\nbackground = #000000\\n'\n",
                 marker.display()
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&resolver, std::fs::Permissions::from_mode(0o700)).unwrap();
+        );
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         unsafe { std::env::set_var("GHOSTTY_BIN", &resolver) };
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.

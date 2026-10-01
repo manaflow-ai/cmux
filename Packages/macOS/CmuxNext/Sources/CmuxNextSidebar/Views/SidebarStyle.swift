@@ -22,6 +22,8 @@ enum SidebarStyle {
     static var overscan: CGFloat { Metrics.sidebarRowHeightWithSubtitle * 10 }
 
     static var titleFont: NSFont { Typography.body }
+    /// Length of the fade that ends a clipped row title (no ellipsis).
+    static var titleFadeWidth: CGFloat { Metrics.space6 }
     static var titleUnreadFont: NSFont { Typography.bodyEmphasized }
     static var subtitleFont: NSFont { Typography.caption }
     static var headerFont: NSFont { Typography.header }
@@ -36,11 +38,3 @@ enum SidebarStyle {
 
 }
 
-extension NSView {
-    /// Resolves a dynamic color for this view's appearance.
-    func resolvedCGColor(_ color: NSColor) -> CGColor {
-        var result = color.cgColor
-        effectiveAppearance.performAsCurrentDrawingAppearance { result = color.cgColor }
-        return result
-    }
-}
