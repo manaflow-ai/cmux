@@ -301,6 +301,13 @@ public nonisolated enum MobileTaskAgentProvider: String, CaseIterable, Sendable 
 
 /// One selectable model for a coding-agent provider.
 public nonisolated struct MobileTaskAgentModel: Codable, Equatable, Sendable, Identifiable {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case displayName
+        case efforts
+        case defaultEffortID
+    }
+
     /// CLI identifier passed to the provider's model flag.
     public let id: String
     /// Product name displayed verbatim in the composer.
@@ -326,6 +333,22 @@ public nonisolated struct MobileTaskAgentModel: Codable, Equatable, Sendable, Id
         self.defaultEffortID = efforts.contains { $0.id == defaultEffortID }
             ? defaultEffortID
             : nil
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(String.self, forKey: .id),
+            displayName: try container.decode(String.self, forKey: .displayName),
+            efforts: try container.decodeIfPresent(
+                [MobileTaskAgentEffort].self,
+                forKey: .efforts
+            ) ?? [],
+            defaultEffortID: try container.decodeIfPresent(
+                String.self,
+                forKey: .defaultEffortID
+            )
+        )
     }
 }
 

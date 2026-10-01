@@ -582,12 +582,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var taskModelCache: [MobileTaskModelCacheKey: MobileTaskModelCacheEntry] = [:]
     @ObservationIgnored var taskModelRefreshRequests: [MobileTaskModelCacheKey: MobileTaskModelRefreshRequest] = [:]
     @ObservationIgnored var taskModelSuccessfulConnections: [MobileTaskModelCacheKey: String] = [:]
-    @ObservationIgnored var taskModelPrefetchTasks: [MobileTaskModelPrefetchKey: Task<Void, Never>] = [:]
+    @ObservationIgnored var taskModelPrefetchTasks:
+        [MobileTaskModelPrefetchKey: Task<MobileTaskModelRefreshOutcome, Never>] = [:]
     @ObservationIgnored var taskModelPrefetchTaskTokens: [MobileTaskModelPrefetchKey: UUID] = [:]
     @ObservationIgnored var taskModelPrefetchWorkers: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored var taskModelPrefetchDesiredTargets:
         [MobileTaskModelPrefetchKey: MobileTaskModelPrefetchTarget] = [:]
     @ObservationIgnored var taskModelPrefetchCompletedKeys: Set<MobileTaskModelPrefetchKey> = []
+    @ObservationIgnored var taskModelPrefetchFailedKeys: Set<MobileTaskModelPrefetchKey> = []
     @ObservationIgnored var taskModelPrefetchCatalog: MobileTaskModelPrefetchCatalog?
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
@@ -2252,6 +2254,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         notificationFeedOpenTask?.cancel()
         teamScopeCleanupTask?.cancel()
         cancelAllTerminalReplayTasks()
+        for request in taskModelRefreshRequests.values { request.cancel() }
+        for task in taskModelPrefetchTasks.values { task.cancel() }
+        for worker in taskModelPrefetchWorkers.values { worker.cancel() }
+        taskModelPrefetchCatalog?.cancel()
         teardownSecondaryMacSubscriptions()
         let terminalLaneCoordinator = terminalLaneCoordinator
         Task { await terminalLaneCoordinator?.deactivateAll() }
@@ -2366,6 +2372,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         taskModelPrefetchWorkers.removeAll()
         taskModelPrefetchDesiredTargets.removeAll()
         taskModelPrefetchCompletedKeys.removeAll()
+        taskModelPrefetchFailedKeys.removeAll()
         taskModelPrefetchCatalog?.cancel()
         taskModelPrefetchCatalog = nil
         taskModelSuccessfulConnections.removeAll()

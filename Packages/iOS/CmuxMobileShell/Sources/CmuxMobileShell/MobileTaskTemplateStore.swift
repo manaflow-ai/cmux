@@ -135,7 +135,15 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
     /// Returns the last picker values saved for one paired Mac.
     public func composerPickerPreferences(macPairingID: String) -> MobileTaskComposerPickerPreferences? {
         guard let data = defaults.data(forKey: Self.pickerPreferencesPrefix + macPairingID) else { return nil }
-        return try? decoder.decode(MobileTaskComposerPickerPreferences.self, from: data)
+        do {
+            return try decoder.decode(MobileTaskComposerPickerPreferences.self, from: data)
+        } catch {
+            diagnosticLog?.recordAppEvent(
+                .templatePersistenceFailed,
+                failure: .protocolViolation
+            )
+            return nil
+        }
     }
 
     /// Stores the picker values for one paired Mac.

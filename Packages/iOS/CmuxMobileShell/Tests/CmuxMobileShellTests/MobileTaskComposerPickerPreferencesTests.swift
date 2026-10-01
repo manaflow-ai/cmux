@@ -9,8 +9,14 @@ struct MobileTaskComposerPickerPreferencesTests {
     @Test func remembersEveryPickerAcrossRelaunchAndKeepsMacInstancesSeparate() throws {
         let suite = "MobileTaskComposerPickerPreferencesTests.\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
+        let attachmentRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("picker-preferences-\(UUID().uuidString)", isDirectory: true)
         defer { defaults.removePersistentDomain(forName: suite) }
-        let store = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        defer { try? FileManager.default.removeItem(at: attachmentRoot) }
+        let store = UserDefaultsMobileTaskTemplateStore(
+            defaults: defaults,
+            attachmentFilesRootDirectory: attachmentRoot
+        )
         let templateID = try #require(store.listTemplates().first?.id)
         let model = MobileTaskAgentModel(
             id: "selected-model", displayName: "Selected model",
@@ -32,7 +38,10 @@ struct MobileTaskComposerPickerPreferencesTests {
         store.setComposerPickerPreferences(first, macPairingID: stable)
         store.setComposerPickerPreferences(second, macPairingID: nightly)
 
-        let reloaded = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        let reloaded = UserDefaultsMobileTaskTemplateStore(
+            defaults: defaults,
+            attachmentFilesRootDirectory: attachmentRoot
+        )
         #expect(reloaded.composerPickerPreferences(macPairingID: stable) == first)
         #expect(reloaded.composerPickerPreferences(macPairingID: nightly) == second)
         #expect(reloaded.composerPickerPreferences(macPairingID: other) == nil)

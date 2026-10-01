@@ -22,18 +22,14 @@ struct MobileTaskModelPrefetchTests {
             await store.refreshTaskModels(provider: .claude, macDeviceID: "test-mac", instanceTag: nil)
         }
         await router.awaitTaskModelListReached()
-        var composerStarted = false
+        let composerStart = MobileTaskModelPrefetchStartProbe()
         let composer = Task {
-            composerStarted = true
+            await composerStart.signal()
             return await store.refreshTaskModels(
                 provider: .claude, macDeviceID: "test-mac", instanceTag: nil, maximumCacheAge: 300
             )
         }
-        let composerStartDeadline = ContinuousClock.now + .seconds(1)
-        while !composerStarted && ContinuousClock.now < composerStartDeadline {
-            await Task.yield()
-        }
-        #expect(composerStarted)
+        await composerStart.wait()
         prefetch.cancel()
         #expect(await prefetch.value == .stopped(.cancelled))
         await router.setHoldTaskModelList(false)
@@ -176,6 +172,25 @@ struct MobileTaskModelPrefetchTests {
         #expect(ContinuousClock.now - cancellationStartedAt < .seconds(1))
 
         await probe.release()
+        catalog.cancel()
+    }
+
+    @Test func lateCatalogConsumerReceivesTheCompletedProviderResult() async throws {
+        let probe = MobileTaskModelPrefetchCatalogProbe(data: Data(
+            #"{"schemaVersion":1,"providers":{"claude":{"models":[{"id":"backend-claude","label":"Backend Claude"}]}}}"#.utf8
+        ))
+        let client = MobileTaskModelCatalogClient(
+            endpoint: URL(string: "https://catalog.example.test/models")!,
+            loader: { _ in await probe.load() }
+        )
+        let catalog = MobileTaskModelPrefetchCatalog(client: client, startedAt: Date())
+
+        let first = await catalog.result(for: .claude)
+        let late = await catalog.result(for: .claude)
+
+        #expect(first?.models.map(\.id) == ["backend-claude"])
+        #expect(late == first)
+        #expect(await probe.requestCount == 1)
         catalog.cancel()
     }
 

@@ -22,7 +22,7 @@ extension TaskComposerSheet {
             ),
             macPairingID: pairingID
         )
-        store.taskTemplateStore?.setLastMacDeviceID(selectedMacDeviceID)
+        store.taskTemplateStore?.setLastMacDeviceID(pairingID)
     }
 
     /// Called after changing the Mac identity, before the next model refresh.

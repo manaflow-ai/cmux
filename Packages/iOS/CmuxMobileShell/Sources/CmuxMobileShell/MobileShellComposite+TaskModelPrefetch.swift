@@ -33,6 +33,11 @@ extension MobileShellComposite {
             cancelTaskModelPrefetchTasks()
             return
         }
+        // A new target snapshot is a new prefetch wave. Failed keys stay
+        // suppressed until this boundary so a worker cannot spin on a
+        // persistent backend failure, while a later connection or scene
+        // update gets a fresh attempt.
+        taskModelPrefetchFailedKeys.removeAll()
         let desiredTargets = targets.reduce(
             into: [MobileTaskModelPrefetchKey: MobileTaskModelPrefetchTarget]()
         ) { desiredTargets, target in
@@ -50,6 +55,9 @@ extension MobileShellComposite {
         }
         taskModelPrefetchDesiredTargets = desiredTargets
         taskModelPrefetchCompletedKeys = taskModelPrefetchCompletedKeys.filter {
+            desiredTargets[$0] != nil
+        }
+        taskModelPrefetchFailedKeys = taskModelPrefetchFailedKeys.filter {
             desiredTargets[$0] != nil
         }
         for key in taskModelPrefetchTasks.keys
@@ -79,6 +87,7 @@ extension MobileShellComposite {
         }
         for key in keys { taskModelPrefetchDesiredTargets[key] = nil }
         taskModelPrefetchCompletedKeys.subtract(keys)
+        taskModelPrefetchFailedKeys.subtract(keys)
         for key in keys {
             taskModelPrefetchTasks[key]?.cancel()
             taskModelPrefetchTasks[key] = nil
@@ -87,6 +96,7 @@ extension MobileShellComposite {
         if taskModelPrefetchDesiredTargets.isEmpty {
             for worker in taskModelPrefetchWorkers.values { worker.cancel() }
             taskModelPrefetchWorkers.removeAll()
+            taskModelPrefetchFailedKeys.removeAll()
             taskModelPrefetchCatalog?.cancel()
             taskModelPrefetchCatalog = nil
         }
@@ -96,6 +106,7 @@ extension MobileShellComposite {
         guard !taskModelPrefetchDesiredTargets.isEmpty else { return }
         let pendingCount = taskModelPrefetchDesiredTargets.keys.filter {
             !taskModelPrefetchCompletedKeys.contains($0)
+                && !taskModelPrefetchFailedKeys.contains($0)
                 && taskModelPrefetchTasks[$0] == nil
         }.count
         let workerCount = min(4, pendingCount)
@@ -114,6 +125,7 @@ extension MobileShellComposite {
         while !Task.isCancelled {
             guard let key = taskModelPrefetchDesiredTargets.keys.first(where: {
                 !taskModelPrefetchCompletedKeys.contains($0)
+                    && !taskModelPrefetchFailedKeys.contains($0)
                     && taskModelPrefetchTasks[$0] == nil
             }), let target = taskModelPrefetchDesiredTargets[key] else {
                 return
@@ -121,20 +133,26 @@ extension MobileShellComposite {
             let catalog = taskModelPrefetchCatalogSnapshot()
             let token = UUID()
             let task = Task { @MainActor [weak self] in
-                guard let self else { return }
-                await self.prefetchTaskModel(
+                await self?.prefetchTaskModel(
                     provider: key.provider, target: target, catalog: catalog
-                )
+                ) ?? .stopped(.cancelled)
             }
             taskModelPrefetchTasks[key] = task
             taskModelPrefetchTaskTokens[key] = token
-            await task.value
+            let outcome = await task.value
             guard taskModelPrefetchTaskTokens[key] == token else { continue }
             taskModelPrefetchTasks[key] = nil
             taskModelPrefetchTaskTokens[key] = nil
             if taskModelPrefetchDesiredTargets[key] == target {
-                taskModelPrefetchCompletedKeys.insert(key)
+                if outcome == .succeeded {
+                    taskModelPrefetchCompletedKeys.insert(key)
+                    taskModelPrefetchFailedKeys.remove(key)
+                } else {
+                    taskModelPrefetchFailedKeys.insert(key)
+                }
             }
+            // A failed key is suppressed for this wave, but the worker still
+            // drains the remaining Macs and providers.
         }
     }
 
@@ -143,17 +161,17 @@ extension MobileShellComposite {
         provider: MobileTaskAgentProvider,
         target: MobileTaskModelPrefetchTarget,
         catalog: MobileTaskModelPrefetchCatalog
-    ) async {
+    ) async -> MobileTaskModelRefreshOutcome {
         guard !Task.isCancelled,
               isSignedIn,
               taskModelConnectionIdentity(
                   macDeviceID: target.macDeviceID, instanceTag: target.instanceTag
-              ) == target.connectionIdentity else { return }
+              ) == target.connectionIdentity else { return .stopped(.cancelled) }
         // Keep a failed shared catalog for this prefetch wave. Passing it
         // through preserves one backend attempt while each Mac can still
         // perform its independent host discovery. Invalidating here would
         // make every worker start another provider-independent download.
-        _ = await refreshTaskModels(
+        return await refreshTaskModels(
             provider: provider, macDeviceID: target.macDeviceID,
             instanceTag: target.instanceTag, maximumCacheAge: 300,
             prefetchedCatalog: catalog

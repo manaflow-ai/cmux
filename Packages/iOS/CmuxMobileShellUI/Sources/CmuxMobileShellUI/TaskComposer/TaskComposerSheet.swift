@@ -825,6 +825,19 @@ struct TaskComposerSheet: View {
         displayedModels.isEmpty && modelRefreshOperationID != nil
     }
 
+    private func defaultModel(
+        from result: MobileTaskModelListResult,
+        preserving previous: MobileTaskAgentModel?
+    ) -> MobileTaskAgentModel? {
+        if let defaultModel = result.defaultModel {
+            return defaultModel
+        }
+        // An empty or failed result means no fresh catalog replaced the
+        // restored picker state. A nonempty successful catalog is authoritative
+        // even when the provider did not report a default model.
+        return result.error != nil || result.models.isEmpty ? previous : nil
+    }
+
     private func updateModelLoadingIndicator(isLoading: Bool) async {
         guard isModelLoadingIndicatorVisible != isLoading else { return }
         // task(id:) cancels this debounce when the fetch changes state. Fast
@@ -865,7 +878,10 @@ struct TaskComposerSheet: View {
         // Keep a usable cached catalog visible while the host and backend are
         // refreshed. An authoritative host result replaces it in place.
         displayedModels = cachedResult.models
-        displayedDefaultModel = cachedResult.defaultModel
+        displayedDefaultModel = defaultModel(
+            from: cachedResult,
+            preserving: displayedDefaultModel
+        )
         displayedModelError = cachedResult.error
         reconcileSelectedEffort()
         modelRefreshTask = Task {
@@ -887,8 +903,9 @@ struct TaskComposerSheet: View {
                               modelRefreshOperationID == operationID,
                               modelRefreshID == refreshID else { return }
                         displayedModels = result.models
-                        displayedDefaultModel = result.defaultModel ?? (
-                            result.error != nil ? displayedDefaultModel : nil
+                        displayedDefaultModel = defaultModel(
+                            from: result,
+                            preserving: displayedDefaultModel
                         )
                         displayedModelError = result.error
                         reconcileSelectedEffort()
@@ -931,8 +948,9 @@ struct TaskComposerSheet: View {
                 instanceTag: instanceTag
             ) {
                 displayedModels = refreshedResult.models
-                displayedDefaultModel = refreshedResult.defaultModel ?? (
-                    refreshedResult.error != nil ? displayedDefaultModel : nil
+                displayedDefaultModel = defaultModel(
+                    from: refreshedResult,
+                    preserving: displayedDefaultModel
                 )
                 displayedModelError = refreshedResult.error
                 reconcileSelectedEffort()

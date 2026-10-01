@@ -523,20 +523,18 @@ extension MobileShellComposite {
         let sessionGeneration = currentSessionGeneration
         taskModelRefreshRequests[key] = request
         request.task = Task { [weak self] in
-            guard let self else {
-                request.finish(.stopped(.cancelled))
-                return
-            }
-            let outcome = await self.performTaskModelRefresh(
+            let outcome = await self?.performTaskModelRefresh(
                 provider: provider, macDeviceID: macDeviceID, instanceTag: instanceTag,
                 prefetchedCatalog: prefetchedCatalog,
                 didUpdate: { request.publish($0) }
-            )
-            if self.taskModelRefreshRequests[key] === request {
-                self.taskModelRefreshRequests[key] = nil
-                if !Task.isCancelled, self.currentSessionGeneration == sessionGeneration,
-                   outcome == .succeeded, let connectionIdentity {
-                    self.taskModelSuccessfulConnections[key] = connectionIdentity
+            ) ?? .stopped(.cancelled)
+            if let self {
+                if self.taskModelRefreshRequests[key] === request {
+                    self.taskModelRefreshRequests[key] = nil
+                    if !Task.isCancelled, self.currentSessionGeneration == sessionGeneration,
+                       outcome == .succeeded, let connectionIdentity {
+                        self.taskModelSuccessfulConnections[key] = connectionIdentity
+                    }
                 }
             }
             request.finish(outcome)
@@ -829,6 +827,7 @@ extension MobileShellComposite {
                 guard currentIdentity == connectionIdentity else { return false }
                 cachedConnectionIdentity = connectionIdentity
             } else {
+                guard let currentIdentity else { return false }
                 cachedConnectionIdentity = currentIdentity
             }
         } else {
@@ -848,13 +847,11 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) -> MobileTaskModelListSource? {
-        taskModelCache[
-            MobileTaskModelCacheKey(
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag,
-                provider: provider
-            )
-        ]?.result.source
+        cachedTaskModelEntry(
+            provider: provider,
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )?.result.source
     }
 
     /// Fetch timestamp used by package tests and cache diagnostics.

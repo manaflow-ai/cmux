@@ -67,11 +67,16 @@ public nonisolated struct MobileTaskModelCatalogClient: Sendable {
     /// same response to every provider and paired Mac.
     func allResults() async throws -> [MobileTaskAgentProvider: MobileTaskModelListResult] {
         let data = try await loadPrefetchData()
+        let catalog = try JSONDecoder().decode(Catalog.self, from: data)
+        guard catalog.schemaVersion == 1 else {
+            throw MobileTaskModelCatalogError.invalidCatalog
+        }
         var results: [MobileTaskAgentProvider: MobileTaskModelListResult] = [:]
         for provider in MobileTaskAgentProvider.allCases {
-            if let result = try? Self.result(from: data, provider: provider) {
-                results[provider] = result
+            guard let providerCatalog = catalog.providers[provider.rawValue] else {
+                continue
             }
+            results[provider] = try Self.result(from: providerCatalog)
         }
         guard !results.isEmpty else { throw MobileTaskModelCatalogError.invalidCatalog }
         return results
@@ -114,6 +119,12 @@ public nonisolated struct MobileTaskModelCatalogClient: Sendable {
               let providerCatalog = catalog.providers[provider.rawValue] else {
             throw MobileTaskModelCatalogError.invalidCatalog
         }
+        return try result(from: providerCatalog)
+    }
+
+    private static func result(
+        from providerCatalog: ProviderCatalog
+    ) throws -> MobileTaskModelListResult {
 
         var seenIDs: Set<String> = []
         var models: [MobileTaskAgentModel] = []

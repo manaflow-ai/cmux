@@ -6,7 +6,7 @@ actor MobileTaskModelPrefetchCatalogProbe {
     private var hold = false
     private var started = false
     private var startedWaiters: [CheckedContinuation<Void, Never>] = []
-    private var releaseContinuation: CheckedContinuation<Void, Never>?
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
 
     init(data: Data) {
         self.data = data
@@ -23,7 +23,7 @@ actor MobileTaskModelPrefetchCatalogProbe {
             let waiters = startedWaiters
             startedWaiters.removeAll()
             for waiter in waiters { waiter.resume() }
-            await withCheckedContinuation { releaseContinuation = $0 }
+            await withCheckedContinuation { releaseContinuations.append($0) }
         }
         return data
     }
@@ -34,7 +34,8 @@ actor MobileTaskModelPrefetchCatalogProbe {
     }
 
     func release() {
-        releaseContinuation?.resume()
-        releaseContinuation = nil
+        let continuations = releaseContinuations
+        releaseContinuations.removeAll()
+        for continuation in continuations { continuation.resume() }
     }
 }

@@ -7,7 +7,7 @@ struct TaskComposerPrefetchObserver: View {
     @Environment(\.scenePhase) private var scenePhase
 
     private var prefetchTargets: [MobileTaskModelPrefetchTarget] {
-        scenePhase == .active ? store.taskModelPrefetchTargets : []
+        scenePhase == .background ? [] : store.taskModelPrefetchTargets
     }
 
     var body: some View {
