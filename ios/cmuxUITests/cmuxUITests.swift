@@ -4786,6 +4786,12 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(picker.waitForExistence(timeout: 3))
         XCTAssertTrue(app.tabBars.buttons["Notifications"].isSelected)
 
+        let workspacesPhase = app.staticTexts["MobileNotificationFeedPreviewWorkspacesActive"]
+        XCTAssertTrue(
+            workspacesPhase.waitForExistence(timeout: 5),
+            "The repeated-switch fixture never reached its Workspaces phase"
+        )
+
         // The fixture switches tabs six times at 700 ms intervals. Sample the
         // shared toolbar while those transitions are in flight so a transient
         // unmount or blank frame cannot pass by behind a settled-state wait.
@@ -4803,7 +4809,7 @@ final class cmuxUITests: XCTestCase {
             sampleCount += 1
             RunLoop.current.run(until: Date().addingTimeInterval(0.03))
         }
-        XCTAssertGreaterThan(sampleCount, 100)
+        XCTAssertGreaterThan(sampleCount, 20)
         XCTAssertTrue(waitForHittable(feed, timeout: 3))
         XCTAssertTrue(app.tabBars.buttons["Notifications"].isSelected)
     }

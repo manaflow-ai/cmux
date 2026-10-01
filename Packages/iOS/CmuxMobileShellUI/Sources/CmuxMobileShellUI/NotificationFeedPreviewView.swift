@@ -152,6 +152,16 @@ public struct NotificationFeedPreviewView: View {
                     projection: projection
                 )
             }
+            .overlay(alignment: .topLeading) {
+                if selectedTab == .workspaces {
+                    Text(verbatim: "Workspaces active")
+                        .accessibilityIdentifier("MobileNotificationFeedPreviewWorkspacesActive")
+                        .accessibilityLabel("Workspaces active")
+                        .frame(width: 1, height: 1)
+                        .opacity(0.01)
+                        .allowsHitTesting(false)
+                }
+            }
             .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
         }
         .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
