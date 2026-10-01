@@ -57,15 +57,18 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     let mut argv: Vec<OsString> = Vec::with_capacity(args.len() + 2);
     argv.push(invocation.display_name.clone().into());
     argv.extend(args);
+    // The command word, past any global flags before it
+    // (`acpmux --json exec …`), so these rewrites see the same command.
+    let at = command_index(&argv);
     // `acpmux daemon` with nothing after it means `daemon run`.
-    if argv.len() == 2 && argv[1] == "daemon" {
+    if at + 1 == argv.len() && argv[at] == "daemon" {
         argv.push("run".into());
     }
-    if argv.get(1).map(|a| a == "--skill" || a == "--guide").unwrap_or(false) {
-        argv[1] = "skill".into();
+    if argv.get(at).map(|a| a == "--skill" || a == "--guide").unwrap_or(false) {
+        argv[at] = "skill".into();
     }
-    let run_alias = argv.get(1).map(|a| a == "run" || a == "exec").unwrap_or(false);
-    let exec_alias = argv.get(1).map(|a| a == "exec").unwrap_or(false);
+    let run_alias = argv.get(at).map(|a| a == "run" || a == "exec").unwrap_or(false);
+    let exec_alias = argv.get(at).map(|a| a == "exec").unwrap_or(false);
     // clap keeps command names as `&'static str`; one per process.
     let name: &'static str = Box::leak(invocation.display_name.clone().into_boxed_str());
     let matches = Cli::command().name(name).bin_name(name).get_matches_from(argv);
@@ -134,5 +137,29 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+    }
+}
+
+/// Index of the first argument after the program name that is not a global
+/// flag (`--json`, `--suppress-reads`); `argv.len()` when there is none.
+fn command_index(argv: &[OsString]) -> usize {
+    argv.iter()
+        .skip(1)
+        .position(|a| a != "--json" && a != "--suppress-reads")
+        .map(|i| i + 1)
+        .unwrap_or(argv.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_index_skips_leading_global_flags() {
+        let argv = |list: &[&str]| list.iter().map(|s| OsString::from(*s)).collect::<Vec<_>>();
+        assert_eq!(command_index(&argv(&["acpmux", "exec", "hi"])), 1);
+        assert_eq!(command_index(&argv(&["acpmux", "--json", "exec", "hi"])), 2);
+        assert_eq!(command_index(&argv(&["acpmux", "--json", "--suppress-reads", "daemon"])), 3);
+        assert_eq!(command_index(&argv(&["acpmux", "--json"])), 2);
     }
 }
