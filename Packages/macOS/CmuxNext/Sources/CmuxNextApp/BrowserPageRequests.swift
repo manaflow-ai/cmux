@@ -65,7 +65,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             let extra = BrowserProfileLinkMenu.items(for: request.target.linkURL, target: ActionTargetRef(kind: .pane, id: pane.id),
                                                      services: services) + host.items
             host.removeAllItems()
-            BrowserContextMenuBuilder.present(request, in: page.contentView, extra: extra)
+            services.contextMenus.present(request, in: page.contentView, extra: extra)
         case .notice(let text):
             services.cache.existingBrowser(key)?.chrome.showNotice(text)
         case .download:

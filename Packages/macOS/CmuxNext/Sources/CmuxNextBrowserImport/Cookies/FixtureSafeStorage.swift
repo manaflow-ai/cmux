@@ -11,10 +11,10 @@ public struct FixtureSafeStorage: SafeStorageKeyProviding {
         self.passwords = passwords
     }
 
-    public init?(environment: [String: String]) {
+    public init?(environment: [String: String], fileManager: FileManager = FileManager()) {
         guard let home = environment[ImportEnvironment.fixtureHomeKey], !home.isEmpty,
               let path = environment[Self.environmentKey], !path.isEmpty,
-              let data = FileManager.default.contents(atPath: path),
+              let data = fileManager.contents(atPath: path),
               let passwords = try? JSONDecoder().decode([String: String].self, from: data) else { return nil }
         self.passwords = passwords
     }
@@ -27,11 +27,24 @@ public struct FixtureSafeStorage: SafeStorageKeyProviding {
 
 /// The key provider for this process: the fixture file in a fixture-home
 /// test launch, else the login Keychain.
-public enum SafeStorageKeys {
-    public static func live(environment: [String: String] = ProcessInfo.processInfo.environment) -> any SafeStorageKeyProviding {
+public struct SafeStorageKeys {
+    private let environment: [String: String]
+    private let fileManager: FileManager
+
+    /// Creates the key provider factory for a process environment.
+    ///
+    /// - Parameters:
+    ///   - environment: Environment used to choose fixture or login Keychain keys.
+    ///   - fileManager: Filesystem access for fixture keys.
+    public init(environment: [String: String] = ProcessInfo.processInfo.environment, fileManager: FileManager = FileManager()) {
+        self.environment = environment
+        self.fileManager = fileManager
+    }
+
+    public func live() -> any SafeStorageKeyProviding {
         if environment[ImportEnvironment.fixtureHomeKey].map({ !$0.isEmpty }) == true {
             // A fixture home never falls back to the real Keychain.
-            return FixtureSafeStorage(environment: environment) ?? FixtureSafeStorage(passwords: [:])
+            return FixtureSafeStorage(environment: environment, fileManager: fileManager) ?? FixtureSafeStorage(passwords: [:])
         }
         return KeychainSafeStorage()
     }

@@ -27,11 +27,17 @@ public protocol BrowserContentVisibilityReporting: AnyObject {
 /// Where browser engines report content lifecycle steps (show, hide, the
 /// page window's visibility) for the App's input journal. Main actor only.
 @MainActor
-public enum BrowserLifecycleTrace {
-    /// Set by the App: `(tab, event)`.
-    public static var sink: ((String, String) -> Void)?
+public struct BrowserLifecycleTrace {
+    private let sink: ((String, String) -> Void)?
 
-    static func record(_ tab: BrowserTabID, _ event: String) {
+    /// Creates a lifecycle trace for the containing browser engine.
+    ///
+    /// - Parameter sink: Receives the tab identifier and lifecycle event, or nil to disable tracing.
+    public init(sink: ((String, String) -> Void)? = nil) {
+        self.sink = sink
+    }
+
+    func record(_ tab: BrowserTabID, _ event: String) {
         sink?(tab.rawValue, event)
     }
 }

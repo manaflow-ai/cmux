@@ -17,11 +17,21 @@ public final class CEFEngine: BrowserEngine {
     ]
 
     let layout: CEFRuntimeLayout?
+    let lifecycleTrace: BrowserLifecycleTrace
+    let contextMenus: BrowserContextMenuBuilder
 
-    /// `layout` defaults to the runtime embedded in the main bundle, or the
-    /// directory named by `CMUX_NEXT_CEF_RUNTIME`.
-    public init(layout: CEFRuntimeLayout? = CEFRuntimeLayout.locate()) {
+    /// Creates an engine with its lifecycle reporting and menu presenter.
+    ///
+    /// - Parameters:
+    ///   - layout: The embedded runtime, or the directory named by `CMUX_NEXT_CEF_RUNTIME`.
+    ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
+    ///   - contextMenus: Presents menus when no tab delegate handles the request.
+    public init(layout: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
+                lifecycleTrace: BrowserLifecycleTrace = BrowserLifecycleTrace(),
+                contextMenus: BrowserContextMenuBuilder = BrowserContextMenuBuilder()) {
         self.layout = layout
+        self.lifecycleTrace = lifecycleTrace
+        self.contextMenus = contextMenus
     }
 
     public var availability: BrowserEngineAvailability {
@@ -144,7 +154,7 @@ public final class CEFEngine: BrowserEngine {
         let pane = configuration.pane ?? BrowserPaneID(rawValue: "tab-" + configuration.id.rawValue)
         let key = CEFPaneKey(pane: pane, profile: configuration.profile, machineKey: configuration.machineStore?.machineKey,
                              offTheRecord: OffTheRecordProfiles.shared.isOffTheRecord(configuration.profile))
-        let host = runtime.host(for: key)
+        let host = runtime.host(for: key, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         let tab = CEFTab(id: configuration.id, profile: configuration.profile, host: host, runtime: runtime)
         tab.machineStore = configuration.machineStore
         tab.navigationGuard = configuration.navigationGuard

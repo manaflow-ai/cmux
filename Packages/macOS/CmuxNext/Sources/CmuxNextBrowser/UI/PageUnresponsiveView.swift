@@ -15,12 +15,12 @@ final class PageUnresponsiveView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         translatesAutoresizingMaskIntoConstraints = false
-        setAccessibilityIdentifier(BrowserChromeView.Identifier.pageUnresponsive)
+        setAccessibilityIdentifier(BrowserChromeView.pageUnresponsiveIdentifier)
         messageLabel.maximumNumberOfLines = 4
         let exit = ChromeTextButton(title: Strings.pageUnresponsiveExit, prominent: false, action: #selector(exitPage), target: self)
-        exit.setAccessibilityIdentifier(BrowserChromeView.Identifier.pageUnresponsiveExit)
+        exit.setAccessibilityIdentifier(BrowserChromeView.pageUnresponsiveExitIdentifier)
         let wait = ChromeTextButton(title: Strings.pageUnresponsiveWait, prominent: true, action: #selector(waitForPage), target: self)
-        wait.setAccessibilityIdentifier(BrowserChromeView.Identifier.pageUnresponsiveWait)
+        wait.setAccessibilityIdentifier(BrowserChromeView.pageUnresponsiveWaitIdentifier)
         let buttons = NSStackView(views: [exit, wait])
         let stack = NSStackView(views: [titleLabel, messageLabel, buttons])
         stack.orientation = .vertical

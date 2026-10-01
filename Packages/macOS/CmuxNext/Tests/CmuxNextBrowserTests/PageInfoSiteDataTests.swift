@@ -58,10 +58,10 @@ struct PageInfoSiteDataTests {
         }
         #expect(PageInfoCommand.show(.permission(.camera)).action == nil)
         #expect(throws: PageInfoCommandError.invalidArgument(name: "setting", value: "ask")) {
-            try PageInfoCommand.from(actionID: PageInfoCommand.ActionID.setPermission, arguments: ["permission": "sound", "setting": "ask"])
+            try PageInfoCommand.from(actionID: PageInfoCommand.setPermissionActionID, arguments: ["permission": "sound", "setting": "ask"])
         }
         #expect(throws: PageInfoCommandError.invalidArgument(name: "permission", value: "teleport")) {
-            try PageInfoCommand.from(actionID: PageInfoCommand.ActionID.setPermission, arguments: ["permission": "teleport", "setting": "allow"])
+            try PageInfoCommand.from(actionID: PageInfoCommand.setPermissionActionID, arguments: ["permission": "teleport", "setting": "allow"])
         }
     }
 

@@ -94,23 +94,23 @@ public actor BrowserImporter {
         let path = profile.path
         switch (profile.browser.family, kind) {
         case (.chromium, .bookmarks):
-            batch.bookmarks = try ChromiumBookmarksParser.parse(Data(contentsOf: path.appending(path: "Bookmarks")))
+            batch.bookmarks = try ChromiumBookmarksParser().parse(Data(contentsOf: path.appending(path: "Bookmarks")))
         case (.chromium, .history):
-            batch.history = try ChromiumHistoryReader.read(path.appending(path: "History"), limit: historyLimit)
+            batch.history = try ChromiumHistoryReader().read(path.appending(path: "History"), limit: historyLimit)
         case (.chromium, .openTabs):
-            if let file = ChromiumSessionReader.sessionFile(profile: path) { batch.openTabs = ChromiumSessionReader.parse(try Data(contentsOf: file)) }
+            if let file = ChromiumSessionReader().sessionFile(profile: path) { batch.openTabs = ChromiumSessionReader().parse(try Data(contentsOf: file)) }
         case (.chromium, .extensions):
-            batch.extensions = ChromiumExtensionsReader.read(profile: path)
+            batch.extensions = ChromiumExtensionsReader().read(profile: path)
         case (.firefox, .bookmarks):
-            batch.bookmarks = try FirefoxPlacesReader.readBookmarks(path.appending(path: "places.sqlite"))
+            batch.bookmarks = try FirefoxPlacesReader().readBookmarks(path.appending(path: "places.sqlite"))
         case (.firefox, .history):
-            batch.history = try FirefoxPlacesReader.readHistory(path.appending(path: "places.sqlite"), limit: historyLimit)
+            batch.history = try FirefoxPlacesReader().readHistory(path.appending(path: "places.sqlite"), limit: historyLimit)
         case (.firefox, .openTabs):
-            if let file = FirefoxSessionReader.sessionFile(in: path) { batch.openTabs = FirefoxSessionReader.parse(try Data(contentsOf: file)) }
+            if let file = FirefoxSessionReader().sessionFile(in: path) { batch.openTabs = FirefoxSessionReader().parse(try Data(contentsOf: file)) }
         case (.safari, .bookmarks):
-            batch.bookmarks = try SafariBookmarksParser.parse(Data(contentsOf: path.appending(path: "Bookmarks.plist")))
+            batch.bookmarks = try SafariBookmarksParser().parse(Data(contentsOf: path.appending(path: "Bookmarks.plist")))
         case (.safari, .history):
-            batch.history = try SafariHistoryReader.read(path.appending(path: "History.db"), limit: historyLimit)
+            batch.history = try SafariHistoryReader().read(path.appending(path: "History.db"), limit: historyLimit)
         default:
             return
         }

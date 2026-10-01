@@ -12,9 +12,9 @@ import Testing
 /// the user clicks the page; in cmux only the focus coordinator moves focus.
 @MainActor
 @Suite struct CEFFocusRequestTests {
-    private func makeTab() -> CEFTab {
+    private func makeTab(lifecycleTrace: BrowserLifecycleTrace = BrowserLifecycleTrace()) -> CEFTab {
         let runtime = CEFRuntime.shared
-        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: "focus"), profile: .default), runtime: runtime)
+        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: "focus"), profile: .default), runtime: runtime, lifecycleTrace: lifecycleTrace)
         let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
         host.add(tab)
         return tab
@@ -52,11 +52,8 @@ import Testing
     /// Refusals reach the input journal (the live check of every New
     /// Browser Tab entry point reads them).
     @Test func aRefusalIsJournaled() {
-        let tab = makeTab()
         var events: [String] = []
-        let previous = BrowserLifecycleTrace.sink
-        BrowserLifecycleTrace.sink = { tabID, event in if tabID == tab.id.rawValue { events.append(event) } }
-        defer { BrowserLifecycleTrace.sink = previous }
+        let tab = makeTab(lifecycleTrace: BrowserLifecycleTrace { _, event in events.append(event) })
         _ = tab.chromiumRequestsFocus(.navigation)
         #expect(events == ["focus-refused source=navigation"])
     }
@@ -74,7 +71,7 @@ import Testing
 
     @Test func focusLeavingThePageAsksTheHostForTheOmnibar() {
         let runtime = CEFRuntime.shared
-        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: "take"), profile: .default), runtime: runtime)
+        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: "take"), profile: .default), runtime: runtime, lifecycleTrace: lifecycleTrace)
         let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
         host.add(tab)
         let recorder = Recorder()

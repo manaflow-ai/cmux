@@ -41,7 +41,7 @@ extension CEFPaneHost {
         let id = BrowserTabID.random()
         let popupKey = CEFPaneKey(pane: BrowserPaneID(rawValue: Self.popupPrefix + id.rawValue),
                                   profile: key.profile, machineKey: key.machineKey, offTheRecord: key.offTheRecord)
-        let host = runtime.host(for: popupKey)
+        let host = runtime.host(for: popupKey, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         host.popupWindow = window
         let tab = CEFTab(id: id, profile: key.profile, host: host, runtime: runtime)
         tab.machineStore = opener.machineStore
@@ -61,18 +61,18 @@ extension CEFPaneHost {
     func attachPopupWindowIfNeeded(_ tab: CEFTab) -> Bool {
         guard let popupWindow, case .none = window, let shim = runtime.shim else { return false }
         guard let browser = tab.browserID, hostView.window != nil else {
-            BrowserLifecycleTrace.record(tab.id, "popup-window-attach deferred browser=\(tab.browserID ?? 0) window=\(hostView.window != nil)")
+            lifecycleTrace.record(tab.id, "popup-window-attach deferred browser=\(tab.browserID ?? 0) window=\(hostView.window != nil)")
             return true
         }
         let size = hostView.bounds.size
-        BrowserLifecycleTrace.record(tab.id, "popup-window-attach window=\(popupWindow) size=\(Int(size.width))x\(Int(size.height))")
+        lifecycleTrace.record(tab.id, "popup-window-attach window=\(popupWindow) size=\(Int(size.width))x\(Int(size.height))")
         if shim.popupWindowAttach(popupWindow, Unmanaged.passUnretained(hostView).toOpaque(),
                                   max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32) == 1 {
             window = .live(window: popupWindow)
             lastActivated = browser
             _ = shim.tabActivate(browser)
             hostView.postGeometryChange()
-            BrowserLifecycleTrace.record(tab.id, "popup-window-attached")
+            lifecycleTrace.record(tab.id, "popup-window-attached")
         } else {
             runtime.logger.error("CEF popup window \(popupWindow) did not attach; closing its tab")
             tab.close()
