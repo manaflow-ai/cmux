@@ -59,9 +59,9 @@ enum ScreenAppearanceHandlers {
         })
     }
 
-    /// The targeted screen, when it has screen state (a public id).
+    /// The targeted screen on a daemon with `screen-metadata-v1`.
     private static func metadataTarget(_ invocation: ActionInvocation, _ ctx: AppActionContext) -> ScreenRef? {
-        guard let ref = ctx.screen(invocation), ctx.requireScreenState(ref.screen) else { return nil }
+        guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.screenMetadata, on: ref.daemon) else { return nil }
         return ref
     }
 }

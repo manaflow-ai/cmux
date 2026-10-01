@@ -59,11 +59,11 @@ struct ScreenBarMappingTests {
     @Test func groupsMapToChipsAndMembership() throws {
         let store = try tree {
             $0.workspaces[0].screenGroups = [ScreenGroupSnapshot(id: "sgrp_1", name: "Build", color: "orange", collapsed: true,
-                                                                  start: 0, screens: [5])]
+                                                                  savedID: "ssaved_1", start: 0, screens: [5])]
             $0.workspaces[0].screens[0].group = "sgrp_1"
         }
         let snapshot = map(try #require(store.workspaces.first))
-        #expect(snapshot.groups == [TabGroupItem(id: "sgrp_1", name: "Build", colorToken: .orange, isCollapsed: true)])
+        #expect(snapshot.groups == [TabGroupItem(id: "sgrp_1", name: "Build", colorToken: .orange, isCollapsed: true, isSaved: true)])
         #expect(snapshot.items[0].groupID == "sgrp_1")
         #expect(snapshot.items[1].groupID == nil)
     }

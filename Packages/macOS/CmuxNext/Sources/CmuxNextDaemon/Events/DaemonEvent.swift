@@ -20,6 +20,8 @@ public enum DaemonEvent: Sendable, Hashable {
     case screenAdded(ScreenDelta)
     case screenClosed(ScreenDelta)
     case screenRenamed(ScreenDelta)
+    /// Color, icon, pin, group, or order changed (`screen-metadata-v1`); not revisioned.
+    case screenChanged(ScreenDelta)
     case paneAdded(PaneDelta)
     case paneClosed(PaneDelta)
     case tabAdded(TabDelta)

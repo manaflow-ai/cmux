@@ -25,10 +25,6 @@ public final class DaemonStore {
     /// The rest of the home session's personal state (`PersonalStore`).
     public internal(set) var personal = PersonalStore()
     public internal(set) var savedTabGroups: [SavedTabGroupModel] = []
-    /// Screen pins, colors, icons and groups from the last live snapshot
-    /// (`ScreenStateSnapshot`), laid over raw screen and workspace deltas,
-    /// which do not carry them.
-    var screenState = ScreenStateSnapshot()
     /// Sidebar flattening, recomputed only when order, membership, or groups change.
     public internal(set) var sidebarSections: [SidebarSection] = []
     public internal(set) var connectionState: DaemonConnectionState = .connecting
@@ -180,7 +176,6 @@ public final class DaemonStore {
                                      update: { $0.update($1) }) {
             savedTabGroups = reordered
         }
-        screenState = tree.screenState
         if let reordered = reconcile(workspaces, with: tree.workspaces, id: WorkspaceModel.identity, make: WorkspaceModel.init,
                                      update: { $0.update($1) }) {
             workspaces = reordered

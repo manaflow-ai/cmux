@@ -76,24 +76,4 @@ extension AppActionContext {
         refuse(RefusalStrings.needsDaemonCapability(capability))
         return false
     }
-
-    /// The capability name reported when screen state is missing. Screen pins,
-    /// colors, icons, order and groups are the daemon's protocol/2 state
-    /// resources, addressed by public id (`screen_…`); a daemon without the
-    /// workspace registry has none.
-    static let screenStateCapability = "screen-state"
-
-    /// Refuses unless `screen` has a public id the state resources accept.
-    func requireScreenState(_ screen: ScreenModel) -> Bool {
-        if screen.resourceID != nil { return true }
-        refuse(RefusalStrings.needsDaemonCapability(Self.screenStateCapability))
-        return false
-    }
-
-    /// Refuses unless `workspace`'s new screens get public ids.
-    func requireScreenState(in workspace: WorkspaceModel) -> Bool {
-        if workspace.resourceID != nil { return true }
-        refuse(RefusalStrings.needsDaemonCapability(Self.screenStateCapability))
-        return false
-    }
 }

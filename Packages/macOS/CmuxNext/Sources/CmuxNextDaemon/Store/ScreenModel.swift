@@ -15,12 +15,12 @@ public final class ScreenModel: Identifiable {
     public internal(set) var zoomedPane: PaneID?
     public internal(set) var defaultPane: PaneID?
     public internal(set) var panes: [PaneModel]
-    /// Palette token, nil = none (a screen state resource).
+    /// Palette token, nil = none (`screen-metadata-v1`).
     public internal(set) var color: String?
     /// SF Symbol name or one emoji grapheme.
     public internal(set) var icon: String?
     public internal(set) var pinned: Bool
-    /// The screen group this screen belongs to.
+    /// The screen group this screen belongs to (`screen-groups-v1`).
     public internal(set) var group: ScreenGroupID?
 
     init(_ s: ScreenSnapshot) {

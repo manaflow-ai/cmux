@@ -31,10 +31,6 @@ public struct DaemonTree: Sendable, Hashable, Decodable {
     /// `list-workspaces`: `DaemonConnection.snapshot()` fills it from
     /// `list-saved-tab-groups`.
     public var savedTabGroups: [SavedTabGroupSnapshot]
-    /// Screen metadata and screen groups (protocol/2 state resources). Not
-    /// part of `list-workspaces`: `DaemonConnection.snapshot()` fills it and
-    /// decorates `workspaces` with it.
-    public var screenState = ScreenStateSnapshot()
 
     public init(
         generation: DaemonGeneration? = nil,

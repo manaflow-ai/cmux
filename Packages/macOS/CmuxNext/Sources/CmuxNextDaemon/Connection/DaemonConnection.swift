@@ -217,13 +217,6 @@ public actor DaemonConnection {
             try WireCoding.encodeRequest(ListWorkspacesRequest(), id: id)
         }
         var tree = try WireCoding.decodeResponse(DaemonTree.self, from: response.line)
-        if tree.workspaces.contains(where: { $0.screens.contains { $0.resourceID != nil } }) {
-            // Screen pins, colors, icons and groups are protocol/2 state
-            // resources, not raw tree fields. Their changes emit
-            // `tree-changed`, which triggers this snapshot again.
-            tree.screenState = await screenState()
-            tree.screenState.decorate(&tree)
-        }
         if identity?.supports(DaemonCapabilities.savedTabGroups) == true, tree.savedTabGroups.isEmpty {
             // Saved groups are not part of `list-workspaces`. Their changes
             // emit `tree-changed`, which triggers this snapshot again.
