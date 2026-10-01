@@ -3862,12 +3862,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObjectIfPresent(forKey: $0) }
     }
 
-    nonisolated static func forgetPersistedWindowGeometryForTestProcess(
+#if DEBUG
+    /// Clears all persisted window geometry for isolated UI-test processes.
+    ///
+    /// Tests must start from the same clean geometry state regardless of which
+    /// schema version a previous test run wrote.
+    private nonisolated static func forgetPersistedWindowGeometryForTestProcess(
         defaults: UserDefaults = .standard
     ) {
-        removeLegacyPersistedWindowGeometry(defaults: defaults)
         defaults.removeObjectIfPresent(forKey: persistedWindowGeometryDefaultsKey)
+        removeLegacyPersistedWindowGeometry(defaults: defaults)
     }
+#endif
 
     private func persistWindowGeometry(from window: NSWindow?) {
         guard let window else { return }
@@ -7942,6 +7948,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    @discardableResult
+    func selectCustomSidebarInRightPanel(name: String) -> Bool {
+        if case .ok = applyRightSidebarRemoteCommand(.setCustomSidebar(name: name, focus: true)) {
+            return true
+        }
+        return false
+    }
+
     /// Opens My Devices in the selected main window and scopes its reveal request
     /// to that window so another mounted Machines panel cannot consume it first.
     @MainActor
@@ -10695,6 +10709,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.autorecalculatesKeyViewLoop = true
             window.recalculateKeyViewLoop()
         }
+        // The initial workspace predates its NSWindow attachment. Set the
+        // native title before discovery so window-manager rules see its name.
+        tabManager.refreshWindowTitle()
         publishCmuxWindowLifecycle(name: "window.created", windowId: windowId, origin: "create")
         installFileDropOverlay(on: window, tabManager: tabManager)
         if !shouldActivate || TerminalController.shouldSuppressSocketCommandActivation() {
