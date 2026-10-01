@@ -31,6 +31,19 @@ struct FileExplorerWorkspaceRootResolver {
         // transport, otherwise Files would silently change hosts.
         if let binding = workspace.cloudVMBinding {
             let vmID = binding.vmID
+            if vmID.hasPrefix("ssh:") {
+                guard let configuration = workspace.remoteConfiguration,
+                      configuration.transport == .ssh else { return .none }
+                return .remoteSSH(
+                    workspaceId: workspace.id,
+                    connection: SSHFileExplorerConnection(destination: configuration.destination,
+                        port: configuration.port, identityFile: configuration.identityFile, sshOptions: configuration.sshOptions),
+                    displayTarget: configuration.displayTarget,
+                    rootPath: workspace.trustedRemoteCurrentDirectory,
+                    isAvailable: workspace.remoteConnectionState == .connected,
+                    unavailableDetail: workspace.remoteConnectionDetail ?? workspace.remoteDaemonStatus.detail
+                )
+            }
             // The binding's machine id is authoritative.  Device ids use the
             // same wire representation as cloud ids but are owned by the
             // device provider, so do not force them through `.cloud`.
