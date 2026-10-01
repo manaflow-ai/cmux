@@ -43,6 +43,7 @@ struct CLICompletionCandidateLiveTests {
         )
 
         defer {
+            CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
             shutdown(listenerFD, SHUT_RDWR)
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -79,6 +80,7 @@ struct CLICompletionCandidateLiveTests {
         )
 
         defer {
+            CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
             shutdown(listenerFD, SHUT_RDWR)
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -128,6 +130,7 @@ struct CLICompletionCandidateLiveTests {
         )
 
         defer {
+            CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
             shutdown(listenerFD, SHUT_RDWR)
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -184,6 +187,7 @@ struct CLICompletionCandidateLiveTests {
         )
 
         defer {
+            CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
             shutdown(listenerFD, SHUT_RDWR)
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -207,29 +211,27 @@ struct CLICompletionCandidateLiveTests {
 
     private static func startMockServer(
         listenerFD: Int32,
-        response: @escaping ([String: Any]) -> String
+        response: @escaping @Sendable ([String: Any]) -> String
     ) -> DispatchSemaphore {
         let handled = DispatchSemaphore(value: 0)
-        Thread {
-            defer { handled.signal() }
+        // The registry's poll loop retries EINTR and can be stopped from each
+        // test's `defer`; a raw thread parked in `accept` is not woken by
+        // closing the listener on Darwin and would outlive a failed test.
+        CLIMockAcceptLoopRegistry.shared.start(
+            listenerFD: listenerFD,
+            onConnection: { clientFD in
+                defer { handled.signal() }
+                defer { Darwin.close(clientFD) }
 
-            var address = sockaddr_un()
-            var addressLength = socklen_t(MemoryLayout<sockaddr_un>.size)
-            let clientFD = withUnsafeMutablePointer(to: &address) { pointer in
-                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-                    Darwin.accept(listenerFD, socketAddress, &addressLength)
+                cliMockServeLineFramedConnection(clientFD: clientFD) { line in
+                    guard let request = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else {
+                        return Self.errorResponse(id: "unknown", code: "malformed_request")
+                    }
+                    return response(request)
                 }
-            }
-            guard clientFD >= 0 else { return }
-            defer { Darwin.close(clientFD) }
-
-            cliMockServeLineFramedConnection(clientFD: clientFD) { line in
-                guard let request = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else {
-                    return Self.errorResponse(id: "unknown", code: "malformed_request")
-                }
-                return response(request)
-            }
-        }.start()
+            },
+            onListenerClosed: {}
+        )
         return handled
     }
 

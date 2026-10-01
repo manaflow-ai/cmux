@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -106,6 +107,34 @@ class SocketConnectionRecorder:
             conn.close()
 
 
+def run_bounded(
+    command: list[str], timeout: float, env: dict[str, str] | None = None, input_text: str | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Like subprocess.run, but a timeout kills the child's whole process group
+    and reaps it, so a descendant cannot outlive the test and keep touching the
+    forced socket or temp home. Raises TimeoutExpired as subprocess.run does.
+    """
+    proc = subprocess.Popen(
+        command,
+        stdin=subprocess.PIPE if input_text is not None else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(input=input_text, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.communicate()
+        raise
+    return subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
+
+
 def run_completion(cli: str, shell: str) -> tuple[subprocess.CompletedProcess[str], str, int]:
     env = dict(os.environ)
     for key in [
@@ -135,14 +164,7 @@ def run_completion(cli: str, shell: str) -> tuple[subprocess.CompletedProcess[st
         env["HOME"] = home
         env["CFFIXED_USER_HOME"] = home
         with SocketConnectionRecorder(socket_path) as recorder:
-            proc = subprocess.run(
-                [cli, "completion", shell],
-                text=True,
-                capture_output=True,
-                check=False,
-                timeout=5.0,
-                env=env,
-            )
+            proc = run_bounded([cli, "completion", shell], timeout=30.0, env=env)
         connections = recorder.connections
 
     return proc, socket_path, connections
@@ -194,17 +216,16 @@ def main() -> int:
                 f"stdout={completion.stdout!r}\nstderr={completion.stderr!r}"
             )
 
-        if not completion.stdout:
+        # A failed generation is already reported; parsing whatever it printed
+        # would only add misleading "did not parse" failures.
+        if completion.returncode != 0 or not completion.stdout:
             continue
 
-        parser = subprocess.run(
-            parse_command,
-            input=completion.stdout,
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=5.0,
-        )
+        try:
+            parser = run_bounded(parse_command, timeout=30.0, input_text=completion.stdout)
+        except subprocess.TimeoutExpired:
+            failures.append(f"cmux completion {shell}: {' '.join(parse_command)} timed out")
+            continue
         if parser.returncode != 0:
             failures.append(
                 f"cmux completion {shell}: generated script did not parse\n"

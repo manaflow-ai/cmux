@@ -40,10 +40,15 @@ def main() -> int:
         env["CMUX_SOCKET_PATH"] = os.path.join(tmpdir, "absent.sock")
         env["HOME"] = home
         env["CFFIXED_USER_HOME"] = home
-        proc = subprocess.run(
-            [cli, "__dump-command-tree"],
-            text=True, capture_output=True, check=False, timeout=30.0, env=env,
-        )
+        try:
+            proc = subprocess.run(
+                [cli, "__dump-command-tree"],
+                text=True, capture_output=True, check=False, timeout=30.0, env=env,
+            )
+        except subprocess.TimeoutExpired as exc:
+            stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+            print(f"FAIL: __dump-command-tree timed out after {exc.timeout}s\n{stderr}")
+            return 1
     if proc.returncode != 0:
         print(f"FAIL: __dump-command-tree exited {proc.returncode}\n{proc.stderr}")
         return 1

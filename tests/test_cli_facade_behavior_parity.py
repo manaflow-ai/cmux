@@ -107,6 +107,11 @@ FACADE_ONLY_CASES: list[tuple[list[str], int, str]] = [
 ]
 
 
+class CliTimeout(Exception):
+    """A spawned cmux outlived its deadline; reported as its own failure so a
+    hang is never compared as if it were an exit code."""
+
+
 def run(
     cli: str, args: list[str], legacy: bool, socket_path: str, home: str
 ) -> subprocess.CompletedProcess:
@@ -123,9 +128,13 @@ def run(
         env["CMUX_CLI_LEGACY_PARSER"] = "1"
     else:
         env.pop("CMUX_CLI_LEGACY_PARSER", None)
-    return subprocess.run(
-        [cli, *args], text=True, capture_output=True, check=False, timeout=30.0, env=env,
-    )
+    try:
+        return subprocess.run(
+            [cli, *args], text=True, capture_output=True, check=False, timeout=30.0, env=env,
+        )
+    except subprocess.TimeoutExpired as exc:
+        parser = "legacy" if legacy else "facade"
+        raise CliTimeout(f"cmux {' '.join(args)} ({parser} parser) timed out after {exc.timeout}s") from exc
 
 
 def main() -> int:
@@ -140,8 +149,12 @@ def main() -> int:
         home = os.path.join(tmpdir, "home")
         os.mkdir(home)
         for args, description in CASES:
-            facade = run(cli, args, legacy=False, socket_path=socket_path, home=home)
-            legacy = run(cli, args, legacy=True, socket_path=socket_path, home=home)
+            try:
+                facade = run(cli, args, legacy=False, socket_path=socket_path, home=home)
+                legacy = run(cli, args, legacy=True, socket_path=socket_path, home=home)
+            except CliTimeout as exc:
+                failures.append(f"({description}): {exc}")
+                continue
             if facade.returncode != legacy.returncode or facade.stderr != legacy.stderr:
                 failures.append(
                     f"cmux {' '.join(args)} ({description}): "
@@ -155,8 +168,12 @@ def main() -> int:
             spaced_args = [option, value, *GLOBAL_OPTION_EQUALS_COMMAND]
             equals_args = [f"{option}={value}", *GLOBAL_OPTION_EQUALS_COMMAND]
             for legacy in (False, True):
-                spaced = run(cli, spaced_args, legacy=legacy, socket_path=socket_path, home=home)
-                equals = run(cli, equals_args, legacy=legacy, socket_path=socket_path, home=home)
+                try:
+                    spaced = run(cli, spaced_args, legacy=legacy, socket_path=socket_path, home=home)
+                    equals = run(cli, equals_args, legacy=legacy, socket_path=socket_path, home=home)
+                except CliTimeout as exc:
+                    failures.append(str(exc))
+                    continue
                 if spaced.returncode == equals.returncode and spaced.stderr == equals.stderr:
                     continue
                 parser = "legacy" if legacy else "facade"
@@ -168,7 +185,11 @@ def main() -> int:
                 )
 
         for args, expected_exit_code, description in FACADE_ONLY_CASES:
-            facade = run(cli, args, legacy=False, socket_path=socket_path, home=home)
+            try:
+                facade = run(cli, args, legacy=False, socket_path=socket_path, home=home)
+            except CliTimeout as exc:
+                failures.append(f"({description}): {exc}")
+                continue
             if facade.returncode != expected_exit_code:
                 failures.append(
                     f"cmux {' '.join(args)} ({description}): "

@@ -19,6 +19,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ALIASES = {
@@ -57,6 +58,38 @@ PASSTHROUGH_ALIASES = {"cr": "coderouter"}
 PASSTHROUGH_TARGET_HELP_MARKERS = {
     "coderouter": "Team settings for the cmux coderouter model plane",
 }
+
+
+
+# Controlled environment for every spawned cmux, set by main(). Ambient CMUX_*
+# variables (a legacy-parser override, a live socket or tag) would change what
+# is gated, and the real home would let the binary read or write user state.
+CLI_ENV: dict[str, str] = {}
+
+
+def build_cli_env(tmpdir: str) -> dict[str, str]:
+    home = os.path.join(tmpdir, "home")
+    os.mkdir(home)
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(("CMUX_", "CMUXD_"))
+    }
+    env["CMUX_CLI_SENTRY_DISABLED"] = "1"
+    env["CMUX_SOCKET_PATH"] = os.path.join(tmpdir, "absent.sock")
+    env["HOME"] = home
+    env["CFFIXED_USER_HOME"] = home
+    return env
+
+
+def run_cli(cli: str, argv: list[str]) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            [cli, *argv],
+            text=True, capture_output=True, check=False, timeout=30.0, env=CLI_ENV,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"`cmux {' '.join(argv)}` timed out after {exc.timeout}s") from exc
 
 
 def repo_root() -> Path:
@@ -122,10 +155,7 @@ def switch_case_labels(lines: list[str], start: int, description: str) -> set[st
 
 
 def extract_declared_names(cli: str) -> set[str]:
-    proc = subprocess.run(
-        [cli, "__dump-command-tree"],
-        text=True, capture_output=True, check=False, timeout=30.0,
-    )
+    proc = run_cli(cli, ["__dump-command-tree"])
     if proc.returncode != 0:
         raise RuntimeError(f"__dump-command-tree exited {proc.returncode}\n{proc.stderr}")
 
@@ -147,10 +177,7 @@ def extract_declared_names(cli: str) -> set[str]:
 
 def extract_declared_aliases(cli: str) -> dict[str, set[str]]:
     """Maps each top-level command to the aliases declared on it in the facade tree."""
-    proc = subprocess.run(
-        [cli, "__dump-command-tree"],
-        text=True, capture_output=True, check=False, timeout=30.0,
-    )
+    proc = run_cli(cli, ["__dump-command-tree"])
     if proc.returncode != 0:
         raise RuntimeError(f"__dump-command-tree exited {proc.returncode}\n{proc.stderr}")
 
@@ -172,10 +199,7 @@ def extract_declared_aliases(cli: str) -> dict[str, set[str]]:
 
 def extract_declared_subcommand_names(cli: str, parent: str) -> set[str]:
     """Names and aliases of the subcommands declared directly under `parent`."""
-    proc = subprocess.run(
-        [cli, "__dump-command-tree"],
-        text=True, capture_output=True, check=False, timeout=30.0,
-    )
+    proc = run_cli(cli, ["__dump-command-tree"])
     if proc.returncode != 0:
         raise RuntimeError(f"__dump-command-tree exited {proc.returncode}\n{proc.stderr}")
 
@@ -204,11 +228,7 @@ def extract_documented_entries(cli: str, argv: list[str], header: str) -> tuple[
     drops out of shell completion and typo suggestions while still running,
     so nothing else notices.
     """
-    proc = subprocess.run(
-        [cli, *argv],
-        text=True, capture_output=True, check=False, timeout=30.0,
-        env={**os.environ, "CMUX_SOCKET_PATH": "/tmp/cmux-dispatch-parity-absent.sock"},
-    )
+    proc = run_cli(cli, argv)
     if proc.returncode != 0:
         raise RuntimeError(f"`cmux {' '.join(argv)}` exited {proc.returncode}\n{proc.stderr}")
     _, found, section = proc.stdout.partition(f"\n{header}\n")
@@ -261,10 +281,7 @@ def extract_offered_long_flags(cli: str, path: str) -> set[str]:
     completion script is the one place both `cmux --skill` and
     `cmux vm --skill` can be observed the way a user reaches them.
     """
-    proc = subprocess.run(
-        [cli, "completion", "fish"],
-        text=True, capture_output=True, check=False, timeout=30.0,
-    )
+    proc = run_cli(cli, ["completion", "fish"])
     if proc.returncode != 0:
         raise RuntimeError(f"`cmux completion fish` exited {proc.returncode}\n{proc.stderr}")
     pattern = re.compile(
@@ -274,11 +291,7 @@ def extract_offered_long_flags(cli: str, path: str) -> set[str]:
 
 
 def help_text(cli: str, command: str) -> str:
-    proc = subprocess.run(
-        [cli, *command.split(" "), "--help"],
-        text=True, capture_output=True, check=False, timeout=30.0,
-        env={**os.environ, "CMUX_SOCKET_PATH": "/tmp/cmux-dispatch-parity-absent.sock"},
-    )
+    proc = run_cli(cli, [*command.split(" "), "--help"])
     return proc.stdout + proc.stderr
 
 
@@ -287,6 +300,17 @@ def main() -> int:
     if not cli or not os.access(cli, os.X_OK):
         print("FAIL: set CMUX_CLI_BIN to the built cmux binary")
         return 1
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        CLI_ENV.update(build_cli_env(tmpdir))
+        try:
+            return check_parity(cli)
+        except RuntimeError as exc:
+            print(f"FAIL: {exc}")
+            return 1
+
+
+def check_parity(cli: str) -> int:
 
     legacy_names = extract_legacy_dispatch_names()
     declared_names = extract_declared_names(cli)

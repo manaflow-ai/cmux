@@ -2,7 +2,9 @@ import Foundation
 
 /// Drives the CLI's `wait-for` signal owner:
 /// `path|signal|wait|lockpath|lock|unlock NAME [TIMEOUT]`.
-/// `wait` and `lock` write `watching` to stderr once their directory watch is armed.
+/// `wait` and `lock` write `watching` to stderr once, only if the first attempt
+/// finds the channel contended (no signal yet, or the lock held). An already
+/// signaled `wait` or a free `lock` finishes without printing it.
 @main
 struct TmuxWaitForSignalFixture {
     static func main() throws {

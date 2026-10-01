@@ -18,11 +18,11 @@ struct CLICompletionCandidateSafetyTests {
             "completion must never exit nonzero; a nonzero exit makes the shell beep"
         )
         #expect(
-            result.stdout.isEmpty,
+            result.rawStdout.isEmpty,
             "completion must offer no candidates when cmux is not running"
         )
         #expect(
-            result.stderr.isEmpty,
+            result.rawStderr.isEmpty,
             "completion must never write to stderr; it would corrupt the user's prompt"
         )
     }

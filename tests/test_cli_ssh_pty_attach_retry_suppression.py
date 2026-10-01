@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Gates that a persistent attach wrapper's retry noise stays silent under the
-ArgumentParser facade, exactly as it does under the legacy parser.
+"""Gates that a persistent attach wrapper's retry noise stays silent.
 
 A managed reconnect wrapper exports `CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=1`
 for each attempt that still has a retry budget, and it owns the user-facing
@@ -9,10 +8,11 @@ diagnostic for a wrapper-retryable status (251/254/255 and the managed
 transport phases): a healthy reconnect would otherwise look like a fatal SSH
 failure to the person watching the pane.
 
-The legacy `main()` consults that suppression rule before writing to stderr.
-`ssh-pty-attach` is facade-declared, so the facade's own error path has to
-consult it too; when it did not, every managed retry printed
-`Error: ssh-pty-attach: ...` where the legacy parser printed nothing.
+`ssh-pty-attach` is not facade-native: the router (`CMUXTermMain.shouldUseFacade`)
+sends it to the hand-rolled runner, whose `main()` consults the suppression
+rule before writing to stderr. This therefore gates that path only; it does not
+compare parsers, because both would execute the same code. A facade-native
+command that gained the same suppression would need its own case.
 
 Unlike `test_cli_facade_behavior_parity.py`, this repro needs a control socket
 that answers, because a wrapper-retryable status is only produced once the
@@ -94,8 +94,7 @@ def accept_loop(listener: socket.socket) -> None:
         threading.Thread(target=serve_connection, args=(connection,), daemon=True).start()
 
 
-def run(cli: str, legacy: bool, can_retry: bool, socket_path: str,
-        home: str) -> subprocess.CompletedProcess:
+def run(cli: str, can_retry: bool, socket_path: str, home: str) -> subprocess.CompletedProcess:
     # Every cmux-owned variable is dropped rather than allowlisted: an ambient
     # CMUX_SOCKET_PATH points the child at the developer's running app, and an
     # ambient CMUX_SSH_PTY_ATTACH_MANAGED_RECONNECT would make the runner exit
@@ -112,8 +111,6 @@ def run(cli: str, legacy: bool, can_retry: bool, socket_path: str,
         "CFFIXED_USER_HOME": home,
         "CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY": "1" if can_retry else "0",
     })
-    if legacy:
-        env["CMUX_CLI_LEGACY_PARSER"] = "1"
     return subprocess.run(
         [
             cli, "ssh-pty-attach", "--require-existing",
@@ -144,46 +141,36 @@ def main() -> int:
             threading.Thread(target=accept_loop, args=(listener,), daemon=True).start()
 
             for can_retry in (False, True):
-                facade = run(cli, legacy=False, can_retry=can_retry,
-                             socket_path=socket_path, home=home)
-                legacy = run(cli, legacy=True, can_retry=can_retry,
-                             socket_path=socket_path, home=home)
                 label = f"CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY={'1' if can_retry else '0'}"
+                try:
+                    result = run(cli, can_retry=can_retry, socket_path=socket_path, home=home)
+                except subprocess.TimeoutExpired as exc:
+                    failures.append(f"{label}: timed out after {exc.timeout}s")
+                    continue
 
                 # The status itself is the precondition for the whole test: if a
                 # refused bridge stops classifying as wrapper-retryable, the
                 # suppression rule below is never consulted and a green run
                 # would prove nothing.
-                for parser, result in (("facade", facade), ("legacy", legacy)):
-                    if result.returncode != RETRYABLE_TRANSIENT:
-                        failures.append(
-                            f"{label} ({parser}): a refused bridge must exit "
-                            f"{RETRYABLE_TRANSIENT}, got {result.returncode}\n"
-                            f"  stderr: {result.stderr.strip()!r}"
-                        )
-
-                if facade.stderr != legacy.stderr:
+                if result.returncode != RETRYABLE_TRANSIENT:
                     failures.append(
-                        f"{label}: facade stderr must match legacy\n"
-                        f"  facade stderr: {facade.stderr.strip()!r}\n"
-                        f"  legacy stderr: {legacy.stderr.strip()!r}"
+                        f"{label}: a refused bridge must exit "
+                        f"{RETRYABLE_TRANSIENT}, got {result.returncode}\n"
+                        f"  stderr: {result.stderr.strip()!r}"
                     )
 
-                # Parity alone would also be satisfied by suppressing (or
-                # printing) in both parsers, so pin which side of the rule each
-                # environment lands on.
-                for parser, result in (("facade", facade), ("legacy", legacy)):
-                    if can_retry and result.stderr.strip():
-                        failures.append(
-                            f"{label} ({parser}): the wrapper owns the retry notice, "
-                            f"so the runner must print nothing\n"
-                            f"  stderr: {result.stderr.strip()!r}"
-                        )
-                    if not can_retry and not result.stderr.strip():
-                        failures.append(
-                            f"{label} ({parser}): no retry is pending, so the runner "
-                            f"must report the failure"
-                        )
+                # Pin which side of the suppression rule each environment lands on.
+                if can_retry and result.stderr.strip():
+                    failures.append(
+                        f"{label}: the wrapper owns the retry notice, "
+                        f"so the runner must print nothing\n"
+                        f"  stderr: {result.stderr.strip()!r}"
+                    )
+                if not can_retry and not result.stderr.strip():
+                    failures.append(
+                        f"{label}: no retry is pending, so the runner "
+                        f"must report the failure"
+                    )
         finally:
             listener.close()
 
@@ -193,7 +180,7 @@ def main() -> int:
             print(f"  {failure}")
         return 1
 
-    print("PASS: ssh-pty-attach suppresses wrapper retry noise identically in both parsers")
+    print("PASS: ssh-pty-attach suppresses wrapper retry noise only when the wrapper can retry")
     return 0
 
 

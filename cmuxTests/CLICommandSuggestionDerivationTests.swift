@@ -22,6 +22,11 @@ final class CLICommandSuggestionDerivationTests: XCTestCase {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: Self.self)
         let result = try runCLI(cliPath, arguments: ["_internal_flags"], environment: [:])
 
+        XCTAssertTrue(
+            result.stderr.contains("Unknown command '_internal_flags'."),
+            "the single-underscore typo must reach the unknown-command path"
+        )
+        XCTAssertEqual(result.exitCode, 2)
         XCTAssertFalse(
             result.stderr.contains("__internal_flags"),
             "hidden __-prefixed commands must stay out of user-facing suggestions"

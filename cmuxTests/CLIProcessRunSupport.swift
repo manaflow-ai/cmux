@@ -5,6 +5,9 @@ struct CLIRunResult {
     let exitCode: Int32
     let stdout: String
     let stderr: String
+    /// Untrimmed output, for tests where whitespace-only output is itself a defect.
+    let rawStdout: String
+    let rawStderr: String
 }
 
 /// Runs the CLI binary to completion with a hard timeout, so a hung invocation
@@ -76,10 +79,14 @@ func runCLI(
     // The leader is reaped, so its pipe ends are closed and each drain sees EOF.
     // The ceiling covers a detached helper still holding a write end: report what
     // was read rather than block the suite on a pipe that may never close.
+    let rawStdout = launched.stdout.text(waitingUpTo: 5)
+    let rawStderr = launched.stderr.text(waitingUpTo: 5)
     return CLIRunResult(
         exitCode: launched.waiter.exitCode ?? -1,
-        stdout: launched.stdout.text(waitingUpTo: 5).trimmingCharacters(in: .whitespacesAndNewlines),
-        stderr: launched.stderr.text(waitingUpTo: 5).trimmingCharacters(in: .whitespacesAndNewlines)
+        stdout: rawStdout.trimmingCharacters(in: .whitespacesAndNewlines),
+        stderr: rawStderr.trimmingCharacters(in: .whitespacesAndNewlines),
+        rawStdout: rawStdout,
+        rawStderr: rawStderr
     )
 }
 
@@ -116,7 +123,12 @@ private func spawnCLIProcessGroup(
     defer {
         for descriptor in openFDs where descriptor >= 0 { close(descriptor) }
     }
-    guard pipe(&stdoutFDs) == 0, pipe(&stderrFDs) == 0 else {
+    guard pipe(&stdoutFDs) == 0 else {
+        throw failure(String(cString: strerror(errno)))
+    }
+    // Recorded before the second pipe so its failure still closes this pair.
+    openFDs = Set(stdoutFDs)
+    guard pipe(&stderrFDs) == 0 else {
         throw failure(String(cString: strerror(errno)))
     }
     openFDs = Set(stdoutFDs + stderrFDs)
