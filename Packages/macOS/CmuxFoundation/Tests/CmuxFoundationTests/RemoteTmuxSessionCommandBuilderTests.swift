@@ -218,8 +218,32 @@ struct RemoteTmuxSessionCommandBuilderTests {
         }
     }
 
+    @Test("existing session stops before attach when managed default refresh fails")
+    func existingSessionStopsWhenManagedDefaultRefreshFails() throws {
+        try withFakeTmux(sessionExists: true, setOptionStatus: 23) { directory, environment in
+            let shellCommand = "exec integrated-shell"
+            let builder = RemoteTmuxSessionCommandBuilder(
+                sessionName: "existing-managed",
+                shellCommand: shellCommand
+            )
+            let result = try run(
+                builder.remoteShellCommand,
+                environment: environment.merging([
+                    "CMUX_TMUX_DEFAULT_COMMAND": "managed CMUX_PERSISTENT_PTY_EXEC_HELPER command",
+                ]) { _, current in current }
+            )
+
+            #expect(result.status == 23)
+            #expect(result.stderr.isEmpty)
+            let calls = try invocations(in: directory)
+            #expect(calls.contains(["set-option", "-t", "=existing-managed:", "default-command", shellCommand]))
+            #expect(!calls.contains { $0.first == "attach-session" })
+        }
+    }
+
     private func withFakeTmux(
         sessionExists: Bool,
+        setOptionStatus: Int = 0,
         operation: (URL, [String: String]) throws -> Void
     ) throws {
         let directory = FileManager.default.temporaryDirectory
@@ -243,6 +267,9 @@ struct RemoteTmuxSessionCommandBuilderTests {
           new-session)
             : > "$CMUX_TMUX_SESSION_STATE"
             ;;
+          set-option)
+            exit "${CMUX_TMUX_SET_OPTION_STATUS:-0}"
+            ;;
         esac
         """.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes(
@@ -258,6 +285,7 @@ struct RemoteTmuxSessionCommandBuilderTests {
             "PATH": "/usr/bin:/bin",
             "CMUX_TMUX_LOG": directory.appendingPathComponent("tmux.log").path,
             "CMUX_TMUX_SESSION_STATE": statePath,
+            "CMUX_TMUX_SET_OPTION_STATUS": String(setOptionStatus),
         ])
     }
 
