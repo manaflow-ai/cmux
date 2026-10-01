@@ -38,6 +38,64 @@ const PUBLIC_SCOPES: &[&str] = &[
     "raw",
 ];
 
+/// Scopes the `cmux` name shows and accepts: the features cmux-next
+/// supports (plans/cmux-next/state-ownership.md, section 5). The app scopes
+/// (`app`, `action`, `settings`, `window`, `events`) and `acp` route before
+/// this parser.
+const CMUX_SCOPES: &[&str] = &[
+    "server",
+    "workspace",
+    "screen",
+    "pane",
+    "tab",
+    "terminal",
+    "browser",
+    "notification",
+    "agent",
+];
+
+/// Scopes only the `cmux-tui` name accepts. Cloud VM guest scripts
+/// (`raw command`, `session current snapshot`), the app's daemon launcher and
+/// SSH remotes run the binary as `cmux-tui`, so these keep working there.
+const CMUX_TUI_ONLY_SCOPES: &[&str] =
+    &["machine", "session", "client", "sidebar", "pairing", "projection", "provider", "raw"];
+
+/// Which command-line surface this invocation exposes. The binary ships as
+/// `cmux` (the curated CLI) and as `cmux-tui` (the full resource grammar its
+/// own tooling and Cloud guests use); every other name is `cmux-tui`, so a
+/// renamed or test binary keeps the full grammar.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Surface {
+    Cmux,
+    CmuxTui,
+}
+
+impl Surface {
+    pub(super) fn for_program(argv0: Option<&std::ffi::OsStr>) -> Self {
+        let name = argv0.and_then(|value| std::path::Path::new(value).file_name());
+        if name.is_some_and(|name| name == "cmux" || name == "cmux.exe") {
+            Self::Cmux
+        } else {
+            Self::CmuxTui
+        }
+    }
+
+    fn current() -> Self {
+        Self::for_program(std::env::args_os().next().as_deref())
+    }
+
+    fn scopes(self) -> &'static [&'static str] {
+        match self {
+            Self::Cmux => CMUX_SCOPES,
+            Self::CmuxTui => PUBLIC_SCOPES,
+        }
+    }
+
+    fn accepts(self, scope: &str) -> bool {
+        self.scopes().contains(&scope)
+    }
+}
+
 const REMOTE_COMMANDS: &[&str] = &[
     "remote",
     "connect",
@@ -122,6 +180,9 @@ pub(super) struct GlobalArgs {
     pub machine: Option<String>,
     /// The cmux app's control socket, for the scopes the app owns.
     pub app_socket: Option<PathBuf>,
+    /// `--idempotency-key`: the key a failed mutation printed, reused so a
+    /// retry cannot apply the change twice.
+    pub idempotency_key: Option<String>,
     pub output: OutputMode,
 }
 
@@ -157,18 +218,19 @@ pub(super) fn canonical_scope(value: &str) -> &str {
 }
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
+    let surface = Surface::current();
     #[cfg(unix)]
     if let Some(code) = run_app_scope(args) {
         return code;
     }
-    match parse(args) {
+    match parse(args, surface) {
         Ok(ParsedCommand::Help(scope)) => {
             if scope.as_deref() == Some("start") {
                 let mut stdout = io::stdout().lock();
                 let _ = stdout.write_all(startup_usage.as_bytes());
                 let _ = stdout.flush();
             } else {
-                print_scope_help(scope.as_deref());
+                print_scope_help(scope.as_deref(), surface);
             }
             0
         }
@@ -235,7 +297,7 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
 }
 
 /// Runs `<noun> <verb…> [--flags]` as the app action with that CLI name when
-/// the app has one. `None` when it does not, or no app answers.
+/// the app marks one for the CLI. `None` when it does not, or no app answers.
 #[cfg(unix)]
 fn run_app_action_fallback(args: &[String]) -> Option<i32> {
     let (global, command_args) = parse_globals(args).ok()?;
@@ -244,29 +306,36 @@ fn run_app_action_fallback(args: &[String]) -> Option<i32> {
         return None;
     }
     let name = command_args[..words].join(" ");
-    if !app::has_action(&global, &name) {
-        return None;
-    }
-    match app::run_action(&name, &command_args[words..]) {
-        Ok(command) => Some(app::run(&global, command)),
-        Err(_) => None,
-    }
+    app::run_cli_action(&global, &name, &command_args[words..])
 }
 
-fn parse(args: &[String]) -> Result<ParsedCommand, ParseFailure> {
+fn parse(args: &[String], surface: Surface) -> Result<ParsedCommand, ParseFailure> {
     let (global, command_args) =
         parse_globals(args).map_err(|(error, output)| ParseFailure { error, output })?;
     let output = global.output;
-    parse_command(global, command_args).map_err(|error| ParseFailure { error, output })
+    parse_command(global, command_args, surface).map_err(|error| ParseFailure { error, output })
 }
 
 fn parse_command(
     global: GlobalArgs,
     command_args: Vec<String>,
+    surface: Surface,
 ) -> Result<ParsedCommand, UsageError> {
     let command_args = shorthand::normalize(&command_args)?;
     if command_args.is_empty() {
         return Err(UsageError::new("missing resource scope; use --help to list scopes"));
+    }
+    // `help <scope>` and `<scope> --help` name the scope too, so the check
+    // covers every spelling (shorthands are already lowered).
+    let named_scope = match command_args[0].as_str() {
+        "help" => command_args.get(1).map(|scope| shorthand::scope(scope)),
+        scope => Some(scope),
+    };
+    if let Some(scope) = named_scope
+        && surface == Surface::Cmux
+        && CMUX_TUI_ONLY_SCOPES.contains(&scope)
+    {
+        return Err(not_in_cmux(scope));
     }
     // Public resource parsing owns option values and forwarded payloads. The
     // pre-scan is only for startup grammar that reached this parser through a
@@ -288,10 +357,10 @@ fn parse_command(
             Some(scope) if matches!(scope.as_str(), "start" | "shorthands") => {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
             }
-            Some(scope) if PUBLIC_SCOPES.contains(&shorthand::scope(scope)) => {
+            Some(scope) if surface.accepts(shorthand::scope(scope)) => {
                 Ok(ParsedCommand::Help(Some(shorthand::scope(scope).to_string())))
             }
-            Some(scope) => Err(unknown_scope(scope)),
+            Some(scope) => Err(unknown_scope(scope, surface)),
         };
     }
     if has_help_option(&command_args) {
@@ -310,7 +379,7 @@ fn parse_command(
             {
                 Some(format!("server {action}"))
             }
-            [scope, ..] if PUBLIC_SCOPES.contains(scope) => Some((*scope).to_string()),
+            [scope, ..] if surface.accepts(scope) => Some((*scope).to_string()),
             _ => None,
         };
         return Ok(ParsedCommand::Help(topic));
@@ -323,15 +392,24 @@ fn parse_command(
             crate::localization::catalog().local_server.start_rejects_output_mode,
         ));
     }
-    let plan = command::parse(&command_args)?;
+    let mut plan = command::parse(&command_args, surface)?;
+    apply_idempotency_key(&mut plan, global.idempotency_key.as_deref())?;
     Ok(ParsedCommand::Command { global, plan })
 }
 
-fn unknown_scope(scope: &str) -> UsageError {
+fn unknown_scope(scope: &str, surface: Surface) -> UsageError {
     UsageError::new(
         crate::localization::catalog()
             .local_server
-            .unknown_scope(scope, suggestion(scope, PUBLIC_SCOPES)),
+            .unknown_scope(scope, suggestion(scope, surface.scopes())),
+    )
+}
+
+/// A `cmux-tui` scope named through `cmux`, which refuses it by name
+/// instead of calling it unknown.
+fn not_in_cmux(scope: &str) -> UsageError {
+    UsageError::new(
+        crate::localization::catalog().local_server.scope_not_in_cmux.replace("{scope}", scope),
     )
 }
 
@@ -387,7 +465,10 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
         // This keeps one-token invocations convenient without changing the
         // existing separated-value grammar.
         if let Some((flag, inline_value)) = value.split_once('=')
-            && matches!(flag, "--socket" | "--session" | "--machine" | "--app-socket")
+            && matches!(
+                flag,
+                "--socket" | "--session" | "--machine" | "--app-socket" | "--idempotency-key"
+            )
         {
             if inline_value.is_empty() {
                 return Err((UsageError::new(format!("{flag} needs a value")), global.output));
@@ -397,6 +478,11 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
                 "--session" => global.session = Some(inline_value.to_owned()),
                 "--machine" => global.machine = Some(inline_value.to_owned()),
                 "--app-socket" => global.app_socket = Some(PathBuf::from(inline_value)),
+                "--idempotency-key" => {
+                    global.idempotency_key = Some(
+                        idempotency_key(inline_value).map_err(|error| (error, global.output))?,
+                    );
+                }
                 _ => unreachable!(),
             }
             index += 1;
@@ -423,6 +509,13 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
                 global.app_socket = Some(PathBuf::from(
                     global_value(args, index, value).map_err(|error| (error, global.output))?,
                 ));
+                index += 2;
+            }
+            "--idempotency-key" => {
+                let key =
+                    global_value(args, index, value).map_err(|error| (error, global.output))?;
+                global.idempotency_key =
+                    Some(idempotency_key(&key).map_err(|error| (error, global.output))?);
                 index += 2;
             }
             "--json" | "--jsonl" | "--quiet" => {
@@ -479,6 +572,27 @@ fn has_help_option(args: &[String]) -> bool {
     false
 }
 
+fn idempotency_key(value: &str) -> Result<String, UsageError> {
+    cmux_tui_core::resource::validate_idempotency_key(value)
+        .map_err(|error| UsageError::new(error.message))?;
+    Ok(value.to_owned())
+}
+
+/// Moves a global `--idempotency-key` onto the one daemon mutation the
+/// command sends. Anything else has no key to reuse.
+fn apply_idempotency_key(plan: &mut CommandPlan, key: Option<&str>) -> Result<(), UsageError> {
+    let Some(key) = key else { return Ok(()) };
+    match plan {
+        CommandPlan::Protocol(request)
+            if request.operation.class() == cmux_tui_core::resource::OperationClass::Mutation =>
+        {
+            request.idempotency_key = Some(key.to_owned());
+            Ok(())
+        }
+        _ => Err(UsageError::new("--idempotency-key is accepted only for mutations")),
+    }
+}
+
 fn global_value(args: &[String], index: usize, flag: &str) -> Result<String, UsageError> {
     match args.get(index + 1) {
         Some(value) if !value.starts_with("--") => Ok(value.clone()),
@@ -498,10 +612,13 @@ fn set_output_mode(
     Ok(())
 }
 
-fn print_scope_help(scope: Option<&str>) {
-    let text = scope
-        .map(scope_help)
-        .unwrap_or_else(|| Cow::Owned(root_help(&crate::localization::catalog().local_server)));
+fn print_scope_help(scope: Option<&str>, surface: Surface) {
+    let catalog = crate::localization::catalog();
+    let text = match (scope, surface) {
+        (Some(scope), _) => scope_help(scope),
+        (None, Surface::Cmux) => Cow::Borrowed(catalog.local_server.cmux_root_help),
+        (None, Surface::CmuxTui) => Cow::Owned(root_help(&catalog.local_server)),
+    };
     let mut stdout = io::stdout().lock();
     let _ = stdout.write_all(text.as_bytes());
     let _ = stdout.flush();
@@ -681,12 +798,6 @@ USAGE
   cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] shell <script>
   cmux workspace <selector> layout apply [OPTIONS]
   cmux workspace <selector> screen ...
-  cmux workspace group list
-  cmux workspace group create --name <value> [--color <token|#hex>] [--id <id>] [--index <n>] [--collapse]
-  cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color] [--collapse|--expand]
-  cmux workspace group <group> delete|move --index <n>
-  cmux workspace group <group> add --workspace <key|id> [--index <n>]
-  cmux workspace group remove --workspace <key|id>
   Nested panes support split --right or --down.
 ";
 
@@ -908,7 +1019,8 @@ mod tests {
     #[test]
     fn server_lifecycle_routing_flags_follow_action() {
         let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
-            parse(&strings(&["server", "status", "--session", "review-session"])).unwrap()
+            parse(&strings(&["server", "status", "--session", "review-session"]), Surface::CmuxTui)
+                .unwrap()
         else {
             panic!("server status must produce a server plan");
         };
@@ -916,10 +1028,11 @@ mod tests {
         assert!(global.socket.is_none());
         assert!(matches!(plan.action, lifecycle::ServerAction::Status));
 
-        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
-            parse(&strings(&["server", "stop", "--socket", "/tmp/review.sock", "--force"]))
-                .unwrap()
-        else {
+        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } = parse(
+            &strings(&["server", "stop", "--socket", "/tmp/review.sock", "--force"]),
+            Surface::CmuxTui,
+        )
+        .unwrap() else {
             panic!("server stop must produce a server plan");
         };
         assert_eq!(global.socket, Some(PathBuf::from("/tmp/review.sock")));
@@ -930,7 +1043,7 @@ mod tests {
         ));
 
         let ParsedCommand::Command { plan: CommandPlan::Server(plan), .. } =
-            parse(&strings(&["server", "stop", "--end-terminals"])).unwrap()
+            parse(&strings(&["server", "stop", "--end-terminals"]), Surface::CmuxTui).unwrap()
         else {
             panic!("server stop --end-terminals must produce a server plan");
         };
@@ -939,17 +1052,18 @@ mod tests {
             lifecycle::ServerAction::Stop { force: false, end_terminals: true }
         ));
 
-        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
-            parse(&strings(&[
+        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } = parse(
+            &strings(&[
                 "server",
                 "reload-config",
                 "--session",
                 "review-session",
                 "--socket",
                 "/tmp/review.sock",
-            ]))
-            .unwrap()
-        else {
+            ]),
+            Surface::CmuxTui,
+        )
+        .unwrap() else {
             panic!("server reload-config must produce a server plan");
         };
         assert_eq!(global.session.as_deref(), Some("review-session"));
@@ -960,7 +1074,8 @@ mod tests {
     #[test]
     fn server_stats_parses_with_routing_options() {
         let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
-            parse(&strings(&["server", "stats", "--session", "review-session"])).unwrap()
+            parse(&strings(&["server", "stats", "--session", "review-session"]), Surface::CmuxTui)
+                .unwrap()
         else {
             panic!("server stats must produce a server plan");
         };
@@ -974,7 +1089,7 @@ mod tests {
     #[test]
     fn server_stats_help_routes_to_the_stats_topic() {
         let ParsedCommand::Help(Some(topic)) =
-            parse(&strings(&["server", "stats", "--help"])).unwrap()
+            parse(&strings(&["server", "stats", "--help"]), Surface::CmuxTui).unwrap()
         else {
             panic!("server stats help must produce a scoped help topic");
         };
@@ -1010,9 +1125,116 @@ mod tests {
         assert!(help.starts_with("cmux - "));
         assert!(!help.contains("cmux-tui"));
         assert!(matches!(
-            parse(&strings(&["help", "start"])).unwrap(),
+            parse(&strings(&["help", "start"]), Surface::CmuxTui).unwrap(),
             ParsedCommand::Help(Some(scope)) if scope == "start"
         ));
+    }
+
+    #[test]
+    fn the_cmux_name_selects_the_curated_surface() {
+        use std::ffi::OsStr;
+        for name in ["cmux", "/Applications/cmux.app/Contents/Resources/bin/cmux", "cmux.exe"] {
+            assert_eq!(Surface::for_program(Some(OsStr::new(name))), Surface::Cmux, "{name}");
+        }
+        for name in ["cmux-tui", "/usr/local/bin/cmux-tui", "cmux-tui-4f2a", "acpmux"] {
+            assert_eq!(Surface::for_program(Some(OsStr::new(name))), Surface::CmuxTui, "{name}");
+        }
+        assert_eq!(Surface::for_program(None), Surface::CmuxTui);
+    }
+
+    #[test]
+    fn cmux_refuses_cmux_tui_only_scopes_by_name_in_every_spelling() {
+        let catalog = crate::localization::catalog_for_locale("en_US.UTF-8");
+        for scope in CMUX_TUI_ONLY_SCOPES {
+            assert!(PUBLIC_SCOPES.contains(scope));
+            assert!(!CMUX_SCOPES.contains(scope));
+            for args in [vec![*scope, "list"], vec!["help", scope], vec![*scope, "--help"]] {
+                let Err(failure) = parse(&strings(&args), Surface::Cmux) else {
+                    panic!("cmux accepted {args:?}");
+                };
+                assert!(
+                    failure.error.0.contains("is not part of cmux"),
+                    "{args:?}: {}",
+                    failure.error
+                );
+            }
+        }
+        // Shorthands lower first, so `ls` (session list) is refused too.
+        assert!(parse(&strings(&["ls"]), Surface::Cmux).is_err());
+        assert!(!catalog.local_server.cmux_root_help.contains("raw"));
+        // A typo suggests only a scope cmux shows.
+        let Err(failure) = parse(&strings(&["sesion", "list"]), Surface::Cmux) else {
+            panic!("accepted a typo");
+        };
+        assert!(!failure.error.0.contains("session"), "{}", failure.error);
+    }
+
+    #[test]
+    fn cmux_tui_keeps_the_scopes_its_own_tooling_calls() {
+        // Cloud VM guest scripts (web/services/vms) run these as `cmux-tui`.
+        for args in [
+            vec!["raw", "command", "--request-json", r#"{"cmd":"url-open"}"#],
+            vec!["session", "current", "snapshot"],
+            vec!["ls"],
+        ] {
+            assert!(parse(&strings(&args), Surface::CmuxTui).is_ok(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn cmux_accepts_what_its_own_processes_send_through_the_parser() {
+        for args in [
+            // The Claude `--settings` hook fallback (agent_hook_install.rs).
+            vec!["agent", "hook", "emit", "--source", "claude", "--event", "Stop"],
+            // `cmux acp open` (acp.rs).
+            vec!["pane", "current", "run", "--", "/bin/cmux", "acp", "attach", "review"],
+            // The app's daemon launcher and iOS remotes.
+            vec!["--session", "cmux-app", "--json", "server", "ensure"],
+            vec!["--session", "cmux-app", "--json", "server", "status"],
+        ] {
+            assert!(parse(&strings(&args), Surface::Cmux).is_ok(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn workspace_group_verbs_are_gone() {
+        for surface in [Surface::Cmux, Surface::CmuxTui] {
+            for args in [
+                vec!["workspace", "group", "list"],
+                vec!["workspace", "group", "create", "--name", "Work"],
+            ] {
+                assert!(parse(&strings(&args), surface).is_err(), "{args:?}");
+            }
+        }
+        assert!(!WORKSPACE_HELP.contains("group"));
+    }
+
+    #[test]
+    fn global_idempotency_key_reaches_the_mutation_and_only_a_mutation() {
+        let ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. } = parse(
+            &strings(&["--idempotency-key", "mutation-retry-1", "workspace", "create"]),
+            Surface::Cmux,
+        )
+        .unwrap() else {
+            panic!("expected a request")
+        };
+        assert_eq!(request.idempotency_key.as_deref(), Some("mutation-retry-1"));
+        let ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. } = parse(
+            &strings(&["workspace", "create", "--idempotency-key=mutation-retry-2"]),
+            Surface::Cmux,
+        )
+        .unwrap() else {
+            panic!("expected a request")
+        };
+        assert_eq!(request.idempotency_key.as_deref(), Some("mutation-retry-2"));
+        assert!(
+            parse(&strings(&["--idempotency-key", "k1", "workspace", "list"]), Surface::Cmux)
+                .is_err()
+        );
+        assert!(
+            parse(&strings(&["--idempotency-key", "", "workspace", "create"]), Surface::Cmux)
+                .is_err()
+        );
     }
 
     #[test]
@@ -1075,7 +1297,7 @@ mod tests {
         ] {
             let plan = |args: Vec<&str>| {
                 let ParsedCommand::Command { global, plan: CommandPlan::Protocol(request) } =
-                    parse(&strings(&args)).unwrap()
+                    parse(&strings(&args), Surface::CmuxTui).unwrap()
                 else {
                     panic!("expected typed request")
                 };
@@ -1112,7 +1334,7 @@ mod tests {
         ] {
             let plan = |args: Vec<&str>| {
                 let ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. } =
-                    parse(&strings(&args)).unwrap()
+                    parse(&strings(&args), Surface::CmuxTui).unwrap()
                 else {
                     panic!("expected typed request")
                 };
@@ -1134,7 +1356,7 @@ mod tests {
             vec!["send-keys", "hello world"],
             vec!["new-session"],
         ] {
-            assert!(parse(&strings(&args)).is_err(), "accepted {args:?}");
+            assert!(parse(&strings(&args), Surface::CmuxTui).is_err(), "accepted {args:?}");
         }
     }
 }

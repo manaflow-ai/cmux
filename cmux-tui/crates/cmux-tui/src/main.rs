@@ -184,6 +184,24 @@ fn install_signal_handlers() -> io::Result<()> {
     Ok(())
 }
 
+/// Give SIGTERM, SIGINT and SIGHUP back their default action (end the
+/// process). A CLI stream that cannot start its cancellation watcher uses
+/// this instead of waking on a read timeout to look for a pending signal.
+#[cfg(unix)]
+pub(crate) fn restore_default_termination_signals() -> io::Result<()> {
+    for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+        // SAFETY: SIG_DFL is a valid disposition for these signals.
+        if unsafe { libc::signal(signal, libc::SIG_DFL) } == libc::SIG_ERR {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    // A signal that arrived before the reset already set the flag.
+    if shutdown_requested() {
+        return Err(io::Error::from(io::ErrorKind::Interrupted));
+    }
+    Ok(())
+}
+
 #[cfg(unix)]
 pub(crate) fn wait_for_shutdown_signal() {
     if shutdown_requested() {
