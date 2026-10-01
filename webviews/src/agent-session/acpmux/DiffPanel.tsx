@@ -2,11 +2,13 @@
 // (src/changes/parts/DiffList.tsx and ChangesTree.tsx): stacked per-file diffs on
 // @pierre/diffs with a custom file header, beside a @pierre/trees file tree.
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { PatchDiff, useStableCallback } from "@pierre/diffs/react";
+import { getFiletypeFromFileName, getSingularPatch, setLanguageOverride } from "@pierre/diffs";
+import { FileDiff, useStableCallback } from "@pierre/diffs/react";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import type { FileTreeRowDecorationRenderer } from "@pierre/trees";
 import { editPatch, type DiffEdit, type TurnFile } from "./diff";
-import { AGENT_DIFF_THEME, diffColors, diffUnsafeCSS, registerAgentDiffTheme, treeUnsafeCSS } from "./diffTheme";
+import { isHighlighted } from "./shikiLanguages";
+import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffColors, diffUnsafeCSS, registerAgentDiffTheme, treeUnsafeCSS } from "./diffTheme";
 
 export type DiffLayout = "unified" | "split";
 
@@ -33,11 +35,19 @@ function FileHeader({ file, edit, index }: { file: TurnFile; edit: DiffEdit; ind
   </div>;
 }
 
-function EditBlock({ file, edit, index, layout }: { file: TurnFile; edit: DiffEdit; index: number; layout: DiffLayout }) {
-  const patch = useMemo(() => editPatch(file, edit), [file, edit]);
+/// The pane's theme (applyAgentTheme) is light or dark; syntax colors follow it.
+const paneThemeType = () => document.documentElement.dataset.theme === "light" ? "light" as const : "dark" as const;
+
+function EditBlock({ file, edit, index, layout, onPainted }: { file: TurnFile; edit: DiffEdit; index: number; layout: DiffLayout; onPainted: () => void }) {
+  // A language the bundle can't highlight shows as plain text; Pierre throws for it otherwise.
+  const fileDiff = useMemo(() => {
+    const parsed = getSingularPatch(editPatch(file, edit));
+    return isHighlighted(getFiletypeFromFileName(file.displayPath)) ? parsed : setLanguageOverride(parsed, "text");
+  }, [file, edit]);
+  const afterRender = useStableCallback(onPainted);
   const options = useMemo(() => ({
-    theme: AGENT_DIFF_THEME,
-    themeType: "dark" as const,
+    theme: { dark: AGENT_DIFF_THEME, light: AGENT_DIFF_THEME_LIGHT },
+    themeType: paneThemeType(),
     diffStyle: layout,
     diffIndicators: "bars" as const,
     hunkSeparators: "line-info" as const,
@@ -48,16 +58,23 @@ function EditBlock({ file, edit, index, layout }: { file: TurnFile; edit: DiffEd
     // The bundled page allows no WebAssembly.
     preferredHighlighter: "shiki-js" as const,
     unsafeCSS: diffUnsafeCSS,
-  }), [layout, edit.numbered]);
+    onPostRender: afterRender,
+  }), [layout, edit.numbered, afterRender]);
+  const header = <FileHeader file={file} edit={edit} index={index} />;
+  // Only a final newline changed, or an empty file was written: no lines to show.
+  if (edit.hunks.length === 0) return <div className="acpmux-diff-file" data-path={file.path}>{header}<div className="acpmux-diff-empty-edit">No line changes</div></div>;
   return <div className="acpmux-diff-file" data-path={file.path}>
-    <PatchDiff className="acpmux-diff-pierre" patch={patch} options={options} renderCustomHeader={() => <FileHeader file={file} edit={edit} index={index} />} />
+    <FileDiff className="acpmux-diff-pierre" fileDiff={fileDiff} options={options} renderCustomHeader={() => header} />
   </div>;
 }
 
 function ChangedFilesTree({ files, selected, onSelect }: { files: TurnFile[]; selected?: string; onSelect: (path: string) => void }) {
   const byDisplay = useMemo(() => new Map(files.map((file) => [file.displayPath, file])), [files]);
+  // The tree keeps the renderer it was built with; it reads the current files through a ref.
+  const filesRef = useRef(byDisplay);
+  filesRef.current = byDisplay;
   const renderRowDecoration: FileTreeRowDecorationRenderer = ({ item }) => {
-    const file = byDisplay.get(item.path);
+    const file = filesRef.current.get(item.path);
     if (!file || item.kind !== "file") return null;
     const parts: { text: string; color: string }[] = [];
     if (file.additions > 0) parts.push({ text: `+${file.additions}`, color: diffColors.addition });
@@ -66,7 +83,7 @@ function ChangedFilesTree({ files, selected, onSelect }: { files: TurnFile[]; se
   };
   // Pierre reports selection from clicks and keys; only file rows map to a diff.
   const onSelectionChange = useStableCallback((paths: readonly string[]) => {
-    const file = byDisplay.get(paths[paths.length - 1] ?? "");
+    const file = filesRef.current.get(paths[paths.length - 1] ?? "");
     if (file && file.path !== selected) onSelect(file.path);
   });
   const displayPaths = useMemo(() => files.map((file) => file.displayPath), [files]);
@@ -106,6 +123,10 @@ export function DiffPanel({ files, initialPath, onClose }: { files: TurnFile[]; 
     const section = [...(body.current?.querySelectorAll<HTMLElement>(".acpmux-diff-file") ?? [])].find((node) => node.dataset.path === path);
     section?.scrollIntoView?.({ block: "start" });
   };
+  // Diffs paint after the highlighter loads, moving the file below them; the opened file is
+  // revealed again after each paint until the reader scrolls.
+  const revealing = useRef(initialPath);
+  const onPainted = useStableCallback(() => { if (revealing.current) reveal(revealing.current); });
   // Focus moves into the view, so keys reach it and a screen reader announces it.
   useEffect(() => { back.current?.focus(); if (initialPath) reveal(initialPath); }, [initialPath]);
   // Escape closes the view while focus is in it (or nowhere), not while typing in the composer.
@@ -129,7 +150,7 @@ export function DiffPanel({ files, initialPath, onClose }: { files: TurnFile[]; 
       </div>
     </header>
     <div className="acpmux-diff-main">
-      <div ref={body} className="acpmux-diff-body">{files.length === 0 ? <div className="acpmux-muted">No file changes in this turn.</div> : files.flatMap((file) => file.edits.map((edit, index) => <EditBlock key={`${file.path}\u0000${edit.toolId}\u0000${index}`} file={file} edit={edit} index={index} layout={layout} />))}</div>
+      <div ref={body} className="acpmux-diff-body" onWheel={() => { revealing.current = undefined; }} onPointerDown={() => { revealing.current = undefined; }}>{files.length === 0 ? <div className="acpmux-muted">No file changes in this turn.</div> : files.flatMap((file) => file.edits.map((edit, index) => <EditBlock key={`${file.path}\u0000${edit.toolId}\u0000${index}`} file={file} edit={edit} index={index} layout={layout} onPainted={onPainted} />))}</div>
       <nav className="acpmux-diff-tree" aria-label="Changed files"><ChangedFilesTree files={files} selected={selected} onSelect={reveal} /></nav>
     </div>
   </section>;

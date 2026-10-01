@@ -104,3 +104,14 @@ describe("ACP tool call diffs", () => {
     expect(mergeToolItem(updated, { toolCallId: "t", content: [{ type: "content", content: { type: "text", text: "failed" } }] }, "t", "failed").tool).toMatchObject({ diffs: undefined, output: "failed", kind: "edit" });
   });
 });
+
+describe("highlighted languages", () => {
+  test("every language the bundle ships is a Shiki language, and others fall back to text", async () => {
+    const { bundledLanguages } = await import("shiki");
+    const { getFiletypeFromFileName } = await import("@pierre/diffs");
+    const { HIGHLIGHTED_LANGUAGES, isHighlighted } = await import("./shikiLanguages");
+    for (const [id, aliases] of Object.entries(HIGHLIGHTED_LANGUAGES)) for (const name of [id, ...aliases]) expect(name in bundledLanguages).toBe(true);
+    expect(["a.ts", "a.tsx", "a.swift", "a.py", "Makefile", "a.md", "a.c"].map((name) => isHighlighted(getFiletypeFromFileName(name)))).toEqual([true, true, true, true, true, true, true]);
+    expect(["a.h", "a.cpp", "a.rb"].map((name) => isHighlighted(getFiletypeFromFileName(name)))).toEqual([false, false, false]);
+  });
+});

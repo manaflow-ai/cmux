@@ -5,6 +5,7 @@
 import { registerCustomTheme } from "@pierre/diffs";
 
 export const AGENT_DIFF_THEME = "cmux-agent-dark";
+export const AGENT_DIFF_THEME_LIGHT = "cmux-agent-light";
 
 /// Codex dark, sampled from its Changes pane.
 const codex = {
@@ -65,11 +66,22 @@ const theme = {
   ],
 };
 
+/// The same scopes in darker colors for a light pane.
+const light = {
+  ...theme,
+  name: AGENT_DIFF_THEME_LIGHT,
+  type: "light",
+  colors: { "editor.background": "#00000000", "editor.foreground": "#24292f" },
+  fg: "#24292f",
+  tokenColors: theme.tokenColors.map((rule) => ({ ...rule, settings: { ...rule.settings, foreground: ({ [codex.fg]: "#24292f", [codex.heading]: "#3f7d0f", [codex.inlineCode]: "#b35900", [codex.link]: "#6f42c1", [codex.comment]: "#6e7781", [codex.string]: "#0a6b52" } as Record<string, string>)[rule.settings.foreground] ?? rule.settings.foreground } })),
+};
+
 let registered = false;
 export function registerAgentDiffTheme() {
   if (registered) return;
   registered = true;
   registerCustomTheme(AGENT_DIFF_THEME, async () => theme as never);
+  registerCustomTheme(AGENT_DIFF_THEME_LIGHT, async () => light as never);
 }
 
 const c = diffColors;
@@ -86,9 +98,13 @@ export const diffUnsafeCSS = /* css */ `
   --diffs-line-height: 21.6px;
   --diffs-dark-bg: ${c.bg};
   --diffs-dark: ${c.fg};
+  --diffs-light-bg: ${c.bg};
+  --diffs-light: ${c.fg};
   --diffs-min-number-column-width: 4ch;
   --diffs-dark-addition-color: ${c.addition};
   --diffs-dark-deletion-color: ${c.deletion};
+  --diffs-light-addition-color: ${c.addition};
+  --diffs-light-deletion-color: ${c.deletion};
   --diffs-fg-number-override: ${c.muted};
   --diffs-bg-separator-override: ${c.separator};
   --diffs-gap-block: 0px;
