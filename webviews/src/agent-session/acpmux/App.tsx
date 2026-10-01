@@ -220,8 +220,11 @@ export function VirtualTranscript({ rows, onToggleActivity, expanded, registry =
       // the new end; the offset recorded before this commit is where the reader was.
       const live = node.scrollTop;
       const clamped = live < scrolledTo.current.top - 0.5 && live >= layout.totalHeight - node.clientHeight - 1;
+      // An offset that has not moved since it was recorded was at the latest row if it was
+      // then; a shorter viewport alone would otherwise read as scrolled up.
+      const unmoved = Math.abs(live - scrolledTo.current.top) <= 0.5;
       const top = clamped ? scrolledTo.current.top : live;
-      const atLatest = clamped ? scrolledTo.current.atLatest : top >= old.totalHeight - node.clientHeight - 1;
+      const atLatest = clamped || unmoved ? scrolledTo.current.atLatest : top >= old.totalHeight - node.clientHeight - 1;
       // At the first row nothing above can move it.
       if (top > 0 && didOpenAtLatest.current && atLatest) {
         // At the latest row: stay there as rows settle to their drawn heights.
