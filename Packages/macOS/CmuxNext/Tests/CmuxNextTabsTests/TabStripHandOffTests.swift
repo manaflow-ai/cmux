@@ -110,4 +110,31 @@ import Testing
         #expect(abs(start.grabOffset.x - grabbed.x) < 0.5, "x \(start.grabOffset.x) != \(grabbed.x)")
         #expect(abs(start.grabOffset.y - grabbed.y) < 0.5, "y \(start.grabOffset.y) != \(grabbed.y)")
     }
+
+    /// Top-row strips sit side by side (one per pane). Dragging a tab
+    /// sideways past the strip's end hands it to the drag session, so it can
+    /// land in the neighbor pane's strip without leaving the row first
+    /// (tagged build tdrag2: the drag stayed a clamped reorder).
+    @Test func draggingSidewaysPastTheStripEndHandsOff() throws {
+        let h = Harness(titles: ["One", "Two"])
+        defer { h.close() }
+        let press = h.point(inTab: 1, dx: 20, y: 14)
+        h.strip.mouseDown(with: h.event(.leftMouseDown, at: press))
+        let end = h.strip.bounds.width + 60
+        for step in 1...20 {
+            h.strip.mouseDragged(with: h.event(.leftMouseDragged, at: CGPoint(x: press.x + (end - press.x) * CGFloat(step) / 20, y: press.y)))
+        }
+        #expect(h.dragStart != nil)
+    }
+
+    @Test func draggingSidewaysPastTheLeadingEdgeHandsOff() throws {
+        let h = Harness(titles: ["One", "Two"])
+        defer { h.close() }
+        let press = h.point(inTab: 0, dx: 20, y: 14)
+        h.strip.mouseDown(with: h.event(.leftMouseDown, at: press))
+        for step in 1...20 {
+            h.strip.mouseDragged(with: h.event(.leftMouseDragged, at: CGPoint(x: press.x - CGFloat(step) * 10, y: press.y)))
+        }
+        #expect(h.dragStart != nil)
+    }
 }
