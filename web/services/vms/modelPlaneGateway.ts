@@ -10,6 +10,7 @@ import {
 } from "../coderouter/vmModelPlane";
 import { captureCoderouterError } from "../errors";
 import { VmModelPlaneError } from "./errors";
+import { VmOwnerTeamMismatchError } from "../coderouter/repository";
 
 export type VmModelPlaneGateway = {
   /** Rejects with {@link VmModelPlaneError}; the workflow fails the create on it. */
@@ -42,7 +43,7 @@ export function vmModelPlaneGatewayFor(input: {
         });
       } catch (cause) {
         captureCoderouterError(cause, { operation: "provision_vm_model_plane", vmId: cloudVmId });
-        throw new VmModelPlaneError({ kind: "unavailable", cause });
+        throw new VmModelPlaneError({ kind: cause instanceof VmOwnerTeamMismatchError ? "team_mismatch" : "unavailable", cause });
       }
     },
     revoke: revokeVmModelPlaneTokens,
