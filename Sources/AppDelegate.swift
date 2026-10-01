@@ -8621,6 +8621,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    /// Creates a workspace on this Mac even when the selected workspace is a
+    /// remote-tmux mirror (or belongs to another remote machine). This is the
+    /// explicit escape hatch for users who want a local workspace while keeping
+    /// Cmd+N's context-following behavior intact.
+    @discardableResult
+    func performNewLocalWorkspaceAction(
+        tabManager: TabManager? = nil,
+        debugSource: String = "newLocalWorkspace"
+    ) -> Bool {
+        performNewWorkspaceCreationAction(
+            initialSurface: .terminal,
+            preferredTabManager: tabManager,
+            event: nil,
+            debugSource: debugSource
+        )
+    }
+
     /// Empty-area double-click in the sidebar. A configured
     /// `ui.newWorkspace.action` applies here exactly as it does for the `+`
     /// button and File > New Workspace; without one, a plain workspace lands
