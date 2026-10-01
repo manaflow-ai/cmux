@@ -33,21 +33,13 @@ extension AppActionContext {
     }
 
     /// The targeted workspace group (target, `group` argument), else the
-    /// group of the targeted or shown workspace.
+    /// group of the targeted or shown workspace. Workspace groups are
+    /// personal (the home session's); without personal state there are none.
     func group(_ invocation: ActionInvocation) throws -> WorkspaceGroupModel {
-        if usesPersonalGroups { return try personalGroup(invocation) }
-        try require(DaemonCapabilities.workspaceGroups)
-        let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap { $0 }.first { $0.kind == .workspaceGroup }
-        if let explicit {
-            guard let group = store.group(WorkspaceGroupID(rawValue: explicit.id)) else {
-                throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceGroup(explicit.id))
-            }
-            return group
+        guard usesPersonalGroups else {
+            throw ActionFailure(message: services.machines.local.missingCapabilityMessage(DaemonCapabilities.profiles))
         }
-        guard let id = scope(invocation).workspace?.group, let group = store.group(id) else {
-            throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInGroup)
-        }
-        return group
+        return try personalGroup(invocation)
     }
 
     /// The window named by the target or `window` argument (`WindowState.id`),

@@ -42,6 +42,11 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
     public var progress: Double
     public var canGoBack: Bool
     public var canGoForward: Bool
+    /// The session history around the current entry: back URLs oldest
+    /// first, forward URLs nearest first. Nil when the engine does not
+    /// report them.
+    public var backURLs: [String]?
+    public var forwardURLs: [String]?
     /// Page zoom factor, 1.0 = 100 %.
     public var zoom: Double
     /// True while page content is "fullscreen" inside the pane.

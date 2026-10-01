@@ -57,6 +57,10 @@ enum TabHandlers {
         let history = ClosedTabTracker(services: ctx.services)
         ctx.services.closedTabs = history
         registry.bind("reopenClosedBrowserPanel", invoke: { _ in
+            // The daemon's history first; the app's tracker covers daemons without it.
+            if let entry = DaemonClosedHistory.entries([.tab], in: ctx.services).first {
+                return DaemonClosedHistory.reopen(entry, services: ctx.services)
+            }
             guard let record = history.popLast() ?? ctx.refuse(RefusalStrings.noRecentlyClosedTab) else { return }
             history.reopen(record, fallback: ctx.services.windows.active?.focusedPane)
         })

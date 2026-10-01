@@ -281,6 +281,14 @@ extension WindowManager {
                 placements[id] = home
             }
         }
+        placements.merge(ephemeralPlacements(live: live, placements: placements)) { claimed, _ in claimed }
+        // While an ephemeral workspace is being created here, a new
+        // unflagged one of this daemon may be it before its flag arrived:
+        // it waits for the create's claim instead of joining a normal window.
+        let held: Set<String> = pendingEphemeralWindows.isEmpty ? [] : Set(live.filter { id in
+            registered.owner(of: id) == nil && placements[id] == nil
+                && services.machines.workspace(id: id).map { $0.1 === services.daemon } == true
+        })
         for id in live { pendingClaims[id] = nil }
         // A claimed workspace is selected in its window.
         let before = registry.value
@@ -292,7 +300,7 @@ extension WindowManager {
         let dead = Set(members.filter(isDead))
         let fallback = launchWindowID ?? UUID().uuidString.lowercased()
         transition(select: preferred) { registry in
-            registry.reconcile(live: live, dead: dead, placements: placements, fallbackWindow: fallback)
+            registry.reconcile(live: live, dead: dead, placements: placements, held: held, fallbackWindow: fallback)
         }
         // A workspace that changed profile leaves no trace in membership.
         if registry.value == before, preferred.isEmpty { repairSelections(previous: [:]) }
