@@ -362,6 +362,7 @@ struct ModeBarButton: View {
     let item: RightSidebarModeBarItem
     let isSelected: Bool
     var badgeCount: Int = 0
+    var showsLabel: Bool = true
     let shortcutHint: StoredShortcut
     let showsShortcutHint: Bool
     let action: () -> Void
@@ -369,6 +370,14 @@ struct ModeBarButton: View {
     @State private var isHovered: Bool = false
 
     var body: some View {
+        if showsLabel {
+            modeButton
+        } else {
+            modeButton.accessibilityLabel(item.label)
+        }
+    }
+
+    private var modeButton: some View {
         Button(action: action) {
             HStack(spacing: 4) {
                 CmuxSystemSymbolImage(
@@ -382,13 +391,15 @@ struct ModeBarButton: View {
                         keyPrefix: "rightSidebarModeIcon_\(item.id)",
                         isVisible: true
                     )
-                Text(item.label)
-                    .cmuxFont(
-                        size: RightSidebarChromeControlStyle.labelSize,
-                        weight: RightSidebarChromeControlStyle.labelWeight
-                    )
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                if showsLabel {
+                    Text(item.label)
+                        .cmuxFont(
+                            size: RightSidebarChromeControlStyle.labelSize,
+                            weight: RightSidebarChromeControlStyle.labelWeight
+                        )
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
                 if badgeCount > 0 {
                     pendingChip
                 }
