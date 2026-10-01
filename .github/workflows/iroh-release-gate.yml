@@ -365,10 +365,10 @@ jobs:
           chmod 600 "$production_env"
 
       - name: Run Iroh gate
-        # Every non-soak phase is capped at 25 minutes. Stress soaks retain
-        # their one-hour workload window while the gate script bounds each
-        # setup, build, and launch phase separately.
-        timeout-minutes: ${{ inputs.soak_profile == 'stress' && 75 || 25 }}
+        # Relay-only stress is one hour of use plus the 30-minute credential
+        # rollover observation and bounded cleanup. The script's report
+        # timeout is 5,850 seconds, so this step must be longer than that.
+        timeout-minutes: ${{ inputs.soak_profile == 'stress' && 125 || 25 }}
         env:
           # The hosted runner does not have cmuxterm-hq's tagged-backend
           # helper. The explicit Worker origin remains the app's API and v2
@@ -379,6 +379,9 @@ jobs:
           # has no cmux-tui artifact yet, use the newest older artifact with
           # identical client inputs instead of failing before the app starts.
           CMUX_TUI_CLIENT_MAX_FALLBACK: 5
+          CMUX_CODEX_MODEL: gpt-5.3-codex-spark
+          CMUX_CODEX_DURATION_SECONDS: "3600"
+          CMUX_CODEX_STRICT_MODEL: "1"
         run: |
           set -euo pipefail
           case "${{ matrix.mode }}" in
@@ -408,7 +411,7 @@ jobs:
           if [[ "${{ matrix.mode }}" == automatic || "${{ matrix.mode }}" == relay-only ]]; then
             GATE_ARGS+=(--soak-profile "${{ inputs.soak_profile }}")
           fi
-          if [[ "${{ inputs.environment }}" == production && "${{ matrix.mode }}" == relay-only && "${{ inputs.soak_profile }}" == stress ]]; then
+          if [[ "${{ inputs.soak_profile }}" == stress && ( "${{ matrix.mode }}" == automatic || "${{ matrix.mode }}" == relay-only ) ]]; then
             GATE_ARGS+=(--real-usage)
           fi
           ./scripts/run-iroh-release-gate.sh "${GATE_ARGS[@]}"

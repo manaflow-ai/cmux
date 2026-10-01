@@ -48,7 +48,7 @@ relay-only defaults for both installed app bundles before
 `mobile-dev-launch.sh` starts the simulator. The driver assumes that policy is
 already configured; it does not switch transport modes during a step.
 
-`iroh-codex-workload.sh` starts three real `codex --yolo -m gpt-5.5-mini` sessions in separate Mac workspaces and two supporting workspaces. It records workspace, surface, model, and observed output markers in `codex-workload.jsonl`; set `CMUX_CODEX_DURATION_SECONDS` to keep the sessions active while the iOS gate runs.
+`iroh-codex-workload.sh` starts three real `codex --yolo -m gpt-5.3-codex-spark` sessions in separate Mac workspaces and two supporting workspaces. It records workspace, surface, model, and observed output markers in `codex-workload.jsonl`; set `CMUX_CODEX_DURATION_SECONDS` to keep the sessions active while the iOS gate runs. Strict release verification fails if the requested model is unavailable instead of silently substituting another model.
 
 On failure exit nonzero and print `E2E FAIL step=<id>` as the last stderr line,
 where `<id>` is a step id below or `sign-in`, `pair`, `connect` for setup.

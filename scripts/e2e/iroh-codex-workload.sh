@@ -5,10 +5,11 @@ set -euo pipefail
 
 TAG="${CMUX_E2E_TAG:-}"
 EVIDENCE_DIR="${CMUX_CODEX_EVIDENCE_DIR:-}"
-MODEL="${CMUX_CODEX_MODEL:-gpt-5.5-mini}"
-DURATION_SECONDS="${CMUX_CODEX_DURATION_SECONDS:-900}"
+MODEL="${CMUX_CODEX_MODEL:-gpt-5.3-codex-spark}"
+DURATION_SECONDS="${CMUX_CODEX_DURATION_SECONDS:-3600}"
 COUNT="${CMUX_CODEX_SESSION_COUNT:-3}"
 SHUTDOWN_FILE="${CMUX_CODEX_SHUTDOWN_FILE:-}"
+STRICT_MODEL="${CMUX_CODEX_STRICT_MODEL:-1}"
 [[ -n "$TAG" && -n "$EVIDENCE_DIR" ]] || {
   echo "Usage: CMUX_E2E_TAG=<tag> CMUX_CODEX_EVIDENCE_DIR=<dir> $0" >&2
   exit 2
@@ -17,6 +18,10 @@ SHUTDOWN_FILE="${CMUX_CODEX_SHUTDOWN_FILE:-}"
   echo "error: duration and session count must be positive integers" >&2
   exit 2
 }
+if [[ "$STRICT_MODEL" == "1" && "$MODEL" != "gpt-5.3-codex-spark" ]]; then
+  echo "error: strict verification requires gpt-5.3-codex-spark, got '$MODEL'" >&2
+  exit 2
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -25,10 +30,7 @@ mkdir -p "$EVIDENCE_DIR"
 LOG="$EVIDENCE_DIR/codex-workload.jsonl"
 : > "$LOG"
 
-# The preferred model is unavailable to the ChatGPT account used by this
-# hosted verification lane. Record the explicit fallback in the evidence so a
-# successful run proves the workload ran with a real supported Codex model.
-printf '{"event":"model_selection","requested_preferred":"gpt-5.3-codex-spark","selected":"%s","unavailable_reason":"unsupported ChatGPT account"}\n' "$MODEL" >> "$LOG"
+printf '{"event":"model_selection","requested":"gpt-5.3-codex-spark","selected":"%s","strict":%s}\n' "$MODEL" "$([[ "$STRICT_MODEL" == "1" ]] && printf true || printf false)" >> "$LOG"
 
 json_value() {
   /usr/bin/python3 -c 'import json,sys; d=json.load(sys.stdin); v=d.get(sys.argv[1]); print(v if v is not None else "")' "$1"
@@ -91,6 +93,7 @@ declare -a ITERATION_COUNTS=()
 declare -a LOG_OFFSETS=()
 declare -a LOG_TAILS=()
 declare -a ITERATION_MARKERS=()
+declare -a LAST_ACTIVITY_EPOCHS=()
 
 # Closing a workspace terminates the terminal process group that owns the
 # Codex/support command. Always clean up, including when a marker or RPC check
@@ -137,6 +140,7 @@ for ((index=1; index<=COUNT+2; index++)); do
   LOG_OFFSETS+=(0)
   LOG_TAILS+=("")
   ITERATION_MARKERS+=("")
+  LAST_ACTIVITY_EPOCHS+=("$(date +%s)")
   printf '{"event":"session_started","role":"%s","index":%d,"workspace_id":"%s","surface_id":"%s","model":"%s","working_directory":"%s","started_at":"%s"}\n' \
     "$role" "$index" "$workspace" "$surface" "$MODEL" "$workdir" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"
 done
@@ -151,11 +155,15 @@ while (( $(date +%s) < deadline )); do
     marker_seen=0
     if (( session_number <= COUNT )); then
       ready_marker="CMUX_CODEX_${session_number}_READY"
+      previous_log_size="${LOG_OFFSETS[$index]}"
       log_scan="$(scan_session_log "$session_log" "${LOG_OFFSETS[$index]}" "$session_number" "${LOG_TAILS[$index]}")"
       IFS='|' read -r log_size log_ready log_markers log_error <<<"$log_scan"
       if [[ "$log_size" =~ ^[0-9]+$ ]]; then
         LOG_OFFSETS[$index]="$log_size"
         LOG_TAILS[$index]="$(tail -c 256 "$session_log" 2>/dev/null || true)"
+        if (( log_size > previous_log_size )); then
+          LAST_ACTIVITY_EPOCHS[$index]="$(date +%s)"
+        fi
       fi
       if [[ "$log_ready" == "1" ]] || grep -qF "$ready_marker" <<<"$combined_output"; then
         READY_SESSIONS[$index]=1
@@ -188,6 +196,11 @@ while (( $(date +%s) < deadline )); do
       if (( READY_SESSIONS[index] == 0 )) \
          && { [[ "$log_error" == "1" ]] || grep -Eqi 'command not found|login required|authentication required' <<<"$combined_output"; }; then
         echo "error: Codex session $session_number exited or needs authentication before its ready marker" >&2
+        exit 1
+      fi
+      now="$(date +%s)"
+      if (( now - LAST_ACTIVITY_EPOCHS[index] > 300 )); then
+        echo "error: Codex session $session_number produced no log activity for more than five minutes" >&2
         exit 1
       fi
     elif grep -qF "CMUX_SUPPORT_" <<<"$combined_output"; then

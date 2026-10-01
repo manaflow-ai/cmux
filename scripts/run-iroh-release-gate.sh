@@ -1146,8 +1146,9 @@ if [[ "$REAL_USAGE" -eq 1 ]]; then
   echo "==> starting real Codex workload in three Mac workspaces"
   CMUX_E2E_TAG="$TAG" \
   CMUX_CODEX_EVIDENCE_DIR="$REAL_USAGE_DIR" \
-  CMUX_CODEX_MODEL="${CMUX_CODEX_MODEL:-gpt-5.5-mini}" \
-  CMUX_CODEX_DURATION_SECONDS="${CMUX_CODEX_DURATION_SECONDS:-900}" \
+  CMUX_CODEX_MODEL="${CMUX_CODEX_MODEL:-gpt-5.3-codex-spark}" \
+  CMUX_CODEX_DURATION_SECONDS="${CMUX_CODEX_DURATION_SECONDS:-3600}" \
+  CMUX_CODEX_STRICT_MODEL="${CMUX_CODEX_STRICT_MODEL:-1}" \
   CMUX_CODEX_SHUTDOWN_FILE="$CODEX_SHUTDOWN_FILE" \
   "$SCRIPT_DIR/e2e/iroh-codex-workload.sh" \
     > "$REAL_USAGE_DIR/codex-workload.log" 2>&1 &
@@ -1417,6 +1418,12 @@ if any(
     for item in cycles
 ):
     raise SystemExit("real usage app foreground-to-terminal exceeded two seconds")
+if any(
+    not isinstance(item.get("resume_to_mac_input_seconds"), (int, float))
+    or float(item["resume_to_mac_input_seconds"]) > 2.0
+    for item in cycles
+):
+    raise SystemExit("real usage resume-to-Mac-input exceeded two seconds")
 print(json.dumps({"cycles": cycles}, sort_keys=True))
 PY_REAL_USAGE
 fi
