@@ -3669,6 +3669,268 @@
         }
       }
     },
+    "cloud.result.templateBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Template %@ is ready. Start a machine from it with Restore Cloud Machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テンプレート %@ の準備ができました。「Cloud マシンを復元」でこのテンプレートからマシンを起動できます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "القالب %@ جاهز. شغّل جهازًا منه باستخدام «استعادة جهاز Cloud»."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Šablon %@ je spreman. Pokrenite mašinu iz njega pomoću Vrati Cloud mašinu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skabelonen %@ er klar. Start en maskine fra den med Gendan Cloud-maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vorlage %@ ist bereit. Starte mit „Cloud-Maschine wiederherstellen“ eine Maschine daraus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La plantilla %@ está lista. Inicia una máquina a partir de ella con Restaurar máquina de Cloud."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le modèle %@ est prêt. Démarrez une machine à partir de celui-ci avec Restaurer la machine Cloud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il modello %@ è pronto. Avvia una macchina da esso con Ripristina macchina Cloud."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គំរូ %@ រួចរាល់ហើយ។ ចាប់ផ្ដើមម៉ាស៊ីនពីវាដោយប្រើ ស្ដារម៉ាស៊ីន Cloud។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "템플릿 %@이(가) 준비되었습니다. Cloud 머신 복원으로 이 템플릿에서 머신을 시작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Malen %@ er klar. Start en maskin fra den med Gjenopprett Cloud-maskin."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szablon %@ jest gotowy. Uruchom z niego maszynę za pomocą Przywróć maszynę Cloud."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O modelo %@ está pronto. Inicie uma máquina a partir dele com Restaurar máquina do Cloud."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шаблон %@ готов. Запустите из него машину командой «Восстановить машину Cloud»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เทมเพลต %@ พร้อมแล้ว เริ่มเครื่องจากเทมเพลตนี้ด้วย กู้คืนเครื่อง Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ şablonu hazır. Ondan bir makine başlatmak için Cloud Makinesini Geri Yükle komutunu kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шаблон %@ готовий. Запустіть із нього машину командою «Відновити машину Cloud»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mẫu %@ đã sẵn sàng. Khởi động máy từ mẫu này bằng Khôi phục máy Cloud."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "模板 %@ 已就绪。使用“恢复 Cloud 机器”从它启动机器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "範本 %@ 已就緒。使用「還原 Cloud 機器」從它啟動機器。"
+          }
+        }
+      }
+    },
+    "cloud.result.templateTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Template Created"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テンプレートを作成しました"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم إنشاء القالب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Šablon je kreiran"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skabelon oprettet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vorlage erstellt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plantilla creada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modèle créé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modello creato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបង្កើតគំរូ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "템플릿을 만들었습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mal opprettet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utworzono szablon"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modelo criado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шаблон создан"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สร้างเทมเพลตแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Şablon oluşturuldu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шаблон створено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã tạo mẫu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已创建模板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已建立範本"
+          }
+        }
+      }
+    },
     "cloud.unavailable.handoff": {
       "extractionState": "manual",
       "localizations": {
@@ -4189,137 +4451,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "缺少內建的 cmux-tui 用戶端，因此無法連線至 Cloud 機器。"
-          }
-        }
-      }
-    },
-    "cloud.unavailable.promoteTemplate": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The web API has no route to promote a machine to a template yet."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マシンをテンプレートに昇格する Web API のルートはまだありません。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا تحتوي واجهة الويب البرمجية على مسار لترقية جهاز إلى قالب بعد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Web API još nema rutu za unapređenje mašine u šablon."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Web-API'et har endnu ingen rute til at gøre en maskine til en skabelon."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Die Web-API bietet noch keine Route, um eine Maschine zur Vorlage zu machen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La API web aún no tiene una ruta para convertir una máquina en plantilla."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L’API web ne permet pas encore de convertir une machine en modèle."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L’API web non ha ancora un percorso per promuovere una macchina a modello."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Web API មិនទាន់មានផ្លូវដើម្បីដំឡើងម៉ាស៊ីនជាគំរូនៅឡើយទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "기기를 템플릿으로 승격하는 웹 API 경로가 아직 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nett-API-et har ennå ingen rute for å gjøre en maskin til mal."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Web API nie ma jeszcze ścieżki do awansowania maszyny na szablon."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "A API web ainda não tem rota para promover uma máquina a modelo."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "В веб-API пока нет маршрута для превращения машины в шаблон."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Web API ยังไม่มีเส้นทางสำหรับเลื่อนเครื่องเป็นเทมเพลต"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Web API’sinde henüz makineyi şablona dönüştürecek bir yol yok."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Веб-API ще не має маршруту для перетворення машини на шаблон."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Web API chưa có route để nâng máy thành mẫu."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Web API 尚无将机器提升为模板的路由。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Web API 尚無將機器升級為樣板的路由。"
           }
         }
       }

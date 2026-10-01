@@ -25,7 +25,6 @@ enum CloudStrings {
     static var notConnected: String { String(localized: "cloud.failed.notConnected", defaultValue: "The Cloud machine is not connected yet.", table: "Cloud", bundle: .module) }
     static var alreadySignedIn: String { String(localized: "cloud.failed.alreadySignedIn", defaultValue: "Already signed in.", table: "Cloud", bundle: .module) }
     static var noTeams: String { String(localized: "cloud.failed.noTeams", defaultValue: "This account has no teams.", table: "Cloud", bundle: .module) }
-    static var promoteTemplate: String { String(localized: "cloud.unavailable.promoteTemplate", defaultValue: "The web API has no route to promote a machine to a template yet.", table: "Cloud", bundle: .module) }
     static var tools: String { String(localized: "cloud.unavailable.tools", defaultValue: "The machine tools panel is not ported to cmux-next yet; use Machine Status, Ports, or Diagnostics.", table: "Cloud", bundle: .module) }
     static var handoff: String { String(localized: "cloud.unavailable.handoff", defaultValue: "Handing off a machine needs the session sharing flow, which is not ported to cmux-next yet.", table: "Cloud", bundle: .module) }
     static var mobilePairing: String { String(localized: "cloud.unavailable.mobilePairing", defaultValue: "Mobile pairing arrives with the iOS phase of cmux-next (plans/cmux-next/cloud-ios.md).", table: "Cloud", bundle: .module) }
@@ -46,12 +45,17 @@ enum CloudStrings {
     static var noPorts: String { String(localized: "cloud.result.noPorts", defaultValue: "No TCP ports are listening on this machine.", table: "Cloud", bundle: .module) }
     static var diagnosticsTitle: String { String(localized: "cloud.result.diagnosticsTitle", defaultValue: "Cloud Diagnostics", table: "Cloud", bundle: .module) }
     static var snapshotTitle: String { String(localized: "cloud.result.snapshotTitle", defaultValue: "Snapshot Created", table: "Cloud", bundle: .module) }
+    static var templateTitle: String { String(localized: "cloud.result.templateTitle", defaultValue: "Template Created", table: "Cloud", bundle: .module) }
     static var failedTitle: String { String(localized: "cloud.result.failedTitle", defaultValue: "Cloud Action Failed", table: "Cloud", bundle: .module) }
 
     static var snapshotRequired: String { String(localized: "cloud.failed.snapshotRequired", defaultValue: "Pass the snapshot id to restore (--snapshot <id>).", table: "Cloud", bundle: .module) }
 
     static func sizeMustBeOneOf(_ list: String) -> String {
         String(format: String(localized: "cloud.failed.sizeMustBeOneOf", defaultValue: "Size must be one of: %@.", table: "Cloud", bundle: .module), list)
+    }
+
+    static func templateBody(_ id: String) -> String {
+        String(format: String(localized: "cloud.result.templateBody", defaultValue: "Template %@ is ready. Start a machine from it with Restore Cloud Machine.", table: "Cloud", bundle: .module), id)
     }
 
     static func snapshotBody(_ id: String) -> String {
