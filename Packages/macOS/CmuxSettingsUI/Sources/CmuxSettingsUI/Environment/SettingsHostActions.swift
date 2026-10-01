@@ -12,15 +12,19 @@ public extension Notification.Name {
 /// section is ready to present it.
 // lint:allow namespace-type — one-shot, main-actor handoff from a host menu to the lazily mounted Custom Sidebars section (#15931); candidate to become an injected SettingsRuntime value.
 @MainActor
-public enum CustomSidebarTemplateGalleryRequest {
-    private static var pending = false
+public final class CustomSidebarTemplateGalleryRequest {
+    public static let shared = CustomSidebarTemplateGalleryRequest()
 
-    public static func request() {
+    private var pending = false
+
+    private init() {}
+
+    public func request() {
         pending = true
         NotificationCenter.default.post(name: .customSidebarTemplateGalleryRequested, object: nil)
     }
 
-    public static func consume() -> Bool {
+    public func consume() -> Bool {
         guard pending else { return false }
         pending = false
         return true
