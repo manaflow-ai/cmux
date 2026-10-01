@@ -2740,7 +2740,7 @@ final class UpdateTitlebarAccessoryController {
     private let settingsRuntime: SettingsRuntime?
     private let layoutModel: TitlebarControlsLayoutModel
     private var didStart = false
-    private let attachedWindows = NSHashTable<NSWindow>.weakObjects()
+    private var attachedWindowIdentifiers = Set<ObjectIdentifier>()
     private var observers: [NSObjectProtocol] = []
     private var pendingAttachRetries: [ObjectIdentifier: Int] = [:]
     private var startupScanWorkItems: [DispatchWorkItem] = []
@@ -2874,7 +2874,7 @@ final class UpdateTitlebarAccessoryController {
         if currentMode == .standard {
             attachToExistingWindows()
         }
-        for window in attachedWindows.allObjects {
+        for window in NSApp.windows where attachedWindowIdentifiers.contains(ObjectIdentifier(window)) {
             applyAccessoryVisibility(for: window)
         }
     }
@@ -2944,7 +2944,7 @@ final class UpdateTitlebarAccessoryController {
         guard canAccessTitlebarAccessories(on: window) else { return }
 
         // Don't re-attach controls if already attached.
-        guard !attachedWindows.contains(window) else {
+        guard !attachedWindowIdentifiers.contains(ObjectIdentifier(window)) else {
             applyAccessoryVisibility(for: window)
             return
         }
@@ -2961,7 +2961,7 @@ final class UpdateTitlebarAccessoryController {
             controlsControllers.add(controls)
         }
 
-        attachedWindows.add(window)
+        attachedWindowIdentifiers.insert(ObjectIdentifier(window))
         applyAccessoryVisibility(for: window)
 
 #if DEBUG
@@ -2975,7 +2975,7 @@ final class UpdateTitlebarAccessoryController {
 
     private func applyAccessoryVisibility(for window: NSWindow) {
         guard canAccessTitlebarAccessories(on: window) else {
-            attachedWindows.remove(window)
+            attachedWindowIdentifiers.remove(ObjectIdentifier(window))
             pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
             return
         }
@@ -2991,7 +2991,7 @@ final class UpdateTitlebarAccessoryController {
 
     private func removeAccessoryIfPresent(from window: NSWindow) {
         guard canAccessTitlebarAccessories(on: window) else {
-            attachedWindows.remove(window)
+            attachedWindowIdentifiers.remove(ObjectIdentifier(window))
             pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
             return
         }
@@ -2999,7 +2999,7 @@ final class UpdateTitlebarAccessoryController {
             let id = window.titlebarAccessoryViewControllers[index].view.identifier
             return id == controlsIdentifier
         }
-        guard !matchingIndices.isEmpty || attachedWindows.contains(window) else { return }
+        guard !matchingIndices.isEmpty || attachedWindowIdentifiers.contains(ObjectIdentifier(window)) else { return }
 
         for index in matchingIndices {
             let accessory = window.titlebarAccessoryViewControllers[index]
@@ -3009,7 +3009,7 @@ final class UpdateTitlebarAccessoryController {
             window.removeTitlebarAccessoryViewController(at: index)
         }
 
-        attachedWindows.remove(window)
+        attachedWindowIdentifiers.remove(ObjectIdentifier(window))
         pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
         let windowIdentifier = ObjectIdentifier(window)
         DispatchQueue.main.async { [weak self] in
