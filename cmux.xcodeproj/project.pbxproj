@@ -605,6 +605,7 @@
 		9758A0000000000000000004 /* CLIAmpLifecycleIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9758A0000000000000000003 /* CLIAmpLifecycleIntegrationTests.swift */; };
 		A5D4120DA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120EA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift */; };
 		805500000000000000000001 /* CLIBrowserEvalOutputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805500000000000000000002 /* CLIBrowserEvalOutputTests.swift */; };
+		C0DE1274600000000000000B /* CLICallerWorkspaceDefaultTests+PullRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1274600000000000000C /* CLICallerWorkspaceDefaultTests+PullRequest.swift */; };
 		CA11E4D0FA017DE500000B101 /* CLICallerWorkspaceDefaultTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA11E4D0FA017DE500000F102 /* CLICallerWorkspaceDefaultTests.swift */; };
 		964F2AF080DB48D8A2A2C186 /* CLIChildEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95C00A2330C34E7DA7630E4D /* CLIChildEnvironment.swift */; };
 		C11757000000000000000042 /* CLIChildEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95C00A2330C34E7DA7630E4D /* CLIChildEnvironment.swift */; };
@@ -677,6 +678,7 @@
 		C11757000000000000000034 /* CLITmuxCompatStoreConcurrencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1175700000000000000001B /* CLITmuxCompatStoreConcurrencyTests.swift */; };
 		84ED8B0271A2FD801E8F280C /* CLIVMDevTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20A03BD3D5FCAFBEA0D8CA4C /* CLIVMDevTests.swift */; };
 		C78951D0E70B3BF25DFABD26 /* CLIVMLayoutEnvTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C52C82B48E0D40919A92FF1 /* CLIVMLayoutEnvTests.swift */; };
+		3319454512611C7069D420DE /* CLIVMReadyPollIntervalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDFFD7A7DDFCA73EF207C81D /* CLIVMReadyPollIntervalTests.swift */; };
 		A5D4120DA1B2C3D4E5F60F01 /* CLIVMTransferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120EA1B2C3D4E5F60F02 /* CLIVMTransferTests.swift */; };
 		773600000000000000000001 /* CLIWindowCommandMockServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 773600000000000000000002 /* CLIWindowCommandMockServer.swift */; };
 		C11757000000000000000046 /* CLIWindowCommandMockServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 773600000000000000000002 /* CLIWindowCommandMockServer.swift */; };
@@ -965,6 +967,7 @@
 		E70630CCBD97DD2200F5D4B0 /* CloudTreePlaceholderContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB831845720B2F8256DC58DA /* CloudTreePlaceholderContent.swift */; };
 		B61E41C2545E85634C845FCB /* CloudTreePortPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 276B8742C711D7E718A5DC5A /* CloudTreePortPresentation.swift */; };
 		EEF4BF6D13124E43BC712704 /* CloudTreeRemoteWorkspaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = 952C5F710BB34A9AA8652CEF /* CloudTreeRemoteWorkspaces.swift */; };
+		2D0B1C79D1974046B705D579 /* CloudTreeReorderPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D350E4739814C97A50E5B01 /* CloudTreeReorderPresentation.swift */; };
 		D12406000000000000000002 /* CloudTreeResizeMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12406000000000000000001 /* CloudTreeResizeMenu.swift */; };
 		EB9FC1181F634D85A3DC1D7D /* CloudTreeResourceName.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68E8A21507F440A09928EAFF /* CloudTreeResourceName.swift */; };
 		8A38E1D91F8CE305A4AA40C8 /* CloudTreeResourceNameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 815B34C51F041C75008E9F24 /* CloudTreeResourceNameTests.swift */; };
@@ -1191,6 +1194,7 @@
 		B9000054A1B2C3D4E5F60719 /* CMUXCLI+Process.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000055A1B2C3D4E5F60719 /* CMUXCLI+Process.swift */; };
 		126810B60000000000000002 /* CMUXCLI+ProcessSignalState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126810B60000000000000001 /* CMUXCLI+ProcessSignalState.swift */; };
 		A1E8DF699F239A8A5A2FC122 /* CMUXCLI+PromptSubmit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B782728C37B72B061710BA7 /* CMUXCLI+PromptSubmit.swift */; };
+		C0DE12746000000000000001 /* CMUXCLI+PullRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE12746000000000000002 /* CMUXCLI+PullRequest.swift */; };
 		A10021000000000000000001 /* CMUXCLI+Record.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10021000000000000000002 /* CMUXCLI+Record.swift */; };
 		C73660010000000000000001 /* CMUXCLI+RemotePTYErrors.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */; };
 		REE0CA0000000000000000C2 /* CMUXCLI+Remotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */; };
@@ -3337,6 +3341,7 @@
 		5B11E5A100000000000000A1 /* SpinnerGalleryDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B11E5A100000000000000A2 /* SpinnerGalleryDebugWindowController.swift */; };
 		A6AC72060000000000000001 /* SpinnerGalleryRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72060000000000000002 /* SpinnerGalleryRootView.swift */; };
 		A6AC72070000000000000001 /* SpinnerSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72070000000000000002 /* SpinnerSpec.swift */; };
+		1A863EC5DD9CDF6A01803F7B /* SplitDividerDragUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A082A233635DC9DB397DAB /* SplitDividerDragUITests.swift */; };
 		A13387000000000000000011 /* SplitPaneBackgroundUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000012 /* SplitPaneBackgroundUITests.swift */; };
 		A13387000000000000000005 /* SplitPaneGeometryProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000006 /* SplitPaneGeometryProjection.swift */; };
 		A13387000000000000000013 /* SplitPaneGeometryProjectionRenderParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000014 /* SplitPaneGeometryProjectionRenderParityTests.swift */; };
@@ -3583,6 +3588,7 @@
 		C0DE00000000000000000C74 /* TerminalController+ControlSidebarContext2.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C73 /* TerminalController+ControlSidebarContext2.swift */; };
 		C0DE00000000000000000C76 /* TerminalController+ControlSidebarContext3.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C75 /* TerminalController+ControlSidebarContext3.swift */; };
 		C0DE00000000000000000C78 /* TerminalController+ControlSidebarContextSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C77 /* TerminalController+ControlSidebarContextSupport.swift */; };
+		C0DE12746000000000000003 /* TerminalController+ControlSidebarManualPullRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE12746000000000000004 /* TerminalController+ControlSidebarManualPullRequest.swift */; };
 		C51A7300000000000000000D /* TerminalController+ControlSimulatorCameraPayloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A7300000000000000000E /* TerminalController+ControlSimulatorCameraPayloads.swift */; };
 		C51A73000000000000000003 /* TerminalController+ControlSimulatorContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73000000000000000004 /* TerminalController+ControlSimulatorContext.swift */; };
 		C51A74000000000000000001 /* TerminalController+ControlSimulatorOperationPayloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A74000000000000000002 /* TerminalController+ControlSimulatorOperationPayloads.swift */; };
@@ -3933,10 +3939,17 @@
 		9009A0029009A0029009A001 /* TmuxCompatLaunchContextError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9009A0029009A0029009A002 /* TmuxCompatLaunchContextError.swift */; };
 		E30760030000000000000002 /* TmuxOverlayExperimentSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760030000000000000001 /* TmuxOverlayExperimentSettings.swift */; };
 		E30760040000000000000002 /* TmuxOverlayExperimentTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760040000000000000001 /* TmuxOverlayExperimentTarget.swift */; };
+		B97B7AFE0E763BFF420CB186 /* TmuxOverlayExperimentTargetObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFFBC1502E80B00B583C5689 /* TmuxOverlayExperimentTargetObserver.swift */; };
 		B35751000000000000000002 /* TmuxResumeParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35751000000000000000001 /* TmuxResumeParser.swift */; };
 		575000010000000000000002 /* TmuxWaitForSignal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 575000020000000000000002 /* TmuxWaitForSignal.swift */; };
+		21BF394C73347A907347E734 /* TmuxWorkspacePaneOverlayCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2522709FFB5C399F9AA17B8D /* TmuxWorkspacePaneOverlayCoordinator.swift */; };
+		C1ED7B6EA00C4ABB0323F46D /* TmuxWorkspacePaneOverlayInputs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 875F3861057A8182C3AC2AC9 /* TmuxWorkspacePaneOverlayInputs.swift */; };
 		E30760060000000000000002 /* TmuxWorkspacePaneOverlayModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760060000000000000001 /* TmuxWorkspacePaneOverlayModelTests.swift */; };
+		6B43BE542D2BD40CE60074BE /* TmuxWorkspacePaneOverlayRefresher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F7183D122B3E639EC88F6E6 /* TmuxWorkspacePaneOverlayRefresher.swift */; };
+		C2E198B6243393D86E62C6D3 /* TmuxWorkspacePaneOverlayRefreshSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C62279A431EC9F35D9F052D /* TmuxWorkspacePaneOverlayRefreshSnapshot.swift */; };
 		E30760050000000000000002 /* TmuxWorkspacePaneOverlayRenderState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760050000000000000001 /* TmuxWorkspacePaneOverlayRenderState.swift */; };
+		EA1DAABBB3A018504F2D84AD /* TmuxWorkspacePaneOverlaySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67473EBDD345482D34C76097 /* TmuxWorkspacePaneOverlaySettings.swift */; };
+		2266CBB107FE4621370B99A4 /* TmuxWorkspacePaneOverlayStateBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5F9E6E0EA230D9166AB417 /* TmuxWorkspacePaneOverlayStateBuilder.swift */; };
 		E30760000000000000000002 /* TmuxWorkspacePaneOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760000000000000000001 /* TmuxWorkspacePaneOverlayView.swift */; };
 		C01E00020000000000000001 /* TokenTheme+AppKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01E00020000000000000002 /* TokenTheme+AppKit.swift */; };
 		D3284001A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3284002A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift */; };
@@ -3951,7 +3964,6 @@
 		A500120D /* UpdateLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001223 /* UpdateLogStore.swift */; };
 		F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */; };
 		C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */; };
-		77D1FD996484655FFF4656A9 /* UpdateRelaunchAgentClassification.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A6AE29EA7AF1FB12876663D /* UpdateRelaunchAgentClassification.swift */; };
 		3AD574FB82F03F846DB54DE1 /* UpdateRelaunchAgentResumeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A634CA3FCA39C6F02FA78DC7 /* UpdateRelaunchAgentResumeTests.swift */; };
 		ECA7FC852F69AAF9FE972D06 /* UpdateRelaunchBlockersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E40AA0639D63F947BB321B4 /* UpdateRelaunchBlockersTests.swift */; };
 		A5001208 /* UpdateTitlebarAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001218 /* UpdateTitlebarAccessory.swift */; };
@@ -4008,6 +4020,8 @@
 		C37800000000000000000003 /* VMDefaultCloudCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37800000000000000000004 /* VMDefaultCloudCommandTests.swift */; };
 		B81607322100000000000002 /* VMMachineTerminalResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = B81607322100000000000004 /* VMMachineTerminalResolution.swift */; };
 		B81607322100000000000003 /* VMMachineTerminalResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = B81607322100000000000004 /* VMMachineTerminalResolution.swift */; };
+		1044EB4696981D93219EAFF2 /* VMReadyPollInterval.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2776CC5FE1E0083FAAB3A8 /* VMReadyPollInterval.swift */; };
+		C1175700000000000000F0A1 /* VMReadyPollInterval.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2776CC5FE1E0083FAAB3A8 /* VMReadyPollInterval.swift */; };
 		65F8FEC592CFA22BD1F4FA29 /* VMRemoteWorkspaceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2691D26BF6676FF32FBC54 /* VMRemoteWorkspaceResolver.swift */; };
 		D017093861349E48BF816E02 /* VMRemoteWorkspaceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2691D26BF6676FF32FBC54 /* VMRemoteWorkspaceResolver.swift */; };
 		C37800000000000000000001 /* VMSSHCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37800000000000000000002 /* VMSSHCommandTests.swift */; };
@@ -4099,6 +4113,7 @@
 		F17F00000000000000000005 /* Workspace+FullWidthTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17F00000000000000000006 /* Workspace+FullWidthTab.swift */; };
 		D9466FDCDB9B4670943C3E7A /* Workspace+GeometryDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F949FFE94E234BC39DDDCE34 /* Workspace+GeometryDiagnostics.swift */; };
 		C0DE1A050000000000000001 /* Workspace+LayoutCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A050000000000000002 /* Workspace+LayoutCapture.swift */; };
+		C0DE12746000000000000007 /* Workspace+ManualPullRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE12746000000000000008 /* Workspace+ManualPullRequest.swift */; };
 				B11D00000000000000000003 /* Workspace+MobileAgentStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11D00000000000000000004 /* Workspace+MobileAgentStatus.swift */; };
 		9504A0010000000000000001 /* Workspace+MovingTabSplit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9504A0010000000000000002 /* Workspace+MovingTabSplit.swift */; };
 		8B45A4329C234E6FB261E635 /* Workspace+NotificationsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688C3F45DAA548B3B57DE780 /* Workspace+NotificationsPane.swift */; };
@@ -4200,7 +4215,9 @@
 		B63E1257BB174740A44F458C /* WorkspaceIsStaleAgentHookBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B714B27E46014592B9CB2D3A /* WorkspaceIsStaleAgentHookBindingTests.swift */; };
 		CA52B0180000000000000000 /* WorkspaceLayoutMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0180000000000000000 /* WorkspaceLayoutMode.swift */; };
 		A6AC720A0000000000000001 /* WorkspaceLoadingArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC720A0000000000000002 /* WorkspaceLoadingArguments.swift */; };
+		C0DE12746000000000000009 /* WorkspaceManualPullRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1274600000000000000A /* WorkspaceManualPullRequestTests.swift */; };
 		0F2C25F9170130F8DC09DD1B /* WorkspaceManualUnreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D301919B10F22B8708E8883 /* WorkspaceManualUnreadTests.swift */; };
+		7A5CB79CC6593B900E8120CE /* WorkspacePaneFlashModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EE9AA5853CDDFC7B74F3B07 /* WorkspacePaneFlashModel.swift */; };
 		E3B7A4000000000000000005 /* WorkspacePlacement+Resolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000006 /* WorkspacePlacement+Resolution.swift */; };
 		D0B10004A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10005A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift */; };
 		A13296000000000000000211 /* WorkspacePresenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13296000000000000000201 /* WorkspacePresenceController.swift */; };
@@ -5008,6 +5025,7 @@
 		9758A0000000000000000003 /* CLIAmpLifecycleIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIAmpLifecycleIntegrationTests.swift; sourceTree = "<group>"; };
 		A5D4120EA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIAuthAliasTests.swift; sourceTree = "<group>"; };
 		805500000000000000000002 /* CLIBrowserEvalOutputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIBrowserEvalOutputTests.swift; sourceTree = "<group>"; };
+		C0DE1274600000000000000C /* CLICallerWorkspaceDefaultTests+PullRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLICallerWorkspaceDefaultTests+PullRequest.swift"; sourceTree = "<group>"; };
 		CA11E4D0FA017DE500000F102 /* CLICallerWorkspaceDefaultTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICallerWorkspaceDefaultTests.swift; sourceTree = "<group>"; };
 		95C00A2330C34E7DA7630E4D /* CLIChildEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIChildEnvironment.swift; sourceTree = "<group>"; };
 		AC61257DCDCA431A908C55CC /* CLIChildEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIChildEnvironmentTests.swift; sourceTree = "<group>"; };
@@ -5074,6 +5092,7 @@
 		C1175700000000000000001B /* CLITmuxCompatStoreConcurrencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITmuxCompatStoreConcurrencyTests.swift; sourceTree = "<group>"; };
 		20A03BD3D5FCAFBEA0D8CA4C /* CLIVMDevTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMDevTests.swift; sourceTree = "<group>"; };
 		7C52C82B48E0D40919A92FF1 /* CLIVMLayoutEnvTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMLayoutEnvTests.swift; sourceTree = "<group>"; };
+		BDFFD7A7DDFCA73EF207C81D /* CLIVMReadyPollIntervalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMReadyPollIntervalTests.swift; sourceTree = "<group>"; };
 		A5D4120EA1B2C3D4E5F60F02 /* CLIVMTransferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIVMTransferTests.swift; sourceTree = "<group>"; };
 		773600000000000000000002 /* CLIWindowCommandMockServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWindowCommandMockServer.swift; sourceTree = "<group>"; };
 		C1175700000000000000001C /* CLIWindowHandleRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWindowHandleRoutingTests.swift; sourceTree = "<group>"; };
@@ -5358,6 +5377,7 @@
 		FB831845720B2F8256DC58DA /* CloudTreePlaceholderContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreePlaceholderContent.swift"; sourceTree = "<group>"; };
 		276B8742C711D7E718A5DC5A /* CloudTreePortPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreePortPresentation.swift; sourceTree = "<group>"; };
 		952C5F710BB34A9AA8652CEF /* CloudTreeRemoteWorkspaces.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeRemoteWorkspaces.swift; sourceTree = "<group>"; };
+		9D350E4739814C97A50E5B01 /* CloudTreeReorderPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudTreeReorderPresentation.swift"; sourceTree = "<group>"; };
 		D12406000000000000000001 /* CloudTreeResizeMenu.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeResizeMenu.swift; sourceTree = "<group>"; };
 		68E8A21507F440A09928EAFF /* CloudTreeResourceName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeResourceName.swift; sourceTree = "<group>"; };
 		815B34C51F041C75008E9F24 /* CloudTreeResourceNameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreeResourceNameTests.swift"; sourceTree = "<group>"; };
@@ -5565,6 +5585,7 @@
 		B9000055A1B2C3D4E5F60719 /* CMUXCLI+Process.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Process.swift"; sourceTree = "<group>"; };
 		126810B60000000000000001 /* CMUXCLI+ProcessSignalState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ProcessSignalState.swift"; sourceTree = "<group>"; };
 		0B782728C37B72B061710BA7 /* CMUXCLI+PromptSubmit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PromptSubmit.swift"; sourceTree = "<group>"; };
+		C0DE12746000000000000002 /* CMUXCLI+PullRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PullRequest.swift"; sourceTree = "<group>"; };
 		A10021000000000000000002 /* CMUXCLI+Record.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Record.swift"; sourceTree = "<group>"; };
 		C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RemotePTYErrors.swift"; sourceTree = "<group>"; };
 		REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Remotes.swift"; sourceTree = "<group>"; };
@@ -7585,6 +7606,7 @@
 		5B11E5A100000000000000A2 /* SpinnerGalleryDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerGalleryDebugWindowController.swift; sourceTree = "<group>"; };
 		A6AC72060000000000000002 /* SpinnerGalleryRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerGalleryRootView.swift; sourceTree = "<group>"; };
 		A6AC72070000000000000002 /* SpinnerSpec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerSpec.swift; sourceTree = "<group>"; };
+		21A082A233635DC9DB397DAB /* SplitDividerDragUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitDividerDragUITests.swift; sourceTree = "<group>"; };
 		A13387000000000000000012 /* SplitPaneBackgroundUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneBackgroundUITests.swift; sourceTree = "<group>"; };
 		A13387000000000000000006 /* SplitPaneGeometryProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneGeometryProjection.swift; sourceTree = "<group>"; };
 		A13387000000000000000014 /* SplitPaneGeometryProjectionRenderParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneGeometryProjectionRenderParityTests.swift; sourceTree = "<group>"; };
@@ -7824,6 +7846,7 @@
 		C0DE00000000000000000C73 /* TerminalController+ControlSidebarContext2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSidebarContext2.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C75 /* TerminalController+ControlSidebarContext3.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSidebarContext3.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C77 /* TerminalController+ControlSidebarContextSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSidebarContextSupport.swift"; sourceTree = "<group>"; };
+		C0DE12746000000000000004 /* TerminalController+ControlSidebarManualPullRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSidebarManualPullRequest.swift"; sourceTree = "<group>"; };
 		C51A7300000000000000000E /* TerminalController+ControlSimulatorCameraPayloads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSimulatorCameraPayloads.swift"; sourceTree = "<group>"; };
 		C51A73000000000000000004 /* TerminalController+ControlSimulatorContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSimulatorContext.swift"; sourceTree = "<group>"; };
 		C51A74000000000000000002 /* TerminalController+ControlSimulatorOperationPayloads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSimulatorOperationPayloads.swift"; sourceTree = "<group>"; };
@@ -8174,10 +8197,17 @@
 		9009A0029009A0029009A002 /* TmuxCompatLaunchContextError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxCompatLaunchContextError.swift; sourceTree = "<group>"; };
 		E30760030000000000000001 /* TmuxOverlayExperimentSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxOverlayExperimentSettings.swift; sourceTree = "<group>"; };
 		E30760040000000000000001 /* TmuxOverlayExperimentTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxOverlayExperimentTarget.swift; sourceTree = "<group>"; };
+		FFFBC1502E80B00B583C5689 /* TmuxOverlayExperimentTargetObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxOverlayExperimentTargetObserver.swift; sourceTree = "<group>"; };
 		B35751000000000000000001 /* TmuxResumeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxResumeParser.swift; sourceTree = "<group>"; };
 		575000020000000000000002 /* TmuxWaitForSignal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWaitForSignal.swift; sourceTree = "<group>"; };
+		2522709FFB5C399F9AA17B8D /* TmuxWorkspacePaneOverlayCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlayCoordinator.swift; sourceTree = "<group>"; };
+		875F3861057A8182C3AC2AC9 /* TmuxWorkspacePaneOverlayInputs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlayInputs.swift; sourceTree = "<group>"; };
 		E30760060000000000000001 /* TmuxWorkspacePaneOverlayModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlayModelTests.swift; sourceTree = "<group>"; };
+		5F7183D122B3E639EC88F6E6 /* TmuxWorkspacePaneOverlayRefresher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlayRefresher.swift; sourceTree = "<group>"; };
+		7C62279A431EC9F35D9F052D /* TmuxWorkspacePaneOverlayRefreshSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlayRefreshSnapshot.swift; sourceTree = "<group>"; };
 		E30760050000000000000001 /* TmuxWorkspacePaneOverlayRenderState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlayRenderState.swift; sourceTree = "<group>"; };
+		67473EBDD345482D34C76097 /* TmuxWorkspacePaneOverlaySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlaySettings.swift; sourceTree = "<group>"; };
+		DA5F9E6E0EA230D9166AB417 /* TmuxWorkspacePaneOverlayStateBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlayStateBuilder.swift; sourceTree = "<group>"; };
 		E30760000000000000000001 /* TmuxWorkspacePaneOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlayView.swift; sourceTree = "<group>"; };
 		C01E00020000000000000002 /* TokenTheme+AppKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TokenTheme+AppKit.swift"; sourceTree = "<group>"; };
 		D3284002A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TraditionalChineseIMENumpadRegressionTests.swift; sourceTree = "<group>"; };
@@ -8192,7 +8222,6 @@
 		A5001223 /* UpdateLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateLogStore.swift; sourceTree = "<group>"; };
 		F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillReleaseVisibilityTests.swift; sourceTree = "<group>"; };
 		C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillUITests.swift; sourceTree = "<group>"; };
-		2A6AE29EA7AF1FB12876663D /* UpdateRelaunchAgentClassification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateRelaunchAgentClassification.swift; sourceTree = "<group>"; };
 		A634CA3FCA39C6F02FA78DC7 /* UpdateRelaunchAgentResumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UpdateRelaunchAgentResumeTests.swift"; sourceTree = "<group>"; };
 		8E40AA0639D63F947BB321B4 /* UpdateRelaunchBlockersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UpdateRelaunchBlockersTests.swift"; sourceTree = "<group>"; };
 		A5001218 /* UpdateTitlebarAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateTitlebarAccessory.swift; sourceTree = "<group>"; };
@@ -8248,6 +8277,7 @@
 		C10DC1000000000000000014 /* VMClientTelemetry+Live.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMClientTelemetry+Live.swift"; sourceTree = "<group>"; };
 		C37800000000000000000004 /* VMDefaultCloudCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMDefaultCloudCommandTests.swift; sourceTree = "<group>"; };
 		B81607322100000000000004 /* VMMachineTerminalResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMMachineTerminalResolution.swift; sourceTree = "<group>"; };
+		5A2776CC5FE1E0083FAAB3A8 /* VMReadyPollInterval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMReadyPollInterval.swift; sourceTree = "<group>"; };
 		BA2691D26BF6676FF32FBC54 /* VMRemoteWorkspaceResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMRemoteWorkspaceResolver.swift; sourceTree = "<group>"; };
 		C37800000000000000000002 /* VMSSHCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMSSHCommandTests.swift; sourceTree = "<group>"; };
 		F5C553AF2050E7E6D7CD62EC /* VMSSHTransportFallbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMSSHTransportFallbackTests.swift"; sourceTree = "<group>"; };
@@ -8337,6 +8367,7 @@
 		F17F00000000000000000006 /* Workspace+FullWidthTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+FullWidthTab.swift"; sourceTree = "<group>"; };
 		F949FFE94E234BC39DDDCE34 /* Workspace+GeometryDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+GeometryDiagnostics.swift"; sourceTree = "<group>"; };
 		C0DE1A050000000000000002 /* Workspace+LayoutCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+LayoutCapture.swift"; sourceTree = "<group>"; };
+		C0DE12746000000000000008 /* Workspace+ManualPullRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ManualPullRequest.swift"; sourceTree = "<group>"; };
 				B11D00000000000000000004 /* Workspace+MobileAgentStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+MobileAgentStatus.swift"; sourceTree = "<group>"; };
 		9504A0010000000000000002 /* Workspace+MovingTabSplit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+MovingTabSplit.swift"; sourceTree = "<group>"; };
 		688C3F45DAA548B3B57DE780 /* Workspace+NotificationsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+NotificationsPane.swift"; sourceTree = "<group>"; };
@@ -8438,7 +8469,9 @@
 		B714B27E46014592B9CB2D3A /* WorkspaceIsStaleAgentHookBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceIsStaleAgentHookBindingTests.swift; sourceTree = "<group>"; };
 		CA52C0180000000000000000 /* WorkspaceLayoutMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceLayoutMode.swift"; sourceTree = "<group>"; };
 		A6AC720A0000000000000002 /* WorkspaceLoadingArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLoadingArguments.swift; sourceTree = "<group>"; };
+		C0DE1274600000000000000A /* WorkspaceManualPullRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceManualPullRequestTests.swift"; sourceTree = "<group>"; };
 		1D301919B10F22B8708E8883 /* WorkspaceManualUnreadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceManualUnreadTests.swift; sourceTree = "<group>"; };
+		6EE9AA5853CDDFC7B74F3B07 /* WorkspacePaneFlashModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePaneFlashModel.swift; sourceTree = "<group>"; };
 		E3B7A4000000000000000006 /* WorkspacePlacement+Resolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspacePlacement+Resolution.swift"; sourceTree = "<group>"; };
 		D0B10005A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePortalPaneDrop.swift; sourceTree = "<group>"; };
 		A13296000000000000000201 /* WorkspacePresenceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePresenceController.swift; sourceTree = "<group>"; };
@@ -8783,6 +8816,7 @@
 				C11757000000000000000024 /* CodexTerminalErrorNotificationTests.swift */,
 				C11757000000000000000025 /* KimiHookConfigLocationTests.swift */,
 				A62542679E9A9BFDD99A7BC6 /* CodexAutoNamingArgumentsTests.swift */,
+				BDFFD7A7DDFCA73EF207C81D /* CLIVMReadyPollIntervalTests.swift */,
 			);
 			path = cmuxCLITests;
 			sourceTree = "<group>";
@@ -8902,6 +8936,7 @@
 				D77690000000000000000006 /* MultiWindowNotificationsWorkspaceHeadlineUITests.swift */,
 				04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */,
 				818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */,
+				21A082A233635DC9DB397DAB /* SplitDividerDragUITests.swift */,
 				C0DE34020000000000000006 /* HelpMenuUITests.swift */,
 				B8F266256A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift */,
 				C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */,
@@ -9240,6 +9275,7 @@
 				48A1307BCCDB493F49179E0B /* SurfaceResourceDragPayload.swift */,
 				1CACA5A7C96FFDF0B931E7AA /* CloudTreeOutlineView.swift */,
 				A13086000000000000000005 /* CloudTreeContainerView.swift */,
+				9D350E4739814C97A50E5B01 /* CloudTreeReorderPresentation.swift */,
 				A13086000000000000000009 /* CloudMachineReorderDrop.swift */,
 				A1308600000000000000000B /* CloudTreeOutlineView+MachineOrdering.swift */,
 				412FF88FEF5819465A8157DE /* CloudTreeOutlineView+MachineMenu.swift */,
@@ -9979,6 +10015,7 @@
 				A5001511 /* UITestRecorder.swift */,
 				A5001520 /* PostHogAnalytics.swift */,
 				A5001416 /* Workspace.swift */,
+				C0DE12746000000000000008 /* Workspace+ManualPullRequest.swift */,
 				D7AB12048000000000000007 /* Workspace+RemoteTerminalWorkingDirectory.swift */,
 				D12393010000000000000002 /* Workspace+PortalRenderingAuthority.swift */,
 				A1329C0A0000000000000001 /* Workspace+TerminalSharing.swift */,
@@ -10410,6 +10447,7 @@
 				C0DE00000000000000000C6F /* TerminalController+ControlProjectContext.swift */,
 				C0DE00000000000000000C71 /* TerminalController+ControlSidebarContext.swift */,
 				C0DE00000000000000000C73 /* TerminalController+ControlSidebarContext2.swift */,
+				C0DE12746000000000000004 /* TerminalController+ControlSidebarManualPullRequest.swift */,
 				C0DE00000000000000000C75 /* TerminalController+ControlSidebarContext3.swift */,
 				C0DE00000000000000000C77 /* TerminalController+ControlSidebarContextSupport.swift */,
 				085B717ACCEF4FDBA77A2FD9 /* ControlSidebarAgentLifecycleRegistryScope.swift */,
@@ -11499,6 +11537,14 @@
 				3840C3CAEE266F282EE96A37 /* SidebarReorderInteractionState.swift */,
 				01AFEB5B2588D6391DC94892 /* WorkspaceActivityReorderController.swift */,
 				FFFCEC5E783F29C91BC6A8EE /* Workspace+SplitSpace.swift */,
+				FFFBC1502E80B00B583C5689 /* TmuxOverlayExperimentTargetObserver.swift */,
+				5F7183D122B3E639EC88F6E6 /* TmuxWorkspacePaneOverlayRefresher.swift */,
+				DA5F9E6E0EA230D9166AB417 /* TmuxWorkspacePaneOverlayStateBuilder.swift */,
+				6EE9AA5853CDDFC7B74F3B07 /* WorkspacePaneFlashModel.swift */,
+				67473EBDD345482D34C76097 /* TmuxWorkspacePaneOverlaySettings.swift */,
+				2522709FFB5C399F9AA17B8D /* TmuxWorkspacePaneOverlayCoordinator.swift */,
+				875F3861057A8182C3AC2AC9 /* TmuxWorkspacePaneOverlayInputs.swift */,
+				7C62279A431EC9F35D9F052D /* TmuxWorkspacePaneOverlayRefreshSnapshot.swift */,
 				0099F1705D48F395E6A9840E /* cmuxApp+CloudMenu.swift */,
 				F2A8C8F36CBB9D59049A238F /* SidebarResizerAccessibilityModifier.swift */,
 				60FA3A8B7182AEE47EC38033 /* DiffViewerPreferencesStore.swift */,
@@ -11509,7 +11555,6 @@
 				E7E4D51BF3365A4CB3A658E4 /* GhosttySurfaceScrollView+PaneDropOverlay.swift */,
 				7C5AC198D412FCD62A039CB9 /* AgentInboxProjection.swift */,
 				9683DEA39B85CC2D1240DC1A /* AgentInboxView.swift */,
-				2A6AE29EA7AF1FB12876663D /* UpdateRelaunchAgentClassification.swift */,
 				A9FA91EF89C03A74979E6EF7 /* GhosttyNSView+CodexActionCommand.swift */,
 				DFA8781ABBE7A67C2E61F17D /* WorkspaceCloudVMBinding+OwningTeam.swift */,
 				A597DA23A05CA2BFB5DD1197 /* KernelPortProcessTable.swift */,
@@ -11627,6 +11672,7 @@
 				C0DE10651000000000000016 /* CMUXCLI+LocalTmuxLifecycle.swift */,
 				C0DE10651000000000000017 /* CMUXCLI+LocalTmuxAttachment.swift */,
 				CC0033E15A1B2C3D4E5F0002 /* CMUXCLI+Comments.swift */,
+				C0DE12746000000000000002 /* CMUXCLI+PullRequest.swift */,
 				74B5FDC25DCB4D39ADD17F39 /* CMUXCLI+Vault.swift */,
 				7B615265460F412888EB0F73 /* CMUXCLI+CloudSidebar.swift */,
 				CC0033E15A1B2C3D4E5F0021 /* CMUXCLI+VMTui.swift */,
@@ -11778,6 +11824,7 @@
 				0221E931A45B517F9BCC1EF5 /* CMUXCLI+ClaudeHookStopFailure.swift */,
 				054B01530302FCEEAA5CFEAD /* CMUXCLI+DiffViewerPreferences.swift */,
 				57AE38B536A608CB2CDEE6AD /* CMUXCLI+DiffViewerReviewLabels.swift */,
+				5A2776CC5FE1E0083FAAB3A8 /* VMReadyPollInterval.swift */,
 			);
 			path = CLI;
 			sourceTree = "<group>";
@@ -12274,6 +12321,7 @@
 				AC61257DCDCA431A908C55CC /* CLIChildEnvironmentTests.swift */,
 				805500000000000000000002 /* CLIBrowserEvalOutputTests.swift */,
 				CA11E4D0FA017DE500000F102 /* CLICallerWorkspaceDefaultTests.swift */,
+				C0DE1274600000000000000C /* CLICallerWorkspaceDefaultTests+PullRequest.swift */,
 				C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */,
 				112950000000000000000001 /* CMUXCLIForkVerbRegressionTests.swift */,
 				112950000000000000000011 /* CMUXCLIForkLegacyFallbackTests.swift */,
@@ -12572,6 +12620,7 @@
 				C0A0B0090000000000000001 /* ConversationSidebarRegressionTests.swift */,
 				F1C3F1DBF6BF5D7223C4A30C /* SidebarMarkdownRendererTests.swift */,
 				14A7DC53B9CA33BE2A421711 /* WorkspacePullRequestSidebarTests.swift */,
+				C0DE1274600000000000000A /* WorkspaceManualPullRequestTests.swift */,
 				5659A0045659A0045659A004 /* WorkspaceSidebarObservationTests.swift */,
 				14D09524E94048DBB6773437 /* WorkspaceSidebarProcessTitleObservationTests.swift */,
 				FEEDC0DEC0DEC0DEC0DE0002 /* FeedCoordinatorTests.swift */,
@@ -13740,6 +13789,7 @@
 				C11757000000000000000045 /* CLITestBundleAnchor.swift in Sources */,
 				C117570000000000000000B2 /* CLITmuxCompatBufferContentTests.swift in Sources */,
 				C11757000000000000000034 /* CLITmuxCompatStoreConcurrencyTests.swift in Sources */,
+				3319454512611C7069D420DE /* CLIVMReadyPollIntervalTests.swift in Sources */,
 				C11757000000000000000046 /* CLIWindowCommandMockServer.swift in Sources */,
 				C11757000000000000000035 /* CLIWindowHandleRoutingTests.swift in Sources */,
 				C11757000000000000000047 /* CLIWorkspaceGroupSafetyMockServer.swift in Sources */,
@@ -13759,6 +13809,7 @@
 				C1175700000000000000003D /* CodexTerminalErrorNotificationTests.swift in Sources */,
 				C1175700000000000000003E /* KimiHookConfigLocationTests.swift in Sources */,
 				C11757000000000000000063 /* ProcessExitWait.swift in Sources */,
+				C1175700000000000000F0A1 /* VMReadyPollInterval.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -14277,6 +14328,7 @@
 				E70630CCBD97DD2200F5D4B0 /* CloudTreePlaceholderContent.swift in Sources */,
 				B61E41C2545E85634C845FCB /* CloudTreePortPresentation.swift in Sources */,
 				EEF4BF6D13124E43BC712704 /* CloudTreeRemoteWorkspaces.swift in Sources */,
+				2D0B1C79D1974046B705D579 /* CloudTreeReorderPresentation.swift in Sources */,
 				D12406000000000000000002 /* CloudTreeResizeMenu.swift in Sources */,
 				EB9FC1181F634D85A3DC1D7D /* CloudTreeResourceName.swift in Sources */,
 				CF30E2713423E3919EAE5C73 /* CloudTreeRowContentView.swift in Sources */,
@@ -15775,6 +15827,7 @@
 				C0DE00000000000000000C74 /* TerminalController+ControlSidebarContext2.swift in Sources */,
 				C0DE00000000000000000C76 /* TerminalController+ControlSidebarContext3.swift in Sources */,
 				C0DE00000000000000000C78 /* TerminalController+ControlSidebarContextSupport.swift in Sources */,
+				C0DE12746000000000000003 /* TerminalController+ControlSidebarManualPullRequest.swift in Sources */,
 				C51A7300000000000000000D /* TerminalController+ControlSimulatorCameraPayloads.swift in Sources */,
 				C51A73000000000000000003 /* TerminalController+ControlSimulatorContext.swift in Sources */,
 				C51A74000000000000000001 /* TerminalController+ControlSimulatorOperationPayloads.swift in Sources */,
@@ -16055,8 +16108,15 @@
 				C10D00110000000000000011 /* TitlebarNewWorkspaceSplitButton.swift in Sources */,
 				E30760030000000000000002 /* TmuxOverlayExperimentSettings.swift in Sources */,
 				E30760040000000000000002 /* TmuxOverlayExperimentTarget.swift in Sources */,
+				B97B7AFE0E763BFF420CB186 /* TmuxOverlayExperimentTargetObserver.swift in Sources */,
 				B35751000000000000000002 /* TmuxResumeParser.swift in Sources */,
+				21BF394C73347A907347E734 /* TmuxWorkspacePaneOverlayCoordinator.swift in Sources */,
+				C1ED7B6EA00C4ABB0323F46D /* TmuxWorkspacePaneOverlayInputs.swift in Sources */,
+				6B43BE542D2BD40CE60074BE /* TmuxWorkspacePaneOverlayRefresher.swift in Sources */,
+				C2E198B6243393D86E62C6D3 /* TmuxWorkspacePaneOverlayRefreshSnapshot.swift in Sources */,
 				E30760050000000000000002 /* TmuxWorkspacePaneOverlayRenderState.swift in Sources */,
+				EA1DAABBB3A018504F2D84AD /* TmuxWorkspacePaneOverlaySettings.swift in Sources */,
+				2266CBB107FE4621370B99A4 /* TmuxWorkspacePaneOverlayStateBuilder.swift in Sources */,
 				E30760000000000000000002 /* TmuxWorkspacePaneOverlayView.swift in Sources */,
 					C01E00020000000000000001 /* TokenTheme+AppKit.swift in Sources */,
 				D9A1B2C3D4E5000000000001 /* UITestDiagnosticsWriter.swift in Sources */,
@@ -16065,7 +16125,6 @@
 				197D3DA9292D64327F43E992 /* UITestSocketCommandScript.swift in Sources */,
 			E7F100000000000000000001 /* UITestSocketSanityCoordinator.swift in Sources */,
 				A500120D /* UpdateLogStore.swift in Sources */,
-				77D1FD996484655FFF4656A9 /* UpdateRelaunchAgentClassification.swift in Sources */,
 				A5001208 /* UpdateTitlebarAccessory.swift in Sources */,
 				0D5183AD0EC5E5C47A7E6E91 /* UserDefaults+CloudTreeExpansionPersistence.swift in Sources */,
 				F76550040000000000000001 /* VaultAgentProcessScanner+CodexSessionCwd.swift in Sources */,
@@ -16171,6 +16230,7 @@
 				F17F00000000000000000005 /* Workspace+FullWidthTab.swift in Sources */,
 				D9466FDCDB9B4670943C3E7A /* Workspace+GeometryDiagnostics.swift in Sources */,
 				C0DE1A050000000000000001 /* Workspace+LayoutCapture.swift in Sources */,
+				C0DE12746000000000000007 /* Workspace+ManualPullRequest.swift in Sources */,
 				B11D00000000000000000003 /* Workspace+MobileAgentStatus.swift in Sources */,
 				9504A0010000000000000001 /* Workspace+MovingTabSplit.swift in Sources */,
 				8B45A4329C234E6FB261E635 /* Workspace+NotificationsPane.swift in Sources */,
@@ -16241,6 +16301,7 @@
 				E3B7A4000000000000000007 /* WorkspaceIndicatorStyle+Display.swift in Sources */,
 				A17C0A110000000000000001 /* WorkspaceInitialCommandLoginShell.swift in Sources */,
 				CA52B0180000000000000000 /* WorkspaceLayoutMode.swift in Sources */,
+				7A5CB79CC6593B900E8120CE /* WorkspacePaneFlashModel.swift in Sources */,
 				E3B7A4000000000000000005 /* WorkspacePlacement+Resolution.swift in Sources */,
 				D0B10004A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift in Sources */,
 				A13296000000000000000211 /* WorkspacePresenceController.swift in Sources */,
@@ -16444,6 +16505,7 @@
 					B9000054A1B2C3D4E5F60719 /* CMUXCLI+Process.swift in Sources */,
 					126810B60000000000000002 /* CMUXCLI+ProcessSignalState.swift in Sources */,
 				A1E8DF699F239A8A5A2FC122 /* CMUXCLI+PromptSubmit.swift in Sources */,
+				C0DE12746000000000000001 /* CMUXCLI+PullRequest.swift in Sources */,
 				A10021000000000000000001 /* CMUXCLI+Record.swift in Sources */,
 				C73660010000000000000001 /* CMUXCLI+RemotePTYErrors.swift in Sources */,
 					REE0CA0000000000000000C2 /* CMUXCLI+Remotes.swift in Sources */,
@@ -16569,6 +16631,7 @@
 				9009A0029009A0029009A001 /* TmuxCompatLaunchContextError.swift in Sources */,
 					575000010000000000000002 /* TmuxWaitForSignal.swift in Sources */,
 				B81607322100000000000002 /* VMMachineTerminalResolution.swift in Sources */,
+				1044EB4696981D93219EAFF2 /* VMReadyPollInterval.swift in Sources */,
 				65F8FEC592CFA22BD1F4FA29 /* VMRemoteWorkspaceResolver.swift in Sources */,
 				A6AC720A0000000000000001 /* WorkspaceLoadingArguments.swift in Sources */,
 			);
@@ -16645,6 +16708,7 @@
 				B8F266246A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift in Sources */,
 				B9000130A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift in Sources */,
 				B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */,
+				1A863EC5DD9CDF6A01803F7B /* SplitDividerDragUITests.swift in Sources */,
 				A13387000000000000000011 /* SplitPaneBackgroundUITests.swift in Sources */,
 				B82090010000000000000001 /* TCCUsageDescriptionUITests.swift in Sources */,
 				C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */,
@@ -16843,6 +16907,7 @@
 				9758A0000000000000000004 /* CLIAmpLifecycleIntegrationTests.swift in Sources */,
 				A5D4120DA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift in Sources */,
 					805500000000000000000001 /* CLIBrowserEvalOutputTests.swift in Sources */,
+				C0DE1274600000000000000B /* CLICallerWorkspaceDefaultTests+PullRequest.swift in Sources */,
 					CA11E4D0FA017DE500000B101 /* CLICallerWorkspaceDefaultTests.swift in Sources */,
 					964F2AF080DB48D8A2A2C186 /* CLIChildEnvironment.swift in Sources */,
 					2E931B5728B0478CB9B4937F /* CLIChildEnvironmentTests.swift in Sources */,
@@ -17861,6 +17926,7 @@
 				C9A57001C9A57001C9A57001 /* WorkspaceGroupTests.swift in Sources */,
 				D92310040000000000000001 /* WorkspaceHandoffRetirementGateTests.swift in Sources */,
 				B63E1257BB174740A44F458C /* WorkspaceIsStaleAgentHookBindingTests.swift in Sources */,
+				C0DE12746000000000000009 /* WorkspaceManualPullRequestTests.swift in Sources */,
 				0F2C25F9170130F8DC09DD1B /* WorkspaceManualUnreadTests.swift in Sources */,
 				1A1B2C3D4E5F607180000003 /* WorkspacePromptSubmitTests.swift in Sources */,
 				DCC935C5F55C1DCB33E25521 /* WorkspacePullRequestSidebarTests.swift in Sources */,
