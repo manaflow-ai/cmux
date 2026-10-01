@@ -9,4 +9,12 @@ enum StripNewTab {
     static func request(pane: String, perform: (ActionID, ActionInvocation) -> Void) {
         perform(action, ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane)))
     }
+
+    /// The tab group editor's New Tab. `selected` is the pane's selected
+    /// tab, `groupTabs` the group's tabs in strip order. Today it always
+    /// opens a terminal tab in the pane.
+    static func requestInGroup(selected: String?, groupTabs: [String], pane: String,
+                               perform: (ActionID, ActionInvocation) -> Void) {
+        perform("newSurface", ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane)))
+    }
 }

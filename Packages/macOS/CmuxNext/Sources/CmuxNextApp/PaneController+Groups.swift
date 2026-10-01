@@ -56,8 +56,11 @@ extension PaneController {
             groupCommand("update-tab-group") { c, t in _ = try await c.updateTabGroup(group, name: name, transaction: t) }
         case .setColor(_, let color):
             groupCommand("update-tab-group") { c, t in _ = try await c.updateTabGroup(group, color: .set(color.rawValue), transaction: t) }
-        case .newTab:
-            newTerminalTab()
+        case .newTab(let id):
+            let groupTabs = stripModel.orderedTabs.filter { $0.groupID == id }.map(\.id.rawValue)
+            StripNewTab.requestInGroup(selected: stripModel.selectedID?.rawValue, groupTabs: groupTabs, pane: paneKey) {
+                _ = services.registry.perform($0, invocation: $1)
+            }
         case .ungroup:
             groupCommand("ungroup-tab-group") { c, t in _ = try await c.ungroupTabGroup(group, transaction: t) }
         case .close:
