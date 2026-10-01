@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { lexer, type Token } from "marked";
 import { applyAgentTheme } from "../shared/theme";
 import { diffRows, layoutConversation, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
@@ -94,7 +94,10 @@ function MeasuredCustomRow({ children, onHeight }: { children: React.ReactNode; 
   return <div ref={ref as React.RefObject<HTMLDivElement>}>{children}</div>;
 }
 
-function VirtualTranscript({ rows, onToggleActivity, expanded }: { rows: AcpmuxRow[]; onToggleActivity: (id: string) => void; expanded: Set<string> }) {
+const rowKind = (row: AcpmuxRow) => row.kind === "activity" && row.items?.some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ? "editedFiles" : row.kind;
+const currentRegistry = (): NativeRegistry => ({ ...defaultRegistry, ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined) });
+
+export function VirtualTranscript({ rows, onToggleActivity, expanded, registry = defaultRegistry }: { rows: AcpmuxRow[]; onToggleActivity: (id: string) => void; expanded: Set<string>; registry?: NativeRegistry }) {
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   const [scrollTop, setScrollTop] = useState(0);
@@ -105,18 +108,26 @@ function VirtualTranscript({ rows, onToggleActivity, expanded }: { rows: AcpmuxR
   const didOpenAtLatest = useRef(false);
   const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
   useEffect(() => { const node = ref.current; if (!node) return; const observer = new ResizeObserver(() => { setHeight(node.clientHeight); setWidth(node.clientWidth); }); observer.observe(node); setWidth(node.clientWidth); return () => observer.disconnect(); }, []);
-  const registry = { ...defaultRegistry, ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined) };
-  const rowKind = (row: AcpmuxRow) => row.kind === "activity" && row.items?.some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ? "editedFiles" : row.kind;
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
-  const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
-  const layout = layoutConversation(rows, Math.max(120, width - 36), measurementCache.current, (row, rowWidth) => registry[rowKind(row)]?.measure?.(row, rowWidth) ?? measuredHeights.get(row.id));
-  const layoutMs = acpmuxPerf.enabled ? performance.now() - layoutStart : 0;
-  if (acpmuxPerf.enabled) acpmuxPerf.addLayout(layoutMs);
+  // Scroll frames re-render with the same rows; only rows, width, measured custom
+  // heights or the registry can move a row.
+  const measured = useMemo(() => {
+    const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
+    const layout = layoutConversation(rows, Math.max(120, width - 36), measurementCache.current, (row, rowWidth) => registry[rowKind(row)]?.measure?.(row, rowWidth) ?? measuredHeights.get(row.id));
+    return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
+  }, [rows, width, measuredHeights, registry]);
+  const layout = measured.layout;
+  const reportedLayout = useRef<typeof measured | null>(null);
   const range = visibleLayoutRange(layout, scrollTop, height);
   useLayoutEffect(() => {
     const last = range.last - 1;
     acpmuxPerf.mountedTop = range.last > range.first ? layout.tops[range.first] : 0;
     acpmuxPerf.mountedBottom = range.last > range.first ? layout.tops[last] + layout.heights[last] : 0;
+    // A memo hit spent no time in geometry this render.
+    const freshLayout = reportedLayout.current !== measured;
+    reportedLayout.current = measured;
+    const layoutMs = freshLayout ? measured.ms : 0;
+    if (acpmuxPerf.enabled && freshLayout) acpmuxPerf.addLayout(layoutMs);
     if (acpmuxPerf.enabled && renderStart > 0) { const now = performance.now(); acpmuxPerf.commit(now - renderStart, layoutMs, acpmuxPerf.mountedTop, acpmuxPerf.mountedBottom, now); }
   });
   useLayoutEffect(() => {
@@ -146,16 +157,16 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) { cons
 export function AcpmuxApp() {
   const [snapshot, setSnapshot] = useState<AcpmuxSnapshot>({ type: "snapshot", protocolVersion: 1, rows: [], sessions: [], connection: "connecting", isWorking: false, queue: [], catalog: [], canLoadOlder: false });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [registryEpoch, setRegistryEpoch] = useState(0);
+  const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   const rowsRef = useRef(new Map<string, AcpmuxRow>());
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   useEffect(() => {
     window.React = React;
-    window.cmuxAcpmuxRegistry = { register(kind, renderer, options) { if (options?.measure) renderer.measure = options.measure; (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown>)[kind] = renderer; }, configure() { setRegistryEpoch((value) => value + 1); } };
+    window.cmuxAcpmuxRegistry = { register(kind, renderer, options) { if (options?.measure) renderer.measure = options.measure; (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown>)[kind] = renderer; setRegistry(currentRegistry()); }, configure() { setRegistry(currentRegistry()); } };
     window.cmuxAcpmuxBridge = {
       receive(next) { if (next.protocolVersion !== 1) return; const change = diffRows(rowsRef.current, next.rows); rowsRef.current = new Map(next.rows.map((row) => [row.id, row])); setSnapshot(next); void change; },
       applyTheme(theme) { applyAgentTheme(theme as never); },
-      applyCustomization(customization) { if (customization.themeCSS) { let style = document.getElementById("acpmux-user-theme") as HTMLStyleElement | null; if (!style) { style = document.createElement("style"); style.id = "acpmux-user-theme"; document.head.append(style); } style.textContent = customization.themeCSS; } if (customization.registryJS) { try { (0, eval)(customization.registryJS); setRegistryEpoch((value) => value + 1); } catch { /* a user renderer must not take down the transcript */ } } },
+      applyCustomization(customization) { if (customization.themeCSS) { let style = document.getElementById("acpmux-user-theme") as HTMLStyleElement | null; if (!style) { style = document.createElement("style"); style.id = "acpmux-user-theme"; document.head.append(style); } style.textContent = customization.themeCSS; } if (customization.registryJS) { try { (0, eval)(customization.registryJS); setRegistry(currentRegistry()); } catch { /* a user renderer must not take down the transcript */ } } },
     };
     window.cmuxAcpmuxDebug = createAcpmuxDebug({
       replaceRows(rows) {
@@ -215,8 +226,7 @@ export function AcpmuxApp() {
     void connectHost();
     return () => { cancelled = true; if (retryTimer !== undefined) window.clearTimeout(retryTimer); directClient.current?.close(); directClient.current = undefined; delete window.cmuxAcpmuxActions; };
   }, []);
-  void registryEpoch;
   const send = (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = event.currentTarget; const textarea = form.elements.namedItem("prompt") as HTMLTextAreaElement; const text = textarea.value.trim(); if (!text) return; textarea.value = ""; void callNative("chat.send", { text }); };
   const ComposerChips = ((window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as React.ComponentType<{ snapshot: AcpmuxSnapshot }> | undefined) ?? DefaultComposerChips;
-  return <section className="acpmux-shell"><header className="acpmux-header"><div><strong className="acpmux-title">{snapshot.summary?.title || snapshot.summary?.name || "Agent Chat"}</strong><span className="acpmux-status">{snapshot.isWorking ? "Working" : snapshot.connection}</span></div><select className="acpmux-session" value={snapshot.sessionId ?? ""} onChange={(event) => void callNative("chat.select", { sessionId: event.target.value })}>{snapshot.sessions.map((session) => <option key={session.sessionId} value={session.sessionId}>{session.title || session.name || session.sessionId.slice(0, 8)}</option>)}</select></header><VirtualTranscript rows={snapshot.rows} expanded={expanded} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<form className="acpmux-composer" onSubmit={send}><ComposerChips snapshot={snapshot} /><textarea aria-label="Prompt" name="prompt" rows={2} placeholder="Ask anything" /><button type="submit">Send</button><button type="button" className="acpmux-cancel" onClick={() => void callNative("chat.cancel")}>Stop</button></form></section>;
+  return <section className="acpmux-shell"><header className="acpmux-header"><div><strong className="acpmux-title">{snapshot.summary?.title || snapshot.summary?.name || "Agent Chat"}</strong><span className="acpmux-status">{snapshot.isWorking ? "Working" : snapshot.connection}</span></div><select className="acpmux-session" value={snapshot.sessionId ?? ""} onChange={(event) => void callNative("chat.select", { sessionId: event.target.value })}>{snapshot.sessions.map((session) => <option key={session.sessionId} value={session.sessionId}>{session.title || session.name || session.sessionId.slice(0, 8)}</option>)}</select></header><VirtualTranscript rows={snapshot.rows} expanded={expanded} registry={registry} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<form className="acpmux-composer" onSubmit={send}><ComposerChips snapshot={snapshot} /><textarea aria-label="Prompt" name="prompt" rows={2} placeholder="Ask anything" /><button type="submit">Send</button><button type="button" className="acpmux-cancel" onClick={() => void callNative("chat.cancel")}>Stop</button></form></section>;
 }
