@@ -15,17 +15,15 @@ extension CloudTreeOutlineView.Coordinator {
         channel: RevealChannel = .device
     ) -> RevealResult {
         guard let request else {
-            if let previous = pendingRevealByChannel.removeValue(forKey: channel) {
-                pendingRevealTokens.remove(previous)
-                rememberConsumedRevealToken(previous)
+            if let previous = pendingRevealByChannel[channel] {
+                cancelPendingReveal(previous, channel: channel)
             }
             return .ignored
         }
         guard !consumedRevealTokens.contains(request.token) else { return .consumed }
         guard let outlineView else { return .waiting }
         if let previous = pendingRevealByChannel[channel], previous != request.token {
-            pendingRevealTokens.remove(previous)
-            rememberConsumedRevealToken(previous)
+            cancelPendingReveal(previous, channel: channel)
         }
         pendingRevealByChannel[channel] = request.token
         pendingRevealTokens.insert(request.token)
@@ -44,6 +42,19 @@ extension CloudTreeOutlineView.Coordinator {
         pendingRevealByChannel.removeValue(forKey: channel)
         scrollRowFullyIntoView(row, in: outlineView)
         return .consumed
+    }
+
+    /// Cancels a reveal whose row never became selectable, and releases the
+    /// one-shot request in the model that created it. Without this callback a
+    /// late catalog update can replay a request after the user selected another
+    /// row.
+    func cancelPendingReveal(_ token: UUID, channel: RevealChannel) {
+        guard pendingRevealByChannel[channel] == token else { return }
+        pendingRevealByChannel.removeValue(forKey: channel)
+        pendingRevealTokens.remove(token)
+        rememberConsumedRevealToken(token)
+        let callback = channel == .device ? onRevealConsumed : onCloudWorkspaceRevealConsumed
+        Task { @MainActor in callback?(token) }
     }
 
     func rememberConsumedRevealToken(_ token: UUID) {

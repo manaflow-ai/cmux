@@ -39,11 +39,11 @@ struct DevicesCloudTreeBuilderTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let coordinator = makeCoordinator(defaults: defaults)
-        for _ in 0...128 {
+        for _ in 0...coordinator.maxConsumedRevealTokens {
             coordinator.rememberConsumedRevealToken(UUID())
         }
-        #expect(coordinator.consumedRevealTokens.count <= coordinator.maxConsumedRevealTokens)
-        #expect(coordinator.consumedRevealTokenOrder.count <= coordinator.maxConsumedRevealTokens)
+        #expect(coordinator.consumedRevealTokens.count == coordinator.maxConsumedRevealTokens)
+        #expect(coordinator.consumedRevealTokenOrder.count == coordinator.maxConsumedRevealTokens)
     }
 
     @MainActor

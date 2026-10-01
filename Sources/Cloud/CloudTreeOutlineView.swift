@@ -437,12 +437,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isUpdatingProgrammatically, let outlineView else { return }
-            if !pendingRevealTokens.isEmpty {
-                for token in pendingRevealTokens {
-                    rememberConsumedRevealToken(token)
+            if !pendingRevealByChannel.isEmpty {
+                let pending = pendingRevealByChannel
+                for (channel, token) in pending {
+                    cancelPendingReveal(token, channel: channel)
                 }
-                pendingRevealTokens.removeAll(keepingCapacity: true)
-                pendingRevealByChannel.removeAll(keepingCapacity: true)
             }
             creationRevealPresentation.noteSelectionChange()
             selectedNodeID = outlineView.selectedRow >= 0

@@ -191,6 +191,11 @@ struct MachinesPanelView: View {
             guard let selectedWorkspaceID,
                   let workspace = tabManager?.workspacesById[selectedWorkspaceID] else { return }
             var previousBinding = workspace.cloudVMBinding
+            let currentReveal = cloudWorkspaceRevealRequest(for: workspace)
+            if let selectedCloudWorkspaceReveal,
+               selectedCloudWorkspaceReveal.nodeID != currentReveal?.nodeID {
+                self.selectedCloudWorkspaceReveal = currentReveal
+            }
             for await _ in workspace.cloudBindingState.changes() {
                 if Task.isCancelled { break }
                 let binding = workspace.cloudVMBinding
