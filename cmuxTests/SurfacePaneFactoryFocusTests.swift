@@ -149,6 +149,13 @@ import SwiftUI
         #expect(workspace.focusedPanelId == cloudPanel.id)
         #expect(workspace.isFocusedTerminalInputSurface(cloudPanel.id))
 
+        // Middle-click uses GhosttyNSView's separate AppKit path. It must make
+        // the same eager convergence before its portal callback can rebind.
+        workspace.focusPanel(localPanelID)
+        pointerView.otherMouseDown(with: try #require(Self.middleMouseDownEvent()))
+        #expect(workspace.focusedPanelId == cloudPanel.id)
+        #expect(workspace.isFocusedTerminalInputSurface(cloudPanel.id))
+
         workspace.focusPanel(localPanelID)
         #expect(workspace.focusedPanelId == localPanelID)
         cloudPanel.surface.onExplicitInput?()
@@ -865,6 +872,20 @@ import SwiftUI
     }
 
     @MainActor
+    private static func middleMouseDownEvent() -> NSEvent? {
+        NSEvent.otherMouseEvent(
+            with: .otherMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            buttonNumber: 2,
+            pressure: 1
+        )
+    }
+
     private struct Harness {
         let appDelegate: AppDelegate
         let windowId: UUID
