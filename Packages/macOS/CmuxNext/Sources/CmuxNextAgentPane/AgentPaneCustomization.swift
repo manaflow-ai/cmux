@@ -62,12 +62,13 @@ public nonisolated struct AgentPaneCustomization: Equatable, Sendable {
 
     /// The scripts that apply this customization to the loaded page, each
     /// evaluated on its own so a broken `registry.js` cannot stop the theme:
-    /// `registry.js` as written, then
+    /// `registry.js` in its own function scope, so replaying it in the same
+    /// page doesn't redeclare its top-level `const`, `let` or `class`, then
     /// `cmuxAcpmuxBridge.applyCustomization({themeCSS, layout})`. A missing
     /// theme sends `""`, which clears the style a deleted `theme.css` left.
     func scripts() -> [String] {
         var scripts: [String] = []
-        if let registryJS, !registryJS.isEmpty { scripts.append(registryJS) }
+        if let registryJS, !registryJS.isEmpty { scripts.append("(function () {\n\(registryJS)\n})();") }
         let theme = (try? JSONEncoder().encode(themeCSS ?? "")).flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
         scripts.append(#"window.cmuxAcpmuxBridge?.applyCustomization({"themeCSS":\#(theme),"layout":\#(layoutJSON ?? "{}")});"#)
         return scripts
