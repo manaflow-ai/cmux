@@ -2,7 +2,7 @@ import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, 
 import { flushSync } from "react-dom";
 import type { Token } from "marked";
 import { applyAgentTheme } from "../shared/theme";
-import { diffRows, layoutConversation, markdownBlocks, safeHref, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
+import { diffRows, layoutConversation, markdownBlocks, placeRows, safeHref, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { startMockHost } from "./mock";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
@@ -177,19 +177,26 @@ export function VirtualTranscript({ rows, onToggleActivity, expanded, registry =
   useEffect(() => { const node = ref.current; if (!node) return; const observer = new ResizeObserver(() => { setHeight(node.clientHeight); setWidth(node.clientWidth); }); observer.observe(node); setWidth(node.clientWidth); return () => observer.disconnect(); }, []);
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
   const scrolledTo = useRef({ top: 0, atLatest: false });
-  // Scroll frames re-render with the same rows; only rows, width, measured custom
-  // heights or the registry can move a row.
+  // Scroll frames re-render with the same rows; only rows, width or the registry
+  // change an estimate.
+  const estimated = useMemo(() => {
+    const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
+    const layout = layoutConversation(rows, transcriptRowWidth(width), measurementCache.current, (row, rowWidth) => registry[rowKind(row)]?.measure?.(row, rowWidth));
+    return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
+  }, [rows, width, registry]);
+  // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
-    const layout = layoutConversation(rows, transcriptRowWidth(width), measurementCache.current, (row, rowWidth) => {
-      const known = drawn.get(row.id);
-      if (known && known.version === row.version && known.width === rowWidth) return known.height;
-      return registry[rowKind(row)]?.measure?.(row, rowWidth);
+    const rowWidth = transcriptRowWidth(width);
+    const layout = drawn.size === 0 ? estimated.layout : placeRows(estimated.layout, (index) => {
+      const known = drawn.get(rows[index].id);
+      return known && known.version === rows[index].version && known.width === rowWidth ? known.height : undefined;
     });
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [rows, width, drawn, registry]);
+  }, [estimated, drawn, rows, width]);
   const layout = measured.layout;
   const reportedLayout = useRef<typeof measured | null>(null);
+  const reportedEstimate = useRef<typeof estimated | null>(null);
   const lead = Math.min(Math.abs(scroll.delta) * SCROLL_LEAD_STEPS, height * MAX_SCROLL_LEAD_VIEWPORTS);
   const range = visibleLayoutRange(layout, scroll.delta < 0 ? scroll.top - lead : scroll.top, height + lead);
   useLayoutEffect(() => {
@@ -199,7 +206,9 @@ export function VirtualTranscript({ rows, onToggleActivity, expanded, registry =
     // A memo hit spent no time in geometry this render.
     const freshLayout = reportedLayout.current !== measured;
     reportedLayout.current = measured;
-    const layoutMs = freshLayout ? measured.ms : 0;
+    const freshEstimate = reportedEstimate.current !== estimated;
+    reportedEstimate.current = estimated;
+    const layoutMs = (freshLayout ? measured.ms : 0) + (freshEstimate ? estimated.ms : 0);
     if (acpmuxPerf.enabled && freshLayout) acpmuxPerf.addLayout(layoutMs);
     if (acpmuxPerf.enabled && renderStart > 0) { const now = performance.now(); acpmuxPerf.commit(now - renderStart, layoutMs, acpmuxPerf.mountedTop, acpmuxPerf.mountedBottom, now); }
   });

@@ -206,6 +206,22 @@ export function layoutConversation(rows: AcpmuxRow[], width: number, cache = new
   return { tops, heights, totalHeight: top };
 }
 
+/// Places rows again over `estimate`, taking a row's height from `heightAt` when it has one.
+/// No row is measured, so this costs one pass over the rows' heights.
+export function placeRows(estimate: ConversationLayout, heightAt: (index: number) => number | undefined): ConversationLayout {
+  const tops = new Float64Array(estimate.heights.length);
+  const heights = new Float64Array(estimate.heights.length);
+  let top = 0;
+  for (let index = 0; index < heights.length; index += 1) {
+    tops[index] = top;
+    const known = heightAt(index);
+    const height = known !== undefined && known > 0 ? known : estimate.heights[index];
+    heights[index] = height;
+    top += height;
+  }
+  return { tops, heights, totalHeight: top };
+}
+
 function upperBound(values: Float64Array, target: number): number {
   let low = 0;
   let high = values.length;
