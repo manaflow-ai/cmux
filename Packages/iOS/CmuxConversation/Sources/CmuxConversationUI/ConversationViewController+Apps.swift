@@ -66,7 +66,7 @@ final class AppsMenuOverlay: UIView {
             self.backdrop.effect = UIBlurEffect(style: .systemThinMaterial)
         }
         animator.pausesOnCompletion = true
-        animator.fractionComplete = 0.0
+        animator.fractionComplete = 0.22
         blurAnimator = animator
         backdrop.alpha = 0
         panel.alpha = 0
@@ -223,9 +223,11 @@ final class ConversationInfoViewController: UITableViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in
-            self?.dismiss(animated: true)
-        })
+        if navigationController?.viewControllers.first === self {
+            navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in
+                self?.dismiss(animated: true)
+            })
+        }
         let header = UIView(frame: CGRect(x: 0, y: 0, width: 0, height: 150))
         let avatar = ConversationAvatarView(frame: CGRect(x: 0, y: 16, width: 90, height: 90))
         avatar.configure(initials: info.kind == .group ? String(info.title.prefix(2)).uppercased() : (info.participants.first { $0.id != meID }?.initials ?? ""), colorHex: nil)

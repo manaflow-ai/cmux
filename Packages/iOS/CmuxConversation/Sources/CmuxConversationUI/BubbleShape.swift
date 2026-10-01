@@ -31,48 +31,28 @@ enum BubbleShape {
         return path
     }
 
-    /// Body spans x in [0, width]; the tail tip lands at (width + tailWidth, height).
+    /// Body spans x in [0, width] and y in [0, height]. iOS 26's tail leaves
+    /// the bottom edge near the corner, curls out past the right edge, and
+    /// drops `tailDrop` below the body to a softly rounded tip.
     private static func trailingTailPath(width w: CGFloat, height h: CGFloat, radius r: CGFloat, tailWidth t: CGFloat) -> UIBezierPath {
         let k: CGFloat = 0.4477 // control-point factor approximating a quarter circle
+        let d = ConversationTheme.tailDrop
         let p = UIBezierPath()
         p.move(to: CGPoint(x: r, y: 0))
         p.addLine(to: CGPoint(x: w - r, y: 0))
-        p.addCurve(
-            to: CGPoint(x: w, y: r),
-            controlPoint1: CGPoint(x: w - r * k, y: 0),
-            controlPoint2: CGPoint(x: w, y: r * k)
-        )
-        // Right edge runs down into the tail.
-        let tailTop = max(r, h - r * 0.62)
-        p.addLine(to: CGPoint(x: w, y: tailTop))
-        p.addCurve(
-            to: CGPoint(x: w + t, y: h),
-            controlPoint1: CGPoint(x: w, y: h - r * 0.08),
-            controlPoint2: CGPoint(x: w + t * 0.55, y: h - 0.2)
-        )
-        // Tail underside sweeps back into the bottom edge.
-        p.addCurve(
-            to: CGPoint(x: w - r * 0.55, y: h - r * 0.22),
-            controlPoint1: CGPoint(x: w + t * 0.05, y: h + 0.4),
-            controlPoint2: CGPoint(x: w - r * 0.28, y: h - r * 0.05)
-        )
-        p.addCurve(
-            to: CGPoint(x: w - r * 1.15, y: h),
-            controlPoint1: CGPoint(x: w - r * 0.78, y: h - r * 0.36 + r * 0.2),
-            controlPoint2: CGPoint(x: w - r * 1.0, y: h)
-        )
+        p.addCurve(to: CGPoint(x: w, y: r), controlPoint1: CGPoint(x: w - r * k, y: 0), controlPoint2: CGPoint(x: w, y: r * k))
+        let shoulder = max(r, h - r * 0.55)
+        p.addLine(to: CGPoint(x: w, y: shoulder))
+        // Outer edge of the tail: a concave sweep from the side down to the tip.
+        let tip = CGPoint(x: w + t * 0.55, y: h + d)
+        p.addCurve(to: tip, controlPoint1: CGPoint(x: w, y: h - r * 0.05), controlPoint2: CGPoint(x: w - 1.5, y: h + d * 0.55))
+        // Rounded tip, then the inner edge back into the bottom of the body.
+        p.addCurve(to: CGPoint(x: w - 4, y: h + d - 1.2), controlPoint1: CGPoint(x: w + t * 0.55 + 0.8, y: h + d + 0.9), controlPoint2: CGPoint(x: w - 2.2, y: h + d - 0.2))
+        p.addCurve(to: CGPoint(x: w - r * 1.05, y: h), controlPoint1: CGPoint(x: w - 7, y: h + d * 0.55), controlPoint2: CGPoint(x: w - r * 0.65, y: h))
         p.addLine(to: CGPoint(x: r, y: h))
-        p.addCurve(
-            to: CGPoint(x: 0, y: h - r),
-            controlPoint1: CGPoint(x: r * k, y: h),
-            controlPoint2: CGPoint(x: 0, y: h - r * k)
-        )
+        p.addCurve(to: CGPoint(x: 0, y: h - r), controlPoint1: CGPoint(x: r * k, y: h), controlPoint2: CGPoint(x: 0, y: h - r * k))
         p.addLine(to: CGPoint(x: 0, y: r))
-        p.addCurve(
-            to: CGPoint(x: r, y: 0),
-            controlPoint1: CGPoint(x: 0, y: r * k),
-            controlPoint2: CGPoint(x: r * k, y: 0)
-        )
+        p.addCurve(to: CGPoint(x: r, y: 0), controlPoint1: CGPoint(x: 0, y: r * k), controlPoint2: CGPoint(x: r * k, y: 0))
         p.close()
         return p
     }

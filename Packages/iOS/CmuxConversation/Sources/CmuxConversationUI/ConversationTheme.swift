@@ -18,7 +18,10 @@ enum ConversationTheme {
     /// Max bubble width as a fraction of the view width.
     static let maxBubbleWidthFraction: CGFloat = 0.705
     static let groupedSpacing: CGFloat = 6
-    static let ungroupedSpacing: CGFloat = 22
+    /// Tail bottom to the next run's first row (measured 24.7 pt).
+    static let ungroupedSpacing: CGFloat = 25
+    /// How far the tail drops below the bubble body.
+    static let tailDrop: CGFloat = 7
     static let avatarSize: CGFloat = 32
     static let avatarGap: CGFloat = 7
     /// A timestamp separates messages this far apart.

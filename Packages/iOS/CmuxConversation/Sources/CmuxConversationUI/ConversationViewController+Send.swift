@@ -105,8 +105,14 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             }
         }
 
-        // Main motion ~0.35 s with a small overshoot, settled by ~0.7 s.
-        let animator = UIViewPropertyAnimator(duration: 0.8, dampingRatio: 0.72) {
+        // Main motion ~0.35 s with a small overshoot, settled by ~0.7 s. The
+        // transaction's completion lands the flight however the animation ends.
+        activeFlights[rowID] = container
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            self?.landFlight(rowID: rowID)
+        }
+        UIView.animate(withDuration: 0.8, delay: 0, usingSpringWithDamping: 0.72, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
             for piece in pieces { piece.view.frame = piece.to }
             if let flight = bubbleFlight {
                 flight.bubble.frame = flight.to
@@ -114,30 +120,23 @@ extension ConversationViewController: ConversationComposerViewDelegate {
                 flight.label.frame = flight.textTo
             }
         }
-        animator.addCompletion { [weak self] _ in
-            container.removeFromSuperview()
-            self?.finishFlight(rowID: rowID)
-        }
-        activeFlights[rowID] = animator
-        animator.startAnimation()
+        CATransaction.commit()
     }
 }
 
 extension ConversationViewController {
-    /// Reveals the real row once its flight lands (or is cut short).
-    func finishFlight(rowID: String) {
-        activeFlights[rowID] = nil
+    /// Removes a flight's overlay and reveals its real row. Idempotent; runs
+    /// when the flight's animation ends, the row reshapes, or the reader scrolls.
+    func landFlight(rowID: String) {
+        activeFlights.removeValue(forKey: rowID)?.removeFromSuperview()
         flyingRowIDs.remove(rowID)
         if let index = indexPath(for: rowID), let cell = collectionView.cellForItem(at: index) {
             cell.contentView.alpha = 1
         }
     }
 
-    /// A flying row changed shape (failed, acked with a new layout): land it now.
-    func landFlightIfNeeded(rowID: String) {
-        guard let animator = activeFlights[rowID], animator.state == .active else { return }
-        animator.stopAnimation(false)
-        animator.finishAnimation(at: .end)
+    func landAllFlights() {
+        for rowID in Array(activeFlights.keys) { landFlight(rowID: rowID) }
     }
 }
 

@@ -104,7 +104,9 @@ extension MessageCellLayout {
         let incomingBodyLeading = margin + avatarColumn
         let isFailed = model.footer == .notDelivered
         let outgoingBodyTrailing = width - margin - (isFailed ? 32 : 0)
-        let maxBubbleWidth = floor(width * t.maxBubbleWidthFraction)
+        // Outgoing measures against the full width; incoming against the
+        // space right of the avatar column (282 pt max on a 440 pt screen).
+        let maxBubbleWidth = floor((model.isOutgoing ? width : width - (model.isGroup ? t.avatarSize + t.avatarGap : 0)) * t.maxBubbleWidthFraction)
         let hasReactions = !model.reactionKinds.isEmpty
 
         /// Frame (tail area included) for a bubble whose body is `w` wide.
@@ -263,6 +265,11 @@ extension MessageCellLayout {
 
         var content = imageFrames.reduce(bubbleFrame ?? emojiFrame ?? .null) { $0.union($1) }
         if content.isNull { content = primary }
+        // The tail hangs below the body; reserve it in the row and the lifted preview.
+        if model.showsTail, bubbleFrame != nil {
+            y = max(y, primary.maxY + t.tailDrop)
+            content.size.height += t.tailDrop
+        }
 
         return MessageCellLayout(
             height: ceil(y),

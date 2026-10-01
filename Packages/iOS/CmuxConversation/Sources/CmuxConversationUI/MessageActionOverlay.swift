@@ -202,7 +202,11 @@ final class MessageActionOverlay: UIView {
             button.frame = CGRect(x: 6 + CGFloat(index) * 46, y: 4, width: 44, height: 44)
         }
         reactionScroll.contentSize = CGSize(width: CGFloat(reactionButtons.count) * 46 + 12, height: barHeight)
-        emojiButton.frame = CGRect(x: min(bounds.width - 16 - 34, reactionBar.frame.maxX - 40), y: reactionBar.frame.maxY + 4, width: 34, height: 34)
+        // The emoji button hangs under the bar's far end, clear of the bubble.
+        let emojiX = isOutgoing
+            ? max(16, min(target.minX - 40, reactionBar.frame.minX + 6))
+            : min(bounds.width - 50, max(target.maxX + 6, reactionBar.frame.maxX - 40))
+        emojiButton.frame = CGRect(x: emojiX, y: reactionBar.frame.maxY + 4, width: 34, height: 34)
         if let detailCard {
             detailCard.frame = CGRect(
                 x: isOutgoing ? bounds.width - 16 - detailCard.bounds.width : 16,

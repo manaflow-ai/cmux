@@ -26,7 +26,15 @@ public struct ConversationRunPlan: Sendable, Equatable {
     public static let runGap: TimeInterval = 5 * 60
 
     public init(messages: [ConversationMessage], meID: String?, typingParticipantIDs: [String] = []) {
-        let lastAckedOutgoing = messages.lastIndex { $0.senderID == meID && $0.seq != nil }
+        // Status sits under the newest delivered/read message of mine; it moves
+        // only once a newer one is delivered, never while that one is in flight.
+        let lastAckedOutgoing = messages.lastIndex { message in
+            guard message.senderID == meID else { return false }
+            switch message.delivery {
+            case .delivered, .read: return true
+            default: return false
+            }
+        }
         var entries: [Entry] = []
         entries.reserveCapacity(messages.count)
         for (index, message) in messages.enumerated() {

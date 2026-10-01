@@ -103,7 +103,7 @@ enum ConversationRowBuilder {
                 showsAvatar: isGroup && !isOutgoing && nextBreaksGroup,
                 reservesAvatarColumn: isGroup && !isOutgoing,
                 isGroup: isGroup,
-                showsTail: nextBreaksGroup || quote != nil || footer != .none,
+                showsTail: nextBreaksGroup || quote != nil,
                 isFirstInGroup: !groupedWithPrevious,
                 footer: footer,
                 replyQuote: quote,

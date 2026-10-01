@@ -57,3 +57,13 @@ import Testing
         #expect(plan.entries.map(\.status) == [.delivered, .notDelivered])
     }
 }
+
+extension ConversationRunPlanTests {
+    @Test func statusStaysOnTheDeliveredMessageWhileANewerOneIsInFlight() {
+        let plan = ConversationRunPlan(messages: [
+            ConversationMessage(id: "m1", seq: 1, clientMessageID: nil, senderID: "me", sentAt: Date(timeIntervalSince1970: 0), text: "a", delivery: .delivered),
+            ConversationMessage(id: "m2", seq: 2, clientMessageID: nil, senderID: "me", sentAt: Date(timeIntervalSince1970: 60), text: "b", delivery: .sent),
+        ], meID: "me")
+        #expect(plan.entries.map(\.status) == [.delivered, .none])
+    }
+}

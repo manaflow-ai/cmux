@@ -288,7 +288,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             return
         }
         // Collapse with a slight spring undershoot, settling by ~0.38 s.
-        UIView.animate(withDuration: 0.38, delay: 0, usingSpringWithDamping: 0.78, initialSpringVelocity: 0, options: [.beginFromCurrentState]) {
+        UIView.animate(springDuration: 0.4, bounce: 0.12, options: [.beginFromCurrentState]) {
             self.layoutSubviews()
             self.delegate?.composerDidChangeHeight(self)
         }

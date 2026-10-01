@@ -89,6 +89,7 @@ extension ConversationViewController {
             let cell = MessageCell(frame: CGRect(x: 0, y: y, width: width, height: cellLayout.height))
             cell.configure(model: model, layout: cellLayout, text: layoutCache.attributedText(for: model))
             overlay.content.addSubview(cell)
+            cell.layoutIfNeeded()
             cells.append(cell)
             y += cellLayout.height + 10
         }

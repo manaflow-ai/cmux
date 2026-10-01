@@ -189,6 +189,9 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         sheet.addAction(UIAlertAction(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), style: .default) { [weak self] _ in
             self?.store.retry(rowID: model.rowID)
         })
+        sheet.addAction(UIAlertAction(title: String(localized: "conversation.select.delete", defaultValue: "Delete", bundle: .module), style: .destructive) { [weak self] _ in
+            self?.store.discardFailed(rowID: model.rowID)
+        })
         sheet.addAction(UIAlertAction(title: String(localized: "conversation.retry.cancel", defaultValue: "Cancel", bundle: .module), style: .cancel))
         present(sheet, animated: true)
     }

@@ -53,7 +53,8 @@ public final class ConversationViewController: UIViewController {
     var appearances: [String: ConversationTranscriptLayout.Appearance] = [:]
     /// Outgoing rows hidden while their send animation flies.
     var flyingRowIDs: Set<String> = []
-    var activeFlights: [String: UIViewPropertyAnimator] = [:]
+    /// Overlay views of in-flight sends, keyed by row.
+    var activeFlights: [String: UIView] = [:]
     private var hasPositionedInitially = false
     private var lastBottomInset: CGFloat = 0
     var layoutMargin: CGFloat { view.directionalLayoutMargins.leading }
@@ -288,11 +289,15 @@ public final class ConversationViewController: UIViewController {
         let inserted = newIDs.enumerated().compactMap { oldIndex[$0.element] == nil ? IndexPath(item: $0.offset, section: 0) : nil }
         let commonOld = oldIDs.filter { newIndex[$0] != nil }
         let commonNew = newIDs.filter { oldIndex[$0] != nil }
+        // Reconfigure takes pre-update index paths (like reload), so a prepend
+        // above a changed row must not shift the path we pass.
         var updated: [IndexPath] = []
+        var updatedOld: [IndexPath] = []
         if commonOld == commonNew {
             for id in commonNew {
                 guard let o = oldIndex[id], let n = newIndex[id], rows[o] != newRows[n] else { continue }
                 updated.append(IndexPath(item: n, section: 0))
+                updatedOld.append(IndexPath(item: o, section: 0))
             }
         }
         let structural = commonOld == commonNew
@@ -300,7 +305,7 @@ public final class ConversationViewController: UIViewController {
         // A failed send reshapes its row; never leave its flight hanging.
         for indexPath in updated {
             if case let .message(model) = newRows[indexPath.item], model.footer == .notDelivered {
-                landFlightIfNeeded(rowID: model.rowID)
+                landFlight(rowID: model.rowID)
             }
         }
         let wasAtBottom = isNearBottom()
@@ -334,7 +339,7 @@ public final class ConversationViewController: UIViewController {
             if structural {
                 self.collectionView.deleteItems(at: deleted)
                 self.collectionView.insertItems(at: inserted)
-                if !updated.isEmpty { self.collectionView.reconfigureItems(at: updated) }
+                if !updatedOld.isEmpty { self.collectionView.reconfigureItems(at: updatedOld) }
             } else {
                 self.collectionView.reloadSections(IndexSet(integer: 0))
             }
@@ -406,8 +411,12 @@ public final class ConversationViewController: UIViewController {
     func openInfo() {
         guard let info = store.info else { return }
         let controller = ConversationInfoViewController(info: info, meID: store.meID)
-        let navigation = UINavigationController(rootViewController: controller)
-        present(navigation, animated: true)
+        if let navigationController {
+            navigationController.setNavigationBarHidden(false, animated: true)
+            navigationController.pushViewController(controller, animated: true)
+        } else {
+            present(UINavigationController(rootViewController: controller), animated: true)
+        }
     }
 }
 
@@ -454,6 +463,11 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         }
     }
 
+    public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        // A flight is pinned to the screen; once the reader scrolls, show the real row.
+        landAllFlights()
+    }
+
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
         maybeLoadOlder()
         if store.hasLoadedNewest, isNearBottom(tolerance: 60) {
@@ -483,7 +497,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             return index > 0 && isMessage(index - 1) ? 10 : 0
         }
         guard index > 0, isMessage(index - 1) else { return 4 }
-        return model.isFirstInGroup ? ConversationTheme.ungroupedSpacing - 8 : ConversationTheme.groupedSpacing
+        return model.isFirstInGroup ? ConversationTheme.ungroupedSpacing : ConversationTheme.groupedSpacing
     }
 
     private func isMessage(_ index: Int) -> Bool {

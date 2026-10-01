@@ -42,7 +42,7 @@ final class MessageCell: UICollectionViewCell {
     override init(frame: CGRect) {
         super.init(frame: frame)
         contentView.addSubview(shiftable)
-        contentView.layer.addSublayer(threadLine)
+        shiftable.layer.insertSublayer(threadLine, at: 0)
         threadLine.fillColor = nil
         threadLine.lineWidth = 2.5
         threadLine.lineCap = .round
@@ -254,7 +254,9 @@ final class MessageCell: UICollectionViewCell {
             // Images take the bubble outline; the last one in a run gets the tail.
             let tailed = model.showsTail && index == layout.imageFrames.count - 1 && model.message.text.isEmpty
             let mask = (view.layer.mask as? CAShapeLayer) ?? CAShapeLayer()
-            mask.path = BubbleShape.path(in: view.bounds, side: model.isOutgoing ? .trailing : .leading, tail: tailed).cgPath
+            var maskRect = view.bounds
+            if tailed { maskRect.size.height -= ConversationTheme.tailDrop }
+            mask.path = BubbleShape.path(in: maskRect, side: model.isOutgoing ? .trailing : .leading, tail: tailed).cgPath
             view.layer.mask = mask
             view.layer.cornerRadius = 0
             let attachment = model.message.attachments[index]

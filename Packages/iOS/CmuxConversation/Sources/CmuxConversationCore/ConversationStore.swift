@@ -386,6 +386,15 @@ public final class ConversationStore {
         transmit(clientID: clientID, images: images)
     }
 
+    /// Removes a failed local send (never acknowledged by the server).
+    public func discardFailed(rowID: String) {
+        guard let index = messages.firstIndex(where: { $0.rowID == rowID }),
+              messages[index].seq == nil, messages[index].delivery?.isFailed == true else { return }
+        messages.remove(at: index)
+        sortAndReindex()
+        onChange?(.live(insertedRowIDs: [], sentByMe: true))
+    }
+
     private func transmit(clientID: String, images: [(data: Data, width: Int, height: Int, mimeType: String)]) {
         Task { [weak self] in
             guard let self else { return }
