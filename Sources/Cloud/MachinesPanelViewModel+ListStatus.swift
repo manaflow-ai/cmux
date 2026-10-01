@@ -47,6 +47,10 @@ extension MachinesPanelViewModel {
     /// their meaning while a recovery read runs, and a settled transient
     /// failure after a successful load remains visible.
     var listStatus: MachineListStatus? {
+        // A rejected session is terminal until auth changes. Preserve that
+        // actionable state even if a stale reachability event arrives while
+        // the 401/403 result is being applied.
+        if listProblem == .sessionRejected { return .failed(.sessionRejected) }
         if isNetworkOffline { return .waitingForNetwork }
         guard let listProblem else { return nil }
         if listProblem == .unreachable,
