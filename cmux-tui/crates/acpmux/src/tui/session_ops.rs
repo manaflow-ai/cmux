@@ -53,6 +53,7 @@ impl App {
                 errors: Vec::new(),
                 effort: None,
                 images: Vec::new(),
+                previous_cwd: None,
             },
         );
         self.selected = 0;
@@ -687,8 +688,8 @@ impl App {
         }
         if let Some(d) = self.draft_mut() {
             d.cwd = path.clone();
+            d.previous_cwd = Some(base);
         }
-        self.previous_directory = Some(base);
         self.overlay = Overlay::None;
         self.focus = Focus::Input;
         self.status = format!("New session directory: {}", render::shorten_path(&path));

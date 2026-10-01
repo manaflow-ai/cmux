@@ -12,8 +12,8 @@ connects to it.
 ## Build
 
 ```sh
-cd acpmux
-cargo build --release
+cd cmux-tui
+cargo build --release -p acpmux
 rm -f ~/.local/bin/acpmux && cp target/release/acpmux ~/.local/bin/
 ```
 
