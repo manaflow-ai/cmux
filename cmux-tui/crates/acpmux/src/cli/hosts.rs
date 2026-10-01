@@ -58,10 +58,43 @@ const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 </dict></plist>
 "#;
 
+/// A remote script that runs `cmd` and keeps only the start of its output
+/// (`limit`, such as `head -3`), failing when `cmd` fails: a plain pipe into
+/// `head` would answer with head's exit status instead.
+fn capped(cmd: &str, limit: &str) -> String {
+    format!("out=$({cmd}); rc=$?; printf '%s\\n' \"$out\" | {limit}; exit $rc")
+}
+
 /// Restart the daemon away from launchd: `daemon shutdown` returns once the
 /// old daemon released its lock, and `daemon start` returns once the new one
 /// accepts clients (its readiness pipe), so no step waits on a timer.
-const RESTART_DETACHED: &str = "~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1; ~/.local/bin/acpmux --json daemon start | head -c 400";
+fn restart_detached(json: bool) -> String {
+    let start = if json {
+        capped("~/.local/bin/acpmux --json daemon start", "head -c 400")
+    } else {
+        capped("~/.local/bin/acpmux daemon start", "head -3")
+    };
+    format!("~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1; {start}")
+}
+
+/// Read the daemon's status after launchd (re)started it; a daemon that is
+/// still not running is an error, not a status line.
+fn launchd_status(host: &str, json: bool) -> Result<String> {
+    let status = if json {
+        ssh(host, &capped("~/.local/bin/acpmux --json daemon status", "head -c 400"))?
+    } else {
+        ssh(host, &capped("~/.local/bin/acpmux daemon status", "head -3"))?
+    };
+    let stopped = status.starts_with("daemon not running")
+        || serde_json::from_str::<Value>(&status)
+            .ok()
+            .and_then(|v| v.get("running").and_then(Value::as_bool))
+            == Some(false);
+    if stopped {
+        return Err(anyhow!("the daemon on {host} did not start: {status}"));
+    }
+    Ok(status)
+}
 
 /// launchd starts the daemon on its own schedule and has no readiness
 /// callback, so a launchd host is given this long before its status is read.
@@ -71,18 +104,19 @@ const LAUNCHD_START_GRACE: std::time::Duration = std::time::Duration::from_secs(
 fn restart_daemon(host: &str) -> Result<String> {
     let os = ssh(host, "uname -s")?;
     if os != "Darwin" {
-        return ssh(host, RESTART_DETACHED);
+        return ssh(host, &restart_detached(true));
     }
     ssh(
         host,
         "launchctl kickstart -k gui/$(id -u)/com.acpmux.daemon 2>/dev/null || (launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist && echo bootstrapped)",
     )?;
     std::thread::sleep(LAUNCHD_START_GRACE);
-    ssh(host, "~/.local/bin/acpmux --json daemon status 2>/dev/null | head -c 400 || echo starting")
+    launchd_status(host, true)
 }
 
-/// Connect a peer now and answer once that attempt settled: add it, or, when
-/// it is known, reconnect it (its daemon was just restarted).
+/// Connect a peer now and answer once that attempt settled: add (or
+/// replace) it with `url`, or reconnect a known one at its configured url
+/// (its daemon was just restarted).
 async fn connect_peer(client: &Client, name: &str, url: Option<&str>) -> Result<Value> {
     match url {
         Some(url) => {
@@ -108,14 +142,14 @@ pub(crate) async fn setup(
     // Config: keep an existing one, but make sure the websocket listener and token exist.
     let existing = ssh(host, "cat ~/.acpmux/config.json 2>/dev/null || echo '{}'")?;
     let mut cfg: Value = serde_json::from_str(&existing).unwrap_or_else(|_| json!({}));
-    let token =
-        cfg.pointer("/websocket/token").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(
-            || {
-                let mut b = [0u8; 24];
-                getrandom_fill(&mut b);
-                b.iter().map(|x| format!("{x:02x}")).collect()
-            },
-        );
+    let token = match cfg.pointer("/websocket/token").and_then(Value::as_str) {
+        Some(t) => t.to_owned(),
+        None => {
+            let mut b = [0u8; 24];
+            getrandom_fill(&mut b)?;
+            b.iter().map(|x| format!("{x:02x}")).collect()
+        }
+    };
     cfg["websocket"] = json!({"listen": format!("127.0.0.1:{port}"), "token": token});
     if cfg.get("store").is_none() {
         cfg["store"] = json!({"mode": "local"});
@@ -124,7 +158,13 @@ pub(crate) async fn setup(
         cfg["permissionPolicy"] = json!("ask");
     }
     let cfg_text = serde_json::to_string_pretty(&cfg)?;
-    ssh(host, &format!("cat > ~/.acpmux/config.json <<'ACPMUX_CFG'\n{cfg_text}\nACPMUX_CFG"))?;
+    // The config holds the WebSocket token: owner-only, whatever the umask.
+    ssh(
+        host,
+        &format!(
+            "chmod 700 ~/.acpmux && umask 077 && cat > ~/.acpmux/config.json <<'ACPMUX_CFG' && chmod 600 ~/.acpmux/config.json\n{cfg_text}\nACPMUX_CFG"
+        ),
+    )?;
     let os = ssh(host, "uname -s")?;
     let status = if os == "Darwin" {
         let home = ssh(host, "echo $HOME")?;
@@ -136,22 +176,14 @@ pub(crate) async fn setup(
             ),
         )?;
         std::thread::sleep(LAUNCHD_START_GRACE);
-        ssh(host, "~/.local/bin/acpmux daemon status 2>/dev/null | head -3")?
+        launchd_status(host, false)?
     } else {
-        ssh(
-            host,
-            "~/.local/bin/acpmux daemon shutdown >/dev/null 2>&1; ~/.local/bin/acpmux daemon start | head -3",
-        )?
+        ssh(host, &restart_detached(false))?
     };
     // Register (or re-register) the peer.
     let url = if port == 47811 { format!("ssh://{host}") } else { format!("ssh://{host}:{port}") };
-    let peers = client.request("_acpmux/peers", json!({})).await?;
-    let known = peers
-        .get("peers")
-        .and_then(Value::as_array)
-        .map(|a| a.iter().any(|p| p.get("name").and_then(Value::as_str) == Some(name.as_str())))
-        .unwrap_or(false);
-    let peers = connect_peer(&client, &name, (!known).then_some(url.as_str())).await?;
+    // Always with the url: a known peer takes the host and port given now.
+    let peers = connect_peer(&client, &name, Some(url.as_str())).await?;
     if json_out {
         print_json(
             &json!({"host": host, "name": name, "remoteVersion": version, "status": status, "peers": peers.get("peers")}),
@@ -190,13 +222,8 @@ pub(crate) async fn update(
         .iter()
         .filter_map(|p| {
             let n = p.get("name").and_then(Value::as_str)?;
-            let url = p.get("url").and_then(Value::as_str)?;
-            let host = url
-                .strip_prefix("ssh://")?
-                .rsplit_once(':')
-                .map(|(h, _)| h)
-                .unwrap_or(url.strip_prefix("ssh://")?);
-            Some((n.to_owned(), host.to_owned()))
+            let host = ssh_host(p.get("url").and_then(Value::as_str)?)?;
+            Some((n.to_owned(), host))
         })
         .filter(|(n, _)| all || name.as_deref() == Some(n.as_str()))
         .collect();
@@ -251,10 +278,35 @@ pub(crate) async fn update(
     Ok(())
 }
 
-fn getrandom_fill(buf: &mut [u8]) {
-    // /dev/urandom is always there on the platforms acpmux runs on.
+/// The ssh host of an `ssh://host[:port]` peer url. As in `Peer::ssh_parts`,
+/// only a numeric suffix is a port, so a bracketed IPv6 host stays whole.
+fn ssh_host(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("ssh://")?;
+    Some(match rest.rsplit_once(':') {
+        Some((h, p)) if !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()) => h.to_owned(),
+        _ => rest.to_owned(),
+    })
+}
+
+/// Fill `buf` from /dev/urandom; a failure aborts setup rather than writing
+/// a weak token.
+fn getrandom_fill(buf: &mut [u8]) -> Result<()> {
     use std::io::Read;
-    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
-        let _ = f.read_exact(buf);
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(buf))
+        .context("read /dev/urandom for the WebSocket token")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ssh_host_strips_only_a_numeric_port() {
+        assert_eq!(ssh_host("ssh://box").as_deref(), Some("box"));
+        assert_eq!(ssh_host("ssh://me@box:47812").as_deref(), Some("me@box"));
+        assert_eq!(ssh_host("ssh://[::1]").as_deref(), Some("[::1]"));
+        assert_eq!(ssh_host("ssh://[::1]:47812").as_deref(), Some("[::1]"));
+        assert_eq!(ssh_host("ws://box:1"), None);
     }
 }
