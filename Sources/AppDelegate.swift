@@ -9201,7 +9201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        var commandPaletteID: String {
+        @MainActor var commandPaletteID: String {
             switch self {
             case .fork: return ContentView.commandPaletteCloudForkCommandId
             case .snapshot: return ContentView.commandPaletteCloudSnapshotCommandId
