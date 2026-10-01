@@ -296,11 +296,6 @@ final class NotificationsAnchorRegistry {
             .view
     }
 
-    func visibleAnchor(in window: NSWindow) -> NSView? {
-        anchors.allObjects.first { view in
-            view.window === window && notificationsPopoverAnchorIsVisible(view)
-        }
-    }
 }
 
 @MainActor
