@@ -5,6 +5,7 @@ import Foundation
 @MainActor
 final class FakeSystemVPNManager: CloudSystemVPNManaging {
     var isAvailable = true
+    var hasSavedConfiguration = false
     var phase: CloudSystemVPNPhase = .off
     var onPhaseChange: (@MainActor (CloudSystemVPNPhase) -> Void)?
     var installed: [(configuration: String, scope: String)] = []
@@ -74,6 +75,7 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
         }
         installed.append((configuration, scope))
         installedTeamIDs.append(teamID)
+        hasSavedConfiguration = true
         await installCompletion.signal()
         phase = phaseAfterStart
         onPhaseChange?(phase)
@@ -114,6 +116,9 @@ final class FakeSystemVPNManager: CloudSystemVPNManaging {
             }
         }
         stops.append(removeConfiguration)
+        if removeConfiguration {
+            hasSavedConfiguration = false
+        }
         await stopCompletion.signal()
         phase = phaseAfterStop
     }

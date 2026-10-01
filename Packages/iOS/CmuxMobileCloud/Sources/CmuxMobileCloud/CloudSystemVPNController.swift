@@ -495,16 +495,20 @@ public final class CloudSystemVPNController {
         let creationTunnels = browserTunnelsForTeardown()
         let creationBrowserTunnelGeneration = browserTunnelGeneration
         let creationHadLiveBrowserPhase = manager.phase.isRequestedOn
+        let creationHasSavedConfiguration = manager.hasSavedConfiguration
         return { accessToken, refreshToken in
             let gateReady = await controller.waitForPendingOperationAndGate()
             var enrolled = creationTunnels.filter { tunnel in
                 tunnel.scope == creationScope
             }
-            // A signed-in account may never have enabled the browser VPN.
-            // With no live, pending, or currently active browser peer, sign
-            // out has no server cleanup to perform and must not infer one
-            // from the terminal device identity.
-            guard !enrolled.isEmpty || creationHadLiveBrowserPhase else { return }
+            // A saved Cloud profile proves that this browser role was
+            // enrolled, even when the recreated controller currently reports
+            // the profile as off. A signed-in account with no profile and no
+            // pending enrollment still needs no server cleanup.
+            guard !enrolled.isEmpty
+                    || creationHadLiveBrowserPhase
+                    || creationHasSavedConfiguration
+            else { return }
             if enrolled.isEmpty {
                 guard let scope = creationScope else { return }
                 let identity: CloudDeviceIdentity?

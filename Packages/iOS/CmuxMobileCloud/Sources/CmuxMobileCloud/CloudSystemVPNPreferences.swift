@@ -9,6 +9,8 @@ import OSLog
 public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
     /// The latest status reported by Network Extension.
     public private(set) var phase: CloudSystemVPNPhase = .off
+    /// Whether a Cloud profile is currently saved in Network Extension.
+    public private(set) var hasSavedConfiguration = false
     /// Receives status changes reported outside an awaited controller operation.
     public var onPhaseChange: (@MainActor (CloudSystemVPNPhase) -> Void)?
 
@@ -65,6 +67,7 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
                 || stored.providerConfiguration?["teamID"] as? String != normalizedTeamID(teamID)) {
                 try await stopUnwrapped(removeConfiguration: true)
             }
+            hasSavedConfiguration = manager != nil
             publishStatus()
         }
     }
@@ -124,6 +127,7 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
                     try await manager.loadFromPreferences()
                     try Task.checkCancellation()
                     try manager.connection.startVPNTunnel()
+                    hasSavedConfiguration = true
                     if let previousReference, previousReference != newReference {
                         try? keychain.remove(reference: previousReference)
                     }
@@ -139,6 +143,7 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
                         manager.isOnDemandEnabled = false
                         try? await manager.removeFromPreferences()
                         self.manager = nil
+                        self.hasSavedConfiguration = false
                         try? keychain.remove(reference: newReference)
                         if let previousReference, previousReference != newReference {
                             try? keychain.remove(reference: previousReference)
@@ -146,6 +151,7 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
                     } else {
                         manager.protocolConfiguration = previousProtocol
                         try? await manager.saveToPreferences()
+                        self.hasSavedConfiguration = previousProtocol != nil
                         try? keychain.remove(reference: newReference)
                     }
                     throw error
@@ -190,6 +196,7 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
                 let existing = try await load()
                 try Task.checkCancellation()
                 manager = existing
+                hasSavedConfiguration = existing != nil
             } catch {
                 if removeConfiguration {
                     try? keychain.remove()
@@ -198,7 +205,10 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
             }
         }
         guard let manager else {
-            if removeConfiguration { try keychain.remove() }
+            if removeConfiguration {
+                hasSavedConfiguration = false
+                try keychain.remove()
+            }
             publishStatus()
             return
         }
@@ -216,6 +226,7 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
                 removalError = error
             }
             self.manager = nil
+            self.hasSavedConfiguration = false
             do {
                 if let savedReference {
                     try keychain.remove(reference: savedReference)

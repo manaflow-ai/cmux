@@ -5,6 +5,8 @@
 public protocol CloudSystemVPNManaging: AnyObject {
     /// Whether this device can run a packet tunnel at all.
     var isAvailable: Bool { get }
+    /// Whether iOS currently has this Cloud VPN profile saved.
+    var hasSavedConfiguration: Bool { get }
     /// The live status iOS reports.
     var phase: CloudSystemVPNPhase { get }
     /// Called on every status change iOS reports, including ones made from
