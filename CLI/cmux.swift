@@ -40547,11 +40547,6 @@ export default {
                     .appendingPathComponent("src/Resources/opencode-plugin.js")
             )
         }
-        appendIfExisting(
-            URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
-                .appendingPathComponent("Resources/opencode-plugin.js")
-        )
-
         if let executableURL = resolvedExecutableURL() {
             let execDir = executableURL.deletingLastPathComponent().standardizedFileURL
             for relativePath in ["opencode-plugin.js", "../opencode-plugin.js", "../../Resources/opencode-plugin.js", "../../../Contents/Resources/opencode-plugin.js"] {

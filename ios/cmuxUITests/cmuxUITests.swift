@@ -4788,7 +4788,9 @@ final class cmuxUITests: XCTestCase {
 
         let workspacesTab = app.tabBars.buttons["Workspaces"]
         XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
-        let workspacesDeadline = Date().addingTimeInterval(5)
+        // The DEBUG fixture holds the initial Notifications state for eight
+        // seconds, then waits 700 ms before its first Workspaces switch.
+        let workspacesDeadline = Date().addingTimeInterval(15)
         while !workspacesTab.isSelected && Date() < workspacesDeadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.03))
         }
