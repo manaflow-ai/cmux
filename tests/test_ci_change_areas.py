@@ -3311,7 +3311,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
 
-    assert "if: ${{ always() }}" in block
+    assert "if: ${{ !cancelled() }}" in block
     assert 'allowed = {"success", "skipped"}' in block
 
 
@@ -3323,7 +3323,7 @@ def test_required_tests_status_waits_for_platform_workflows() -> None:
         assert f"      - {job_name}" in block
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
-    assert "if: ${{ always() }}" in block
+    assert "if: ${{ !cancelled() }}" in block
     assert 'macos_route not in {"true", "false"}' in block
     assert 'macos_result != "success"' in block
     assert 'web_result not in {"success", "skipped"}' in block
@@ -3876,7 +3876,11 @@ def test_linux_failure_still_blocks_tests_after_macos_succeeds() -> None:
         needs["linux-preflight"]["result"] = outcome
         result = run_tests_gate(needs)
         assert result.returncode != 0, outcome
-        assert f"linux preflight did not pass: {outcome}" in result.stderr
+        if outcome == "cancelled":
+            assert "cancelled: linux-preflight" in result.stderr
+            assert "this run was stopped before it reported a test verdict" in result.stderr
+        else:
+            assert f"linux preflight did not pass: {outcome}" in result.stderr
 
 
 def test_macos_status_accepts_compile_only_prior_admission_skip() -> None:
@@ -5763,8 +5767,19 @@ def test_static_preflight_rejects_stale_embedded_schema_before_native_work() -> 
                               else 'print("Ran 1 test in 0.001s\\nOK")\n' if category == "tests"
                               else "pass\n")
             target.chmod(0o755)
-        for name in ("verify-local.py", "verification_receipt.py"):
+        # Other static-preflight steps run their own validators; stub them too.
+        for path in sorted(set(re.findall(r"scripts/[\w./-]+\.(?:py|sh)", "\n".join(scripts)))):
+            target = repo / path
+            if not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("#!/usr/bin/env bash\nexit 0\n" if target.suffix == ".sh" else "pass\n")
+                target.chmod(0o755)
+        for name in ("verify-local.py", "verification_receipt.py", "check-agent-hook-docs.py"):
             shutil.copy2(ROOT / "scripts" / name, repo / "scripts" / name)
+        for relative_path in ("CLI/CMUXCLI+AgentHookCatalog.swift", "docs/agent-hooks.md"):
+            destination = repo / relative_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / relative_path, destination)
         generator = repo / "scripts/generate-cmux-config-schema.py"
         generator.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / "scripts/generate-cmux-config-schema.py", generator)
@@ -5843,7 +5858,7 @@ def test_linux_aggregate_preserves_all_routed_results() -> None:
     assert "      - web" in block
     for web_job in WEB_JOBS:
         assert f"      - {web_job}" not in block
-    assert "if: ${{ always() }}" in block
+    assert "!cancelled()" in block
     assert 'guard_routes = (' in block
     assert 'bad[f"guards.{route}"]' in block
     assert 'bad["guards"] = f"{guard_result} (one or more guard routes=true)"' in block
@@ -6365,10 +6380,10 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     # (tests/test_seed_derived_data.py evaluates both against the seeder).
     admission_pin = PR_LANE_XCODE_PIN.replace(
         "github.event_name == 'pull_request'",
-        "(github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')",
+        "(github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')",
         1,
     ).replace(
-        # A fork pull request leaves the lane's pin; main's dispatch keeps it.
+        # A fork pull request leaves the lane's pin; manual dispatch keeps it.
         "contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)",
         "(github.event_name != 'pull_request' || contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name))",
         1,
@@ -6393,7 +6408,7 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     assert (
         "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && "
         "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || "
-        "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt <= 2) && "
+        "github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && "
         "contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) && "
         "(inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
     ) in package_block
@@ -6405,7 +6420,7 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
 
     release_block = workflow_job_block("release-build", MACOS_WORKFLOW)
     assert (
-        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) "
+        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) "
         "&& (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26 }}"
     ) in release_block
     assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in release_block

@@ -358,6 +358,15 @@ public struct TerminalPredictionEngine: Sendable {
         return display || expired
     }
 
+    /// Record a key that a local binding consumed without sending anything to
+    /// the PTY. This advances expiry bookkeeping while leaving the prediction
+    /// run intact, because the remote terminal state did not change.
+    @discardableResult
+    public mutating func typedNothing(at now: PredictionInstant) -> Bool {
+        guard isActive else { return false }
+        return expire(at: now)
+    }
+
     /// Record a Backspace, whichever byte (DEL or BS) the key sends.
     ///
     /// Retracts the newest glyph if it is drawn: not yet echoed, or echoed
