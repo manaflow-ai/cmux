@@ -20,6 +20,8 @@ enum AgentHandlers {
         for (id, placement) in forks {
             registry.bind(id, run: { try fork(placement, invocation: $0, context: context) })
         }
+        registry.bind("palette.turnOffAgentMessages", run: { try setMessages(enabled: false, invocation: $0, context: context) })
+        registry.bind("palette.turnOnAgentMessages", run: { try setMessages(enabled: true, invocation: $0, context: context) })
         registry.bind("palette.computerUse.accessibility", run: { _ in try openPrivacyPane("Privacy_Accessibility", context) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in try openPrivacyPane("Privacy_ScreenCapture", context) })
         registry.bindUnavailable(["palette.newAgentChat", "palette.openTerminalChatView"], ActionFailure(message: MiscHandlerStrings.agentChat))
@@ -36,6 +38,25 @@ enum AgentHandlers {
         guard agent?.lowercased().contains("claude") == true, let session, !session.isEmpty,
               session.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { return nil }
         return "claude --resume \(session) --fork-session"
+    }
+
+    /// Turns agent messages to the focused terminal's agent off or back on
+    /// (`agent.message.receiving.set`). Off fails the agent's queued messages
+    /// and refuses later ones, so senders get an error instead of a queue.
+    private static func setMessages(enabled: Bool, invocation: ActionInvocation, context: AppActionContext) throws {
+        guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id), tab.kind == .pty,
+              let terminal = tab.terminalResourceID else {
+            throw ActionFailure(message: MiscHandlerStrings.noTerminal)
+        }
+        let connection = try context.requireConnection()
+        let logger = context.daemon.logger
+        Task {
+            do {
+                try await connection.setAgentMessagesReceiving(terminal, enabled: enabled)
+            } catch {
+                logger.error("set-agent-messages failed: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     private static func fork(_ placement: Placement, invocation: ActionInvocation, context: AppActionContext) throws {

@@ -70,6 +70,20 @@ nonisolated extension ActionCatalog {
                 cliName: "agent fork-conversation-to-new-workspace"
             ),
             ActionDescriptor(
+                id: "palette.turnOffAgentMessages",
+                title: String(localized: "action.palette.turnOffAgentMessages", defaultValue: "Turn Off Agent Messages", bundle: .module),
+                keywords: ["agent", "message", "mute", "disable"], category: .agents, symbol: "bell.slash",
+                surfaces: [.palette, .contextMenu], requires: [.terminalFocused],
+                cliName: "agent turn-off-messages"
+            ),
+            ActionDescriptor(
+                id: "palette.turnOnAgentMessages",
+                title: String(localized: "action.palette.turnOnAgentMessages", defaultValue: "Turn On Agent Messages", bundle: .module),
+                keywords: ["agent", "message", "unmute", "enable"], category: .agents, symbol: "bell",
+                surfaces: [.palette, .contextMenu], requires: [.terminalFocused],
+                cliName: "agent turn-on-messages"
+            ),
+            ActionDescriptor(
                 id: "palette.computerUse.setup",
                 title: String(localized: "action.palette.computerUse.setup", defaultValue: "Computer Use Setup", bundle: .module),
                 keywords: ["agent", "automation"], category: .agents, symbol: "cursorarrow.click.2",
