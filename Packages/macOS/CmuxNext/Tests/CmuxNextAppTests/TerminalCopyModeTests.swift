@@ -6,11 +6,33 @@ import CmuxNextDaemon
 @testable import CmuxNextTerminal
 import Testing
 
-/// Toggle Copy Mode (⇧⌘M) runs on the targeted terminal, takes plain keys
-/// before the shell sees them, lets Command chords through to app shortcuts,
-/// and leaves on q or Esc. `/` opens the same find prompt as ⌘F.
+/// Toggle Copy Mode (⇧⌘M) is bound and `/` routes to the find prompt. Both
+/// hold without a Ghostty surface.
 @MainActor
+struct TerminalCopyModeBindingTests {
+    @Test func toggleCopyModeIsBound() {
+        let registry = ActionBindingCoverageTests.boundServices().registry
+        #expect(registry.isBound("toggleTerminalCopyMode"))
+        #expect(registry.unavailableReason(for: "toggleTerminalCopyMode") == nil)
+    }
+
+    @Test func slashOpensTheFindPrompt() {
+        #expect(TerminalHostActionRoute.route(.find) == TerminalHostActionRoute.Route(id: "find"))
+    }
+}
+
+/// Copy mode on a live surface: the action toggles it on the targeted
+/// terminal, plain keys stay in it before the shell sees them, Command
+/// chords pass through to app shortcuts, and q or Esc leaves. Needs
+/// `ghostty_surface_new` to succeed (a Ghostty runtime and a Metal device);
+/// the suite reports itself skipped where it cannot.
+@MainActor
+@Suite(.enabled("needs a live Ghostty surface") { await TerminalCopyModeTests.liveSurfaceAvailable() })
 struct TerminalCopyModeTests {
+    static func liveSurfaceAvailable() -> Bool {
+        (try? terminal())?.2.surface != nil
+    }
+
     private static func terminal() throws -> (AppServices, TabModel, TerminalSurfaceView) {
         let services = ActionBindingCoverageTests.boundServices()
         services.daemon.store.apply(snapshot: try BridgeTreeFixture.tree())
@@ -25,19 +47,23 @@ struct TerminalCopyModeTests {
                                       isARepeat: false, keyCode: keyCode))
     }
 
-    @Test func toggleCopyModeIsBound() {
-        let registry = ActionBindingCoverageTests.boundServices().registry
-        #expect(registry.isBound("toggleTerminalCopyMode"))
-        #expect(registry.unavailableReason(for: "toggleTerminalCopyMode") == nil)
-    }
-
-    @Test func theActionTogglesCopyModeOnItsTerminal() throws {
-        let (services, tab, view) = try Self.terminal()
-        let target = ActionTargetRef(kind: .tab, id: tab.id)
+    @Test func theActionTogglesCopyModeOnTheTargetedTerminal() async throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        services.windows.ordersWindowsIn = false
+        services.daemon.store.apply(snapshot: try BridgeTreeFixture.tree())
+        let workspace = try #require(services.daemon.store.workspaces.first)
+        let pane = try #require(workspace.screens.first?.panes.first)
+        let tab = try #require(pane.tabs.first)
+        let controller = try #require(services.windows.openWindow(workspaces: [workspace.id]))
+        defer { controller.window?.close() }
+        await ReopenClosedTabTests.settle { services.paneController(for: pane) != nil }
+        let target = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id))
         services.registry.context.insert(.terminalFocused)
-        #expect(services.registry.perform("toggleTerminalCopyMode", invocation: ActionInvocation(target: target)))
+
+        #expect(services.registry.perform("toggleTerminalCopyMode", invocation: target))
+        let view = services.cache.terminal(for: tab, daemon: services.daemon).session.surfaceView
         #expect(view.isCopyModeActive)
-        #expect(services.registry.perform("toggleTerminalCopyMode", invocation: ActionInvocation(target: target)))
+        #expect(services.registry.perform("toggleTerminalCopyMode", invocation: target))
         #expect(!view.isCopyModeActive)
     }
 
@@ -70,9 +96,5 @@ struct TerminalCopyModeTests {
         #expect(view.isCopyModeActive)
         #expect(view.copyMode?.input == CopyModeInputState())
         view.exitCopyMode()
-    }
-
-    @Test func slashOpensTheFindPrompt() {
-        #expect(TerminalHostActionRoute.route(.find) == TerminalHostActionRoute.Route(id: "find"))
     }
 }

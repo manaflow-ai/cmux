@@ -39,6 +39,10 @@ extension TerminalSurfaceView {
         guard let surface else { return false }
         var column: UInt16 = 0, row: UInt16 = 0, width: UInt16 = 0
         guard ghostty_surface_keyboard_copy_cursor_set(surface, true, &column, &row, &width) else { return false }
+        // Copy mode swallows keys, so an unfinished IME composition would
+        // otherwise sit on screen until it ends.
+        inputContext?.discardMarkedText()
+        unmarkText()
         let box = NSView()
         box.wantsLayer = true
         box.layer?.borderWidth = 1
@@ -85,7 +89,8 @@ extension TerminalSurfaceView {
         guard var session = copyMode else { return true }
         let resolution = CopyModeKeys.resolve(
             keyCode: event.keyCode, charactersIgnoringModifiers: event.charactersIgnoringModifiers,
-            modifiers: modifiers, hasSelection: session.selection != .off, state: &session.input)
+            modifiers: modifiers, hasSelection: session.selection != .off, state: &session.input,
+            asciiCharacterProvider: GhosttyInput.asciiCharacter(forKeyCode:))
         copyMode?.input = session.input
         guard case .perform(let action, let count) = resolution else { return true }
         performCopyMode(action, count: count, surface: surface)
