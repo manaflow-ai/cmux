@@ -3,7 +3,6 @@ const SIGNED_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
 import { describe, expect, test } from "bun:test";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { Readable } from "node:stream";
 import { gzipSync } from "node:zlib";
 import {
   __test,
@@ -137,15 +136,6 @@ describe("coderouter OpenCode Go proxy", () => {
     let upstreamClosed!: () => void;
     const closed = new Promise<void>((resolve) => { upstreamClosed = resolve; });
     let failUpload!: () => void;
-    let sent = false;
-    const body = new Readable({
-      read() {
-        if (!sent) {
-          sent = true;
-          this.push(Buffer.from("partial"));
-        }
-      },
-    });
     const server = createServer((request) => {
       request.on("close", () => upstreamClosed());
       request.once("data", () => failUpload());
@@ -153,13 +143,18 @@ describe("coderouter OpenCode Go proxy", () => {
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const port = (server.address() as AddressInfo).port;
-    failUpload = () => body.destroy(new Error("client went away"));
     try {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("partial"));
+          failUpload = () => controller.error(new Error("client went away"));
+        },
+      });
       const request = __test.pinnedFetch({ address: "127.0.0.1", family: 4 })(
         `http://provider.invalid:${port}/v1/chat`,
-        { method: "POST", body, duplex: "half" } as unknown as RequestInit,
+        { method: "POST", body, duplex: "half" } as RequestInit,
       );
-      await expect(request).rejects.toThrow();
+      await expect(request).rejects.toThrow("client went away");
       await closed;
     } finally {
       server.closeAllConnections();
