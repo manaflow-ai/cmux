@@ -2254,7 +2254,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                     notificationsPopover?.performClose(nil)
                     openPhoneForwardingSettings(in: window)
                 }
-            )
+            ).cmuxAccentColorEnvironment()
         )
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = .clear
@@ -3130,7 +3130,7 @@ final class UpdateTitlebarAccessoryController {
                     popover?.performClose(nil)
                     openPhoneForwardingSettings(in: window)
                 }
-            )
+            ).cmuxAccentColorEnvironment()
         )
 
         contentView.layoutSubtreeIfNeeded()
