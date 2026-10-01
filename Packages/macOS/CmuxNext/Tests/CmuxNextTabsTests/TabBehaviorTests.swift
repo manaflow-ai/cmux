@@ -316,9 +316,13 @@ struct TokenTests {
 
     @Test func comfortableDensityIsRoomier() {
         let settings = DesignSettings.shared
+        // Pin both densities and restore the caller's: DensityTests, running in
+        // parallel, may be suspended with `.comfortable` set.
+        let saved = settings.density
+        defer { settings.density = saved }
+        settings.density = .compact
         let compact = TabStripMetrics()
         settings.density = .comfortable
-        defer { settings.density = .compact }
         let comfortable = TabStripMetrics()
         #expect(comfortable.tabHeight > compact.tabHeight)
         #expect(comfortable.maxTabWidth > compact.maxTabWidth)

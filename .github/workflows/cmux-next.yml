@@ -21,6 +21,8 @@ on:
       - Resources/InfoPlist.xcstrings
       - Resources/Localizable.xcstrings
       - scripts/cmux-next/check-*.sh
+      - scripts/cmux-next/compile-string-catalogs.sh
+      - scripts/cmux-next/prefix-ghosttykit-archives.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/download-prebuilt-ghosttykit.sh
       - .github/workflows/cmux-next.yml
@@ -39,6 +41,8 @@ on:
       - Resources/InfoPlist.xcstrings
       - Resources/Localizable.xcstrings
       - scripts/cmux-next/check-*.sh
+      - scripts/cmux-next/compile-string-catalogs.sh
+      - scripts/cmux-next/prefix-ghosttykit-archives.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - .github/workflows/cmux-next.yml
   workflow_dispatch:
@@ -119,6 +123,10 @@ jobs:
       - name: Build package and tests
         working-directory: Packages/macOS/CmuxNext
         run: swift build --build-tests
+
+      - name: Compile string catalogs into the resource bundles
+        working-directory: Packages/macOS/CmuxNext
+        run: ../../../scripts/cmux-next/compile-string-catalogs.sh
 
       - name: Run package tests
         working-directory: Packages/macOS/CmuxNext

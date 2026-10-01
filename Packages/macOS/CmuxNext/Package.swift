@@ -315,8 +315,12 @@ let package = Package(
         .target(
             name: "CmuxNextActions",
             resources: [
+                .process("AccountsActions.xcstrings"),
+                .process("BookmarkActions.xcstrings"),
+                .process("BrowserProfileActions.xcstrings"),
                 .process("Extensions.xcstrings"),
                 .process("HibernationActions.xcstrings"),
+                .process("HistoryActions.xcstrings"),
                 .process("LayoutActions.xcstrings"),
                 .process("Localizable.xcstrings"),
                 .process("PageInfoActions.xcstrings"),
@@ -325,6 +329,7 @@ let package = Package(
                 .process("ScreenActions.xcstrings"),
                 .process("SettingsActions.xcstrings"),
                 .process("ShortcutRecorder.xcstrings"),
+                .process("ThemeActions.xcstrings"),
                 .process("WorkspaceActions.xcstrings"),
             ],
             swiftSettings: uiSwiftSettings
@@ -428,7 +433,7 @@ let package = Package(
             dependencies: ["CmuxNextWakeups", "CmuxNextDesign"],
             // The CEF shim's C header: its SHA-256 is the shim ABI identity
             // (CEFShimABI, scripts/cmux-next/build-cef-shim.sh).
-            resources: [.copy("CEF/Shim/cmux_cef_shim.h")],
+            resources: [.copy("CEF/Shim/cmux_cef_shim.h"), .process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(

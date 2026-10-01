@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import Testing
 @testable import CmuxNextLayout
 
@@ -73,6 +74,8 @@ struct InstantSplitTests {
     }
 
     @Test func ratioChangeKeepsItsSpring() {
+        Motion.reduceMotionOverride = false // CI runners may have Reduce Motion on
+        defer { Motion.reduceMotionOverride = nil }
         let provider = RecordingProvider()
         let (view, _) = makeView(.splits(splitTree()), provider: provider)
         #expect(view.update(layout: .splits(splitTree(ratio: 0.3)), animated: true))
