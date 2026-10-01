@@ -12,6 +12,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from cli_run_bounded import run_bounded
+
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
@@ -41,10 +43,7 @@ def main() -> int:
         env["HOME"] = home
         env["CFFIXED_USER_HOME"] = home
         try:
-            proc = subprocess.run(
-                [cli, "__dump-command-tree"],
-                text=True, capture_output=True, check=False, timeout=30.0, env=env,
-            )
+            proc = run_bounded([cli, "__dump-command-tree"], 30.0, env=env)
         except subprocess.TimeoutExpired as exc:
             stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
             print(f"FAIL: __dump-command-tree timed out after {exc.timeout}s\n{stderr}")

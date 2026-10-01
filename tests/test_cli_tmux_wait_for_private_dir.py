@@ -96,7 +96,7 @@ class TmuxWaitForSignalPrivateDirectory(unittest.TestCase):
             # Bounded: a waiter that stays alive without announcing must fail
             # fast, not hang the lane. The fixture writes the whole line at once.
             ready, _, _ = select.select([waiter.stderr], [], [], 30)
-            self.assertTrue(ready, "lock waiter never announced `watching`")
+            self.assertTrue(ready, "wait waiter never announced `watching`")
             self.assertEqual(waiter.stderr.readline().strip(), "watching")
             self.assertFalse(os.path.lexists(self.path))
             self.assertEqual(self.run_fixture("signal").stdout.strip(), "OK")

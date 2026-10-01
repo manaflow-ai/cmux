@@ -63,8 +63,9 @@ path = "tests/test_cli_ssh_pty_attach_retry_suppression.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
-# Validates fish's parse of the generated script, so it needs fish like the
-# other fish-dependent entries.
+# Parses the generated scripts with bash -n, zsh -n and fish --no-execute. The
+# fish requirement also selects the post-fish lane, like the other fish-dependent
+# entries.
 [[test]]
 path = "tests/test_cli_completion_scripts.py"
 lane = "macos-cli-no-socket-post-fish"
