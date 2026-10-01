@@ -103,8 +103,8 @@ struct WorkspaceCloseTabsContextMenuTests {
                 for: tab,
                 inPane: fixture.paneId
             )
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
+            drainMainQueue(timeout: mainActorTestMainQueueSpin)
 
             #expect(promptCount == 1)
             #expect(fixture.workspace.panelIdFromSurfaceId(tabId) == nil)

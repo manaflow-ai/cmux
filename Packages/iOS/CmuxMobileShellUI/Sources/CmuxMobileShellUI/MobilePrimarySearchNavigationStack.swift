@@ -50,7 +50,10 @@ struct MobilePrimarySearchNavigationStack<Root: View, Destination: View>: View {
     }
 
     private var rootNavigationBarVisibility: Visibility {
-        hidesRootNavigationBar ? .hidden : .automatic
+        if #available(iOS 26.0, *), hidesRootNavigationBar {
+            return .hidden
+        }
+        return .automatic
     }
 
     private var searchText: Binding<String> {
