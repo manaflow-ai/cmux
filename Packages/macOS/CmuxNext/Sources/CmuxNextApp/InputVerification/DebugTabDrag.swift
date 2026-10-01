@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextBridge
+import CmuxNextDesign
 import CmuxNextSettings
 
 /// `debug.tab_drag` (DEBUG builds): the live `TabDragSession` state, so a
@@ -61,11 +62,30 @@ enum DebugTabDrag {
                 let tabs: [JSONValue] = (strip.accessibilityChildren() ?? []).compactMap { child in
                     guard let element = child as? NSAccessibilityElement else { return nil }
                     let frame = strip.convert(element.accessibilityFrameInParentSpace(), to: nil)
-                    return .object(["label": .string(element.accessibilityLabel() ?? ""), "frame": topLeft(frame)])
+                    // Every point of the tab: no press there may move the window.
+                    let samples = stride(from: frame.minX + 0.5, to: frame.maxX, by: 2).flatMap { x in
+                        [frame.minY + 0.5, frame.midY, frame.maxY - 0.5].map { CGPoint(x: x, y: $0) }
+                    }
+                    let moving = samples.filter { TitlebarDragPolicy.decide(at: $0, in: window) == .movesWindow }.count
+                    return .object(["label": .string(element.accessibilityLabel() ?? ""), "frame": topLeft(frame),
+                                    "points_checked": .number(Double(samples.count)), "points_moving_window": .number(Double(moving))])
+                }
+                // Runs of strip x (debug.mouse coordinates) where a press moves the window.
+                let bounds = strip.convert(strip.bounds, to: nil)
+                var runs: [JSONValue] = []
+                var runStart: CGFloat?
+                for x in stride(from: bounds.minX, through: bounds.maxX, by: 1) {
+                    let moves = TitlebarDragPolicy.decide(at: CGPoint(x: x, y: bounds.midY), in: window) == .movesWindow
+                    if moves, runStart == nil { runStart = x }
+                    if !moves || x + 1 > bounds.maxX, let start = runStart {
+                        runs.append(.array([.number(Double(start)), .number(Double(x))]))
+                        runStart = nil
+                    }
                 }
                 list.append(.object([
                     "window": .string(controller.state.id), "pane": .string(pane.paneKey),
-                    "frame": topLeft(strip.convert(strip.bounds, to: nil)), "tabs": .array(tabs),
+                    "frame": topLeft(bounds), "tabs": .array(tabs), "moves_window_x": .array(runs),
+                    "band": topLeft(TitlebarDragPolicy.bandRect(in: window)),
                 ]))
             }
         }
