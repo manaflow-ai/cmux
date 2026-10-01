@@ -3965,11 +3965,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               loadGeneration == nil || loadGeneration == pairedMacLoadGeneration else {
             return
         }
-        var changed = false
-        for (key, cached) in await workspaceSnapshotStore.loadAll(
+        let snapshots = await workspaceSnapshotStore.loadAll(
             userID: scope.userID,
             teamID: scope.teamID
-        ) {
+        )
+        guard await isScopeCurrent(scope),
+              loadGeneration == nil || loadGeneration == pairedMacLoadGeneration else {
+            return
+        }
+        var changed = false
+        for (key, cached) in snapshots {
             guard !isHiddenMacPairingKey(key, hiddenIDs: hiddenIDs) else { continue }
             guard workspacesByMac[key]?.status != .connected else { continue }
             workspacesByMac[key] = cached
