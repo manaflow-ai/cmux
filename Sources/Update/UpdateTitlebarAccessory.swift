@@ -987,7 +987,6 @@ private struct TitlebarNotificationBadge: View {
     let unreadModel: SidebarUnreadModel
     let config: TitlebarControlsStyleConfig
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
-    @Environment(\.cmuxAccentColor) private var cmuxAccent
 
     var body: some View {
         let unreadCount = unreadModel.totalUnreadCount
