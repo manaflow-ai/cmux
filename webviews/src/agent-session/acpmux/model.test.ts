@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { diffRows, layoutConversation, visibleLayoutRange, visibleRowRange, type AcpmuxRow, type ConversationLayout } from "./model";
+import type { Tokens } from "marked";
+import { diffRows, layoutConversation, markdownBlocks, measuredText, visibleLayoutRange, visibleRowRange, type AcpmuxRow, type ConversationLayout } from "./model";
 
 const row = (id: string, version: number): AcpmuxRow => ({ id, version, at: 0, kind: "assistant", text: id });
 
@@ -58,4 +59,13 @@ test("a heading or a list after a single newline is its own block", () => {
 /// List items are indented 40px (the browser's list padding), so their text wraps sooner.
 test("a list item wraps at the list's indented width", () => {
   expect(height("assistant", `- ${paragraph}`, 724)).toBeGreaterThanOrEqual(height("assistant", paragraph, 724 - 40));
+});
+
+/// The estimator measures what the page draws. Inline code draws in 12px monospace, as wide as the
+/// prose font's digits, and a task item draws its checkbox's source text.
+test("a block is measured as the text it renders", () => {
+  const [code] = markdownBlocks("Call `fill()` now") as Tokens.Paragraph[];
+  expect(measuredText(code!.tokens, code!.text)).toBe("Call 000000 now");
+  const [list] = markdownBlocks("- [ ] ship it") as Tokens.List[];
+  expect(measuredText(list!.items[0]!.tokens, list!.items[0]!.text)).toBe("[ ] ship it");
 });
