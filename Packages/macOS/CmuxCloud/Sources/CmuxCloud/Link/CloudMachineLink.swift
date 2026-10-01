@@ -1,5 +1,6 @@
 import CmuxCloudTui
 import CmuxSurfaceCatalogModel
+import Darwin
 import Foundation
 import CmuxCore
 
@@ -133,6 +134,10 @@ public actor CloudMachineLink {
     // back into the actor through a Task, so nothing else touches them.
     private var process: Process?
     private var processExit: CloudLinkFirstValue<Int32>?
+    /// The link client owns this process group when `setpgid` succeeds. Keeping
+    /// the identifier lets cancellation terminate helpers that inherited the
+    /// client's stdout or stderr pipes.
+    private var processGroupIdentifier: Int32?
     /// One local JSON resource connection shared by every control request for
     /// this machine. Terminal attachment streams are still allowed to subscribe
     /// separately while they migrate onto this same multiplexer.
@@ -245,9 +250,14 @@ public actor CloudMachineLink {
             await releaseHubLeaseOnce()
             throw LinkError.spawnFailed(error.localizedDescription)
         }
+        let processGroupIdentifier = Self.establishProcessGroup(for: process)
         self.process = process
         self.processExit = processExit
-        let stderrDrain = drainStderr(stderr.fileHandleForReading, generation: stderrGeneration)
+        self.processGroupIdentifier = processGroupIdentifier
+        let stderrDrain = drainStderr(
+            stderr.fileHandleForReading,
+            generation: stderrGeneration
+        )
         stderrDrainTask = stderrDrain
 
         // The first connection-snapshot line names the socket; later lines only update
@@ -283,8 +293,13 @@ public actor CloudMachineLink {
                     // stdout closed before a socket line: the client exited (an older
                     // client rejecting a flag, a refused dial). Report that exit and its
                     // stderr, not the deadline it never reached.
-                    await Self.terminateAndWait(process, exit: processExit)
+                    await Self.terminateAndWait(
+                        process,
+                        exit: processExit,
+                        processGroupIdentifier: processGroupIdentifier
+                    )
                     await Self.awaitStderrDrain(stderrDrain)
+                    Self.forceKillProcessGroup(processGroupIdentifier)
                     throw LinkError.exited(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
                 case .timedOut?, nil:
                     throw LinkError.timedOut
@@ -297,10 +312,17 @@ public actor CloudMachineLink {
         } catch {
             state = .error
             lastError = Self.errorText(error)
-            await Self.terminateAndWait(process, exit: processExit)
+            await Self.terminateAndWait(
+                process,
+                exit: processExit,
+                processGroupIdentifier: processGroupIdentifier
+            )
+            await Self.awaitStderrDrain(stderrDrain)
+            Self.forceKillProcessGroup(processGroupIdentifier)
             if self.process === process {
                 self.process = nil
                 self.processExit = nil
+                self.processGroupIdentifier = nil
             }
             await releaseHubLeaseOnce()
             try Task.checkCancellation()
@@ -332,10 +354,16 @@ public actor CloudMachineLink {
         changesContinuation.finish()
         await cancelEventsStream()
         if let process, let processExit {
-            await Self.terminateAndWait(process, exit: processExit)
+            let processGroupIdentifier = self.processGroupIdentifier
+            await Self.terminateAndWait(
+                process,
+                exit: processExit,
+                processGroupIdentifier: processGroupIdentifier
+            )
             if self.process === process {
                 self.process = nil
                 self.processExit = nil
+                self.processGroupIdentifier = nil
             }
         }
         await resourceConnection?.close()
@@ -668,6 +696,7 @@ public actor CloudMachineLink {
         await cancelEventsStream()
         process = nil
         processExit = nil
+        processGroupIdentifier = nil
         connected = nil
         let stderrGeneration = self.stderrGeneration
         let stderrDrain = self.stderrDrainTask
@@ -706,13 +735,79 @@ public actor CloudMachineLink {
 
     /// Foundation aborts if a running `Process` is released. Keep a detached exit
     /// waiter alive because the caller can already be cancelled when cleanup starts.
+    /// Starts a dedicated process group so a cancelled link cannot leave helper
+    /// processes behind holding the link pipes open. `Process.run()` has no
+    /// process-group option, so the parent claims the group immediately after
+    /// launch; a failed claim falls back to leader-only cleanup.
+    private nonisolated static func establishProcessGroup(for process: Process) -> Int32? {
+        let identifier = process.processIdentifier
+        guard identifier > 1, identifier != getpid(), setpgid(identifier, identifier) == 0,
+              getpgid(identifier) == identifier else { return nil }
+        return identifier
+    }
+
+    /// Sends a signal only to a group established by `establishProcessGroup`.
+    /// The host process group is excluded so a failed or reused PID cannot take
+    /// down the app that owns the link.
+    private nonisolated static func signalProcessGroup(_ identifier: Int32?, signal: Int32) {
+        guard let identifier,
+              identifier > 1,
+              identifier != getpid(),
+              identifier != getpgrp(),
+              Darwin.kill(-identifier, 0) == 0 else { return }
+        _ = Darwin.kill(-identifier, signal)
+    }
+
+    private nonisolated static func forceKillProcessGroup(_ identifier: Int32?) {
+        signalProcessGroup(identifier, signal: SIGKILL)
+    }
+
+    private nonisolated static func waitForExit(
+        _ exit: CloudLinkFirstValue<Int32>,
+        upTo limit: Duration
+    ) async -> Bool {
+        let settled = CloudLinkFirstValue<Bool>()
+        Task.detached {
+            _ = await exit.result
+            settled.resolve(true)
+        }
+        Task.detached {
+            try? await Task.sleep(for: limit)
+            settled.resolve(false)
+        }
+        return await settled.result ?? false
+    }
+
+    /// Foundation aborts if a running `Process` is released. Keep detached exit
+    /// and deadline waiters alive because the caller can already be cancelled
+    /// when cleanup starts. A stubborn leader is escalated to SIGKILL, and the
+    /// group is killed once more after the leader is reaped to catch descendants
+    /// that inherited the pipes but outlived their parent.
     private nonisolated static func terminateAndWait(
         _ process: Process,
-        exit: CloudLinkFirstValue<Int32>
+        exit: CloudLinkFirstValue<Int32>,
+        processGroupIdentifier: Int32?
     ) async {
         let exitTask = Task.detached { await exit.result }
-        if process.isRunning { process.terminate() }
+        let wasRunning = process.isRunning
+        if wasRunning {
+            if processGroupIdentifier != nil {
+                signalProcessGroup(processGroupIdentifier, signal: SIGTERM)
+            } else {
+                process.terminate()
+            }
+            if !(await waitForExit(exit, upTo: .seconds(1))) {
+                if processGroupIdentifier != nil {
+                    signalProcessGroup(processGroupIdentifier, signal: SIGKILL)
+                } else if process.isRunning {
+                    _ = Darwin.kill(process.processIdentifier, SIGKILL)
+                }
+            }
+        }
         _ = await exitTask.value
+        if wasRunning {
+            forceKillProcessGroup(processGroupIdentifier)
+        }
     }
 
     private func releaseHubLeaseOnce() async {
