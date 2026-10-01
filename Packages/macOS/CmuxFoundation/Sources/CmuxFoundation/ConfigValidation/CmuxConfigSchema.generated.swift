@@ -2125,6 +2125,7 @@ enum CmuxEmbeddedConfigSchema {
               "reopenPreviousSession",
               "goToWorkspace",
               "commandPalette",
+              "agentInbox",
               "commandPaletteNext",
               "commandPalettePrevious",
               "sendFeedback",
