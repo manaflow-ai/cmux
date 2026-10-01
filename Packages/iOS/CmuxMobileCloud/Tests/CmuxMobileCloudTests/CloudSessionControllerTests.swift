@@ -519,6 +519,36 @@ import Testing
         #expect(connector.session.state.disconnected == 1)
     }
 
+    @Test func overlappingAttachmentsAreSerialized() async throws {
+        let connector = FakeConnector()
+        let firstStarted = TestSignal()
+        let firstRelease = TestSignal()
+        let secondStarted = TestSignal()
+        let secondRelease = TestSignal()
+        connector.session.attachGates = [
+            (started: firstStarted, release: firstRelease),
+            (started: secondStarted, release: secondRelease),
+        ]
+        let controller = makeController(connector: connector)
+        controller.sectionDidAppear()
+        await settle { if case .ready = controller.tunnel { return true } else { return false } }
+        let connection = try #require(controller.connection(for: CloudMachine(id: "vm1", provider: "freestyle", status: "running")))
+        _ = try await connection.loadCatalog()
+
+        let first = Task { try await connection.attach(terminalID: "t1") { _ in } }
+        await firstStarted.wait()
+        let second = Task { try await connection.attach(terminalID: "t2") { _ in } }
+        for _ in 0 ..< 20 { await Task.yield() }
+
+        #expect(connector.session.state.attachStarted == ["t1"])
+        await firstRelease.signal()
+        _ = try await first.value
+        await secondStarted.wait()
+        #expect(connector.session.state.attachStarted == ["t1", "t2"])
+        await secondRelease.signal()
+        _ = try await second.value
+    }
+
     @Test func cancelledAttachCannotDetachANewerAttachment() async throws {
         let connector = FakeConnector()
         let firstStarted = TestSignal()
@@ -540,22 +570,23 @@ import Testing
         first.cancel()
 
         let second = Task { try await connection.attach(terminalID: "t2") { _ in } }
-        await secondStarted.wait()
-        await secondRelease.signal()
-        let secondAttachment = try await second.value
         await firstRelease.signal()
 
         do {
             _ = try await first.value
             Issue.record("cancelled attach unexpectedly succeeded")
         } catch is CancellationError {
-            // The cancelled attach must not detach the newer terminal.
+            // The cancelled attach must release its turn before the newer one.
         }
+        await secondStarted.wait()
+        await secondRelease.signal()
+        let secondAttachment = try await second.value
         #expect(connector.session.state.attached == "t2")
-        #expect(connector.session.state.detached == 0)
+        #expect(connector.session.state.attachStarted == ["t1", "t2"])
+        #expect(connector.session.state.detached == 1)
 
         secondAttachment.detach()
-        #expect(connector.session.state.detached == 1)
+        #expect(connector.session.state.detached == 2)
     }
 
     @Test func overlappingWorkspaceCreatesAreRejected() async throws {

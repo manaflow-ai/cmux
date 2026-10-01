@@ -8,7 +8,7 @@ import Foundation
 /// owner gets a bounded grace period before its platform cancellation hook runs,
 /// and its queue turn is released only when the underlying call returns.
 @MainActor
-final class CloudSystemVPNOperationGate {
+final class CloudOperationGate {
     private var tail: Task<Void, Never>?
     private var pendingCount = 0
 

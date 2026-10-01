@@ -277,7 +277,7 @@ public final class CloudMachineConnection {
     private var listTask: Task<Void, Never>?
     private var closed = false
     private var operationGeneration: UInt64 = 0
-    private var attachmentGeneration: UInt64 = 0
+    private let attachmentGate = CloudOperationGate()
 
     init(
         machine: CloudMachine,
@@ -396,28 +396,19 @@ public final class CloudMachineConnection {
         output: @escaping @Sendable (CloudTerminalOutputEvent) -> Void
     ) async throws -> CloudTerminalAttachment {
         let generation = operationGeneration
-        attachmentGeneration &+= 1
-        let attachGeneration = attachmentGeneration
-        do {
-            let session = try await connectedSession()
-            // A superseded caller cancels this attach while the dial above runs;
-            // attaching anyway would re-point the machine's single attachment
-            // slot at the OLD terminal and replace the new one's output handler.
-            guard isCurrentOperation(generation) else { throw CancellationError() }
-            try Task.checkCancellation()
-            try await session.attach(terminalID: terminalID, output: output)
-            guard isCurrentOperation(generation), !Task.isCancelled else {
-                detachIfCurrent(attachGeneration, session: session)
-                throw CancellationError()
-            }
-            lastError = nil
-            return CloudTerminalAttachment(session: session, terminalID: terminalID)
-        } catch {
-            if !(error is CancellationError) {
-                lastError = CloudSessionFailure.classify(error, stage: .link)
-            }
-            throw error
+        let operation = attachmentGate.start { [weak self] in
+            guard let self else { throw CancellationError() }
+            return try await self.performAttach(
+                terminalID: terminalID,
+                output: output,
+                generation: generation
+            )
         }
+        return try await withTaskCancellationHandler(operation: {
+            try await operation.result.value
+        }, onCancel: {
+            Task { @MainActor in operation.cancel() }
+        })
     }
 
     /// Reads the daemon's workspaces and terminals in one pass, connecting
@@ -464,9 +455,30 @@ public final class CloudMachineConnection {
         !closed && operationGeneration == generation
     }
 
-    private func detachIfCurrent(_ generation: UInt64, session: any CloudTerminalSession) {
-        guard attachmentGeneration == generation else { return }
-        session.detach()
+    private func performAttach(
+        terminalID: String,
+        output: @escaping @Sendable (CloudTerminalOutputEvent) -> Void,
+        generation: UInt64
+    ) async throws -> CloudTerminalAttachment {
+        do {
+            let session = try await connectedSession()
+            guard isCurrentOperation(generation) else { throw CancellationError() }
+            try Task.checkCancellation()
+            try await session.attach(terminalID: terminalID, output: output)
+            guard isCurrentOperation(generation), !Task.isCancelled else {
+                // The operation gate keeps the next attach behind this native
+                // call, so this session still owns the single attachment slot.
+                session.detach()
+                throw CancellationError()
+            }
+            lastError = nil
+            return CloudTerminalAttachment(session: session, terminalID: terminalID)
+        } catch {
+            if !(error is CancellationError) {
+                lastError = CloudSessionFailure.classify(error, stage: .link)
+            }
+            throw error
+        }
     }
 
     private func connectedSession() async throws -> any CloudTerminalSession {

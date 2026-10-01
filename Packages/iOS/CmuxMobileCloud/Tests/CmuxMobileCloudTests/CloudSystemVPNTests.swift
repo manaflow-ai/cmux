@@ -519,7 +519,7 @@ import Testing
     }
 
     @Test func anAbandonedGateWaitsForTheUnderlyingCallBeforeReplacement() async throws {
-        let gate = CloudSystemVPNOperationGate()
+        let gate = CloudOperationGate()
         let firstStarted = TestSignal()
         let releaseFirst = TestSignal()
         let cancellationRequested = TestSignal()

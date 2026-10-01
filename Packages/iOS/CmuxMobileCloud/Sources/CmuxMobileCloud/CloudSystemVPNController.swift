@@ -26,7 +26,7 @@ public final class CloudSystemVPNController {
     private let timeout: CloudSystemVPNTaskTimeout
     private let revocationWorker: CloudSystemVPNRevocationWorker
     private let operationTimeout: Duration
-    private let operationGate = CloudSystemVPNOperationGate()
+    private let operationGate = CloudOperationGate()
     private let cleanupRetryCount: Int
     // Pending peer identifiers are never evicted before the server confirms
     // revocation. New enrollment is blocked once the cleanup outbox reaches

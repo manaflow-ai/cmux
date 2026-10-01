@@ -1,4 +1,4 @@
-extension CloudSystemVPNOperationGate {
+extension CloudOperationGate {
     @MainActor
     final class Turn {
         private var continuation: CheckedContinuation<Void, Never>?

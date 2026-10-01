@@ -268,6 +268,7 @@ struct StubError: Error, Equatable { let message: String }
 final class FakeTerminalSession: CloudTerminalSession, @unchecked Sendable {
     struct State {
         var attached: String?
+        var attachStarted: [String] = []
         var sent: [Data] = []
         var resizes: [(Int, Int)] = []
         var detached = 0
@@ -319,7 +320,10 @@ final class FakeTerminalSession: CloudTerminalSession, @unchecked Sendable {
 
     func attach(terminalID: String, output: @escaping @Sendable (CloudTerminalOutputEvent) -> Void) async throws {
         if let attachFailure { throw attachFailure }
-        lock.withLock { $0.attached = terminalID }
+        lock.withLock {
+            $0.attached = terminalID
+            $0.attachStarted.append(terminalID)
+        }
         let gate: (started: TestSignal, release: TestSignal)? = {
             attachGateLock.lock()
             defer { attachGateLock.unlock() }

@@ -1,4 +1,4 @@
-extension CloudSystemVPNOperationGate {
+extension CloudOperationGate {
     @MainActor
     struct Operation<T: Sendable> {
         let acquired: Task<Void, Never>
@@ -24,6 +24,15 @@ extension CloudSystemVPNOperationGate {
         func cancelIfPending() {
             guard !state.acquired, !state.finished else { return }
             state.cancelledBeforeAcquisition = true
+            current.cancel()
+        }
+
+        /// Cancels the queued operation or the underlying call after it owns
+        /// the turn. The gate keeps the turn until that call returns.
+        func cancel() {
+            if !state.acquired {
+                state.cancelledBeforeAcquisition = true
+            }
             current.cancel()
         }
 

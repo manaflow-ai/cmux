@@ -1,4 +1,4 @@
-extension CloudSystemVPNOperationGate {
+extension CloudOperationGate {
     @MainActor
     final class State {
         var acquired = false
