@@ -81,6 +81,52 @@ struct TmuxWorkspacePaneOverlayModelTests {
     }
 
     @Test @MainActor
+    func overlayCoordinatorRendersWhenEffectiveLayoutChanges() {
+        let coordinator = TmuxWorkspacePaneOverlayCoordinator()
+        let inputs = TmuxWorkspacePaneOverlayInputs(
+            target: .surface,
+            settings: TmuxWorkspacePaneOverlaySettings(
+                activePaneBorderColorHex: nil,
+                rightSidebarOwnsInputFocus: false,
+                workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: nil)
+            )
+        )
+        let window = ObjectIdentifier(NSWindow(
+            contentRect: .zero,
+            styleMask: [],
+            backing: .buffered,
+            defer: true
+        ))
+        let firstLayout = LayoutSnapshot(
+            containerFrame: PixelRect(x: 0, y: 0, width: 100, height: 100),
+            panes: [],
+            focusedPaneId: nil,
+            timestamp: 0
+        )
+        let secondLayout = LayoutSnapshot(
+            containerFrame: PixelRect(x: 0, y: 0, width: 120, height: 100),
+            panes: [],
+            focusedPaneId: nil,
+            timestamp: 0
+        )
+        func makeSnapshot(_ layout: LayoutSnapshot) -> TmuxWorkspacePaneOverlayRefreshSnapshot {
+            TmuxWorkspacePaneOverlayRefreshSnapshot(
+                inputs: inputs,
+                window: window,
+                referenceView: nil,
+                referenceBounds: nil,
+                exactRects: [:],
+                effectiveLayout: layout
+            )
+        }
+        var renderCount = 0
+
+        #expect(coordinator.update(snapshot: makeSnapshot(firstLayout)) { renderCount += 1 })
+        #expect(coordinator.update(snapshot: makeSnapshot(secondLayout)) { renderCount += 1 })
+        #expect(renderCount == 2)
+    }
+
+    @Test @MainActor
     func tracksActivePaneBorder() {
         let model = TmuxWorkspacePaneOverlayModel()
         let borderRect = CGRect(x: 8, y: 12, width: 320, height: 180)

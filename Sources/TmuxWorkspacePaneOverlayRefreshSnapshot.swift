@@ -7,4 +7,8 @@ struct TmuxWorkspacePaneOverlayRefreshSnapshot: Equatable {
     let referenceView: ObjectIdentifier?
     let referenceBounds: CGRect?
     let exactRects: [UUID: CGRect]
+    /// The layout actually used by `state(for:)`, normalized to ignore its
+    /// sampling timestamp. This catches live Bonsplit geometry that has not
+    /// reached the workspace cache yet.
+    let effectiveLayout: LayoutSnapshot?
 }

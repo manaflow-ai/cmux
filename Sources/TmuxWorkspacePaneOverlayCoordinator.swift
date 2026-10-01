@@ -29,15 +29,25 @@ final class TmuxWorkspacePaneOverlayCoordinator {
         let reference = controller?.coordinateReferenceView ?? window.contentView
         let windowID = ObjectIdentifier(window)
         let referenceID = reference.map(ObjectIdentifier.init)
+        let effectiveLayout = inputs.isVisible
+            ? Self.normalizedLayoutSnapshot(
+                WorkspaceContentView.effectiveTmuxLayoutSnapshot(
+                    cachedSnapshot: builder.tabManager.selectedWorkspace?.tmuxLayoutSnapshot,
+                    liveSnapshot: builder.tabManager.selectedWorkspace?.bonsplitController.layoutSnapshot()
+                )
+            )
+            : nil
         if let previous = lastSnapshot,
            previous.inputs == inputs,
            previous.window == windowID,
            previous.referenceView == referenceID,
-           previous.referenceBounds == reference?.bounds {
-            // No model or coordinate-space input changed, so the exact panel
-            // conversions from the last admitted snapshot remain valid. In
-            // particular, repeated geometry/focus notifications do not pay
-            // the AppKit conversion cost before the equality gate below.
+           previous.referenceBounds == reference?.bounds,
+           previous.effectiveLayout == effectiveLayout {
+            // No model, live layout, or coordinate-space input changed, so
+            // the exact panel conversions from the last admitted snapshot
+            // remain valid. In particular, repeated geometry/focus
+            // notifications do not pay the AppKit conversion cost before the
+            // equality gate below.
             return
         }
         var exactRects: [UUID: CGRect] = [:]
@@ -52,7 +62,8 @@ final class TmuxWorkspacePaneOverlayCoordinator {
             window: windowID,
             referenceView: referenceID,
             referenceBounds: reference?.bounds,
-            exactRects: exactRects
+            exactRects: exactRects,
+            effectiveLayout: effectiveLayout
         )
         update(snapshot: snapshot) {
             controller?.update(state: builder.state(for: window))
@@ -89,5 +100,16 @@ final class TmuxWorkspacePaneOverlayCoordinator {
         }
         window = nil
         lastSnapshot = nil
+    }
+
+    private static func normalizedLayoutSnapshot(_ snapshot: LayoutSnapshot?) -> LayoutSnapshot? {
+        snapshot.map {
+            LayoutSnapshot(
+                containerFrame: $0.containerFrame,
+                panes: $0.panes,
+                focusedPaneId: $0.focusedPaneId,
+                timestamp: 0
+            )
+        }
     }
 }
