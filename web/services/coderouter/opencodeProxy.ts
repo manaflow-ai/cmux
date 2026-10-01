@@ -811,7 +811,7 @@ function pinnedFetch(pin: ProviderPin): typeof fetch {
         // Read the Web stream directly. Bun 1.3's Readable.fromWeb adapter can
         // surface a body error outside pipeline's callback, leaving the test
         // process with an unhandled rejection and the upstream request open.
-        void writeWebRequestBody(body, outgoing).catch(reject);
+        void writeWebRequestBody(body, outgoing, init.signal ?? undefined).catch(reject);
       } else {
         outgoing.end();
       }
@@ -819,12 +819,33 @@ function pinnedFetch(pin: ProviderPin): typeof fetch {
   }) as typeof fetch;
 }
 
-async function writeWebRequestBody(body: ReadableStream<Uint8Array>, outgoing: ClientRequest): Promise<void> {
+async function writeWebRequestBody(
+  body: ReadableStream<Uint8Array>,
+  outgoing: ClientRequest,
+  signal?: AbortSignal,
+): Promise<void> {
   const reader = body.getReader();
+  let closeError: Error | undefined;
+  const cancel = (reason: unknown) => {
+    const error = reason instanceof Error ? reason : new Error(String(reason));
+    closeError ??= error;
+    void reader.cancel(reason).catch(() => undefined);
+  };
+  const onAbort = () => {
+    const reason = signal?.reason ?? new DOMException("The request was aborted", "AbortError");
+    cancel(reason);
+    outgoing.destroy(closeError);
+  };
+  const onClose = () => {
+    if (!outgoing.writableEnded) cancel(new Error("Upstream request closed during upload"));
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
+  outgoing.once("close", onClose);
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) {
+        if (closeError) throw closeError;
         outgoing.end();
         return;
       }
@@ -832,12 +853,15 @@ async function writeWebRequestBody(body: ReadableStream<Uint8Array>, outgoing: C
         await new Promise<void>((resolve, reject) => {
           const onDrain = () => { cleanup(); resolve(); };
           const onError = (error: Error) => { cleanup(); reject(error); };
+          const onClosed = () => { cleanup(); reject(closeError ?? new Error("Upstream request closed")); };
           const cleanup = () => {
             outgoing.off("drain", onDrain);
             outgoing.off("error", onError);
+            outgoing.off("close", onClosed);
           };
           outgoing.once("drain", onDrain);
           outgoing.once("error", onError);
+          outgoing.once("close", onClosed);
         });
       }
     }
@@ -845,6 +869,8 @@ async function writeWebRequestBody(body: ReadableStream<Uint8Array>, outgoing: C
     outgoing.destroy(error instanceof Error ? error : new Error(String(error)));
     throw error;
   } finally {
+    signal?.removeEventListener("abort", onAbort);
+    outgoing.off("close", onClose);
     reader.releaseLock();
   }
 }
