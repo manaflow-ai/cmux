@@ -45,6 +45,19 @@ import Darwin
     }
 
     @Test
+    func isolatedHostCarriesRuntimeSourceRootToCLIChildren() {
+        let normalizer = CLIChildEnvironment(
+            appHostEnvironment: [
+                "HOME": "/tmp/app-host",
+                "CFFIXED_USER_HOME": "/tmp/app-host",
+                "CMUX_CI_RUNTIME_SOURCE_ROOT": "/private/tmp/cmux-test-source",
+            ]
+        )
+        let child = normalizer.normalizing(["HOME": "/tmp/cli-fixture"])
+        #expect(child["CMUX_CI_RUNTIME_SOURCE_ROOT"] == "/private/tmp/cmux-test-source")
+    }
+
+    @Test
     func anUnpinnedHostLeavesTheChildAlone() {
         // A stray CFFIXED_USER_HOME that does not match HOME is a developer's
         // machine, not an isolated lane: rewriting the child's roots there
