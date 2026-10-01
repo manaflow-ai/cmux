@@ -145,7 +145,7 @@ impl Client {
             Ok(Err(e)) if e.message == "daemon connection closed" => {
                 Err(self.closed(&format!("waiting for the reply to {m}")))
             }
-            Ok(Err(e)) => Err(anyhow!("{}", e.message)),
+            Ok(Err(e)) => Err(DaemonError(e).into()),
             Err(_) => Err(self.closed(&format!("waiting for the reply to {m}"))),
         }
     }
@@ -157,6 +157,20 @@ impl Client {
             .map_err(|_| self.closed(&format!("sending {m}")))
     }
 }
+
+/// An error reply from the daemon. It prints as the message alone and
+/// keeps the JSON-RPC code, so callers can tell invalid params (-32602)
+/// from internal errors.
+#[derive(Debug)]
+pub struct DaemonError(pub RpcError);
+
+impl std::fmt::Display for DaemonError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0.message)
+    }
+}
+
+impl std::error::Error for DaemonError {}
 
 /// "daemon connection closed" with a cause: the pid file and socket say
 /// whether the daemon is still running (it dropped us: a restart or an
