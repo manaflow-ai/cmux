@@ -267,8 +267,12 @@ extension Workspace {
     }
 
     /// The live workspace with `id` in any window, or nil once it was retired.
+    ///
+    /// Cloud pointer and input focus can call this on every event. Use each
+    /// manager's maintained id index so focus convergence stays constant time
+    /// as the workspace list grows.
     static func liveWorkspace(id: UUID) -> Workspace? {
-        AppDelegate.shared?.tabManagerFor(tabId: id)?.tabs.first { $0.id == id }
+        AppDelegate.shared?.tabManagerFor(tabId: id)?.workspacesById[id]
     }
 
     private static func pane(_ rawID: String, in workspace: Workspace) -> PaneID? {
