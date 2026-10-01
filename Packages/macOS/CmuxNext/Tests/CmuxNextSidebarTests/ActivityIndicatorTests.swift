@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import Testing
 @testable import CmuxNextSidebar
 
@@ -14,6 +15,8 @@ import Testing
     }
 
     @Test func listPausesAndResumesRowSpinners() throws {
+        Motion.reduceMotionOverride = false // CI runners may have Reduce Motion on
+        defer { Motion.reduceMotionOverride = nil }
         var sections = fixture()
         sections[1].nodes[0] = .workspace({ var ws = w("a"); ws.activity = .running; return ws }())
         let sidebar = SidebarView(model: SidebarModel(sections: sections, activeWorkspaceID: id("a")))

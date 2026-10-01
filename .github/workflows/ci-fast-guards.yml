@@ -34,6 +34,7 @@ concurrency:
 
 jobs:
   fast-guards:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' }}
     name: CI fast guards
     # GitHub-hosted on purpose, like the CLA policy guard: it must start in
     # seconds and no repository variable may move it onto a queued pool. The

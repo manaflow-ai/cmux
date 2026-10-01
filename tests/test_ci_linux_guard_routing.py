@@ -299,7 +299,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
     def test_linux_preflight_skips_when_macos_route_is_false(self):
         block = workflow_job_block("linux-preflight")
         self.assertIn(
-            "if: ${{ always() && needs.changes.outputs.macos != 'false' }}",
+            "if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.macos != 'false' }}",
             block,
         )
 

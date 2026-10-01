@@ -135,6 +135,9 @@ let package = Package(
         .target(
             name: "CmuxNextAccounts",
             dependencies: ["CmuxNextCodeRouter", "CmuxNextDesign"],
+            resources: [
+                .process("Localizable.xcstrings"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -311,6 +314,24 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextActions",
+            resources: [
+                .process("AccountsActions.xcstrings"),
+                .process("BookmarkActions.xcstrings"),
+                .process("BrowserProfileActions.xcstrings"),
+                .process("Extensions.xcstrings"),
+                .process("HibernationActions.xcstrings"),
+                .process("HistoryActions.xcstrings"),
+                .process("LayoutActions.xcstrings"),
+                .process("Localizable.xcstrings"),
+                .process("PageInfoActions.xcstrings"),
+                .process("ProfileActions.xcstrings"),
+                .process("RemoteActions.xcstrings"),
+                .process("ScreenActions.xcstrings"),
+                .process("SettingsActions.xcstrings"),
+                .process("ShortcutRecorder.xcstrings"),
+                .process("ThemeActions.xcstrings"),
+                .process("WorkspaceActions.xcstrings"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -358,6 +379,9 @@ let package = Package(
         .target(
             name: "CmuxNextTabs",
             dependencies: ["CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources"],
+            resources: [
+                .process("Resources"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -381,6 +405,9 @@ let package = Package(
         .target(
             name: "CmuxNextPalette",
             dependencies: ["CmuxNextDesign", "CmuxNextActions"],
+            resources: [
+                .process("Localizable.xcstrings"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -406,7 +433,7 @@ let package = Package(
             dependencies: ["CmuxNextWakeups", "CmuxNextDesign"],
             // The CEF shim's C header: its SHA-256 is the shim ABI identity
             // (CEFShimABI, scripts/cmux-next/build-cef-shim.sh).
-            resources: [.copy("CEF/Shim/cmux_cef_shim.h")],
+            resources: [.copy("CEF/Shim/cmux_cef_shim.h"), .process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -428,6 +455,9 @@ let package = Package(
         .target(
             name: "CmuxNextSettings",
             dependencies: ["CmuxNextDesign", "CmuxNextActions", "CmuxNextWakeups"],
+            resources: [
+                .process("Localizable.xcstrings"),
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -438,6 +468,9 @@ let package = Package(
         .target(
             name: "CmuxNextSettingsWindow",
             dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions"],
+            resources: [
+                .process("Localizable.xcstrings"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -448,6 +481,9 @@ let package = Package(
         .target(
             name: "CmuxNextControl",
             dependencies: ["CmuxNextWakeups", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon"],
+            resources: [
+                .process("Localizable.xcstrings"),
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
