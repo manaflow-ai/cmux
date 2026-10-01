@@ -171,10 +171,12 @@ function replaceIn(file, find, repl) {
 
 const shell = (file, body) => `<!doctype html><html><head><meta charset="utf-8"><title>${esc(file.title)} - Google ${file.kind === "spreadsheets" ? "Sheets" : file.kind === "document" ? "Docs" : "Slides"}</title></head><body>
 <div id="docs-titlebar"><input class="docs-title-input" value="${esc(file.title)}" aria-label="Rename">
-<div id="docs-titlebar-share-client-button" role="button" aria-label="Share. ${file.shared ? "Anyone with the link can view" : "Private to only me"}">Share</div>
+<div id="share-slot"></div>
 <div id="docs-file-menu" role="menuitem">File</div></div>
 ${body}
 <script>
+// As in the editors: the Share button (no id) renders a moment after the title.
+setTimeout(() => { document.getElementById("share-slot").innerHTML = '<div role="button" aria-label="Share. ${file.shared ? "Anyone with the link can view" : "Private to only me"}. "> <span>Share</span></div>'; }, 600);
 const post = (path, data) => fetch(location.pathname.replace(/\\/edit$/, "") + "/__mock/" + path, { method: "POST", body: JSON.stringify(data) });
 document.querySelector(".docs-title-input").addEventListener("keydown", (e) => { if (e.key === "Enter") post("title", { title: e.target.value }); });
 document.getElementById("docs-file-menu").addEventListener("click", () => {
@@ -275,7 +277,8 @@ document.querySelector(".kix-appview-editor").addEventListener("input", (e) => {
       const format = url.searchParams.get("format");
       const attach = (name, type, data) => ({ status: 200, headers: { "content-type": type, "content-disposition": `attachment; filename="${name}"` }, body: data });
       if (file.kind === "spreadsheets") {
-        if (format === "xlsx") return attach(`${file.title}.xlsx`, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xlsx(file));
+        // Binary exports redirect to a googleusercontent host without CORS headers.
+        if (format === "xlsx") return { redirect: `https://doc-export.googleusercontent.com/export/${file.id}?format=xlsx` };
         const sheet = file.sheets.find((s) => s.gid === (url.searchParams.get("gid") || "0"));
         if (format === "csv") return attach(`${file.title} - ${sheet.name}.csv`, "text/csv", csv(sheetRows(sheet)));
       }
@@ -285,7 +288,7 @@ document.querySelector(".kix-appview-editor").addEventListener("input", (e) => {
         if (format === "md") return attach(`${file.title}.md`, "text/markdown", docText(file) + "\n");
       }
       if (file.kind === "presentation") {
-        if (format === "pptx") return attach(`${file.title}.pptx`, "application/vnd.openxmlformats-officedocument.presentationml.presentation", pptx(file));
+        if (format === "pptx") return { redirect: `https://doc-export.googleusercontent.com/export/${file.id}?format=pptx` };
         if (format === "txt") return attach(`${file.title}.txt`, "text/plain", file.slides.map((s) => [s.title, ...s.body].join("\n")).join("\n\n"));
       }
       return { status: 400, text: "bad format" };
@@ -309,5 +312,13 @@ document.querySelector(".kix-appview-editor").addEventListener("input", (e) => {
     }
     return { json: { ok: true } };
   }
-  return { files, handle, add };
+  // The googleusercontent host that serves binary exports (no CORS headers).
+  function exportHost(req, url) {
+    const file = files.get(url.pathname.split("/").pop());
+    if (!file || file.trashed) return { status: 404, text: "" };
+    const format = url.searchParams.get("format");
+    const type = format === "xlsx" ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+    return { status: 200, headers: { "content-type": type, "content-disposition": `attachment; filename="${file.title}.${format}"` }, body: format === "xlsx" ? xlsx(file) : pptx(file) };
+  }
+  return { files, handle, add, exportHost };
 }

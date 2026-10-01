@@ -703,6 +703,7 @@ const HOSTS = {
   "docs.google.com": docs,
   "drive.usercontent.google.com": driveContent,
   "drive.google.com": drive,
+  "doc-export.googleusercontent.com": (req, url, body, state) => state.editors.exportHost(req, url),
   "www.google.com": googleSearch,
   "mail.google.com": gmail,
   "calendar.google.com": calendar,
