@@ -64,7 +64,19 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         } else if let parent {
             let row = row(forItem: parent)
             guard row >= 0 else { clearOrganizationDropIndicator(); return }
-            y = rect(ofRow: row).maxY
+            // AppKit's child index is relative to the parent, while the line
+            // is painted in the flattened outline. For an expanded parent,
+            // append after its last displayed descendant; for a collapsed
+            // parent the parent row itself is the boundary.
+            var boundaryRow = row
+            if isItemExpanded(parent) {
+                var candidate = row + 1
+                while candidate < numberOfRows, level(forRow: candidate) > level(forRow: row) {
+                    boundaryRow = candidate
+                    candidate += 1
+                }
+            }
+            y = rect(ofRow: boundaryRow).maxY
         } else if numberOfRows > 0 {
             y = rect(ofRow: numberOfRows - 1).maxY
         } else {
