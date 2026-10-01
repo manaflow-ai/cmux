@@ -151,10 +151,16 @@ pub(crate) enum LayoutResizeOwner {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LayoutMutationKey {
-    Resize { owner: LayoutResizeOwner, transaction: u64 },
+    Resize {
+        owner: LayoutResizeOwner,
+        transaction: u64,
+    },
     /// `set-column-sticky` changes with one connection's transaction. Kept
     /// apart from resizes so a reused transaction id never merges the two.
-    ColumnSticky { owner: LayoutResizeOwner, transaction: u64 },
+    ColumnSticky {
+        owner: LayoutResizeOwner,
+        transaction: u64,
+    },
 }
 
 #[derive(Debug, Clone)]
