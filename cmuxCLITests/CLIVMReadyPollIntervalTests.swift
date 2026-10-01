@@ -1,11 +1,10 @@
 import Foundation
 import Testing
 
-@testable import cmux_cli
-
-/// `vmReadyPollInterval` lives in the CLI target, so its pure override policy
-/// is checked here rather than from the app-hosted `CLIVMTransferTests`,
-/// where `CMUXCLI` names the app's routing type instead.
+/// The poll-interval policy is compiled into this target from
+/// `CLI/VMReadyPollInterval.swift`: the CLI is a tool target that tests cannot
+/// import, and in the app-hosted `CLIVMTransferTests` `CMUXCLI` names the
+/// app's routing type instead.
 @Suite("cmux vm: ready poll interval")
 struct CLIVMReadyPollIntervalTests {
     @Test("Valid overrides are used; missing, malformed or out-of-range ones fall back to 3s",
@@ -15,6 +14,6 @@ struct CLIVMReadyPollIntervalTests {
           ] as [(String?, TimeInterval)])
     func pollInterval(override: String?, expected: TimeInterval) {
         let environment = override.map { ["CMUX_VM_WAIT_POLL_SECONDS": $0] } ?? [:]
-        #expect(CMUXCLI.vmReadyPollInterval(environment: environment) == expected)
+        #expect(VMReadyPollInterval.resolve(environment: environment) == expected)
     }
 }
