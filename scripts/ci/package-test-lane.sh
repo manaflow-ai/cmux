@@ -525,9 +525,18 @@ case "$phase" in
     if [ "$needs_rust" = true ]; then
       install_rust
     fi
+    # A Bonsplit failure must not hide the package results, the same rule
+    # the package loop applies between packages. The bonsplit phase runs in
+    # its own shell so errexit still governs it; a `||` here would turn
+    # errexit off inside a function or subshell.
+    bonsplit_status=0
     if [ "$run_bonsplit" = true ]; then
-      run_bonsplit_tests
+      bash "$lane_script" bonsplit || bonsplit_status=$?
+      if [ "$bonsplit_status" -ne 0 ]; then
+        echo "::error title=Swift package tests failed::Bonsplit failed with exit status $bonsplit_status; running the selected packages anyway."
+      fi
     fi
     SELECTED_PACKAGES="$selected" SELECTED_COUNT="$count" run_package_tests
+    exit "$bonsplit_status"
     ;;
 esac
