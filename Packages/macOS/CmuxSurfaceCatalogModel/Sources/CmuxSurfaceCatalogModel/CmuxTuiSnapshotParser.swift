@@ -1079,8 +1079,8 @@ public struct CmuxTuiSnapshotParser: Sendable {
         guard var decoded = agentState(from: value),
               let terminalID = nonEmptyString(value["terminal_id"])
         else { return false }
-        let explicitID = nonEmptyString(change["id"]) ?? nonEmptyString(value["id"]) ?? resolvedID
-        let targetIndex = state.agents.firstIndex { $0.id == explicitID }
+        let incomingID = nonEmptyString(change["id"]) ?? nonEmptyString(value["id"])
+        let targetIndex = incomingID.flatMap { id in state.agents.firstIndex { $0.id == id } }
             ?? state.agents.firstIndex { $0.terminalID == terminalID }
         if targetIndex == nil,
            state.agents.contains(where: { $0.id == nil }) {
@@ -1089,7 +1089,7 @@ public struct CmuxTuiSnapshotParser: Sendable {
         }
         if let targetIndex {
             let old = state.agents[targetIndex]
-            if decoded.id == nil { decoded.id = explicitID }
+            if decoded.id == nil, let incomingID { decoded.id = incomingID }
             state.agents[targetIndex] = decoded
             state.lookupIndex.removeAgent(old)
         } else {
