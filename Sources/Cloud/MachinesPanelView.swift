@@ -34,6 +34,7 @@ struct MachinesPanelView: View {
 
     init(
         chromeBackgroundColor: NSColor,
+        viewModel: MachinesPanelViewModel? = nil,
         machinePinStore: CloudMachinePinStore? = nil,
         devicesModel: DevicesPanelViewModel? = nil,
         tabManager: TabManager? = nil,
@@ -46,7 +47,7 @@ struct MachinesPanelView: View {
             initialValue: AppDelegate.shared?.cloudBannerDismissalStore
                 ?? CloudBannerDismissalStore(defaults: .standard)
         )
-        _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(
+        _viewModel = StateObject(wrappedValue: viewModel ?? MachinesPanelViewModel(
             machinePinStore: machinePinStore,
             localWorkspacesProvider: { [weak tabManager] in
                 guard let tabManager else { return [] }
@@ -255,7 +256,8 @@ struct MachinesPanelView: View {
         return status
     }
 
-    private var controlBar: some View {
+    /// The panel's complete header, including its persistent recovery status.
+    var controlBar: some View {
         CloudTeamPickerHeader(
             accountFlow: accountFlow,
             presentation: teamPickerPresentation,
@@ -548,7 +550,6 @@ struct MachinesPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("CloudMachinesEmptyState")
-        .cloudErrorCopyMenu(viewModel.lastErrorDescription)
     }
 
     /// Free plans: "Upgrade to use more than 1 machine" — the ceiling plus the
