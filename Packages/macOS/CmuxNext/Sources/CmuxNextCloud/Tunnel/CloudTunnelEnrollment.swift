@@ -42,7 +42,7 @@ public struct CloudTunnelEnrollment: Sendable, Hashable, Decodable {
 
 /// Completes the server's wg-quick file with this Mac's private key and
 /// every private network route (the old app's `completedConfig`).
-public struct WireGuardConfig {
+public struct WireGuardConfig: Sendable {
     public static let shared = Self()
     public func completed(_ enrollment: CloudTunnelEnrollment, privateKey: String) -> String {
         var routes: [String] = []
