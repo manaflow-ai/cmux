@@ -332,7 +332,7 @@ struct AgentNotificationReconcilerTests {
 
         let priorTurnTerminal = event(
             3, .idleObserved, source: "codex", turn: "old-turn", notify: false,
-            nativeEvent: "transcript-terminal", occurredAt: 30
+            occurredAt: 30, nativeEvent: "transcript-terminal"
         )
         #expect(reconciler.apply(priorTurnTerminal).disposition == .observation)
         #expect(reconciler.lifecycleEvent(priorTurnTerminal).draft.declaredPhase == .running)
