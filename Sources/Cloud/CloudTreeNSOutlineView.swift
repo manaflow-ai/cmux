@@ -8,7 +8,7 @@ import CmuxFoundation
 final class CloudTreeNSOutlineView: NSOutlineView {
     static let leadingMargin: CGFloat = 8
     private var dragDestinationSequenceNumber: Int?
-    private let organizationDropIndicator = SidebarReorderIndicatorView()
+    lazy var reorderPresentation = CloudTreeReorderPresentation(outline: self)
 
     func trackDragDestination(sequenceNumber: Int) {
         dragDestinationSequenceNumber = sequenceNumber
@@ -22,14 +22,12 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     func clearDragDestination(sequence: Int? = nil) {
         if let sequence, let current = dragDestinationSequenceNumber, current != sequence { return }
         dragDestinationSequenceNumber = nil
-        clearOrganizationDropIndicator()
     }
 
     /// Destination completion also releases a source whose native callback was lost.
     func endDragDestination(_ info: any NSDraggingInfo) {
         guard isCurrentDragDestination(info) else { return }
         clearDragDestination(sequence: info.draggingSequenceNumber)
-        clearOrganizationDropIndicator(sequence: info.draggingSequenceNumber)
         guard let source = info.draggingSource as? CloudTreeNSOutlineView, source === self,
               let session = activeNativeDragSession,
               session.draggingSequenceNumber == info.draggingSequenceNumber,
@@ -49,53 +47,6 @@ final class CloudTreeNSOutlineView: NSOutlineView {
             self, selector: #selector(menuDidEndTracking(_:)),
             name: NSMenu.didEndTrackingNotification, object: nil
         )
-    }
-
-    /// Paint the insertion gap selected by the organization drop planner.
-    /// AppKit's destination feedback is intentionally disabled for Cloud, so
-    /// this view owns the line and derives its y coordinate from the displayed
-    /// outline rows (including collapsed parents).
-    func showOrganizationDropIndicator(parent: CloudTreeNode?, children: [CloudTreeNode], childIndex: Int) {
-        guard childIndex >= 0 else { clearOrganizationDropIndicator(); return }
-        let y: CGFloat
-        if childIndex < children.count {
-            let row = row(forItem: children[childIndex])
-            guard row >= 0 else { clearOrganizationDropIndicator(); return }
-            y = rect(ofRow: row).minY
-        } else if let parent {
-            let row = row(forItem: parent)
-            guard row >= 0 else { clearOrganizationDropIndicator(); return }
-            // AppKit's child index is relative to the parent, while the line
-            // is painted in the flattened outline. For an expanded parent,
-            // append after its last displayed descendant; for a collapsed
-            // parent the parent row itself is the boundary.
-            var boundaryRow = row
-            if isItemExpanded(parent) {
-                var candidate = row + 1
-                while candidate < numberOfRows, level(forRow: candidate) > level(forRow: row) {
-                    boundaryRow = candidate
-                    candidate += 1
-                }
-            }
-            y = rect(ofRow: boundaryRow).maxY
-        } else if numberOfRows > 0 {
-            y = rect(ofRow: numberOfRows - 1).maxY
-        } else {
-            clearOrganizationDropIndicator()
-            return
-        }
-        if organizationDropIndicator.superview == nil { addSubview(organizationDropIndicator) }
-        let leading = SidebarReorderIndicatorView.horizontalInset
-        let frame = NSRect(x: bounds.minX + leading, y: y,
-                           width: max(0, bounds.width - leading * 2),
-                           height: SidebarReorderIndicatorView.thickness)
-        if organizationDropIndicator.frame != frame { organizationDropIndicator.frame = frame }
-        organizationDropIndicator.isHidden = false
-    }
-
-    func clearOrganizationDropIndicator(sequence: Int? = nil) {
-        if let sequence, let current = dragDestinationSequenceNumber, current != sequence { return }
-        organizationDropIndicator.removeFromSuperview()
     }
 
     @available(*, unavailable)
@@ -207,6 +158,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
             menuPinnedNodeID = nil
         }
         updateHover(at: nil)
+        reorderPresentation.clear()
         NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: window)
         NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: window)
         super.viewWillMove(toWindow: newWindow)
@@ -238,11 +190,12 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     override func layout() {
         super.layout()
         refreshHover()
+        reorderPresentation.layout()
     }
 
     var activeNativeDragCoordinator: AnyObject?
     var activeNativeDragSession: NSDraggingSession? {
-        didSet { if activeNativeDragSession == nil { clearDragDestination() } }
+        didSet { if activeNativeDragSession == nil { clearDragDestination(); reorderPresentation.clear() } }
     }
     var onNativeDragPointerBoundary: (() -> Void)?
     var onDocumentContentChanged: (() -> Void)?
@@ -302,6 +255,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
 
     override func mouseDown(with event: NSEvent) {
         clearDragDestination()
+        reorderPresentation.clear()
         onNativeDragPointerBoundary?()
         super.mouseDown(with: event)
     }
@@ -310,7 +264,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         guard isCurrentDragDestination(sender) else { return }
         super.draggingExited(sender)
         clearDragDestination(sequence: sender?.draggingSequenceNumber)
-        clearOrganizationDropIndicator()
+        reorderPresentation.clear(sequence: sender?.draggingSequenceNumber)
     }
 
     override func draggingEnded(_ sender: any NSDraggingInfo) {
@@ -323,13 +277,13 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         guard isCurrentDragDestination(sender) else { return }
         super.concludeDragOperation(sender)
         clearDragDestination(sequence: sender?.draggingSequenceNumber)
-        clearOrganizationDropIndicator()
+        reorderPresentation.clear(sequence: sender?.draggingSequenceNumber)
     }
 
     override func viewDidHide() {
         super.viewDidHide()
         clearDragDestination()
-        clearOrganizationDropIndicator()
+        reorderPresentation.clear()
     }
 
     override func keyDown(with event: NSEvent) {
@@ -448,7 +402,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
 
     override func reloadData() {
         clearDragDestination()
-        clearOrganizationDropIndicator()
+        reorderPresentation.clear()
         updateHover(at: nil)
         super.reloadData()
         needsLayout = true

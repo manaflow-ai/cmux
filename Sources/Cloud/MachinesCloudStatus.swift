@@ -5,9 +5,9 @@ import SwiftUI
 /// Its row exists only while there is something to say; plan usage lives on the
 /// Cloud Machines header instead.
 struct MachinesCloudStatus: View {
-    let activeOperation: String?
     /// The machine-list status, only while cached machines stay on screen.
     let listStatus: MachineListStatus?
+    /// Dismissal identity only; upstream details are never presented.
     let listError: String?
     let treeError: String?
     let onDismissStale: (String) -> Void
@@ -16,10 +16,15 @@ struct MachinesCloudStatus: View {
     /// same three actions through it, so the toolbar row is not a dead end.
     let performListStatusAction: (MachineListStatusPresentation.Action) -> Void
 
+    /// The same safe recovery copy is used for text, hover help and copying.
+    var treeErrorMessage: String {
+        String(localized: "cloud.operation.failedAction", defaultValue: "This operation did not complete. Check the machine state before you try it again.")
+    }
+
     var body: some View {
-        if activeOperation != nil || listStatus != nil || treeError != nil {
+        if listStatus != nil || treeError != nil {
             HStack(spacing: 6) {
-                message
+                persistentMessage
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
@@ -28,28 +33,20 @@ struct MachinesCloudStatus: View {
     }
 
     @ViewBuilder
-    private var message: some View {
-        if let operation = activeOperation {
-            HStack(spacing: 5) {
-                ProgressView().controlSize(.mini)
-                Text(operation)
-                    .cmuxFont(size: 11)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-        } else if let listStatus {
+    private var persistentMessage: some View {
+        if let listStatus {
             MachinesListStatusToolbarRow(
                 status: listStatus,
-                error: listError,
+                dismissalSignature: listError,
                 onDismiss: onDismissStale,
                 perform: performListStatusAction
             )
         } else if let error = treeError {
+            let safeMessage = treeErrorMessage
             HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Image(systemName: "exclamationmark.triangle")
                     .font(.system(size: 10, weight: .semibold))
-                Text(error)
+                Text(safeMessage)
                     .cmuxFont(size: 11)
                     .lineLimit(2)
                     .truncationMode(.tail)
@@ -57,8 +54,8 @@ struct MachinesCloudStatus: View {
                 CloudBannerDismissButton { onDismissTreeError(error) }
             }
             .foregroundColor(.orange.opacity(0.9))
-            .help(error)
-            .cloudErrorCopyMenu(error)
+            .help(safeMessage)
+            .cloudErrorCopyMenu(safeMessage)
         }
     }
 }
