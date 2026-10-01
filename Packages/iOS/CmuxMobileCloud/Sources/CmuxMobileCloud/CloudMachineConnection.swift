@@ -92,9 +92,18 @@ private actor CloudConnectionHandshake {
 private actor CloudConnectionInFlight {
     typealias Session = any CloudTerminalSession
 
+    struct Lease: Sendable {
+        let id: UUID
+        let session: Session
+    }
+
     private let task: Task<Session, any Error>
     private var result: Result<Session, any Error>?
-    private var waiters: [UUID: CheckedContinuation<Session, any Error>] = [:]
+    private var successfulSession: Session?
+    private var waiters: [UUID: CheckedContinuation<Lease, any Error>] = [:]
+    private var deliveredWaiters: Set<UUID> = []
+    private var activeClaims = 0
+    private var sessionDisconnected = false
     private var cancelled = false
     private var isMonitoring = false
 
@@ -102,12 +111,18 @@ private actor CloudConnectionInFlight {
         self.task = task
     }
 
-    func wait() async throws -> Session {
+    func wait() async throws -> Lease {
         let id = UUID()
         return try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { continuation in
                 if let result {
-                    continuation.resume(with: result)
+                    switch result {
+                    case .success(let session):
+                        deliveredWaiters.insert(id)
+                        continuation.resume(returning: Lease(id: id, session: session))
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
                 } else if cancelled || task.isCancelled {
                     continuation.resume(throwing: CancellationError())
                 } else {
@@ -135,25 +150,55 @@ private actor CloudConnectionInFlight {
             return
         }
         self.result = result
-        let currentWaiters = waiters.values
+        let currentWaiters = waiters
         waiters.removeAll()
-        for waiter in currentWaiters {
-            waiter.resume(with: result)
+        switch result {
+        case .success(let session):
+            successfulSession = session
+            deliveredWaiters.formUnion(currentWaiters.keys)
+            for (id, waiter) in currentWaiters {
+                waiter.resume(returning: Lease(id: id, session: session))
+            }
+        case .failure(let error):
+            for waiter in currentWaiters.values {
+                waiter.resume(throwing: error)
+            }
         }
     }
 
     func cancelAll() {
         cancelled = true
         task.cancel()
-        let currentWaiters = waiters.values
+        let currentWaiters = Array(waiters.values)
         waiters.removeAll()
         for waiter in currentWaiters {
             waiter.resume(throwing: CancellationError())
         }
+        deliveredWaiters.removeAll()
+        if activeClaims == 0 {
+            releaseUnclaimedSessionIfNeeded()
+        }
+    }
+
+    func claim(_ lease: Lease) -> Bool {
+        guard deliveredWaiters.remove(lease.id) != nil else { return false }
+        activeClaims += 1
+        return true
+    }
+
+    func abandon(_ lease: Lease) {
+        guard deliveredWaiters.remove(lease.id) != nil else { return }
+        releaseUnclaimedSessionIfNeeded()
+    }
+
+    func abandonClaim() {
+        guard activeClaims > 0 else { return }
+        activeClaims -= 1
+        releaseUnclaimedSessionIfNeeded()
     }
 
     func hasWaiters() -> Bool {
-        !waiters.isEmpty
+        !waiters.isEmpty || !deliveredWaiters.isEmpty || activeClaims > 0
     }
 
     private func startMonitoringIfNeeded() {
@@ -171,12 +216,25 @@ private actor CloudConnectionInFlight {
     }
 
     private func cancelWaiter(_ id: UUID) {
-        guard let waiter = waiters.removeValue(forKey: id) else { return }
-        waiter.resume(throwing: CancellationError())
-        if waiters.isEmpty {
-            cancelled = true
-            task.cancel()
+        if let waiter = waiters.removeValue(forKey: id) {
+            waiter.resume(throwing: CancellationError())
+            if waiters.isEmpty {
+                cancelled = true
+                task.cancel()
+            }
+            return
         }
+        guard deliveredWaiters.remove(id) != nil else { return }
+        releaseUnclaimedSessionIfNeeded()
+    }
+
+    private func releaseUnclaimedSessionIfNeeded() {
+        guard activeClaims == 0,
+              deliveredWaiters.isEmpty,
+              !sessionDisconnected,
+              let successfulSession else { return }
+        sessionDisconnected = true
+        successfulSession.disconnect()
     }
 }
 
@@ -405,11 +463,19 @@ public final class CloudMachineConnection {
         }
         if let connectionInFlight {
             do {
-                let session = try await connectionInFlight.wait()
+                let lease = try await connectionInFlight.wait()
                 guard !closed, !Task.isCancelled else {
-                    session.disconnect()
+                    await connectionInFlight.abandon(lease)
                     throw CancellationError()
                 }
+                guard await connectionInFlight.claim(lease) else {
+                    throw CancellationError()
+                }
+                guard !closed, !Task.isCancelled else {
+                    await connectionInFlight.abandonClaim()
+                    throw CancellationError()
+                }
+                let session = lease.session
                 self.session = session
                 connectTask = nil
                 self.connectionInFlight = nil
@@ -486,11 +552,19 @@ public final class CloudMachineConnection {
         let connectionInFlight = CloudConnectionInFlight(task: task)
         self.connectionInFlight = connectionInFlight
         do {
-            let session = try await connectionInFlight.wait()
+            let lease = try await connectionInFlight.wait()
             guard !closed, !Task.isCancelled else {
-                session.disconnect()
+                await connectionInFlight.abandon(lease)
                 throw CancellationError()
             }
+            guard await connectionInFlight.claim(lease) else {
+                throw CancellationError()
+            }
+            guard !closed, !Task.isCancelled else {
+                await connectionInFlight.abandonClaim()
+                throw CancellationError()
+            }
+            let session = lease.session
             self.session = session
             connectTask = nil
             self.connectionInFlight = nil

@@ -33,9 +33,8 @@ public final class WireGuardNet: @unchecked Sendable {
     }
 }
 
-/// One authenticated link to a cmux daemon with a persistent device identity.
-public final class TerminalClient: @unchecked Sendable {
-    private let raw: OpaquePointer
+private final class TerminalClientState: @unchecked Sendable {
+    let raw: OpaquePointer
     /// Retained while an output handler is installed; the C callback context.
     private var outputBox: OutputBox?
     /// Most recently requested handler. A callback can request replacement
@@ -52,65 +51,13 @@ public final class TerminalClient: @unchecked Sendable {
     private let wireGuard: WireGuardNet?
     private let lock = NSCondition()
 
-    private init(raw: OpaquePointer, wireGuard: WireGuardNet?) {
+    init(raw: OpaquePointer, wireGuard: WireGuardNet?) {
         self.raw = raw
         self.wireGuard = wireGuard
     }
 
-    /// Connect by route. `stateDirectory` must persist across launches and be
-    /// private to this device. Pass `invitation` for the first contact with a
-    /// daemon and nil afterwards. A nil invitation with no enrolled daemon for
-    /// the route throws an error mentioning "invitation". `trustedCarrier` is
-    /// an explicit Cloud API grant and requires a route inside `wireGuard`.
-    public static func connect(
-        route: String,
-        stateDirectory: URL,
-        deviceName: String,
-        invitation: String? = nil,
-        trustedCarrier: Bool = false,
-        wireGuard: WireGuardNet? = nil,
-        timeout: Duration = .seconds(30)
-    ) throws -> TerminalClient {
-        var error = [CChar](repeating: 0, count: 1024)
-        let raw: OpaquePointer?
-        if trustedCarrier {
-            guard invitation == nil else {
-                throw TerminalClientError.failed("Trusted Cloud access cannot also use an invitation")
-            }
-            guard let wireGuard else {
-                throw TerminalClientError.failed("Trusted Cloud access requires a WireGuard tunnel")
-            }
-            guard cmux_wireguard_net_route_is_allowed(
-                wireGuard.raw, route, &error, error.count)
-            else {
-                throw TerminalClientError.failed(String(cString: error))
-            }
-            raw = cmux_terminal_client_connect_trusted_route(
-                route, stateDirectory.path, deviceName, wireGuard.raw,
-                &error, error.count, timeout.milliseconds)
-        } else {
-            raw = invitation.withOptionalCString { invitationPointer in
-                cmux_terminal_client_connect_route(
-                    route,
-                    stateDirectory.path,
-                    deviceName,
-                    invitationPointer,
-                    wireGuard?.raw,
-                    &error,
-                    error.count,
-                    timeout.milliseconds)
-            }
-        }
-        guard let raw else { throw TerminalClientError.failed(String(cString: error)) }
-        return TerminalClient(raw: raw, wireGuard: wireGuard)
-    }
-
-    deinit {
-        disconnect()
-    }
-
     /// Schedules closure of the daemon link. Safe to call more than once.
-    public func disconnect() {
+    func disconnect() {
         lock.lock()
         guard !didDisconnect else {
             lock.unlock()
@@ -126,11 +73,12 @@ public final class TerminalClient: @unchecked Sendable {
         // Drain native operations off the caller's thread. Cloud lifecycle
         // methods run on the main actor, and a native operation may remain in
         // flight until its timeout or callback returns.
-        DispatchQueue.global(qos: .userInitiated).async { [self] in
+        let state = self
+        DispatchQueue.global(qos: .userInitiated).async {
             // The C callback must return before its setter can be called from
-            // the same callback thread. Keeping self alive also keeps the
-            // callback context valid until the drain completes.
-            finishDisconnect()
+            // the same callback thread. The state remains alive until the
+            // drain completes, so its callback context stays valid.
+            state.finishDisconnect()
         }
     }
 
@@ -156,7 +104,7 @@ public final class TerminalClient: @unchecked Sendable {
         cmux_terminal_client_disconnect(raw)
     }
 
-    private func withConnectedFFI<Result>(
+    func withConnectedFFI<Result>(
         _ operation: (OpaquePointer) throws -> Result
     ) throws -> Result {
         lock.lock()
@@ -177,10 +125,7 @@ public final class TerminalClient: @unchecked Sendable {
         return try operation(raw)
     }
 
-    /// Install before `attach`. Runs on library worker threads; hop to the
-    /// main actor before touching UI.
-    public func setOutputHandler(_ handler: (@Sendable (TerminalOutputEvent) -> Void)?) {
-        let requested = handler.map { OutputBox(handler: $0, owner: self) }
+    func setOutputHandler(_ requested: OutputBox?) {
         lock.lock()
         guard !didDisconnect else {
             lock.unlock()
@@ -197,21 +142,22 @@ public final class TerminalClient: @unchecked Sendable {
         if deferUntilCallbackReturns {
             // The FFI waits for the active callback to return. Applying from
             // this callback would deadlock if the handler replaces itself.
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                self?.applyOutputHandlerUpdates()
+            let state = self
+            DispatchQueue.global(qos: .userInitiated).async {
+                state.applyOutputHandlerUpdates()
             }
         } else {
             applyOutputHandlerUpdates()
         }
     }
 
-    fileprivate func beginOutputCallback() {
+    func beginOutputCallback() {
         lock.lock()
         outputCallbackDepth += 1
         lock.unlock()
     }
 
-    fileprivate func endOutputCallback() {
+    func endOutputCallback() {
         lock.lock()
         outputCallbackDepth = max(0, outputCallbackDepth - 1)
         if outputCallbackDepth == 0 {
@@ -290,10 +236,91 @@ public final class TerminalClient: @unchecked Sendable {
             }
         }
     }
+}
+
+/// One authenticated link to a cmux daemon with a persistent device identity.
+public final class TerminalClient: @unchecked Sendable {
+    private let state: TerminalClientState
+
+    private init(raw: OpaquePointer, wireGuard: WireGuardNet?) {
+        self.state = TerminalClientState(raw: raw, wireGuard: wireGuard)
+    }
+
+    /// Connect by route. `stateDirectory` must persist across launches and be
+    /// private to this device. Pass `invitation` for the first contact with a
+    /// daemon and nil afterwards. A nil invitation with no enrolled daemon for
+    /// the route throws an error mentioning "invitation". `trustedCarrier` is
+    /// an explicit Cloud API grant and requires a route inside `wireGuard`.
+    public static func connect(
+        route: String,
+        stateDirectory: URL,
+        deviceName: String,
+        invitation: String? = nil,
+        trustedCarrier: Bool = false,
+        wireGuard: WireGuardNet? = nil,
+        timeout: Duration = .seconds(30)
+    ) throws -> TerminalClient {
+        var error = [CChar](repeating: 0, count: 1024)
+        let raw: OpaquePointer?
+        if trustedCarrier {
+            guard invitation == nil else {
+                throw TerminalClientError.failed("Trusted Cloud access cannot also use an invitation")
+            }
+            guard let wireGuard else {
+                throw TerminalClientError.failed("Trusted Cloud access requires a WireGuard tunnel")
+            }
+            guard cmux_wireguard_net_route_is_allowed(
+                wireGuard.raw, route, &error, error.count)
+            else {
+                throw TerminalClientError.failed(String(cString: error))
+            }
+            raw = cmux_terminal_client_connect_trusted_route(
+                route, stateDirectory.path, deviceName, wireGuard.raw,
+                &error, error.count, timeout.milliseconds)
+        } else {
+            raw = invitation.withOptionalCString { invitationPointer in
+                cmux_terminal_client_connect_route(
+                    route,
+                    stateDirectory.path,
+                    deviceName,
+                    invitationPointer,
+                    wireGuard?.raw,
+                    &error,
+                    error.count,
+                    timeout.milliseconds)
+            }
+        }
+        guard let raw else { throw TerminalClientError.failed(String(cString: error)) }
+        return TerminalClient(raw: raw, wireGuard: wireGuard)
+    }
+
+    deinit {
+        state.disconnect()
+    }
+
+    /// Schedules closure of the daemon link. Safe to call more than once.
+    public func disconnect() {
+        state.disconnect()
+    }
+
+    /// Install before `attach`. Runs on library worker threads; hop to the
+    /// main actor before touching UI.
+    public func setOutputHandler(_ handler: (@Sendable (TerminalOutputEvent) -> Void)?) {
+        let requested = handler.map { OutputBox(handler: $0, owner: self) }
+        state.setOutputHandler(requested)
+    }
+
+    fileprivate func beginOutputCallback() {
+        state.beginOutputCallback()
+    }
+
+    fileprivate func endOutputCallback() {
+        state.endOutputCallback()
+    }
 
     public func listTerminals(timeout: Duration = .seconds(15)) throws -> [TerminalSummary] {
         var error = [CChar](repeating: 0, count: 1024)
-        guard let text = try withConnectedFFI({ raw in
+        guard let text = try state.withConnectedFFI({ raw in
             cmux_terminal_client_list_terminals(raw, &error, error.count, timeout.milliseconds)
         }) else {
             throw TerminalClientError.failed(String(cString: error))
@@ -306,7 +333,7 @@ public final class TerminalClient: @unchecked Sendable {
     public func createTerminal(name: String? = nil, timeout: Duration = .seconds(15)) throws -> String {
         var error = [CChar](repeating: 0, count: 1024)
         let text = try name.withOptionalCString { namePointer in
-            try withConnectedFFI { raw in
+            try state.withConnectedFFI { raw in
                 cmux_terminal_client_create_terminal(raw, namePointer, &error, error.count, timeout.milliseconds)
             }
         }
@@ -326,7 +353,7 @@ public final class TerminalClient: @unchecked Sendable {
         var error = [CChar](repeating: 0, count: 1024)
         let text = try workspaceID.withCString { workspacePointer in
             try name.withOptionalCString { namePointer in
-                try withConnectedFFI { raw in
+                try state.withConnectedFFI { raw in
                     cmux_terminal_client_create_terminal_in_workspace(
                         raw, workspacePointer, namePointer, &error, error.count, timeout.milliseconds
                     )
@@ -340,7 +367,7 @@ public final class TerminalClient: @unchecked Sendable {
 
     public func listWorkspaces(timeout: Duration = .seconds(15)) throws -> [RemoteWorkspaceSummary] {
         var error = [CChar](repeating: 0, count: 1024)
-        guard let text = try withConnectedFFI({ raw in
+        guard let text = try state.withConnectedFFI({ raw in
             cmux_terminal_client_list_workspaces(raw, &error, error.count, timeout.milliseconds)
         }) else {
             throw TerminalClientError.failed(String(cString: error))
@@ -353,7 +380,7 @@ public final class TerminalClient: @unchecked Sendable {
     public func createWorkspace(name: String? = nil, timeout: Duration = .seconds(15)) throws -> String {
         var error = [CChar](repeating: 0, count: 1024)
         let text = try name.withOptionalCString { namePointer in
-            try withConnectedFFI { raw in
+            try state.withConnectedFFI { raw in
                 cmux_terminal_client_create_workspace(raw, namePointer, &error, error.count, timeout.milliseconds)
             }
         }
@@ -366,7 +393,7 @@ public final class TerminalClient: @unchecked Sendable {
     /// terminal placed under the workspace that shows it.
     public func loadCatalog(timeout: Duration = .seconds(15)) throws -> SessionCatalog {
         var error = [CChar](repeating: 0, count: 1024)
-        guard let text = try withConnectedFFI({ raw in
+        guard let text = try state.withConnectedFFI({ raw in
             cmux_terminal_client_session_snapshot(raw, &error, error.count, timeout.milliseconds)
         }) else {
             throw TerminalClientError.failed(String(cString: error))
@@ -380,14 +407,14 @@ public final class TerminalClient: @unchecked Sendable {
     /// or terminal host that predates it keeps sharing the smallest grid.
     @discardableResult
     public func setViewerSizePriority(_ preferred: Bool) -> Bool {
-        (try? withConnectedFFI { raw in
+        (try? state.withConnectedFFI { raw in
             cmux_terminal_client_set_viewer_size_priority(raw, preferred)
         }) ?? false
     }
 
     public func attach(terminalID: String, timeout: Duration = .seconds(15)) throws {
         var error = [CChar](repeating: 0, count: 1024)
-        guard try withConnectedFFI({ raw in
+        guard try state.withConnectedFFI({ raw in
             cmux_terminal_client_attach_with_timeout(raw, terminalID, &error, error.count, timeout.milliseconds)
         }) else {
             throw TerminalClientError.failed(String(cString: error))
@@ -395,7 +422,7 @@ public final class TerminalClient: @unchecked Sendable {
     }
 
     public func detach() {
-        _ = try? withConnectedFFI { raw in
+        _ = try? state.withConnectedFFI { raw in
             cmux_terminal_client_detach(raw)
         }
     }
@@ -403,7 +430,7 @@ public final class TerminalClient: @unchecked Sendable {
     /// Queue input bytes. False means the local queue refused them.
     @discardableResult
     public func send(_ bytes: Data) -> Bool {
-        (try? withConnectedFFI { raw in
+        (try? state.withConnectedFFI { raw in
             bytes.withUnsafeBytes { buffer in
                 cmux_terminal_client_send(raw, buffer.bindMemory(to: UInt8.self).baseAddress, buffer.count)
             }
@@ -412,7 +439,7 @@ public final class TerminalClient: @unchecked Sendable {
 
     @discardableResult
     public func paste(_ bytes: Data) -> Bool {
-        (try? withConnectedFFI { raw in
+        (try? state.withConnectedFFI { raw in
             bytes.withUnsafeBytes { buffer in
                 cmux_terminal_client_paste(raw, buffer.bindMemory(to: UInt8.self).baseAddress, buffer.count)
             }
@@ -421,13 +448,13 @@ public final class TerminalClient: @unchecked Sendable {
 
     @discardableResult
     public func resize(cols: UInt16, rows: UInt16) -> Bool {
-        (try? withConnectedFFI { raw in
+        (try? state.withConnectedFFI { raw in
             cmux_terminal_client_resize(raw, cols, rows)
         }) ?? false
     }
 
     public var hasExited: Bool {
-        (try? withConnectedFFI { raw in
+        (try? state.withConnectedFFI { raw in
             cmux_terminal_client_has_exited(raw)
         }) ?? false
     }
