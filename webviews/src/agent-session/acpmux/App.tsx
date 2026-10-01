@@ -4,6 +4,8 @@ import { applyAgentTheme } from "../shared/theme";
 import { diffRows, layoutConversation, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { startMockHost } from "./mock";
+import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
+import { acpmuxPerf } from "./perf";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: { userMessage?: string } };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
@@ -18,7 +20,7 @@ declare global {
       applyCustomization(customization: { themeCSS?: string; registryJS?: string; layout?: Record<string, unknown> }): void;
     };
     cmuxAcpmuxRegistry?: { register(kind: string, renderer: MeasurableRenderer, options?: { measure?: (row: AcpmuxRow, width: number) => number }): void; configure(options: Record<string, unknown>): void };
-    cmuxAcpmuxDebug?: { seedRows(count: number): void; startFling(seconds: number): void; flingStats(): Record<string, unknown> };
+    cmuxAcpmuxDebug?: AcpmuxDebug;
     cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
     React?: typeof React;
   }
@@ -93,6 +95,8 @@ function MeasuredCustomRow({ children, onHeight }: { children: React.ReactNode; 
 }
 
 function VirtualTranscript({ rows, onToggleActivity, expanded }: { rows: AcpmuxRow[]; onToggleActivity: (id: string) => void; expanded: Set<string> }) {
+  // Debug measurement (acpmuxPerf): off until the first debug call.
+  const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   const [scrollTop, setScrollTop] = useState(0);
   const [height, setHeight] = useState(600);
   const ref = useRef<HTMLDivElement>(null);
@@ -104,8 +108,17 @@ function VirtualTranscript({ rows, onToggleActivity, expanded }: { rows: AcpmuxR
   const registry = { ...defaultRegistry, ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined) };
   const rowKind = (row: AcpmuxRow) => row.kind === "activity" && row.items?.some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ? "editedFiles" : row.kind;
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
+  const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
   const layout = layoutConversation(rows, Math.max(120, width - 36), measurementCache.current, (row, rowWidth) => registry[rowKind(row)]?.measure?.(row, rowWidth) ?? measuredHeights.get(row.id));
+  const layoutMs = acpmuxPerf.enabled ? performance.now() - layoutStart : 0;
+  if (acpmuxPerf.enabled) acpmuxPerf.addLayout(layoutMs);
   const range = visibleLayoutRange(layout, scrollTop, height);
+  useLayoutEffect(() => {
+    const last = range.last - 1;
+    acpmuxPerf.mountedTop = range.last > range.first ? layout.tops[range.first] : 0;
+    acpmuxPerf.mountedBottom = range.last > range.first ? layout.tops[last] + layout.heights[last] : 0;
+    if (acpmuxPerf.enabled && renderStart > 0) { const now = performance.now(); acpmuxPerf.commit(now - renderStart, layoutMs, acpmuxPerf.mountedTop, acpmuxPerf.mountedBottom, now); }
+  });
   useLayoutEffect(() => {
     const old = previousLayout.current;
     const node = ref.current;
@@ -144,38 +157,13 @@ export function AcpmuxApp() {
       applyTheme(theme) { applyAgentTheme(theme as never); },
       applyCustomization(customization) { if (customization.themeCSS) { let style = document.getElementById("acpmux-user-theme") as HTMLStyleElement | null; if (!style) { style = document.createElement("style"); style.id = "acpmux-user-theme"; document.head.append(style); } style.textContent = customization.themeCSS; } if (customization.registryJS) { try { (0, eval)(customization.registryJS); setRegistryEpoch((value) => value + 1); } catch { /* a user renderer must not take down the transcript */ } } },
     };
-    let flingFrames: number[] = [];
-    let flingRunning = false;
-    window.cmuxAcpmuxDebug = {
-      seedRows(count) {
-        const rows = Array.from({ length: count }, (_, index) => ({ id: `seed-${index}`, version: 1, at: index, kind: index % 9 === 0 ? "user" : index % 7 === 0 ? "activity" : "assistant", text: `Seed row ${index}: **markdown** content for the 5,000-row fling.` }));
+    window.cmuxAcpmuxDebug = createAcpmuxDebug({
+      replaceRows(rows) {
         rowsRef.current = new Map(rows.map((row) => [row.id, row]));
-        setSnapshot((current) => ({ ...current, rows, connection: "debug", isWorking: false }));
+        setSnapshot((current) => ({ ...current, rows, connection: "debug", isWorking: false, canLoadOlder: false }));
       },
-      startFling(seconds) {
-        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
-        if (!scroller) return;
-        const start = performance.now();
-        const from = scroller.scrollTop;
-        const to = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-        let previous = start;
-        flingFrames = [];
-        flingRunning = true;
-        const tick = (now: number) => {
-          flingFrames.push(now - previous);
-          previous = now;
-          const progress = Math.min(1, (now - start) / (Math.max(0.1, seconds) * 1000));
-          scroller.scrollTop = from + (to - from) * (1 - progress);
-          if (progress < 1) requestAnimationFrame(tick); else flingRunning = false;
-        };
-        requestAnimationFrame(tick);
-      },
-      flingStats() {
-        const sorted = [...flingFrames].sort((a, b) => a - b);
-        const percentile = (fraction: number) => sorted.length ? sorted[Math.min(sorted.length - 1, Math.round((sorted.length - 1) * fraction))] : 0;
-        return { running: flingRunning, rows: rowsRef.current.size, frames: sorted.length, p50_ms: percentile(0.5), p95_ms: percentile(0.95), p99_ms: percentile(0.99), max_ms: sorted.at(-1) ?? 0 };
-      },
-    };
+      rowCount: () => rowsRef.current.size,
+    });
     let cancelled = false;
     let retryTimer: number | undefined;
     let retryDelay = 250;
