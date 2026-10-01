@@ -175,12 +175,15 @@ describe("direct client session state", () => {
   });
 
   test("lag recovery merges missed events without clearing the transcript", async () => {
-    await connect();
+    const client = await connect();
+    ScriptedSocket.held.add("session/prompt");
+    void client.send("still sending").catch(() => undefined);
+    await settle();
     ScriptedSocket.respond = ({ method, params }) => method === "_acpmux/events" && params.afterSeq === 6 ? { events: [userEvent("a", 7, "a seven")] } : {};
     ScriptedSocket.current.notify("_acpmux/lagged", { sessionId: "a" });
-    expect(texts()).toEqual(["a five", "a six"]);
+    expect(texts()).toEqual(["a five", "a six", "still sending"]);
     await settle();
-    expect(texts()).toEqual(["a five", "a six", "a seven"]);
+    expect(texts()).toEqual(["a five", "a six", "a seven", "still sending"]);
     expect(latest().queue).toEqual([{ id: "q1", prompt: "queued" }]);
   });
 

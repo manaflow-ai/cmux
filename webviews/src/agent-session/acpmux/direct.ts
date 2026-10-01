@@ -218,13 +218,31 @@ export class AcpmuxDirectClient {
     });
     else if (notification.method === "_acpmux/session_changed") this.sessionChanged(notification.params);
     else if (notification.method === "_acpmux/permission_pending") this.applyPermission(notification.params);
+    else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
+  }
+
+  /// The daemon dropped events for this client. Fetch what came after the last
+  /// one seen and merge it in, keeping the transcript on screen meanwhile.
+  private resyncAfterLag(params: any): void {
+    const sessionId = String(params?.sessionId ?? "");
+    if (!sessionId || sessionId !== this.selectedSessionId) return;
+    const generation = this.selectionGeneration;
+    const afterSeq = this.lastSeq;
+    this.emit("resyncing");
+    void this.request("_acpmux/events", { sessionId, afterSeq, limit: 5_000 }).then((result) => {
+      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+      this.events = mergeEventRecords(this.events, result?.events ?? []);
+      this.rebuild();
+      this.emit("resynced");
+    }).catch(() => undefined);
   }
 
   private request(method: string, params: Record<string, unknown>): Promise<any> {
+    if (this.socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error("acpmux WebSocket is not open"));
     const id = this.nextRequest++;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.socket?.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
+      this.socket!.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
     });
   }
 
@@ -284,7 +302,9 @@ export class AcpmuxDirectClient {
   }
 
   private rebuild(): void {
-    this.rows.clear(); this.optimisticPromptRows.clear(); this.optimisticPromptTexts.clear(); this.firstSeq = undefined; this.lastSeq = 0; this.turnOpen = false; this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined; this.supersededMessageIds.clear(); this.messageRows.clear(); this.pendingPermission = undefined;
+    // A prompt still in flight keeps its optimistic row until an event settles it.
+    const inFlight = [...this.optimisticPromptRows.values()].flatMap((rowId) => this.rows.get(rowId) ?? []);
+    this.rows.clear(); for (const row of inFlight) this.rows.set(row.id, row); this.firstSeq = undefined; this.lastSeq = 0; this.turnOpen = false; this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined; this.supersededMessageIds.clear(); this.messageRows.clear(); this.pendingPermission = undefined;
     const events = [...this.events].sort((a, b) => a.seq - b.seq);
     for (const event of events) { this.lastSeq = Math.max(this.lastSeq, event.seq); this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq); this.reduce(event); }
   }
