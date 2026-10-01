@@ -162,7 +162,8 @@ extension WKUserScript {
           // The first composed path entry is the edited node even inside an
           // open shadow root, which the form scan above cannot reach.
           const origin = typeof event.composedPath === "function" ? event.composedPath()[0] : event.target;
-          if (origin && (origin.isContentEditable || (origin.getRootNode && origin.getRootNode() !== document))) {
+          const nativeControl = origin instanceof HTMLInputElement || origin instanceof HTMLTextAreaElement || origin instanceof HTMLSelectElement;
+          if (origin && (!nativeControl || origin.isContentEditable || (origin.getRootNode && origin.getRootNode() !== document))) {
             editedUntrackedContent = true;
           }
           schedule();
@@ -286,6 +287,11 @@ extension WKWebView {
     const apply = (el, field) => {
       if (el instanceof HTMLSelectElement) {
         if (!Array.isArray(field.s)) return true;
+        const current = Array.from(el.options).flatMap((option, index) => option.selected ? [index] : []);
+        let defaults = Array.from(el.options).flatMap((option, index) => option.defaultSelected ? [index] : []);
+        if (!el.multiple && defaults.length === 0 && el.options.length > 0) defaults.push(0);
+        if (current.join(",") !== defaults.join(",")) return true;
+        if (field.s.some((index) => index < 0 || index >= el.options.length) || (!el.multiple && field.s.length > 1)) return true;
         const wanted = new Set(field.s);
         Array.from(el.options).forEach((option, index) => { option.selected = wanted.has(index); });
       } else if (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio")) {

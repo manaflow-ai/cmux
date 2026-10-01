@@ -69,7 +69,7 @@ public final class BrowserHiddenWebViewDiscardManager {
     /// it instead of restoring when its pane is shown.
     public var waitsForManualRestore: Bool {
         isDiscardedForMemory && !isRestoreNavigationPending && !isDeferredFirstLoad
-            && !policyState.autoRestoresUnloadedPages
+            && !BrowserHiddenWebViewDiscardPolicy.autoRestoresUnloadedPages(defaults: policyDefaults)
     }
 
     public var hasScheduledDiscard: Bool {
@@ -193,6 +193,10 @@ public final class BrowserHiddenWebViewDiscardManager {
     public func requestImmediateDiscardIfSafe(reason: String, now: Date = Date()) -> Bool {
         guard let delegate else { return false }
         let urgency = BrowserHiddenWebViewDiscardUrgency(reason: reason)
+        if urgency != .systemMemoryPressure,
+           BrowserHiddenWebViewDiscardPolicy.mode(defaults: policyDefaults) != .timer {
+            return false
+        }
         guard blockers(for: delegate.hiddenWebViewDiscardSnapshot, now: now, urgency: urgency).isEmpty else {
             return false
         }

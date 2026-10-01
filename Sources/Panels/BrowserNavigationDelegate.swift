@@ -602,7 +602,6 @@ import WebKit
             decisionHandler(.cancel)
             return
         }
-
         if navigationAction.targetFrame == nil,
            browserNavigationShouldFallbackNilTargetToNewTab(
                navigationType: navigationAction.navigationType
@@ -638,7 +637,6 @@ import WebKit
                 clearAttemptedRequest()
             }
         }
-        recordAllowedNavigationRequest(navigationAction)
         if restartNavigationForUserAgentPolicyIfNeeded(
             navigationAction,
             in: webView,
@@ -654,8 +652,8 @@ import WebKit
             // accepted main-frame action while the bounded file probe runs so
             // other navigation policy branches remain synchronous.
             let encodingPolicy = owner.localFileEncodingPolicy
-            Task { @MainActor [weak owner, weak webView, encodingPolicy] in
-                guard let owner, let webView,
+            Task { @MainActor [weak owner, weak webView, weak self, encodingPolicy] in
+                guard let owner, let webView, let self,
                       owner.webView === webView else {
                     decisionHandler(.cancel)
                     return
@@ -672,10 +670,12 @@ import WebKit
                     decisionHandler(.cancel)
                     return
                 }
+                self.recordAllowedNavigationRequest(navigationAction)
                 decisionHandler(.allow)
             }
             return
         }
+        recordAllowedNavigationRequest(navigationAction)
         decisionHandler(.allow)
     }
 

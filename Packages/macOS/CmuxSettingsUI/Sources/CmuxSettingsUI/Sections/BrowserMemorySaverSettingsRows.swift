@@ -26,6 +26,7 @@ struct BrowserMemorySaverSettingsRows: View {
             Toggle("", isOn: $enabled)
                 .labelsHidden()
                 .controlSize(.small)
+                .accessibilityLabel(String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Browser Memory Saver"))
                 .accessibilityIdentifier("SettingsBrowserHiddenWebViewDiscardToggle")
         }
         SettingsCardDivider()
@@ -44,6 +45,7 @@ struct BrowserMemorySaverSettingsRows: View {
             .labelsHidden()
             .pickerStyle(.menu)
             .disabled(!enabled)
+            .accessibilityLabel(String(localized: "settings.browser.hiddenWebViewDiscardMode", defaultValue: "Memory Saver Mode"))
             .accessibilityIdentifier("SettingsBrowserHiddenWebViewDiscardModePicker")
         }
         SettingsCardDivider()
@@ -63,6 +65,7 @@ struct BrowserMemorySaverSettingsRows: View {
                     .labelsHidden()
             }
             .disabled(!enabled || mode != .memoryBudget)
+            .accessibilityLabel(String(localized: "settings.browser.hiddenWebViewMemoryBudget", defaultValue: "Hidden Tab Memory Budget"))
             .accessibilityIdentifier("SettingsBrowserHiddenWebViewMemoryBudgetStepper")
         }
         SettingsCardDivider()
@@ -82,6 +85,7 @@ struct BrowserMemorySaverSettingsRows: View {
                     .labelsHidden()
             }
             .disabled(!enabled)
+            .accessibilityLabel(String(localized: "settings.browser.hiddenWebViewDiscardDelay", defaultValue: "Memory Saver Delay"))
             .accessibilityIdentifier("SettingsBrowserHiddenWebViewDiscardDelayStepper")
         }
         SettingsCardDivider()
@@ -94,6 +98,7 @@ struct BrowserMemorySaverSettingsRows: View {
             Toggle("", isOn: $autoRestore)
                 .labelsHidden()
                 .controlSize(.small)
+                .accessibilityLabel(String(localized: "settings.browser.autoRestoreUnloadedPages", defaultValue: "Restore Unloaded Pages Automatically"))
                 .accessibilityIdentifier("SettingsBrowserAutoRestoreUnloadedPagesToggle")
         }
     }

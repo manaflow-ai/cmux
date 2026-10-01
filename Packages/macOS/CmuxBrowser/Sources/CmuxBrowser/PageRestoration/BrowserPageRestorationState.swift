@@ -245,6 +245,11 @@ public final class BrowserPageRestorationState {
         return pendingFormRestore
     }
 
+    /// Puts a failed form restore back so a later document milestone can retry it.
+    public func retryPendingFormRestore(_ snapshot: BrowserFormStateSnapshot) {
+        pendingFormRestore = snapshot
+    }
+
     /// Session state that may be written to the session file for a pane whose
     /// web view is discarded, or nil when the capture may not be persisted.
     public func persistableDiscardedInteractionState() -> Data? {

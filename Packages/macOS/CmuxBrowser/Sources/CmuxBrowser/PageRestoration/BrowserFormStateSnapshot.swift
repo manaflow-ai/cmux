@@ -76,7 +76,12 @@ public struct BrowserFormStateSnapshot: Equatable, Sendable {
             } else if let checked = entry["c"] as? Bool {
                 field = Field(key: key, isChecked: checked)
             } else if let selected = entry["s"] as? [Any] {
-                field = Field(key: key, selectedOptionIndexes: selected.compactMap { ($0 as? NSNumber)?.intValue })
+                let indexes = selected.compactMap { ($0 as? NSNumber)?.intValue }
+                guard indexes.count == selected.count else {
+                    hasUnrestorableInput = true
+                    continue
+                }
+                field = Field(key: key, selectedOptionIndexes: indexes)
             } else {
                 continue
             }
@@ -95,14 +100,14 @@ public struct BrowserFormStateSnapshot: Equatable, Sendable {
     public func sharesOrigin(with url: URL?) -> Bool {
         guard let url else { return false }
         if documentURL.isFileURL || url.isFileURL {
-            return Self.isSameDocument(documentURL, url)
+            return documentURL.isFileURL && url.isFileURL && Self.isSameDocument(documentURL, url)
         }
         guard let scheme = documentURL.scheme?.lowercased(), let host = documentURL.host?.lowercased() else {
             return false
         }
-        return scheme == url.scheme?.lowercased()
-            && host == url.host?.lowercased()
-            && documentURL.port == url.port
+        guard scheme == url.scheme?.lowercased(), host == url.host?.lowercased() else { return false }
+        let defaultPort = scheme == "https" ? 443 : scheme == "http" ? 80 : nil
+        return (documentURL.port ?? defaultPort) == (url.port ?? defaultPort)
     }
 
     /// Whether two URLs load the same document. Fragment changes keep the
@@ -127,6 +132,7 @@ public struct BrowserFormStateSnapshot: Equatable, Sendable {
     }
 
     static func documentIdentity(_ url: URL) -> String {
+        if url.isFileURL { return url.standardizedFileURL.path }
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return url.absoluteString
         }

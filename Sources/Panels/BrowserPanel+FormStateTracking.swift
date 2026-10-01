@@ -36,6 +36,7 @@ extension BrowserPanel {
     func applyPendingFormRestore(to webView: WKWebView) {
         guard let formState = pageRestoration.takePendingFormRestore(for: webView.url) else { return }
         webView.restoreBrowserFormState(formState) { error in
+            self.pageRestoration.retryPendingFormRestore(formState)
 #if DEBUG
             cmuxDebugLog("browser.discard.formRestore failed error=\(error.localizedDescription)")
 #else

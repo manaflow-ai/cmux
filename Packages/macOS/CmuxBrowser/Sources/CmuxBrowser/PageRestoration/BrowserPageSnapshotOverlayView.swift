@@ -31,16 +31,16 @@ public final class BrowserPageSnapshotOverlayView: NSView {
         if let snapshot, let image = NSImage(data: snapshot.jpegData) {
             image.size = snapshot.pointSize
             imageView.image = image
-            imageView.imageScaling = .scaleNone
-            imageView.imageAlignment = .alignTopLeft
+            imageView.imageScaling = .scaleProportionallyUpOrDown
+            imageView.imageAlignment = .alignCenter
             imageView.imageFrameStyle = .none
             imageView.translatesAutoresizingMaskIntoConstraints = false
             addSubview(imageView)
             NSLayoutConstraint.activate([
                 imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
                 imageView.topAnchor.constraint(equalTo: topAnchor),
-                imageView.widthAnchor.constraint(equalToConstant: snapshot.pointSize.width),
-                imageView.heightAnchor.constraint(equalToConstant: snapshot.pointSize.height)
+                imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                imageView.bottomAnchor.constraint(equalTo: bottomAnchor)
             ])
         }
 

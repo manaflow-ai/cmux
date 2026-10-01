@@ -42,7 +42,11 @@ public struct BrowserHiddenWebViewMemoryBudgetPlanner: Sendable {
     }
 
     public init(budgetMB: Int) {
-        self.init(budgetBytes: UInt64(max(0, budgetMB)) * 1024 * 1024)
+        let megabytes = max(0, budgetMB)
+        let budgetBytes = megabytes > Int.max / 1_048_576
+            ? UInt64.max
+            : UInt64(megabytes) * 1_048_576
+        self.init(budgetBytes: budgetBytes)
     }
 
     /// - Parameter footprintBytes: The physical footprint of a process, or

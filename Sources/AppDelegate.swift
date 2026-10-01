@@ -1784,6 +1784,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if isRunningUnderXCTest {
             SystemWideHotkeySettings.reset()
             KeyboardShortcutSettings.resetAll()
+            if TestProcessDefaults.isolatedDomainName == nil {
+                Self.forgetPersistedWindowGeometryForTestProcess()
+            }
         }
 #endif
 

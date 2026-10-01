@@ -83,7 +83,10 @@ extension BrowserPanel {
            pendingRecoveryURL == nil,
            BrowserDiscardRestoreStrategy.canRestoreSessionState(for: documentURL),
            let restoreURL,
-           (Self.remoteProxyDisplayURL(for: documentURL) ?? documentURL) == restoreURL {
+           BrowserFormStateSnapshot.isSameDocument(
+               Self.remoteProxyDisplayURL(for: documentURL) ?? documentURL,
+               restoreURL
+           ) {
             interactionState = webView.interactionState as? Data
         }
         return DiscardedPageState(
