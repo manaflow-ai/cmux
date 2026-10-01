@@ -3,22 +3,24 @@ import { AcpmuxDirectClient } from "./direct";
 
 /// A loopback acpmux that answers the open handshake and can drop the socket.
 class FakeSocket {
+  static OPEN = 1;
   static made: FakeSocket[] = [];
+  readyState = 0;
   onopen?: () => void;
   onerror?: () => void;
   onclose?: () => void;
   onmessage?: (message: { data: string }) => void;
   constructor(readonly url: URL) {
     FakeSocket.made.push(this);
-    queueMicrotask(() => this.onopen?.());
+    queueMicrotask(() => { this.readyState = 1; this.onopen?.(); });
   }
   send(raw: string) {
     const { id, method } = JSON.parse(raw) as { id: number; method: string };
     const result = method === "_acpmux/watch" ? { sessions: [] } : {};
     queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id, result }) }));
   }
-  close() {}
-  drop() { this.onclose?.(); }
+  close() { this.readyState = 3; }
+  drop() { this.readyState = 3; this.onclose?.(); }
 }
 
 const realSocket = globalThis.WebSocket;
