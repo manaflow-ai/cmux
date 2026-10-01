@@ -110,6 +110,12 @@ jobs:
           set -euo pipefail
           GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh
 
+      # SwiftPM links a binary target's static archive only when its name
+      # starts with `lib`; the prebuilt one is `ghostty-internal.a`, so
+      # CmuxNextAppTests (through CmuxNextTerminal) failed to link.
+      - name: Give GhosttyKit's archives the lib prefix SwiftPM links
+        run: scripts/cmux-next/prefix-ghosttykit-archives.sh GhosttyKit.xcframework
+
       - name: Build package and tests
         working-directory: Packages/macOS/CmuxNext
         run: swift build --build-tests
