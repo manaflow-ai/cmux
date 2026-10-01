@@ -64,6 +64,13 @@ pub(super) fn parse_message(
         if thread.is_some() {
             return Err(UsageError::new("a reply stays in its parent's thread; drop --thread"));
         }
+        if words.first().is_some_and(|word| {
+            word.starts_with("term_") || word.starts_with("agent_") || word.starts_with("acp:")
+        }) {
+            return Err(UsageError::new(
+                "a reply goes to its parent's sender; drop the agent, or put the text after --",
+            ));
+        }
         None
     } else if words.is_empty() {
         return Err(UsageError::new(
@@ -267,28 +274,36 @@ pub(super) fn run_message(global: GlobalArgs, plan: MessagePlan) -> i32 {
         }
     };
     match send_and_deliver(&global, &plan, body) {
-        Ok((message, failures)) => {
+        Ok(sent) => {
             match output {
-                OutputMode::Human => println!("{}", sent_summary(&message)),
+                OutputMode::Human => println!("{}", sent_summary(&sent.message)),
                 OutputMode::Quiet => {}
-                _ => println!("{message}"),
+                _ => println!("{}", sent.message),
             }
-            for failure in &failures {
-                eprintln!("cmux: {failure}");
+            for problem in &sent.problems {
+                eprintln!("cmux: {problem}");
             }
-            i32::from(!failures.is_empty())
+            i32::from(sent.failed)
         }
         Err(failure) => failure.report(output),
     }
 }
 
+/// A sent message as it ends up, what went wrong delivering it or the
+/// recipients' older queued messages, and whether it failed itself.
+#[derive(Debug, Default)]
+struct Sent {
+    message: Value,
+    problems: Vec<String>,
+    failed: bool,
+}
+
 /// Store the message, then deliver what is queued for its acpmux recipients.
-/// Returns the message as it ends up and the deliveries that failed.
 fn send_and_deliver(
     global: &GlobalArgs,
     plan: &MessagePlan,
     body: String,
-) -> Result<(Value, Vec<String>), Failure> {
+) -> Result<Sent, Failure> {
     let mut connection = Connection::open(global)?;
     let mut fields = Map::new();
     if let Some(target) = &plan.target {
@@ -306,75 +321,94 @@ fn send_and_deliver(
         }
     }
     let key = plan.idempotency_key.as_deref().or(global.idempotency_key.as_deref());
-    let mut message =
+    let message =
         connection.mutate(ResourceOperation::AgentMessageSend, Value::Object(fields), key)?;
-    let id = message["id"].as_str().unwrap_or_default().to_owned();
     let recipients: Vec<String> = message["recipients"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
+        .filter(|recipient| recipient.starts_with("acp:"))
         .map(str::to_owned)
         .collect();
-    let mut failures = Vec::new();
-    for recipient in recipients.iter().filter(|recipient| recipient.starts_with("acp:")) {
-        let failed = deliver_queued(&mut connection, recipient)?;
-        failures.extend(failed);
+    let mut sent = Sent { message, ..Sent::default() };
+    for recipient in recipients {
+        let queued = connection.read(
+            ResourceOperation::AgentMessageList,
+            json!({
+                "recipient": recipient,
+                "state": "queued",
+                "oldest_first": true,
+                "limit": DELIVERY_BATCH,
+            }),
+        )?;
+        let session = recipient.trim_start_matches("acp:").to_owned();
+        deliver_queued(
+            queued.as_array().cloned().unwrap_or_default(),
+            &recipient,
+            &mut sent,
+            |text, id| acp::deliver(&session, text, id),
+            |fields| connection.mutate(ResourceOperation::AgentMessageMark, fields, None),
+        );
     }
-    // The receipts as they ended up.
-    if let Some(current) = connection
-        .read(ResourceOperation::AgentMessageList, json!({"limit": 1000}))?
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|value| value["id"] == id.as_str())
-    {
-        message = current.clone();
-    }
-    Ok((message, failures))
+    Ok(sent)
 }
 
-/// Deliver every queued message of one acpmux recipient, oldest first, and
-/// record each outcome. An earlier message that failed or was interrupted
-/// goes out again here; its prompt id keeps it from running twice.
-fn deliver_queued(connection: &mut Connection, recipient: &str) -> Result<Vec<String>, Failure> {
-    let session = recipient.trim_start_matches("acp:");
-    let mut queued: Vec<Value> = Vec::new();
-    for state in ["queued", "failed"] {
-        let listed = connection.read(
-            ResourceOperation::AgentMessageList,
-            json!({"recipient": recipient, "state": state, "limit": DELIVERY_BATCH}),
-        )?;
-        queued.extend(listed.as_array().cloned().unwrap_or_default());
-    }
-    queued.sort_by_key(|message| {
-        message["created_at_ms"].as_str().and_then(|value| value.parse::<u64>().ok())
-    });
-    let mut failures = Vec::new();
+/// Deliver the queued messages of one acpmux recipient (oldest first, as
+/// listed) and record each outcome. A message an earlier send left queued
+/// goes out here too; its id is the prompt id, so acpmux runs it once even
+/// when another sender delivers it at the same time. A failed message is not
+/// retried: the sender sees the failure and decides.
+fn deliver_queued(
+    queued: Vec<Value>,
+    recipient: &str,
+    sent: &mut Sent,
+    mut deliver: impl FnMut(&str, &str) -> Result<(), String>,
+    mut mark: impl FnMut(Value) -> Result<Value, Failure>,
+) {
+    let own_id = sent.message["id"].as_str().unwrap_or_default().to_owned();
     for message in queued {
         let id = message["id"].as_str().unwrap_or_default().to_owned();
         let text = cmux_tui_core::agent_message_prompt::render(std::slice::from_ref(&message));
-        let (state, error) = match acp::deliver(session, &text, &id) {
-            Ok(()) => ("delivered", None),
+        let mut fields = json!({"ids": [id], "recipient": recipient, "via": "acp.prompt"});
+        match deliver(&text, &id) {
+            Ok(()) => fields["state"] = json!("delivered"),
             Err(error) => {
-                failures.push(format!(
+                sent.problems.push(format!(
                     "message {id} was stored but not delivered to {recipient}: {error}"
                 ));
-                ("failed", Some(truncate(&error, 1024)))
+                sent.failed |= id == own_id;
+                fields["state"] = json!("failed");
+                fields["error"] = Value::String(truncate(&error, 1024));
             }
-        };
-        let mut fields = json!({
-            "ids": [id],
-            "recipient": recipient,
-            "state": state,
-            "via": "acp.prompt",
-        });
-        if let Some(error) = error {
-            fields["error"] = Value::String(error);
         }
-        connection.mutate(ResourceOperation::AgentMessageMark, fields, None)?;
+        match mark(fields) {
+            Ok(marked) => {
+                if let Some(current) = marked
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|value| value["id"] == own_id.as_str())
+                {
+                    sent.message = current.clone();
+                }
+            }
+            // Another sender may have recorded this delivery first.
+            Err(failure) => sent.problems.push(format!(
+                "could not record the delivery of {id} to {recipient}: {}",
+                failure_text(&failure)
+            )),
+        }
     }
-    Ok(failures)
+}
+
+fn failure_text(failure: &Failure) -> String {
+    match failure {
+        Failure::Resource(error) => {
+            error["message"].as_str().map_or_else(|| error.to_string(), str::to_owned)
+        }
+        Failure::Transport(message) => message.clone(),
+    }
 }
 
 fn truncate(text: &str, max_bytes: usize) -> String {
@@ -602,6 +636,63 @@ mod tests {
         assert_eq!(plan.target, None);
         assert_eq!(plan.body, Body::Text("thanks".into()));
         assert!(parse_message(&["x"], None, None, Some("t".into()), Some("msg_1".into())).is_err());
+        // An agent before the text would otherwise end up in the body.
+        assert!(parse_message(&["term_1", "hi"], None, None, None, Some("msg_1".into())).is_err());
+        let plan = parse_message(&[], Some(vec!["acp:x".into()]), None, None, Some("msg_1".into()))
+            .unwrap();
+        assert_eq!(plan.body, Body::Text("acp:x".into()));
+    }
+
+    fn queued(id: &str) -> Value {
+        json!({"id": id, "sender": "cli", "body": id, "deliveries": [{"recipient": "acp:s", "state": "queued"}]})
+    }
+
+    #[test]
+    fn queued_messages_go_out_in_order_and_each_outcome_is_recorded() {
+        let mut sent = Sent { message: queued("msg_new"), ..Sent::default() };
+        let mut prompts = Vec::new();
+        let mut marks = Vec::new();
+        deliver_queued(
+            vec![queued("msg_old"), queued("msg_new")],
+            "acp:s",
+            &mut sent,
+            |text, id| {
+                prompts.push(id.to_owned());
+                assert!(text.contains(&format!("--- end of message {id} ---")));
+                if id == "msg_old" { Err("rejected".to_owned()) } else { Ok(()) }
+            },
+            |fields| {
+                marks.push(fields.clone());
+                let id = fields["ids"][0].as_str().unwrap();
+                let state = fields["state"].clone();
+                Ok(json!([{"id": id, "deliveries": [{"recipient": "acp:s", "state": state}]}]))
+            },
+        );
+        assert_eq!(prompts, ["msg_old", "msg_new"]);
+        assert_eq!(marks[0]["state"], "failed");
+        assert_eq!(marks[0]["error"], "rejected");
+        assert_eq!(marks[1]["state"], "delivered");
+        assert_eq!(marks[1]["via"], "acp.prompt");
+        // An older message failing is reported but does not fail this send.
+        assert!(!sent.failed);
+        assert_eq!(sent.problems.len(), 1);
+        assert_eq!(sent.message["deliveries"][0]["state"], "delivered");
+    }
+
+    #[test]
+    fn a_failed_send_fails_and_a_receipt_another_sender_recorded_is_only_reported() {
+        let mut sent = Sent { message: queued("msg_new"), ..Sent::default() };
+        deliver_queued(
+            vec![queued("msg_new")],
+            "acp:s",
+            &mut sent,
+            |_, _| Err("acpmux is not running".to_owned()),
+            |_| Err(Failure::Resource(json!({"message": "already delivered"}))),
+        );
+        assert!(sent.failed);
+        assert_eq!(sent.problems.len(), 2);
+        assert!(sent.problems[1].contains("already delivered"));
+        assert_eq!(sent.message["deliveries"][0]["state"], "queued");
     }
 
     #[test]

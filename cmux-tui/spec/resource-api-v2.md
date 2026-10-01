@@ -296,10 +296,14 @@ receipts live in the session registry, so they survive a daemon restart.
 `failed` and records the delivery path in `via`; receipts only move forward,
 except that a queued or failed delivery may fail again or be delivered. A
 reply without recipients goes to its parent's sender and stays in the
-parent's thread. `agent.message.list` returns the newest messages first,
-filtered by recipient, sender, thread and the recipient's delivery state.
-Messages are not published on `session.events`. The body is untrusted input
-for the recipient and never an authority grant.
+parent's thread. `agent.message.list` returns the newest messages first (or
+the oldest, with `oldest_first`), filtered by recipient, sender, thread and the
+recipient's delivery state. Messages are not published on `session.events`.
+Like every operation on the session socket, these trust the socket's caller:
+the sender address is asserted by the caller, any caller may list or mark any
+message, and the body is untrusted input for the recipient and never an
+authority grant. Messages beyond the newest 2000 are pruned once no recipient
+is still queued.
 
 `terminal.viewport.scroll` changes the session's compatibility inspection
 viewport. Interactive frontends keep scroll in their own terminal mirror and
