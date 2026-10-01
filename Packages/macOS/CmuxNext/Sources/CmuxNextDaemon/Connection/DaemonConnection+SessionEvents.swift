@@ -35,6 +35,12 @@ final class SessionEventsTracker: Sendable {
         return (id, replaced)
     }
 
+    /// The socket closed: its stream is gone, so the next `begin` cancels
+    /// nothing.
+    func forget() {
+        state.withLock { $0.streamID = nil }
+    }
+
     /// True when the reader should deliver `event`. Stream lines of another
     /// stream, stream ends, and status-less deltas (`.unknown` stream lines)
     /// are dropped here, off the main actor. `reopen` runs once per end of

@@ -57,6 +57,7 @@ struct WorkspaceStatusTests {
         #expect(SidebarWorkspaceStatus.Tint("#33669980") == .rgba(0x3366_9980))
         #expect(SidebarWorkspaceStatus.Tint("teal-ish") == nil)
         #expect(SidebarWorkspaceStatus.Tint("#12345") == nil)
+        #expect(SidebarWorkspaceStatus.Tint("facade") == nil)
         #expect(SidebarWorkspaceStatus.Tint(nil) == nil)
     }
 
@@ -72,6 +73,15 @@ struct WorkspaceStatusTests {
         let barOnly = SidebarWorkspaceStatus(progress: .init(value: 0.1))
         #expect(m.height(for: row(barOnly)) == m.rowHeight + m.progressBarHeight)
         #expect(WorkspaceStatusView.height(of: full) == m.height(for: row(full)) - m.rowHeight)
+    }
+
+    @Test func aTallCustomRowHeightKeepsStatusLinesApart() {
+        var m = SidebarLayoutMetrics.standard
+        m.minimumStatusLineHeight = 12
+        m.rowHeight = m.rowHeightWithSubtitle + 4
+        #expect(m.statusLineHeight == 12)
+        let row = SidebarWorkspace(id: SidebarWorkspaceID("w"), title: "w", status: SidebarWorkspaceStatus(entries: entries(2)))
+        #expect(m.height(for: row) == m.rowHeight + 24)
     }
 
     @Test func layoutStacksTallStatusRows() {

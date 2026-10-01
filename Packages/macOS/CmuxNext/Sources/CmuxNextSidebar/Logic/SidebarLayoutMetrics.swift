@@ -15,6 +15,9 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     public var rowHeightWithSubtitle: CGFloat
     /// Height of the status progress bar, its gap included.
     public var progressBarHeight: CGFloat
+    /// The least a status line may take, from its font: a custom row height
+    /// can bring the step between the two row heights below a line.
+    public var minimumStatusLineHeight: CGFloat
     public var rowSpacing: CGFloat
     public var groupBottomPadding: CGFloat
     public var emptySectionHeight: CGFloat
@@ -22,6 +25,7 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     public init(
         topPadding: CGFloat, bottomPadding: CGFloat, sectionHeaderHeight: CGFloat, sectionSpacing: CGFloat,
         groupHeaderHeight: CGFloat, rowHeight: CGFloat, rowHeightWithSubtitle: CGFloat, progressBarHeight: CGFloat = 6,
+        minimumStatusLineHeight: CGFloat = 0,
         rowSpacing: CGFloat, groupBottomPadding: CGFloat, emptySectionHeight: CGFloat
     ) {
         self.topPadding = topPadding
@@ -32,13 +36,15 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         self.rowHeight = rowHeight
         self.rowHeightWithSubtitle = rowHeightWithSubtitle
         self.progressBarHeight = progressBarHeight
+        self.minimumStatusLineHeight = minimumStatusLineHeight
         self.rowSpacing = rowSpacing
         self.groupBottomPadding = groupBottomPadding
         self.emptySectionHeight = emptySectionHeight
     }
 
-    /// One status line, the step from a one-line row to a two-line row.
-    public var statusLineHeight: CGFloat { rowHeightWithSubtitle - rowHeight }
+    /// One status line: the step from a one-line row to a two-line row, at
+    /// least `minimumStatusLineHeight`.
+    public var statusLineHeight: CGFloat { max(rowHeightWithSubtitle - rowHeight, minimumStatusLineHeight) }
 
     /// The title line plus the status block: one `statusLineHeight` per
     /// status line and the progress bar.

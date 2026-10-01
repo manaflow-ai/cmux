@@ -111,6 +111,13 @@ import Testing
         #expect(reopens == SessionEventsTracker.reopenBudget + 1)
     }
 
+    @Test func aClosedSocketLeavesNoStreamToCancel() {
+        let tracker = SessionEventsTracker()
+        _ = tracker.begin(resetBudget: true)
+        tracker.forget()
+        #expect(tracker.begin(resetBudget: true).replaced == nil)
+    }
+
     // MARK: Store
 
     private func snapshot(_ id: ResourceID, _ text: String) -> WorkspaceStatusSnapshot {

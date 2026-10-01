@@ -89,7 +89,9 @@ public nonisolated struct SidebarWorkspaceStatus: Hashable, Sendable {
                 self = .palette(token)
                 return
             }
-            let digits = value.hasPrefix("#") ? String(value.dropFirst()) : value
+            // Hex needs its `#`: `facade` is a valid palette-shaped name.
+            guard value.hasPrefix("#") else { return nil }
+            let digits = String(value.dropFirst())
             guard digits.count == 6 || digits.count == 8, let raw = UInt32(digits, radix: 16) else { return nil }
             self = .rgba(digits.count == 6 ? raw << 8 | 0xFF : raw)
         }
