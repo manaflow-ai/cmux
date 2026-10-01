@@ -726,6 +726,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        XCTAssertEqual(CMUXCLI.vmReadyPollInterval(environment: ["CMUX_VM_WAIT_POLL_SECONDS": "3600"]), 3)
         // Exercise the CLI's override validation through its owning process.
         // The app-host target does not link the CLI implementation.
         environment["CMUX_VM_WAIT_POLL_SECONDS"] = "3600"
