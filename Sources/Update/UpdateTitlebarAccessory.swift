@@ -2840,9 +2840,10 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            Task { @MainActor [weak self, weak window] in
-                guard let window else { return }
-                self?.attachIfNeeded(to: window)
+            let windowIdentifier = ObjectIdentifier(window)
+            Task { @MainActor [weak self] in
+                guard let self, let window = self.liveWindow(withIdentifier: windowIdentifier) else { return }
+                self.attachIfNeeded(to: window)
             }
         })
 
@@ -2852,9 +2853,10 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            Task { @MainActor [weak self, weak window] in
-                guard let window else { return }
-                self?.attachIfNeeded(to: window)
+            let windowIdentifier = ObjectIdentifier(window)
+            Task { @MainActor [weak self] in
+                guard let self, let window = self.liveWindow(withIdentifier: windowIdentifier) else { return }
+                self.attachIfNeeded(to: window)
             }
         })
 
@@ -2871,7 +2873,6 @@ final class UpdateTitlebarAccessoryController {
     }
 
     private func reattachIfPresentationModeChanged() {
-
         let currentMode = WorkspacePresentationModeSettings.mode()
         guard currentMode != lastKnownPresentationMode else { return }
         lastKnownPresentationMode = currentMode
@@ -2888,6 +2889,10 @@ final class UpdateTitlebarAccessoryController {
         for window in NSApp.windows {
             attachIfNeeded(to: window)
         }
+    }
+
+    private func liveWindow(withIdentifier identifier: ObjectIdentifier) -> NSWindow? {
+        NSApp.windows.first { ObjectIdentifier($0) == identifier }
     }
 
     private func scheduleStartupWindowScans() {
@@ -2929,9 +2934,9 @@ final class UpdateTitlebarAccessoryController {
             let attempts = pendingAttachRetries[key, default: 0]
             if attempts < 40 {
                 pendingAttachRetries[key] = attempts + 1
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak window] in
-                    Task { @MainActor [weak self, weak window] in
-                        guard let self, let window else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                    Task { @MainActor [weak self] in
+                        guard let self, let window = self.liveWindow(withIdentifier: key) else { return }
                         self.attachIfNeeded(to: window)
                     }
                 }
@@ -3012,8 +3017,10 @@ final class UpdateTitlebarAccessoryController {
 
         attachedWindows.remove(window)
         pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
-        DispatchQueue.main.async { [weak window] in
-            guard let window else { return }
+        let windowIdentifier = ObjectIdentifier(window)
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  let window = self.liveWindow(withIdentifier: windowIdentifier) else { return }
             window.contentView?.needsLayout = true
             window.contentView?.superview?.needsLayout = true
             window.contentView?.layoutSubtreeIfNeeded()
