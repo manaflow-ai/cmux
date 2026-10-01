@@ -71,7 +71,7 @@ for ((index=1; index<=COUNT+2; index++)); do
   if (( index <= COUNT )); then
     role="codex"
     prompt="Build and iteratively improve a playable Mario-style HTML game in $workdir. Use real file edits and run local checks. Work independently for at least ten meaningful iterations. Print CMUX_CODEX_${index}_READY after the first playable version and CMUX_CODEX_${index}_ITER_<number> after every later improvement. Keep the game runnable from index.html."
-    command="codex --yolo -m $(shell_quote "$MODEL") -- $(shell_quote "$prompt") 2>&1 | tee -a $(shell_quote "$session_log")"
+    command="while true; do codex --yolo -m $(shell_quote "$MODEL") -- $(shell_quote "$prompt") 2>&1 | tee -a $(shell_quote "$session_log"); printf 'CMUX_CODEX_${index}_RUN_COMPLETE\\n' | tee -a $(shell_quote "$session_log"); sleep 5; done"
   else
     # The terminal driver must send shell input to an idle shell, never to
     # Codex or a foreground keepalive process.

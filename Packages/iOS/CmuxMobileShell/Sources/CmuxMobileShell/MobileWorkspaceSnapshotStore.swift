@@ -103,8 +103,8 @@ public final class MobileWorkspaceSnapshotStore {
             enforceLimit(keys: keys)
         }
 
-        func remove(key: String, revision: UInt64) {
-            if let latest = latestRevisionByKey[key], revision < latest { return }
+        func remove(key: String, revision: UInt64, force: Bool) {
+            if !force, let latest = latestRevisionByKey[key], revision < latest { return }
             latestRevisionByKey[key] = revision
             defaults.value.removeObject(forKey: key)
             knownKeys?.remove(key)
@@ -413,7 +413,8 @@ public final class MobileWorkspaceSnapshotStore {
         guard !state.workspaces.isEmpty else {
             await persistence.remove(
                 key: storageKey,
-                revision: revision
+                revision: revision,
+                force: false
             )
             return
         }
@@ -444,10 +445,11 @@ public final class MobileWorkspaceSnapshotStore {
         userID: String,
         teamID: String?,
         pairing: MacPairingKey,
-        revision: UInt64 = 0
+        revision: UInt64 = 0,
+        force: Bool = false
     ) async {
         let storageKey = key(userID: userID, teamID: teamID, pairing: pairing)
-        await persistence.remove(key: storageKey, revision: revision)
+        await persistence.remove(key: storageKey, revision: revision, force: force)
     }
 
     private func key(

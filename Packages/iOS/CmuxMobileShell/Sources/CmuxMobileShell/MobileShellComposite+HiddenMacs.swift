@@ -466,7 +466,8 @@ extension MobileShellComposite {
                         pairing: MacPairingKey(
                             macDeviceID: deletedScope.macDeviceID,
                             instanceTag: deletedScope.instanceTag
-                        )
+                        ),
+                        force: true
                     )
                 }
             }

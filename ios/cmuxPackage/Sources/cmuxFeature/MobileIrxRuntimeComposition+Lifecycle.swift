@@ -117,8 +117,15 @@ extension MobileIrxRuntimeComposition {
     }
 
     func activate(_ scope: AuthenticatedTeamScope?) async {
-        guard scope != activeScope else { return }
-        guard scope != activeScope else { return }
+        let hasRuntimeToClear = scope == nil && (
+            cachedWarmupTask != nil
+                || preparedCachedRuntime != nil
+                || endpointWarmupTask != nil
+                || endpointSupervisor != nil
+                || control != nil
+                || cache != nil
+        )
+        guard scope != activeScope || hasRuntimeToClear else { return }
         epoch &+= 1
         let currentEpoch = epoch
         activeScope = scope
@@ -195,7 +202,7 @@ extension MobileIrxRuntimeComposition {
             try await assertScope(scope, epoch: currentEpoch)
         }
         // Cached IROH binding never waits for a backend handshake or Stack refresh.
-        if let restored, !restored.authorityRevoked {
+        if endpointWarmupTask == nil, let restored, !restored.authorityRevoked {
             let credentials = Self.credentials(restored)
             if credentials.contains(where: { $0.isUsable(at: Date()) }) {
                 endpointWarmupTask = Task { [weak self] in
