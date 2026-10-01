@@ -13,6 +13,7 @@ use std::time::Duration;
 use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value, json};
 
+use super::codex_app_server;
 use super::resolve::{Failure, call};
 use super::{GlobalArgs, OutputMode, UsageError};
 
