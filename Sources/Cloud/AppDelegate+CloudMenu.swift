@@ -51,7 +51,7 @@ extension AppDelegate {
             },
             openDesktop: { id in _ = window(); rowActions.openDesktop(id) },
             runCommand: { id, verb in _ = window(); rowActions.runCommand(id, verb) },
-            promptRename: { id, label in _ = window(); rowActions.promptRename(id, label) },
+            promptRename: { machine in _ = window(); rowActions.promptRename(machine) },
             copyToPasteboard: { text in
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(text, forType: .string)

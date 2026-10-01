@@ -11,7 +11,7 @@ struct MachineRowActions {
     let openDesktop: @MainActor (String) -> Void
     let runCommand: @MainActor (String, [String]) -> Void
     let confirmDelete: @MainActor (MachineSnapshot) -> Void
-    let promptRename: @MainActor (String, String?) -> Void
+    let promptRename: @MainActor (MachineSnapshot) -> Void
     /// Grow the machine through the shared `cmux vm resize` command.
     let resizeDisk: @MainActor (String, Int) -> Void
     var resizeCPU: @MainActor (String, Int) -> Void = { _, _ in }
@@ -62,8 +62,8 @@ struct MachineRowActions {
             confirmDelete: { machine in
                 presentDeleteConfirmation(machine: machine, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
             },
-            promptRename: { id, currentLabel in
-                presentRenamePrompt(id: id, currentLabel: currentLabel, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
+            promptRename: { machine in
+                presentRenamePrompt(machine: machine, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
             },
             resizeDisk: { id, gib in
                 onWillMutate(String(format: String(localized: "machines.operation.resizeDisk", defaultValue: "Increasing %@ disk to %d GiB…"), id, gib))
@@ -123,7 +123,7 @@ struct MachineRowActions {
         } else {
             format = String(localized: "machines.operation.generic", defaultValue: "Working on %@\u{2026}")
         }
-        return String(format: format, id)
+        return String(format: format, CloudMachineRenamePresentation().promptName(for: machine, fallbackName: String(localized: "machines.rename.fallbackName", defaultValue: "Cloud machine")))
     }
 
     @MainActor
@@ -181,8 +181,7 @@ struct MachineRowActions {
 
     @MainActor
     private static func presentRenamePrompt(
-        id: String,
-        currentLabel: String?,
+        machine: MachineSnapshot,
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
         onDidMutate: @escaping @MainActor () -> Void
     ) {
@@ -195,7 +194,7 @@ struct MachineRowActions {
             defaultValue: "The label is display-only. The machine keeps its name as its address."
         )
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        field.stringValue = currentLabel ?? ""
+        field.stringValue = machine.label ?? ""
         field.placeholderString = String(localized: "machines.rename.placeholder", defaultValue: "Label")
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
@@ -204,13 +203,13 @@ struct MachineRowActions {
         let respond: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .alertFirstButtonReturn else { return }
             let label = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            var arguments = ["vm", "rename", id]
+            var arguments = ["vm", "rename", machine.id]
             if label.isEmpty {
                 arguments.append("--clear")
             } else {
                 arguments.append(label)
             }
-            onWillMutate(operationLabel(verb: ["rename"], id: id))
+            onWillMutate(operationLabel(verb: ["rename"], id: machine.id))
             if !launch(arguments: arguments, onDidMutate: onDidMutate) {
                 onDidMutate()
             }
