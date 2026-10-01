@@ -4746,6 +4746,7 @@ final class cmuxUITests: XCTestCase {
     func testNotificationTabPreservesSharedRootToolbar() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
+            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW_TAB_SWITCH": "1",
         ])
         defer { app.terminate() }
 
@@ -4781,28 +4782,30 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.buttons["MobileNotificationFeedMarkAllRead"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["MobileNotificationFeedFilterMenu"].waitForExistence(timeout: 3))
 
-        tap(app.tabBars.buttons["Workspaces"], in: app)
-        XCTAssertTrue(app.staticTexts["Workspaces"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["MobileWorkspaceSettingsMenu"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["MobileWorkspaceDevicesButton"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["MobileWorkspaceMacPicker"].waitForExistence(timeout: 3))
-
-        tap(app.tabBars.buttons["Notifications"], in: app)
-        XCTAssertTrue(waitForHittable(feed, timeout: 3))
-        XCTAssertTrue(app.buttons["MobileWorkspaceSettingsMenu"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["MobileWorkspaceDevicesButton"].waitForExistence(timeout: 3))
         let picker = app.buttons["MobileWorkspaceMacPicker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["MobileNotificationFeedMarkAllRead"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["MobileNotificationFeedFilterMenu"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.tabBars.buttons["Notifications"].isSelected)
 
-        guard let pickerFrame = waitForUsableFrame(of: picker, timeout: 3),
-              let feedFrame = waitForUsableFrame(of: feed, timeout: 3) else {
-            XCTFail("Notifications tab did not settle to usable toolbar and feed frames")
-            return
+        // The fixture switches tabs six times at 700 ms intervals. Sample the
+        // shared toolbar while those transitions are in flight so a transient
+        // unmount or blank frame cannot pass by behind a settled-state wait.
+        let transitionDeadline = Date().addingTimeInterval(9)
+        var sampleCount = 0
+        while Date() < transitionDeadline {
+            XCTAssertTrue(
+                picker.exists,
+                "Shared Mac picker disappeared during a primary-tab transition"
+            )
+            let frame = picker.frame
+            XCTAssertFalse(frame.isNull || frame.isEmpty)
+            XCTAssertEqual(frame.midX, app.frame.midX, accuracy: 2)
+            XCTAssertTrue(frame.intersects(app.frame))
+            sampleCount += 1
+            RunLoop.current.run(until: Date().addingTimeInterval(0.03))
         }
-        XCTAssertEqual(pickerFrame.midX, app.frame.midX, accuracy: 2)
-        XCTAssertTrue(feedFrame.intersects(app.frame))
+        XCTAssertGreaterThan(sampleCount, 100)
+        XCTAssertTrue(waitForHittable(feed, timeout: 3))
+        XCTAssertTrue(app.tabBars.buttons["Notifications"].isSelected)
     }
 
     /// Drives the production push coordinator through its three user-visible
