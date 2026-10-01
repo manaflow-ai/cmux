@@ -24,7 +24,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | toggleFullScreen | Toggle Full Screen | ⌃⌘F | PKM | KSS:91, CV:7644, cmuxApp:1215 |
 | quit | Quit cmux | ⌘Q | KM | KSS:92, cmuxApp:565 |
 | showHideAllWindows | Show/Hide All Windows (global) | ⌃⌥⌘. | K | KSS:87 |
-| globalSearch | Search All Windows… | ⌥⌘F | KM | KSS:88, MenuBarExtraController:28 |
+| globalSearch | Search All Windows… | ⌥⌘F | PKM | KSS:88, MenuBarExtraController:28 |
 | commandPalette | Command Palette… | ⇧⌘P | KM | KSS:103, cmuxApp:956 |
 | commandPaletteNext / Previous | Palette: Next / Previous | ⌃N / ⌃P | K | KSS:104-105 |
 | goToWorkspace | Go to Workspace… | ⌘P | KM | KSS:102, cmuxApp:951 |
