@@ -127,6 +127,7 @@ export class AccountDO extends DurableObject<Env> {
   ): Promise<LinkMethods[M]["result"]> {
     const socket = this.linkSocket(machineId);
     const id = this.nextCallId++;
+    console.log(JSON.stringify({ at: "link.call", id, method }));
     const result = await new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.calls.delete(id);
@@ -135,8 +136,8 @@ export class AccountDO extends DurableObject<Env> {
       this.calls.set(id, { resolve, reject, timer });
       socket.send(JSON.stringify({ type: "call", id, method, params } satisfies LinkDownFrame));
     });
-    if (method === "agents.spawn" && origin) {
-      const { sessionId } = result as LinkMethods["agents.spawn"]["result"];
+    if ((method === "agents.spawn" || method === "agents.prompt") && origin) {
+      const { sessionId } = result as { sessionId: string };
       this.sql.exec(
         "INSERT OR REPLACE INTO agents (session_id, machine_id, json) VALUES (?, ?, ?)",
         sessionId,
@@ -219,6 +220,14 @@ export class AccountDO extends DurableObject<Env> {
     const row = this.sql
       .exec<{ json: string }>("SELECT json FROM agents WHERE session_id = ?", event.sessionId)
       .toArray()[0];
+    console.log(
+      JSON.stringify({
+        at: "link.event",
+        kind: event.kind,
+        sessionId: event.sessionId,
+        routed: !!row,
+      }),
+    );
     if (!row) return;
     const origin = JSON.parse(row.json) as AgentOrigin;
     await mux(this.env, origin.muxId).receiveEvent(origin.conversationId, event);

@@ -48,7 +48,7 @@ export class MuxApi extends WorkerEntrypoint<Env, MuxApiProps> implements MuxApi
   }
 
   async agentsPrompt({ machine, ...params }: Parameters<MuxApiMethods["agentsPrompt"]>[0]) {
-    return this.call(machine, "agents.prompt", params);
+    return this.call(machine, "agents.prompt", params, this.origin);
   }
 
   async agentsLast({ machine, ...params }: Parameters<MuxApiMethods["agentsLast"]>[0]) {
