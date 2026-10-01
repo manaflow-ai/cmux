@@ -38,7 +38,7 @@ struct AgentTabLifecycleTests {
         let store = AgentTabStore(tag: nil, environment: Self.mock)
         let key = store.open(in: pane.id, of: daemon)
 
-        _ = daemon.apply(.disconnected("test"))
+        _ = daemon.apply(.disconnected(reason: "test"))
         await ReopenClosedTabTests.settle { false }
         #expect(store.tabIDs(in: pane.id) == [key], "a daemon that is away keeps its panes' agent tabs")
 
