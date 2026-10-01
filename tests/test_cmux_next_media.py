@@ -142,6 +142,31 @@ class CaptureRect(unittest.TestCase):
         self.assertEqual(screen.capture(Path("/tmp/never.png")), "no app window on screen to capture")
 
 
+class FreshState(unittest.TestCase):
+    def app(self, tag: str, *, fresh: bool) -> object:
+        app = tour.App.__new__(tour.App)
+        app.session = type("S", (), {"user": "cmux"})()
+        app.bundle_tag = tour.clean_tag(tag)
+        app.fresh_state = fresh
+        return app
+
+    def test_the_tag_state_directory_matches_the_daemon_launcher(self) -> None:
+        directory = self.app("ci-media", fresh=True).state_directory()
+        self.assertEqual(directory.parts[-4:], ("cmux", "tags", "ci-media", "tui"))
+        self.assertEqual(tour.clean_tag("a/b c."), "a-b-c")
+
+    def test_an_untagged_build_never_loses_its_state(self) -> None:
+        app = self.app("", fresh=True)
+        self.assertIsNone(app.state_directory())
+        app.session.run = lambda argv: self.fail(f"ran {argv}")
+        app.clear_state()
+
+    def test_state_is_kept_unless_asked(self) -> None:
+        app = self.app("ci-media", fresh=False)
+        app.session.run = lambda argv: self.fail(f"ran {argv}")
+        app.clear_state()
+
+
 class Comment(unittest.TestCase):
     MANIFEST = {
         "name": "core", "title": "Core UI",

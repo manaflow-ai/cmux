@@ -136,9 +136,11 @@ jobs:
       - name: Run the tours
         env:
           APP: ${{ steps.build.outputs.app }}
+        # --fresh-state: the ci-media tag's saved workspaces would otherwise
+        # carry one tour's windows into the next run on the same Mac.
         # exec: the runner signals the step's shell on cancel, and bash would
         # not pass it on, so tour.py could not stop the app and its daemon.
-        run: exec python3 scripts/cmux-next/media/tour.py --app "$APP" --out "$RUNNER_TEMP/media" scripts/cmux-next/media/tours
+        run: exec python3 scripts/cmux-next/media/tour.py --app "$APP" --out "$RUNNER_TEMP/media" --fresh-state scripts/cmux-next/media/tours
 
       - name: Keep the media for the publish job
         if: ${{ always() }}

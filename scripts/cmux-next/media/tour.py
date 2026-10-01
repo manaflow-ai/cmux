@@ -329,17 +329,26 @@ class Recorder(threading.Thread):
         return frames
 
 
+def clean_tag(tag: Any) -> str:
+    """The tag as DaemonLauncher.sessionName reduces it to one path component."""
+    return re.sub(r"[^A-Za-z0-9_.-]", "-", str(tag or "")).strip("-.")
+
+
 class App:
     """One launch of the app on a private socket, driven through its bundled CLI."""
 
-    def __init__(self, app_path: Path, session: Session, workdir: Path) -> None:
+    def __init__(self, app_path: Path, session: Session, workdir: Path, *, fresh_state: bool = False) -> None:
         self.app_path = app_path
         self.session = session
+        self.fresh_state = fresh_state
         self.cli_path = app_path / "Contents/Resources/bin/cmux"
         plist = app_path / "Contents/Info.plist"
         executable = subprocess.run(["/usr/libexec/PlistBuddy", "-c", "Print :CFBundleExecutable", str(plist)],
                                     capture_output=True, text=True, check=True).stdout.strip()
         self.executable = app_path / "Contents/MacOS" / executable
+        tag = subprocess.run(["/usr/libexec/PlistBuddy", "-c", "Print :LSEnvironment:CMUX_TAG", str(plist)],
+                             capture_output=True, text=True).stdout.strip()
+        self.bundle_tag = clean_tag(tag)
         # sun_path holds 104 bytes, so the socket lives in a short private directory.
         self.socket_path = session.shareable(workdir) / "s.sock"
         self.log_path = workdir / "app.log"
@@ -355,8 +364,22 @@ class App:
         for pattern in (f"{self.app_path}/Contents/Resources/bin/", str(self.executable)):
             self.session.run(["pkill", "-f", re.escape(pattern)])
 
+    def state_directory(self) -> Path | None:
+        """DaemonLauncher.tagStateDirectory: where a tagged build keeps its workspaces."""
+        if not self.bundle_tag:
+            return None
+        home = Path(os.path.expanduser(f"~{self.session.user}"))
+        return home / "Library/Application Support/cmux/tags" / self.bundle_tag / "tui"
+
+    def clear_state(self) -> None:
+        """Start from no workspaces, not the ones an earlier tour on this tag left."""
+        directory = self.state_directory()
+        if self.fresh_state and directory:
+            self.session.run(["rm", "-rf", str(directory)])
+
     def launch(self) -> None:
         self.clear_leftovers()
+        self.clear_state()
         knobs = [f"CMUX_NEXT_SOCKET_PATH={self.socket_path}", "CMUX_NEXT_SOCKET_MODE=allowAll"]
         argv = self.session.prefix + ["env", *knobs, str(self.executable), "-ApplePersistenceIgnoreState", "YES"]
         with self.log_path.open("wb") as log:
@@ -383,10 +406,7 @@ class App:
 
     def daemon_session(self) -> str:
         """DaemonLauncher.sessionName: cmux-app, or cmux-app-<cleaned tag>."""
-        tag = self.identity.get("tag")
-        if not tag:
-            return "cmux-app"
-        cleaned = re.sub(r"[^A-Za-z0-9_.-]", "-", str(tag)).strip("-.")
+        cleaned = clean_tag(self.identity.get("tag"))
         return f"cmux-app-{cleaned}" if cleaned else "cmux-app"
 
     def cli(self, args: list[str], *, daemon: bool = False, timeout: float = STEP_TIMEOUT) -> subprocess.CompletedProcess[str]:
@@ -451,6 +471,7 @@ class App:
             self.session.run(["kill", "-9", str(pid)])
         # The app leaves its daemon running by design; this tour started it.
         self.clear_leftovers()
+        self.clear_state()
 
 
 def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: Path) -> dict[str, Any]:
@@ -484,7 +505,8 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
     return result
 
 
-def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session) -> dict[str, Any]:
+def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, *,
+             fresh_state: bool = False) -> dict[str, Any]:
     directory = out / tour["name"]
     if directory.exists():
         shutil.rmtree(directory)
@@ -494,7 +516,7 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session) 
                                 "frame_interval": FRAME_INTERVAL, "console_user": session.user,
                                 "capture_mode": session.capture_mode}
     workdir = Path(tempfile.mkdtemp(prefix="cmux-tour.", dir="/tmp"))
-    app = App(app_path, session, workdir)
+    app = App(app_path, session, workdir, fresh_state=fresh_state)
     screen = Screen(session, session.shareable(workdir / "raw"))
     recorder = Recorder(screen, frames)
     try:
@@ -559,6 +581,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--app", type=Path, help="the built app bundle")
     parser.add_argument("--out", type=Path, help="where each tour's folder goes")
     parser.add_argument("--check", action="store_true", help="only validate the tour files")
+    parser.add_argument("--fresh-state", action="store_true",
+                        help="delete the tagged build's saved workspaces before and after each tour")
     args = parser.parse_args(argv)
     files: list[Path] = []
     for path in args.tours:
@@ -593,7 +617,7 @@ def main(argv: list[str] | None = None) -> int:
     for tour in tours:
         signal.signal(signal.SIGINT, signal.default_int_handler)
         signal.signal(signal.SIGTERM, terminated)
-        ok = passed(run_tour(args.app, tour, args.out, session)) and ok
+        ok = passed(run_tour(args.app, tour, args.out, session, fresh_state=args.fresh_state)) and ok
     return 0 if ok else 1
 
 
