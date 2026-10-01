@@ -187,6 +187,7 @@ jobs:
       # flags) and Blacksmith has none (the suite skipped), so the verdict
       # depended on the runner. The pinned binary is public and sha256-checked.
       - name: Fetch the pinned cmux-tui
+        timeout-minutes: 5
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
       - name: Run package tests (excluding control deadline tests)
