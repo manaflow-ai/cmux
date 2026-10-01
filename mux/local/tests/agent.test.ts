@@ -1,6 +1,16 @@
 import { expect, test } from "bun:test";
 import { retryAgentStart, sessionName } from "../src/agent.ts";
 
+/** The error a promise rejects with (Bun's types do not mark `rejects` as awaitable). */
+async function rejection(promise: Promise<unknown>): Promise<string> {
+  try {
+    await promise;
+  } catch (error) {
+    return String(error);
+  }
+  throw new Error("expected a rejection");
+}
+
 test("an agent that closed while starting is retried; other errors are not", async () => {
   let calls = 0;
   const flaky = async () => {
@@ -16,7 +26,7 @@ test("an agent that closed while starting is retried; other errors are not", asy
     calls++;
     throw new Error("acpmux send failed (4): no session matches");
   };
-  await expect(retryAgentStart(broken)).rejects.toThrow("no session");
+  expect(await rejection(retryAgentStart(broken))).toContain("no session");
   expect(calls).toBe(1);
 
   calls = 0;
@@ -24,7 +34,7 @@ test("an agent that closed while starting is retried; other errors are not", asy
     calls++;
     throw new Error("agent process closed");
   };
-  await expect(retryAgentStart(alwaysClosed)).rejects.toThrow("closed");
+  expect(await rejection(retryAgentStart(alwaysClosed))).toContain("closed");
   expect(calls).toBe(3);
 });
 

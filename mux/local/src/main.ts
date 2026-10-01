@@ -4,6 +4,7 @@ import { mkdirSync } from "node:fs";
 import { messageText } from "@mux/brain";
 import {
   parseClientFrame,
+  type AccountFrame,
   type CreateConversationRequest,
   type ID,
   type Participant,
@@ -36,7 +37,11 @@ const mux: Participant = { kind: "mux", id: "mux-local", displayName: "mux" };
 /** One turn at a time per conversation; acpmux queues too, but replies must post in order. */
 const turns = new Map<ID, Promise<void>>();
 
-type SocketData = { conversationId: ID };
+/** A socket on one conversation, or on the account-wide event stream (`/api/events`). */
+type SocketData = { conversationId: ID } | { events: true };
+
+/** Topic for "the conversation list changed" (`/api/events`). */
+const LIST_TOPIC = "conversations";
 
 const server = Bun.serve<SocketData>({
   hostname: "127.0.0.1",
@@ -72,10 +77,13 @@ const server = Bun.serve<SocketData>({
       return Response.json(store.list());
     if (path === "/api/conversations" && request.method === "POST") {
       const body = (await request.json().catch(() => ({}))) as CreateConversationRequest;
-      return Response.json(
-        { conversation: store.create(body.title?.trim() || "mux", [me, mux]) },
-        { status: 201 },
-      );
+      const conversation = store.create(body.title?.trim() || "mux", [me, mux]);
+      listChanged();
+      return Response.json({ conversation }, { status: 201 });
+    }
+    if (path === "/api/events") {
+      if (server.upgrade(request, { data: { events: true } })) return undefined;
+      return new Response("expected websocket", { status: 426 });
     }
     const match = path.match(/^\/api\/conversations\/([0-9a-f-]{36})(\/ws)?$/);
     if (match) {
@@ -89,12 +97,17 @@ const server = Bun.serve<SocketData>({
   },
   websocket: {
     open(ws) {
+      if ("events" in ws.data) {
+        ws.subscribe(LIST_TOPIC);
+        return;
+      }
       ws.subscribe(ws.data.conversationId);
       const conversation = store.get(ws.data.conversationId);
       if (conversation)
         ws.send(JSON.stringify({ type: "snapshot", conversation } satisfies ServerFrame));
     },
     message(ws, data) {
+      if ("events" in ws.data) return;
       const frame = parseClientFrame(
         typeof data === "string" ? data : new TextDecoder().decode(data),
       );
@@ -114,13 +127,18 @@ const server = Bun.serve<SocketData>({
       turns.set(id, next);
     },
     close(ws) {
-      ws.unsubscribe(ws.data.conversationId);
+      ws.unsubscribe("events" in ws.data ? LIST_TOPIC : ws.data.conversationId);
     },
   },
 });
 
 function publish(conversationId: ID, frame: ServerFrame): void {
   server.publish(conversationId, JSON.stringify(frame));
+  if (frame.type === "message") listChanged();
+}
+
+function listChanged(): void {
+  server.publish(LIST_TOPIC, JSON.stringify({ type: "conversations" } satisfies AccountFrame));
 }
 
 async function turn(conversationId: ID, text: string): Promise<void> {
