@@ -134,12 +134,16 @@ describe("acpmux transcript accessibility", () => {
       for (const article of articles) expect(article.getAttribute("aria-setsize")).toBe(String(conversation.length));
       const last = articles.at(-1)!;
       expect(last.getAttribute("aria-posinset")).toBe(String(conversation.length));
-      const message = articles.at(-2)!;
-      const index = Number(message.getAttribute("aria-posinset")) - 1;
-      expect(message.getAttribute("aria-label")).toBe(conversation[index]!.kind === "user" ? "You" : "Agent");
+      const mounted = articles.map((article) => ({ article, row: conversation[Number(article.getAttribute("aria-posinset")) - 1]! }));
+      expect(mounted.find(({ row }) => row.kind === "user")?.article.getAttribute("aria-label")).toBe("You");
+      expect(mounted.find(({ row }) => row.kind === "assistant")?.article.getAttribute("aria-label")).toBe("Agent");
+      expect(last.hasAttribute("aria-label")).toBe(false);
       const summary = last.querySelector(".acpmux-summary")!;
       expect(summary.childNodes.length).toBe(1);
       expect(summary.textContent).toBe("Worked for 3s · 2 tool calls");
+      // Older history still in acpmux: the conversation's size is unknown.
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: conversation, onToggleActivity: () => {}, expanded: new Set<string>(), canLoadOlder: true })));
+      for (const article of dom.window.document.querySelectorAll(".acpmux-row")) expect(article.getAttribute("aria-setsize")).toBe("-1");
     } finally {
       await act(async () => root.unmount());
       restore();
