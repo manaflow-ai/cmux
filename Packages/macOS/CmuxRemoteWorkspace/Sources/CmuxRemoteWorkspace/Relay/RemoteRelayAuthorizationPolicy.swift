@@ -64,12 +64,17 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.ports_kick",
         "surface.close",
         "surface.send_text",
+        // A split without an explicit, exact surface selector would fall back
+        // to the focused panel and could target a terminal moved from another
+        // owner's workspace; require the selector the handler actually reads.
+        "surface.split",
         "agent.hook.enqueue",
     ]
 
     private static let exactSurfaceSelectorMethods: Set<String> = [
         "surface.close",
         "surface.send_text",
+        "surface.split",
         "surface.report_tty",
         "surface.report_pwd",
         "surface.report_git_branch",

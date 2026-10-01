@@ -146,8 +146,11 @@ func TestTmuxInitialDividerPosition(t *testing.T) {
 
 type hudSplitRecorder struct {
 	socketPath string
-	mu         sync.Mutex
-	requests   []tmuxCorpusRPCRequest
+	// acceptSplits answers surface.split the way a workspace routed to a remote
+	// tmux mirror does: an asynchronous acceptance without a local surface id.
+	acceptSplits bool
+	mu           sync.Mutex
+	requests     []tmuxCorpusRPCRequest
 }
 
 func startHudSplitRecorder(t *testing.T) *hudSplitRecorder {
@@ -185,9 +188,13 @@ func startHudSplitRecorder(t *testing.T) *hudSplitRecorder {
 					result := map[string]any{}
 					switch method {
 					case "surface.split":
-						result = map[string]any{
-							"surface_id": "77777777-7777-4777-8777-777777777777",
-							"pane_id":    "66666666-6666-4666-8666-666666666666",
+						if recorder.acceptSplits {
+							result = map[string]any{"accepted": true, "routed": "remote-tmux", "surface_id": nil}
+						} else {
+							result = map[string]any{
+								"surface_id": "77777777-7777-4777-8777-777777777777",
+								"pane_id":    "66666666-6666-4666-8666-666666666666",
+							}
 						}
 					case "pane.list":
 						result = map[string]any{"panes": []any{map[string]any{
@@ -300,6 +307,13 @@ func TestTmuxSplitWindowHudPanesCarryOnlyRelayPermittedParams(t *testing.T) {
 	if _, ok := params["initial_divider_position"]; !ok {
 		t.Fatalf("HUD split must request a compact divider position: %v", params)
 	}
+	// The command is typed into the local pane after the split, so a workspace
+	// routed to a remote tmux mirror has to reject the request before the
+	// remote mutation instead of leaving an empty pane.
+	options, _ := params["remote_tmux_unsupported_options"].([]any)
+	if len(options) != 1 || options[0] != "initial_command" {
+		t.Fatalf("a command-carrying split must name the command as an unsupported option: %v", params)
+	}
 	if recorder.count("workspace.equalize_splits") != 0 {
 		t.Fatal("a HUD split must not be equalized")
 	}
@@ -307,6 +321,33 @@ func TestTmuxSplitWindowHudPanesCarryOnlyRelayPermittedParams(t *testing.T) {
 	// is typed into the new pane instead.
 	if recorder.count("surface.send_text") != 1 {
 		t.Fatal("the HUD command must be typed into the new pane")
+	}
+}
+
+func TestTmuxSplitWindowMirrorRoutedPlainSplitSkipsLocalWork(t *testing.T) {
+	hudSplitEnv(t)
+	recorder := startHudSplitRecorder(t)
+	recorder.acceptSplits = true
+	rc := &rpcContext{socketPath: recorder.socketPath}
+
+	_ = captureStdout(t, func() {
+		if err := dispatchTmuxCommand(rc, "split-window", []string{"-v", "-d"}); err != nil {
+			t.Fatalf("split-window: %v", err)
+		}
+	})
+
+	params, ok := recorder.request("surface.split")
+	if !ok {
+		t.Fatal("expected a surface.split call")
+	}
+	if params["remote_tmux_unsupported_options"] != nil {
+		t.Fatalf("a plain split must not name unsupported options: %v", params)
+	}
+	if recorder.count("surface.send_text") != 0 {
+		t.Fatal("a mirror-routed split has no local surface to type into")
+	}
+	if recorder.count("workspace.equalize_splits") != 0 {
+		t.Fatal("a mirror-routed split must not equalize the local layout")
 	}
 }
 
@@ -327,6 +368,10 @@ func TestTmuxSplitWindowKeepsNonHudSplitsUnchanged(t *testing.T) {
 	}
 	if params["initial_command"] != nil || params["tmux_start_command"] != nil {
 		t.Fatalf("a quoted mention must not get HUD metadata: %v", params)
+	}
+	options, _ := params["remote_tmux_unsupported_options"].([]any)
+	if len(options) != 1 || options[0] != "initial_command" {
+		t.Fatalf("a command-carrying split must name the command as an unsupported option: %v", params)
 	}
 	if recorder.count("surface.send_text") != 1 {
 		t.Fatal("a non-HUD split still types its command")

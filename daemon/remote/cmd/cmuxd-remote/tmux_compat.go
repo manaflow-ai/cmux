@@ -1823,6 +1823,7 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 	// compact divider position. Command-bearing parameters (working_directory,
 	// initial_command, tmux_start_command, …) are denied on every relayed method,
 	// so the pane's command is typed into the new shell below.
+	commandText := tmuxShellCommandText(p.positional, p.value("-c"))
 	splitParams := map[string]any{
 		"workspace_id": targetWs,
 		"surface_id":   targetSurface,
@@ -1834,11 +1835,19 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 			splitParams[key] = value
 		}
 	}
+	// Options a routed remote tmux split cannot honor, named up front so the app
+	// rejects the request before the remote mutation. `-P` prints a pane id the
+	// routed split cannot return, and the pane's command can only be typed into
+	// a local surface below, never into an asynchronously mirrored pane.
+	unsupportedOptions := []string{}
 	if p.hasFlag("-P") {
-		// The local CLI marks `-P` as an option a routed remote tmux split
-		// cannot honor; the app rejects such a request before the remote
-		// mutation instead of creating a pane whose id nobody prints.
-		splitParams["remote_tmux_unsupported_options"] = []string{"-P"}
+		unsupportedOptions = append(unsupportedOptions, "-P")
+	}
+	if commandText != "" {
+		unsupportedOptions = append(unsupportedOptions, "initial_command")
+	}
+	if len(unsupportedOptions) > 0 {
+		splitParams["remote_tmux_unsupported_options"] = unsupportedOptions
 	}
 	created, err := rc.call("surface.split", splitParams)
 	if err != nil {
@@ -1846,10 +1855,16 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 	}
 	if accepted, _ := created["accepted"].(bool); accepted {
 		// Routed to a remote tmux mirror: the split was applied to the remote
-		// session and the pane arrives asynchronously. Option-carrying requests
-		// are rejected server-side before the remote mutation, so reaching here
-		// means a plain split — succeed quietly and skip local layout tracking,
-		// matching the local CLI.
+		// session and the pane arrives asynchronously. Option-carrying requests —
+		// the pane's command included — are rejected server-side before the
+		// remote mutation, so reaching here means a plain split: succeed quietly
+		// and skip local layout tracking, matching the local CLI.
+		if commandText != "" {
+			// Only reachable through an app that ignored
+			// remote_tmux_unsupported_options; the remote pane already exists,
+			// so warn rather than report a failure automation would retry.
+			fmt.Fprintln(os.Stderr, "cmux: split routed to a remote tmux mirror; the command was not applied")
+		}
 		return nil
 	}
 	surfaceId, _ := created["surface_id"].(string)
@@ -1895,11 +1910,11 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 	// The pane's command — the HUD's included — is typed into its shell: the
 	// relay denies command-bearing split parameters on every method, so the
 	// startup-script path the local CLI uses cannot travel with the split.
-	if text := tmuxShellCommandText(p.positional, p.value("-c")); text != "" {
+	if commandText != "" {
 		rc.call("surface.send_text", map[string]any{
 			"workspace_id": targetWs,
 			"surface_id":   surfaceId,
-			"text":         text,
+			"text":         commandText,
 		})
 	}
 
