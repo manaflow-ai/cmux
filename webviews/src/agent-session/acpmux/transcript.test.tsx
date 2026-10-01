@@ -144,6 +144,7 @@ describe("acpmux renderer registry", () => {
 describe("acpmux host handshake", () => {
   /// A loopback acpmux that answers the open handshake and can drop the socket.
   class FakeSocket {
+    static OPEN = 1;
     static made: FakeSocket[] = [];
     readyState = 0;
     onopen?: () => void;
