@@ -1,3 +1,7 @@
+import {
+  creatorFor,
+  readCreatorNames,
+} from "../../../../services/vms/creators";
 import { normalizedDisplayName } from "../../../../services/vms/displayName";
 import {
   invalidVmDisplayNameResponse,
@@ -36,6 +40,9 @@ export async function GET(
         billingTeamId: account.entitlements.billingTeamId,
         teamIds: user.teamIds,
         providerVmId: id,
+        // A status read is how a gone machine is usually noticed first, and the
+        // row it retires is one no destroy or cron pass can revisit.
+        modelPlane: vmModelPlaneRevoker(),
       }), { request });
       if (!run.ok) return run.response;
       const vm = run.value;
@@ -53,7 +60,18 @@ export async function GET(
         createdAt: vm.createdAt,
         displayName: vm.displayName,
         slug: vm.slug,
+        // Same field the list carries. A client that merges a detail read into
+        // the row it already listed would otherwise overwrite the author with
+        // nothing, and the resulting "Unknown" reads as a client bug.
+        createdBy: creatorFor(vm, await readCreatorNames({
+          userIds: [vm.createdByUserId],
+          teamId: vm.ownerTeamId,
+          caller: user,
+        })),
         address: { ipv4: vm.addressIpv4 ?? null, ipv6: vm.addressIpv6 ?? null },
+        // Contract recorded when the provider attached cmux-tui. This is
+        // rollout metadata, not a live daemon probe.
+        cmuxTuiContract: vm.cmuxTuiContract,
       });
     },
   );

@@ -8,11 +8,7 @@ import SwiftUI
 /// off and cannot be flipped either; the section's note says why.
 struct DevicesAccessToggleRow: View {
     let searchAnchorID: String
-    let title: String
-    let help: String
-    let isOn: Bool
-    let managed: Bool
-    let unavailable: Bool
+    let control: DeviceAccessControl
     let identifier: String
     let set: (Bool) -> Void
 
@@ -20,14 +16,15 @@ struct DevicesAccessToggleRow: View {
         SettingsCardRow(
             configurationReview: .settingsOnly,
             searchAnchorID: searchAnchorID,
-            title,
-            subtitle: managed ? String(localized: "devices.managed", defaultValue: "Disabled by your administrator.") : help
+            control.title,
+            subtitle: control.help
         ) {
-            Toggle(title, isOn: Binding(get: { isOn && !managed && !unavailable }, set: set))
+            Toggle(control.title, isOn: Binding(get: { control.isOn }, set: set))
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.small)
-                .disabled(managed || unavailable)
+                .disabled(!control.isEnabled)
+                .accessibilityLabel(control.title)
                 .accessibilityIdentifier(identifier)
         }
     }

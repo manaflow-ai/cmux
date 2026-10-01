@@ -227,6 +227,25 @@ struct TerminalCustomUploadRunner {
         timeout: TimeInterval,
         operation: TerminalImageTransferOperation
     ) throws -> (status: Int32, stdout: String, stderr: String) {
+        try spawnCommand(
+            command: command,
+            environment: environment,
+            timeout: timeout,
+            operation: operation,
+            drainTimeout: 2
+        )
+    }
+
+    /// `drainTimeout` bounds each pipe drain after the leader exits (see
+    /// ``finishDrain(_:closing:within:)``). Tests whose command leaves an orphan
+    /// holding the pipes pass a short bound instead of waiting it out.
+    static func spawnCommand(
+        command: String,
+        environment: [String: String],
+        timeout: TimeInterval,
+        operation: TerminalImageTransferOperation,
+        drainTimeout: TimeInterval
+    ) throws -> (status: Int32, stdout: String, stderr: String) {
         try operation.throwIfCancelled()
 
         // Inherit the app environment (so PATH/HOME etc. resolve the user's tools)
@@ -394,8 +413,8 @@ struct TerminalCustomUploadRunner {
         // group, so a group kill can't reach it — could still hold a write end
         // open. Bound the drain, then close our read end to force the reader to
         // return. This can't hang and doesn't signal a possibly-reused pgid.
-        finishDrain(stdoutDrained, closing: stdoutReadFD); stdoutFDs[0] = -1
-        finishDrain(stderrDrained, closing: stderrReadFD); stderrFDs[0] = -1
+        finishDrain(stdoutDrained, closing: stdoutReadFD, within: drainTimeout); stdoutFDs[0] = -1
+        finishDrain(stderrDrained, closing: stderrReadFD, within: drainTimeout); stderrFDs[0] = -1
 
         if operation.isCancelled {
             throw TerminalImageTransferExecutionError.cancelled
@@ -421,10 +440,10 @@ struct TerminalCustomUploadRunner {
         )
     }
 
-    /// Waits up to 2s for `done`, then closes `fd` to force a still-blocked reader
+    /// Waits up to `seconds` for `done`, then closes `fd` to force a still-blocked reader
     /// (a descendant holding the write end) to return — a bounded, hang-free drain.
-    private static func finishDrain(_ done: DispatchSemaphore, closing fd: Int32) {
-        if done.wait(timeout: .now() + 2) == .timedOut {
+    private static func finishDrain(_ done: DispatchSemaphore, closing fd: Int32, within seconds: TimeInterval) {
+        if done.wait(timeout: .now() + seconds) == .timedOut {
             close(fd)
             done.wait()
         } else {

@@ -9,6 +9,8 @@ final class BrowserPaneDropTargetView: NSView {
         didSet {
             if dropContext != oldValue {
                 transferDropRouter.clear()
+                dropRoutingRegistration.clear()
+                clearDragPresentationForContextChange()
             }
         }
     }
@@ -44,6 +46,7 @@ final class BrowserPaneDropTargetView: NSView {
         if newSuperview == nil {
             dropRoutingRegistration.clear()
             transferDropRouter.clear()
+            clearDragPresentationForContextChange()
         }
         super.viewWillMove(toSuperview: newSuperview)
     }
@@ -444,6 +447,16 @@ final class BrowserPaneDropTargetView: NSView {
             )
         }
 #endif
+    }
+
+    /// Clears a preview whose pane identity is no longer current.
+    private func clearDragPresentationForContextChange() {
+        exitActiveFileDropWebView(nil)
+        activeZone = nil
+        preparedFileDropWebView = nil
+        performedFileDropWebView = nil
+        didRequestWebViewRestoreForDrag = false
+        slotView?.clearPortalDragOverlayForContextChange()
     }
 
 #if DEBUG

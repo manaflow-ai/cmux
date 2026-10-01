@@ -262,6 +262,89 @@ struct CloudWorkspaceLiveProjectionTests {
         #expect(catalog.projections == [first.projection])
     }
 
+    /// Reconcile reprojects through `project`, so a reuse that rewrites unchanged
+    /// coordinates would request its own next pass and spin the main actor.
+    @Test("Reusing a projection at its current placement changes nothing")
+    func reusingCurrentPlacementIsNoOp() async throws {
+        let fixture = boundWorkspaceFixture()
+        defer { fixture.workspace.teardownAllPanels() }
+        let catalog = fixture.catalog
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+        install(try graph(["first": "a"], revision: 1), catalog: catalog)
+        await fixture.coordinator.waitForIdle()
+        let projection = try #require(catalog.projections.first { $0.workspaceID == fixture.workspace.id })
+        #expect(projection.remoteWorkspaceID == "a" && projection.remoteTabID == "first")
+        let view = try #require(try catalog.remoteView(for: projection.resource, tabID: projection.remoteTabID, workspaceID: "a"))
+        let version = catalog.projectionVersions[machine]
+
+        let reused = try await catalog.project(
+            projection.resource, into: .workspace(id: fixture.workspace.id, placement: .tab),
+            focus: false, reuseExisting: true, reuseInWorkspace: fixture.workspace.id, remoteView: view
+        )
+
+        #expect(reused.reused)
+        #expect(reused.projection == projection)
+        #expect(catalog.projectionVersions[machine] == version)
+    }
+
+    /// Any consumer that requests another pass without changing the graph (the
+    /// nightly b36a9b3 livelock) must end in a bounded number of passes.
+    @Test("Reconciling one graph stops when every pass requests another")
+    func reconcileOfOneGraphIsBounded() async throws {
+        let fixture = boundWorkspaceFixture()
+        defer { fixture.workspace.teardownAllPanels() }
+        let catalog = fixture.catalog
+        let coordinator = fixture.coordinator
+        let machine = self.machine
+        var passes = 0
+        coordinator.environment.applyLayout = { [unowned catalog, unowned coordinator] _, _, _ in
+            passes += 1
+            if passes < 1_000 { coordinator.request(machine: machine, catalog: catalog) }
+        }
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+        install(try graph(["first": "a"], revision: 1), catalog: catalog)
+        await coordinator.waitForIdle()
+
+        #expect(passes > 0, "The fixture must reach the layout step")
+        #expect(passes <= CloudWorkspaceReconcileBudget.maxIdlePasses + 2)
+        #expect(catalog.projections.contains { $0.workspaceID == fixture.workspace.id && $0.remoteTabID == "first" })
+    }
+
+    /// The nightly b36a9b3 shape: every pass rewrote the same projection, which
+    /// advances the projection revision and so looks like progress.
+    @Test("Reconciling one graph stops when every pass rewrites projections and requests another")
+    func reconcileThatOnlyLooksBusyIsBounded() async throws {
+        let fixture = boundWorkspaceFixture()
+        defer { fixture.workspace.teardownAllPanels() }
+        let catalog = fixture.catalog
+        let coordinator = fixture.coordinator
+        let machine = self.machine
+        var passes = 0
+        coordinator.environment.applyLayout = { [unowned catalog, unowned coordinator] _, _, _ in
+            passes += 1
+            catalog.projectionVersions[machine, default: 0] &+= 1
+            if passes < 1_000 { coordinator.request(machine: machine, catalog: catalog) }
+        }
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+        install(try graph(["first": "a"], revision: 1), catalog: catalog)
+        await coordinator.waitForIdle()
+
+        #expect(passes > 0, "The fixture must reach the layout step")
+        #expect(passes <= CloudWorkspaceReconcileBudget.maxPassesPerState)
+    }
+
+    @Test("A reconcile that keeps making progress is not cut short by the idle limit")
+    func progressingPassesStayAdmitted() throws {
+        let state = try graph(["first": "a"], revision: 1)
+        var budget = CloudWorkspaceReconcileBudget()
+        for version in 0..<UInt64(CloudWorkspaceReconcileBudget.maxPassesPerState) {
+            if !budget.admit(.init(state: state, projectionVersion: version, bindings: [:])) { Issue.record("progressing pass was unexpectedly rejected") }
+        }
+        if budget.admit(.init(state: state, projectionVersion: 1_000, bindings: [:])) { Issue.record("exhausted pass was unexpectedly admitted") }
+        let next = try graph(["first": "a"], revision: 2)
+        if !budget.admit(.init(state: next, projectionVersion: 1_000, bindings: [:])) { Issue.record("a new graph did not start a new budget") }
+    }
+
     @Test("Lifecycle cancellation is not retained as a projection failure")
     func cancelledMaterializationIsNotAnError() async throws {
         let live = LiveWorkspaceFixture()
@@ -458,5 +541,32 @@ struct CloudWorkspaceLiveProjectionTests {
             existing: catalog.projections.filter { $0.workspaceID == fixture.workspace.id }
         )
         #expect(plan.obsolete.isEmpty, "A local preview with its bound workspace is not obsolete")
+    }
+
+    @Test("A membership-less preview does not block a second bound workspace", arguments: [false, true])
+    func membershiplessPreviewDoesNotBlockSecondWorkspace(isPort: Bool) async throws {
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let first = live.id()
+        let second = live.id()
+        let binding = WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "a")
+        let bindings = [first: binding, second: binding]
+        let coordinator = CloudWorkspaceProjectionCoordinator(environment: .init(bindings: { bindings }))
+        let placement = CloudPlacementCoordinator(binding: { bindings[$0] })
+        let catalog = SurfaceCatalog(live: live, cloudPlacementCoordinator: placement, cloudWorkspaceProjectionCoordinator: coordinator)
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+        let preview = isPort
+            ? CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 6969)
+            : CmuxTuiSnapshotParser.display(machine: machine)
+
+        install(try graph(["first": "a"], revision: 1), catalog: catalog, extraResources: [preview])
+        catalog.record(SurfaceProjection(
+            resource: preview.id, workspaceID: first, panelID: UUID(), remoteWorkspaceID: "a"
+        ))
+        coordinator.request(machine: machine, catalog: catalog)
+        await coordinator.waitForIdle()
+
+        #expect(coordinator.failures[second] == nil)
+        #expect(catalog.projections.contains { $0.resource == preview.id && $0.workspaceID == second })
     }
 }

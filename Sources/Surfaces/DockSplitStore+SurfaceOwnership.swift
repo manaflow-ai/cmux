@@ -1,4 +1,5 @@
 import CmuxCloud
+import Bonsplit
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -13,15 +14,22 @@ extension DockSplitStore {
         return surfaceOwnershipPolicy.rejection(for: nil) == nil
     }
 
-    func surfaceDropRejection(_ transfer: PaneDragTransfer, source: PaneTransferSourceResolver.Source) -> SurfaceTransferRejection? {
+    func surfaceDropRejection(
+        _ transfer: PaneDragTransfer,
+        source: PaneTransferSourceResolver.Source,
+        policy: SurfaceOwnershipPolicy? = nil
+    ) -> SurfaceTransferRejection? {
+        let ownershipPolicy = policy ?? surfaceOwnershipPolicy
         switch source {
         case .surfaceResources(let group):
-            return SurfaceCatalog.shared.ownershipRejection(for: group.resources, policy: surfaceOwnershipPolicy)
+            return SurfaceCatalog.shared.ownershipRejection(for: group.resources, policy: ownershipPolicy)
         case .surface:
-            let machine = transfer.isFromCurrentProcess ? AppDelegate.shared?.machineOwningBonsplitTab(transfer.tabId) : nil
-            return surfaceOwnershipPolicy.rejection(for: machine)
+            guard transfer.isFromCurrentProcess else { return ownershipPolicy.rejection(for: nil) }
+            // A Dock surface split or reordered within this Dock stays on its machine.
+            if surfaceIdToPanelId[TabID(uuid: transfer.tabId)] != nil { return nil }
+            return ownershipPolicy.rejection(for: AppDelegate.shared?.machineOwningBonsplitTab(transfer.tabId))
         case .vaultSession, .filePreview, .rightSidebarTool:
-            return surfaceOwnershipPolicy.rejection(for: .local)
+            return ownershipPolicy.rejection(for: .local)
         }
     }
 
@@ -49,5 +57,29 @@ extension DockSplitStore {
         return panels[panelID]?.transferredSurfaceMachine
             ?? detachedSurfaceTransfersByPanelId[panelID]?.surfaceMachine
             ?? .local
+    }
+}
+
+/// Whether a terminal's shell runs on another machine, wherever the terminal
+/// is hosted: a workspace's split tree or a Dock. Predicted echo only runs for
+/// these terminals.
+@MainActor
+enum TerminalRemoteMachineClassification {
+    static func runsOnAnotherMachine(surfaceID: UUID, workspaceID: UUID) -> Bool {
+        if let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(surfaceID) }) {
+            return dock.terminalRunsOnAnotherMachine(surfaceID)
+        }
+        return AppDelegate.shared?.workspaceFor(tabId: workspaceID)?
+            .terminalRunsOnAnotherMachine(surfaceID) ?? false
+    }
+}
+
+extension DockSplitStore {
+    /// A Dock hosts a remote terminal only by transfer: a Cloud or SSH
+    /// projection, or a remote PTY surface moved in from a remote workspace.
+    func terminalRunsOnAnotherMachine(_ panelID: UUID) -> Bool {
+        if detachedSurfaceTransfersByPanelId[panelID]?.isRemoteTerminal == true { return true }
+        guard let machine = machineOwningSurface(panelID) else { return false }
+        return !machine.isLocal
     }
 }

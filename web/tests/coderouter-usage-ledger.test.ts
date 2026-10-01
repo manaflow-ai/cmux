@@ -227,6 +227,25 @@ describe("CodeRouter usage ledger rows", () => {
     });
   });
 
+  test("route row records time held for capacity and how often", () => {
+    const row = routeEventRow({
+      requestId,
+      teamId: "team-1",
+      provider: "codex",
+      agent: "codex",
+      outcome: "success",
+      failureStage: "none",
+      status: 200,
+      attemptCount: 5,
+      refreshRetryCount: 0,
+      durationMs: 190_000,
+      heldMs: 187_654.4,
+      holdCount: 400,
+      responseStreamed: true,
+    }, now());
+    expect(row).toMatchObject({ held_ms: 187_654, hold_count: 400 });
+  });
+
   test("route row for an unauthenticated request has an empty team", async () => {
     const { inserts, tasks, dependencies } = harness();
     recordRouteEvent({
@@ -257,6 +276,8 @@ describe("CodeRouter usage ledger rows", () => {
         attempt_count: 0,
         refresh_retry_count: 0,
         duration_ms: 13,
+        held_ms: 0,
+        hold_count: 0,
         response_streamed: 0,
         request_id: requestId,
         upstream_account_id: "",

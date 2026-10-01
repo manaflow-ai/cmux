@@ -218,6 +218,8 @@ extension Workspace {
             return SurfaceKind.mobilePairing.rawValue
         case .accountSignIn:
             return SurfaceKind.accountSignIn.rawValue
+        case .cloudVPNSetup:
+            return SurfaceKind.cloudVPNSetup.rawValue
         }
     }
 

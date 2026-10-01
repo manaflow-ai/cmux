@@ -58,11 +58,7 @@ public struct UpdatePopoverView: View {
                 ExtractingView(extracting: extracting)
 
             case .installing(let installing):
-                if let blockers = installing.relaunchBlockers {
-                    WaitingToRelaunchView(installing: installing, blockers: blockers, dismiss: dismiss)
-                } else {
-                    InstallingView(installing: installing, dismiss: dismiss)
-                }
+                InstallingView(installing: installing, dismiss: dismiss)
 
             case .notFound(let notFound):
                 NotFoundView(notFound: notFound, dismiss: dismiss)
@@ -429,46 +425,6 @@ private struct InstallingView: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-            }
-        }
-        .padding(16)
-    }
-}
-
-private struct WaitingToRelaunchView: View {
-    let installing: UpdateState.Installing
-    let blockers: UpdateRelaunchBlockers
-    let dismiss: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(String(localized: "update.readyWaiting", defaultValue: "Update Ready"))
-                    .cmuxFont(size: 13, weight: .semibold)
-
-                Text(UpdateStateModel.relaunchBlockersDescription(blockers))
-                    .cmuxFont(size: 11)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            HStack {
-                Button(String(localized: "common.later", defaultValue: "Later")) {
-                    installing.dismiss()
-                    dismiss()
-                }
-                .keyboardShortcut(.cancelAction)
-                .controlSize(.small)
-
-                Spacer()
-
-                // No default-action shortcut: Install Now interrupts agents or running commands.
-                Button(String(localized: "update.installNow", defaultValue: "Install Now")) {
-                    installing.retryTerminatingApplication()
-                    dismiss()
-                }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
             }

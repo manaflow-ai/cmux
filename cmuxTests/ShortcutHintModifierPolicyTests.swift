@@ -53,6 +53,12 @@ struct ShortcutHintModifierHoldPolicyTests {
         #expect(ChromeRevealAnimation.animation(isVisible: false, fadeOut: fade, reduceMotion: true) == nil)
     }
 
+    @Test
+    func shortcutHintsFadeInAndOutUnlessReduceMotion() {
+        #expect(ShortcutHintAnimation.animation(reduceMotion: false) == ShortcutHintAnimation.fade)
+        #expect(ShortcutHintAnimation.animation(reduceMotion: true) == nil)
+    }
+
     private func withDefaultsSuite(_ body: (UserDefaults) throws -> Void) throws {
         let suiteName = "ShortcutHintModifierHoldPolicyTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

@@ -231,8 +231,15 @@ exit 97
             self.assertEqual(checkout['with']['path'], '.e2e-workflow')
             self.assertEqual(
                 checkout['with']['sparse-checkout'].split(),
-                ['.github/actions/e2e-run-tests', 'scripts/ci/e2e-frames.py'],
+                ['.github/actions/e2e-run-tests',
+                 'scripts/ci/e2e-frames.py',
+                 'scripts/ci/brew-ensure.sh'],
             )
+            # Every entry has to exist, since sparse-checkout of a missing path
+            # is silent and the action would fall back to the tested revision's
+            # copy without saying so.
+            for entry in checkout['with']['sparse-checkout'].split():
+                self.assertTrue((ROOT / entry).exists(), entry)
         # The build job's budget covers compiling and testing.
         self.assertEqual(WORKFLOW['jobs']['build']['timeout-minutes'],
                          '${{ fromJSON(needs.filter.outputs.build_timeout) }}')
@@ -252,7 +259,7 @@ exit 97
         # Left to the `test` job, the tests still find the product: the late
         # upload runs whenever the early one stood aside.
         self.assertEqual(by_id('late-upload-check')['if'],
-                         "${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' }}")
+                         "${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' && (steps.reuse.outputs.hit != 'true' || steps.test-here.outputs.tested != 'true') }}")
 
     def test_the_fallback_test_job_waits_for_the_gui_token_in_a_step(self):
         # The `test` job runs only when build could not get the gui token, so
@@ -290,7 +297,7 @@ exit 97
         check = by_id('late-upload-check')
         self.assertEqual(
             check['if'],
-            "${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' }}")
+            "${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' && (steps.reuse.outputs.hit != 'true' || steps.test-here.outputs.tested != 'true') }}")
         self.assertIn('shasum -a 256 -c', check['run'])
         self.assertEqual(check['env']['EXPECTED_SHA256'], '${{ steps.package.outputs.sha256 }}')
         self.assertEqual(after['if'], "${{ always() && steps.late-upload-check.outcome == 'success' }}")
@@ -588,7 +595,16 @@ exit 97
 
 
 class E2ECapturePreflight(unittest.TestCase):
-    def test_capture_failure_stops_before_dependency_setup(self):
+    def test_video_steps_follow_the_capture_check(self):
+        effective = ("${{ inputs.record-video == 'true' && steps.capture.outputs.available != 'false'"
+                     " && 'true' || 'false' }}")
+        self.assertEqual(step('Run selected tests', TESTS)['env']['RECORD_VIDEO'], effective)
+        self.assertEqual(step('Publish test summary', TESTS)['env']['RECORD_VIDEO'], effective)
+        self.assertIn("steps.capture.outputs.available != 'false'",
+                      step('Upload recording artifact', TESTS)['if'])
+        self.assertEqual(step('Verify screen capture before dependency setup', TESTS)['id'], 'capture')
+
+    def test_capture_failure_runs_the_tests_without_video(self):
         for mode in ('ok', 'failure', 'empty', 'timeout', 'no-user'):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
@@ -634,7 +650,10 @@ else:
                            RUNNER_TEMP=str(root), CAPTURE_FIXTURE_MODE=mode,
                            CAPTURE_FIXTURE_TRACE=str(trace),
                            CAPTURE_CHILD_PIPE=str(child_pipe),
-                           CAPTURE_CHILD_PID=str(root / 'child-pid'))
+                           CAPTURE_CHILD_PID=str(root / 'child-pid'),
+                           GITHUB_OUTPUT=str(root / 'output'),
+                           GITHUB_STEP_SUMMARY=str(root / 'summary'),
+                           RUNNER_NAME='blacksmith-12vcpu-macos-26-Runner-x')
                 # Execute the workflow's actual preflight, with a short test-only
                 # timeout, before substituting an expensive setup side effect.
                 reached = root / 'dependency-setup'
@@ -642,15 +661,26 @@ else:
                 for entry in JOBS[TESTS]:
                     if entry.get('name') == 'Verify screen capture before dependency setup':
                         timeout = '2' if mode == 'timeout' else '10'
-                        command += entry['run'].rstrip() + ' --timeout-seconds ' + timeout + '\n'
+                        script = 'scripts/ci/preflight-e2e-screen-capture.py'
+                        self.assertIn(script, entry['run'])
+                        command += entry['run'].replace(script, script + ' --timeout-seconds ' + timeout)
                     if entry.get('name') in ('Setup Bun', 'Download pre-built GhosttyKit.xcframework',
                                              'Install zig', 'Install Rust', 'Prepare isolated DerivedData'):
                         command += 'touch "$RUNNER_TEMP/dependency-setup"\n'
                         break
                 result = subprocess.run(['bash', '-eu', '-o', 'pipefail', '-c', command],
                                         cwd=ROOT, env=env, capture_output=True, text=True)
-                self.assertEqual(result.returncode == 0, mode == 'ok', result.stderr)
-                self.assertEqual(reached.exists(), mode == 'ok')
+                # An unavailable display no longer fails the run: the step
+                # reports it, and the tests run without video.
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(reached.exists())
+                available = 'true' if mode == 'ok' else 'false'
+                self.assertEqual((root / 'output').read_text(), f'available={available}\n')
+                summary = root / 'summary'
+                self.assertEqual(summary.exists(), mode != 'ok')
+                if mode != 'ok':
+                    self.assertIn('the tests ran without video', summary.read_text())
+                    self.assertIn('blacksmith-12vcpu-macos-26-Runner-x', summary.read_text())
                 self.assertEqual(list(root.glob('cmux-capture-preflight-*')), [])
                 if mode != 'no-user':
                     self.assertTrue(trace.exists(), result.stderr)

@@ -32,18 +32,24 @@ struct RemoteRelayRoutingSchema {
             return surface.union(["terminal_lifecycle_id", "attempt_id", "relay_port", "session_id", "lifecycle_id"])
         case "workspace.remote.terminal_session_end":
             return surface.union(["terminal_lifecycle_id", "relay_port", "session_id", "lifecycle_id", "lifecycle_only"])
-        case "surface.resume.set":
-            return terminal.union(["command", "name", "kind", "cwd", "checkpoint_id", "checkpointId",
-                "source", "environment", "launch_command", "permission_mode", "auto_resume", "resume_evidence_provenance"])
-        case "surface.resume.get":
-            return terminal.union(["claim_checkpoint_id", "claim_source", "claim_updated_at"])
-        case "surface.resume.clear":
-            return terminal.union(["checkpoint_id", "checkpointId", "source", "expected_updated_at", "agent_session_ended"])
         case "agent.resolve_delivery_target": return workspace.union(["tty_name", "tty_resolution"])
         case "agent.hook.enqueue":
             return surface.union(["agent", "subcommand", "payload", "relay_backed", "caller_tty"])
+        case "agent.message.poll":
+            return ["surface_id", "poller_key", "register", "mark_delivered_read"]
+        case "agent.message.claim":
+            return ["surface_id", "via", "mark_delivered_read"]
+        case "agent.message.mark_read":
+            return ["surface_id", "id", "ids"]
+        case "agent.message.list":
+            return ["surface", "state", "limit"]
+        case "agent.message.send":
+            return [
+                "target", "reply_to", "body", "from", "thread_id",
+                "sender_surface_id", "sender_workspace_id",
+            ]
         case "notification.create_for_target":
-            return surface.union(["title", "subtitle", "body", "reply_shape"])
+            return surface.union(["title", "subtitle", "body"])
         default: return nil
         }
     }

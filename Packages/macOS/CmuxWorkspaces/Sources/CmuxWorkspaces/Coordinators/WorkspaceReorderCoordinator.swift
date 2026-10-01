@@ -63,6 +63,31 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         }
     }
 
+    /// Whether ``moveTabToTopForNotification(_:)`` would leave the order
+    /// unchanged because the workspace (or, when grouped, its top-level row)
+    /// already sits first in the unpinned tier. Pinned and unknown rows
+    /// return `false`; callers check pinning separately.
+    public func isAtTopOfUnpinnedTier(_ tabId: UUID) -> Bool {
+        guard let tab = model.tabs.first(where: { $0.id == tabId }), !tab.isPinned else { return false }
+        if !model.workspaceGroups.isEmpty {
+            guard let topLevelId = model.topLevelWorkspaceIds(for: [tab]).first else { return false }
+            let pinnedTopLevelIds = model.sidebarTopLevelPinnedWorkspaceIdsIncludingEmptyGroups()
+            guard !pinnedTopLevelIds.contains(topLevelId) else { return false }
+            let topLevelIds = model.sidebarTopLevelWorkspaceIdsIncludingEmptyGroups()
+            let pinnedCount = topLevelIds.filter { pinnedTopLevelIds.contains($0) }.count
+            guard topLevelIds.firstIndex(of: topLevelId) == pinnedCount else { return false }
+            // A group member is on top only when it also leads its group's
+            // unpinned members, the slot moveTabToTopForNotification promotes
+            // it to (after the anchor and any pinned members).
+            guard let groupId = tab.groupId,
+                  let group = model.workspaceGroups.first(where: { $0.id == groupId }),
+                  tab.id != group.anchorWorkspaceId else { return true }
+            let firstMember = model.tabs.first { $0.groupId == groupId && $0.id != group.anchorWorkspaceId && !$0.isPinned }
+            return firstMember?.id == tabId
+        }
+        return model.tabs.first(where: { !$0.isPinned })?.id == tabId
+    }
+
     /// Moves a workspace to the top of the unpinned tier for a notification
     /// bump; no-ops for pinned rows or rows already at the boundary.
     public func moveTabToTopForNotification(_ tabId: UUID) {
@@ -93,8 +118,12 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             guard index != pinnedCount else { return }
             let tab = model.tabs[index]
             guard !tab.isPinned else { return }
-            model.tabs.remove(at: index)
-            model.tabs.insert(tab, at: pinnedCount)
+            model.replaceTabs { currentTabs in
+                var reordered = currentTabs
+                let movedTab = reordered.remove(at: index)
+                reordered.insert(movedTab, at: pinnedCount)
+                return reordered
+            }
         }
         if model.tabs.map(\.id) != previousOrder {
             host?.workspaceOrderDidChange(movedWorkspaceIds: [tabId])
@@ -152,8 +181,12 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             return true
         }
 
-        let workspace = model.tabs.remove(at: plan.fromIndex)
-        model.tabs.insert(workspace, at: plan.toIndex)
+        model.replaceTabs { currentTabs in
+            var reordered = currentTabs
+            let workspace = reordered.remove(at: plan.fromIndex)
+            reordered.insert(workspace, at: plan.toIndex)
+            return reordered
+        }
         if isDragOperation {
             applyDragInferredGroupMembership(workspaceId: tabId, explicitGroupId: explicitGroupId)
         } else if !model.workspaceGroups.isEmpty {
@@ -895,14 +928,21 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
     }
 
     private func reorderTabForPinnedState(_ tab: Tab) {
-        guard let index = model.tabs.firstIndex(where: { $0.id == tab.id }) else { return }
+        guard model.tabs.contains(where: { $0.id == tab.id }) else { return }
         if tab.groupId != nil {
             model.normalizeWorkspaceGroupContiguity()
             return
         }
-        model.tabs.remove(at: index)
-        let pinnedCount = model.leadingGlobalPinnedRowCount()
-        let insertIndex = min(pinnedCount, model.tabs.count)
-        model.tabs.insert(tab, at: insertIndex)
+        model.replaceTabs { currentTabs in
+            var reordered = currentTabs
+            guard let currentIndex = reordered.firstIndex(where: { $0.id == tab.id }) else {
+                return currentTabs
+            }
+            let movedTab = reordered.remove(at: currentIndex)
+            let pinnedCount = reordered.prefix { model.isGlobalPinnedRow($0) }.count
+            let insertIndex = min(pinnedCount, reordered.count)
+            reordered.insert(movedTab, at: insertIndex)
+            return reordered
+        }
     }
 }

@@ -1,5 +1,6 @@
 import { locales } from "./routing";
 import { docsCanonicalOrigin } from "@/app/lib/docs-channel";
+import { resolveAgentPageVariant } from "@/app/lib/agent-page-paths";
 
 const BASE = "https://cmux.com";
 const DEFAULT_OG_IMAGE_PATH = "/opengraph-image";
@@ -414,9 +415,8 @@ export function buildAlternates(
   path: string,
   hreflangLocales: readonly string[] = locales,
 ) {
-  const origin = path === "/docs" || path.startsWith("/docs/")
-    ? docsCanonicalOrigin()
-    : BASE;
+  const isDocs = path === "/docs" || path.startsWith("/docs/");
+  const origin = isDocs ? docsCanonicalOrigin() : BASE;
   const urlFor = (target: string) =>
     target === "en" ? `${origin}${path}` : `${origin}/${target}${path}`;
 
@@ -427,7 +427,13 @@ export function buildAlternates(
   );
   languages["x-default"] = urlFor("en");
 
-  return { canonical: urlFor(locale), languages };
+  const canonical = urlFor(locale);
+  // Docs pages the agent route serves also have a Markdown copy at `<page>.md`.
+  const markdownPath = `${new URL(canonical).pathname}.md`;
+  if (!isDocs || resolveAgentPageVariant(markdownPath)?.kind !== "page") {
+    return { canonical, languages };
+  }
+  return { canonical, languages, types: { "text/markdown": `${canonical}.md` } };
 }
 
 /** HTTP `Link` header value advertising the same hreflang set as `buildAlternates`. */

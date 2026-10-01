@@ -8,6 +8,7 @@ or long-lived watcher is needed to check the public shell behavior.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import socket
 import subprocess
@@ -29,8 +30,10 @@ class NoGitWatchContract(unittest.TestCase):
             (repo / ".git").mkdir(parents=True)
             (repo / ".git/HEAD").write_text("ref: refs/heads/contract-before\n")
             panel = str(uuid.uuid4())
-            cache = Path(f"/tmp/cmux-pr-cache-{panel}")
-            force = Path(f"/tmp/cmux-pr-force-{panel}")
+            state = directory / f"cmux-pr-{os.geteuid()}"
+            state.mkdir(mode=0o700)
+            cache = state / f"cache-{panel}"
+            force = state / f"force-{panel}"
             files = [Path(f"{cache}.{suffix}") for suffix in CACHE_SUFFIXES] + [force]
             env = {
                 "HOME": tmp,
