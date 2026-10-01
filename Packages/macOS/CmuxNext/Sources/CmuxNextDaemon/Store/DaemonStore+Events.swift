@@ -209,6 +209,7 @@ extension DaemonStore {
 
         case .bookmarksChanged(let profile, _):
             onBookmarksChanged?(profile)
+            return .none
         case .sessionState(let item):
             applySessionState(item)
             return .none

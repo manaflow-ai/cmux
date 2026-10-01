@@ -351,21 +351,6 @@ final class LineTransport: Sendable {
         onClose(reason)
     }
 
-    /// Offsets (from `data.startIndex`) of every newline at or after `offset`.
-    static func newlineOffsets(in data: Data, from offset: Int) -> [Int] {
-        data.withUnsafeBytes { raw -> [Int] in
-            guard let base = raw.baseAddress, offset < raw.count else { return [] }
-            var offsets: [Int] = []
-            var position = offset
-            while position < raw.count, let hit = memchr(base + position, 0x0A, raw.count - position) {
-                let found = base.distance(to: UnsafeRawPointer(hit))
-                offsets.append(found)
-                position = found + 1
-            }
-            return offsets
-        }
-    }
-
     /// Events routed so far. Read after a command's reply, it bounds every
     /// event the daemon emitted before that reply (a write barrier).
     var routedEventCount: UInt64 { state.withLock { $0.eventCount } }
