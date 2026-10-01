@@ -117,10 +117,10 @@ struct FileExplorerWorkspaceRootResolver {
         catalog: SurfaceCatalog,
         teamScope: @MainActor @Sendable () -> AuthenticatedTeamScope?
     ) -> CloudFileExplorerTarget.Identity? {
+        let machine = SurfaceMachineID(rawValue: vmID)
         guard !workspace.isRetiredFromOwningTabManager, workspace.cloudVMBinding?.vmID == vmID,
               WorkspaceCloudVMBinding.normalizedVMID(vmID) != nil,
               managedPolicyEnabled, featureEnabled, let team = teamScope(),
-              let machine = SurfaceMachineID(rawValue: vmID),
               let provider = catalog.provider(for: machine),
               catalog.machines[machine]?.linkState == .connected,
               catalog.cloudStateObservations[machine]?.freshness == .current else { return nil }
