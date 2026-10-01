@@ -64,7 +64,8 @@ Servers advertising `notification-mark-unread-v1` add `marked_unread`, true
 while the workspace is marked unread by hand. It is independent of
 `unread_count`; frontends show it as unread. The daemon never clears it on its
 own: a frontend clears it with `set-workspace-metadata` when the user types
-into one of the workspace's terminals, or marks the workspace read or clears
+into one of the workspace's terminals (the Mac app does this for workspaces on
+this Mac), or marks the workspace read or clears
 its notifications. Focusing or opening the workspace keeps it.
 
 Servers advertising `workspace-groups-v1` add the ordered `Tree.groups` array

@@ -89,7 +89,8 @@ enum WorkspaceMetadataHandlers {
         let machines = context.services.machines
         WorkspaceUnreadMark.set(false, on: workspaces, machines: machines)
         // A group's members can live on different machines.
-        for (workspace, daemon) in WorkspaceUnreadMark.routes(workspaces, machines: machines) {
+        for (workspace, daemon) in WorkspaceUnreadMark.routes(workspaces, machines: machines)
+        where daemon.supports(DaemonCapabilities.shared.notificationAck) {
             let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
             let unread = tabs.filter(\.hasUnread)
             let surfaces = (unread.isEmpty && workspace.unreadCount > 0 ? tabs : unread).map(\.surface)

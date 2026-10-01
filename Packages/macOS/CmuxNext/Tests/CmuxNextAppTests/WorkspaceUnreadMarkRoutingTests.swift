@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextRemote
 import Foundation
 import Testing
 
@@ -35,20 +36,26 @@ struct WorkspaceUnreadMarkRoutingTests {
 
     @Test func sendDecisionKeepsAClearAskedForBeforeTheMarksEcho() {
         let start = ContinuousClock.now
+        let soon = start + .milliseconds(500)
+        func send(_ marked: Bool, tree: Bool, last: WorkspaceUnreadMark.Sent?, typing: Bool = false, at now: ContinuousClock.Instant) -> Bool {
+            WorkspaceUnreadMark.needsSend(marked, tree, last: last, throttled: typing, now: now)
+        }
         // Nothing sent yet: only a change goes out.
-        #expect(WorkspaceUnreadMark.needsSend(true, false, last: nil, now: start))
-        #expect(!WorkspaceUnreadMark.needsSend(false, false, last: nil, now: start))
-        // A mark in flight (tree still clear): repeating it waits, a clear goes out.
+        #expect(send(true, tree: false, last: nil, at: start))
+        #expect(!send(false, tree: false, last: nil, at: start))
+        // A mark in flight (tree still clear): a clear goes out.
         let marking: WorkspaceUnreadMark.Sent = (true, start)
-        #expect(!WorkspaceUnreadMark.needsSend(true, false, last: marking, now: start + .milliseconds(500)))
-        #expect(WorkspaceUnreadMark.needsSend(false, false, last: marking, now: start + .milliseconds(500)))
+        #expect(send(false, tree: false, last: marking, at: soon))
         // A clear in flight (tree still marked): keystrokes wait, a re-mark goes out at once.
         let clearing: WorkspaceUnreadMark.Sent = (false, start)
-        #expect(!WorkspaceUnreadMark.needsSend(false, true, last: clearing, now: start + .milliseconds(500)))
-        #expect(WorkspaceUnreadMark.needsSend(true, true, last: clearing, now: start + .milliseconds(500)))
-        // No echo after the window: the clear is sent again.
-        #expect(WorkspaceUnreadMark.needsSend(false, true, last: clearing, now: start + WorkspaceUnreadMark.echoWindow))
+        #expect(!send(false, tree: true, last: clearing, typing: true, at: soon))
+        #expect(send(true, tree: true, last: clearing, at: soon))
+        // Typing with no echo after the window sends the clear again.
+        #expect(send(false, tree: true, last: clearing, typing: true, at: start + WorkspaceUnreadMark.echoWindow))
+        // A mark another client cleared right after its echo: the user's re-mark goes out.
+        #expect(send(true, tree: false, last: marking, at: soon))
         // Echoed: nothing left to send.
-        #expect(!WorkspaceUnreadMark.needsSend(false, false, last: clearing, now: start + .seconds(10)))
+        #expect(!send(false, tree: false, last: clearing, typing: true, at: start + .seconds(10)))
+        #expect(!send(true, tree: true, last: marking, at: soon))
     }
 }

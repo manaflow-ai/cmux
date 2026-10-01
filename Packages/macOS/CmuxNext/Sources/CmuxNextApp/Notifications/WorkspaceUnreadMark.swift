@@ -13,8 +13,8 @@ enum WorkspaceUnreadMark {
     /// The value last sent per workspace id.
     private static var sent: [String: Sent] = [:]
 
-    /// How long a sent value counts as in flight. Typing asks for a clear on
-    /// every keystroke until the echo lands; this sends one.
+    /// How long a throttled send counts as in flight. Typing asks for a clear
+    /// on every keystroke until the echo lands; this sends one.
     static let echoWindow: Duration = .seconds(2)
 
     /// Sets or clears the mark on each workspace, through the daemon whose
@@ -25,27 +25,34 @@ enum WorkspaceUnreadMark {
 
     /// Each workspace with the daemon whose tree holds it. Workspaces no
     /// daemon holds any more are left out.
+    /// Matched by identity: daemons without the registry can share
+    /// `handle:<n>` ids.
     static func routes(_ workspaces: [WorkspaceModel], machines: MachineRegistry) -> [(workspace: WorkspaceModel, daemon: DaemonService)] {
-        workspaces.compactMap { workspace in machines.daemon(forWorkspace: workspace.id).map { (workspace, $0) } }
+        workspaces.compactMap { workspace in
+            machines.daemons.first { $0.store.workspaces.contains { $0 === workspace } }.map { (workspace, $0) }
+        }
     }
 
     /// Sets or clears the mark on each workspace of `daemon` that needs it.
-    static func set(_ marked: Bool, on workspaces: [WorkspaceModel], daemon: DaemonService, now: ContinuousClock.Instant = .now) {
+    /// `throttled` (typing) holds back a repeat of a value sent within
+    /// `echoWindow`; a verb the user picks always goes out when it differs.
+    static func set(_ marked: Bool, on workspaces: [WorkspaceModel], daemon: DaemonService, throttled: Bool = false,
+                    now: ContinuousClock.Instant = .now) {
         guard daemon.supports(DaemonCapabilities.shared.notificationMarkUnread) else { return }
         for workspace in workspaces {
-            guard let key = workspace.key, needsSend(marked, workspace.markedUnread, last: sent[workspace.id], now: now) else { continue }
+            guard let key = workspace.key, needsSend(marked, workspace.markedUnread, last: sent[workspace.id], throttled: throttled, now: now) else { continue }
             sent[workspace.id] = (marked, now)
             daemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, markedUnread: marked) }
         }
     }
 
     /// Whether `marked` must go out for a workspace whose tree says `current`
-    /// and whose last send was `last`. The same value sent within
-    /// `echoWindow` is still in flight. Otherwise it goes out when the tree
-    /// or the last send differs, so a clear asked for before a mark's echo
-    /// arrives is not dropped.
-    static func needsSend(_ marked: Bool, _ current: Bool, last: Sent?, now: ContinuousClock.Instant) -> Bool {
-        if let last, last.marked == marked, now - last.at < echoWindow { return false }
+    /// and whose last send was `last`. It goes out when the tree or the last
+    /// send differs, so a clear asked for before a mark's echo arrives is not
+    /// dropped. Throttled, the same value sent within `echoWindow` counts as
+    /// still in flight.
+    static func needsSend(_ marked: Bool, _ current: Bool, last: Sent?, throttled: Bool, now: ContinuousClock.Instant) -> Bool {
+        if throttled, let last, last.marked == marked, now - last.at < echoWindow { return false }
         return current != marked || (last.map { $0.marked != marked } ?? false)
     }
 
