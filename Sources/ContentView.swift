@@ -7220,10 +7220,7 @@ struct ContentView: View {
                     CommandPaletteContextKeys.panelIsBrowser,
                     true
                 )
-                snapshot.setBool(
-                    CommandPaletteContextKeys.panelBrowserFocusModeActive,
-                    browserPanel.isBrowserFocusModeActive
-                )
+                Self.setCommandPaletteBrowserToggleContext(for: browserPanel, in: &snapshot)
                 snapshot.setBool(
                     CommandPaletteContextKeys.panelBrowserOmnibarVisible,
                     browserPanel.isOmnibarVisible
@@ -7265,9 +7262,7 @@ struct ContentView: View {
             snapshot.setString(CommandPaletteContextKeys.panelName, panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle))
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
             snapshot.setBool(CommandPaletteContextKeys.panelIsSimulator, panelContext.panel.panelType == .simulator)
-            if let browserPanel = panelContext.panel as? BrowserPanel {
-                snapshot.setBool(CommandPaletteContextKeys.panelBrowserFocusModeActive, browserPanel.isBrowserFocusModeActive)
-            }
+            if let browserPanel = panelContext.panel as? BrowserPanel { Self.setCommandPaletteBrowserToggleContext(for: browserPanel, in: &snapshot) }
             // Markdown zoom only affects the rendered preview, so don't surface
             // the zoom commands when the panel is in raw text-edit mode.
             snapshot.setBool(
@@ -8171,6 +8166,7 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
             )
         )
+        Self.appendBrowserKeepPageActiveCommandContribution(to: &contributions, panelSubtitle: browserPanelSubtitle)
         Self.appendViewZoomCommandContributions(to: &contributions, panelSubtitle: panelSubtitle)
         contributions.append(
             CommandPaletteCommandContribution(
@@ -9509,6 +9505,7 @@ struct ContentView: View {
             }
         }
         registerPaneResizeHandlers(&registry) { observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow }
+        registerBrowserKeepPageActiveCommandHandler(&registry, performBrowserAction: performBrowserAction)
         registerShortcutParityCommandHandlers(
             &registry,
             performBrowserAction: performBrowserAction
