@@ -47,7 +47,9 @@ struct CloudTreeMachineRowContent: View {
                     .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                    .truncationMode(.tail)
+                    // Generated names use adjective-colour-noun, so the tail is the
+                    // word that distinguishes machines. Keep both ends when space is tight.
+                    .truncationMode(.middle)
                     .layoutPriority(1)
             }
             Spacer(minLength: 0)
@@ -143,6 +145,11 @@ struct CloudTreeMachineRowContent: View {
             parts.append(machine.id)
         }
         parts.append(machine.kindLabel)
+        // Before the age, so "by Ada Lovelace · 3 hours ago" reads as one
+        // thought: who made it and when.
+        if let author = CloudMachineCreatorLabel.text(creator: machine.createdBy) {
+            parts.append(author)
+        }
         if let createdAt = machine.createdAt {
             // `now`, not `Date()`: every other part of this struct reads the
             // injected clock, so the age was the one value a test could not

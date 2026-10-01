@@ -76,7 +76,9 @@ PINNED_JOB_NAMES = (
 # The fail-fast watcher is started by a display name but must not act on one.
 # Display names are not unique, and the run object that arrives here carries
 # the stable path, so it can confirm what woke it before it cancels anything.
-IDENTITY_CHECKED = ".github/workflows/merge-group-fail-fast.yml"
+IDENTITY_CHECKED = (
+    ".github/workflows/merge-group-fail-fast.yml",
+)
 
 # `repos/:owner/:repo/actions/workflows/<file>/runs` is the identity-based way
 # to find another workflow's runs. The file still has to exist.
@@ -177,13 +179,53 @@ def check_runs_lookups_by_path(documents: dict[Path, dict], failures: list[str])
 
 
 def check_identity_before_acting(failures: list[str]) -> None:
-    watcher = (ROOT / IDENTITY_CHECKED).read_text(encoding="utf-8")
-    if "github.event.workflow_run.path" not in watcher or f"${DECLARATION}" not in watcher:
-        failures.append(
-            f"{IDENTITY_CHECKED}: must compare github.event.workflow_run.path "
-            f"against {DECLARATION} before it cancels anything, so a workflow "
-            "that merely shares a display name cannot drive it"
+    for relative in IDENTITY_CHECKED:
+        watcher = (ROOT / relative).read_text(encoding="utf-8")
+        if "github.event.workflow_run.path" not in watcher or f"${DECLARATION}" not in watcher:
+            failures.append(
+                f"{relative}: must compare github.event.workflow_run.path "
+                f"against {DECLARATION} before it cancels anything, so a workflow "
+                "that merely shares a display name cannot drive it"
+            )
+
+
+def test_pr_ci_does_not_cancel_independent_jobs() -> None:
+    # GitHub has no job-cancel REST endpoint. A PR-wide watcher hides useful
+    # sibling failures and spends a hosted runner polling for the entire run.
+    assert not (WORKFLOWS / "ci-fail-fast.yml").exists()
+
+
+def test_ci_failfast_keeps_failure_rollups_and_bounds_observed_tails() -> None:
+    """Cancellation must skip rollups, while ordinary failures still report."""
+
+    def job_block(path: str, job_id: str) -> str:
+        text = (ROOT / path).read_text(encoding="utf-8")
+        match = re.search(
+            rf"(?ms)^  {re.escape(job_id)}:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:|\Z)",
+            text,
         )
+        assert match, f"{path} has no {job_id} job"
+        return match.group("body")
+
+    for path, job_id in (
+        (".github/workflows/ci.yml", "tests"),
+        (".github/workflows/ci.yml", "ci-status"),
+        (".github/workflows/ci-guards.yml", "guard-status"),
+        (".github/workflows/ci-macos.yml", "macos-status"),
+        (".github/workflows/ci-web.yml", "web-status"),
+        (".github/workflows/test-ios.yml", "ios-tests"),
+    ):
+        assert "if: ${{ !cancelled() }}" in job_block(path, job_id)
+
+    assert "timeout-minutes: 60" in job_block(
+        ".github/workflows/ci-macos.yml", "app-host-unit-tests"
+    )
+    assert "timeout-minutes: 60" in job_block(
+        ".github/workflows/ci-macos.yml", "swift-package-tests"
+    )
+    assert "timeout-minutes: 25" in job_block(
+        ".github/workflows/test-ios.yml", "ios-simulator"
+    )
 
 
 def main() -> int:

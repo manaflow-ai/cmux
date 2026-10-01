@@ -348,6 +348,90 @@ class RegistryBlastRadiusTests(unittest.TestCase):
             {"tests/test_mine.py"},
         )
 
+    def test_validator_exit_code_tracks_added_tests_in_a_git_fixture(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="cmux-test-execution-registry-exit-") as temp:
+            root = Path(temp)
+            origin = root / "origin.git"
+            repo = root / "checkout"
+
+            def git(*args: str, cwd: Path = repo) -> None:
+                subprocess.run(
+                    [
+                        "git",
+                        "-c",
+                        "user.email=ci@example.com",
+                        "-c",
+                        "user.name=ci",
+                        *args,
+                    ],
+                    cwd=cwd,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+
+            subprocess.run(["git", "init", "--bare", str(origin)], check=True, capture_output=True, text=True)
+            repo.mkdir()
+            git("init", "-b", "main")
+            git("remote", "add", "origin", str(origin))
+            (repo / "tests").mkdir()
+            (repo / ".github" / "workflows").mkdir(parents=True)
+            (repo / ".github" / "workflows" / "ci-guards.yml").write_text(
+                "name: guards\njobs:\n  guard:\n    steps:\n      - run: python3 tests/test_base.py\n      - run: python3 tests/test_feature.py\n",
+                encoding="utf-8",
+            )
+            (repo / "tests" / "test_base.py").write_text("", encoding="utf-8")
+            (repo / "tests" / "test-execution.toml").write_text(
+                'version = 1\n\n[[test]]\npath = "tests/test_base.py"\nlane = "linux-guard"\n',
+                encoding="utf-8",
+            )
+            git("add", "-A")
+            git("commit", "-m", "base")
+            git("push", "-u", "origin", "main")
+
+            git("checkout", "-b", "feature")
+            (repo / "tests" / "test_feature.py").write_text("", encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-m", "feature test")
+
+            git("checkout", "main")
+            (repo / "tests" / "test_main.py").write_text("", encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-m", "main test")
+            git("push", "origin", "main")
+            main_tip = subprocess.check_output(
+                ["git", "rev-parse", "main"], cwd=repo, text=True
+            ).strip()
+            git("checkout", "feature")
+
+            def validate() -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    [
+                        sys.executable,
+                        str(VALIDATOR),
+                        "--repo-root",
+                        str(repo),
+                        "--base-sha",
+                        main_tip,
+                    ],
+                    cwd=repo,
+                    capture_output=True,
+                    text=True,
+                )
+
+            self.assertEqual(validate().returncode, 1)
+
+            with (repo / "tests" / "test-execution.toml").open("a", encoding="utf-8") as registry:
+                registry.write('\n[[test]]\npath = "tests/test_feature.py"\nlane = "linux-guard"\n')
+            git("add", "tests/test-execution.toml")
+            git("commit", "-m", "register feature test")
+            self.assertEqual(validate().returncode, 0)
+
+            git("merge", "main")
+            # This test arrived through the catch-up merge, so the current main
+            # tip must keep it at warning severity.
+            self.assertEqual(validate().returncode, 0)
+
     def test_registry_workflow_resolves_the_current_base_ref(self) -> None:
         block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW_PATH)
         start = block.index("      - name: Validate Python test execution registry")
@@ -355,7 +439,7 @@ class RegistryBlastRadiusTests(unittest.TestCase):
         step = block[start:end]
 
         self.assertIn(
-            "CMUX_TEST_REGISTRY_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}",
+            "CMUX_TEST_REGISTRY_BASE_REF: ${{ github.event.pull_request.base.ref || github.event.merge_group.base_ref || '' }}",
             step,
         )
         self.assertNotIn("github.event.pull_request.base.sha", step)
@@ -364,8 +448,8 @@ class RegistryBlastRadiusTests(unittest.TestCase):
             step,
         )
         self.assertIn('CMUX_TEST_REGISTRY_BASE_SHA="$(git rev-parse FETCH_HEAD)"', step)
+        self.assertIn('validate_test_execution_registry.py "${args[@]+"${args[@]}"}"', step)
         self.assertIn('args=(--base-sha "$CMUX_TEST_REGISTRY_BASE_SHA")', step)
-        self.assertIn("Keep this fetch shallow", step)
 
     def test_newly_added_tests_show_why_the_workflow_needs_the_current_base_tip(self) -> None:
         root = Path(tempfile.mkdtemp(prefix="cmux-test-execution-registry-git-"))
@@ -424,8 +508,8 @@ class RegistryBlastRadiusTests(unittest.TestCase):
             GUARD_WORKFLOW_PATH,
         )
         script = script.replace(
-            'python3 scripts/ci/validate_test_execution_registry.py "${args[@]}"',
-            'printf "%s\\n" "${args[@]}"',
+            'python3 scripts/ci/validate_test_execution_registry.py "${args[@]+"${args[@]}"}"',
+            'printf "%s\\n" "${args[@]+"${args[@]}"}"',
         )
         for base_ref, expected in (("main", ["--base-sha", main_tip]), ("", [""])):
             with self.subTest(base_ref=base_ref):

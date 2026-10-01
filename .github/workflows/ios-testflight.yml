@@ -571,6 +571,12 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      - name: Set up Go for the Cloud tunnel extension
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+          cache: false
+
       # The verified prebuilt is the happy path (same pattern as
       # reload-build.yml). Zig and the ghostty source are fetched only when it
       # fails, immediately before the ensure-ghosttykit.sh from-source build
@@ -1149,6 +1155,9 @@ jobs:
           security delete-keychain ios-testflight.keychain >/dev/null 2>&1 || true
 
   set-testflight-notes:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
     name: Set TestFlight notes
     needs: upload
     # Run alongside tester assignment and even if later Mac metadata/Sentry
@@ -1182,6 +1191,9 @@ jobs:
   # external marketing-version override assigns Founder's Edition and Pro
   # inline in cloud-testflight.sh, so it must skip this internal-app lookup.
   assign-internal-group:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
     name: Assign build to internal TestFlight group
     needs: [decide, upload]
     # Gated on the upload step's outcome, not the upload job's result: once

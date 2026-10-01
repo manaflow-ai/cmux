@@ -130,6 +130,8 @@ class ExtractionTests(unittest.TestCase):
             "typed xcresult is incomplete: 3 selected Test Case(s) have no terminal result",
             "No typed xcresult test JSON found for unit-physical-3",
             "xcodebuild status 70 is not ratchetable",
+            "inventory lists no built tests",
+            "no selectors: nothing was selected to run",
         ):
             with self.subTest(stop=stop):
                 self.assertFalse(MODULE.shard_log_complete(LOG + stop + "\n"))
