@@ -632,7 +632,7 @@ fn parse_workspace(
     argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     match strs(words).as_slice() {
-        ["group", rest @ ..] => parse_workspace_group(rest, flags),
+        ["group", rest @ ..] => parse_workspace_group(rest, selectors, flags),
         ["list"] => request(ResourceOperation::WorkspaceList, selectors, flags, Map::new()),
         ["create"] => {
             let mut params = Map::new();
@@ -2012,70 +2012,77 @@ fn parse_tab_group(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, Usa
     Ok(group_raw_plan(command, request))
 }
 
-fn parse_workspace_group(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
-    let mut request = Map::new();
-    let command = match words {
-        ["list"] => "list-workspace-groups",
+/// Workspace groups are personal state of the home session
+/// (plans/cmux-next/state-ownership.md): the commands use the
+/// `workspace_group.*` and `workspace.place` resource operations. The
+/// legacy shared group commands are gone.
+fn parse_workspace_group(
+    words: &[&str],
+    selectors: &mut Selectors,
+    flags: &mut Flags,
+) -> Result<CommandPlan, UsageError> {
+    let mut params = Map::new();
+    let operation = match words {
+        ["list"] => {
+            insert_optional_string(&mut params, flags, "room", "room");
+            ResourceOperation::WorkspaceGroupList
+        }
         ["create"] => {
-            request.insert("name".into(), Value::String(flags.required("name")?));
-            insert_optional_string(&mut request, flags, "color", "color");
-            insert_optional_string(&mut request, flags, "id", "group");
+            params.insert("name".into(), Value::String(flags.required("name")?));
+            insert_optional_string(&mut params, flags, "color", "color");
+            insert_optional_string(&mut params, flags, "room", "room");
             if let Some(index) = group_number(flags, "index")? {
-                request.insert("index".into(), index);
+                params.insert("index".into(), index);
             }
             if flags.boolean("collapse") {
-                request.insert("collapsed".into(), Value::Bool(true));
+                params.insert("collapsed".into(), Value::Bool(true));
             }
-            "create-workspace-group"
+            ResourceOperation::WorkspaceGroupCreate
         }
         ["remove"] => {
-            let workspace = flags.required("workspace")?;
-            request.insert(
-                if workspace.parse::<u64>().is_ok() { "workspace" } else { "key" }.into(),
-                group_id_value(&workspace),
-            );
-            request.insert("group".into(), Value::Null);
-            "move-workspace-to-group"
+            selectors.insert("workspace", "ws", &flags.required("workspace")?)?;
+            params.insert("group".into(), Value::Null);
+            ResourceOperation::WorkspacePlace
         }
-        [group, action] => {
-            request.insert("group".into(), Value::String((*group).to_string()));
-            match *action {
-                "update" => {
-                    insert_optional_string(&mut request, flags, "name", "name");
-                    if flags.boolean("clear-color") {
-                        request.insert("color".into(), Value::Null);
-                    } else {
-                        insert_optional_string(&mut request, flags, "color", "color");
-                    }
-                    group_collapse(flags, &mut request)?;
-                    "update-workspace-group"
+        [group, action] => match *action {
+            "update" => {
+                params.insert("workspace_group".into(), Value::String((*group).to_string()));
+                insert_optional_string(&mut params, flags, "name", "name");
+                if flags.boolean("clear-color") {
+                    params.insert("color".into(), Value::Null);
+                } else {
+                    insert_optional_string(&mut params, flags, "color", "color");
                 }
-                "delete" => "delete-workspace-group",
-                "move" => {
-                    request.insert(
-                        "index".into(),
-                        group_number(flags, "index")?
-                            .ok_or_else(|| UsageError::new("--index is required"))?,
-                    );
-                    "move-workspace-group"
-                }
-                "add" => {
-                    let workspace = flags.required("workspace")?;
-                    request.insert(
-                        if workspace.parse::<u64>().is_ok() { "workspace" } else { "key" }.into(),
-                        group_id_value(&workspace),
-                    );
-                    if let Some(index) = group_number(flags, "index")? {
-                        request.insert("index".into(), index);
-                    }
-                    "move-workspace-to-group"
-                }
-                _ => return usage("workspace group action"),
+                insert_optional_string(&mut params, flags, "room", "room");
+                group_collapse(flags, &mut params)?;
+                ResourceOperation::WorkspaceGroupUpdate
             }
-        }
+            "delete" => {
+                params.insert("workspace_group".into(), Value::String((*group).to_string()));
+                ResourceOperation::WorkspaceGroupDelete
+            }
+            "move" => {
+                params.insert("workspace_group".into(), Value::String((*group).to_string()));
+                params.insert(
+                    "index".into(),
+                    group_number(flags, "index")?
+                        .ok_or_else(|| UsageError::new("--index is required"))?,
+                );
+                ResourceOperation::WorkspaceGroupMove
+            }
+            "add" => {
+                selectors.insert("workspace", "ws", &flags.required("workspace")?)?;
+                params.insert("group".into(), Value::String((*group).to_string()));
+                if let Some(index) = group_number(flags, "index")? {
+                    params.insert("index".into(), index);
+                }
+                ResourceOperation::WorkspacePlace
+            }
+            _ => return usage("workspace group action"),
+        },
         _ => return usage("workspace group action"),
     };
-    Ok(group_raw_plan(command, request))
+    request(operation, selectors, flags, params)
 }
 
 fn parse_raw(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
@@ -3399,21 +3406,32 @@ mod tests {
         let reopen = raw_request(&["tab", "group", "saved", "saved_9", "reopen", "--pane", "3"]);
         assert_eq!(reopen["cmd"], "reopen-saved-tab-group");
         assert_eq!(reopen["pane"], 3);
-        let group = raw_request(&["workspace", "group", "create", "--name", "Work"]);
-        assert_eq!(group["cmd"], "create-workspace-group");
-        let add = raw_request(&[
+        let group = protocol(&["workspace", "group", "create", "--name", "Work"]);
+        assert_eq!(operation(&group), "workspace_group.create");
+        assert_eq!(group.params["name"], "Work");
+        let add = protocol(&[
             "workspace",
             "group",
             "grp_1",
             "add",
             "--workspace",
-            "6ba7b810-9dad-41d1-80b4-00c04fd430c8",
+            "ws_0123456789abcdef0123456789abcdef",
             "--index",
             "0",
         ]);
-        assert_eq!(add["cmd"], "move-workspace-to-group");
-        assert_eq!(add["key"], "6ba7b810-9dad-41d1-80b4-00c04fd430c8");
-        assert_eq!(add["index"], 0);
+        assert_eq!(operation(&add), "workspace.place");
+        assert_eq!(add.params["workspace"], "ws_0123456789abcdef0123456789abcdef");
+        assert_eq!(add.params["group"], "grp_1");
+        assert_eq!(add.params["index"], 0);
+        let remove = protocol(&[
+            "workspace",
+            "group",
+            "remove",
+            "--workspace",
+            "ws_0123456789abcdef0123456789abcdef",
+        ]);
+        assert_eq!(operation(&remove), "workspace.place");
+        assert!(remove.params["group"].is_null());
         assert!(parse(&strings(&["tab", "group", "tgrp_1", "explode"])).is_err());
         assert!(parse(&strings(&["tab", "group", "create"])).is_err());
     }
