@@ -219,10 +219,17 @@ def extract_documented_entries(cli: str, argv: list[str], header: str) -> tuple[
     flag_pattern = re.compile(r"--([a-z][a-z0-9-]*)")
     names: set[str] = set()
     flags: set[str] = set()
+    # Entries sit at two spaces, or at four under a two-space group heading
+    # (`  Agents:`) in the grouped `cmux help`. Deeper lines are wrapped
+    # descriptions continuing the entry above.
+    entry_indent = "  "
     for line in section.splitlines():
         if line and not line.startswith(" "):
             break  # the next section (Environment:, Env:) starts unindented
-        if not line.startswith("  ") or line.startswith("   "):
+        if line.startswith("  ") and not line.startswith("   ") and line.endswith(":"):
+            entry_indent = "    "
+            continue
+        if not line.startswith(entry_indent) or line.startswith(entry_indent + " "):
             continue  # blank, or a wrapped description continuing the entry above
         entry = line.strip()
         if entry.startswith("#"):
@@ -241,6 +248,9 @@ def extract_documented_entries(cli: str, argv: list[str], header: str) -> tuple[
             elif flag_match := flag_pattern.fullmatch(head):
                 flags.add(flag_match.group(1))
 
+    if not names:
+        # An empty set would make every "documented is declared" check pass vacuously.
+        raise RuntimeError(f"found no command entries in the {header} section of `cmux {' '.join(argv)}`")
     return names, flags
 
 
