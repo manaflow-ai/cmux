@@ -80,7 +80,7 @@ import Testing
         let root = try JSONC.parse("""
         {"appearance": {"density": "comfortable", "metrics": {"sidebarWidth": 999}},
          "shortcuts": {"bindings": {"splitRight": "cmd+\\\\", "splitDown": null, "tab.new": "cmd+shift+t", "nope": "cmd+k",
-                                    "toggleSidebar": ["ctrl+b", "s"]}}}
+                                    "toggleSidebar": ["ctrl+b", "s"], "newTab": ["b", "c"]}}}
         """)
         let diagnostics = applier.apply(CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities, validMetrics: SettingsApplier.validMetrics))
 
@@ -91,7 +91,12 @@ import Testing
         // Legacy alias `tab.new` folds into `newSurface`.
         #expect(registry.effectiveShortcut(for: "newSurface") == Shortcut("t", modifiers: [.command, .shift]))
         #expect(diagnostics.contains { $0.kind == .unknownAction && $0.path == "shortcuts.bindings.nope" })
-        #expect(diagnostics.contains { $0.kind == .unsupportedChord && $0.path == "shortcuts.bindings.toggleSidebar" })
+        #expect(registry.effectiveChord(for: "toggleSidebar") == ShortcutChord(Shortcut("b", modifiers: [.control]), Shortcut("s", modifiers: [])))
+        #expect(registry.effectiveShortcut(for: "toggleSidebar") == nil)
+        #expect(registry.shortcutDisplay(for: "toggleSidebar") == "⌃B S")
+        // A chord's first key needs Command or Control.
+        #expect(diagnostics.contains { $0.kind == .unsupportedChord && $0.path == "shortcuts.bindings.newTab" })
+        #expect(registry.effectiveChord(for: "newTab") == nil)
 
         // Removing everything from the file restores defaults.
         applier.apply(CmuxConfigSnapshot.parse(.object([:]), validDensities: SettingsApplier.validDensities, validMetrics: SettingsApplier.validMetrics))
@@ -99,6 +104,8 @@ import Testing
         #expect(design.overrides.isEmpty)
         #expect(registry.shortcutDisplay(for: "splitRight") == "⌘D")
         #expect(registry.shortcutDisplay(for: "splitDown") == "⇧⌘D")
+        #expect(registry.effectiveChord(for: "toggleSidebar") == nil)
+        #expect(registry.effectiveShortcut(for: "toggleSidebar") != nil)
     }
 
     @Test func reportsConflicts() throws {

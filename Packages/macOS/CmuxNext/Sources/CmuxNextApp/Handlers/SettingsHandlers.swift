@@ -28,11 +28,11 @@ enum SettingsHandlers {
         registry.bind("help.documentation", run: { invocation in try context.open(documentationURL(topic: invocation["topic"]?.stringValue)) })
         UpdateHandlers.bind(into: registry, updater: context.services.updater)
         OnboardingHandlers.bind(into: registry, context: context)
+        KeymapHandlers.bind(into: registry, context: context)
 
         let unbuilt: [(ActionID, String)] = [
             ("palette.installCLI", "cli-install"),
             ("palette.uninstallCLI", "cli-install"),
-            ("palette.shortcutKeymap", "shortcut-keymaps"),
             ("palette.restartSocketListener", "control-socket-restart"),
             ("palette.pro.upgrade", "account-billing"),
             ("help.featureFlags", "feature-flags"),

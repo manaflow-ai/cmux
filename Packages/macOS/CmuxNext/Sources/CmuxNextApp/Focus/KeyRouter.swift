@@ -6,6 +6,9 @@ import CmuxNextTerminal
 /// The one keyboard router (plans/cmux-next/focus.md section 5), in two
 /// places with one order:
 ///
+/// 0. a chord (`["ctrl+b", "c"]`): its first key, outside text input and
+///    browser focus mode, waits for the next key, which runs the chord's
+///    action or goes on to the view with no shortcut;
 /// 1. tier 0 (system) actions, always;
 /// 2. browser focus mode on the focused page: the page gets the key;
 /// 3. tier 1 (navigation) actions, including the user's Ghostty keybinds for
@@ -18,7 +21,7 @@ import CmuxNextTerminal
 ///    (Chromium never sees those keys), never in browser focus mode;
 /// 7. the focused view (Ghostty keybinds, the page), then the main menu.
 ///
-/// Steps 1-3 run app-wide in `CmuxApplication.sendEvent`
+/// Steps 0-3 run app-wide in `CmuxApplication.sendEvent`
 /// (``interceptKeyDown(_:in:)``), before any window or responder sees the
 /// key, so they work whichever view or window has it: a terminal, a WebKit
 /// page, the address bar, or a Chromium page window (a child window that is
@@ -109,7 +112,12 @@ final class KeyRouter: BrowserKeyRouting {
         guard event.type == .keyDown else { return false }
         // A popup panel (or its Chromium page window) has the keyboard:
         // Cmd-W closes the popup, never the opener's tab.
-        if services?.popups.interceptKeyDown(event, in: window) == true { return true }
+        if services?.popups.interceptKeyDown(event, in: window) == true {
+            chords.cancel()
+            return true
+        }
+        // Plain typing never looks up the window (typing-latency path).
+        if chords.isPending || Self.isChord(event.modifierFlags), let consumed = routeChord(event, in: window) { return consumed }
         guard Self.isChord(event.modifierFlags) else {
             onTyping?(window)
             return false
@@ -130,6 +138,42 @@ final class KeyRouter: BrowserKeyRouting {
         // A refusal (no neighbor) is reported by the registry; the chord was
         // still a cmux shortcut and never reaches the page or the terminal.
         return true
+    }
+
+    // MARK: Chords (two-key shortcuts)
+
+    private var chords = ChordTracker()
+    /// The key after a chord's first key that completed none: it goes on to
+    /// the focused view, but runs no shortcut there or in the menu.
+    private weak var chordMismatch: NSEvent?
+
+    /// A chord key in a cmux window: whether it was consumed, or nil to
+    /// route it as usual. Only focus outside text input and browser focus
+    /// mode arms a chord (``allows(_:focus:)`` for content), so the chord's
+    /// action runs whatever its tier.
+    private func routeChord(_ event: NSEvent, in window: NSWindow?) -> Bool? {
+        let (controller, kind) = focus(for: window)
+        guard let controller, let window, kind == .content else {
+            chords.cancel()
+            return nil
+        }
+        let step = chords.step(event, window: ObjectIdentifier(window), registry: registry) {
+            Self.allows(.content, focus: controller.focus.state) && (window.firstResponder as? NSTextInputClient)?.hasMarkedText() != true
+        }
+        switch step {
+        case .pass:
+            return nil
+        case .armed:
+            return true
+        case .run(let id, let argument):
+            lastInterception = (id, controller.state.id)
+            registry.runShortcut(id, argument: argument)
+            return true
+        case .mismatch:
+            chordMismatch = event
+            if !Self.isChord(event.modifierFlags) { onTyping?(window) }
+            return false
+        }
     }
 
     /// A browser-only chord (page Back/Forward) outside a browser context
@@ -169,6 +213,7 @@ final class KeyRouter: BrowserKeyRouting {
     /// (not in a text field, not in browser focus mode). Tiers 0 and 1 ran
     /// app-wide already. Returns whether the key was consumed.
     func routeContentKeyEquivalent(_ event: NSEvent, focus: FocusState) -> Bool {
+        if event === chordMismatch { return false }
         if let resolved = registry.resolveShortcut(for: event), resolved.tier == .content,
            Self.allows(.content, id: resolved.id, focus: focus) {
             return registry.runShortcut(resolved.id, argument: resolved.argument)
@@ -206,6 +251,7 @@ final class KeyRouter: BrowserKeyRouting {
     /// key window's focus, so browser focus mode and text fields keep
     /// chords the router gave them (focus.md section 5).
     func allowsMenuKeyEquivalent(_ id: ActionID) -> Bool {
+        if let event = NSApp.currentEvent, event === chordMismatch { return false }
         let (controller, kind) = keyWindowFocus()
         guard let controller else { return true }
         return Self.allowsMenu(registry.keyTier(for: id), id: id, focus: controller.focus.state, keyWindow: kind)

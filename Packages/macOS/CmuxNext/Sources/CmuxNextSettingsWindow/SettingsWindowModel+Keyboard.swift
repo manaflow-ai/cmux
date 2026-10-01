@@ -25,7 +25,7 @@ extension SettingsWindowModel {
             }
             byCategory[descriptor.category, default: []].append(ShortcutRow(
                 id: descriptor.id, title: descriptor.title, keycaps: keycaps,
-                isCustomized: registry.shortcutOverrides[descriptor.id] != nil,
+                isCustomized: registry.shortcutOverrides[descriptor.id] != nil || registry.chordOverrides[descriptor.id] != nil,
                 hasConflict: conflicted.contains(descriptor.id)))
         }
         return ActionCategory.allCases.compactMap { category in
