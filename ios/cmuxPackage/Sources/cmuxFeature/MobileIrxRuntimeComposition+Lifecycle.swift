@@ -366,7 +366,11 @@ extension MobileIrxRuntimeComposition {
                 timeoutNanoseconds: 30_000_000_000
             )
         } catch MobileShellConnectionError.requestTimedOut {
+            operation.cancel()
             throw CompositionError.endpointWarmupTimedOut
+        } catch {
+            operation.cancel()
+            throw error
         }
     }
 
