@@ -279,6 +279,7 @@ const BOOLEAN_FLAGS: &[&str] = &[
     "clear",
     "reply",
     "empty",
+    "ephemeral",
     "left",
     "right",
     "up",
@@ -642,6 +643,9 @@ fn parse_workspace(
                 "initial_content".into(),
                 Value::String(if flags.boolean("empty") { "empty" } else { "terminal" }.into()),
             );
+            if flags.boolean("ephemeral") {
+                params.insert("ephemeral".into(), Value::Bool(true));
+            }
             request(ResourceOperation::WorkspaceCreate, selectors, flags, params)
         }
         [selector, "show"] => {
@@ -3524,6 +3528,32 @@ mod tests {
         assert_eq!(advice.code, "session.reset_state.invalid_state_path");
     }
 
+    fn is_state_resource_operation(name: &str) -> bool {
+        const PREFIXES: [&str; 9] = [
+            "tab_group.",
+            "saved_tab_group.",
+            "workspace_group.",
+            "room.",
+            "screen_group.",
+            "closed.",
+            "workspace_status.",
+            "workspace_progress.",
+            "workspace_log.",
+        ];
+        PREFIXES.iter().any(|prefix| name.starts_with(prefix))
+            || matches!(
+                name,
+                "workspace.update"
+                    | "workspace.place"
+                    | "workspace.placement.list"
+                    | "tab.pin"
+                    | "tab.unpin"
+                    | "tab.update"
+                    | "screen.update"
+                    | "screen.move"
+            )
+    }
+
     fn operation_catalog() -> Value {
         serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -4692,6 +4722,7 @@ mod tests {
                     "workspace",
                     "create",
                     "--empty",
+                    "--ephemeral",
                     "--name",
                     "empty",
                     "--correlation-key",
@@ -5176,7 +5207,7 @@ mod tests {
 
         assert_eq!(cases.len(), 120);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 127);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 178);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {
@@ -5243,6 +5274,9 @@ mod tests {
             .as_object()
             .unwrap()
             .keys()
+            // The state resources (state-ownership.md steps A and B) get
+            // their curated CLI grammar in step D.
+            .filter(|name| !is_state_resource_operation(name))
             .filter(|name| {
                 !matches!(
                     name.as_str(),

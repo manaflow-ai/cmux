@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "08a8190787e1b38d0592b85856d791fb0fe098d58eddce85ee98ecf88cc5a1a7",
+  "catalog_sha256": "1a3580a84cdeefbb38733d6fc53ee6a7a3b64f6933ac7cf8e51e9fae6009d4ea",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -72,6 +72,12 @@
     },
     "client.sizing.set": {
       "class": "connection_control"
+    },
+    "closed.list": {
+      "class": "read"
+    },
+    "closed.reopen": {
+      "class": "mutation"
     },
     "frontend_projection.get": {
       "class": "read"
@@ -148,6 +154,42 @@
     "request.cancel": {
       "class": "connection_control"
     },
+    "room.create": {
+      "class": "mutation"
+    },
+    "room.delete": {
+      "class": "mutation"
+    },
+    "room.follow": {
+      "class": "mutation"
+    },
+    "room.list": {
+      "class": "read"
+    },
+    "room.move": {
+      "class": "mutation"
+    },
+    "room.pin": {
+      "class": "mutation"
+    },
+    "room.unpin": {
+      "class": "mutation"
+    },
+    "room.update": {
+      "class": "mutation"
+    },
+    "saved_tab_group.delete": {
+      "class": "mutation"
+    },
+    "saved_tab_group.list": {
+      "class": "read"
+    },
+    "saved_tab_group.reopen": {
+      "class": "mutation"
+    },
+    "saved_tab_group.save": {
+      "class": "mutation"
+    },
     "screen.close": {
       "class": "mutation"
     },
@@ -169,7 +211,34 @@
     "screen.list": {
       "class": "read"
     },
+    "screen.move": {
+      "class": "mutation"
+    },
     "screen.rename": {
+      "class": "mutation"
+    },
+    "screen.update": {
+      "class": "mutation"
+    },
+    "screen_group.add_screens": {
+      "class": "mutation"
+    },
+    "screen_group.create": {
+      "class": "mutation"
+    },
+    "screen_group.get": {
+      "class": "read"
+    },
+    "screen_group.list": {
+      "class": "read"
+    },
+    "screen_group.remove_screens": {
+      "class": "mutation"
+    },
+    "screen_group.ungroup": {
+      "class": "mutation"
+    },
+    "screen_group.update": {
       "class": "mutation"
     },
     "session.creation.resolve": {
@@ -283,7 +352,43 @@
     "tab.move": {
       "class": "mutation"
     },
+    "tab.pin": {
+      "class": "mutation"
+    },
     "tab.rename": {
+      "class": "mutation"
+    },
+    "tab.unpin": {
+      "class": "mutation"
+    },
+    "tab.update": {
+      "class": "mutation"
+    },
+    "tab_group.add_tabs": {
+      "class": "mutation"
+    },
+    "tab_group.close": {
+      "class": "mutation"
+    },
+    "tab_group.create": {
+      "class": "mutation"
+    },
+    "tab_group.get": {
+      "class": "read"
+    },
+    "tab_group.list": {
+      "class": "read"
+    },
+    "tab_group.move": {
+      "class": "mutation"
+    },
+    "tab_group.remove_tabs": {
+      "class": "mutation"
+    },
+    "tab_group.ungroup": {
+      "class": "mutation"
+    },
+    "tab_group.update": {
       "class": "mutation"
     },
     "terminal.attach": {
@@ -376,10 +481,58 @@
     "workspace.move": {
       "class": "mutation"
     },
+    "workspace.place": {
+      "class": "mutation"
+    },
+    "workspace.placement.list": {
+      "class": "read"
+    },
     "workspace.rename": {
       "class": "mutation"
     },
     "workspace.run": {
+      "class": "mutation"
+    },
+    "workspace.update": {
+      "class": "mutation"
+    },
+    "workspace_group.create": {
+      "class": "mutation"
+    },
+    "workspace_group.delete": {
+      "class": "mutation"
+    },
+    "workspace_group.list": {
+      "class": "read"
+    },
+    "workspace_group.move": {
+      "class": "mutation"
+    },
+    "workspace_group.update": {
+      "class": "mutation"
+    },
+    "workspace_log.append": {
+      "class": "mutation"
+    },
+    "workspace_log.clear": {
+      "class": "mutation"
+    },
+    "workspace_log.list": {
+      "class": "read"
+    },
+    "workspace_progress.clear": {
+      "class": "mutation"
+    },
+    "workspace_progress.set": {
+      "class": "mutation"
+    },
+    "workspace_status.clear": {
+      "class": "mutation"
+    },
+    "workspace_status.list": {
+      "class": "read"
+    },
+    "workspace_status.set": {
       "class": "mutation"
     }
   },

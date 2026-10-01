@@ -286,7 +286,8 @@ impl Mux {
     /// Pin or unpin a tab placement. Pinned tabs sort first in their pane:
     /// pinning moves the tab to the end of the pinned run, unpinning moves
     /// it to the start of the unpinned run. The flag is durable and keyed by
-    /// the public tab id, so it survives restarts and cross-pane moves.
+    /// the public tab id, so it survives restarts and cross-pane moves. The
+    /// raw command and v2 `tab.pin` share one commit path.
     pub fn set_tab_pinned(
         self: &Arc<Self>,
         surface: SurfaceId,
@@ -295,38 +296,23 @@ impl Mux {
         let tab_id = self
             .with_state(|state| state.resource_indexes.tab_ids.get(&surface).cloned())
             .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
-        let changed = {
-            let mut registry = self.workspace_registry.lock().unwrap();
-            let changed = registry.set_tab_pinned(tab_id.as_str(), pinned)?;
-            self.reload_presentation(&registry)?;
-            changed
+        let changed = self.presentation_snapshot().pinned_tabs.contains(tab_id.as_str()) != pinned;
+        let selectors = crate::ResourceSelectors {
+            tab: Some(tab_id.to_string()),
+            ..Self::ordinary_resource_selectors()
         };
-        let presentation = self.presentation_snapshot();
-        let target = self.with_state(|state| {
-            let pane_id = state.pane_of(surface)?;
-            let pane = state.panes.get(&pane_id)?;
-            let old_index = pane.tabs.iter().position(|candidate| *candidate == surface)?;
-            let other_pinned = pane
-                .tabs
-                .iter()
-                .filter(|candidate| **candidate != surface)
-                .filter(|candidate| tab_is_pinned(state, &presentation, **candidate))
-                .count();
-            Some((pane_id, old_index, other_pinned))
-        });
-        let (pane, old_index, final_index) =
-            target.ok_or_else(|| anyhow::anyhow!("surface {surface} has no pane"))?;
-        if final_index != old_index {
-            let insertion = if final_index > old_index { final_index + 1 } else { final_index };
-            self.move_tab(surface, pane, insertion);
-        }
+        self.state_pin_tab(
+            StripRequest::local(if pinned { "tab.pin" } else { "tab.unpin" }),
+            selectors,
+            pinned,
+        )?;
         let index = self
             .with_state(|state| {
+                let pane = state.pane_of(surface)?;
                 state.panes.get(&pane)?.tabs.iter().position(|candidate| *candidate == surface)
             })
-            .unwrap_or(old_index);
+            .ok_or_else(|| anyhow::anyhow!("surface {surface} has no pane"))?;
         if changed {
-            self.publish_journal_event();
             self.emit_tab_changed(surface);
         }
         Ok(TabPinChange { changed, index })

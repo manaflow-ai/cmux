@@ -30,19 +30,26 @@ use crate::resource::{
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
 
+pub(crate) mod closed_history_store;
 mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
 mod personal_mutations;
+pub(crate) mod personal_state_store;
 mod personal_store;
 mod presentation_store;
 mod public_fold;
 mod public_projection_store;
 mod resource_store;
+pub(crate) mod screen_state_store;
 mod session_journal;
+pub(crate) mod state_store;
+pub(crate) mod state_values;
+pub(crate) mod tab_state_store;
 mod terminal_exit_store;
 mod terminal_keep_store;
 mod topology_close_store;
+pub(crate) mod workspace_status_store;
 
 pub(crate) use effect_store::ResourceWorkspaceClose;
 pub use effect_store::{
@@ -65,7 +72,7 @@ pub(crate) use journal_extensions::{
     JournalSegmentSealCommit, JournalSegmentSealStart,
 };
 pub use personal_mutations::{PersonalWorkspaceUpdate, ProfileInput, ProfileUpdate};
-pub use personal_store::PersonalSnapshot;
+pub use personal_store::{DEFAULT_PROFILE_ID, PersonalSnapshot};
 pub use presentation_store::{
     FrontendBrowserRecord, PresentationSnapshot, SavedTabGroupRecord, SavedTabMember,
     TabGroupRecord, TabGroupState, WorkspaceGroupRecord, WorkspacePresentationUpdate,
@@ -2727,6 +2734,7 @@ impl WorkspaceRegistry {
         validate_identifier("registry id", &registry_id)?;
         let session_id = SessionPublicId::parse(required_meta(&connection, "session_public_id")?)?;
         personal_store::migrate_personal_v1(&connection, &registry_id, &session_name)?;
+        state_store::migrate_saved_tab_groups_to_personal(&connection)?;
         let quick_check: String =
             connection.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
         if quick_check != "ok" {
@@ -3564,6 +3572,11 @@ impl WorkspaceRegistry {
             workspaces,
             &result_json,
         )?;
+        // Presentation rows land before the resource batch, so its restated
+        // workspaces carry the new identity fields.
+        if let Some(extra) = extra {
+            extra(&tx)?;
+        }
         let previous_resource_revision =
             project_resource.then(|| transaction_resource_revision(&tx)).transpose()?;
         let resource_revision = previous_resource_revision
@@ -3679,9 +3692,6 @@ impl WorkspaceRegistry {
                 &resource_deltas,
             )?;
             resource_store::prune_resource_mutations(&tx)?;
-        }
-        if let Some(extra) = extra {
-            extra(&tx)?;
         }
         tx.commit()?;
         Ok(RegistryCommit { revision, result: result.clone(), replayed: false })
@@ -4004,6 +4014,7 @@ fn checkpoint_and_truncate_wal(connection: &Connection) -> anyhow::Result<()> {
 
 fn create_workspace_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     presentation_store::create_presentation_schema(transaction)?;
+    state_store::create_state_schema(transaction)?;
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS workspaces (
            workspace_key TEXT PRIMARY KEY NOT NULL,

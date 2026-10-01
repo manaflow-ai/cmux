@@ -12,6 +12,15 @@ use crate::workspace_registry::{ResourcePatch, ResourcePatchCommit, ResourceWork
 
 type StateApply = Box<dyn FnOnce(&mut State) + Send + 'static>;
 
+/// State rows written in the plan's transaction after its patch applies.
+/// It may finalize the result and add changes (state resources and fresh
+/// upserts of resources whose only change is a state field).
+pub(crate) type PlanStateWrite = Box<
+    dyn FnOnce(&rusqlite::Transaction<'_>, &mut Value, &mut Vec<Value>) -> anyhow::Result<()>
+        + Send
+        + 'static,
+>;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct ResourceMutationMetrics {
     pub(crate) touched_resources: usize,
@@ -26,8 +35,8 @@ pub(crate) struct ResourceMutationPlan {
     pub(crate) deltas: Value,
     pub(crate) metrics: ResourceMutationMetrics,
     pub(crate) workspace_ledger: Option<ResourceWorkspaceLedger>,
-    /// Tab group state written in the same transaction as the patch.
-    pub(crate) tab_groups: Option<crate::workspace_registry::TabGroupState>,
+    /// State rows written in the same transaction as the patch.
+    pub(crate) state_write: Option<PlanStateWrite>,
     apply: StateApply,
 }
 
@@ -44,17 +53,14 @@ impl ResourceMutationPlan {
             deltas,
             metrics: ResourceMutationMetrics::default(),
             workspace_ledger: None,
-            tab_groups: None,
+            state_write: None,
             apply: Box::new(apply),
         }
     }
 
-    /// Commit this tab group state with the patch.
-    pub(crate) fn with_tab_groups(
-        mut self,
-        tab_groups: crate::workspace_registry::TabGroupState,
-    ) -> Self {
-        self.tab_groups = Some(tab_groups);
+    /// Write state rows in the patch's transaction.
+    pub(crate) fn with_state_write(mut self, write: PlanStateWrite) -> Self {
+        self.state_write = Some(write);
         self
     }
 

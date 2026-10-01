@@ -1,6 +1,7 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+mod closed_history;
 mod host_close;
 mod idle_close;
 mod personal;
@@ -8,9 +9,23 @@ mod presentation;
 mod public_projections;
 mod resource_content;
 mod resource_topology;
+mod state_commit;
+mod state_personal;
+mod state_screens;
+mod state_tabs;
+#[cfg(test)]
+mod state_tests;
+mod state_workspace;
 mod tab_drag;
 mod tab_groups;
+mod tab_strip;
+
+pub(crate) use state_personal::PersonalChange;
+pub(crate) use state_screens::ScreenChange;
+pub(crate) use state_workspace::WorkspaceStatusChange;
+pub(crate) use tab_strip::StripRequest;
 mod terminal_directory;
+mod terminal_progress;
 mod terminal_reap;
 mod terminal_work;
 
@@ -3147,6 +3162,7 @@ impl Mux {
             }
             std::thread::sleep(Duration::from_millis(25));
         }
+        mux.close_ephemeral_workspaces()?;
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
         Ok(mux)
@@ -4723,7 +4739,7 @@ impl Mux {
             &plan.result,
             &plan.deltas,
             plan.workspace_ledger.as_ref(),
-            plan.tab_groups.as_ref(),
+            plan.state_write.take(),
         )?;
         plan.apply(&mut state, &commit, workspace_revision);
         drop(state);
@@ -21769,7 +21785,11 @@ mod tests {
             assert_eq!(batch.revision, revision);
             for (sequence, change) in batch.changes.as_array().unwrap().iter().enumerate() {
                 assert_eq!(change["sequence"], sequence);
-                assert!(matches!(change["kind"].as_str(), Some("upsert" | "delete")));
+                // A close also records closed history as a state change.
+                assert!(matches!(
+                    change["kind"].as_str(),
+                    Some("upsert" | "delete" | "state_upsert" | "state_delete")
+                ));
                 assert!(change["resource"].is_string());
                 assert!(change["id"].is_string());
                 assert!(change.get("event").is_none());
