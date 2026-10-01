@@ -27,10 +27,8 @@ extension Workspace {
 private final class NonDestructiveCloseWindow: NSWindow {
     private(set) var closeCallCount = 0
 
-    override func close() {
-        closeCallCount += 1
-        orderOut(nil)
-    }
+    override func close() { isReleasedWhenClosed = false; closeCallCount += 1; orderOut(nil) }
+    override func performClose(_ sender: Any?) { if delegate?.windowShouldClose?(self) != false { close() } }
 }
 
 private final class VetoingWindowCloseDelegate: NSObject, NSWindowDelegate {
@@ -1107,7 +1105,7 @@ struct RecoverableWindowlessMainWindowRoutingTests {
             backing: .buffered,
             defer: false
         )
-        windowB.isReleasedWhenClosed = false; windowB.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowBId.uuidString)")
+        windowB.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowBId.uuidString)")
         let managerB = TabManager()
         let workspaceB = try #require(managerB.selectedWorkspace)
         let panelB = try #require(workspaceB.focusedTerminalPanel)
@@ -1183,7 +1181,7 @@ struct RecoverableWindowlessMainWindowRoutingTests {
             backing: .buffered,
             defer: false
         )
-        foreignWindow.isReleasedWhenClosed = false; foreignWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        foreignWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
         let foreign = TabManager()
         let foreignWorkspace = try #require(foreign.selectedWorkspace)
         let foreignPanel = try #require(foreignWorkspace.focusedTerminalPanel)
@@ -1401,7 +1399,7 @@ struct RecoverableWindowlessMainWindowRoutingTests {
             backing: .buffered,
             defer: false
         )
-        ownerWindow.isReleasedWhenClosed = false; ownerWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(ownerWindowId.uuidString)")
+        ownerWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(ownerWindowId.uuidString)")
 
         let aliasWindowId = UUID()
         let aliasWindow = NonDestructiveCloseWindow(
@@ -1410,7 +1408,7 @@ struct RecoverableWindowlessMainWindowRoutingTests {
             backing: .buffered,
             defer: false
         )
-        aliasWindow.isReleasedWhenClosed = false; aliasWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(aliasWindowId.uuidString)")
+        aliasWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(aliasWindowId.uuidString)")
 
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
@@ -1481,7 +1479,7 @@ struct RecoverableWindowlessMainWindowRoutingTests {
             backing: .buffered,
             defer: false
         )
-        ownerWindow.isReleasedWhenClosed = false; ownerWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(ownerWindowId.uuidString)")
+        ownerWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(ownerWindowId.uuidString)")
 
         let aliasWindowId = UUID()
         let aliasWindow = NonDestructiveCloseWindow(
@@ -1490,7 +1488,7 @@ struct RecoverableWindowlessMainWindowRoutingTests {
             backing: .buffered,
             defer: false
         )
-        aliasWindow.isReleasedWhenClosed = false; aliasWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(aliasWindowId.uuidString)")
+        aliasWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(aliasWindowId.uuidString)")
 
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
