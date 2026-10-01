@@ -11,6 +11,11 @@ struct CmuxCodexConfigEditorTests {
         "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df begin"
     private static let featureEnd =
         "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df end"
+    /// The in-place edit of an existing `[features]\nhooks = false` line.
+    private static let replacedFalseHooksBlock =
+        "[features]\n\(featureBegin)\n"
+        + "\(CmuxCodexConfigEditor.cmuxCodexHooksFeaturePreviousLinePrefix)hooks = false\n"
+        + "hooks = true\n\(featureEnd)\n"
     private static let trustBegin =
         "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin"
     private static let trustEnd =
@@ -116,8 +121,7 @@ struct CmuxCodexConfigEditorTests {
         let installed = editor.installingHooks(in: original, trustEntries: [])
         let restored = editor.uninstallingHooks(from: installed.content)
 
-        #expect(installed.content.contains("[features]\n" + Self.featureBegin + "\n"))
-        #expect(installed.content.contains("hooks = true\n"))
+        #expect(installed.content.hasSuffix(Self.replacedFalseHooksBlock))
         #expect(restored == original)
     }
 
@@ -128,8 +132,7 @@ struct CmuxCodexConfigEditorTests {
         let installed = editor.installingHooks(in: original, trustEntries: [])
         let restored = editor.uninstallingHooks(from: installed.content)
 
-        #expect(installed.content.contains("[features]\n"))
-        #expect(installed.content.contains("hooks = true\n"))
+        #expect(installed.content.hasSuffix(Self.replacedFalseHooksBlock))
         #expect(restored == original)
     }
 
