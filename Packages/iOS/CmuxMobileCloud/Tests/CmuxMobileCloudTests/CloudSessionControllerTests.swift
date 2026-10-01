@@ -421,6 +421,44 @@ import Testing
         #expect(connector.session.state.disconnected == 1)
     }
 
+    @Test func refreshUsesTheCombinedCatalogSoTerminalsKeepTheirWorkspace() async throws {
+        let connector = FakeConnector()
+        connector.session.workspaces = [CloudWorkspaceSummary(id: "workspace-1", name: "API")]
+        connector.session.terminals = [CloudTerminalSummary(id: "terminal-1", workspaceID: "workspace-1")]
+        let controller = makeController(connector: connector)
+        controller.sectionDidAppear()
+        await settle { if case .ready = controller.tunnel { return true } else { return false } }
+
+        let connection = try #require(controller.connection(for: CloudMachine(id: "vm1", provider: "freestyle", status: "running")))
+        connection.refreshTerminals()
+        await settle { connection.terminals == .loaded(connector.session.terminals) }
+
+        #expect(connector.session.loadCatalogCalls == 1)
+        #expect(connection.workspaces == .loaded(connector.session.workspaces))
+        #expect(connection.terminals == .loaded([CloudTerminalSummary(id: "terminal-1", workspaceID: "workspace-1")]))
+    }
+
+    @Test func closeInvalidatesAnInFlightTerminalCreate() async throws {
+        let connector = FakeConnector()
+        let started = TestSignal()
+        let release = TestSignal()
+        connector.session.createTerminalGate = (started, release)
+        let controller = makeController(connector: connector)
+        controller.sectionDidAppear()
+        await settle { if case .ready = controller.tunnel { return true } else { return false } }
+        let connection = try #require(controller.connection(for: CloudMachine(id: "vm1", provider: "freestyle", status: "running")))
+
+        let createTask = Task { await connection.createTerminal(name: "late") }
+        await started.wait()
+        connection.close()
+        await release.signal()
+
+        #expect(await createTask.value == nil)
+        #expect(connection.lastError == nil)
+        #expect(connection.terminals == .idle)
+        #expect(connector.session.loadCatalogCalls == 0)
+    }
+
     @Test func closedConnectionCannotDialAgain() async throws {
         let service = FakeCloudVMService()
         service.machines = .success([CloudMachine(id: "vm1", provider: "freestyle", status: "running")])

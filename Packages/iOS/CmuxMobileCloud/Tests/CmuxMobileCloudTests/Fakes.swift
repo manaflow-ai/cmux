@@ -257,15 +257,28 @@ final class FakeTerminalSession: CloudTerminalSession, @unchecked Sendable {
     private let lock = OSAllocatedUnfairLock(initialState: State())
     var state: State { lock.withLock { $0 } }
     var terminals: [CloudTerminalSummary] = [CloudTerminalSummary(id: "t1", name: "shell")]
+    var workspaces: [CloudWorkspaceSummary] = []
+    var loadCatalogCalls = 0
+    var createTerminalGate: (started: TestSignal, release: TestSignal)?
     var attachFailure: (any Error)?
     var outputHandler: (@Sendable (CloudTerminalOutputEvent) -> Void)? {
         lock.withLock { _ in handlerBox.withLock { $0 } }
     }
     private let handlerBox = OSAllocatedUnfairLock<(@Sendable (CloudTerminalOutputEvent) -> Void)?>(initialState: nil)
 
+    func listWorkspaces() async throws -> [CloudWorkspaceSummary] { workspaces }
     func listTerminals() async throws -> [CloudTerminalSummary] { terminals }
 
+    func loadCatalog() async throws -> (workspaces: [CloudWorkspaceSummary], terminals: [CloudTerminalSummary]) {
+        loadCatalogCalls += 1
+        return (workspaces, terminals)
+    }
+
     func createTerminal(name: String?) async throws -> String {
+        if let createTerminalGate {
+            await createTerminalGate.started.signal()
+            await createTerminalGate.release.wait()
+        }
         lock.withLock { $0.created.append(name) }
         let id = "t\(terminals.count + 1)"
         terminals.append(CloudTerminalSummary(id: id, name: name))

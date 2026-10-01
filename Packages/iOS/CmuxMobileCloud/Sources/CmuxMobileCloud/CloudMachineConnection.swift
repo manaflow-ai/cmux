@@ -37,6 +37,7 @@ public final class CloudMachineConnection {
     private var connectTask: Task<any CloudTerminalSession, any Error>?
     private var listTask: Task<Void, Never>?
     private var closed = false
+    private var operationGeneration: UInt64 = 0
 
     init(
         machine: CloudMachine,
@@ -66,12 +67,10 @@ public final class CloudMachineConnection {
             guard let self else { return }
             do {
                 let session = try await connectedSession()
-                async let terminalRows = session.listTerminals()
-                async let workspaceRows = session.listWorkspaces()
-                let (rows, workspaceRowsValue) = try await (terminalRows, workspaceRows)
+                let catalog = try await session.loadCatalog()
                 guard !Task.isCancelled else { return }
-                self.terminals = .loaded(rows)
-                self.workspaces = .loaded(workspaceRowsValue)
+                self.terminals = .loaded(catalog.terminals)
+                self.workspaces = .loaded(catalog.workspaces)
                 self.lastError = nil
             } catch {
                 guard !Task.isCancelled, !(error is CancellationError) else { return }
@@ -86,14 +85,19 @@ public final class CloudMachineConnection {
     /// Create a remote workspace with a starter terminal.
     @discardableResult
     public func createWorkspace(name: String? = nil) async -> String? {
+        let generation = operationGeneration
         isCreatingWorkspace = true
         defer { isCreatingWorkspace = false }
         do {
-            let id = try await connectedSession().createWorkspace(name: name)
+            let session = try await connectedSession()
+            guard isCurrentOperation(generation) else { return nil }
+            let id = try await session.createWorkspace(name: name)
+            guard isCurrentOperation(generation) else { return nil }
             lastError = nil
             refreshTerminals()
             return id
         } catch {
+            guard isCurrentOperation(generation) else { return nil }
             lastError = CloudSessionFailure.classify(error, stage: .link)
             return nil
         }
@@ -102,15 +106,19 @@ public final class CloudMachineConnection {
     /// Create a terminal and return its id, refreshing the catalog.
     @discardableResult
     public func createTerminal(name: String? = nil) async -> String? {
+        let generation = operationGeneration
         isCreatingTerminal = true
         defer { isCreatingTerminal = false }
         do {
             let session = try await connectedSession()
+            guard isCurrentOperation(generation) else { return nil }
             let id = try await session.createTerminal(name: name)
+            guard isCurrentOperation(generation) else { return nil }
             lastError = nil
             refreshTerminals()
             return id
         } catch {
+            guard isCurrentOperation(generation) else { return nil }
             lastError = CloudSessionFailure.classify(error, stage: .link)
             return nil
         }
@@ -120,15 +128,19 @@ public final class CloudMachineConnection {
     /// the catalog.
     @discardableResult
     public func createTerminal(inWorkspace workspaceID: String, name: String? = nil) async -> String? {
+        let generation = operationGeneration
         isCreatingTerminal = true
         defer { isCreatingTerminal = false }
         do {
             let session = try await connectedSession()
+            guard isCurrentOperation(generation) else { return nil }
             let id = try await session.createTerminal(inWorkspace: workspaceID, name: name)
+            guard isCurrentOperation(generation) else { return nil }
             lastError = nil
             refreshTerminals()
             return id
         } catch {
+            guard isCurrentOperation(generation) else { return nil }
             lastError = CloudSessionFailure.classify(error, stage: .link)
             return nil
         }
@@ -184,12 +196,17 @@ public final class CloudMachineConnection {
     /// Close the link.
     public func close() {
         closed = true
+        operationGeneration &+= 1
         listTask?.cancel()
         listTask = nil
         connectTask?.cancel()
         connectTask = nil
         session?.disconnect()
         session = nil
+    }
+
+    private func isCurrentOperation(_ generation: UInt64) -> Bool {
+        !closed && operationGeneration == generation
     }
 
     private func connectedSession() async throws -> any CloudTerminalSession {
