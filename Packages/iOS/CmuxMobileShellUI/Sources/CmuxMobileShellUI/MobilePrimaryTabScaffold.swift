@@ -106,6 +106,10 @@ struct MobilePrimaryTabScaffold<
                     iOS26TaskComposerButton
                 }
             }
+            // The composer padding is calibrated from the screen edge. Keep
+            // the scaffold's layout space through the bottom container inset
+            // so the button does not float above its intended position.
+            .ignoresSafeArea(.container, edges: .bottom)
         } else if #available(iOS 18.0, *) {
             TabView(selection: $selection) {
                 primaryTabs

@@ -15,7 +15,6 @@ nonisolated private let mobileShellAgentFeedPrimaryTextByteLimit = 8_192
 nonisolated private let mobileShellAgentFeedSecondaryTextByteLimit = 2_048
 nonisolated private let mobileShellAgentFeedMetadataByteLimit = 512
 nonisolated private let mobileShellAgentFeedMaxItemCount = 400
-nonisolated private let mobileShellAgentFeedRequestTimeoutNanoseconds: UInt64 = 15_000_000_000
 
 private struct AgentFeedTextPage: Decodable {
     let text: String
@@ -314,7 +313,7 @@ extension MobileShellComposite {
             )
             let data = try await client.sendRequest(
                 request,
-                timeoutNanoseconds: mobileShellAgentFeedRequestTimeoutNanoseconds
+                timeoutNanoseconds: runtime?.rpcRequestTimeoutNanoseconds
             )
             let response = try MobileAgentFeedListResponse.decode(data)
             guard !Task.isCancelled,

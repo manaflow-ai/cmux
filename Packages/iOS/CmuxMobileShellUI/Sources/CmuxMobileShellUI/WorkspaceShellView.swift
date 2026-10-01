@@ -405,11 +405,6 @@ struct WorkspaceShellView: View {
                 }
             }
             .onChange(of: selectedPrimaryTab) { oldValue, newValue in
-                workspacesStackIsOnScreen = newValue == .workspaces
-                notificationsStackIsOnScreen = newValue == .notifications
-                if newValue == .notifications {
-                    consumePendingPrimarySearchNavigation(for: .notifications)
-                }
                 store.recordAppEvent(
                     .primaryTabSelected,
                     detail: .primaryTab(diagnosticPrimaryTab(newValue))
@@ -437,8 +432,6 @@ struct WorkspaceShellView: View {
                 consumeDeeplinkNavigationRequestIfNeeded()
             }
             .onAppear {
-                workspacesStackIsOnScreen = selectedPrimaryTab == .workspaces
-                notificationsStackIsOnScreen = selectedPrimaryTab == .notifications
                 store.recordAppEvent(
                     .primaryTabSelected,
                     detail: .primaryTab(diagnosticPrimaryTab(selectedPrimaryTab))
@@ -549,7 +542,6 @@ struct WorkspaceShellView: View {
                         consumePendingPrimarySearchNavigation(for: .notifications)
                     }
                     .onDisappear {
-                        guard selectedPrimaryTab == .notifications else { return }
                         notificationsStackIsOnScreen = false
                     }
                     .onChange(of: pendingPrimarySearchNotificationNavigationID) { _, _ in
@@ -1670,9 +1662,17 @@ struct WorkspaceShellView: View {
                 pendingPrimarySearchNotificationNavigationID = workspaceID
                 transitionPrimaryTab(to: .notifications)
             case .mountedNotificationTab:
-                transitionPrimaryTab(to: .notifications)
-                if notificationNavigationPath.last != workspaceID {
-                    notificationNavigationPath = [workspaceID]
+                if selectedPrimaryTab == .notifications, notificationsStackIsOnScreen {
+                    if notificationNavigationPath.last != workspaceID {
+                        notificationNavigationPath = [workspaceID]
+                    }
+                } else {
+                    // Keep the path write behind the destination stack's
+                    // onAppear whenever it is not currently in the window.
+                    pendingPrimarySearchNotificationNavigationID = workspaceID
+                    if selectedPrimaryTab != .notifications {
+                        transitionPrimaryTab(to: .notifications)
+                    }
                 }
             }
             return
@@ -1705,7 +1705,10 @@ struct WorkspaceShellView: View {
             // Compact pushes must wait for the workspaces stack to be in the
             // window (its onAppear re-runs this); the split layout only writes
             // the store selection, which is safe at any time.
-            guard !usesCompactStack || workspacesStackIsOnScreen else { return }
+            guard
+                !usesCompactStack
+                    || (selectedPrimaryTab == .workspaces && workspacesStackIsOnScreen)
+            else { return }
             guard let workspaceID = pendingPrimarySearchWorkspaceNavigationID else { return }
             pendingPrimarySearchWorkspaceNavigationID = nil
             selectWorkspaceImmediately(workspaceID)
@@ -1713,7 +1716,7 @@ struct WorkspaceShellView: View {
             // The Feed has no search-result navigation lane yet.
             break
         case .notifications:
-            guard notificationsStackIsOnScreen else { return }
+            guard selectedPrimaryTab == .notifications, notificationsStackIsOnScreen else { return }
             guard let workspaceID = pendingPrimarySearchNotificationNavigationID else { return }
             pendingPrimarySearchNotificationNavigationID = nil
             if notificationNavigationPath.last != workspaceID {

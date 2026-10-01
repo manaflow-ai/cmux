@@ -4791,9 +4791,18 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(waitForHittable(feed, timeout: 3))
         XCTAssertTrue(app.buttons["MobileWorkspaceSettingsMenu"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["MobileWorkspaceDevicesButton"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["MobileWorkspaceMacPicker"].waitForExistence(timeout: 3))
+        let picker = app.buttons["MobileWorkspaceMacPicker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["MobileNotificationFeedMarkAllRead"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["MobileNotificationFeedFilterMenu"].waitForExistence(timeout: 3))
+
+        guard let pickerFrame = waitForUsableFrame(of: picker, timeout: 3),
+              let feedFrame = waitForUsableFrame(of: feed, timeout: 3) else {
+            XCTFail("Notifications tab did not settle to usable toolbar and feed frames")
+            return
+        }
+        XCTAssertEqual(pickerFrame.midX, app.frame.midX, accuracy: 2)
+        XCTAssertTrue(feedFrame.intersects(app.frame))
     }
 
     /// Drives the production push coordinator through its three user-visible

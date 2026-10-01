@@ -135,6 +135,10 @@ struct AgentFeedView: View {
         }
         .task(id: isActive) {
             guard isActive, refreshesOnAppear else { return }
+            // Relative timestamps are anchored to the last visible visit, so
+            // switching away and back cannot leave the feed comparing rows to
+            // the date from its first appearance.
+            now = Date()
             await actions.refresh()
         }
         .onChange(of: items) { _, newItems in
