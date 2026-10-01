@@ -158,7 +158,7 @@ final class KeyRouter: BrowserKeyRouting {
             return nil
         }
         let step = chords.step(event, window: ObjectIdentifier(window), registry: registry) {
-            Self.allows(.content, focus: controller.focus.state) && (window.firstResponder as? NSTextInputClient)?.hasMarkedText() != true
+            Self.allows(.content, focus: controller.focus.state) && (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() != true
         }
         switch step {
         case .pass:

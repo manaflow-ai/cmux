@@ -13,10 +13,7 @@ public nonisolated struct ShortcutChord: Hashable, Sendable {
         self.second = second
     }
 
-    public var keycaps: [String] { first.keycaps + second.keycaps }
-
-    /// `⌃B C`: the two keys, space separated.
-    public var displayString: String { first.displayString + " " + second.displayString }
+    @MainActor public var keycaps: [String] { first.keycaps + second.keycaps }
 }
 
 extension ActionRegistry {

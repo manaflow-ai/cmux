@@ -225,6 +225,21 @@ import Testing
         #expect(try String(contentsOf: url, encoding: .utf8) == "{ \"a\": ")
     }
 
+    /// A keymap switch's sets and removes land in one publish.
+    @Test func appliesSeveralEditsAtOnce() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "cmux.json")
+        try Data(#"{"shortcuts": {"newTab": ["ctrl+b", "c"], "bindings": {"closeTab": ["ctrl+b", "x"]}}}"#.utf8).write(to: url)
+        let file = CmuxConfigFile(url: url)
+        try await file.apply([(["shortcuts", "bindings", "renameTab"], "cmd+shift+i"), (["shortcuts", "bindings", "closeTab"], nil),
+                              (["shortcuts", "newTab"], nil)])
+        let document = try JSONC.parse(String(contentsOf: url, encoding: .utf8))
+        #expect(document.value(at: ["shortcuts", "bindings", "renameTab"]) == "cmd+shift+i")
+        #expect(document.value(at: ["shortcuts", "bindings", "closeTab"]) == nil)
+        #expect(document.value(at: ["shortcuts", "newTab"]) == nil)
+    }
+
     @Test func writesThroughASymlink() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
