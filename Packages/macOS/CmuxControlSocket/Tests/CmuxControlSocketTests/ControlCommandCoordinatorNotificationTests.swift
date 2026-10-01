@@ -27,7 +27,7 @@ private final class NotificationControlCommandContext: ControlCommandContext {
         effects: ControlNotificationEffectsPatch?
     ) -> ControlNotificationCreateResolution {
         createEffects.append(effects)
-        .delivered(
+        return .delivered(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
             notificationID: notificationID
@@ -45,7 +45,7 @@ private final class NotificationControlCommandContext: ControlCommandContext {
         effects: ControlNotificationEffectsPatch?
     ) -> ControlNotificationTargetedDeliveryResolution {
         createEffects.append(effects)
-        .delivered(
+        return .delivered(
             workspaceID: workspaceID,
             surfaceID: self.surfaceID,
             windowID: nil,
@@ -65,7 +65,7 @@ private final class NotificationControlCommandContext: ControlCommandContext {
         effects: ControlNotificationEffectsPatch?
     ) -> ControlNotificationTargetedDeliveryResolution {
         createEffects.append(effects)
-        .delivered(
+        return .delivered(
             workspaceID: self.workspaceID,
             surfaceID: self.surfaceID,
             windowID: nil,
