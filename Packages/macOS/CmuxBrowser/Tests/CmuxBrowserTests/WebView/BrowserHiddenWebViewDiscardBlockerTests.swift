@@ -11,7 +11,8 @@ struct BrowserHiddenWebViewDiscardBlockerTests {
     @Test("Unrestorable typed input blocks a budget discard but not a pressure discard")
     func unrestorableInputYieldsToPressure() {
         let now = Date()
-        let (manager, delegate) = makeManager(hiddenAt: now.addingTimeInterval(-3600))
+        let (manager, delegate, cleanup) = makeManager(hiddenAt: now.addingTimeInterval(-3600))
+        defer { cleanup() }
         delegate.snapshot = BlockerDelegate.makeSnapshot(hasUnrestorableFormInput: true)
 
         #expect(manager.blockers(for: delegate.snapshot, now: now) == ["form_input"])
@@ -27,7 +28,8 @@ struct BrowserHiddenWebViewDiscardBlockerTests {
     @Test("Picture in Picture blocks both budget and pressure discards")
     func pictureInPictureBlocksEveryDiscard() {
         let now = Date()
-        let (manager, delegate) = makeManager(hiddenAt: now.addingTimeInterval(-3600))
+        let (manager, delegate, cleanup) = makeManager(hiddenAt: now.addingTimeInterval(-3600))
+        defer { cleanup() }
         delegate.snapshot = BlockerDelegate.makeSnapshot(isPictureInPictureActive: true)
 
         #expect(manager.blockers(for: delegate.snapshot, now: now) == ["picture_in_picture"])
@@ -40,7 +42,8 @@ struct BrowserHiddenWebViewDiscardBlockerTests {
     @Test("A keep-active pin blocks both budget and pressure discards")
     func keepActivePinBlocksEveryDiscard() {
         let now = Date()
-        let (manager, delegate) = makeManager(hiddenAt: now.addingTimeInterval(-3600))
+        let (manager, delegate, cleanup) = makeManager(hiddenAt: now.addingTimeInterval(-3600))
+        defer { cleanup() }
         manager.keepsPageActive = true
 
         #expect(manager.blockers(for: delegate.snapshot, now: now) == ["keep_active"])
@@ -57,7 +60,8 @@ struct BrowserHiddenWebViewDiscardBlockerTests {
 
     @Test("Toggling the keep-active pin re-evaluates the pane's discard policy once per change")
     func keepActivePinNotifiesPolicyChange() {
-        let (manager, delegate) = makeManager(hiddenAt: Date())
+        let (manager, delegate, cleanup) = makeManager(hiddenAt: Date())
+        defer { cleanup() }
 
         manager.keepsPageActive = true
         manager.keepsPageActive = true
@@ -69,7 +73,8 @@ struct BrowserHiddenWebViewDiscardBlockerTests {
     @Test("Pressure still keeps a pane that is playing media or capturing it")
     func pressureRespectsLiveMedia() {
         let now = Date()
-        let (manager, _) = makeManager(hiddenAt: now.addingTimeInterval(-3600))
+        let (manager, _, cleanup) = makeManager(hiddenAt: now.addingTimeInterval(-3600))
+        defer { cleanup() }
 
         let playing = BlockerDelegate.makeSnapshot(isPlayingMedia: true)
         #expect(manager.blockers(for: playing, now: now, urgency: .systemMemoryPressure) == ["media_playback"])
@@ -84,14 +89,14 @@ struct BrowserHiddenWebViewDiscardBlockerTests {
         #expect(BrowserHiddenWebViewDiscardUrgency(reason: "hidden_timer") == .routine)
     }
 
-    private func makeManager(hiddenAt: Date?) -> (BrowserHiddenWebViewDiscardManager, BlockerDelegate) {
+    private func makeManager(hiddenAt: Date?) -> (BrowserHiddenWebViewDiscardManager, BlockerDelegate, () -> Void) {
         let suiteName = "cmux-hidden-webview-blockers-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
         let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
         let delegate = BlockerDelegate(hiddenAt: hiddenAt)
         manager.delegate = delegate
-        return (manager, delegate)
+        return (manager, delegate, { defaults.removePersistentDomain(forName: suiteName) })
     }
 }
 

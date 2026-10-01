@@ -11,7 +11,8 @@ import Testing
 struct BrowserHiddenWebViewManualRestoreTests {
     @Test("Unloaded pages restore automatically unless the setting is off")
     func policyDefaultsToAutomaticRestore() {
-        let defaults = makeDefaults()
+        let (defaults, cleanup) = makeDefaults()
+        defer { cleanup() }
         #expect(BrowserHiddenWebViewDiscardPolicy.autoRestoresUnloadedPages(defaults: defaults))
         #expect(BrowserHiddenWebViewDiscardPolicy.resolved(defaults: defaults).autoRestoresUnloadedPages)
 
@@ -22,11 +23,14 @@ struct BrowserHiddenWebViewManualRestoreTests {
 
     @Test("A page unloaded for memory waits for the user only when automatic restore is off")
     func discardedPageWaitsWhenAutomaticRestoreIsOff() {
-        let automatic = BrowserHiddenWebViewDiscardManager(policyDefaults: makeDefaults())
+        let (automaticDefaults, automaticCleanup) = makeDefaults()
+        defer { automaticCleanup() }
+        let automatic = BrowserHiddenWebViewDiscardManager(policyDefaults: automaticDefaults)
         automatic.markDiscarded(reason: BrowserHiddenWebViewDiscardManager.memoryBudgetReason, now: Date())
         #expect(!automatic.waitsForManualRestore)
 
-        let manual = makeManualManager()
+        let (manual, manualCleanup) = makeManualManager()
+        defer { manualCleanup() }
         #expect(!manual.waitsForManualRestore)
         manual.markDiscarded(reason: BrowserHiddenWebViewDiscardManager.memoryBudgetReason, now: Date())
         #expect(manual.waitsForManualRestore)
@@ -34,7 +38,8 @@ struct BrowserHiddenWebViewManualRestoreTests {
 
     @Test("A restore the user started no longer waits")
     func startedRestoreStopsWaiting() {
-        let manager = makeManualManager()
+        let (manager, cleanup) = makeManualManager()
+        defer { cleanup() }
         manager.markDiscarded(reason: BrowserHiddenWebViewDiscardManager.systemMemoryPressureReason, now: Date())
         #expect(manager.waitsForManualRestore)
 
@@ -47,7 +52,8 @@ struct BrowserHiddenWebViewManualRestoreTests {
 
     @Test("A relaunched pane's deferred first load never waits for the user")
     func deferredFirstLoadDoesNotWait() {
-        let manager = makeManualManager()
+        let (manager, cleanup) = makeManualManager()
+        defer { cleanup() }
         manager.markDiscarded(reason: "session_restore", now: Date(), isDeferredFirstLoad: true)
         #expect(manager.isDeferredFirstLoad)
         #expect(!manager.waitsForManualRestore)
@@ -60,23 +66,24 @@ struct BrowserHiddenWebViewManualRestoreTests {
 
     @Test("Clearing the discard also clears the deferred first load")
     func clearingDiscardResetsDeferredFirstLoad() {
-        let manager = makeManualManager()
+        let (manager, cleanup) = makeManualManager()
+        defer { cleanup() }
         manager.markDiscarded(reason: "session_restore", now: Date(), isDeferredFirstLoad: true)
         #expect(manager.clearDiscardState(reason: "test"))
         #expect(!manager.isDeferredFirstLoad)
         #expect(!manager.waitsForManualRestore)
     }
 
-    private func makeManualManager() -> BrowserHiddenWebViewDiscardManager {
-        let defaults = makeDefaults()
+    private func makeManualManager() -> (BrowserHiddenWebViewDiscardManager, () -> Void) {
+        let (defaults, cleanup) = makeDefaults()
         defaults.set(false, forKey: BrowserHiddenWebViewDiscardPolicy.autoRestoreKey)
-        return BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
+        return (BrowserHiddenWebViewDiscardManager(policyDefaults: defaults), cleanup)
     }
 
-    private func makeDefaults() -> UserDefaults {
+    private func makeDefaults() -> (UserDefaults, () -> Void) {
         let suiteName = "cmux-hidden-webview-manual-restore-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
-        return defaults
+        return (defaults, { defaults.removePersistentDomain(forName: suiteName) })
     }
 }

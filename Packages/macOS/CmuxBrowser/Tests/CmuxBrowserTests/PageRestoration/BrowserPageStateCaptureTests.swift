@@ -128,6 +128,12 @@ struct BrowserFormStateSnapshotTests {
         )
         #expect(fileSnapshot.sharesOrigin(with: URL(string: "file:///tmp/a.html#section")))
         #expect(!fileSnapshot.sharesOrigin(with: URL(fileURLWithPath: "/tmp/b.html")))
+
+        let networkFile = URL(string: "file://server-a/tmp/a.html")!
+        let otherNetworkFile = URL(string: "file://server-b/tmp/a.html")!
+        let networkFileFragment = URL(string: "file://server-a/tmp/a.html#section")!
+        #expect(BrowserFormStateSnapshot.isSameDocument(networkFile, networkFileFragment))
+        #expect(!BrowserFormStateSnapshot.isSameDocument(networkFile, otherNetworkFile))
     }
 
     @Test("Restore payload mirrors the report shape")

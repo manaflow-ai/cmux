@@ -1817,7 +1817,7 @@ enum CmuxEmbeddedConfigSchema {
         "discardHiddenWebViews": {
           "type": "boolean",
           "default": true,
-          "description": "Allow hidden browser tabs to release page memory. Scroll position, form input, and history come back when a tab is shown again."
+          "description": "Allow hidden browser tabs to release page memory. Scroll position, supported form input, and history are restored when recoverable."
         },
         "hiddenWebViewDiscardMode": {
           "type": "string",

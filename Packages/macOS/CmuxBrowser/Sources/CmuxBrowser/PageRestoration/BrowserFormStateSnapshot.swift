@@ -132,7 +132,12 @@ public struct BrowserFormStateSnapshot: Equatable, Sendable {
     }
 
     static func documentIdentity(_ url: URL) -> String {
-        if url.isFileURL { return url.standardizedFileURL.path }
+        if url.isFileURL {
+            let standardized = url.standardizedFileURL
+            let host = url.host?.lowercased() ?? ""
+            let port = url.port.map(String.init) ?? ""
+            return "\(host):\(port):\(standardized.path)"
+        }
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return url.absoluteString
         }
