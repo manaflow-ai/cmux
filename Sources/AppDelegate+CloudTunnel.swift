@@ -18,8 +18,13 @@ extension AppDelegate {
     @MainActor
     @discardableResult
     func openCloudVPNSetup(preferredWindow: NSWindow? = nil, bringWindowForward: Bool = false) -> CloudVPNSetupPanel? {
-        guard !ManagedDevicePolicy().isEnforced(.disableCloud),
+        guard CloudMachinesFeature.isAvailable,
+              !ManagedDevicePolicy().isEnforced(.disableCloud),
               let manager = synchronizeActiveMainWindowContext(preferredWindow: preferredWindow) else {
+            return nil
+        }
+        guard CloudMachinesFeature.isEnabled else {
+            _ = focusRightSidebarInActiveMainWindow(mode: .machines)
             return nil
         }
         if bringWindowForward {

@@ -111,7 +111,8 @@ struct ManagedPolicyCloudGateTests {
             auth: coordinator,
             resourceStats: VMResourceStatsStore(),
             checkpointRenames: CloudRenameCoordinator(),
-            isDisabledByManagedPolicy: { policy.isEnforced }
+            isDisabledByManagedPolicy: { policy.isEnforced },
+            isCloudAvailable: { false }
         )
 
         // Representative operations across the API surface: discovery,

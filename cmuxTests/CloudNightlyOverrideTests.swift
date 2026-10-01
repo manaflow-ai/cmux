@@ -39,7 +39,7 @@ struct CloudNightlyOverrideTests {
     }
 
     @Test
-    func disabledTaggedArtifactClearsPreviousDogfoodGates() throws {
+    func taggedArtifactPreservesActivationButClearsDogfoodOverride() throws {
         let suite = "cmux.cloud.debug.marker.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -55,7 +55,7 @@ struct CloudNightlyOverrideTests {
             remoteFlagValueProvider: { _ in false }
         )
 
-        #expect(defaults.bool(forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey) == false)
+        #expect(defaults.bool(forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey))
         #expect(defaults.bool(forKey: "cmux.flags.override.\(cloud.key)") == false)
     }
 

@@ -17,8 +17,6 @@ struct MachinesPanelView: View {
     @State private var devicesModel: DevicesPanelViewModel
     @State private var discoveryManaged = ManagedDevicePolicy().isDeviceDiscoveryDisabled
     @State private var incomingAccessManaged = ManagedDevicePolicy().isIncomingDeviceAccessDisabled
-    @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-    private var cloudBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
     @State private var expansionStore = CloudTreeExpansionStore()
     /// The explicit Cloud VPN's state (`cmux vpn up`), shown as a banner while
     /// it is starting, waiting for the extension approval, up, or failed.
@@ -31,17 +29,20 @@ struct MachinesPanelView: View {
     let chromeBackgroundColor: NSColor
     var tabManager: TabManager? = nil
     let teamPickerPresentation: CloudTeamPickerPresentation?
+    let activationCoordinator: CloudActivationCoordinator
 
     init(
         chromeBackgroundColor: NSColor,
         machinePinStore: CloudMachinePinStore? = nil,
         devicesModel: DevicesPanelViewModel? = nil,
         tabManager: TabManager? = nil,
-        teamPickerPresentation: CloudTeamPickerPresentation? = nil
+        teamPickerPresentation: CloudTeamPickerPresentation? = nil,
+        activationCoordinator: CloudActivationCoordinator
     ) {
         self.chromeBackgroundColor = chromeBackgroundColor
         self.tabManager = tabManager
         self.teamPickerPresentation = teamPickerPresentation
+        self.activationCoordinator = activationCoordinator
         _bannerDismissals = State(
             initialValue: AppDelegate.shared?.cloudBannerDismissalStore
                 ?? CloudBannerDismissalStore(defaults: .standard)
@@ -58,11 +59,11 @@ struct MachinesPanelView: View {
         _devicesModel = State(initialValue: devicesModel ?? DevicesPanelViewModel())
     }
 
-    private var accountFlow: HostAccountFlow? {
+    var accountFlow: HostAccountFlow? {
         AppDelegate.shared?.auth?.accountFlow
     }
 
-    private var authState: CloudVMPanelAuthState {
+    var authState: CloudVMPanelAuthState {
         CloudVMPanelAuthState.resolve(
             isAuthenticated: accountFlow?.isAuthenticated == true,
             // Keep the embedded sign-in screen mounted while the browser is
@@ -77,24 +78,7 @@ struct MachinesPanelView: View {
     }
 
     private var includesCloud: Bool {
-        _ = cloudBetaEnabled
         return CloudMachinesFeature.isEnabled
-    }
-
-    /// The panel replaces its cached tree as soon as a team mutation starts;
-    /// waiting for the scope observer would leave the previous team's rows
-    /// visible while the create or switch is still in flight.
-    private var isTeamChangePending: Bool {
-        accountFlow?.isSelectingTeam == true
-            || accountFlow?.isCreatingTeam == true
-            || viewModel.awaitingCatalogScope
-    }
-
-    private var teamScopeLoadingLabel: String {
-        if accountFlow?.isCreatingTeam == true {
-            return String(localized: "cloud.teamPicker.creating", defaultValue: "Creating team…")
-        }
-        return String(localized: "cloud.teamPicker.switching", defaultValue: "Switching teams…")
     }
 
     private var treeSource: CloudTreeMachineSource { .cloudWithDevicesSection }
@@ -113,19 +97,13 @@ struct MachinesPanelView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            switch authState {
-            case .checking:
-                authCheckingState
-            case .signedOut:
-                authGate
-            case .signedIn:
-                authenticatedContent
-            }
+        activationContent
+        .onAppear {
+            activationCoordinator.reconcile()
+            syncPolling(for: authState)
         }
-        .onAppear { syncPolling(for: authState) }
         .onChange(of: devicesModel.preferences?.discoveryEnabled) { _, _ in syncPolling(for: authState) }
-        .onChange(of: cloudBetaEnabled) { _, _ in syncPolling(for: authState) }
+        .onChange(of: activationCoordinator.state) { _, _ in syncPolling(for: authState) }
         .onReceive(NotificationCenter.default.publisher(for: DeviceSurfaceProviderRegistry.revealDeviceNotification)) { _ in
             devicesModel.consumePendingReveal()
         }
@@ -162,7 +140,7 @@ struct MachinesPanelView: View {
     }
 
     @ViewBuilder
-    private var authenticatedContent: some View {
+    var authenticatedContent: some View {
         if includesCloud {
             controlBar
         }
@@ -197,17 +175,6 @@ struct MachinesPanelView: View {
         }
     }
 
-    private var teamScopeLoading: some View {
-        VStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-            Text(teamScopeLoadingLabel)
-                .cmuxFont(size: 12)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityIdentifier("CloudMachinesTeamLoading")
-    }
     private func syncPolling(for state: CloudVMPanelAuthState) {
         switch state {
         case .signedIn:
@@ -290,7 +257,7 @@ struct MachinesPanelView: View {
         }
     }
 
-    private var authCheckingState: some View {
+    var authCheckingState: some View {
         VStack(spacing: 10) {
             Spacer()
             ProgressView()
@@ -308,7 +275,7 @@ struct MachinesPanelView: View {
     }
 
     @ViewBuilder
-    private var authGate: some View {
+    var authGate: some View {
         if let accountFlow {
             CloudMachinesSignInView(accountFlow: accountFlow)
         } else {
@@ -487,19 +454,8 @@ struct MachinesPanelView: View {
                 // Say the true thing instead of pretending the fleet is empty:
                 // offline, reconnecting, or the failure with its real fix.
                 MachinesListStatusEmptyState(status: status, perform: performListStatusAction)
-            } else if viewModel.awaitingCatalogScope {
-                VStack(spacing: 10) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(String(
-                        localized: "cloud.teamPicker.switching",
-                        defaultValue: "Switching teams…"
-                    ))
-                    .cmuxFont(size: 12)
-                    .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityIdentifier("CloudMachinesTeamLoading")
+            } else if isTeamChangePending {
+                teamScopeLoading
             } else if viewModel.hasLoadedOnce {
                 Image(systemName: "cloud")
                     .font(.system(size: 30, weight: .light))

@@ -21,12 +21,12 @@ import CmuxSettings
 
 let lastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
 
-func drainMainQueue() {
+func drainMainQueue(timeout: TimeInterval = 1.0) {
     let expectation = XCTestExpectation(description: "drain main queue")
     DispatchQueue.main.async {
         expectation.fulfill()
     }
-    XCTWaiter().wait(for: [expectation], timeout: 1.0)
+    XCTWaiter().wait(for: [expectation], timeout: timeout)
 }
 
 @discardableResult
@@ -277,6 +277,9 @@ private func runGit(
 
 @MainActor
 final class TabManagerChildExitCloseTests: XCTestCase {
+    private var previousCloudMarker: Any?; private var previousCloudOverride: Bool?
+    override func setUp() { super.setUp(); previousCloudMarker = UserDefaults.standard.object(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey); UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey); previousCloudOverride = CmuxFeatureFlags.shared.overrideValue(for: CmuxFeatureFlags.cloudMachinesFlag); CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag) }
+    override func tearDown() { if let previousCloudMarker { UserDefaults.standard.set(previousCloudMarker, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) } else { UserDefaults.standard.removeObject(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) }; CmuxFeatureFlags.shared.setOverride(previousCloudOverride, for: CmuxFeatureFlags.cloudMachinesFlag); super.tearDown() }
     override func setUpWithError() throws {
         try super.setUpWithError()
         try XCTSkipIf(
@@ -284,7 +287,6 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             "macOS 26 aborts while forming weak references during these AppKit window fixtures"
         )
     }
-
     func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() {
         let manager = TabManager()
         let first = manager.tabs[0]
@@ -304,12 +306,10 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             "Expected selection to stay at the same index after deleting the selected workspace"
         )
     }
-
     func testChildExitOnLastPanelInLastWorkspaceSelectsPreviousWorkspace() {
         let manager = TabManager()
         let first = manager.tabs[0]
         let second = manager.addWorkspace()
-
         manager.selectWorkspace(second)
         XCTAssertEqual(manager.selectedTabId, second.id)
 

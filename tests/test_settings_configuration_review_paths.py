@@ -103,7 +103,8 @@ def advertised_paths():
 
 # Rows advertising a path absent from the supported set when this guard was
 # added. `cloud` has no top-level case in the section dispatch, so writing
-# `cloud.beta.machines.enabled` into cmux.json does nothing. The `computerUse`
+# The former Cloud activation key was a UserDefaults marker, not a cmux.json
+# setting. The `computerUse`
 # keys are JSON-backed catalog keys read straight from cmux.json by
 # JSONConfigStore rather than by a section parser. See the tracking issue.
 #
@@ -113,7 +114,6 @@ def advertised_paths():
 # or are no longer advertised. Treat additions as needing review on their own
 # merits.
 KNOWN_UNSUPPORTED = frozenset({
-    "cloud.beta.machines.enabled",
     "computerUse.enabled",
     "computerUse.showInMenuBar",
 })

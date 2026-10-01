@@ -835,24 +835,9 @@ extension CMUXCLI {
             }
             let remainingSeconds = deadline.timeIntervalSinceNow
             if remainingSeconds > 0 {
-                Thread.sleep(forTimeInterval: min(Self.vmReadyPollInterval(), remainingSeconds))
+                Thread.sleep(forTimeInterval: min(CmuxTuiRemoteRouting.vmReadyPollInterval(), remainingSeconds))
             }
         }
-    }
-
-    /// Seconds between `vm.status` polls. `CMUX_VM_WAIT_POLL_SECONDS` overrides the
-    /// default so tests against a mock socket do not wait out the real cadence.
-    static func vmReadyPollInterval(
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> TimeInterval {
-        guard let raw = environment["CMUX_VM_WAIT_POLL_SECONDS"],
-              let parsed = TimeInterval(raw),
-              parsed.isFinite,
-              parsed >= 0.01,
-              parsed <= 3 else {
-            return 3
-        }
-        return parsed
     }
 
     // MARK: - transfer plumbing

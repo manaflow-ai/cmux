@@ -50,6 +50,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testCommandPaletteIncludesDefaultRightSidebarModes() throws {
         try withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard
@@ -58,6 +59,10 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             // Cloud Machines defaults on in dev builds (d6584c07e0); pin the toggle off so
             // the default-mode contract below is the same on every build.
             defaults.set(false, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+            let cloudFlag = CmuxFeatureFlags.cloudMachinesFlag
+            let previousCloudOverride = CmuxFeatureFlags.shared.overrideValue(for: cloudFlag)
+            CmuxFeatureFlags.shared.setOverride(true, for: cloudFlag)
+            defer { CmuxFeatureFlags.shared.setOverride(previousCloudOverride, for: cloudFlag) }
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
             let context = CommandPaletteContextSnapshot()
@@ -81,14 +86,14 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 XCTAssertTrue(contribution.enablement(context))
             }
 
-            // Files/Find/Vault and the graduated Dock are always present;
-            // Machines follows the Cloud Machines beta toggle (pinned off above).
+            // Files/Find/Vault, the graduated Dock, and the Cloud tab are
+            // discoverable before the local activation marker is set.
             let machinesAvailable = RightSidebarMode.machines.isAvailable()
-            XCTAssertFalse(machinesAvailable)
-            XCTAssertEqual(contributions.count, 4)
+            XCTAssertTrue(machinesAvailable)
+            XCTAssertEqual(contributions.count, 5)
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
-            XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.machines)])
+            XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.machines)])
         }
     }
 
