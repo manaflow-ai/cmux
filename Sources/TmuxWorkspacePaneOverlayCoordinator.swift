@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 
 /// The per-window owner of overlay refresh admission and AppKit updates.
 /// All input, layout and glass-root events pass through the same value gate.
@@ -10,7 +11,12 @@ final class TmuxWorkspacePaneOverlayCoordinator {
 
     /// Refreshes from current model and AppKit values, rebuilding only when
     /// those values differ from the last admitted snapshot.
-    func refresh(builder: TmuxWorkspacePaneOverlayStateBuilder, in newWindow: NSWindow? = nil) {
+    @discardableResult
+    func refresh(
+        builder: TmuxWorkspacePaneOverlayStateBuilder,
+        in newWindow: NSWindow? = nil,
+        liveLayoutSnapshot: LayoutSnapshot? = nil
+    ) -> Bool {
         if let newWindow {
             if let previousWindow = window, previousWindow !== newWindow {
                 WindowTmuxWorkspacePaneOverlayController.controller(
@@ -21,7 +27,7 @@ final class TmuxWorkspacePaneOverlayCoordinator {
             }
             window = newWindow
         }
-        guard let window else { return }
+        guard let window else { return false }
         let inputs = builder.inputs
         let controller = WindowTmuxWorkspacePaneOverlayController.controller(
             for: window, createIfNeeded: inputs.isVisible
@@ -33,7 +39,8 @@ final class TmuxWorkspacePaneOverlayCoordinator {
             ? Self.normalizedLayoutSnapshot(
                 WorkspaceContentView.effectiveTmuxLayoutSnapshot(
                     cachedSnapshot: builder.tabManager.selectedWorkspace?.tmuxLayoutSnapshot,
-                    liveSnapshot: builder.tabManager.selectedWorkspace?.bonsplitController.layoutSnapshot()
+                    liveSnapshot: liveLayoutSnapshot
+                        ?? builder.tabManager.selectedWorkspace?.bonsplitController.layoutSnapshot()
                 )
             )
             : nil
@@ -48,7 +55,7 @@ final class TmuxWorkspacePaneOverlayCoordinator {
             // remain valid. In particular, repeated geometry/focus
             // notifications do not pay the AppKit conversion cost before the
             // equality gate below.
-            return
+            return false
         }
         var exactRects: [UUID: CGRect] = [:]
         if inputs.isVisible, let reference, let workspace = builder.tabManager.selectedWorkspace {
@@ -65,7 +72,7 @@ final class TmuxWorkspacePaneOverlayCoordinator {
             exactRects: exactRects,
             effectiveLayout: effectiveLayout
         )
-        update(snapshot: snapshot) {
+        return update(snapshot: snapshot) {
             controller?.update(state: builder.state(for: window))
         }
     }

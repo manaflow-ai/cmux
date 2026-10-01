@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import Bonsplit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -71,7 +72,8 @@ struct TmuxWorkspacePaneOverlayModelTests {
             )),
             referenceView: nil,
             referenceBounds: nil,
-            exactRects: [:]
+            exactRects: [:],
+            effectiveLayout: nil
         )
         var renderCount = 0
 
@@ -124,6 +126,51 @@ struct TmuxWorkspacePaneOverlayModelTests {
         #expect(coordinator.update(snapshot: makeSnapshot(firstLayout)) { renderCount += 1 })
         #expect(coordinator.update(snapshot: makeSnapshot(secondLayout)) { renderCount += 1 })
         #expect(renderCount == 2)
+    }
+
+    @Test @MainActor
+    func refreshIgnoresLiveLayoutSamplingTimestamp() {
+        let defaults = UserDefaults(suiteName: "TmuxWorkspacePaneOverlayModelTests")!
+        defaults.removePersistentDomain(forName: "TmuxWorkspacePaneOverlayModelTests")
+        defaults.set(true, forKey: TmuxOverlayExperimentSettings.enabledKey)
+        defaults.set(TmuxOverlayExperimentTarget.bonsplitPane.rawValue,
+                     forKey: TmuxOverlayExperimentSettings.targetKey)
+        let observer = TmuxOverlayExperimentTargetObserver(defaults: defaults)
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let builder = TmuxWorkspacePaneOverlayStateBuilder(
+            tabManager: tabManager,
+            sidebarUnread: SidebarUnreadModel(),
+            experiment: observer,
+            notificationStore: TerminalNotificationStore.shared,
+            settings: TmuxWorkspacePaneOverlaySettings(
+                activePaneBorderColorHex: nil,
+                rightSidebarOwnsInputFocus: false,
+                workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: nil)
+            )
+        )
+        let coordinator = TmuxWorkspacePaneOverlayCoordinator()
+        let window = NSWindow(
+            contentRect: .zero,
+            styleMask: [],
+            backing: .buffered,
+            defer: true
+        )
+        let layout = LayoutSnapshot(
+            containerFrame: PixelRect(x: 0, y: 0, width: 100, height: 100),
+            panes: [],
+            focusedPaneId: nil,
+            timestamp: 1
+        )
+        var laterLayout = layout
+        laterLayout = LayoutSnapshot(
+            containerFrame: layout.containerFrame,
+            panes: layout.panes,
+            focusedPaneId: layout.focusedPaneId,
+            timestamp: 2
+        )
+
+        #expect(coordinator.refresh(builder: builder, in: window, liveLayoutSnapshot: layout))
+        #expect(!coordinator.refresh(builder: builder, in: window, liveLayoutSnapshot: laterLayout))
     }
 
     @Test @MainActor

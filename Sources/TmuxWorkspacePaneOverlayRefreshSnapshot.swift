@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 
 /// Includes AppKit geometry with the domain inputs before deciding to render.
 struct TmuxWorkspacePaneOverlayRefreshSnapshot: Equatable {

@@ -6908,7 +6908,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         syncRemoteRelayIDAliasesToController()
     }
-
     var isRestorableInSessionSnapshot: Bool {
         if isRemoteTmuxMirror { return false }
         if panels.values.contains(where: {
@@ -7498,7 +7497,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard !isDetachingCloseTransaction else { return }
         maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()
     }
-
     /// Normalizes a user-supplied workspace environment: trims keys and drops any entry with a
     /// blank key or blank value. Dropping blank values keeps behavior identical across the
     /// `additionalEnvironment` channel (which already skips empty values) and the
@@ -7613,7 +7611,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             surfaceAliases: aliases.surfaceAliases
         )
     }
-
     private func clearRemoteRelayIDAliases() {
         guard !remoteRelayWorkspaceIDAliases.isEmpty || !remoteRelaySurfaceIDAliases.isEmpty else { return }
         remoteRelayWorkspaceIDAliases.removeAll()
@@ -13558,7 +13555,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         return nil
     }
-
 }
 
 // MARK: - BonsplitDelegate
