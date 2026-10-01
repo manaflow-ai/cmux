@@ -32,7 +32,9 @@ function fakeViewport(size: { width: number; height: number }) {
   const isScroller = (node: HTMLElement) => node.classList.contains("acpmux-scroll");
   Object.defineProperty(prototype, "clientHeight", { configurable: true, get(this: HTMLElement) { return isScroller(this) ? size.height : 0; } });
   Object.defineProperty(prototype, "clientWidth", { configurable: true, get(this: HTMLElement) { return isScroller(this) ? size.width : 0; } });
-  Object.defineProperty(prototype, "scrollTop", { configurable: true, get(this: HTMLElement) { return offsets.get(this) ?? 0; }, set(this: HTMLElement, value: number) { offsets.set(this, value); } });
+  // Like a browser, the offset clamps to the content once it lays out again.
+  const maximum = (node: HTMLElement) => Math.max(0, parseFloat(node.querySelector<HTMLElement>(".acpmux-spacer")?.style.height || "0") - size.height);
+  Object.defineProperty(prototype, "scrollTop", { configurable: true, get(this: HTMLElement) { const offset = Math.min(offsets.get(this) ?? 0, maximum(this)); offsets.set(this, offset); return offset; }, set(this: HTMLElement, value: number) { offsets.set(this, Math.max(0, Math.min(value, maximum(this)))); } });
   return () => { for (const key of ["clientHeight", "clientWidth", "scrollTop"]) delete (prototype as unknown as Record<string, unknown>)[key]; };
 }
 
@@ -256,6 +258,30 @@ describe("acpmux measured rows", () => {
       expect(atTop().index).toBe(anchor.index);
       expect(scroller.scrollTop - atTop().top).toBe(offset);
       expect(overlaps()).toEqual([]);
+    } finally {
+      await act(async () => root.unmount());
+      prototype.getBoundingClientRect = original;
+      restore();
+    }
+  });
+  /// Rows that draw shorter than estimated shrink the content under a viewport at the latest row,
+  /// and the browser clamps the offset before the layout effect sees it.
+  test("opened at the latest row, it stays there as rows draw shorter than estimated", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const conversation: AcpmuxRow[] = Array.from({ length: 300 }, (_, index) => ({ id: `long-${index}`, version: 1, at: index, kind: "assistant", text: `${"word ".repeat(200)}${index}` }));
+    const prototype = dom.window.HTMLElement.prototype;
+    const original = prototype.getBoundingClientRect;
+    prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const height = this.classList.contains("acpmux-row") ? 40 : 0;
+      return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: height, width: 0, height, toJSON() { return {}; } } as DOMRect;
+    };
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: conversation, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
+      const spacer = dom.window.document.querySelector(".acpmux-spacer") as HTMLElement;
+      for (let frame = 0; frame < 3; frame += 1) await act(async () => { scroller.dispatchEvent(new dom.window.Event("scroll")); });
+      expect(scroller.scrollTop).toBe(parseFloat(spacer.style.height) - 600);
     } finally {
       await act(async () => root.unmount());
       prototype.getBoundingClientRect = original;
