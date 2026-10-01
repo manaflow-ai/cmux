@@ -51,7 +51,7 @@ extension TerminalController {
                 }
                 if let committed,
                    case .accepted(let authoritativeEvents, _) = committed {
-                    self.v2NoteCoalescedFeedTranscriptEvents(authoritativeEvents)
+                    self.v2NoteAcceptedFeedEvents(authoritativeEvents)
                 }
                 return committed
             }
@@ -103,7 +103,10 @@ extension TerminalController {
     }
 
     @MainActor
-    private func v2NoteCoalescedFeedTranscriptEvents(_ events: [WorkstreamEvent]) {
+    private func v2NoteAcceptedFeedEvents(_ events: [WorkstreamEvent]) {
+        for event in events {
+            NotificationCenter.default.post(name: .workstreamEventReceived, object: event)
+        }
         guard let agentChatTranscriptService else { return }
 
         var pendingPiPostToolEvent: WorkstreamEvent?
@@ -143,11 +146,9 @@ extension TerminalController {
             waitTimeout: waitTimeout,
             onAcceptedOnMainActor: { authoritativeEvent in
                 self.v2ApplyIMessageModeSideEffects(for: authoritativeEvent)
+                self.v2NoteAcceptedFeedEvents([authoritativeEvent])
             },
             onAccepted: { authoritativeEvent in
-                self.v2MainSync {
-                    self.agentChatTranscriptService?.noteHookEvent(authoritativeEvent)
-                }
                 CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
                     CmuxEventBus.shared.publishWorkstreamEvent(authoritativeEvent, phase: "received")
                     if !waitsForDecision {

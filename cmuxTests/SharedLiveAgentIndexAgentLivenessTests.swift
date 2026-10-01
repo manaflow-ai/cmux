@@ -292,6 +292,7 @@ struct SharedLiveAgentIndexAgentLivenessTests {
                 ]
             )
         }
+        _ = await sharedIndex.indexRefreshingNow()
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
         #expect(
             !sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId),

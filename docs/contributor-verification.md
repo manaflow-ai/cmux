@@ -16,20 +16,52 @@ not need the same first step. Run commands from the repository root.
 
 ```bash
 git diff --check
-./scripts/check-pbxproj.sh
-./scripts/lint-pbxproj-test-wiring.sh
+python3 scripts/verify-local.py
 ```
 
 The project checks matter when adding or moving app/test files. An unwired test can
-silently execute zero tests. For changed Swift files, `swiftc -D DEBUG -parse` followed
-by their paths is an early syntax check only: it does not type-check imports, compile
+silently execute zero tests. The plain command discovers the local default-branch base and changed Swift files;
+use `--all` for the complete static recipe. The [command guide](verification-receipts.md)
+covers focused checks, piped paths and JSON receipts. Parsing is an early check only: it does not type-check imports, compile
 the test target, or run assertions. Use the owning script/package's tests for logic
 changes instead of tests that merely search source text for the new implementation.
 
 For a bug fix, add a behavior regression that fails without the fix, then make it
 pass. Keep the failing regression and repair in separate commits so reviewers can
-reproduce both states. Do not describe an infrastructure failure as the expected
+reproduce both states. Record the same focused command failing before and passing
+after; push both commits together when that proof is available locally. Use CI for
+CI-only reproductions and retain final-head checks. Do not describe an infrastructure failure as the expected
 regression failure.
+
+## Trust boundary
+
+Run repository commands only on a reviewed checkout. Static checks, help/list
+commands, imported helpers and tracked Git hooks execute repository code;
+`--repo` selects whose code runs. The pre-commit hook normalizes project files and
+registers Python tests, but is not a trust anchor across branch changes. Inspect
+unfamiliar code without executing it.
+
+There is no automatic pre-push checker. A Git snapshot or trusted wrapper that
+executes candidate-controlled children is not a sandbox. The default fast recipe
+installs no dependencies and runs no package-manager lifecycle scripts; installation
+and app/test execution are separate steps.
+
+To analyze untrusted source automatically, use a reviewed, fixed analyzer that
+reads candidate files only as data, or an execution boundary without host
+credentials, host-write access, network access or writable caches shared with
+release jobs. The verification scripts do not provide that sandbox. A local pass
+is not a supply-chain safety attestation and does not replace required CI.
+
+## PR check progression
+
+PR workflows run Fast static checks beside workflow guards and routed Linux checks.
+Applicable macOS compile admission and native checks wait for the static checks and
+Linux preflight. Required checks, review and the merge queue retain their authority.
+
+Check the repository's effective fork-approval settings and apply its
+maintainer-approval policy before running untrusted workflows. Passing cheap checks
+does not establish trust: never run candidate code with privileged
+`pull_request_target` credentials or reuse its writable caches in release jobs.
 
 ## 2. Test the owning package
 
@@ -62,28 +94,26 @@ For an ordinary local contributor, build the tagged app without shared backend
 credentials:
 
 ```bash
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag contributor-check --no-global-cli-links
+CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag contributor-check --build-only
 ```
 
 This selects the local backend origin; it does not start a backend or make Cloud
-features available. The script builds and prepares an isolated app, and without
-`--launch` it does not open it. It can stop an existing app with the **same tag**:
-use your own tag rather than borrowing another developer's session.
+features available. `--build-only` validates a temporary bundle without stopping or
+replacing the running tag, then removes the bundle. Use your own tag and retain its
+DerivedData for incremental checks.
 
 An app build does not compile all tests. In a separate, stable verification directory,
 compile the app-host unit test product:
 
 ```bash
-xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-  -destination 'platform=macOS' \
-  -derivedDataPath "$PWD/.build/contributor-tests" build-for-testing
+./scripts/test-unit.sh -derivedDataPath "$PWD/.build/contributor-tests" build-for-testing
 ```
 
-This is compilation only. Do not open its untagged product. Use `cmux` in place of
-`cmux-unit` when compiling UI tests; use the appropriate dedicated scheme for tests
-such as numeric-locale coverage. Confirm the command finished successfully and
-preserve the build log. `build-for-testing` proves that the selected app and test
-product compile, **not** that any test ran. It does not replace the tagged runtime
+The wrapper uses the same test-module settings as CI. This is compilation only;
+do not open its untagged product. For UI or dedicated test schemes, follow the
+[test guide](../skills/cmux-testing/references/local-vs-ci-validation.md).
+Confirm the command succeeded and preserve the build log. `build-for-testing`
+proves that the selected app and test product compile, **not** that any test ran. It does not replace the tagged runtime
 step below or required CI checks.
 
 ## 4. Exercise an isolated runtime
@@ -100,7 +130,7 @@ remain available. Record runtime verification as not performed and identify an
 authorized reviewer to run it; do not claim that compilation verifies the runtime
 or point tests at someone else's running app.
 
-Once the credentials file is configured, launch the tag you built and explicitly
+Once the credentials file is configured, build and launch your tag, then explicitly
 route local socket checks to that tag's socket:
 
 ```bash
@@ -123,7 +153,9 @@ is not automatically a safely isolated test runtime. A plain `xcodebuild test` o
 your everyday desktop can launch/focus the app under test. UI tests also need a
 logged-in GUI session and any permissions or display setup their fixture requires.
 If that environment is unavailable, report the missing runtime check and ask a
-maintainer to run the exact selected test on your pushed revision.
+maintainer to run the exact selected test on your pushed revision. That is not a
+reason to hold back the pull request: CI runs the app-host suites your diff
+touches once it is open.
 
 ### Maintainer option: dispatch a selected test
 
@@ -136,7 +168,9 @@ python3 scripts/ci/dispatch-focused-test.py cmuxTests/SessionPersistenceTests --
 
 Replace the selector with the regression; UI selectors use
 `cmuxUITests/ClassName[/methodName]`. The dispatcher validates the revision/selector
-and prints the run URL. This path needs authenticated `gh` access to the upstream
+and prints the run URL. For UI tests, `scripts/ui-test ClassName` does the same and then shows
+one frame per test action ([guide](../skills/cmux-testing/references/ui-test-frames.md)).
+This path needs authenticated `gh` access to the upstream
 workflow and its runner capacity. It does not grant access to contributors or
 replace the PR's required checks. Preserve the selected-test count, run URL,
 revision, failures, cancellations and retries in the verification record.

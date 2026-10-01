@@ -80,7 +80,9 @@ private enum ComputerUseCursorArtwork {
 /// records translation 257.8472/257.8472, scale 45.7900, roundness 16.5, and a
 /// 59% gradient midpoint.
 @MainActor
-public enum ComputerUseHelperIconRenderer {
+// lint:allow namespace-type, stateless renderer preserves the existing type-level API
+public struct ComputerUseHelperIconRenderer {
+    private init() {}
     private static var cachedImage: NSImage?
 
     /// The image exposed to the host application.

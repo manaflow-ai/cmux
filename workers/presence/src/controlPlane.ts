@@ -773,6 +773,11 @@ export interface CtlAttachment {
 
 // ---- Device revocation (worker HTTP route -> account DO) ----
 
+/** The broker's endpoint-id form: trimmed, lowercase. */
+export function canonicalEndpointId(endpointId: string): string {
+  return endpointId.trim().toLowerCase();
+}
+
 export interface RevocationRequest {
   endpointId: string;
   revoked: boolean;
@@ -787,6 +792,10 @@ export function parseRevocationRequest(value: unknown): RevocationRequest | null
   if (typeof value.endpointId !== "string"
     || value.endpointId.length === 0
     || value.endpointId.length > MAX_ENDPOINT_ID_CHARS) return null;
+  // Revocation canonicalizes (trim + lowercase) before it touches storage, so
+  // a whitespace-only id would pass the length check here and then write the
+  // DEV_PREFIX namespace root as its key.
+  if (canonicalEndpointId(value.endpointId).length === 0) return null;
   if (typeof value.revoked !== "boolean") return null;
   return { endpointId: value.endpointId, revoked: value.revoked };
 }
@@ -1000,10 +1009,8 @@ export class ControlPlaneCore {
     // session while trying to recover.
     for (const candidate of this.deps.sockets()) {
       const candidateAttachment = candidate.getAttachment();
-      // The Cloudflare adapter recreates the transport wrapper while
-      // enumerating hibernating sockets, so wrapper identity is not stable.
-      // The session id is assigned at accept time and is the stable identity
-      // for this connection.
+      // The DO recreates wrappers after hibernation and on each enumeration.
+      // The authenticated session attachment, not wrapper identity, owns the socket.
       if (candidateAttachment?.sessionId === attachment.sessionId) continue;
       if (!candidateAttachment?.helloed
         || candidateAttachment.endpointId !== payload.endpointId) continue;
@@ -1224,7 +1231,7 @@ export class ControlPlaneCore {
     // endpoint and the requesting socket's own bound endpoint.
     if (await this.isEndpointRevoked(endpointId)
       || (attachment.endpointId !== undefined
-        && attachment.endpointId !== endpointId
+        && canonicalEndpointId(attachment.endpointId) !== canonicalEndpointId(endpointId)
         && await this.isEndpointRevoked(attachment.endpointId))) {
       this.sendFrame(socket, attachment, errorFrame(
         "mint_revoked",
@@ -1355,9 +1362,15 @@ export class ControlPlaneCore {
     return seeded;
   }
 
+  /** Revoked under any spelling: the canonical (lowercase) row, and a row
+   * an older revocation stored under the exact string it was given. */
   private async isEndpointRevoked(endpointId: string): Promise<boolean> {
-    const overlay = await this.deps.storage.get<DeviceOverlay>(DEV_PREFIX + endpointId);
-    return overlay?.revoked === true;
+    const canonical = canonicalEndpointId(endpointId);
+    for (const key of new Set([canonical, endpointId])) {
+      const overlay = await this.deps.storage.get<DeviceOverlay>(DEV_PREFIX + key);
+      if (overlay?.revoked === true) return true;
+    }
+    return false;
   }
 
   /** Join broker bindings with the DO-owned overlay. Bindings never seen
@@ -1454,22 +1467,46 @@ export class ControlPlaneCore {
    * then close every socket bound to that endpoint with 1008 "revoked". Mints
    * for the endpoint are refused until un-revoked. */
   async handleRevocation(
-    request: RevocationRequest,
+    raw: RevocationRequest,
   ): Promise<{ rev: number; changed: boolean; revoked: boolean }> {
+    // The relay broker canonicalizes endpoint ids to lowercase; so does
+    // revocation, or another spelling of a revoked id would still mint.
+    const request = { ...raw, endpointId: canonicalEndpointId(raw.endpointId) };
+    // confirm-on-hello stores a device's overlay under the exact endpoint id
+    // the client declared, and that row is the one the directory emits, so the
+    // flag has to land on every spelling that already has a row. Writing only
+    // the canonical row would flip a freshly seeded row nobody emits and leave
+    // peers reading the stale value off the row they do see. No row is created
+    // for a non-canonical spelling: only an existing one is updated.
+    const legacyKey = raw.endpointId === request.endpointId ? null : raw.endpointId;
     const overlay = await this.ensureOverlay(request.endpointId);
-    if (overlay.revoked === request.revoked) {
+    const legacy = legacyKey === null
+      ? undefined
+      : await this.deps.storage.get<DeviceOverlay>(DEV_PREFIX + legacyKey);
+    const canonicalStale = overlay.revoked !== request.revoked;
+    const legacyStale = legacy !== undefined && legacy.revoked !== request.revoked;
+    if (!canonicalStale && !legacyStale) {
       const rev = (await this.deps.storage.get<number>(REV_KEY)) ?? 0;
       return { rev, changed: false, revoked: overlay.revoked };
     }
-    await this.deps.storage.put(DEV_PREFIX + request.endpointId, {
-      ...overlay,
-      revoked: request.revoked,
-    });
+    if (canonicalStale) {
+      await this.deps.storage.put(DEV_PREFIX + request.endpointId, {
+        ...overlay,
+        revoked: request.revoked,
+      });
+    }
+    if (legacyStale && legacyKey !== null && legacy !== undefined) {
+      await this.deps.storage.put(DEV_PREFIX + legacyKey, {
+        ...legacy,
+        revoked: request.revoked,
+      });
+    }
     const rev = await this.bumpOverlayRevisionAndBroadcast(null);
     if (request.revoked) {
       for (const socket of this.deps.sockets()) {
         const attachment = socket.getAttachment();
-        if (!attachment || attachment.endpointId !== request.endpointId) continue;
+        if (!attachment || attachment.endpointId === undefined
+          || canonicalEndpointId(attachment.endpointId) !== request.endpointId) continue;
         await this.deps.storage.delete(BEARER_PREFIX + attachment.sessionId);
         try {
           socket.close(1008, "revoked");

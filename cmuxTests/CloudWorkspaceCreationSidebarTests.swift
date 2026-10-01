@@ -1,7 +1,10 @@
+import CmuxCloud
 import AppKit
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
+import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -12,6 +15,200 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CloudWorkspaceCreationSidebarTests {
+    @Test("An existing Cloud workspace row admits one local workspace before attach and reuses it on repeat")
+    func existingWorkspaceRowOpensOptimisticallyAndIsIdempotent() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            fixture.manager.window = nil
+            let workspace = SurfaceRemoteWorkspace(id: "ws_existing", name: "Existing", index: 0, focused: true)
+            fixture.provider.createdWorkspaces = [workspace]
+            fixture.provider.info.remoteWorkspaces = [workspace]
+            fixture.catalog.updateMachine(fixture.provider.info, from: fixture.provider)
+            let terminal = fixture.provider.terminal(in: workspace)
+            fixture.catalog.upsert(terminal, from: fixture.provider)
+            try fixture.provider.publish(revision: 10)
+
+            let attachStarted = CloudLinkFirstValue<Bool>()
+            let releaseAttach = CloudLinkFirstValue<Bool>()
+            fixture.provider.beforeMaterialize = { _, _ in
+                attachStarted.resolve(true)
+                _ = await releaseAttach.result
+            }
+            let completed = CloudLinkFirstValue<Bool>()
+            let actions = CloudTreeNodeActions.bound(
+                navigationHost: CloudTerminalNavigationHost(focus: { _, _ in }, closeWorkspace: { _ in }),
+                catalog: { fixture.catalog },
+                selectedWorkspaceID: { fixture.manager.selectedTabId },
+                selectLocalWorkspace: { fixture.manager.selectedTabId = $0 },
+                onWillMutate: { _ in },
+                onDidMutate: { completed.resolve(true) },
+                onFailure: { Issue.record("Unexpected existing-workspace open failure: \($0)") },
+                refresh: {},
+                workspaceCreationHost: { CloudWorkspaceCreationHost(manager: fixture.manager) }
+            )
+            let row = try #require(fixture.workspaceRows().first { node in
+                if case .workspace(_, let value, _, _, _) = node.kind { return value.id == workspace.id }
+                return false
+            })
+            let group = try #require(row.dragGroup)
+            actions.openWorkspace(fixture.provider.machine, workspace, group)
+            #expect(await attachStarted.result == true)
+
+            let admitted = try #require(fixture.manager.tabs.first { $0.id != fixture.originalWorkspaceID })
+            #expect(fixture.manager.tabs.count == 2)
+            #expect(fixture.manager.selectedTabId == admitted.id)
+            #expect(fixture.catalog.snapshot.pendingWorkspaceCreations?[fixture.provider.machine]?[workspace.id] == admitted.id)
+            let pendingRow = try #require(fixture.workspaceRows().first { node in
+                if case .workspace(_, let value, _, _, let openIn) = node.kind {
+                    return value.id == workspace.id && openIn == admitted.id
+                }
+                return false
+            })
+            #expect(pendingRow.id == CloudTreeNodeBuilder.nodeID(workspace: workspace.id, machine: fixture.provider.machine))
+
+            // A second activation while the attach is suspended is navigation
+            // to the admitted local identity, never another local workspace.
+            actions.openWorkspace(fixture.provider.machine, workspace, group)
+            #expect(fixture.manager.tabs.count == 2)
+            #expect(fixture.manager.selectedTabId == admitted.id)
+
+            releaseAttach.resolve(true)
+            #expect(await completed.result == true)
+            #expect(fixture.catalog.snapshot.pendingWorkspaceCreations == nil)
+            #expect(fixture.catalog.projections.filter { $0.workspaceID == admitted.id }.count == 1)
+        }
+    }
+
+    @Test("A failed existing Cloud workspace open rolls back and preserves the previous selection")
+    func existingWorkspaceOpenFailureRollsBackSelection() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            fixture.manager.window = fixture.window
+            fixture.window.makeKeyAndOrderFront(nil)
+            let workspace = SurfaceRemoteWorkspace(id: "ws_failure", name: "Failure", index: 0, focused: true)
+            let other = try #require(fixture.manager.addWorkspaceIfActive(title: "Other", select: false))
+            fixture.provider.createdWorkspaces = [workspace]
+            fixture.provider.info.remoteWorkspaces = [workspace]
+            fixture.catalog.updateMachine(fixture.provider.info, from: fixture.provider)
+            fixture.catalog.upsert(fixture.provider.terminal(in: workspace), from: fixture.provider)
+            try fixture.provider.publish(revision: 10)
+            fixture.provider.beforeMaterialize = { _, _ in throw CloudDiagnosticFailure.conflict }
+
+            let completed = CloudLinkFirstValue<Bool>()
+            var failure: String?
+            let actions = CloudTreeNodeActions.bound(
+                navigationHost: CloudTerminalNavigationHost(focus: { _, _ in }, closeWorkspace: { _ in }),
+                catalog: { fixture.catalog },
+                selectedWorkspaceID: { fixture.manager.selectedTabId },
+                selectLocalWorkspace: { fixture.manager.selectedTabId = $0 },
+                onWillMutate: { _ in },
+                onDidMutate: { completed.resolve(true) },
+                onFailure: { failure = $0 },
+                refresh: {},
+                workspaceCreationHost: { CloudWorkspaceCreationHost(manager: fixture.manager) }
+            )
+            let row = try #require(fixture.workspaceRows().first { node in
+                if case .workspace(_, let value, _, _, _) = node.kind { return value.id == workspace.id }
+                return false
+            })
+            actions.openWorkspace(fixture.provider.machine, workspace, try #require(row.dragGroup))
+            #expect(await completed.result == true)
+            #expect(failure != nil)
+            #expect(fixture.manager.tabs.map(\.id) == [fixture.originalWorkspaceID, other.id])
+            #expect(fixture.manager.selectedTabId == fixture.originalWorkspaceID)
+            #expect(fixture.catalog.snapshot.pendingWorkspaceCreations == nil)
+            #expect(fixture.catalog.projections.isEmpty)
+        }
+    }
+
+    @Test("A canceled existing workspace open cannot be resurrected by a late attach callback")
+    func existingWorkspaceOpenCancellationFencesLateCallback() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            fixture.manager.window = fixture.window
+            fixture.window.makeKeyAndOrderFront(nil)
+            let workspace = SurfaceRemoteWorkspace(id: "ws_cancel", name: "Cancel", index: 0, focused: true)
+            fixture.provider.createdWorkspaces = [workspace]
+            fixture.provider.info.remoteWorkspaces = [workspace]
+            fixture.catalog.updateMachine(fixture.provider.info, from: fixture.provider)
+            fixture.catalog.upsert(fixture.provider.terminal(in: workspace), from: fixture.provider)
+            try fixture.provider.publish(revision: 10)
+            let attachStarted = CloudLinkFirstValue<Bool>()
+            let releaseAttach = CloudLinkFirstValue<Bool>()
+            fixture.provider.beforeMaterialize = { _, _ in
+                attachStarted.resolve(true)
+                _ = await releaseAttach.result
+            }
+            let completed = CloudLinkFirstValue<Bool>()
+            let actions = CloudTreeNodeActions.bound(
+                navigationHost: CloudTerminalNavigationHost(focus: { _, _ in }, closeWorkspace: { _ in }),
+                catalog: { fixture.catalog },
+                selectedWorkspaceID: { fixture.manager.selectedTabId },
+                selectLocalWorkspace: { fixture.manager.selectedTabId = $0 },
+                onWillMutate: { _ in },
+                onDidMutate: { completed.resolve(true) },
+                onFailure: { Issue.record("Unexpected cancellation failure: \($0)") },
+                refresh: {},
+                workspaceCreationHost: { CloudWorkspaceCreationHost(manager: fixture.manager) }
+            )
+            let row = try #require(fixture.workspaceRows().first { node in
+                if case .workspace(_, let value, _, _, _) = node.kind { return value.id == workspace.id }
+                return false
+            })
+            actions.openWorkspace(fixture.provider.machine, workspace, try #require(row.dragGroup))
+            #expect(await attachStarted.result == true)
+            fixture.catalog.cloudWorkspaceCreationCoordinator.cancelAll()
+            releaseAttach.resolve(true)
+            #expect(await completed.result == true)
+            #expect(fixture.manager.tabs.map(\.id) == [fixture.originalWorkspaceID])
+            #expect(fixture.manager.selectedTabId == fixture.originalWorkspaceID)
+            #expect(fixture.catalog.snapshot.pendingWorkspaceCreations == nil)
+            #expect(fixture.catalog.projections.isEmpty)
+        }
+    }
+
+    @Test("Replacing a reservation preserves the committed remote workspace", arguments: [false, true])
+    func successfulCreationDoesNotCancelWhenTheProviderReplacesItsPane(adoptsReservation: Bool) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            // Native pane teardown reports through the live catalog. A private
+            // fixture catalog would miss the cancellation that deleted the Mac workspace.
+            let fixture = try CloudWorkspaceCreationSidebarFixture(useSharedCatalog: true)
+            defer { fixture.close() }
+            fixture.provider.adoptsReservation = adoptsReservation
+            let unexpectedClose = XCTestExpectation(description: "Successful creation must preserve remote resources")
+            unexpectedClose.isInverted = true
+            fixture.provider.onRemoteClose = { unexpectedClose.fulfill() }
+            var operation: CloudWorkspaceCreationOperation?
+            var reservedPanelID: UUID?
+            fixture.provider.beforeMaterialize = { _, reservation in
+                reservedPanelID = try #require(reservation).panelID
+                operation = try #require(fixture.catalog.cloudWorkspaceCreationCoordinator.operations.values.first {
+                    $0.machine == fixture.provider.machine
+                })
+            }
+            let result = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                machine: fixture.provider.machine, provider: fixture.provider, catalog: fixture.catalog,
+                name: nil, focus: false
+            )
+            let opened = try #require(result.opened)
+            let workspace = try #require(fixture.manager.workspacesById[opened.workspaceID])
+            let completed = try #require(operation)
+            // Cleanup is scheduled asynchronously by native pane teardown.
+            // Observe that negative event explicitly rather than sampling before it runs.
+            let closeResult = await XCTWaiter.fulfillment(of: [unexpectedClose], timeout: 0.2)
+            #expect(closeResult == .completed)
+            #expect(completed.isComplete)
+            #expect(!completed.remoteCleanupStarted)
+            #expect(fixture.provider.closedWorkspaceIDs.isEmpty)
+            #expect(fixture.provider.closedTerminalIDs.isEmpty)
+            #expect(workspace.panels.count == 1)
+            #expect((opened.projections.first?.panelID == reservedPanelID) == adoptsReservation)
+        }
+    }
+
     @Test("Both workspace sidebars share the create receipt before daemon refresh", arguments: [false, true])
     func receiptAppearsBeforeRefresh(focus: Bool) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
@@ -19,6 +216,10 @@ struct CloudWorkspaceCreationSidebarTests {
             defer { fixture.close() }
             let originalIDs = Set(fixture.manager.tabs.map(\.id))
             var pendingID: UUID?
+            fixture.provider.beforeCreate = {
+                let created = fixture.manager.tabs.filter { !originalIDs.contains($0.id) }
+                #expect(created.count == 1, "The local Cloud pane must be admitted before remote creation returns")
+            }
             fixture.provider.beforeRefresh = {
                 let created = fixture.manager.tabs.filter { !originalIDs.contains($0.id) }
                 #expect(created.count == 1, "The left navigator must contain the new workspace before refresh returns")
@@ -94,6 +295,81 @@ struct CloudWorkspaceCreationSidebarTests {
             #expect(fixture.manager.selectedTabId == fixture.originalWorkspaceID)
             #expect(fixture.provider.adoptedPanels == [opened.projections[0].panelID])
             #expect(fixture.catalog.snapshot.pendingWorkspaceCreations == nil)
+        }
+    }
+
+    @Test("Cancellation after a remote receipt returns closes the owned workspace and starter")
+    func cancellationAfterReceiptCleansOwnedRemoteResources() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            fixture.provider.usesReceipt = true
+            fixture.provider.beforeCreate = {
+                withUnsafeCurrentTask { $0?.cancel() }
+            }
+            await #expect(throws: CancellationError.self) {
+                try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                    machine: fixture.provider.machine, provider: fixture.provider, catalog: fixture.catalog,
+                    name: nil, focus: false
+                )
+            }
+            let workspace = try #require(fixture.provider.createdWorkspaces.first)
+            #expect(fixture.provider.closedWorkspaceIDs == [workspace.id])
+            #expect(fixture.provider.closedTerminalIDs == [fixture.provider.terminal(in: workspace).id])
+            #expect(fixture.catalog.cloudWorkspaceCreationCoordinator.operations.isEmpty)
+            #expect(fixture.manager.tabs.count == 1)
+        }
+    }
+
+    @Test("Closing the early pane cleans a receipt that returns after cancellation")
+    func cancellationWhileReceiptIsSuspendedCleansOwnedRemoteResources() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            fixture.provider.usesReceipt = true
+            let receiptCreated = CloudLinkFirstValue<Bool>()
+            let releaseReceipt = CloudLinkFirstValue<Bool>()
+            fixture.provider.afterCreateWorkspace = { _ in
+                receiptCreated.resolve(true)
+                _ = await releaseReceipt.result
+            }
+            let creation = Task { @MainActor in
+                try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                    machine: fixture.provider.machine, provider: fixture.provider, catalog: fixture.catalog,
+                    name: nil, focus: false
+                )
+            }
+            #expect(await receiptCreated.result == true)
+            let operation = try #require(fixture.catalog.cloudWorkspaceCreationCoordinator.operations.values.first)
+            let reservation = try #require(operation.reservation)
+            reservation.cancel?()
+            releaseReceipt.resolve(true)
+            await #expect(throws: CancellationError.self) { try await creation.value }
+            let workspace = try #require(fixture.provider.createdWorkspaces.first)
+            #expect(fixture.provider.closedWorkspaceIDs == [workspace.id])
+            #expect(fixture.provider.closedTerminalIDs == [fixture.provider.terminal(in: workspace).id])
+            #expect(fixture.catalog.cloudWorkspaceCreationCoordinator.operations.isEmpty)
+        }
+    }
+
+    @Test("A provider error after local admission reaches the caller and remains retryable")
+    func providerErrorAfterLocalAdmissionPropagates() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            fixture.provider.beforeCreate = {
+                throw CloudDiagnosticFailure.conflict
+            }
+            await #expect(throws: CloudDiagnosticFailure.conflict) {
+                try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                    machine: fixture.provider.machine, provider: fixture.provider, catalog: fixture.catalog,
+                    name: nil, focus: false
+                )
+            }
+            #expect(fixture.manager.tabs.count == 2)
+            let operation = try #require(fixture.catalog.cloudWorkspaceCreationCoordinator.operations.values.first)
+            #expect(operation.failure is CloudDiagnosticFailure)
+            #expect(operation.reservation != nil)
         }
     }
 

@@ -32,15 +32,6 @@ struct TerminalPickerMenuRow: Identifiable, Equatable {
     }
 }
 
-/// Structural change token for the native menu; title churn must not rebuild an open picker.
-struct TerminalPickerMenuMembership: Equatable {
-    let ids: [TerminalPickerMenuRow.ID]
-
-    init(_ rows: [TerminalPickerMenuRow]) {
-        ids = rows.map(\.id)
-    }
-}
-
 extension Collection where Element == TerminalPickerMenuRow {
     func resolvedTerminalPickerSelection(
         selectedID: MobileTerminalPreview.ID?
@@ -56,44 +47,27 @@ extension Collection where Element == TerminalPickerMenuRow {
 }
 
 extension WorkspaceDetailView {
-    var terminalPickerLiveRows: [TerminalPickerMenuRow] {
-        workspace.terminals.map(TerminalPickerMenuRow.init)
-            + workspace.surfaces.filter { !$0.kind.isTerminal }.map(TerminalPickerMenuRow.init)
-    }
-
-    var terminalPickerLiveMembership: TerminalPickerMenuMembership {
-        TerminalPickerMenuMembership(terminalPickerLiveRows)
-    }
-
-    func syncTerminalPickerRows(includeTitleChanges: Bool = false) {
-        let rows = terminalPickerLiveRows
-        if includeTitleChanges {
-            guard terminalPickerRows != rows else { return }
-            #if DEBUG
-            TerminalPickerMenuDiagnostics().recordRowsWrite(
-                rowCount: rows.count,
-                includesTitleChanges: true
-            )
-            #endif
-            terminalPickerRows = rows
-            return
-        }
-        guard terminalPickerRows.isEmpty
-            || TerminalPickerMenuMembership(terminalPickerRows) != TerminalPickerMenuMembership(rows)
-        else { return }
-        #if DEBUG
-        TerminalPickerMenuDiagnostics().recordRowsWrite(
-            rowCount: rows.count,
-            includesTitleChanges: false
-        )
-        #endif
-        terminalPickerRows = rows
-    }
-
     var hasTitleMenuActions: Bool {
         customizeWorkspace != nil
             || workspace.actionCapabilities.supportsWorkspaceActions
             || workspace.actionCapabilities.supportsReadStateActions
             || closeWorkspace != nil
+    }
+}
+
+extension WorkspaceDetailView {
+    /// The title menu's Connected Devices… item for the shown terminal, or
+    /// `nil` when its Mac has not published a size state (no shared sizing).
+    var connectedDevicesMenuItem: MobileTerminalConnectedDevicesMenuItem? {
+        guard let terminalID = selectedTerminal?.id.rawValue else { return nil }
+        return MobileTerminalConnectedDevicesMenuItem(
+            presentation: store.terminalSizingPresentation(for: terminalID)
+        )
+    }
+
+    /// Opens the shown terminal's size sheet: the one action behind the size
+    /// chip and the title menu's Connected Devices… item.
+    func presentTerminalSizeSheet() {
+        isTerminalSizeSheetPresented = true
     }
 }

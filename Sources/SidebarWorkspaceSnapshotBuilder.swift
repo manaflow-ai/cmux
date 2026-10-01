@@ -10,6 +10,8 @@ struct SidebarWorkspaceSnapshotBuilder {
         let showsGitBranch: Bool
         let usesViewportAwarePath: Bool
         let showsAgentActivity: Bool
+        var compactsAgentStatus = false
+        var compactStatusIcons: [String: String] = [:]
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     }
 
@@ -73,6 +75,13 @@ struct SidebarWorkspaceSnapshotBuilder {
         let checklistTotalCount: Int
         let checklistFirstUncheckedText: String?
         var taskStatusInput = SidebarWorkspaceTaskStatusSnapshot()
+        var deviceWorkspaceLabel: String? = nil
+        /// The single leading status glyph when `sidebar.compactAgentStatus`
+        /// is on (agent status entries then leave `metadataEntries`).
+        var compactStatusGlyph: SidebarCompactStatusGlyph? = nil
+
+        var remoteWorkspaceBadgeLabel: String? { deviceWorkspaceLabel ?? cloudWorkspaceLabel }
+        var remoteWorkspaceBadgeSymbol: String { deviceWorkspaceLabel == nil ? "cloud" : "desktopcomputer" }
 
         func accessibilityLabel(index: Int, workspaceCount: Int) -> String {
             let position = String(
@@ -81,7 +90,7 @@ struct SidebarWorkspaceSnapshotBuilder {
             )
             let cloudDirectory = cloudWorkspaceLabel == nil ? nil
                 : (compactDirectoryCandidates.first ?? branchDirectoryLines.first?.directory)
-            return [position, cloudWorkspaceLabel, cloudDirectory].compactMap { $0 }.joined(separator: ", ")
+            return [position, remoteWorkspaceBadgeLabel, cloudDirectory].compactMap { $0 }.joined(separator: ", ")
         }
     }
 }

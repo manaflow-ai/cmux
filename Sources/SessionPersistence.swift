@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import CoreGraphics
 import CmuxBrowser
 import CmuxCore
@@ -41,8 +42,9 @@ enum SessionPersistencePolicy {
 
     static func sanitizedSidebarWidth(_ candidate: Double?, defaults: UserDefaults = .standard) -> Double {
         let resolvedMinimum = resolvedMinimumSidebarWidth(defaults: defaults)
-        let fallback = min(max(defaultSidebarWidth, resolvedMinimum), maximumSidebarWidth)
-        guard let candidate, candidate.isFinite else { return fallback }
+        guard let candidate, candidate.isFinite else {
+            return min(resolvedMinimum, maximumSidebarWidth)
+        }
         return min(max(candidate, resolvedMinimum), maximumSidebarWidth)
     }
 
@@ -291,8 +293,6 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     var approvalPolicy: SurfaceResumeApprovalPolicy?
     var approvalRecordId: String?
     var launchFlavor: SurfaceResumeLaunchFlavor
-    /// Whether decoding observed a legacy binding without an execution location.
-    private(set) var wasDecodedWithoutLaunchFlavor = false
     var updatedAt: TimeInterval
 
     init(
@@ -364,7 +364,6 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             updatedAt: try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt)
                 ?? Date().timeIntervalSince1970
         )
-        wasDecodedWithoutLaunchFlavor = decodedLaunchFlavor == nil
     }
 
     var isProcessDetected: Bool {
@@ -385,6 +384,35 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
 
     var isCLIBinding: Bool {
         source == "cli"
+    }
+
+    /// Source for bindings restored from an untrusted session file
+    /// (`cmux restore-session --from <path>`).
+    static let untrustedSessionImportSource = "session-import"
+
+    /// A binding restored from an untrusted session file. It is kept for
+    /// manual `cmux restore --surface` only: the approval store never matches
+    /// it against approved prefixes and never records an approval for it.
+    var isUntrustedSessionImportBinding: Bool {
+        source == Self.untrustedSessionImportSource
+    }
+
+    /// Marks this binding as coming from an untrusted session file, with no
+    /// automatic resume and no stored approval.
+    func markingUntrustedSessionImport() -> Self {
+        var marked = self
+        marked.source = Self.untrustedSessionImportSource
+        return marked.forcingManualRestore()
+    }
+
+    /// This binding with automatic resume and any stored approval removed.
+    func forcingManualRestore() -> Self {
+        var manual = self
+        manual.autoResume = false
+        manual.approvalPolicy = .manual
+        manual.approvalRecordId = nil
+        manual.resumeEvidenceProvenance = nil
+        return manual
     }
 
     var allowsAutomaticResume: Bool {
@@ -549,8 +577,10 @@ struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable, Sendable {
 
     func matches(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
         // Remote approvals require a follow-up location-scoped record design that
-        // persists and signs an execution-location field.
-        guard binding.launchFlavor == .local,
+        // persists and signs an execution-location field. Bindings from an
+        // untrusted session file never match an approval.
+        guard !binding.isUntrustedSessionImportBinding,
+              binding.launchFlavor == .local,
               !commandPrefix.isEmpty,
               let tokens = SurfaceResumeCommandCanonicalizer.tokens(from: binding.command),
               tokens.count >= commandPrefix.count,
@@ -1010,26 +1040,10 @@ enum SurfaceResumeApprovalStore {
         isMainThread: Bool,
         isRunningTests: Bool
     ) -> Bool {
-        guard binding.launchFlavor == .local else {
+        guard isMainThread, !isRunningTests else {
             return false
         }
-        guard isMainThread else {
-            return false
-        }
-        guard !isRunningTests else {
-            return false
-        }
-        guard !binding.isCLIBinding else {
-            return false
-        }
-        guard !binding.isProcessDetected, !binding.isAgentHookBinding else {
-            return false
-        }
-        guard SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(binding.command) else {
-            return false
-        }
-        guard let existingRecord else { return true }
-        return existingRecord.policy == .prompt
+        return proposalNeedsApproval(binding: binding, existingRecord: existingRecord)
     }
 
     static func applyingPromptlessCLIManualApprovalIfNeeded(
@@ -1067,6 +1081,10 @@ enum SurfaceResumeApprovalStore {
         fileManager: FileManager = .default,
         signingSecret: Data? = nil
     ) -> SurfaceResumeApprovalRecord? {
+        // A binding from an untrusted session file never gets an approval record.
+        guard !binding.isUntrustedSessionImportBinding else {
+            return nil
+        }
         // Location-scoped signed records are the follow-up if remote approvals are wanted.
         guard binding.launchFlavor == .local else {
             return nil
@@ -1470,6 +1488,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
     var wasAgentRunning: Bool?
+    /// Whether the terminal has received user input. Nil means unknown in older snapshots.
+    var hasReceivedExplicitInput: Bool?
 
     init(
         workingDirectory: String? = nil,
@@ -1484,7 +1504,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
-        wasAgentRunning: Bool? = nil
+        wasAgentRunning: Bool? = nil,
+        hasReceivedExplicitInput: Bool? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.fontSize = fontSize
@@ -1499,6 +1520,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.isRemoteTerminal = isRemoteTerminal
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
+        self.hasReceivedExplicitInput = hasReceivedExplicitInput
     }
 }
 
@@ -1593,89 +1615,6 @@ struct SessionTextBoxInputAttachmentSnapshot: Codable, Equatable, Sendable {
     var cleanupLocalPathWhenDisposed: Bool
 }
 
-struct SessionBrowserPanelSnapshot: Codable, Sendable {
-    var urlString: String?
-    var profileID: UUID?
-    var shouldRenderWebView: Bool
-    var pageZoom: Double
-    var developerToolsVisible: Bool
-    var isMuted: Bool
-    var chromeVisibility: BrowserChromeVisibility? = nil
-    var omnibarVisible: Bool? = nil
-    var backHistoryURLStrings: [String]?
-    var forwardHistoryURLStrings: [String]?
-    /// True when the surface is a transparent internal cmux UI (e.g. the diff
-    /// viewer). Restored so the surface comes back transparent, not opaque.
-    var transparentBackground: Bool? = nil
-    /// Diff viewer token + request path, when this browser surface hosts a diff viewer.
-    /// Restored by re-registering the token with the app-owned `CmuxDiffViewerURLSchemeHandler`
-    /// and navigating via the custom scheme, independent of the (possibly-dead) local HTTP server.
-    var diffViewerToken: String? = nil
-    var diffViewerRequestPath: String? = nil
-
-    init(
-        urlString: String?,
-        profileID: UUID?,
-        shouldRenderWebView: Bool,
-        pageZoom: Double,
-        developerToolsVisible: Bool,
-        isMuted: Bool = false,
-        chromeVisibility: BrowserChromeVisibility? = nil,
-        omnibarVisible: Bool? = nil,
-        backHistoryURLStrings: [String]?,
-        forwardHistoryURLStrings: [String]?,
-        transparentBackground: Bool? = nil,
-        diffViewerToken: String? = nil,
-        diffViewerRequestPath: String? = nil
-    ) {
-        self.urlString = urlString
-        self.profileID = profileID
-        self.shouldRenderWebView = shouldRenderWebView
-        self.pageZoom = pageZoom
-        self.developerToolsVisible = developerToolsVisible
-        self.isMuted = isMuted
-        self.chromeVisibility = chromeVisibility
-        self.omnibarVisible = omnibarVisible
-        self.backHistoryURLStrings = backHistoryURLStrings
-        self.forwardHistoryURLStrings = forwardHistoryURLStrings
-        self.transparentBackground = transparentBackground
-        self.diffViewerToken = diffViewerToken
-        self.diffViewerRequestPath = diffViewerRequestPath
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case urlString
-        case profileID
-        case shouldRenderWebView
-        case pageZoom
-        case developerToolsVisible
-        case isMuted
-        case chromeVisibility
-        case omnibarVisible
-        case backHistoryURLStrings
-        case forwardHistoryURLStrings
-        case transparentBackground
-        case diffViewerToken
-        case diffViewerRequestPath
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        urlString = try container.decodeIfPresent(String.self, forKey: .urlString)
-        profileID = try container.decodeIfPresent(UUID.self, forKey: .profileID)
-        shouldRenderWebView = try container.decode(Bool.self, forKey: .shouldRenderWebView)
-        pageZoom = try container.decode(Double.self, forKey: .pageZoom)
-        developerToolsVisible = try container.decode(Bool.self, forKey: .developerToolsVisible)
-        isMuted = try container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
-        chromeVisibility = try container.decodeIfPresent(BrowserChromeVisibility.self, forKey: .chromeVisibility)
-        omnibarVisible = try container.decodeIfPresent(Bool.self, forKey: .omnibarVisible)
-        backHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .backHistoryURLStrings)
-        forwardHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .forwardHistoryURLStrings)
-        transparentBackground = try container.decodeIfPresent(Bool.self, forKey: .transparentBackground)
-        diffViewerToken = try container.decodeIfPresent(String.self, forKey: .diffViewerToken)
-        diffViewerRequestPath = try container.decodeIfPresent(String.self, forKey: .diffViewerRequestPath)
-    }
-}
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
@@ -1781,6 +1720,9 @@ struct SessionCloudVMBindingSnapshot: Codable, Sendable, Equatable {
     /// The machine's cmux-tui workspace this local workspace stands for; absent in
     /// legacy snapshots and for machine-only bindings (`vm shell`).
     var remoteWorkspaceID: String? = nil
+    /// The team that owns the machine. Absent in snapshots written before
+    /// multi-team Cloud; restore then adopts the selected team.
+    var teamID: String? = nil
 }
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {
@@ -1832,6 +1774,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Remote surfaces this workspace's panes projected (`SurfaceCatalog`); absent for
     /// workspaces that only ever showed local panes, so older manifests decode unchanged.
     var surfaceProjections: [SurfaceProjectionRecord]? = nil
+    /// The team that owns each Cloud machine this workspace shows, by machine
+    /// id. Restore reconnects those panes with that team even when another
+    /// team is selected. Absent in manifests written before multi-team Cloud.
+    var cloudMachineTeams: [String: String]? = nil
     /// Optional so manifests written before this field decode cleanly.
     var environment: [String: String]? = nil
     /// Manual task-status override raw values and the persisted checklist. Optional-with-nil-default
@@ -1923,6 +1869,10 @@ struct AppSessionSnapshot: Codable, Sendable {
     var version: Int
     var createdAt: TimeInterval
     var windows: [SessionWindowSnapshot]
+    /// Set when this save captured terminal scrollback (quit, power-off, update
+    /// relaunch); nil for the 8 s autosave. Lets crash restore tell a deliberately
+    /// empty scrollback from one that was never captured. Additive; older files decode as nil.
+    var scrollbackCapturedAt: TimeInterval? = nil
 }
 
 extension AppSessionSnapshot: SessionSnapshotRepresenting {
@@ -1930,6 +1880,33 @@ extension AppSessionSnapshot: SessionSnapshotRepresenting {
     /// treats an empty-window snapshot as unusable (empty states remove the file instead
     /// of writing it), matching the legacy `!snapshot.windows.isEmpty` usability check.
     var hasWindows: Bool { !windows.isEmpty }
+
+    var richness: SessionSnapshotRichness {
+        let workspaces = windows.flatMap(\.tabManager.workspaces)
+        return SessionSnapshotRichness(
+            workspaces: workspaces.count,
+            panels: workspaces.reduce(0) { $0 + $1.panels.count }
+        )
+    }
+
+    /// Hash of the window, workspace, and panel identities plus each
+    /// terminal's agent session, used by the overwrite guard to tell a user
+    /// change (a new workspace, a started agent) from autosave churn.
+    var structureSignature: Int {
+        var hasher = Hasher()
+        for window in windows {
+            hasher.combine(window.windowId)
+            for workspace in window.tabManager.workspaces {
+                hasher.combine(workspace.workspaceId)
+                for panel in workspace.panels {
+                    hasher.combine(panel.id)
+                    hasher.combine(panel.terminal?.agent?.sessionId)
+                    hasher.combine(panel.terminal?.resumeBinding != nil)
+                }
+            }
+        }
+        return hasher.finalize()
+    }
 }
 
 enum SessionScrollbackReplayStore {
@@ -1971,7 +1948,29 @@ enum SessionScrollbackReplayStore {
         // white-on-white output (issue #5165). Strip them before replay.
         let themePortable = strippingTerminalColorOSCSequences(scrollback)
         guard let truncated = SessionPersistencePolicy.truncatedScrollback(themePortable) else { return nil }
-        return ansiSafeReplayText(truncated)
+        return ansiSafeReplayText(endingOnFreshLine(truncated))
+    }
+    /// Captured scrollback usually stops at the old prompt with no trailing
+    /// newline. Replayed as is, the new shell's first prompt would start mid-line
+    /// (zsh marks that with a highlighted `%`), so end the replay on a fresh line.
+    /// Trailing CSI sequences (such as an SGR reset after the last newline) do
+    /// not move the cursor to a new line and are skipped when checking.
+    nonisolated private static func endingOnFreshLine(_ text: String) -> String {
+        let bytes = Array(text.utf8)
+        var end = bytes.count
+        while end > 0 {
+            let last = bytes[end - 1]
+            if last == 0x0A { return text } // \n
+            // Otherwise the text must end with `ESC [ <params> <final>` to keep looking.
+            guard (0x40...0x7E).contains(last) else { break }
+            var index = end - 2
+            while index >= 0, (0x20...0x3F).contains(bytes[index]) {
+                index -= 1
+            }
+            guard index >= 1, bytes[index] == 0x5B, bytes[index - 1] == 0x1B else { break }
+            end = index - 1
+        }
+        return text + "\r\n"
     }
     /// Preserve ANSI color state safely across replay boundaries.
     nonisolated private static func ansiSafeReplayText(_ text: String) -> String {

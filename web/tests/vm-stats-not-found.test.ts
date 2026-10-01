@@ -23,16 +23,22 @@ async function withStatsFixture(
     }>;
     requests: string[];
     writes: unknown[];
+    usageEvents: { eventType: string; metadata?: Record<string, unknown> }[];
+    revokedVmIds: string[];
+    completedCleanupSteps: string[];
     row: CloudVmRow;
   }) => Promise<void>,
-  options: { failObservation?: boolean; team?: boolean } = {},
+  options: { failObservation?: boolean; team?: boolean; homeVolume?: boolean } = {},
 ) {
   const requests: string[] = [];
   const writes: unknown[] = [];
   const row = {
     id: "fixture-row", userId: "fixture-owner", ownerTeamId: options.team ? "fixture-team" : "fixture-owner",
     billingTeamId: options.team ? "fixture-team" : null,
-    provider: "freestyle", providerVmId: "vm-fixture", providerMetadata: {}, status: "running",
+    provider: "freestyle", providerVmId: "vm-fixture", status: "running",
+    providerMetadata: options.homeVolume
+      ? { homeVolume: "vol-fixture", homeVolumePerMachine: true }
+      : {},
   } as CloudVmRow;
   const client = new Freestyle({
     apiKey: "test-only",
@@ -45,18 +51,40 @@ async function withStatsFixture(
   });
   const driver = new FreestyleProvider({
     client: () => client,
-    resolveDaemonSource: async () => { throw new Error("Stats must not install anything"); },
   });
   const getStats = spyOn(getProvider("freestyle"), "getStats").mockImplementation((id) => driver.getStats(id));
+  const usageEvents: { eventType: string; metadata?: Record<string, unknown> }[] = [];
+  const revokedVmIds: string[] = [];
+  const completedCleanupSteps: string[] = [];
   const repo = new Proxy({
     findUserVm: (input: { userId: string; providerVmId: string }) => Effect.sync(() =>
       input.userId === row.userId && input.providerVmId === row.providerVmId && row.status !== "destroyed" ? row : null),
-    markProviderObservedStatus: (input: { id: string; providerVmId: string; status: "destroyed" }) => Effect.suspend(() => {
+    markProviderObservedStatus: (input: Parameters<VmRepositoryShape["markProviderObservedStatus"]>[0]) => Effect.suspend(() => {
       writes.push(input);
       if (options.failObservation) return Effect.fail(new VmDatabaseError({ operation: "fixture", cause: new Error("offline") }));
-      expect(input).toEqual({ id: row.id, providerVmId: row.providerVmId, status: "destroyed" });
+      expect(input).toMatchObject({
+        id: row.id,
+        providerVmId: row.providerVmId,
+        status: "destroyed",
+        usageEvent: {
+          eventType: "vm.destroyed",
+          metadata: { source: "provider_status_stats" },
+        },
+        cleanup: options.homeVolume
+          ? { modelPlane: true, homeVolume: "vol-fixture" }
+          : { modelPlane: true },
+      });
       row.status = input.status;
+      if (input.usageEvent) usageEvents.push(input.usageEvent);
       return Effect.succeed(true);
+    }),
+    completeObservedDestroyCleanup: ({ step }: { step: string }) => Effect.sync(() => {
+      completedCleanupSteps.push(step);
+      return true;
+    }),
+    deferObservedDestroyCleanup: () => Effect.succeed(true),
+    recordUsageEvent: (input: { eventType: string; metadata?: Record<string, unknown> }) => Effect.sync(() => {
+      usageEvents.push(input);
     }),
   }, {
     get(target, key) {
@@ -70,10 +98,11 @@ async function withStatsFixture(
   );
   try {
     await run({
-      row, requests, writes,
+      row, requests, writes, usageEvents, revokedVmIds, completedCleanupSteps,
       poll: async (userId = row.userId, teamIds = options.team ? ["fixture-team"] : []) => {
         const result = await Effect.runPromise(Effect.either(getVmStats({
           userId, teamIds, providerVmId: row.providerVmId!,
+          modelPlane: { revoke: async (cloudVmId) => { revokedVmIds.push(cloudVmId); } },
         }).pipe(Effect.provide(layer))));
         expect(result._tag).toBe("Left");
         if (result._tag !== "Left") throw new Error("Expected a fixture failure");
@@ -91,7 +120,7 @@ const missing = () => Response.json({ code: "NOT_FOUND", message: "not found: vm
 
 describe("stats provider missing classification", () => {
   test("typed NOT_FOUND becomes a terminal 404 across repeated polling, retaining the row", async () => {
-    await withStatsFixture(missing, async ({ poll, row, requests, writes }) => {
+    await withStatsFixture(missing, async ({ poll, row, requests, writes, usageEvents, revokedVmIds }) => {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         const { tag, response, payload } = await poll();
         expect(tag).toBe("VmNotFoundError");
@@ -105,7 +134,32 @@ describe("stats provider missing classification", () => {
       expect(requests).toHaveLength(1);
       expect(writes).toHaveLength(1);
       expect(row).toMatchObject({ id: "fixture-row", providerVmId: "vm-fixture", status: "destroyed" });
+      // The transition is terminal, so the cron will never see this row again.
+      // Closing the machine's lifetime here is the last chance there is, and it
+      // happens once across the three polls, not once per poll.
+      expect(usageEvents).toHaveLength(1);
+      expect(usageEvents[0]).toMatchObject({
+        eventType: "vm.destroyed",
+        metadata: { source: "provider_status_stats" },
+      });
+      expect(revokedVmIds).toEqual([row.id]);
     });
+  });
+
+  test("a missing volume-backed machine is retired, releases quota, and revokes credentials", async () => {
+    await withStatsFixture(missing, async ({ poll, row, writes, usageEvents, revokedVmIds, completedCleanupSteps }) => {
+      const { tag, response, payload } = await poll();
+      expect(tag).toBe("VmNotFoundError");
+      expect(response.status).toBe(404);
+      expect(payload.error).toBe("vm_not_found");
+      expect(row.status).toBe("destroyed");
+      expect(writes).toHaveLength(1);
+      expect(usageEvents).toHaveLength(1);
+      expect(revokedVmIds).toEqual([row.id]);
+      // The current Freestyle driver cannot delete legacy volumes, so the
+      // durable homeVolume step must remain pending rather than false-ack.
+      expect(completedCleanupSteps).toEqual(["modelPlane"]);
+    }, { homeVolume: true });
   });
 
   test("a failed observation write never changes missing VM guidance to a retryable outage", async () => {

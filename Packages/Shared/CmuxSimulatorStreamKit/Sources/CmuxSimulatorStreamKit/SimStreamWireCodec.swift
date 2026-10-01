@@ -15,7 +15,9 @@ public enum SimStreamWireError: Error, Equatable {
 /// Integers are big-endian. Variable-length data uses a `u32` byte-count
 /// prefix. On the wire each body is additionally framed by a `u32` length
 /// prefix (see `encodeFramed` / `SimStreamFrameAccumulator`).
-public enum SimStreamWireCodec {
+public struct SimStreamWireCodec: Sendable {
+    public init() {}
+
     private enum MessageType: UInt8 {
         case start = 0x01
         case config = 0x02
@@ -36,7 +38,7 @@ public enum SimStreamWireCodec {
 
     // MARK: - Encode
 
-    public static func encode(_ message: SimStreamMessage) -> Data {
+    public func encode(_ message: SimStreamMessage) -> Data {
         var writer = SimStreamByteWriter()
         switch message {
         case .start(let start):
@@ -89,7 +91,7 @@ public enum SimStreamWireCodec {
         return writer.data
     }
 
-    private static func encode(
+    private func encode(
         _ event: SimStreamInputEvent, into writer: inout SimStreamByteWriter
     ) {
         switch event {
@@ -114,7 +116,7 @@ public enum SimStreamWireCodec {
     }
 
     /// Encodes a message with the `u32` wire length prefix.
-    public static func encodeFramed(_ message: SimStreamMessage) -> Data {
+    public func encodeFramed(_ message: SimStreamMessage) -> Data {
         let body = encode(message)
         var writer = SimStreamByteWriter()
         writer.writeUInt32(UInt32(body.count))
@@ -124,7 +126,7 @@ public enum SimStreamWireCodec {
 
     // MARK: - Decode
 
-    public static func decode(_ data: Data) throws -> SimStreamMessage {
+    public func decode(_ data: Data) throws -> SimStreamMessage {
         var reader = SimStreamByteReader(data: data)
         let message = try decodeBody(&reader)
         if reader.remainingByteCount > 0 {
@@ -133,7 +135,7 @@ public enum SimStreamWireCodec {
         return message
     }
 
-    private static func decodeBody(
+    private func decodeBody(
         _ reader: inout SimStreamByteReader
     ) throws -> SimStreamMessage {
         let rawType = try reader.readUInt8()
@@ -239,7 +241,7 @@ public enum SimStreamWireCodec {
         }
     }
 
-    private static func decodeInputEvent(
+    private func decodeInputEvent(
         _ reader: inout SimStreamByteReader
     ) throws -> SimStreamInputEvent {
         let rawKind = try reader.readUInt8()
@@ -347,7 +349,7 @@ public struct SimStreamByteReader: Sendable {
 
     public mutating func readLengthPrefixedData() throws -> Data {
         let count = Int(try readUInt32())
-        guard count <= SimStreamProtocol.maximumMessageByteCount else {
+        guard count <= SimStreamProtocol().maximumMessageByteCount else {
             throw SimStreamWireError.messageTooLarge(byteCount: count)
         }
         guard remainingByteCount >= count else { throw SimStreamWireError.truncated }
@@ -388,7 +390,7 @@ public struct SimStreamFrameAccumulator: Sendable {
         let length = buffer.prefix(headerSize).reduce(into: UInt32(0)) { partial, byte in
             partial = partial << 8 | UInt32(byte)
         }
-        guard length <= UInt32(SimStreamProtocol.maximumMessageByteCount) else {
+        guard length <= UInt32(SimStreamProtocol().maximumMessageByteCount) else {
             throw SimStreamWireError.messageTooLarge(byteCount: Int(length))
         }
         let total = headerSize + Int(length)

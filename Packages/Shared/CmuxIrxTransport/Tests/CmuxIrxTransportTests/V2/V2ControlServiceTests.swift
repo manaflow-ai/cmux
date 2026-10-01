@@ -2,6 +2,37 @@ import Foundation
 import Testing
 @testable import CmuxIrxTransport
 
+private final class SleepRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedDurations: [TimeInterval] = []
+    let requests: AsyncStream<TimeInterval>
+    private let continuation: AsyncStream<TimeInterval>.Continuation
+
+    init() {
+        let pair = AsyncStream<TimeInterval>.makeStream()
+        requests = pair.stream
+        continuation = pair.continuation
+    }
+
+    func sleep(_ duration: TimeInterval) async throws {
+        record(duration)
+        continuation.yield(duration)
+        try await Task.sleep(for: .seconds(3600))
+    }
+
+    private func record(_ duration: TimeInterval) {
+        lock.lock()
+        recordedDurations.append(duration)
+        lock.unlock()
+    }
+
+    func durations() -> [TimeInterval] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedDurations
+    }
+}
+
 @Suite(.timeLimit(.minutes(1))) struct V2ControlServiceTests {
     private let now = 1_789_000_000
 
@@ -14,13 +45,34 @@ import Testing
         )
     }
 
-    private func service(backend: V2TestBackend, store: V2TestStateStore = V2TestStateStore()) throws -> V2ControlService {
+    private func service(
+        backend: V2TestBackend,
+        store: V2TestStateStore = V2TestStateStore(),
+        journal: IrxJournal? = nil,
+        sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { seconds in
+            try await Task.sleep(for: .seconds(max(0, seconds)))
+        }
+    ) throws -> V2ControlService {
         let fixedNow = now
         return V2ControlService(
             configuration: try V2ControlConfiguration(baseURL: URL(string: "https://control.example.com")!, device: device()),
-            dependencies: V2ControlDependencies(connect: { try await backend.connect($0) }, http: { try await backend.http($0) }, stackAccessToken: { _ in "existing-stack-session" }, sign: { _ in Data(repeating: 1, count: 64) }, now: { Date(timeIntervalSince1970: Double(fixedNow)) }, jitter: { 0.5 }),
+            dependencies: V2ControlDependencies(connect: { try await backend.connect($0) }, http: { try await backend.http($0) }, stackAccessToken: { _ in "existing-stack-session" }, sign: { _ in Data(repeating: 1, count: 64) }, now: { Date(timeIntervalSince1970: Double(fixedNow)) }, sleep: sleep, jitter: { 0.5 }, journal: journal),
             store: store
         )
+    }
+
+    private func events(_ journal: IrxJournal, _ event: String) -> [IrxJournalEvent] {
+        journal.tail(IrxJournal.ringCapacity).filter { $0.component == "v2-control" && $0.event == event }
+    }
+
+    /// Journal writes trail the snapshot the test observed, so poll briefly.
+    private func journaled(_ journal: IrxJournal, _ event: String) async throws -> [IrxJournalEvent] {
+        for _ in 0..<200 {
+            let found = events(journal, event)
+            if !found.isEmpty { return found }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        return []
     }
 
     private func ready(_ service: V2ControlService) async throws -> V2ControlSnapshot {
@@ -30,6 +82,36 @@ import Testing
             if snapshot.status == .stopped, let failure = snapshot.failure { throw failure }
         }
         throw V2ControlFailure.stopped
+    }
+
+    @Test func applyWatchdogStaysAnchoredToTheFirstUnacknowledgedSnapshot() async throws {
+        let backend = V2TestBackend(now: now)
+        let sleeps = SleepRecorder()
+        let service = try service(
+            backend: backend,
+            sleep: { seconds in try await sleeps.sleep(seconds) }
+        )
+        let observer = await service.events()
+        var sleepIterator = sleeps.requests.makeAsyncIterator()
+        await service.start()
+        let firstSleep = try #require(await sleepIterator.next())
+        #expect(firstSleep == 300)
+
+        var readySnapshot: V2ControlSnapshot?
+        for await snapshot in observer {
+            if snapshot.status == .ready {
+                readySnapshot = snapshot
+                break
+            }
+            if snapshot.status == .stopped, let failure = snapshot.failure { throw failure }
+        }
+        let observedReady = try #require(readySnapshot)
+        #expect(observedReady.sequence > 1)
+
+        let watchdogSleeps = sleeps.durations().filter { $0 == 300 }
+        #expect(watchdogSleeps.count == 1)
+
+        await service.stop()
     }
 
     @Test func enrollmentThenResumeUsesOneRegistrationAndSignedTicket() async throws {
@@ -129,13 +211,48 @@ import Testing
         _ = try await service.refreshDirectory()
         let socket = await backend.currentSocket()
         let events = await service.events()
-        try await socket.push(V2RevokedResponse(deviceRecordID: "device-record", revision: 2, schemaID: .deviceRevokedV1, teamID: "team"))
+        try await socket.push(V2RevokedResponse(deviceRecordID: "device-record", recoverable: true, revision: 2, schemaID: .deviceRevokedV1, teamID: "team"))
         for await state in events where state.cache.authorityRevoked {
             #expect(state.cache.ticket == nil)
             #expect(state.cache.directory == nil)
             #expect(state.cache.relayCredentials.isEmpty)
+            #expect(state.cache.authorityRevocationRecoverable == true)
             break
         }
+        await service.stop()
+    }
+
+    @Test func recoverableRevocationCanEnrollFromThePersistedCache() async throws {
+        let backend = V2TestBackend(now: now)
+        var revoked = V2CachedState(identity: device().identity)
+        revoked.device = V2DeviceRecord(descriptor: device(), deviceRecordID: "device-record", revision: 2, revoked: true)
+        revoked.authorityRevoked = true
+        revoked.authorityRevocationRecoverable = true
+        let service = try service(backend: backend, store: V2TestStateStore(revoked))
+        await service.start()
+        let state = try await ready(service)
+        #expect(state.cache.authorityRevoked == false)
+        #expect(state.cache.authorityRevocationRecoverable == nil)
+        #expect(state.cache.device?.revoked == false)
+        #expect(await backend.authorizations.first == "Bearer existing-stack-session")
+        #expect(await backend.sockets.first?.sentSchemas.contains("device.register.v1") == true)
+        await service.stop()
+    }
+
+    @Test func recoveryEnrollmentDoesNotRestoreUnrelatedAuthorityEarly() async throws {
+        let backend = V2TestBackend(now: now, holdRegistration: true)
+        var revoked = V2CachedState(identity: device().identity)
+        revoked.device = V2DeviceRecord(descriptor: device(), deviceRecordID: "device-record", revision: 2, revoked: true)
+        revoked.authorityRevoked = true
+        revoked.authorityRevocationRecoverable = true
+        let service = try service(backend: backend, store: V2TestStateStore(revoked))
+        await service.start()
+        let socket = await backend.waitForSocket()
+        await socket.waitForHeldRegistration()
+        await #expect(throws: V2ControlFailure.stopped) { try await service.refreshRelayCredentials() }
+        #expect(await service.snapshot().cache.relayCredentials.isEmpty)
+        try await socket.releaseRegistration()
+        _ = try await ready(service)
         await service.stop()
     }
 
@@ -210,8 +327,9 @@ import Testing
     }
 
     @Test func paginationPinsRevisionAndRestartsAfterConcurrentChange() async throws {
-        let backend = V2TestBackend(now: now)
-        let service = try service(backend: backend)
+        let backend = V2TestBackend(now: now, directoryRules: ["cmux.mac-peer-inbound.v1"])
+        let store = V2TestStateStore()
+        let service = try service(backend: backend, store: store)
         await service.start()
         _ = try await ready(service)
         _ = try await service.refreshDirectory()
@@ -222,8 +340,72 @@ import Testing
         #expect(directory.devices.count == 2)
         #expect(directory.inboundPeers?.map(\.device.deviceRecordID) == ["inbound-2", "inbound-3"])
         #expect(directory.inboundPeers?.map(\.permissionExpiresAt) == [now + 3602, now + 3603])
+        #expect(directory.rules == ["cmux.mac-peer-inbound.v1"])
         #expect(await socket.directoryRevisions == [nil, 2, nil, 3])
         #expect(await service.snapshot().cache.directory?.revision == 3)
+        #expect(await service.snapshot().cache.directory?.rules == ["cmux.mac-peer-inbound.v1"])
+        #expect(await store.state?.directory?.rules == directory.rules)
+        await service.stop()
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func directoryRulesSurviveSocketAndHTTPRefresh(advertised: Bool, httpOnly: Bool) async throws {
+        let rules: [String]? = advertised ? ["cmux.mac-peer-inbound.v1"] : nil
+        let backend = V2TestBackend(now: now, directoryRules: rules)
+        if httpOnly { await backend.disableSockets() }
+        let store = V2TestStateStore()
+        let service = try service(backend: backend, store: store)
+        await service.start()
+        _ = try await ready(service)
+        let directory = try await service.refreshDirectory()
+        #expect(directory.rules == rules)
+        #expect(await store.state?.directory?.rules == rules)
+        await service.stop()
+        let restored = try self.service(backend: backend, store: store)
+        await restored.start()
+        _ = try await ready(restored)
+        #expect(await restored.snapshot().cache.directory?.rules == rules)
+        await restored.stop()
+    }
+
+    @Test func directoryRulesSurviveRevocationProjection() async throws {
+        let backend = V2TestBackend(now: now, directoryRules: ["cmux.mac-peer-inbound.v1"])
+        let store = V2TestStateStore()
+        let service = try service(backend: backend, store: store)
+        await service.start()
+        _ = try await ready(service)
+        let socket = await backend.currentSocket()
+        await socket.changeDirectoryDuringPagination()
+        _ = try await service.refreshDirectory()
+        // Hold the persisted revocation before its follow-up refresh can replace it.
+        await store.holdDirectorySave(revision: 4)
+        try await socket.push(V2RevokedResponse(deviceRecordID: "inbound-2", revision: 4,
+            schemaID: .deviceRevokedV1, teamID: "team"))
+        await store.waitForHeldSave()
+        let directory = await service.snapshot().cache.directory
+        #expect(directory?.inboundPeers?.map(\.device.deviceRecordID) == ["inbound-3"])
+        #expect(directory?.rules == ["cmux.mac-peer-inbound.v1"])
+        #expect(await store.state?.directory == directory)
+        await store.releaseSave()
+        await service.stop()
+    }
+
+    @Test(arguments: [false, true])
+    func mixedVersionPaginationRequiresRulesOnEveryPage(firstPageOmits: Bool) async throws {
+        let rule = "cmux.mac-peer-inbound.v1"
+        let pages: [[String]?] = [nil, nil, firstPageOmits ? nil : [rule], firstPageOmits ? [rule] : nil]
+        let backend = V2TestBackend(now: now, directoryPageRules: pages)
+        let store = V2TestStateStore()
+        let service = try service(backend: backend, store: store)
+        await service.start()
+        _ = try await ready(service)
+        let socket = await backend.currentSocket()
+        await socket.changeDirectoryDuringPagination()
+        let directory = try await service.refreshDirectory()
+        #expect(directory.revision == 3)
+        #expect(directory.devices.count == 2)
+        #expect(directory.rules == nil)
+        #expect(await store.state?.directory?.rules == nil)
         await service.stop()
     }
 
@@ -270,5 +452,52 @@ import Testing
         _ = try await service.refreshRelayCredentials()
         #expect(await backend.sockets.count == 1)
         await service.stop()
+    }
+
+    @Test func credentialLifecycleIsJournaledFromReadyThroughRenewalAndShutdown() async throws {
+        let journal = IrxJournal(subsystem: "com.cmux.test", category: "v2-journal-test")
+        let backend = V2TestBackend(now: now)
+        let service = try service(backend: backend, journal: journal)
+        await service.start()
+        _ = try await ready(service)
+        #expect(try await journaled(journal, "session-ready").first?.attributes["http_mode"] == "false")
+        #expect(try await !journaled(journal, "maintenance-scheduled").isEmpty)
+        _ = try await service.refreshRelayCredentials()
+        _ = try await service.refreshAPITicket()
+        let schemas = events(journal, "refresh-succeeded").compactMap { $0.attributes["schema"] }
+        #expect(schemas.contains("relay.request.v1"))
+        #expect(schemas.contains("ticket.request.v1"))
+        #expect(schemas.contains("directory.request.v1"))
+        await service.stop()
+        // Stopping cancels the renewal sleep; the loop must say why it left.
+        let exits = try await journaled(journal, "maintenance-exited").compactMap { $0.attributes["reason"] }
+        #expect(exits.contains("sleep-cancelled") || exits.contains("cancelled") || exits.contains("run-superseded"))
+    }
+
+    @Test func serverCooldownsAreJournaledWithTheirSource() async throws {
+        let journal = IrxJournal(subsystem: "com.cmux.test", category: "v2-journal-cooldown-test")
+        let rateLimitedBackend = V2TestBackend(now: now)
+        let rateLimitedService = try service(backend: rateLimitedBackend, journal: journal)
+        await rateLimitedService.start()
+        _ = try await ready(rateLimitedService)
+        await rateLimitedBackend.currentSocket().rejectRelay(.rateLimited)
+        do { _ = try await rateLimitedService.refreshRelayCredentials(); Issue.record("Expected relay rate limit") }
+        catch V2ControlFailure.server(let error) { #expect(error.code == .rateLimited) }
+        await rateLimitedService.stop()
+        let rateLimited = events(journal, "cooldown-set").first { $0.attributes["source"] == "rate_limited" }
+        #expect(rateLimited?.attributes["schema"] == "relay.request.v1")
+        #expect(Int(rateLimited?.attributes["delay_s"] ?? "") ?? -1 >= 1)
+
+        let retiredBackend = V2TestBackend(now: now)
+        let retiredService = try service(backend: retiredBackend, journal: journal)
+        await retiredService.start()
+        _ = try await ready(retiredService)
+        await retiredBackend.currentSocket().rejectRelay(.clientUpgradeRequired)
+        do { _ = try await retiredService.refreshRelayCredentials(); Issue.record("Expected retired schema") }
+        catch V2ControlFailure.server(let error) { #expect(error.code == .clientUpgradeRequired) }
+        await retiredService.stop()
+        let retired = events(journal, "cooldown-set").first { $0.attributes["source"] == "upgrade_required" }
+        #expect(retired?.attributes["schema"] == "relay.request.v1")
+        #expect(Int(retired?.attributes["delay_s"] ?? "") ?? 0 >= 3600)
     }
 }

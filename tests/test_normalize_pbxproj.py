@@ -9,6 +9,7 @@ import unittest
 
 
 NORMALIZER = Path(__file__).resolve().parents[1] / "scripts/normalize-pbxproj.py"
+GROUP_GUARD = Path(__file__).resolve().parents[1] / "scripts/check-pbxproj-group-membership.py"
 
 # Keep valid spelling coverage independent of the validator's token expression.
 STRING_SPELLINGS = [
@@ -21,6 +22,7 @@ STRING_SPELLINGS = [
     ("'echo { FILE1 = {}; }; // + not a comment'", True),
     ("<dead beef>", True),
     ("AppDelegate+Cloud.swift", False),
+    ('App"Delegate".swift', False),
     ("mail@example.test", False),
     ("Cloud*.swift", False),
     ("日本語.swift", False),
@@ -58,23 +60,6 @@ class NormalizeProjectTests(unittest.TestCase):
                     # Normalizing must never change which duplicate definition wins.
                     self.assertEqual(path.read_text(), contents)
 
-    def test_rejects_unquoted_extension_path_without_rewriting(self) -> None:
-        contents = project("""
-/* Begin PBXFileReference section */
-        FILE1 = {isa = PBXFileReference; path = AppDelegate+CloudTerminalNavigation.swift; };
-/* End PBXFileReference section */
-""")
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "project.pbxproj"
-            for args in [(), ("--check",)]:
-                with self.subTest(args=args):
-                    path.write_text(contents)
-                    result = self.run_normalizer(path, *args)
-                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                    self.assertIn("unquoted string", result.stderr)
-                    self.assertIn("line 7", result.stderr)
-                    self.assertEqual(path.read_text(), contents)
-
     def test_accepts_quoted_special_characters_and_rejects_unquoted_ones(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "project.pbxproj"
@@ -99,6 +84,58 @@ class NormalizeProjectTests(unittest.TestCase):
                         capture_output=True, text=True, check=False,
                     )
                     self.assertEqual(result.returncode == 0, valid, result.stdout + result.stderr)
+    def test_rejects_malformed_project_syntax_before_normalizing(self) -> None:
+        cases = {
+            "missing semicolon": "FILE1 = {isa = PBXFileReference; path = Example.swift };",
+            "missing equals": "FILE1 {isa = PBXFileReference; };",
+            "missing array comma": "GROUP1 = {children = (FILE1 FILE2); };",
+            "unclosed dictionary": "FILE1 = {isa = PBXFileReference;",
+            "unterminated string": 'FILE1 = {path = "Example.swift; };',
+            "unterminated comment": "/* FILE1 = {isa = PBXFileReference; };",
+            "trailing content": "FILE1 = {isa = PBXFileReference; };\n} ; extra = value;",
+        }
+        for name, objects in cases.items():
+            contents = project(objects)
+            for args in [(), ("--check",)]:
+                with self.subTest(name=name, args=args), tempfile.TemporaryDirectory() as directory:
+                    path = Path(directory) / "project.pbxproj"
+                    path.write_text(contents)
+                    result = self.run_normalizer(path, *args)
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertIn("syntax", result.stderr)
+                    self.assertIn("line", result.stderr)
+                    self.assertEqual(path.read_text(), contents)
+
+    def test_accepts_nested_values_and_escaped_shell_script_punctuation(self) -> None:
+        contents = project(r'''
+        SCRIPT1 = {
+            isa = PBXShellScriptBuildPhase;
+            shellScript = "echo \"hello; ({})\"\n# $PATH";
+            settings = {FLAGS = ("a,b", "quoted \"string\"", /usr/bin); };
+        };
+''')
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "project.pbxproj"
+            path.write_text(contents)
+            result = self.run_normalizer(path, "--check")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_rejects_unquoted_extension_path_without_rewriting(self) -> None:
+        contents = project("""
+/* Begin PBXFileReference section */
+        FILE1 = {isa = PBXFileReference; path = AppDelegate+CloudTerminalNavigation.swift; };
+/* End PBXFileReference section */
+""")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "project.pbxproj"
+            for args in [(), ("--check",)]:
+                with self.subTest(args=args):
+                    path.write_text(contents)
+                    result = self.run_normalizer(path, *args)
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertIn("unquoted string", result.stderr)
+                    self.assertIn("line 7", result.stderr)
+                    self.assertEqual(path.read_text(), contents)
 
     def test_rejects_colliding_build_files_despite_different_comments(self) -> None:
         identifier = "C1B1810000000000000005"
@@ -217,6 +254,52 @@ class NormalizeProjectTests(unittest.TestCase):
             self.assertEqual(self.run_normalizer(path, "--check").returncode, 0)
             self.assertEqual(self.run_normalizer(path).returncode, 0)
             self.assertEqual(path.read_text(), normalized)
+
+
+# One built file per case, laid out the ways the old line regex missed: space indentation, two objects on
+# one line, and a 25-character id.
+GROUP_PROJECT = """// !$*UTF8*$!
+{
+	objects = {
+  B00000000000000000000000001 /* A.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000000001 /* A.swift */; }; B2 /* B.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2 /* B.swift */; };
+  F00000000000000000000000001 /* A.swift */ = {isa = PBXFileReference; path = A.swift; sourceTree = "<group>"; };
+		F2 /* B.swift */ = {isa = PBXFileReference; path = "Sub/B.swift"; sourceTree = "<group>"; };
+		G1 = {isa = PBXGroup; children = (%(main)s); sourceTree = "<group>"; };
+		G2 /* Loose */ = {isa = PBXGroup; children = (%(loose)s); sourceTree = "<group>"; };
+		P1 /* Sources */ = {isa = PBXSourcesBuildPhase; files = (B00000000000000000000000001 /* A.swift in Sources */, B2 /* B.swift in Sources */, ); };
+		R1 /* Project object */ = {isa = PBXProject; mainGroup = G1; };
+	};
+	rootObject = R1 /* Project object */;
+}
+"""
+
+
+class GroupMembershipTests(unittest.TestCase):
+    def run_guard(self, main: str, loose: str) -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "project.pbxproj"
+            path.write_text(GROUP_PROJECT % {"main": main, "loose": loose})
+            return subprocess.run([sys.executable, str(GROUP_GUARD), str(path)], capture_output=True, text=True)
+
+    def test_every_built_file_under_the_main_group_passes(self):
+        result = self.run_guard("F00000000000000000000000001, G2", "F2")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_built_file_in_no_group_fails(self):
+        result = self.run_guard("F00000000000000000000000001", "")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Sub/B.swift (F2)", result.stderr)
+        self.assertNotIn("A.swift", result.stderr)
+
+    def test_long_id_space_indented_file_in_no_group_fails(self):
+        result = self.run_guard("F2", "")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("F00000000000000000000000001", result.stderr)
+
+    def test_built_file_in_a_group_the_main_group_cannot_reach_fails(self):
+        result = self.run_guard("F00000000000000000000000001", "F2")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("(F2)", result.stderr)
 
 
 if __name__ == "__main__":

@@ -7,13 +7,27 @@ extension AuthCoordinator {
         timeout: Duration,
         _ operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
+        try await runTokenTouchingPhase(
+            phase,
+            timeout: timeout,
+            deadline: clock.authTokenDeadline(after: timeout),
+            operation
+        )
+    }
+
+    func runTokenTouchingPhase<T: Sendable>(
+        _ phase: AuthPhase,
+        timeout: Duration,
+        deadline: AuthTokenDeadline,
+        _ operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
         expireTimedOutTokenTouchingPhaseIfNeeded(phase)
         guard timedOutTokenTouchingPhaseStates[phase] == nil else {
             log.log("auth.phase=\(phase.rawValue) previous timed-out token work still active")
             throw AuthError.timedOut
         }
         try Task.checkCancellation()
-        let deadline = clock.authTokenDeadline(after: timeout)
+        guard !deadline.hasExpired() else { throw AuthError.timedOut }
         let phaseID = UUID()
         let generation = sessionGeneration
         let signOutEpoch = signOutEpoch

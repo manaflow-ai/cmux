@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentJournal
 import CmuxControlSocket
 import CmuxCore
 import Testing
@@ -7,7 +8,6 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 /// Regression tests for https://github.com/manaflow-ai/cmux/issues/7939 /
 /// https://github.com/manaflow-ai/cmux/issues/5781: a notification addressed
 /// with a stale workspace id but a live surface id must be retargeted to the
@@ -24,21 +24,21 @@ extension AgentNotificationRegressionTests {
         let panelId: UUID
         let restore: () -> Void
     }
-
     private func makeLiveRetargetFixture() throws -> LiveRetargetFixture {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = appDelegate.tabManager ?? TabManager()
-
         let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let originalControllerTabManager = TerminalController.shared.activeTabManagerForCallerNotification()
 
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }
         store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
+        TerminalController.shared.setActiveTabManager(manager)
         AppFocusState.overrideIsFocused = false
 
         let claimedWorkspace = manager.addWorkspace(select: false)
@@ -54,6 +54,7 @@ extension AgentNotificationRegressionTests {
             store.resetSuppressedNotificationFeedbackHandlerForTesting()
             appDelegate.tabManager = originalTabManager
             appDelegate.notificationStore = originalNotificationStore
+            TerminalController.shared.setActiveTabManager(originalControllerTabManager)
             AppFocusState.overrideIsFocused = originalAppFocusOverride
         }
         return LiveRetargetFixture(
@@ -177,6 +178,73 @@ extension AgentNotificationRegressionTests {
     }
 
     @Test
+    func testRelayAgentMessageHandlersCannotChooseLocalSplit() async throws {
+        let fixture = try makeLiveRetargetFixture()
+        defer { fixture.restore() }
+
+        fixture.owningWorkspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "example.invalid",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_007,
+            relayID: "relay",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: nil,
+            ownerWorkspaceID: fixture.owningWorkspace.id,
+            terminalStartupCommand: nil
+        )
+        fixture.owningWorkspace.activeRemoteSessionControllerID = UUID()
+        fixture.owningWorkspace.trackRemoteTerminalSurface(fixture.panelId)
+
+        let paneID = try #require(fixture.owningWorkspace.bonsplitController.allPaneIds.first)
+        let localPanel = try #require(fixture.owningWorkspace.newTerminalSurface(
+            inPane: paneID,
+            focus: true
+        ))
+
+        let remoteBody = "relay-remote-\(UUID().uuidString)"
+        let localBody = "relay-local-\(UUID().uuidString)"
+        try AgentMessageCenter.store.append(AgentMessageDraft(
+            senderName: "test",
+            recipientSurfaceId: localPanel.id.uuidString,
+            recipientWorkspaceId: fixture.owningWorkspace.id.uuidString,
+            body: localBody
+        ))
+        let connectionID = try #require(fixture.owningWorkspace.activeRemoteSessionControllerID)
+        let provenance: [String: JSONValue] = [
+            WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey: .string(
+                fixture.owningWorkspace.id.uuidString
+            ),
+            WorkspaceRemoteRelayCommandRewriter.connectionIDKey: .string(
+                connectionID.uuidString
+            ),
+        ]
+        var sendParams = provenance
+        sendParams["target"] = .string(fixture.owningWorkspace.id.uuidString)
+        sendParams["body"] = .string(remoteBody)
+        let sendResponse = await TerminalController.shared.agentMessageResponse(ControlRequest(
+            id: .string("relay-send"),
+            method: "agent.message.send",
+            params: sendParams
+        ))
+        #expect(sendResponse.contains(remoteBody))
+        #expect(sendResponse.contains(fixture.panelId.uuidString))
+        #expect(!sendResponse.contains(localPanel.id.uuidString))
+
+        var listParams = provenance
+        listParams["surface"] = .string(fixture.owningWorkspace.id.uuidString)
+        let listResponse = await TerminalController.shared.agentMessageResponse(ControlRequest(
+            id: .string("relay-list"),
+            method: "agent.message.list",
+            params: listParams
+        ))
+        #expect(listResponse.contains(remoteBody))
+        #expect(!listResponse.contains(localBody))
+    }
+
+    @Test
     func testRelayTTYResolutionStaysInsideAuthenticatedWorkspace() throws {
         let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
@@ -200,12 +268,15 @@ extension AgentNotificationRegressionTests {
         fixture.owningWorkspace.trackRemoteTerminalSurface(fixture.panelId)
         fixture.claimedWorkspace.registerReportedSurfaceTTYName("0", panelId: siblingPanelID)
         fixture.owningWorkspace.registerReportedSurfaceTTYName("0", panelId: fixture.panelId)
+        let connectionID = UUID()
+        fixture.owningWorkspace.activeRemoteSessionControllerID = connectionID
 
         let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: [
             "tty_name": "0",
             "tty_resolution": "reported_tty",
             "workspace_id": fixture.claimedWorkspace.id.uuidString,
             "_cmux_remote_workspace_id": fixture.owningWorkspace.id.uuidString,
+            WorkspaceRemoteRelayCommandRewriter.connectionIDKey: connectionID.uuidString,
         ])
         guard case .ok(let payload) = result,
               let target = payload as? [String: Any] else {

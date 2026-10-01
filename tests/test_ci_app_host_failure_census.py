@@ -53,6 +53,29 @@ def test_local_job_filenames_share_an_explicit_run_id_only():
     assert census.read_log_dir.__defaults__ == (None,)
 
 
+def test_remote_mode_accepts_six_and_seven_shard_job_names():
+    calls = []
+
+    def fake_api(endpoint):
+        calls.append(endpoint)
+        if endpoint.endswith("/jobs?per_page=100"):
+            return '{"jobs": [{"id": 1, "name": "macos / app-host unit tests (1/6)"}, {"id": 2, "name": "macos / app-host unit tests (7/7)"}, {"id": 3, "name": "macos / CLI product tests"}]}'
+        return ""
+
+    original = census._gh_api
+    census._gh_api = fake_api
+    try:
+        records = census.download_runs(["run"])
+        assert [record["job_id"] for record in records] == ["1", "2"]
+        assert calls == [
+            "repos/{}/actions/runs/run/jobs?per_page=100".format("manaflow-ai/cmux"),
+            "repos/{}/actions/jobs/1/logs".format("manaflow-ai/cmux"),
+            "repos/{}/actions/jobs/2/logs".format("manaflow-ai/cmux"),
+        ]
+    finally:
+        census._gh_api = original
+
+
 def test_remote_mode_rejects_empty_download(monkeypatch=None):
     original = census.download_runs
     census.download_runs = lambda _run_ids: []
@@ -66,6 +89,56 @@ def test_remote_mode_rejects_empty_download(monkeypatch=None):
     finally:
         census.download_runs = original
 
+
+def test_parameterized_suite_issue_line_is_attributed_and_keeps_its_assertion():
+    """A parameterized case reports as `✘ Test <name> recorded an issue with 1
+    argument <label> → <value> at <file>:<line>: <message>`. The argument clause
+    sits where the non-parameterized pattern expects ` at ...`, so neither the
+    suite nor its assertion text is captured at all."""
+    record = census.parse_log(
+        f'◇ Test "cloud gate" started.\n'
+        f'✘ Test "cloud gate" recorded an issue with 1 argument enabled → true'
+        " at Poll.swift:352:9: Expectation failed: await attempts.value == 0\n",
+        "r",
+    )
+    assert record["tests_failed"] == {"cloud gate"}
+    assert record["assertions"]["cloud gate"] == (
+        "352:9: Expectation failed: await attempts.value == 0"
+    )
+
+
+def test_parameterized_suite_rollup_is_not_a_separate_test():
+    """swift-testing closes a parameterized suite with an aggregate line,
+    `✘ Test <name> with 2 test cases failed after ...`. The trailing clause
+    belongs to the rollup, not to the suite name."""
+    record = census.parse_log(
+        f'◇ Test "cloud gate" started.\n'
+        f'✘ Test "cloud gate" with 2 test cases failed after 0.001 seconds with 2 issues.\n',
+        "r",
+    )
+    assert record["tests_failed"] == {"cloud gate"}
+
+
+def test_parameterized_rollup_is_stripped_for_function_style_names():
+    record = census.parse_log(
+        f"◇ Test oversizedFontSizeClearsLineage(basePoints:) started.\n"
+        f"✘ Test oversizedFontSizeClearsLineage(basePoints:) with 1 test case"
+        " failed after 0.001 seconds.\n",
+        "r",
+    )
+    assert record["tests_failed"] == {"oversizedFontSizeClearsLineage(basePoints:)"}
+
+
+def test_bundle_run_summary_is_not_a_test():
+    """`✘ Test run with N tests in M suites failed` is swift-testing's
+    per-bundle summary; counting it inflates every shard by one."""
+    record = census.parse_log(
+        f'◇ Test "real" started.\n'
+        f'✘ Test "real" failed after 1 seconds with 1 issue.\n'
+        f"✘ Test run with 253 tests in 41 suites failed after 41.0 seconds with 5 issues.\n",
+        "r",
+    )
+    assert record["tests_failed"] == {"real"}
 
 if __name__ == "__main__":
     for name, function in sorted(globals().items()):

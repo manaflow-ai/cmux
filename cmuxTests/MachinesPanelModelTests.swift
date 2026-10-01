@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Bonsplit
 import Testing
@@ -160,18 +162,18 @@ final class MachinesPanelModelTests: XCTestCase {
 
         // Availability follows the Cloud VM UI flag, independent of feed/dock.
         XCTAssertTrue(
-            RightSidebarMode.machines.isAvailable(feedEnabled: false, dockEnabled: false, machinesEnabled: true)
+            RightSidebarMode.machines.isAvailable(feedEnabled: false, machinesEnabled: true)
         )
         XCTAssertFalse(
-            RightSidebarMode.machines.isAvailable(feedEnabled: true, dockEnabled: true, machinesEnabled: false)
+            RightSidebarMode.machines.isAvailable(feedEnabled: true, machinesEnabled: false)
         )
         XCTAssertEqual(
-            RightSidebarMode.availableModes(feedEnabled: false, dockEnabled: false, machinesEnabled: true),
-            [.files, .find, .sessions, .machines]
+            RightSidebarMode.availableModes(feedEnabled: false, machinesEnabled: true),
+            [.files, .find, .sessions, .dock, .machines]
         )
         XCTAssertEqual(
-            RightSidebarMode.availableModes(feedEnabled: false, dockEnabled: false, machinesEnabled: false),
-            [.files, .find, .sessions]
+            RightSidebarMode.availableModes(feedEnabled: false, machinesEnabled: false),
+            [.files, .find, .sessions, .dock]
         )
     }
 
@@ -340,7 +342,7 @@ final class MachinesPanelModelTests: XCTestCase {
             now: now
         )
         XCTAssertEqual(single?.isSingleMachinePlan, true)
-        XCTAssertEqual(single?.countLabel, "1 of 1 machine")
+        XCTAssertEqual(single?.usage.countLabel, "1 of 1 machine")
         XCTAssertEqual(single?.freeAccessExpiresAt, serverExpiry)
         XCTAssertEqual(single?.freeAccessBanner, .expiresIn(countdown: "2d 1h"))
 
@@ -350,7 +352,7 @@ final class MachinesPanelModelTests: XCTestCase {
             now: now
         )
         XCTAssertEqual(plural?.isSingleMachinePlan, false)
-        XCTAssertEqual(plural?.countLabel, "2 of 5 machines")
+        XCTAssertEqual(plural?.usage.countLabel, "2 of 5 machines")
         XCTAssertEqual(plural?.freeAccessBanner, MachinePlanSnapshot.FreeAccessBanner.none)
     }
 
@@ -765,14 +767,14 @@ final class MachinesPanelModelTests: XCTestCase {
     }
 
     @MainActor
-    func testCatalogWorkspaceGroupUsesLegacyWorkspaceWhenRemoteViewsAreEmpty() throws {
+    func testCatalogWorkspaceGroupUsesLegacyWorkspaceWhenRemoteViewsAreAbsent() throws {
         let machine = SurfaceMachineID.cloud("legacy-group-test")
         let workspace = SurfaceRemoteWorkspace(id: "ws_legacy", name: "legacy", index: 0, focused: true)
         var resource = terminal(machine, "term_legacy", title: "shell")
-        // Older snapshots can include the explicit zero-view marker and still
-        // retain the single-workspace compatibility field.
+        // Older providers omit view metadata and use the single-workspace
+        // compatibility field. An explicit empty list means no workspace views.
         resource.remoteWorkspace = workspace
-        resource.remoteViews = []
+        resource.remoteViews = nil
         let catalog = SurfaceCatalog()
         // The catalog drops writes for a cloud machine with no registered provider.
         let provider = GroupFakeProvider(machine: machine)
@@ -780,12 +782,8 @@ final class MachinesPanelModelTests: XCTestCase {
         catalog.register(provider)
         XCTAssertTrue(catalog.replaceResources([resource], on: machine, info: provider.info, from: provider))
 
-        XCTAssertThrowsError(try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)) { error in
-            XCTAssertEqual(
-                error as? SurfaceCatalogError,
-                .destinationNotFound("workspace ws_legacy on legacy-group-test has no projectable resources")
-            )
-        }
+        let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)
+        XCTAssertEqual(group.placements.map(\.resource), [resource.id])
     }
 
     func testCloudTreeLocalBrowsersGroupAndEmptyLocalPlaceholder() {
@@ -892,13 +890,15 @@ final class MachinesPanelModelTests: XCTestCase {
 
     @MainActor
     func testProjectGroupLandsTheFirstAtTheDropAndTheRestAsTabsOfThatPane() async throws {
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
         let provider = GroupFakeProvider(machine: .cloud("m"))
         catalog.register(provider)
         let a = terminal(.cloud("m"), "term_a"), b = terminal(.cloud("m"), "term_b")
         let browser = SurfaceResource(id: SurfaceResourceID(machine: .cloud("m"), kind: .browser, key: "port:3000"), title: ":3000", detail: nil, lifecycle: .running, agent: nil, remoteWorkspace: nil, port: 3000, url: nil)
         catalog.replaceResources([a, b, browser], on: .cloud("m"))
-        let ws = UUID()
+        let ws = live.id()
         let missing = SurfaceResourceID(machine: .cloud("m"), kind: .terminal, key: "term_gone")
         let drop = SurfaceDestination.split(workspaceID: ws, paneID: "pane-drop", direction: .left)
 
@@ -982,8 +982,8 @@ final class MachinesPanelModelTests: XCTestCase {
 }
 
 
-/// The Cloud tab shows this Mac by default (cloud-only stays one flip away), and the
-/// outline updates rows in place unless the tree's structure changed.
+/// The Cloud tab shows the cloud fleet by default (this Mac stays one flip away), and
+/// the outline updates rows in place unless the tree's structure changed.
 @MainActor
 final class CloudTreeScopeAndSignatureTests: XCTestCase {
     func testMachineCapabilitiesDecodeWithSupportedDefaults() {
@@ -996,6 +996,26 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
         var declared = summary
         declared.capabilities = VMCapabilities(json: ["snapshot": false, "restore": false, "fork": false])
         XCTAssertFalse(declared.capabilities.snapshot)
+    }
+
+    func testSocketCloudVMSummaryPreservesAttachTransports() {
+        let summary = VMSummary(
+            id: "transport-limited",
+            provider: "freestyle",
+            status: "running",
+            image: "cmux-devbox",
+            createdAt: 0,
+            capabilities: VMCapabilities(
+                snapshot: true,
+                restore: true,
+                fork: true,
+                attachTransports: ["ssh"]
+            )
+        )
+
+        let payload = TerminalController.socketWorkerVMSummaryPayload(summary)
+        let capabilities = payload["capabilities"] as? [String: Any]
+        XCTAssertEqual(capabilities?["attach_transports"] as? [String], ["ssh"])
     }
 
     private func terminal(_ machine: SurfaceMachineID, _ key: String, title: String = "shell", cwd: String? = "/root") -> SurfaceResource {
@@ -1011,7 +1031,7 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
     }
 
     func testTreeShowsThisMacByDefaultAndCloudOnlyStaysOneFlipAway() {
-        XCTAssertTrue(CloudTreeNodeBuilder.includesLocalMachine, "every machine — this Mac included — shows the same shape")
+        XCTAssertFalse(CloudTreeNodeBuilder.includesLocalMachine, "the Machines panel defaults to the cloud fleet")
         let local = UUID()
         let snapshot = SurfaceCatalogSnapshot(
             machines: [info(.local), info(.cloud("vivid-newt"))],
@@ -1020,7 +1040,8 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
         )
         let workspaces = [CloudTreeLocalWorkspace(id: local, title: "cmux90", isSelected: true)]
         let byDefault = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(machines: [machine("vivid-newt")], snapshot: snapshot, localWorkspaces: workspaces))
-        XCTAssertEqual(byDefault.first?.id, "machine:local")
+        XCTAssertEqual(byDefault.first?.id, "machine:vivid-newt")
+        XCTAssertFalse(byDefault.contains { $0.machine.isLocal })
         XCTAssertTrue(byDefault.contains { $0.id == "resource:vivid-newt/terminal/term_1" })
 
         let cloudOnly = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(machines: [machine("vivid-newt")], snapshot: snapshot, localWorkspaces: workspaces, includeLocalMachine: false))

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Validate object identities/string spelling and sort project.pbxproj sections.
+Validate project syntax, string spelling and object identities, then sort
+high-churn sections of project.pbxproj.
 
 Object IDs must be unique across the objects dictionary. Duplicate definitions
 silently replace each other in Xcode, and sorting can change which one wins.
@@ -72,6 +73,80 @@ def validate_token_gap(gap: str, line: int) -> None:
         raise ValueError(f"unterminated quoted string at line {line}")
 
 
+def validate_syntax(text: str) -> None:
+    """Validate the OpenStep dictionaries, arrays and strings Xcode emits.
+
+    Run on Linux before normalization: balancing braces alone misses a removed
+    semicolon and can let malformed projects reach expensive macOS runners.
+    Keep token positions for diagnostics without parsing shell-script contents.
+    """
+    tokens: list[tuple[str, int]] = []
+    line = 1
+    end = 0
+    for match in OPENSTEP_TOKEN_RE.finditer(text):
+        gap = text[end:match.start()]
+        if gap.strip():
+            raise ValueError(f"syntax error on line {line}: unterminated quoted string")
+        line += gap.count("\n")
+        token = match.group()
+        token_line = line
+        line += token.count("\n")
+        end = match.end()
+        if token.startswith("/*"):
+            if not token.endswith("*/"):
+                raise ValueError(f"syntax error on line {token_line}: unterminated comment")
+        elif not token.startswith("//"):
+            tokens.append((token, token_line))
+    if text[end:].strip():
+        raise ValueError(f"syntax error on line {line}: unterminated quoted string")
+    tokens.append(("", line + text[end:].count("\n")))
+    index = 0
+
+    def fail(expected: str) -> None:
+        token, token_line = tokens[index]
+        found = repr(token) if token else "end of file"
+        raise ValueError(f"syntax error on line {token_line}: expected {expected}, found {found}")
+
+    def take(expected: str) -> None:
+        nonlocal index
+        if tokens[index][0] != expected:
+            fail(repr(expected))
+        index += 1
+
+    def scalar() -> None:
+        nonlocal index
+        if not tokens[index][0] or tokens[index][0] in "{}=;(),":
+            fail("a key or value")
+        index += 1
+
+    def value() -> None:
+        if tokens[index][0] == "{":
+            dictionary()
+        elif tokens[index][0] == "(":
+            take("(")
+            while tokens[index][0] != ")":
+                value()
+                if tokens[index][0] == ")":
+                    break
+                take(",")
+            take(")")
+        else:
+            scalar()
+
+    def dictionary() -> None:
+        take("{")
+        while tokens[index][0] != "}":
+            scalar()
+            take("=")
+            value()
+            take(";")
+        take("}")
+
+    dictionary()
+    if tokens[index][0]:
+        fail("end of file")
+
+
 def validate_object_ids(text: str) -> None:
     """Reject repeated keys in the global objects dictionary, not references.
 
@@ -86,6 +161,7 @@ def validate_object_ids(text: str) -> None:
     duplicates: list[str] = []
     line = 1
     end = 0
+    previous_group: str | None = None
     for match in OPENSTEP_TOKEN_RE.finditer(text):
         gap = text[end:match.start()]
         validate_token_gap(gap, line)
@@ -96,6 +172,11 @@ def validate_object_ids(text: str) -> None:
         end = match.end()
         if match.lastgroup == "comment":
             continue
+        if not gap and previous_group in {"unquoted", "string"} and match.lastgroup in {"unquoted", "string"}:
+            raise ValueError(
+                f"adjacent scalar tokens at line {token_line}; "
+                "separate quoted and unquoted strings with whitespace or punctuation"
+            )
         if match.lastgroup == "unquoted" and not OPENSTEP_UNQUOTED_RE.fullmatch(token):
             raise ValueError(
                 f"invalid unquoted string at line {token_line}; "
@@ -116,6 +197,7 @@ def validate_object_ids(text: str) -> None:
         elif token == "}" and dictionaries:
             dictionaries.pop()
         previous = (previous + [token])[-2:]
+        previous_group = match.lastgroup
     validate_token_gap(text[end:], line)
     if duplicates:
         raise ValueError("; ".join(duplicates))
@@ -182,6 +264,7 @@ def sort_build_phase_files(lines: list[str], section: str) -> list[str]:
 
 
 def normalize(text: str) -> str:
+    validate_syntax(text)
     validate_object_ids(text)
     lines = text.splitlines(keepends=True)
     for section in FLAT_SECTIONS:
