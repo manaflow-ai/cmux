@@ -35,6 +35,21 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         )
     }
 
+    private func webRTCRoute(
+        id: String = "webrtc",
+        host: String = "100.64.0.5",
+        port: Int = 58465,
+        token: String = "listener-token",
+        priority: Int = -20_000
+    ) throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: id,
+            kind: .webrtc,
+            endpoint: .url("webrtc://\(host):\(port)?token=\(token)"),
+            priority: priority
+        )
+    }
+
     private func irohRoute(withPathHint: Bool = true) throws -> CmxAttachRoute {
         let pathHints = if withPathHint {
             [
@@ -224,6 +239,31 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         let decoded = try compactTicket(from: attachURL)
         #expect(decoded.routes == ticket.routes)
         #expect(decoded.authToken == nil)
+    }
+
+    @Test func webRTCAttachTargetsUseLosslessCompactURL() throws {
+        let store = MobileAttachTicketStore()
+        let route = try webRTCRoute(token: "listener-token-123")
+
+        for target in [MobileAttachTarget.simulatorInjection, .physicalDevice] {
+            let selectedRoutes = try target.selectRoutes(from: [route])
+            #expect(selectedRoutes == [route])
+            let ticket = try store.createTicket(
+                workspaceID: "",
+                terminalID: nil,
+                routes: selectedRoutes,
+                ttl: 3600
+            )
+
+            let payload = try store.payload(for: ticket, target: target)
+            let attachURL = try #require(payload["attach_url"] as? String)
+            #expect(attachURL.contains("?v=1&payload="))
+            let decoded = try compactTicket(from: attachURL)
+            #expect(decoded.routes == selectedRoutes)
+            #expect(decoded.routes.first?.kind == .webrtc)
+            #expect(decoded.routes.first?.endpoint == route.endpoint)
+            #expect(decoded.authToken == nil)
+        }
     }
 
     @Test func physicalDevicePayloadIsV2WithExactTailscaleRoutes() throws {
