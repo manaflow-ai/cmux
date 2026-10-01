@@ -1,8 +1,8 @@
-import React, { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { Token } from "marked";
 import { applyAgentTheme } from "../shared/theme";
-import { diffRows, layoutConversation, markdownBlocks, safeHref, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
+import { diffRows, layoutConversation, markdownBlocks, placeRows, safeHref, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { startMockHost } from "./mock";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
@@ -80,24 +80,35 @@ const EditedFilesRow = memo(function EditedFilesRow({ row }: RowProps) { const f
 
 const defaultRegistry: NativeRegistry = { user: MessageRow, assistant: MessageRow, activity: ToolActivityRow, editedFiles: EditedFilesRow, turnSummary: SummaryRow, notice: NoticeRow, plan: NoticeRow, typing: NoticeRow, permission: PermissionRow };
 
-function MeasuredCustomRow({ children, onHeight }: { children: React.ReactNode; onHeight: (height: number) => void }) {
+/// A row's height as the page drew it, valid while the row's content version and width hold.
+type DrawnHeight = { version: number; width: number; height: number };
+type ReportDrawn = (id: string, version: number, height: number) => void;
+
+/// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
+/// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
+/// (a font that loads, a custom renderer that grows).
+function RowFrame({ row, kind, index, setSize, top, rowWidth, expanded, observer, report, children }: { row: AcpmuxRow; kind: string; index: number; setSize: number; top: number; rowWidth: number; expanded: boolean; observer: ResizeObserver | undefined; report: ReportDrawn; children: React.ReactNode }) {
   const ref = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     const node = ref.current;
-    if (!node) return;
-    const report = () => onHeight(node.getBoundingClientRect().height);
-    const observer = new ResizeObserver(report);
+    if (!node || !observer) return;
     observer.observe(node);
-    report();
-    return () => observer.disconnect();
-  }, [onHeight]);
-  return <div ref={ref as React.RefObject<HTMLDivElement>}>{children}</div>;
+    return () => observer.unobserve(node);
+  }, [observer]);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (node) report(row.id, row.version, node.getBoundingClientRect().height);
+  }, [row.id, row.version, rowWidth, expanded, report]);
+  return <article ref={ref} data-row-id={row.id} className={`acpmux-row acpmux-${kind}`} aria-label={speaker(kind)} aria-posinset={index + 1} aria-setsize={setSize} style={{ transform: `translateY(${top}px)` }}>{children}</article>;
 }
 
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
 const speaker = (kind: string) => kind === "user" ? "You" : kind === "assistant" ? "Agent" : undefined;
 const rowKind = (row: AcpmuxRow) => row.kind === "activity" && row.items?.some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ? "editedFiles" : row.kind;
 const currentRegistry = (): NativeRegistry => ({ ...defaultRegistry, ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined) });
+
+/// Where a scroller sits, read while its content still matches `totalHeight`.
+const scrollPosition = (node: HTMLElement, totalHeight: number) => ({ top: node.scrollTop, atLatest: node.scrollTop >= totalHeight - node.clientHeight - 1 });
 
 /// Scroll steps of rows mounted ahead in the scroll direction, capped in viewports.
 /// A scroll commits from its event, a frame after the offset moved, so without the
@@ -112,20 +123,80 @@ export function VirtualTranscript({ rows, onToggleActivity, expanded, registry =
   const [height, setHeight] = useState(600);
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(760);
-  const [measuredHeights, setMeasuredHeights] = useState(new Map<string, number>());
+  // Rows place by their drawn height once drawn, and by the estimate until then.
+  const [drawn, setDrawn] = useState(new Map<string, DrawnHeight>());
+  const pendingDrawn = useRef(new Map<string, DrawnHeight>());
+  const rowWidthRef = useRef(transcriptRowWidth(width));
+  rowWidthRef.current = transcriptRowWidth(width);
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  const reportDrawn = useCallback<ReportDrawn>((id, version, drawnHeight) => {
+    // Zero is a row not laid out (hidden, or no layout at all), not a height.
+    if (drawnHeight > 0) pendingDrawn.current.set(id, { version, width: rowWidthRef.current, height: drawnHeight });
+  }, []);
+  // All of a commit's reports land in one update, before the frame paints.
+  const flushDrawn = useCallback(() => {
+    if (!pendingDrawn.current.size) return;
+    const updates = pendingDrawn.current;
+    pendingDrawn.current = new Map();
+    setDrawn((current) => {
+      let next: Map<string, DrawnHeight> | undefined;
+      for (const [id, entry] of updates) {
+        const old = current.get(id);
+        if (old && old.version === entry.version && old.width === entry.width && Math.abs(old.height - entry.height) < 0.5) continue;
+        next ??= new Map(current);
+        next.set(id, entry);
+      }
+      return next ?? current;
+    });
+  }, []);
+  const observer = useMemo(() => typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver((entries?: ResizeObserverEntry[]) => {
+    for (const entry of entries ?? []) {
+      const target = entry.target as HTMLElement;
+      const row = rowsRef.current[Number(target.getAttribute("aria-posinset")) - 1];
+      if (row && row.id === target.dataset.rowId) reportDrawn(row.id, row.version, target.getBoundingClientRect().height);
+    }
+    // A late size change (a font loading) must not paint a frame of overlap first.
+    flushSync(flushDrawn);
+  }), [reportDrawn, flushDrawn]);
+  useEffect(() => () => observer?.disconnect(), [observer]);
+  // Forget rows that left the transcript (a session switch, older history unloaded).
+  useEffect(() => {
+    const cache = measurementCache.current;
+    if (cache.size <= rows.length && drawn.size <= rows.length) return;
+    const ids = new Set(rows.map((row) => row.id));
+    for (const id of cache.keys()) if (!ids.has(id)) cache.delete(id);
+    setDrawn((current) => {
+      if ([...current.keys()].every((id) => ids.has(id))) return current;
+      return new Map([...current].filter(([id]) => ids.has(id)));
+    });
+  }, [rows, drawn]);
+  useLayoutEffect(flushDrawn);
   const didOpenAtLatest = useRef(false);
   const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
   useEffect(() => { const node = ref.current; if (!node) return; const observer = new ResizeObserver(() => { setHeight(node.clientHeight); setWidth(node.clientWidth); }); observer.observe(node); setWidth(node.clientWidth); return () => observer.disconnect(); }, []);
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
-  // Scroll frames re-render with the same rows; only rows, width, measured custom
-  // heights or the registry can move a row.
+  const scrolledTo = useRef({ top: 0, atLatest: false });
+  // Scroll frames re-render with the same rows; only rows, width or the registry
+  // change an estimate.
+  const estimated = useMemo(() => {
+    const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
+    const layout = layoutConversation(rows, transcriptRowWidth(width), measurementCache.current, (row, rowWidth) => registry[rowKind(row)]?.measure?.(row, rowWidth));
+    return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
+  }, [rows, width, registry]);
+  // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
-    const layout = layoutConversation(rows, transcriptRowWidth(width), measurementCache.current, (row, rowWidth) => registry[rowKind(row)]?.measure?.(row, rowWidth) ?? measuredHeights.get(row.id));
+    const rowWidth = transcriptRowWidth(width);
+    const layout = drawn.size === 0 ? estimated.layout : placeRows(estimated.layout, (index) => {
+      const known = drawn.get(rows[index].id);
+      return known && known.version === rows[index].version && known.width === rowWidth ? known.height : undefined;
+    });
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [rows, width, measuredHeights, registry]);
+  }, [estimated, drawn, rows, width]);
   const layout = measured.layout;
   const reportedLayout = useRef<typeof measured | null>(null);
+  const reportedEstimate = useRef<typeof estimated | null>(null);
   const lead = Math.min(Math.abs(scroll.delta) * SCROLL_LEAD_STEPS, height * MAX_SCROLL_LEAD_VIEWPORTS);
   const range = visibleLayoutRange(layout, scroll.delta < 0 ? scroll.top - lead : scroll.top, height + lead);
   useLayoutEffect(() => {
@@ -135,16 +206,33 @@ export function VirtualTranscript({ rows, onToggleActivity, expanded, registry =
     // A memo hit spent no time in geometry this render.
     const freshLayout = reportedLayout.current !== measured;
     reportedLayout.current = measured;
-    const layoutMs = freshLayout ? measured.ms : 0;
+    const freshEstimate = reportedEstimate.current !== estimated;
+    reportedEstimate.current = estimated;
+    const layoutMs = (freshLayout ? measured.ms : 0) + (freshEstimate ? estimated.ms : 0);
     if (acpmuxPerf.enabled && freshLayout) acpmuxPerf.addLayout(layoutMs);
     if (acpmuxPerf.enabled && renderStart > 0) { const now = performance.now(); acpmuxPerf.commit(now - renderStart, layoutMs, acpmuxPerf.mountedTop, acpmuxPerf.mountedBottom, now); }
   });
   useLayoutEffect(() => {
     const old = previousLayout.current;
     const node = ref.current;
-    if (old && node && old.tops.length === layout.tops.length && range.first > 0) {
-      const delta = layout.tops[range.first] - old.tops[range.first];
-      if (Math.abs(delta) > 0.5) node.scrollTop += delta;
+    if (old && node && old.tops.length === layout.tops.length) {
+      // Content that shrank under the viewport has already clamped the live offset to
+      // the new end; the offset recorded before this commit is where the reader was.
+      const live = node.scrollTop;
+      const clamped = live < scrolledTo.current.top - 0.5 && live >= layout.totalHeight - node.clientHeight - 1;
+      const top = clamped ? scrolledTo.current.top : live;
+      const atLatest = clamped ? scrolledTo.current.atLatest : top >= old.totalHeight - node.clientHeight - 1;
+      // At the first row nothing above can move it.
+      if (top > 0 && didOpenAtLatest.current && atLatest) {
+        // At the latest row: stay there as rows settle to their drawn heights.
+        const latest = Math.max(0, layout.totalHeight - node.clientHeight);
+        if (Math.abs(latest - node.scrollTop) > 0.5) node.scrollTop = latest;
+      } else if (top > 0) {
+        // Keep the row at the top of the viewport where it is as rows above it change height.
+        const anchor = visibleLayoutRange(old, top, 0, 0).first;
+        const delta = layout.tops[anchor] - old.tops[anchor];
+        if (clamped || Math.abs(delta) > 0.5) node.scrollTop = top + delta;
+      }
     }
     // Runs on height too: rows that fit and then overflow on a height-only shrink keep the same memoized layout.
     if (!didOpenAtLatest.current && node && layout.totalHeight > node.clientHeight) {
@@ -154,13 +242,14 @@ export function VirtualTranscript({ rows, onToggleActivity, expanded, registry =
       didOpenAtLatest.current = true;
     }
     previousLayout.current = layout;
+    if (node) scrolledTo.current = scrollPosition(node, layout.totalHeight);
   }, [layout, range.first, height]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
   // Each settled scroll's frame pacing goes to the host, which picks the pane's rendering rate.
   const pacing = useMemo(() => new ScrollPacing((intervals) => { callNative("pane.framePacing", { intervals }).catch(() => {}); }), []);
   useEffect(() => () => pacing.stop(), [pacing]);
-  const onScroll = (event: React.UIEvent<HTMLDivElement>) => { pacing.scrolled(); const next = event.currentTarget.scrollTop; flushSync(() => setScroll((current) => ({ top: next, delta: next - current.top }))); };
-  return <div ref={ref} className="acpmux-scroll" role="feed" aria-label="Transcript" onScroll={onScroll}><div className="acpmux-spacer" style={{ height: layout.totalHeight }}><div className="acpmux-thread">{rows.slice(range.first, range.last).map((row, index) => { const absoluteIndex = range.first + index; const kind = rowKind(row); const Component = registry[kind] ?? NoticeRow; const rendered = <Component row={row} onToggleActivity={onToggleActivity} expanded={expanded.has(row.id)} />; return <article className={`acpmux-row acpmux-${kind}`} aria-label={speaker(kind)} aria-posinset={absoluteIndex + 1} aria-setsize={canLoadOlder ? -1 : rows.length} style={{ transform: `translateY(${layout.tops[absoluteIndex]}px)` }} key={row.id}>{Component.measure || defaultRegistry[kind] ? rendered : <MeasuredCustomRow onHeight={(value) => setMeasuredHeights((current) => { if (current.get(row.id) === value) return current; const next = new Map(current); next.set(row.id, value); return next; })}>{rendered}</MeasuredCustomRow>}</article>; })}</div></div></div>;
+  const onScroll = (event: React.UIEvent<HTMLDivElement>) => { pacing.scrolled(); const next = event.currentTarget.scrollTop; scrolledTo.current = scrollPosition(event.currentTarget, layout.totalHeight); flushSync(() => setScroll((current) => ({ top: next, delta: next - current.top }))); };
+  return <div ref={ref} className="acpmux-scroll" role="feed" aria-label="Transcript" onScroll={onScroll}><div className="acpmux-spacer" style={{ height: layout.totalHeight }}><div className="acpmux-thread">{rows.slice(range.first, range.last).map((row, index) => { const absoluteIndex = range.first + index; const kind = rowKind(row); const Component = registry[kind] ?? NoticeRow; const isExpanded = expanded.has(row.id); return <RowFrame key={row.id} row={row} kind={kind} index={absoluteIndex} setSize={canLoadOlder ? -1 : rows.length} top={layout.tops[absoluteIndex]} rowWidth={transcriptRowWidth(width)} expanded={isExpanded} observer={observer} report={reportDrawn}><Component row={row} onToggleActivity={onToggleActivity} expanded={isExpanded} /></RowFrame>; })}</div></div></div>;
 }
 
 function PermissionCard({ permission }: { permission: AcpmuxPermission }) { return <div className="acpmux-permission-card"><strong>{permission.title || "Permission required"}</strong><div className="acpmux-permission-buttons">{permission.options.map((option) => <button key={option.id} onClick={() => void callNative("chat.permission", { permissionId: permission.permissionId, optionId: option.id })}>{option.name}</button>)}</div></div>; }
