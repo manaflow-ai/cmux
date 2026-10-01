@@ -117,6 +117,36 @@ describe("acpmux virtual transcript", () => {
   });
 });
 
+describe("acpmux transcript accessibility", () => {
+  /// VoiceOver read the transcript as loose text: no list to move through, no speaker per message,
+  /// and a turn summary split into five fragments.
+  test("the transcript is a feed of articles placed in the whole conversation", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const conversation: AcpmuxRow[] = [...rows, { id: "summary", version: 1, at: 999, kind: "turnSummary", durationMs: 3000, toolCount: 2 }];
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: conversation, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
+      expect(scroller.getAttribute("role")).toBe("feed");
+      expect(scroller.getAttribute("aria-label")).toBe("Transcript");
+      const articles = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")];
+      expect(articles.length).toBeLessThan(conversation.length);
+      for (const article of articles) expect(article.getAttribute("aria-setsize")).toBe(String(conversation.length));
+      const last = articles.at(-1)!;
+      expect(last.getAttribute("aria-posinset")).toBe(String(conversation.length));
+      const message = articles.at(-2)!;
+      const index = Number(message.getAttribute("aria-posinset")) - 1;
+      expect(message.getAttribute("aria-label")).toBe(conversation[index]!.kind === "user" ? "You" : "Agent");
+      const summary = last.querySelector(".acpmux-summary")!;
+      expect(summary.childNodes.length).toBe(1);
+      expect(summary.textContent).toBe("Worked for 3s · 2 tool calls");
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+});
+
 describe("acpmux renderer registry", () => {
   test("registering the same renderer again does not re-render the pane", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
