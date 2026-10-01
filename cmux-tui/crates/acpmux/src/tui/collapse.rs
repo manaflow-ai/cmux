@@ -21,9 +21,8 @@ fn default_open(tr: &Transcript, t: Toggle, show_thoughts: bool) -> bool {
         Toggle::Group(_) => true,
         // The streaming thought shows one line; its details start closed.
         Toggle::Item(i) => {
-            matches!(tr.items.get(i), Some(Item::Thought { .. }))
-                && show_thoughts
-                && !(running && i + 1 == tr.items.len())
+            let streaming = running && i + 1 == tr.items.len();
+            matches!(tr.items.get(i), Some(Item::Thought { .. })) && show_thoughts && !streaming
         }
     }
 }
