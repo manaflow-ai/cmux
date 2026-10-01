@@ -535,7 +535,8 @@ import Testing
         #expect(!terminal.surface.hostedView.surfaceView.localRenderedFrameNotificationDemandIsActive)
     }
 
-    @Test func surfaceProgressReissuesDeferredFullSeedBeforeFirstRenderedFrame() throws {
+    @Test(.timeLimit(.minutes(1)))
+    func surfaceProgressReissuesDeferredFullSeedBeforeFirstRenderedFrame() async throws {
         let fixture = attachedConnection()
         defer { fixture.close() }
         fixture.connection.windowsByID[1] = RemoteTmuxWindow(
@@ -560,7 +561,10 @@ import Testing
             workspace: workspace
         )
         defer { sessionMirror.detachObserver() }
-        _ = try #require(sessionMirror.windowMirrorByWindowId[1]?.panel(forPane: 7))
+        let panel = try #require(sessionMirror.windowMirrorByWindowId[1]?.panel(forPane: 7))
+        let terminal = try hostedTerminal(panel.surface)
+        defer { terminal.window.orderOut(nil) }
+        await waitForLiveSurface(terminal.surface)
         publishLaggingPaneGrid(on: fixture.connection, windowId: 1, paneIds: [7])
 
         sessionMirror.routeSeed(
@@ -583,6 +587,51 @@ import Testing
             fixture.connection.pendingPaneSeeds[7]?.first?.kind == .fullHistory,
             "visible surface progress must reissue the full capture before a rendered frame"
         )
+        sessionMirror.handlePaneSeedSurfaceProgress(paneId: 7)
+        #expect(fixture.connection.pendingPaneSeeds[7]?.count == 1)
+
+        // Drain the reissued capture to prove the recovery reaches the
+        // consumer, not just that a command was queued.
+        finishPendingCommands(
+            on: fixture.connection,
+            captureRows: ["reissued"],
+            paneHeight: 24,
+            startingAt: 300
+        )
+        #expect(fixture.connection.pendingPaneSeeds[7] == nil)
+        terminal.surface.setAssignedGrid(columns: 400, rows: 200)
+        await waitForAppliedTerminalGrid(terminal.surface, columns: 400, rows: 200)
+        NotificationCenter.default.post(
+            name: .ghosttyDidRenderFrame,
+            object: terminal.surface.hostedView.surfaceView
+        )
+        #expect(sessionMirror.pendingPaneSeedBytes[7] == nil)
+
+        // If a later capture also times out before the next frame, repeated
+        // surface callbacks must not start another early capture each time.
+        terminal.surface.setAssignedGrid(columns: 40, rows: 12)
+        await waitForAppliedTerminalGrid(terminal.surface, columns: 40, rows: 12)
+        sessionMirror.routeSeed(
+            paneId: 7,
+            seed: RemoteTmuxPaneSeed(
+                kind: .fullHistory,
+                discardedOutput: [], snapshot: Data("second-stale-grid".utf8),
+                catchUpOutput: [], state: Data()
+            )
+        )
+        let secondDeadlineID = try #require(sessionMirror.pendingPaneSeedDeadlineIDs[7])
+        sessionMirror.expirePendingPaneSeedDelivery(paneId: 7, deadlineID: secondDeadlineID)
+        sessionMirror.handlePaneSeedSurfaceProgress(paneId: 7)
+        finishPendingCommands(
+            on: fixture.connection,
+            captureRows: ["second-reissued"],
+            paneHeight: 24,
+            startingAt: 500
+        )
+        let secondRetryDeadlineID = try #require(sessionMirror.pendingPaneSeedDeadlineIDs[7])
+        sessionMirror.expirePendingPaneSeedDelivery(paneId: 7, deadlineID: secondRetryDeadlineID)
+        sessionMirror.handlePaneSeedSurfaceProgress(paneId: 7)
+        #expect(fixture.connection.pendingPaneSeeds[7] == nil)
     }
 
     /// Crossing the shared seed budget releases the pane that crossed it and leaves the stream alone.
