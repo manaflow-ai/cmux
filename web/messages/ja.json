@@ -663,7 +663,8 @@
         "memberReadOnly": "このプランを変更できるのはチーム管理者のみです。",
         "grantedBody": "{team} には cmux チームから Team へのアクセスが付与されています。管理するサブスクリプションはありません。",
         "seatsUsed": "{seats} シート中 {members} 使用",
-        "overSeat": "{team} にはメンバーが {members} 人いますが、有料シートは {seats} です。シート数はメンバー数に追従し、サブスクリプションは自動的に更新されます。"
+        "overSeat": "{team} にはメンバーが {members} 人いますが、有料シートは {seats} です。シート数はメンバー数に追従し、サブスクリプションは自動的に更新されます。",
+        "addSeats": "シートを追加"
       },
       "teamList": {
         "heading": "請求の対象",
@@ -1329,6 +1330,8 @@
         "revoke": "取り消す",
         "linksTitle": "招待リンク",
         "linksDescription": "誰でもメンバーとして参加できる、再利用可能なリンクです。",
+        "seatNudge": "メンバーまたは招待中の人が {used} 人いますが、プランのシートは {seats} です。招待は引き続き有効です。全員をカバーするには {over, plural, other {# シート}}を追加してください。",
+        "seatNudgeAction": "シートを管理",
         "actions": {
           "makeAdmin": "管理者にする",
           "makeMember": "メンバーにする",
@@ -3168,13 +3171,14 @@
         "automation": {
           "ampIntegration": "Amp 向けの cmux フックをオンまたはオフにします。オフにしても同梱のプラグインはインストールされたまま、何もしない状態になります。",
           "suppressSubagentNotifications": "ネストされた Codex または Claude の子エージェントからの表示される完了通知とステータス変更を抑制し、それらのイベントは Feed テレメトリに残します。",
-          "agentAutoResume": "再試行可能な上流エラー（モデルの容量不足、過負荷、接続切断）でターンが終了した cmux 起動のエージェントに、バックオフ付きで `continue` を送信します。人の入力を待っているターンは再開しません。",
           "workspaceAutoNaming": "エージェントの会話内容からワークスペースとタブの名前を自動生成するオプトイン機能です。有効にすると、cmux は対応エージェントの各バイナリを使ってセッションを短いタイトルに要約します。手動の名前変更が常に優先されます。",
           "autoNamingAgent": "すべてのセッションの自動命名を行うエージェントを指定します。\"auto\"（既定）は各セッションをそのセッション自身のエージェントで命名します。任意のエージェントのスラッグ（claude、codex、grok、opencode、pi、omp など）を指定すると、他のエージェントのセッションも含めてすべての命名をそのエージェントが行います。実行できない、または未インストールのエージェントは各セッション自身のエージェントにフォールバックするため、命名が壊れることはありません。",
+          "agentAutoResume": "再試行可能な上流エラー（モデルの容量不足、過負荷、接続切断）でターンが終了した cmux 起動のエージェントに、バックオフ付きで `continue` を送信します。人の入力を待っているターンは再開しません。",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "cmux の終了前に確認を求めるタイミングを制御します。DEV ビルドではこの設定に関係なく常にすぐ終了します。従来の app.warnBeforeQuit も boolean フォールバックとして引き続き受け付けます。",
+          "whatsNew": "アップデート後に cmux が新機能をどう知らせるかを設定します。off は何も表示せず、quiet は概要を開くまでサイドバーのヘルプボタンに点を表示し、sheet は新しいバージョンの初回起動後に概要を一度だけ開きます。「ヘルプ > cmux の新機能」からいつでも開けます。",
           "windowTitleTemplate": "任意の NSWindow タイトルテンプレートです。空欄のままなら、現在のディレクトリへのフォールバックを含む cmux 既存の既定タイトル動作を保ちます。対応するプレースホルダー: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'。",
           "devWindowDisplay": "新しいウィンドウを開くときに DEBUG ビルドでのみ使用するディスプレイ名です。空の値ではシステムのデフォルトを使用します。",
           "warnBeforeQuit": "終了確認用の従来の boolean フォールバックです。新しい設定では app.confirmQuit を使ってください。",
@@ -3243,6 +3247,7 @@
           "compactStatusIcons": "compactAgentStatus のグリフを状態ごとに置き換える SF Symbol 名です（例: {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}）。未設定の状態は組み込みのシンボルを使い、表示できない名前も組み込みのシンボルに戻ります。",
           "notificationMessageLineLimit": "各ワークスペースタイトルの下に表示する最新通知の最大行数です。",
           "rightMaxWidth": "右サイドバーの最大幅（ポイント）。省略すると、組み込みの動的上限が適用されます。",
+          "showAgentUsage": "Claude Code または Codex のステータス項目にコーディングエージェントの使用状況を追加します。モデルと使用中のコンテキストウィンドウ、さらに Claude Code では Anthropic の公開価格に基づく API コストの概算（メインスレッドとサブエージェント）を表示します。この金額は概算であり、サブスクリプションの請求額ではありません。バッチ／優先ティア、パートナー価格、高速モード、サーバーツールの料金は考慮していません。",
           "beta": {
             "conversations": {
               "enabled": "サイドバーの選択メニューに、会話をまとめて表示するビューを追加します。"
@@ -6926,22 +6931,6 @@
     "signedOutBody": "コマンドラインアプリケーションがサインインを待っています。cmux アカウントでサインインすると、このターミナルの接続が完了します。このリクエストに心当たりがない場合は、このページを閉じてください。",
     "signInButton": "サインイン"
   },
-  "mobile": {
-    "agentFeed": {
-      "fullText": {
-        "seeMore": "さらに表示"
-      },
-      "search": {
-        "placeholder": "フィードを検索"
-      },
-      "openWorkspace": "ワークスペースを開く",
-      "openTab": "タブを開く",
-      "openFailed": {
-        "title": "イベントを開けませんでした",
-        "message": "このイベントのコンピュータ、ワークスペース、またはタブは利用できなくなりました。"
-      }
-    }
-  },
   "MobileRelease106": {
     "title": "1.0.6 の新機能",
     "releaseLabel": "1.0.6 · 2026年9月",
@@ -6973,5 +6962,21 @@
     "invalidTitle": "この招待はもう有効ではありません",
     "invalidBody": "期限切れ、取り消し済み、または使用済みです。チームの管理者に新しい招待を依頼してください。",
     "goToTeams": "チーム一覧へ"
+  },
+  "mobile": {
+    "agentFeed": {
+      "fullText": {
+        "seeMore": "さらに表示"
+      },
+      "search": {
+        "placeholder": "フィードを検索"
+      },
+      "openWorkspace": "ワークスペースを開く",
+      "openTab": "タブを開く",
+      "openFailed": {
+        "title": "イベントを開けませんでした",
+        "message": "このイベントのコンピュータ、ワークスペース、またはタブは利用できなくなりました。"
+      }
+    }
   }
 }
