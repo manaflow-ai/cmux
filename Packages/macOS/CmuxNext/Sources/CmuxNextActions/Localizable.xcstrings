@@ -36946,130 +36946,130 @@
     "action.selectWorkspaceByNumber": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Select Workspace 1…9"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペース 1…9 を選択"
-          }
-        },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "تحديد مساحة العمل 1…9"
+            "state": "needs_review",
+            "value": "تحديد الرئيسية أو مساحة عمل حسب الرقم"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odaberi radni prostor 1…9"
+            "value": "Odaberi početnu ili radni prostor po broju"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vælg arbejdsområde 1…9"
+            "value": "Vælg Hjem eller arbejdsområde efter nummer"
           }
         },
         "de": {
           "stringUnit": {
+            "state": "needs_review",
+            "value": "Start oder Arbeitsbereich nach Nummer auswählen"
+          }
+        },
+        "en": {
+          "stringUnit": {
             "state": "translated",
-            "value": "Arbeitsbereich 1…9 auswählen"
+            "value": "Select Home or Workspace by Number"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Seleccionar espacio de trabajo 1…9"
+            "state": "needs_review",
+            "value": "Seleccionar Inicio o espacio de trabajo por número"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Sélectionner l’espace de travail 1…9"
+            "state": "needs_review",
+            "value": "Sélectionner l’accueil ou un espace de travail par numéro"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Seleziona area di lavoro 1…9"
+            "value": "Seleziona Home o spazio di lavoro per numero"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "番号でホームまたはワークスペースを選択"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ជ្រើសកន្លែងធ្វើការ 1…9"
+            "value": "ជ្រើសទំព័រដើម ឬកន្លែងធ្វើការតាមលេខ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "워크스페이스 1…9 선택"
+            "state": "needs_review",
+            "value": "번호로 홈 또는 워크스페이스 선택"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Velg arbeidsområde 1…9"
+            "value": "Velg Hjem eller arbeidsområde etter nummer"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wybierz przestrzeń 1…9"
+            "value": "Wybierz Start lub obszar roboczy według numeru"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Selecionar Área de Trabalho 1…9"
+            "value": "Selecionar Início ou espaço de trabalho por número"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Выбрать пространство 1…9"
+            "value": "Выбрать главную или рабочее пространство по номеру"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เลือกเวิร์กสเปซ 1…9"
+            "value": "เลือกหน้าหลักหรือเวิร์กสเปซตามหมายเลข"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Çalışma Alanı Seç 1…9"
+            "value": "Numaraya göre Ana Sayfa veya çalışma alanı seç"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Вибрати робочу область 1…9"
+            "state": "needs_review",
+            "value": "Вибрати головну або робочий простір за номером"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chọn không gian làm việc 1…9"
+            "value": "Chọn Trang chủ hoặc không gian làm việc theo số"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "选择工作区 1…9"
+            "state": "needs_review",
+            "value": "按编号选择主页或工作区"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "選擇工作區 1…9"
+            "state": "needs_review",
+            "value": "依編號選擇首頁或工作區"
           }
         }
       }
@@ -66676,6 +66676,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "從瀏覽器匯入…"
+          }
+        }
+      }
+    },
+    "action.home.show": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الانتقال إلى الرئيسية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Idi na početnu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gå til Hjem"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zu Start wechseln"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go to Home"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ir a Inicio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aller à l’accueil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vai a Home"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームへ移動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទៅទំព័រដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "홈으로 이동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gå til Hjem"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przejdź do Startu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ir para Início"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перейти на главную"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไปที่หน้าหลัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ana Sayfaya Git"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перейти на головну"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đi tới Trang chủ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "前往主页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "前往首頁"
           }
         }
       }

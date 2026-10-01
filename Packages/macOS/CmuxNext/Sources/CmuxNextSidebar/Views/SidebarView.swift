@@ -32,6 +32,8 @@ public final class SidebarView: NSView {
     /// No rubber band while every row fits (Finder's sidebar).
     private var scrollFit: ScrollFitElasticity?
     let profileBar: ProfileBarView
+    /// Pinned above the list; the list scrolls under its hairline.
+    let homeRow = HomeRowView()
     let newButton = SidebarIconButton(symbol: "plus", label: Strings.newWorkspace)
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
     private(set) var isChromeRevealed = false
@@ -169,6 +171,10 @@ public final class SidebarView: NSView {
         addSubview(edgeFade)
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
 
+        homeRow.onPress = { [weak self] in self?.model.send(.selectHome) }
+        homeRow.isActive = model.isHomeActive
+        addSubview(homeRow)
+
         addSubview(footer)
         footer.addSubview(profileBar)
     }
@@ -196,8 +202,10 @@ public final class SidebarView: NSView {
         super.layout()
         let b = bounds
         // Tokens are read here, never cached, so density changes apply live.
-        // The list starts right under the titlebar row: no search field.
-        let y = titlebarHeight
+        // Home is pinned under the titlebar row; the list starts under its
+        // hairline and scrolls (and fades) beneath it. No search field.
+        homeRow.frame = NSRect(x: 0, y: titlebarHeight, width: b.width, height: HomeRowView.preferredHeight)
+        let y = homeRow.frame.maxY
 
         // Titlebar row: buttons trail the traffic lights, shown on hover.
         let button = SidebarStyle.toolbarButtonSize
@@ -286,6 +294,7 @@ public final class SidebarView: NSView {
         var sections: [SidebarSection]
         var selection: Set<WorkspaceID>
         var active: WorkspaceID?
+        var home: Bool
         var profiles: [SidebarProfile]
         var activeProfile: ProfileKey?
         var filter: String
@@ -304,6 +313,7 @@ public final class SidebarView: NSView {
                     sections: model.sections,
                     selection: model.selection,
                     active: model.activeWorkspaceID,
+                    home: model.isHomeActive,
                     profiles: model.profiles,
                     activeProfile: model.activeProfileID,
                     filter: model.filterText,
@@ -319,6 +329,7 @@ public final class SidebarView: NSView {
 
     private func render(_ state: RenderState) {
         guard state != lastState else { return }
+        homeRow.isActive = state.home
         let chromeChanged = lastState?.metrics != state.metrics
             || lastState?.fontSize != state.fontSize
             || lastState?.titlebarHeight != state.titlebarHeight
