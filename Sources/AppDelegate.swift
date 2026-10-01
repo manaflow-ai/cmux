@@ -3719,12 +3719,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didPrepareStartupSessionSnapshot = true
         Self.removeLegacyPersistedWindowGeometry()
 
-        Task.detached(priority: .utility) {
-            SessionScrollbackReplayStore.sweepStaleReplayFiles(
-                olderThan: Date().addingTimeInterval(
-                    -SessionScrollbackReplayStore.staleReplayLifetime
+        let environment = ProcessInfo.processInfo.environment
+        if !isRunningUnderXCTest(environment), !isRunningUnderXCTestCached {
+            Task.detached(priority: .utility) {
+                SessionScrollbackReplayStore.sweepStaleReplayFiles(
+                    olderThan: Date().addingTimeInterval(
+                        -SessionScrollbackReplayStore.staleReplayLifetime
+                    )
                 )
-            )
+            }
         }
 
         if shouldAwaitCrashRecoveryProbe() {
