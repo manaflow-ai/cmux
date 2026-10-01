@@ -924,6 +924,94 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    /// A delayed Claude waiting reminder must not resurrect Needs input after Stop
+    /// has already persisted the session as idle.
+    func testClaudeIdleReminderDoesNotReclassifyFinishedSession() throws {
+        let context = try makeClaudeHookContext(name: "claude-stale-idle-reminder")
+        defer { context.cleanup() }
+
+        startAgentHookMockServerAccepting(context: context)
+        let sessionId = "claude-stale-idle-reminder-session"
+        let launchEnvironment = agentLaunchEnvironment(
+            context: context,
+            kind: "claude",
+            executable: "/usr/local/bin/claude"
+        )
+
+        for (subcommand, payload) in [
+            (
+                "session-start",
+                #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+            ),
+            (
+                "prompt-submit",
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#
+            ),
+            (
+                "stop",
+                #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"Finished"}"#
+            ),
+        ] {
+            let result = runClaudeHookWithoutServer(
+                context: context,
+                arguments: ["hooks", "claude", subcommand],
+                standardInput: payload,
+                extraEnvironment: launchEnvironment
+            )
+            XCTAssertFalse(result.timedOut, "\(subcommand) timed out: \(result.stderr)")
+            XCTAssertEqual(result.status, 0, "\(subcommand) failed: \(result.stderr)")
+        }
+
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        func sessionRecord() throws -> [String: Any] {
+            let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+            let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
+            return try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        }
+        let stopped = try sessionRecord()
+        XCTAssertEqual(stopped["agentLifecycle"] as? String, "idle", "Stop must establish idle before testing the reminder")
+
+        for payload in [
+            #"{"session_id":"\#(sessionId)","hook_event_name":"Notification","notification_type":"idle_prompt","message":"Claude is waiting for your input"}"#,
+            #"{"session_id":"\#(sessionId)","hook_event_name":"Notification","message":"Claude is waiting for your input"}"#,
+        ] {
+            let reminderCommandStart = context.state.commands.count
+            let reminder = runClaudeHookWithoutServer(
+                context: context,
+                arguments: ["hooks", "claude", "notification"],
+                standardInput: payload,
+                extraEnvironment: launchEnvironment
+            )
+            XCTAssertFalse(reminder.timedOut, reminder.stderr)
+            XCTAssertEqual(reminder.status, 0, reminder.stderr)
+            let reminderCommands = Array(context.state.commands.dropFirst(reminderCommandStart))
+            XCTAssertFalse(
+                reminderCommands.contains { $0.hasPrefix("set_status claude_code Needs input ") },
+                "A delayed waiting reminder must not resurrect Needs input, saw \(reminderCommands)"
+            )
+
+            let reminded = try sessionRecord()
+            XCTAssertEqual(reminded["agentLifecycle"] as? String, "idle")
+            XCTAssertEqual(reminded["hookEventName"] as? String, "Stop")
+
+        }
+
+        // A real permission request after completion must still surface.
+        let permissionCommandStart = context.state.commands.count
+        let permission = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"Notification","notification_type":"permission_prompt","message":"Approval needed"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(permission.timedOut, permission.stderr)
+        XCTAssertEqual(permission.status, 0, permission.stderr)
+        XCTAssertTrue(context.state.commands.dropFirst(permissionCommandStart).contains {
+            $0.hasPrefix("set_status claude_code Needs input ")
+        })
+        XCTAssertEqual(try sessionRecord()["agentLifecycle"] as? String, "needsInput")
+    }
+
     // MARK: - Forked conversation restore (https://github.com/manaflow-ai/cmux/issues/5908)
     //
     // `claude --resume <parent> --fork-session` reports the newly minted CHILD
@@ -2745,11 +2833,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             #"{"type":"turn_context","payload":{"turn_id":"old-turn"}}"#,
             #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-turn"}}"#,
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
-        let launchEnvironment = codexLaunchEnvironment(
-            context: context,
-            sessionId: sessionId,
-            observedHookPID: "2"
-        )
+        var launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        launchEnvironment["CMUX_CODEX_HOOK_PID"] = "2"
         startAgentHookMockServerAccepting(context: context)
 
         let oldPrompt = runCodexHook(

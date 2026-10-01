@@ -786,6 +786,7 @@
 		A1308600000000000000000E /* CloudMachineOrderingFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1308600000000000000000D /* CloudMachineOrderingFixture.swift */; };
 		A13086000000000000000014 /* CloudMachineOrderingTestPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13086000000000000000013 /* CloudMachineOrderingTestPanel.swift */; };
 		A13086000000000000000010 /* CloudMachineOrderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1308600000000000000000F /* CloudMachineOrderingTests.swift */; };
+		68FCD647A92A0EA1CD1EB61D /* CloudMachineRenamePromptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40373485A3E6FCF954D901D5 /* CloudMachineRenamePromptTests.swift */; };
 		A1308600000000000000000A /* CloudMachineReorderDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13086000000000000000009 /* CloudMachineReorderDrop.swift */; };
 		C10DC1000000000000000011 /* CloudMachinesFeature+FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10DC1000000000000000012 /* CloudMachinesFeature+FeatureFlags.swift */; };
 		82B344513980F6E85AFA611F /* CloudMachinesHeaderCountTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCE726F52C01F230DBD32B6E /* CloudMachinesHeaderCountTests.swift */; };
@@ -2970,6 +2971,7 @@
 		A5001601 /* SentryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001600 /* SentryHelper.swift */; };
 		FE003106 /* SessionAgentPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003006 /* SessionAgentPresentation.swift */; };
 		A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */; };
+		E7E300000000000000000001 /* SessionAutosaveCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E300000000000000000002 /* SessionAutosaveCoordinator.swift */; };
 		F39581155797426199C03CFF /* SessionBrowserPanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19FE2238F1F44DE98D6501DB /* SessionBrowserPanelSnapshot.swift */; };
 		A74770010000000000000005 /* SessionConfigFrameEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74770010000000000000006 /* SessionConfigFrameEntry.swift */; };
 		A74770010000000000000007 /* SessionConfigFrameRing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74770010000000000000008 /* SessionConfigFrameRing.swift */; };
@@ -3049,6 +3051,7 @@
 		A1D5E1A70000000000000001 /* SessionSnapshotImportTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D5E1A70000000000000002 /* SessionSnapshotImportTrust.swift */; };
 		9D71C66D11D9F5E4F0C304E3 /* SessionSnapshotImportTrustTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7845D78AAE0A08E748166F72 /* SessionSnapshotImportTrustTests.swift */; };
 		5390FEF581C8C1348F35FF40 /* SessionSnapshotOverwriteGuardAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA19B32D9CDA472886E0646F /* SessionSnapshotOverwriteGuardAppTests.swift */; };
+		D9E700000000000000000001 /* SessionSnapshotPersistenceWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9E700000000000000000002 /* SessionSnapshotPersistenceWriter.swift */; };
 		D86840000000000000000009 /* SessionSplitContainerSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8684000000000000000000A /* SessionSplitContainerSnapshot.swift */; };
 		D5E000000000000000000001 /* SessionTodoStatePersistenceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E000000000000000000002 /* SessionTodoStatePersistenceCoordinator.swift */; };
 		FE00310B /* SessionTranscriptPopoverLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00300B /* SessionTranscriptPopoverLayout.swift */; };
@@ -5216,6 +5219,7 @@
 		A1308600000000000000000D /* CloudMachineOrderingFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudMachineOrderingFixture.swift"; sourceTree = "<group>"; };
 		A13086000000000000000013 /* CloudMachineOrderingTestPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudMachineOrderingTestPanel.swift"; sourceTree = "<group>"; };
 		A1308600000000000000000F /* CloudMachineOrderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudMachineOrderingTests.swift"; sourceTree = "<group>"; };
+		40373485A3E6FCF954D901D5 /* CloudMachineRenamePromptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudMachineRenamePromptTests.swift"; sourceTree = "<group>"; };
 		A13086000000000000000009 /* CloudMachineReorderDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudMachineReorderDrop.swift"; sourceTree = "<group>"; };
 		C10DC1000000000000000012 /* CloudMachinesFeature+FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudMachinesFeature+FeatureFlags.swift"; sourceTree = "<group>"; };
 		DCE726F52C01F230DBD32B6E /* CloudMachinesHeaderCountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudMachinesHeaderCountTests.swift"; sourceTree = "<group>"; };
@@ -7256,6 +7260,7 @@
 		A5001600 /* SentryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentryHelper.swift; sourceTree = "<group>"; };
 		FE003006 /* SessionAgentPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentPresentation.swift; sourceTree = "<group>"; };
 		A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentSessionPanelSnapshot.swift; sourceTree = "<group>"; };
+		E7E300000000000000000002 /* SessionAutosaveCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAutosaveCoordinator.swift; sourceTree = "<group>"; };
 		19FE2238F1F44DE98D6501DB /* SessionBrowserPanelSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionBrowserPanelSnapshot.swift"; sourceTree = "<group>"; };
 		A74770010000000000000006 /* SessionConfigFrameEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionConfigFrameEntry.swift; sourceTree = "<group>"; };
 		A74770010000000000000008 /* SessionConfigFrameRing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionConfigFrameRing.swift; sourceTree = "<group>"; };
@@ -7335,6 +7340,7 @@
 		A1D5E1A70000000000000002 /* SessionSnapshotImportTrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSnapshotImportTrust.swift; sourceTree = "<group>"; };
 		7845D78AAE0A08E748166F72 /* SessionSnapshotImportTrustTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionSnapshotImportTrustTests.swift"; sourceTree = "<group>"; };
 		DA19B32D9CDA472886E0646F /* SessionSnapshotOverwriteGuardAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionSnapshotOverwriteGuardAppTests.swift"; sourceTree = "<group>"; };
+		D9E700000000000000000002 /* SessionSnapshotPersistenceWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSnapshotPersistenceWriter.swift; sourceTree = "<group>"; };
 		D8684000000000000000000A /* SessionSplitContainerSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSplitContainerSnapshot.swift; sourceTree = "<group>"; };
 		D5E000000000000000000002 /* SessionTodoStatePersistenceCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTodoStatePersistenceCoordinator.swift; sourceTree = "<group>"; };
 		FE00300B /* SessionTranscriptPopoverLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptPopoverLayout.swift; sourceTree = "<group>"; };
@@ -10682,6 +10688,8 @@
 				A5001090 /* AppDelegate.swift */,
 				2830130F95FE58F35F5220A8 /* AppDelegate+DisplayPlacement.swift */,
 				7A0CE1000000000000000019 /* AppDelegate+CloudTunnel.swift */,
+				D9E700000000000000000002 /* SessionSnapshotPersistenceWriter.swift */,
+				E7E300000000000000000002 /* SessionAutosaveCoordinator.swift */,
 				FEE012340000000000000002 /* FeedSidebarUITestCoordinator.swift */,
 				FEE012340000000000000004 /* FeedSidebarUITestPushClient.swift */,
 				FEE012340000000000000006 /* FeedSidebarUITestRecorder.swift */,
@@ -13089,6 +13097,7 @@
 				C851974591E32B011E9704A7 /* ClaudeHookWorkStateTests.swift */,
 				2D3917E88FC3A4BFAD8ED176 /* SidebarAgentWorkStateTests.swift */,
 				EA6E81B689749BFCBB162559 /* AutoNamingOpenCodeArgumentsTests.swift */,
+				40373485A3E6FCF954D901D5 /* CloudMachineRenamePromptTests.swift */,
 				87E6108C88D431EA49F1EEF7 /* SessionSnapshotImportBrowserStateTests.swift */,
 				8B70CAEA9981DF16CB3B5C72 /* BrowserMobileStreamTeardownTests.swift */,
 			);
@@ -15456,6 +15465,7 @@
 				A5001601 /* SentryHelper.swift in Sources */,
 				FE003106 /* SessionAgentPresentation.swift in Sources */,
 				A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */,
+				E7E300000000000000000001 /* SessionAutosaveCoordinator.swift in Sources */,
 				F39581155797426199C03CFF /* SessionBrowserPanelSnapshot.swift in Sources */,
 				A74770010000000000000005 /* SessionConfigFrameEntry.swift in Sources */,
 				A74770010000000000000007 /* SessionConfigFrameRing.swift in Sources */,
@@ -15520,6 +15530,7 @@
 				9758E0059758E0059758E005 /* SessionSnapshotCodingTrust.swift in Sources */,
 				A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */,
 				A1D5E1A70000000000000001 /* SessionSnapshotImportTrust.swift in Sources */,
+				D9E700000000000000000001 /* SessionSnapshotPersistenceWriter.swift in Sources */,
 				D86840000000000000000009 /* SessionSplitContainerSnapshot.swift in Sources */,
 				D5E000000000000000000001 /* SessionTodoStatePersistenceCoordinator.swift in Sources */,
 				FE00310B /* SessionTranscriptPopoverLayout.swift in Sources */,
@@ -17088,6 +17099,7 @@
 				A1308600000000000000000E /* CloudMachineOrderingFixture.swift in Sources */,
 				A13086000000000000000014 /* CloudMachineOrderingTestPanel.swift in Sources */,
 				A13086000000000000000010 /* CloudMachineOrderingTests.swift in Sources */,
+				68FCD647A92A0EA1CD1EB61D /* CloudMachineRenamePromptTests.swift in Sources */,
 				82B344513980F6E85AFA611F /* CloudMachinesHeaderCountTests.swift in Sources */,
 				FA6C4245C2494ABC8040976C /* CloudMachineWorkspaceAdoptionTests.swift in Sources */,
 				94D356F42D2C43C6B8057A3A /* CloudMachineWorkspaceResolutionTests.swift in Sources */,
