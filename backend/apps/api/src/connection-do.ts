@@ -176,6 +176,13 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
    * The Worker authenticated the principal and, for complete, verified the
    * signed state and that it names this principal.
    */
+  /** RPC from TeamDO: the integration fields this projection enforces now (for the one-time seed). */
+  async integrationPolicy(team: string): Promise<{ allowed_providers: ReadonlyArray<string> | null; github: { scope: string; require_org_admin: boolean; repo_allowlist: ReadonlyArray<string> | null } }> {
+    const engine = this.bind(team)
+    const p = policyOf(engine.currentState)
+    return { allowed_providers: p.allowed_providers, github: { scope: p.github.scope, require_org_admin: p.github.require_org_admin, repo_allowlist: p.github.repo_allowlist } }
+  }
+
   /**
    * RPC from TeamDO: the team's TeamPolicy (single writer) replaces and locks
    * this projection (spec/enterprise.md 4.6). Idempotent by key; a newer

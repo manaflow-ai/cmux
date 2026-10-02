@@ -6,6 +6,7 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { teamDomain, type TeamState } from "../src/domains/team.ts"
 import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT } from "../src/domains/team-policy.ts"
+import { integrationSyncPending, sliceHash } from "../src/domains/team-integration-sync.ts"
 
 const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; TEAM_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -183,6 +184,54 @@ const call = async (path: string, token: string, body: unknown) => {
   return { status: res.status, json: (await res.json()) as any }
 }
 
+describe("integration seed and slice sync (TeamDO)", () => {
+  const sys = (): ReduceContext => ({ principal: { identity: "system:team", kind: "system" }, now: 5_000 + txn, tx: `tx${++txn}`, newId: (p) => `${p}_${String(txn).padStart(20, "0")}` })
+  const admin = { allowed_providers: null, github: { scope: "linking_user_repos" as const, require_org_admin: true, repo_allowlist: ["acme/api"] } }
+
+  it("copies only keys TeamPolicy has not set, then pushes only when the integration slice changes", () => {
+    let s = run(baseState(), "team.policy.update", { changes: [set("github.repoAllowList", ["acme/web"]), set("telemetry.level", "off")], expected_version: 0 })
+    if (!s.ok) throw new Error("setup")
+    let state = s.state as TeamState
+    expect(integrationSyncPending(state)).toBe(true)
+    const seeded = teamDomain.reduce(state, "team.policy.integration_seed", { policy: admin }, sys())
+    if (!seeded.ok) throw new Error(seeded.message)
+    state = seeded.state as TeamState
+    // The admin's TeamPolicy allow list wins; require_org_admin is copied.
+    expect(state.policy?.values["github.repoAllowList"]).toEqual({ value: ["acme/web"], mode: "enforced" })
+    expect(state.policy?.values["github.requireOrgAdmin"]).toEqual({ value: true, mode: "enforced" })
+    expect(state.policy?.version).toBe(2)
+    expect(integrationSyncPending(state)).toBe(true)
+    const synced = teamDomain.reduce(state, "team.policy.integration_synced", { version: 2, slice_hash: sliceHash(integrationSlice(state.policy!.values)) }, sys())
+    if (!synced.ok) throw new Error(synced.message)
+    state = synced.state as TeamState
+    expect(integrationSyncPending(state)).toBe(false)
+    // An unrelated key does not need a push.
+    const unrelated = run(state, "team.policy.update", { changes: [set("telemetry.level", "full")], expected_version: 2 })
+    if (!unrelated.ok) throw new Error("unrelated")
+    expect(integrationSyncPending(unrelated.state as TeamState)).toBe(false)
+    // Seeding twice changes nothing; members cannot call the system ops.
+    expect(teamDomain.reduce(state, "team.policy.integration_seed", { policy: admin }, sys())).toMatchObject({ ok: true, changed: false })
+    expect(teamDomain.authorize!(state, "team.policy.integration_seed", { policy: admin }, { identity: `user:${OWNER}`, user: OWNER, team: TEAM, kind: "session" })).toMatchObject({ code: "auth.forbidden" })
+  })
+})
+
+/**
+ * TeamDO's alarm (scheduled for now by the commit) may already be running in
+ * workerd; run any pending alarm and wait until the condition holds (test-only wait).
+ */
+const settle = async (check: () => Promise<boolean>, stub: DurableObjectStub) => {
+  for (let i = 0; i < 50; i++) {
+    await runDurableObjectAlarm(stub)
+    if (await check()) return
+    await new Promise((r) => setTimeout(r, 20))
+  }
+  throw new Error("TeamDO integration sync did not settle")
+}
+const settleIntegration = (session: string, stub: DurableObjectStub, ok: (v: any) => boolean) =>
+  settle(async () => ok((await call("/v1/read", session, { op: "integration.policy.get", params: {} })).json.value), stub)
+const settleTeamPolicy = (session: string, stub: DurableObjectStub, ok: (p: any) => boolean) =>
+  settle(async () => ok((await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.policy), stub)
+
 describe("team policy over the API (workerd)", () => {
   it("the team owner sets policy with an idempotency key, members read it, retries replay", async () => {
     const session = await sessionToken("stack-policy-owner")
@@ -230,8 +279,7 @@ describe("team policy over the API (workerd)", () => {
     })
     expect(upd.json.ok).toBe(true)
     const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team))
-    // The commit scheduled TeamDO's alarm for now; workerd may already have run it. Run any pending one.
-    await runDurableObjectAlarm(stub)
+    await settleIntegration(session, stub, (v) => v.source === "team_policy")
 
     const after = await call("/v1/read", session, { op: "integration.policy.get", params: {} })
     expect(after.json.value).toMatchObject({
@@ -263,8 +311,8 @@ describe("team policy over the API (workerd)", () => {
     })
     expect(upd.json.ok).toBe(true)
     const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team))
-    await runDurableObjectAlarm(stub)
-    await runDurableObjectAlarm(stub)
+    // Wait until TeamDO has seeded (TeamPolicy version 2 copies the admin's values).
+    await settleTeamPolicy(session, stub, (p) => p.version >= 2)
     const after = await call("/v1/read", session, { op: "integration.policy.get", params: {} })
     expect(after.json.value.github).toMatchObject({ require_org_admin: true, repo_allowlist: ["acme/api"] })
     // TeamPolicy took over the admin's values (copied before the first push).

@@ -3,11 +3,10 @@ import { HostEnroll, HostRemove, type Host, type TeamMember } from "@cmux/protoc
 import { admit, decodeParams, reject } from "./common.ts"
 import { appendAudit, type AuditState } from "./team-audit.ts"
 import { reduceDeviceEnroll, reduceDeviceRelease, reduceTokenCreate, reduceTokenRevoke, type EnrollmentState } from "./team-enrollment.ts"
+import { reduceIntegrationSeed, reduceIntegrationSynced, type IntegrationSyncState } from "./team-integration-sync.ts"
 import { reducePolicyRollback, reducePolicyUpdate } from "./team-policy.ts"
 
-export interface TeamState extends EnrollmentState, AuditState {
-  /** Last policy version ConnectionDO acknowledged (its integration projection). */
-  readonly integration_synced_version?: number
+export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState {
   readonly team: { readonly id: string; readonly kind: "personal" | "stack"; readonly display_name: string } | null
   readonly members: Readonly<Record<string, typeof TeamMember.Type>>
   readonly hosts: Readonly<Record<string, typeof Host.Type>>
@@ -85,12 +84,13 @@ export const teamDomain: Domain<TeamState> = {
           outbox: [{ kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id } }]
         }
       }
+      case "team.policy.integration_seed": {
+        if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
+        return withAudit(reduceIntegrationSeed(state, params, ctx), state.team.id, ctx, op)
+      }
       case "team.policy.integration_synced": {
         if (p.kind !== "system") return reject("auth.forbidden", "internal op")
-        const version = (params as { version?: unknown })?.version
-        if (typeof version !== "number" || !Number.isInteger(version)) return reject("validation.invalid", "version must be an integer")
-        if (version <= (state.integration_synced_version ?? 0)) return { ok: true, state, value: { version }, changed: false }
-        return { ok: true, state: { ...state, integration_synced_version: version }, value: { version } }
+        return reduceIntegrationSynced(state, params)
       }
       case "team.policy.update":
       case "team.policy.rollback":

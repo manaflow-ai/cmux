@@ -3,7 +3,8 @@ import { teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { devicePolicyFor, publicToken } from "./domains/team-enrollment.ts"
-import { currentPolicy, integrationSlice, integrationSyncPending, POLICY_HISTORY_LIMIT, policyAt } from "./domains/team-policy.ts"
+import { integrationSyncPending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
+import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT, policyAt } from "./domains/team-policy.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 export class TeamDO extends OwnerDO<TeamState> {
@@ -66,29 +67,41 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
 
   /**
-   * Pushes the integration slice of the current policy to the team's
-   * ConnectionDO (its enforcement projection), then records the version.
-   * Both steps are idempotent by version, so a crash between them replays.
+   * Seeds TeamPolicy from ConnectionDO's current integration policy once,
+   * then pushes the integration slice only when it changed, and records the
+   * acknowledged slice. Every step is idempotent (seed once, push keyed by
+   * version, synced by version and hash), so a crash between steps replays.
    */
   protected override async onWake(now: number): Promise<void> {
     const engine = this.boundEngine
-    const state = engine?.currentState
+    let state = engine?.currentState
     if (!state?.team || !integrationSyncPending(state)) return
     if (this.syncRetryAt !== null && now < this.syncRetryAt) return
-    const policy = currentPolicy(state)
     const team = state.team.id
     const stub = this.env.CONNECTION_DO.get(this.env.CONNECTION_DO.idFromName(team))
     try {
-      const r = (await stub.applyTeamPolicy(team, { policy: integrationSlice(policy.values), applied_by: `team_policy:v${policy.version}` }, `team-policy:${team}:v${policy.version}`)) as { ok: boolean; message?: string }
+      if (!state.integration_seeded) {
+        const existing = (await stub.integrationPolicy(team)) as IntegrationFields
+        this.submitSystem("team.policy.integration_seed", { policy: existing }, `integration-seed:${team}`)
+        state = this.boundEngine!.currentState
+        if (!integrationSyncPending(state)) return this.resetSyncBackoff()
+      }
+      const policy = currentPolicy(state)
+      const slice = integrationSlice(policy.values)
+      const r = (await stub.applyTeamPolicy(team, { policy: slice, applied_by: `team_policy:v${policy.version}` }, `team-policy:${team}:v${policy.version}`)) as { ok: boolean; message?: string }
       if (!r.ok) throw new Error(r.message ?? "refused")
+      this.submitSystem("team.policy.integration_synced", { version: policy.version, slice_hash: sliceHash(slice) }, `integration-synced:${policy.version}`)
+      this.resetSyncBackoff()
     } catch (e) {
       this.syncAttempts += 1
       this.syncRetryAt = now + Math.min(5 * 60_000, 1000 * 2 ** this.syncAttempts)
       throw e
     }
+  }
+
+  private resetSyncBackoff() {
     this.syncAttempts = 0
     this.syncRetryAt = null
-    this.submitSystem("team.policy.integration_synced", { version: policy.version }, `integration-synced:${policy.version}`)
   }
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean {

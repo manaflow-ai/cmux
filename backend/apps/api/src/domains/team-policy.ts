@@ -137,7 +137,3 @@ export const integrationSlice = (values: PolicyValues) => {
     }
   }
 }
-
-/** Whether TeamDO still owes ConnectionDO the current policy version. */
-export const integrationSyncPending = (state: PolicyState & { readonly integration_synced_version?: number }): boolean =>
-  currentPolicy(state).version > (state.integration_synced_version ?? 0)
