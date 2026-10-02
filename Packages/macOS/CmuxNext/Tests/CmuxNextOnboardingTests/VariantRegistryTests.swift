@@ -60,12 +60,34 @@ import Testing
         return found
     }
 
-    @Test func galleryBuildsEveryTileAndStoresPicks() {
-        let picks = MockOnboardingServices()
-        let gallery = OnboardingGalleryController(picks: picks, makeServices: { self.sample() }, previewFlow: {})
-        let variant = OnboardingVariantRegistry.variants(for: .theme).last!
-        gallery.use(variant)
-        #expect(picks.variantIDs[.theme] == variant.id)
+    @Test func galleryKeysPickNotesAndSummaryPersist() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "gallery-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = GalleryReviewStore(url: url)
+        let gallery = OnboardingGalleryController(store: store, makeServices: { _ in self.sample() }, previewAppearance: { _ in })
+        gallery.handle(.nextVariant)
+        gallery.handle(.nextVariant)
+        gallery.handle(.pick)
+        gallery.handle(.nextScreen)
+        gallery.handle(.jump(0))
+        gallery.handle(.pick)
+        gallery.handle(.compare)
+        gallery.handle(.compare)
+        let browser = OnboardingVariantRegistry.variants(for: .defaultBrowser)[2].id
+        store.update { $0.notes[browser] = "too much copy" }
+        #expect(store.pick(for: .defaultBrowser) == browser)
+        #expect(store.pick(for: .importData) == OnboardingVariantRegistry.variants(for: .importData)[0].id)
+        let summary = GalleryReviewStore.summary(store.review)
+        #expect(summary.hasPrefix("Default Browser: C (note: too much copy) · Import: A · Theme: —"))
+        // A relaunch finds position, picks and notes.
+        let reloaded = GalleryReviewStore(url: url)
+        #expect(reloaded.review == store.review)
+        #expect(reloaded.review.step == OnboardingModel.Step.importData.rawValue)
         gallery.window?.close()
+    }
+
+    @Test func galleryKeyNames() {
+        #expect(GalleryKey(name: "right") == .nextVariant && GalleryKey(name: "3") == .jump(2) && GalleryKey(name: "space") == .compare)
+        #expect(GalleryKey(name: "0") == nil && GalleryKey(name: "x") == nil)
     }
 }

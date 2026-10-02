@@ -12,9 +12,9 @@ import CmuxNextSettings
 /// `action`: `open` (`step`), `state`, `next`, `back`, `skip`, `close`,
 /// `theme` (`name`, empty for the Ghostty theme), `detect`,
 /// `toggle_profile` (`id`), `toggle_kind` (`kind`), `import`,
-/// `cancel_import`, `claim` (`claim`), `gallery` (opens it), `use_variant`
-/// (`id`), `open_variant` (`id`; returns `variant_window`), `gallery_row`
-/// (`step`; scrolls the gallery to it), `variants`.
+/// `cancel_import`, `claim` (`claim`), `gallery` (opens the review tool),
+/// `gallery_key` (`key`: left, right, up, down, 1-9, p, space, t, return,
+/// copy, escape), `gallery_state`.
 @MainActor
 enum DebugOnboarding {
     static func run(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
@@ -80,28 +80,22 @@ enum DebugOnboarding {
 
     /// Gallery actions; nil when `action` is not one.
     private static func gallery(_ action: String, _ params: [String: JSONValue], _ onboarding: OnboardingService) -> JSONValue? {
-        let variant = params["id"]?.stringValue.flatMap(OnboardingVariantRegistry.variant(id:))
         switch action {
         case "gallery": onboarding.showGallery()
-        case "use_variant":
-            if let variant { onboarding.gallery?.use(variant) ?? AppOnboardingServices(owner: onboarding).setVariantID(variant.id, for: variant.step) }
-        case "open_variant":
-            if let variant, let window = onboarding.gallery?.openFullSize(variant) {
-                return .object(["variant_window": .number(Double(window.windowNumber))])
-            }
-        case "gallery_row":
-            if let step = params["step"]?.stringValue.flatMap(OnboardingModel.Step.init(rawValue:)) { onboarding.gallery?.scroll(to: step) }
-        case "variants": break
+        case "gallery_key":
+            if let key = params["key"]?.stringValue.flatMap(GalleryKey.init(name:)) { onboarding.gallery?.handle(key) }
+        case "gallery_state": break
         default: return nil
         }
-        let picks = AppOnboardingServices(owner: onboarding)
+        let store = onboarding.galleryStore
         return .object([
             "gallery_window": .number(Double(onboarding.gallery?.window?.windowNumber ?? 0)),
+            "file": .string(store.url.path),
+            "step": .string(store.review.step),
+            "index": .number(Double(store.review.index)),
+            "summary": .string(GalleryReviewStore.summary(store.review)),
             "variants": .object(Dictionary(uniqueKeysWithValues: OnboardingModel.Step.allCases.map { step in
-                (step.rawValue, JSONValue.object([
-                    "all": .array(OnboardingVariantRegistry.variants(for: step).map { .string($0.id) }),
-                    "chosen": .string(OnboardingVariantRegistry.chosen(for: step, id: picks.variantID(for: step)).id),
-                ]))
+                (step.rawValue, JSONValue.array(OnboardingVariantRegistry.variants(for: step).map { .string($0.id) }))
             })),
         ])
     }

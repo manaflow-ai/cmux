@@ -34,7 +34,8 @@ import Testing
             write(content, variant.id)
             window.close()
         }
-        let gallery = OnboardingGalleryController(picks: MockOnboardingServices(), makeServices: { self.sample() }, previewFlow: {})
+        let store = GalleryReviewStore(url: FileManager.default.temporaryDirectory.appending(path: "render-\(UUID().uuidString).json"))
+        let gallery = OnboardingGalleryController(store: store, makeServices: { _ in self.sample() }, previewAppearance: { _ in })
         guard let window = gallery.window, let content = window.contentView else { return }
         window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
         window.orderFrontRegardless()

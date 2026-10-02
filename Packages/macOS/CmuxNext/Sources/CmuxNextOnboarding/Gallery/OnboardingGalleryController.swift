@@ -1,37 +1,51 @@
 public import AppKit
 import CmuxNextDesign
 
-/// The onboarding gallery (DEBUG tool): every screen as a row, each with a
-/// grid of its variants rendered live at a uniform scale. Open shows one
-/// full size; Use This stores it as the flow's pick for that screen;
-/// Preview Flow runs the real onboarding with the picks.
+/// The onboarding gallery (DEBUG review tool), one window: screens on the
+/// left, the current screen's variants one at a time at real size in the
+/// center (or two side by side in Compare), and a bottom bar with the
+/// variant's letter, a note, Pick, Copy Feedback and Run Flow. Keyboard
+/// first; position, picks and notes persist in `GalleryReviewStore`.
 public final class OnboardingGalleryController: NSWindowController, NSWindowDelegate {
-    /// Fresh sample services per thumbnail and preview: sample browsers and
-    /// themes, no settings writes; the accounts view is the real one (the
-    /// thumbnails are inert, a full-size preview acts on real accounts).
-    private let makeServices: @MainActor () -> any OnboardingServices
-    private let picks: any OnboardingServices
-    private let previewFlow: () -> Void
-    private var rows: [OnboardingGalleryRow] = []
-    private var previews: [OnboardingWindowController] = []
+    public let store: GalleryReviewStore
+    /// Fresh sample services (sample browsers and themes; the flow's picks
+    /// come from the store). No settings writes.
+    private let makeServices: @MainActor (GalleryReviewStore) -> any OnboardingServices
+    /// Switches the app's theme preview: true dark, false light, nil back to normal.
+    private let previewAppearance: (Bool?) -> Void
+    let sidebarView = GallerySidebar()
+    let stageView = GalleryStage()
+    var barView: GalleryBottomBar!
+    private(set) var isComparing = false
+    private var runningFlow = false {
+        didSet { (window as? GalleryWindow)?.flowRunning = runningFlow }
+    }
+    var runningFlowLabel: String? { runningFlow ? "Running the flow with your picks · Esc returns" : nil }
     public var onClose: (() -> Void)?
 
-    /// `picks` stores the chosen variants (the app's services); `makeServices`
-    /// gives sample data for the thumbnails and full-size previews.
-    public init(picks: any OnboardingServices, makeServices: @escaping @MainActor () -> any OnboardingServices, previewFlow: @escaping () -> Void) {
+    public init(store: GalleryReviewStore, makeServices: @escaping @MainActor (GalleryReviewStore) -> any OnboardingServices,
+                previewAppearance: @escaping (Bool?) -> Void) {
+        self.store = store
         self.makeServices = makeServices
-        self.picks = picks
-        self.previewFlow = previewFlow
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1240, height: 860),
-                              styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
-        window.title = "Onboarding Gallery"
+        self.previewAppearance = previewAppearance
+        let window = GalleryWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 760),
+                                   styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window.title = "Onboarding Review"
         window.isReleasedWhenClosed = false
+        window.minSize = NSSize(width: 1000, height: 700)
         window.identifier = NSUserInterfaceItemIdentifier("cmux.onboarding.gallery")
         window.backgroundColor = Palette.windowBackground
         ThemeStore.shared.adopt(window)
         super.init(window: window)
         window.delegate = self
+        barView = GalleryBottomBar(target: self, pick: #selector(pickPressed), compare: #selector(comparePressed),
+                               copy: #selector(copyPressed), run: #selector(runPressed))
+        barView.onNote = { [weak self] text in self?.setNote(text) }
+        sidebarView.onSelect = { [weak self] step in self?.go(step: step, index: 0) }
         window.contentView = makeContent()
+        (window as GalleryWindow).onKey = { [weak self] key in self?.handle(key) ?? false }
+        if let dark = store.review.darkPreview { previewAppearance(dark) }
+        render()
     }
 
     @available(*, unavailable)
@@ -42,67 +56,103 @@ public final class OnboardingGalleryController: NSWindowController, NSWindowDele
         WindowPlacement.present(window)
     }
 
-    /// Opens one variant full size with sample data; returns its window.
-    @discardableResult
-    public func openFullSize(_ variant: any OnboardingScreenVariant.Type) -> NSWindow? {
-        let model = OnboardingModel(services: makeServices(), start: variant.step)
-        let controller = OnboardingWindowController(model: model, variant: variant)
-        controller.onClose = { [weak self, weak controller] in self?.previews.removeAll { $0 === controller } }
-        previews.append(controller)
-        controller.present()
-        return controller.window
-    }
-
-    /// Stores `variant` as the flow's pick for its screen.
-    public func use(_ variant: any OnboardingScreenVariant.Type) {
-        picks.setVariantID(variant.id, for: variant.step)
-        for row in rows { row.refreshPicks() }
-    }
-
-    /// Scrolls the row of `step` to the top of the window (screenshots, debug.onboarding).
-    public func scroll(to step: OnboardingModel.Step) {
-        guard let row = rows.first(where: { $0.step == step }), let clip = row.enclosingScrollView?.contentView else { return }
-        let origin = row.convert(NSPoint(x: 0, y: -12), to: clip.documentView)
-        clip.scroll(to: NSPoint(x: 0, y: max(0, origin.y)))
-        row.enclosingScrollView?.reflectScrolledClipView(clip)
-    }
-
     public func windowWillClose(_ notification: Notification) {
-        for preview in previews { preview.close() }
+        previewAppearance(nil)
         onClose?()
     }
 
-    private func makeContent() -> NSView {
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 32
-        stack.edgeInsets = NSEdgeInsets(top: 24, left: 32, bottom: 32, right: 32)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        let preview = OnboardingControl.button("Preview Flow", prominent: true, target: self, action: #selector(previewPressed))
-        let header = NSStackView(views: [OnboardingLabel.make("Pick one design per screen. Preview Flow runs the real onboarding with your picks.", color: Palette.textSecondary),
-                                         preview])
-        header.spacing = 16
-        stack.addArrangedSubview(header)
-        for step in OnboardingModel.Step.allCases {
-            let row = OnboardingGalleryRow(step: step, gallery: self, picks: picks, makeServices: makeServices)
-            rows.append(row)
-            stack.addArrangedSubview(row)
+    // MARK: State
+
+    var step: OnboardingModel.Step { OnboardingModel.Step(rawValue: store.review.step) ?? OnboardingModel.Step.allCases[0] }
+    var variants: [any OnboardingScreenVariant.Type] { OnboardingVariantRegistry.variants(for: step) }
+    var index: Int { min(max(store.review.index, 0), variants.count - 1) }
+    var variant: any OnboardingScreenVariant.Type { variants[index] }
+
+    public func go(step: OnboardingModel.Step, index: Int) {
+        runningFlow = false
+        store.update {
+            $0.step = step.rawValue
+            $0.index = index
         }
-        let document = FlippedView()
-        document.translatesAutoresizingMaskIntoConstraints = false
-        document.addSubview(stack)
-        let scroll = NSScrollView()
-        scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
-        scroll.documentView = document
-        NSLayoutConstraint.activate([
-            document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
-            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor), stack.trailingAnchor.constraint(equalTo: document.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: document.topAnchor), stack.bottomAnchor.constraint(equalTo: document.bottomAnchor),
-        ])
-        return scroll
+        render()
     }
 
-    @objc private func previewPressed() { previewFlow() }
+    /// The keys, also reachable over the debug socket (`debug.onboarding gallery_key`).
+    @discardableResult
+    public func handle(_ key: GalleryKey) -> Bool {
+        let steps = OnboardingModel.Step.allCases
+        let stepIndex = steps.firstIndex(of: step) ?? 0
+        switch key {
+        case .previousVariant: go(step: step, index: (index - 1 + variants.count) % variants.count)
+        case .nextVariant: go(step: step, index: (index + 1) % variants.count)
+        case .previousScreen: go(step: steps[(stepIndex - 1 + steps.count) % steps.count], index: 0)
+        case .nextScreen: go(step: steps[(stepIndex + 1) % steps.count], index: 0)
+        case .jump(let number): if number < variants.count { go(step: step, index: number) }
+        case .pick: pick()
+        case .compare: toggleCompare()
+        case .appearance: toggleAppearance()
+        case .runFlow: runFlow()
+        case .copy: copyFeedback()
+        case .close: if runningFlow { go(step: step, index: index) } else { window?.close() }
+        }
+        return true
+    }
+
+    private func pick() {
+        // Read before the update: the closure holds the review exclusively.
+        let (key, id) = (step.rawValue, variant.id)
+        store.update { $0.picks[key] = id }
+        render()
+    }
+
+    private func toggleCompare() {
+        if isComparing {
+            isComparing = false
+        } else {
+            // Compare the current variant with the pinned one (else the pick, else the next).
+            let key = step.rawValue
+            let next = variants[(index + 1) % variants.count].id
+            let other = store.review.pinned[key] ?? store.pick(for: step) ?? next
+            let pinned = other == variant.id && variants.count > 1 ? next : other
+            store.update { $0.pinned[key] = pinned }
+            isComparing = true
+        }
+        render()
+    }
+
+    private func toggleAppearance() {
+        let dark = !(store.review.darkPreview ?? (NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua))
+        store.update { $0.darkPreview = dark }
+        previewAppearance(dark)
+        render()
+    }
+
+    private func runFlow() {
+        runningFlow = true
+        isComparing = false
+        stageView.runFlow(services: makeServices(store)) { [weak self] in
+            guard let self else { return }
+            go(step: step, index: index)
+        }
+        renderBar()
+    }
+
+    private func setNote(_ text: String) {
+        let id = variant.id
+        store.update { $0.notes[id] = text }
+    }
+
+    /// Copies the compact summary ("Theme: C (note: …) · Import: A …").
+    public func copyFeedback() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(GalleryReviewStore.summary(store.review), forType: .string)
+        barView.detail.stringValue = "Feedback copied. Also saved to \(store.url.path)"
+    }
+
+    func sampleServices() -> any OnboardingServices { makeServices(store) }
+
+    @objc private func pickPressed() { pick() }
+    @objc private func comparePressed() { toggleCompare() }
+    @objc private func copyPressed() { copyFeedback() }
+    @objc private func runPressed() { runFlow() }
 }

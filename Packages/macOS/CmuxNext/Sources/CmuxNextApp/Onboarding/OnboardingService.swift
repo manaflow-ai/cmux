@@ -34,21 +34,30 @@ final class OnboardingService {
 
     var isShowing: Bool { controller != nil }
     private(set) var gallery: OnboardingGalleryController?
+    /// The review tool's state: picks, notes, position
+    /// (`~/Library/Application Support/cmux/<tag>/onboarding-feedback.json`).
+    private(set) lazy var galleryStore = GalleryReviewStore(url: Self.galleryFile(tag: services.environment.tag))
 
-    /// The onboarding gallery (DEBUG builds): every screen's variants, live.
+    static func galleryFile(tag: String?) -> URL {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return support.appending(path: "cmux").appending(path: tag ?? "default").appending(path: "onboarding-feedback.json")
+    }
+
+    /// The onboarding review tool (DEBUG builds): one window, every screen's variants.
     func showGallery() {
         if let gallery { return gallery.present() }
         let picks = AppOnboardingServices(owner: self)
-        // task-owner: one-shot theme file load for the thumbnails
+        // task-owner: one-shot theme file load for the samples
         Task { [weak self] in
             let themes = await picks.loadThemeChoices()
             guard let self, gallery == nil else { return }
-            let gallery = OnboardingGalleryController(picks: picks, makeServices: { [weak self] in
-                let sample = MockOnboardingServices.gallerySample(themes: themes,
-                                                                  accountsView: self.map { AppOnboardingServices(owner: $0).makeAccountsStepView() } ?? nil)
+            let accounts: () -> NSView? = { [weak self] in self.map { AppOnboardingServices(owner: $0).makeAccountsStepView() } ?? nil }
+            let gallery = OnboardingGalleryController(store: galleryStore, makeServices: { store in
+                let sample = MockOnboardingServices.gallerySample(themes: themes, accountsView: accounts())
                 sample.ghosttyTheme = ThemeStore.shared.input
+                for step in OnboardingModel.Step.allCases { sample.variantIDs[step] = store.pick(for: step) }
                 return sample
-            }, previewFlow: { [weak self] in self?.show() })
+            }, previewAppearance: { [weak self] dark in self?.services.terminalTheme.preview(dark: dark) })
             gallery.onClose = { [weak self] in self?.gallery = nil }
             self.gallery = gallery
             gallery.present()

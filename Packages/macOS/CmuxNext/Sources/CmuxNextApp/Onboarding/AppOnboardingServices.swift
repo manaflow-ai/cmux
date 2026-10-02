@@ -77,26 +77,19 @@ final class AppOnboardingServices: OnboardingServices {
         NSHostingView(rootView: AccountsStepView(model: services.accounts.model, palette: .app))
     }
 
-    /// cmux.json `debug.onboardingVariants.<step>` (set from the gallery).
-    static func variantPath(_ step: OnboardingModel.Step) -> [String] { ["debug", "onboardingVariants", step.rawValue] }
-
-    /// DEBUG builds only: a Release first run always uses each screen's
-    /// default (a gallery pick in a tagged build must not change it).
+    /// The review tool's pick (DEBUG builds only): a Release first run
+    /// always uses each screen's default. Picks live in the review file,
+    /// never in cmux.json.
     func variantID(for step: OnboardingModel.Step) -> String? {
         #if DEBUG
-        services.settings?.snapshot.root.value(at: Self.variantPath(step))?.stringValue
+        owner.galleryStore.pick(for: step)
         #else
         nil
         #endif
     }
 
     func setVariantID(_ id: String?, for step: OnboardingModel.Step) {
-        guard let settings = services.settings else { return }
-        let path = Self.variantPath(step)
-        // task-owner: one cmux.json write
-        Task {
-            if let id { try? await settings.set(.string(id), at: path) } else { try? await settings.file.remove(path) }
-        }
+        owner.galleryStore.update { $0.picks[step.rawValue] = id }
     }
 
     func onboardingDidEnd(completed: Bool) {
