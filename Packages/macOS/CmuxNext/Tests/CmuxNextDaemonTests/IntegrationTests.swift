@@ -161,8 +161,15 @@ struct IntegrationTests {
     }
 
     /// A Finder launch hands the app launchd's minimal PATH. The launcher
-    /// captures the login-shell env and starts the daemon with it, so shells
-    /// in daemon terminals see the user's PATH.
+    /// starts the daemon with the login-shell env and the connection sends
+    /// the same env with each terminal, so shells in daemon terminals see
+    /// the user's PATH.
+    ///
+    /// The login env is injected (`LauncherTests` covers the real capture),
+    /// and its shell is `/bin/sh`, which reads no rc file here. A zsh would
+    /// read the runner's `~/.zshenv`, which can set PATH outright (the
+    /// cmuxs-mac-mini-3 runner's does), and print that instead of the PATH
+    /// the daemon gave it. The `HOME` below has such a `.zshenv`.
     @Test func finderLaunchedDaemonGivesTerminalsTheLoginPath() async throws {
         let binary = try #require(RealBinary.url)
         let root = URL(fileURLWithPath: "/tmp/cnd-it-\(UUID().uuidString.prefix(8).lowercased())")
@@ -171,22 +178,25 @@ struct IntegrationTests {
         let process = ProcessInfo.processInfo.environment
         var finder: [String: String] = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/zsh"]
         for key in ["USER", "LOGNAME", "TMPDIR"] { finder[key] = process[key] }
-        // Reproduces the cmuxs-mac-mini-3 runner, whose ~/.zshenv sets PATH
-        // outright: every zsh, login or not, starts from that PATH.
         let home = root.appendingPathComponent("home")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         try Data("export PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\n".utf8)
             .write(to: home.appendingPathComponent(".zshenv"))
         finder["HOME"] = home.path
-        let login = try #require(await LoginEnvironment.shared.capture(base: finder, timeout: .seconds(15)))
-        let loginPath = try #require(login["PATH"])
-        try #require(loginPath != finder["PATH"], "login PATH equals launchd PATH; nothing to verify on this machine")
+        // The first entry exists only in the login env, so seeing it proves
+        // the terminal got that env rather than the Finder launch's.
+        let loginPath = "\(root.appendingPathComponent("login-bin").path):/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        let login = ["PATH": loginPath, "SHELL": "/bin/sh", "HOME": home.path]
         let environment = LoginEnvironment.shared.daemonEnvironment(login: login, base: finder, overrides: [:])
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
             environment: { environment })
         let ensured = try await launcher.ensure()
-        let connection = DaemonConnection(endpointProvider: launcher.endpointProvider)
+        // The app's provider, fed the same login env as the launcher (the
+        // default one reads the process-wide capture of the test runner's env).
+        let connection = DaemonConnection(
+            configuration: .init(terminalEnvironment: TerminalEnvironment.instance.shared(base: finder, login: { login })),
+            endpointProvider: launcher.endpointProvider)
         do {
             let identity = try await connection.start()
             let workspace = try await connection.createWorkspace(name: "path")
