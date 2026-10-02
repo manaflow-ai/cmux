@@ -142,6 +142,21 @@ describe("acpmux composer slash menu", () => {
     expect(textarea().value).toBe("/review ");
   });
 
+  test("+ opens the command menu ahead of a draft, and only when the agent has commands", async () => {
+    await render(snapshot());
+    expect(dom.window.document.querySelector(".acpmux-composer-plus")).toBeNull();
+    await render(snapshot(commands));
+    await type("look at main");
+    await act(async () => (dom.window.document.querySelector(".acpmux-composer-plus") as HTMLButtonElement).click());
+    await settle();
+    expect(textarea().value).toBe("/ look at main");
+    expect(rows()).toEqual(["/compact", "/review", "/pr-comments"]);
+    await key("ArrowDown");
+    await key("Enter");
+    expect(textarea().value).toBe("/review look at main");
+    expect(sent).toEqual([]);
+  });
+
   test("submitting sends the trimmed prompt and clears the box", async () => {
     await render(snapshot(commands));
     await type("  /review main  ");

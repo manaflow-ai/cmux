@@ -148,5 +148,6 @@ function Icon({ children, size = 16 }: { children: React.ReactNode; size?: numbe
 export const ShieldIcon = () => <Icon><path d="M8 1.9 13 3.7v4.1c0 3.1-2.3 5.3-5 6.3-2.7-1-5-3.2-5-6.3V3.7Z" /><path d="M8 5.2v3.3" /><circle cx="8" cy="10.9" r=".35" fill="currentColor" /></Icon>;
 export const ChevronIcon = () => <Icon size={14}><path d="M4.6 6.3 8 9.6l3.4-3.3" /></Icon>;
 export const CheckIcon = () => <Icon><path d="M3 8.6 6.3 12 13 4.5" /></Icon>;
+export const PlusIcon = () => <Icon><path d="M8 2.75v10.5M2.75 8h10.5" /></Icon>;
 export const ArrowUpIcon = () => <Icon><path d="M8 13.4V2.8M3.4 7.3 8 2.7l4.6 4.6" /></Icon>;
 export const StopIcon = () => <svg className="acpmux-icon" width={16} height={16} viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="4.5" y="4.5" width="7" height="7" rx="1.5" fill="currentColor" /></svg>;
