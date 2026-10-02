@@ -253,7 +253,8 @@ final class SidebarBridge {
         let registry = services.registry
         switch target {
         case .workspaces(let ids):
-            guard let first = ids.first else { return nil }
+            // A placeholder row is no workspace yet: no menu, not one that does nothing.
+            guard let first = ids.first, !ids.contains(where: { model.workspace($0)?.rowState == .placeholder }) else { return nil }
             return registry.makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: first.rawValue))
         case .group(let id):
             return registry.makeContextMenu(for: .workspaceGroup, target: ActionTargetRef(kind: .workspaceGroup, id: id.rawValue))
