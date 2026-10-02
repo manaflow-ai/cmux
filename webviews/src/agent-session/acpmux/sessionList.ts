@@ -118,11 +118,15 @@ function byRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
 }
 
 /** Sessions under one header per folder (a cloud-only folder per machine). Groups follow their most recent session; sessions stay newest first. */
-export function groupByProject(sessions: AcpmuxSessionEntry[]): SessionGroup[] {
+export function groupByProject(
+  sessions: AcpmuxSessionEntry[],
+  // Every session, pinned ones too, so pinning a local session doesn't regroup its cloud siblings.
+  all: AcpmuxSessionEntry[] = sessions,
+): SessionGroup[] {
   const folder = (session: AcpmuxSessionEntry) => (session.cwd ?? "").replace(/\/+$/, "");
   // A cloud session joins the local project at the same path; otherwise its folder is only
   // known on its machine, so `/workspace` on two machines stays two projects.
-  const local = new Set(sessions.filter((session) => !cloudHost(session)).map(folder));
+  const local = new Set(all.filter((session) => !cloudHost(session)).map(folder));
   const groups = new Map<string, SessionGroup>();
   for (const session of byRecency(sessions)) {
     const cwd = folder(session);
@@ -172,7 +176,10 @@ export function sidebarSections(sessions: AcpmuxSessionEntry[]): {
 } {
   return {
     pinned: byRecency(sessions.filter((session) => session.pinned)),
-    groups: groupByProject(sessions.filter((session) => !session.pinned)),
+    groups: groupByProject(
+      sessions.filter((session) => !session.pinned),
+      sessions,
+    ),
   };
 }
 

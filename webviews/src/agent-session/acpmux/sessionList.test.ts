@@ -218,4 +218,14 @@ describe("sections", () => {
     });
     expect(sessionPlace({ sessionId: "c", host: "This Mac", hostKind: "local" })).toBeUndefined();
   });
+  test("pinning the local session at a folder keeps its cloud sessions in one project", () => {
+    const { groups } = sidebarSections([
+      { sessionId: "l", cwd: "/src/web", hostKind: "local", pinned: true, updatedAt: 3 },
+      { sessionId: "e", cwd: "/src/web/", host: "elk", hostKind: "cloud", updatedAt: 2 },
+      { sessionId: "b", cwd: "/src/web", host: "butte", hostKind: "cloud", updatedAt: 1 },
+    ]);
+    expect(
+      groups.map((group) => [group.label, group.host, group.sessions.map((session) => session.sessionId)]),
+    ).toEqual([["web", undefined, ["e", "b"]]]);
+  });
 });
