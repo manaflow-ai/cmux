@@ -97,37 +97,60 @@ fn offline_after_30s_needs_link_and_route_down() {
 
 #[test]
 fn disk_thresholds_and_hysteresis() {
+    // A 50 GiB disk: the percent thresholds bind (10% = 5 GiB, 5% = 2.5 GiB
+    // is above the 2 GiB byte threshold, so critical binds at 2 GiB).
     let mut f = Facts::healthy(hid("host_h"), Platform::Linux, InstallMode::System);
-    let total = 1000 * GIB;
-    let at = |pct_tenths: u64| {
-        Some(DiskFacts { free_bytes: total * pct_tenths / 1000, total_bytes: total })
+    let total = 50 * GIB;
+    let at = |free_tenths_gib: u64| {
+        Some(DiskFacts { free_bytes: free_tenths_gib * GIB / 10, total_bytes: total })
     };
-    f.disk = at(95); // 9.5%
+    f.disk = at(45); // 4.5 GiB = 9%
     let (s, p) = reduce(&AlertSet::default(), &f, 0);
     assert_eq!(notify(&p[0]), ("server:host_h:disk.low", Severity::Warning));
     let Post::Notify { fixes, .. } = &p[0] else { unreachable!() };
     assert!(fixes.is_empty(), "no storage pane on Linux");
-    f.disk = at(110); // 11%: below the 12% clear line, still warning
+    f.disk = at(55); // 11%: below the 12% clear line, still warning
     let (s, p) = reduce(&s, &f, 1);
     assert!(p.is_empty());
-    f.disk = at(40); // 4%: critical
+    f.disk = at(22); // 2.2 GiB = 4.4%: under 5% but not under 2 GiB, still warning
     let (s, p) = reduce(&s, &f, 2);
-    assert_eq!(notify(&p[0]).1, Severity::Critical);
-    f.disk = at(60); // 6%: still critical until 7%
-    let (s, p) = reduce(&s, &f, 3);
     assert!(p.is_empty());
-    f.disk = at(70); // 7%: back to warning
+    f.disk = at(15); // 1.5 GiB: critical
+    let (s, p) = reduce(&s, &f, 3);
+    assert_eq!(notify(&p[0]).1, Severity::Critical);
+    f.disk = at(30); // 6% and 3 GiB: still critical until 7% or 4 GiB
     let (s, p) = reduce(&s, &f, 4);
-    assert_eq!(notify(&p[0]).1, Severity::Warning);
-    f.disk = at(120); // 12%: clear
+    assert!(p.is_empty());
+    f.disk = at(35); // 7%: back to warning
     let (s, p) = reduce(&s, &f, 5);
+    assert_eq!(notify(&p[0]).1, Severity::Warning);
+    f.disk = at(60); // 12%: clear
+    let (s, p) = reduce(&s, &f, 6);
     assert_eq!(resolved(&p[0]), "server:host_h:disk.low");
     assert!(s.is_empty());
 
-    // Bytes threshold on a small disk: 20% of 8 GiB is under 2 GiB.
+    // A 1 TiB disk: the byte thresholds bind. 5% free is 51 GiB: no alert
+    // (the reason for "and", Lawrence decision 8).
+    let big = 1024 * GIB;
+    f.disk = Some(DiskFacts { free_bytes: big / 20, total_bytes: big });
+    assert!(reduce(&AlertSet::default(), &f, 0).1.is_empty(), "5% of 1 TiB is plenty");
+    f.disk = Some(DiskFacts { free_bytes: 9 * GIB, total_bytes: big });
+    let (s, p) = reduce(&AlertSet::default(), &f, 0);
+    assert_eq!(notify(&p[0]).1, Severity::Warning);
+    f.disk = Some(DiskFacts { free_bytes: 11 * GIB, total_bytes: big });
+    let (s, p) = reduce(&s, &f, 1);
+    assert!(p.is_empty(), "11 GiB is inside the 2 GiB clear margin");
+    f.disk = Some(DiskFacts { free_bytes: 12 * GIB, total_bytes: big });
+    let (_, p) = reduce(&s, &f, 2);
+    assert_eq!(resolved(&p[0]), "server:host_h:disk.low");
+    f.disk = Some(DiskFacts { free_bytes: GIB, total_bytes: big });
+    assert_eq!(notify(&reduce(&AlertSet::default(), &f, 0).1[0]).1, Severity::Critical);
+
+    // A small disk: 1.5 GiB of 8 GiB is 19%, above both percent thresholds.
     f.disk = Some(DiskFacts { free_bytes: GIB + GIB / 2, total_bytes: 8 * GIB });
-    let (_, p) = reduce(&AlertSet::default(), &f, 0);
-    assert_eq!(notify(&p[0]).1, Severity::Critical);
+    assert!(reduce(&AlertSet::default(), &f, 0).1.is_empty(), "19% free");
+    f.disk = Some(DiskFacts { free_bytes: GIB / 4, total_bytes: 8 * GIB });
+    assert_eq!(notify(&reduce(&AlertSet::default(), &f, 0).1[0]).1, Severity::Critical);
     f.disk = Some(DiskFacts { free_bytes: 0, total_bytes: 0 });
     assert!(reduce(&AlertSet::default(), &f, 0).1.is_empty(), "unknown total");
 }
