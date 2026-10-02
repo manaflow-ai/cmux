@@ -66,7 +66,9 @@ const createOrThrow = (request: CreateRequest): ConversationHead => {
     rev: 1,
     created_at: request.now,
     updated_at: request.now,
-    read_cursors: {}
+    read_cursors: {},
+    // The loop guard lives in every head (local and cloud): the Rust owner keeps the same counters.
+    agent_text_streak: 0
   }
   if (!cloud) return base
   if (actor.kind === "address") fail("address_cannot_act")

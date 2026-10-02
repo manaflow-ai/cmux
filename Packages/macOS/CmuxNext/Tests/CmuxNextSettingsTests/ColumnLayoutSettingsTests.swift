@@ -50,6 +50,11 @@ import Testing
         #expect(snapshot.minimumPaneContentSize == CGSize(width: 320, height: 100))
     }
 
+    @Test func floatingIsAnAliasOfOverlay() throws {
+        let snapshot = try parse(#"{"layout": {"stickyColumnMode": "floating"}}"#)
+        #expect(snapshot.stickyColumnMode == .overlay && snapshot.diagnostics.isEmpty)
+    }
+
     @Test func aNumberIsAFixedShare() throws {
         let snapshot = try parse(#"{"layout": {"newColumnWidth": 0.4, "defaultColumnWidth": 0.7}}"#)
         #expect(snapshot.newColumnWidth == .fixed)

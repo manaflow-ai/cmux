@@ -653,9 +653,60 @@ Goal: a person texts the cmux line and talks to their Chief; Chief replies in th
   (`textAuthority`). Never in a text: secrets, tokens, passwords, codes, other people's invite
   secrets; anything that would show one opens the app. Strongest objection: with the full
   default, a SIM swap, a stolen phone or a recycled number gives full Chief power by text.
-  DECISION (not built): require an in-app confirmation for destructive or irreversible actions
-  requested by text. RECOMMEND yes, because it closes the worst case of the full default at
-  the cost of one tap.
+  Decided (Lawrence, 2026-10-02) and built (`mux/text-confirm.ts`): an in-app confirmation for
+  destructive or irreversible actions requested by text.
+  Rule `needsConfirmation(level)` (levels decided 2026-10-02, `mux/confirm-level.ts`), per user
+  (stored in each of the user's MuxDOs):
+  - `strict` (default): text requests that are `destructive`, `money`, `send-external` or
+    `access` (grants, installs, addresses, tokens, team invites, the text channel), or flagged
+    irreversible;
+  - `destructive-only`: `destructive` or flagged irreversible only;
+  - `off`: no confirmation.
+  The old boolean migrates on read (on -> strict, off -> off). `mux.text_confirm.level.set
+  {level}` (owner's app, origin `user`): a safer level applies at once; a riskier level only
+  records a pending change, which `mux.text_confirm.level.confirm {change, approve}` (owner's
+  app, origin `user`, within 5 minutes) applies after a second dialog that states the risk. A
+  text, the chief, a daemon or CLI install, or a non-user origin can neither set nor confirm.
+  `mux.text_confirm.lock {level | null, by: team_policy | mdm, name}` (system principal only,
+  pushed by the Worker from TeamPolicy or MDM) keeps one lock per source; the safest lock wins
+  over the user, clears a pending change and is shown as "Locked by <name>"; unlocking one
+  source never lifts the other, and keeps the level that was in effect. A raise records the
+  level it started from and is refused if the level moved since.
+  Residual risk: both steps of a raise come from the same app with a client-claimed `user`
+  origin, so the second step is a consent dialog and an audit record, not a server-side
+  factor; a stolen unlocked phone with the app open can lower the level in two taps.
+  DECISION: require Face ID or the device passcode for a raise, with a signed assertion the
+  server checks, and notify every owner device and email when the level goes down. RECOMMEND
+  yes. DECISION: the level is stored per chief (one MuxDO per chief) and nothing copies it to
+  the user's other chiefs. RECOMMEND one source in UserDO that every MuxDO reads. Every set, raise request, raise
+  confirm or decline, lock and unlock is an audit row (table `level_audit`, last 100).
+  Settings copy (en; all 21 locales in `home-core/copy/text-confirm-levels.json`, ja written by
+  the agent, other locales `needs_review`):
+  - title: "Confirm risky actions asked by text"
+  - strict: "Strict (recommended): when a text asks Chief to delete something, spend money, send
+    something outside cmux, change who has access or do anything that cannot be undone, you
+    confirm it in the app first."
+  - destructiveOnly: "Destructive only: you confirm deletions and actions that cannot be undone.
+    Chief may spend money, send messages and change access from a text without asking you."
+  - off: "Off: Chief does everything a text asks without asking you."
+  - simSwapRisk (shown under every level): "Anyone who takes control of your phone number (a
+    stolen phone, a SIM swap or a recycled number) can text Chief as you. The less you confirm,
+    the more that person can do."
+  - raiseTitle, raiseBody, raiseConfirm (the second dialog): "Lower your protection?" / "With
+    this level, a person who takes over your phone number can do more as you. Continue only if
+    you accept that risk." / "Lower protection"
+  - lockedBy: "Locked by {name}"
+  MuxDO ops (idempotency keys
+  from the caller): `mux.confirm.request {op, params_hash, risk, summary, source}` by the chief
+  (row in table `confirm`, at most 64 rows and 20 live pending); `mux.confirm.decide {confirm,
+  approve}` only by the owner's session or Mac, iPhone or web app install acting for no agent,
+  with origin `user` (never a text, a daemon or CLI install, the chief or another user);
+  `mux.confirm.consume {confirm, op, params_hash}` by the chief, once, for exactly the approved
+  op and params, all within 15 minutes of the request. Executor contract: the action's
+  idempotency key derives from the confirm id. Gap: the chief writes both the summary and the
+  params hash; the approval card must render the action from the op and params, not only the
+  summary. The adapter posts the request as an `approval` part in the chief
+  conversation and pushes it to the owner's devices.
 
 Decisions (Lawrence, 2026-10-02): T1 a texted Stack sign-in link (above), not reverse
 verification; T2 texts land in the main chief conversation marked `via: sms`; T3 full Chief
@@ -664,8 +715,15 @@ default (`?v=` keeps the others), `?s=square` renders 1200x1200.
 
 ## 20. One op vocabulary: reconciling home-core with `cmux-conversation`
 
-Contract: `backend/packages/home-core/conformance/conversation-cases.json` (64 cases) is the
-op-level contract both owners run; `conversation-cloud-cases.json` (84) covers cloud-only rules.
+Contract: `backend/packages/home-core/conformance/conversation-cases.json` (73 cases) is the
+op-level contract both owners run, and a REQUIRED check for the Rust owner (decision
+2026-10-02). Every head now carries `agent_text_streak` and `last_agent_text_at` (local heads
+too); the cases named "loop guard:" are the work-card bypass that a row window misses.
+`conversation-search-cases.json` (12 cases) is the contract for `conversation-search {query,
+limit 1-100} -> {hits: [{conversation, title, seq, message_id, author, created_at, snippet}]}`
+(read model `searchConversations`: current participants only, `since_join` honored, retracted
+messages never match, case-insensitive substring per code point, newest first, snippets of 120
+characters centered on the match); the cloud `home.search` returns the same hit shape. `conversation-cloud-cases.json` (84) covers cloud-only rules.
 The Rust owner adds a cargo test that replays the local file (on a testbox). Framing stays per
 transport (daemon line commands, `cmux.wire/1` frames); the op names, params, commits and reject
 reasons are the same.
@@ -677,7 +735,7 @@ reasons are the same.
 | 3 | Ledger scope | `op_ledger (conversation, idempotency_key)`: two actors with one key collide | engine ledger per (identity, key) inside the conversation's object | Rust adds the actor to the ledger key (bug: one participant can block another's `client_msg_id`) |
 | 4 | `client_msg_id == idempotency_key` | required | required when the engine passes the key (owner and own intent preview) | Same rule; corpus covers it |
 | 5 | Reject transport | `error_code: conversation_rejected`, reason in the message text | `code` = the reason | Rust adds a structured `reason` field (same 20 local codes); cloud keeps `code` = reason; corpus asserts reasons |
-| 6 | Agent budget | window of the newest 5 rows; text-less work cards fill the window, so two agents can loop forever with work cards | head counters `agent_text_streak`, `last_agent_text_at`, O(1) | Rust adopts the head counters (fixes the loop bypass); the local corpus notes describe the two edge differences until then |
+| 6 | Agent budget | window of the newest 5 rows; text-less work cards fill the window, so two agents can loop forever with work cards | head counters `agent_text_streak`, `last_agent_text_at`, O(1), in every head | Decided: Rust adopts the head counters; the local corpus now requires them |
 | 7 | Typing | `conversation-typing` command, ephemeral event | ConversationDO memory broadcast | One non-op frame `typing {conversation, on}` and event `conversation-typing` on both; never stored, not in the corpus |
 | 8 | Agent identity | `conversation-agent-token` + `conversation-bind` (local token) | principal from the Worker (agent token, grant) | Transport auth, not ops; stays local-only; not in the corpus |
 | 9 | Participants | `user_local`, `user_<id>`, `agent_<name>` | plus `addr_<26>` (kind `address`), roles, `joined_seq`, `left_at` | Local stays a subset; `conversation.promote` maps `user_local` to the account's `user_<id>` |
