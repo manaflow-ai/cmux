@@ -69,6 +69,7 @@ extension VMClient {
                     summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                     summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 }
+                summary.cmuxTuiContract = (dict["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 return summary
             }
             machineCache.record(hasAnyMachine: !vms.isEmpty)
