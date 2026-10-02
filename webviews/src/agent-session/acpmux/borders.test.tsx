@@ -14,6 +14,7 @@ const dom = new JSDOM(
     "./conversation/conversation.css",
     "./changes/changes.css",
     "./composerControls.css",
+    "./composerStates.css",
   ]
     .map(css)
     .join("\n")}</style><div id=root></div>`,
