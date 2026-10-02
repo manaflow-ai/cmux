@@ -117,16 +117,21 @@ function byRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
   return [...sessions].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
 }
 
-/** Sessions under one header per folder. Groups follow their most recent session; sessions stay newest first. */
+/** Sessions under one header per folder (a cloud-only folder per machine). Groups follow their most recent session; sessions stay newest first. */
 export function groupByProject(sessions: AcpmuxSessionEntry[]): SessionGroup[] {
+  const folder = (session: AcpmuxSessionEntry) => (session.cwd ?? "").replace(/\/+$/, "");
+  // A cloud session joins the local project at the same path; otherwise its folder is only
+  // known on its machine, so `/workspace` on two machines stays two projects.
+  const local = new Set(sessions.filter((session) => !cloudHost(session)).map(folder));
   const groups = new Map<string, SessionGroup>();
   for (const session of byRecency(sessions)) {
-    const cwd = (session.cwd ?? "").replace(/\/+$/, "");
-    // One repo is one project, wherever its sessions run; cloud rows carry their own glyph.
-    let group = groups.get(cwd);
+    const cwd = folder(session);
+    const host = cloudHost(session);
+    const key = host && !local.has(cwd) ? `${host}:${cwd}` : cwd;
+    let group = groups.get(key);
     if (!group) {
-      group = { key: cwd, label: projectLabel(cwd), cwd: cwd || undefined, sessions: [] };
-      groups.set(cwd, group);
+      group = { key, label: projectLabel(cwd), cwd: cwd || undefined, sessions: [] };
+      groups.set(key, group);
     }
     group.sessions.push(session);
   }
@@ -134,8 +139,8 @@ export function groupByProject(sessions: AcpmuxSessionEntry[]): SessionGroup[] {
   return [...groups.values()];
 }
 
-/** The cloud machine a session runs on; this Mac is never named. */
-export const cloudHost = (session: AcpmuxSessionEntry) => (session.hostKind === "cloud" ? session.host : undefined);
+/** The remote machine a session runs on. A host not marked local counts as remote; this Mac is never named. */
+export const cloudHost = (session: AcpmuxSessionEntry) => (session.hostKind === "local" ? undefined : session.host);
 
 /** The one cloud machine every session in a group runs on, else undefined. */
 function sharedCloudHost(sessions: AcpmuxSessionEntry[]) {
@@ -144,12 +149,18 @@ function sharedCloudHost(sessions: AcpmuxSessionEntry[]) {
 }
 
 /** Where a row says it runs, beyond its project: a cloud machine, then a worktree, then a branch. */
-export type SessionPlace = { kind: "cloud" | "worktree" | "branch"; label: string } | undefined;
+export type SessionPlace =
+  | {
+      kind: "cloud" | "worktree" | "branch";
+      label: string;
+      /** A cloud row's branch, for its label. */ branch?: string;
+    }
+  | undefined;
 
 export function sessionPlace(session: AcpmuxSessionEntry, groupHost?: string): SessionPlace {
   const host = cloudHost(session);
-  if (host && host !== groupHost) return { kind: "cloud", label: host };
-  if (session.worktree) return { kind: "worktree", label: session.branch ?? session.worktree };
+  if (host && host !== groupHost) return { kind: "cloud", label: host, branch: session.branch };
+  if (session.worktree) return { kind: "worktree", label: session.branch ?? projectLabel(session.worktree) };
   if (session.branch) return { kind: "branch", label: session.branch };
   return undefined;
 }

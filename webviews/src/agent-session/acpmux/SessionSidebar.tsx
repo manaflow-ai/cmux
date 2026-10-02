@@ -148,7 +148,9 @@ const SessionRow = memo(function SessionRow({
   const mark = sessionMark(session, selected);
   const title = session.displayTitle || session.sessionId.slice(0, 8);
   const place = sessionPlace(session, groupHost);
-  const placeLabel = place && `${PLACE_LABELS[place.kind]} ${place.label}`;
+  const placeLabel =
+    place &&
+    `${PLACE_LABELS[place.kind]} ${place.label}${place.branch ? `, ${PLACE_LABELS.branch} ${place.branch}` : ""}`;
   return (
     <li>
       <button

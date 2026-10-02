@@ -5,6 +5,7 @@ import {
   projectLabel,
   sessionEntry,
   sessionMark,
+  sessionPlace,
   sessionTitle,
   sidebarSections,
   visibleSessions,
@@ -183,5 +184,38 @@ describe("sections", () => {
       ["acpmux", undefined, ["a", "b"]],
       ["cloud", "cobalt-butte", ["e", "f"]],
     ]);
+  });
+  test("a cloud-only folder is one project per machine, and a bare host counts as remote", () => {
+    const groups = groupByProject([
+      { sessionId: "a", cwd: "/workspace", host: "elk", hostKind: "cloud", updatedAt: 3 },
+      { sessionId: "b", cwd: "/workspace", host: "butte", updatedAt: 2 },
+      { sessionId: "c", cwd: "/src/web", host: "elk", hostKind: "cloud", updatedAt: 1 },
+      { sessionId: "d", cwd: "/src/web", host: "butte", hostKind: "cloud", updatedAt: 0 },
+      { sessionId: "e", cwd: "/src/web", hostKind: "local", updatedAt: -1 },
+    ]);
+    expect(
+      groups.map((group) => [group.label, group.host, group.sessions.map((session) => session.sessionId)]),
+    ).toEqual([
+      ["workspace", "elk", ["a"]],
+      ["workspace", "butte", ["b"]],
+      ["web", undefined, ["c", "d", "e"]],
+    ]);
+  });
+
+  test("a row's place: the cloud machine with its branch, a worktree's folder, a branch, never this Mac", () => {
+    expect(sessionPlace({ sessionId: "a", host: "elk", hostKind: "cloud", branch: "ci" })).toEqual({
+      kind: "cloud",
+      label: "elk",
+      branch: "ci",
+    });
+    expect(sessionPlace({ sessionId: "a", host: "elk", hostKind: "cloud", branch: "ci" }, "elk")).toEqual({
+      kind: "branch",
+      label: "ci",
+    });
+    expect(sessionPlace({ sessionId: "b", worktree: "~/code/web-worktrees/home/" })).toEqual({
+      kind: "worktree",
+      label: "home",
+    });
+    expect(sessionPlace({ sessionId: "c", host: "This Mac", hostKind: "local" })).toBeUndefined();
   });
 });

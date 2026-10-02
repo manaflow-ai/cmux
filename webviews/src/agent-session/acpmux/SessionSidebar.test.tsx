@@ -157,7 +157,7 @@ test("pinned sessions get their own section, an all-cloud project names its mach
     "worktree",
     undefined,
   ]);
-  expect(row("far").title).toBe("CI\nRuns on hearty-elk");
+  expect(row("far").title).toBe("CI\nRuns on hearty-elk, Branch ci");
   expect(row("tree").getAttribute("aria-label")).toBe("Home, Worktree home");
   await act(async () => root.unmount());
 });
