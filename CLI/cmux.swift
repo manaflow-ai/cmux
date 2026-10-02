@@ -5415,6 +5415,9 @@ struct CMUXCLI {
             commandArgs: commandArgs
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
+        if ["notify", "list-notifications", "dismiss-notification", "mark-notification-read", "open-notification", "clear-notifications"].contains(command) {
+            try validateNotificationCommandArguments(command: command, args: commandArgs)
+        }
         try prepareStandardInputBeforeSocket(command: command, commandArgs: commandArgs)
         let isAuthCommand = ["auth", "login", "logout"].contains(command)
         let authUsage = String(

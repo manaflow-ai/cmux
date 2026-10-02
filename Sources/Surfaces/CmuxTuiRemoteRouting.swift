@@ -31,18 +31,11 @@ enum CmuxTuiRemoteRouting {
         raw?.lowercased() == "agent"
     }
 
-    /// Builds the fork metadata passed to a detached Codex monitor.
+    /// Keeps the app-host test and legacy app-facing alias on the shared package contract.
     static func codexForkMonitorArguments(environment: [String: String]) -> [String] {
-        guard let forkParent = environment["CMUX_AGENT_FORK_PARENT_SESSION_ID"], !forkParent.isEmpty else { return [] }
-        var arguments = ["--fork-parent", forkParent]
-        if let launchID = environment["CMUX_AGENT_FORK_LAUNCH_ID"], !launchID.isEmpty {
-            arguments += ["--fork-launch-id", launchID]
-        }
-        if let ownerPID = environment["CMUX_CODEX_PID"], !ownerPID.isEmpty {
-            arguments += ["--fork-owner-pid", ownerPID]
-        }
-        return arguments
+        CodexForkMonitorArguments().make(environment: environment)
     }
+
 
     static func vmAgentRequestsHelp(_ arguments: [String]) -> Bool {
         let normalized = Array(vmAgentAliasArgs(arguments).prefix { $0 != "--" })
