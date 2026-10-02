@@ -15,6 +15,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Packages/Shared/CmuxHomeCore"),
+        .package(path: "../../Packages/Shared/CmuxFeedPushCore"),
         .package(path: "../../Packages/Shared/CMUXAuthCore"),
         .package(path: "../../Packages/Shared/CMUXMobileCore"),
         .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
@@ -30,6 +31,8 @@ let package = Package(
                 "CmuxHomeUI",
                 "CmuxiOSTerminal",
                 "CmuxiOSDesign",
+                "CmuxiOSPush",
+                .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxPhonePush", package: "CmuxPhonePush"),
             ],
@@ -68,6 +71,15 @@ let package = Package(
         ),
         .target(
             name: "CmuxiOSTerminal",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .target(
+            name: "CmuxiOSPush",
+            dependencies: [
+                .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
+                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
+            ],
+            resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(
