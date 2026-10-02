@@ -41,7 +41,10 @@ struct CodexAutoNamingArgumentsTests {
         let overrides = configOverrides(args)
         #expect(overrides.contains("model_provider=\"subrouter\""))
         #expect(overrides.contains("model=\"gpt-5-codex\""))
-        #expect(overrides.contains("model_providers.subrouter.base_url=\"http://127.0.0.1:31415/v1\""))
+        // With a temporary CODEX_HOME, the provider definition is already
+        // available in its mode-restricted config.toml. Do not duplicate it
+        // on argv, where nested provider values could expose credentials.
+        #expect(!overrides.contains("model_providers.subrouter.base_url=\"http://127.0.0.1:31415/v1\""))
         #expect(!overrides.contains(where: {
             $0.contains("secret") || $0.contains("experimental_bearer_token") || $0.contains("api-secret")
         }))

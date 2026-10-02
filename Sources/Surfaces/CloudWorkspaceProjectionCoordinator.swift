@@ -197,7 +197,13 @@ final class CloudWorkspaceProjectionCoordinator {
                 }
                 let daemonDesired = desired.filter { $0.remoteTabID != nil }
                 if let layout = catalog.cloudWorkspaceLayout(machine: machine, workspaceID: remoteID), !daemonDesired.isEmpty,
-                   Set(daemonDesired).isSubset(of: Set(layout.placements)) {
+                   // Geometry is safe to apply only when the layout document and
+                   // the accepted tab inventory describe exactly the same set.
+                   // A stale/flat document can otherwise contain the current tabs
+                   // plus unconfirmed rows and destructively rewrite the user's
+                   // split tree before the authoritative inventory arrives.
+                   Set(daemonDesired) == Set(layout.placements),
+                   layout.placements.count == daemonDesired.count {
                     let live = catalog.projections.filter { $0.workspaceID == workspaceID && $0.resource.machine == machine }
                     environment.applyLayout(workspaceID, layout, Array(live))
                 }
