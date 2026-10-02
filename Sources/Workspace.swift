@@ -11646,6 +11646,22 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
     // MARK: - Focus Management
 
+    /// Converges the workspace pane selection when a mounted terminal accepts
+    /// user input. Cloud manual-mirror surfaces can receive an input event
+    /// while their portal focus callback is still being rebound; keeping this
+    /// guard at the workspace boundary makes the active pane border and the
+    /// keyboard target follow the same selected workspace.
+    @discardableResult
+    func focusPanelFromTerminalInput(_ panelId: UUID) -> Bool {
+        guard panels[panelId] != nil,
+              (owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id))?.selectedTabId == id,
+              focusedPanelId != panelId else {
+            return false
+        }
+        focusPanel(panelId, trigger: .terminalFirstResponder)
+        return true
+    }
+
     /// Focuses a panel a split just created. `previousHostedView` is the terminal that
     /// had focus before Bonsplit moved it. SwiftUI reparents that view into the new
     /// split, which would trigger onFocus + ghostty_surface_set_focus on it and steal

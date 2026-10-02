@@ -13338,6 +13338,242 @@
           }
         }
       }
+    },
+    "settings.notifications.paneFlashThemeColor.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use the terminal theme foreground for flashes; unread rings stay cmux blue."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwende die Vordergrundfarbe des Terminaldesigns für Blitze; ungelesene Ringe bleiben cmux-blau."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser le premier plan du thème du terminal pour les flashs ; les anneaux non lus restent bleus cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم مقدمة سمة الطرفية للومضات؛ تبقى حلقات عدم القراءة باللون الأزرق لـ cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa el primer plano del tema de la terminal para los destellos; los anillos no leídos siguen siendo azules de cmux."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用終端主題前景色顯示閃爍；未讀環維持 cmux 藍色。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用终端主题前景色显示闪烁；未读环保持 cmux 蓝色。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플래시에 터미널 테마 전경색을 사용하며 읽지 않은 링은 cmux 파란색으로 유지합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フラッシュにターミナルテーマの前景色を使い、未読リングは cmux ブルーのままにします。"
+          }
+        }
+      }
+    },
+    "settings.notifications.paneFlashThemeColor.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Theme Foreground"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vordergrund des Designs verwenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser le premier plan du thème"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام مقدمة السمة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar el primer plano del tema"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用主題前景色"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用主题前景色"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테마 전경색 사용"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テーマの前景色を使う"
+          }
+        }
+      }
+    },
+    "settings.terminal.showJumpToBottomButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jump to Bottom Button"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "زر الانتقال إلى الأسفل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schaltfläche „Zum Ende springen“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Botón Ir al final"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bouton Aller en bas"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「一番下へ移動」ボタン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "맨 아래로 이동 버튼"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“跳到底部”按钮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「跳至底部」按鈕"
+          }
+        }
+      }
+    },
+    "settings.terminal.showJumpToBottomButton.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows a Jump to Bottom button while you scroll a terminal up into its scrollback. Full-screen programs such as vim, less, or an agent's fullscreen mode handle their own scrolling and never show it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض زر الانتقال إلى الأسفل أثناء التمرير لأعلى في سجل الطرفية. البرامج بملء الشاشة مثل vim وless أو وضع ملء الشاشة للوكيل تتولى التمرير بنفسها ولا تعرضه أبدًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt die Schaltfläche „Zum Ende springen“, während du in einem Terminal im Verlauf nach oben scrollst. Vollbildprogramme wie vim, less oder der Vollbildmodus eines Agenten scrollen selbst und zeigen sie nie."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra un botón Ir al final mientras te desplazas hacia arriba en el historial de una terminal. Los programas a pantalla completa como vim, less o el modo de pantalla completa de un agente gestionan su propio desplazamiento y nunca lo muestran."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche un bouton Aller en bas lorsque vous remontez dans l'historique d'un terminal. Les programmes plein écran comme vim, less ou le mode plein écran d'un agent gèrent leur propre défilement et ne l'affichent jamais."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのスクロールバックを上にスクロールしている間、「一番下へ移動」ボタンを表示します。vim、less、エージェントのフルスクリーンモードなどのフルスクリーンプログラムは独自にスクロールを扱うため、表示されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널의 스크롤백을 위로 스크롤하는 동안 맨 아래로 이동 버튼을 표시합니다. vim, less 또는 에이전트의 전체 화면 모드 같은 전체 화면 프로그램은 스크롤을 직접 처리하므로 표시되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在终端中向上滚动回滚内容时显示“跳到底部”按钮。vim、less 或代理的全屏模式等全屏程序会自行处理滚动，永远不会显示此按钮。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在終端機中向上捲動回溯內容時顯示「跳至底部」按鈕。vim、less 或代理的全螢幕模式等全螢幕程式會自行處理捲動，永遠不會顯示此按鈕。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
