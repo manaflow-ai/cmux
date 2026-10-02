@@ -123,8 +123,23 @@ describe("acpmux composer slash menu", () => {
     await render(snapshot(commands));
     await type("/zzz");
     expect(menu()?.textContent).toBe("No matching commands");
+    // Nothing to pick: Enter sends what was typed, as it would a pasted path.
     await key("Enter");
-    expect(textarea().value).toBe("/zzz");
+    expect(sent).toEqual(["/zzz"]);
+    expect(textarea().value).toBe("");
+  });
+
+  test("Enter on a command typed in full sends it unless it takes arguments", async () => {
+    await render(snapshot(commands));
+    await type("/compact");
+    await settle();
+    await key("Enter");
+    expect(sent).toEqual(["/compact"]);
+    await type("/review");
+    await settle();
+    await key("Enter");
+    expect(sent).toEqual(["/compact"]);
+    expect(textarea().value).toBe("/review ");
   });
 
   test("submitting sends the trimmed prompt and clears the box", async () => {

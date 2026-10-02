@@ -31,7 +31,7 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) 
   const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
 
   return <div className="acpmux-chips">
-    {modes.length > 0 && <Picker label={PICKER_LABELS.mode} className={`acpmux-mode${mode && unrestricted(mode.id) ? " acpmux-unrestricted" : ""}`}
+    {modes.length > 0 && <Picker label={PICKER_LABELS.mode} warnUnrestricted className={`acpmux-mode${mode && unrestricted(mode.id) ? " acpmux-unrestricted" : ""}`}
       button={<><ShieldIcon /><span>{mode?.name ?? PICKER_LABELS.mode}</span></>}
       sections={[{ choices: modes, current: mode?.id, onPick: onMode }]} align="start" />}
     <span className="acpmux-chips-spacer" />
@@ -51,22 +51,27 @@ export function unrestricted(modeId: string): boolean {
 
 type Section = { title?: string; choices: Choice[]; current?: string; onPick(id: string): void };
 
-/// A button that opens a menu above the composer. The menu is a listbox with
-/// a check on the current choice; arrows move, Enter or a click picks, Escape
-/// or a click elsewhere closes and returns focus to the button.
-function Picker({ label, className, button, sections, align }: { label: string; className: string; button: React.ReactNode; sections: Section[]; align: "start" | "end" }) {
+/// A button that opens a menu above the composer: a select-only combobox, so
+/// focus stays on the button, which names the active option. Each section is
+/// a group with a check on its current choice; arrows move, Enter, Space or a
+/// click picks, and Escape, a click elsewhere or focus leaving the pane closes.
+function Picker({ label, className, button, sections, align, warnUnrestricted = false }: { label: string; className: string; button: React.ReactNode; sections: Section[]; align: "start" | "end"; warnUnrestricted?: boolean }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const menuId = useId();
   const rows = sections.flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })));
+  // A live update can shrink the list under the highlight.
+  const selected = Math.min(active, Math.max(rows.length - 1, 0));
 
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    const blur = () => setOpen(false);
     document.addEventListener("pointerdown", away);
-    return () => document.removeEventListener("pointerdown", away);
+    window.addEventListener("blur", blur);
+    return () => { document.removeEventListener("pointerdown", away); window.removeEventListener("blur", blur); };
   }, [open]);
 
   const show = () => {
@@ -90,37 +95,46 @@ function Picker({ label, className, button, sections, align }: { label: string; 
     else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
-      setActive((active + step + rows.length) % rows.length);
-    } else if (event.key === "Enter" || event.key === " ") { event.preventDefault(); pick(active); }
+      setActive((selected + step + rows.length) % rows.length);
+    } else if (event.key === "Enter") { event.preventDefault(); pick(selected); }
+    // A button clicks on Space's keyup; pick there and cancel that click, or it would reopen the menu.
+    else if (event.key === " ") event.preventDefault();
     else if (event.key === "Tab") setOpen(false);
+  };
+  const keyUp = (event: React.KeyboardEvent) => {
+    if (open && event.key === " ") { event.preventDefault(); pick(selected); }
   };
 
   let index = -1;
-  // A select-only combobox: focus stays on the button, which names the active option.
-  return <span ref={root} className={`acpmux-picker ${className}`}>
+  return <span ref={root} className={`acpmux-picker ${className}`}
+    onBlur={(event) => { if (open && !root.current?.contains(event.relatedTarget as Node | null)) setOpen(false); }}>
     {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-    <button ref={trigger} type="button" role="combobox" className="acpmux-picker-button" aria-label={label} aria-haspopup="listbox" aria-expanded={open} onKeyDown={keyDown}
-      aria-controls={open ? menuId : undefined} aria-activedescendant={open ? `${menuId}-${active}` : undefined}
-      onClick={() => open ? setOpen(false) : show()}>{button}</button>
+    <button ref={trigger} type="button" role="combobox" className="acpmux-picker-button" aria-label={label} aria-haspopup="listbox" aria-expanded={open}
+      aria-controls={open ? menuId : undefined} aria-activedescendant={open ? `${menuId}-${selected}` : undefined}
+      onKeyDown={keyDown} onKeyUp={keyUp} onClick={() => open ? setOpen(false) : show()}>{button}</button>
     {/* A native select cannot hold descriptions, sections or the Codex look. */}
     {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
     {open && <div className={`acpmux-menu acpmux-menu-${align}`} id={menuId} role="listbox" aria-label={label}>
-      {sections.map((section, s) => <div key={s} className="acpmux-menu-section">
-        {section.title && sections.length > 1 && <div className="acpmux-menu-header">{section.title}</div>}
-        {section.choices.map((choice) => {
-          index += 1;
-          const at = index;
-          const selected = choice.id === section.current;
-          return <div key={choice.id} id={`${menuId}-${at}`} data-value={choice.id}
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-            role="option" tabIndex={-1} aria-selected={selected}
-            className={`acpmux-menu-item${at === active ? " acpmux-menu-active" : ""}${className.includes("acpmux-mode") && unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
-            onMouseMove={() => { if (at !== active) setActive(at); }} onMouseDown={(event) => { event.preventDefault(); pick(at); }}>
-            <span className="acpmux-menu-text"><span className="acpmux-menu-label">{choice.name}</span>{choice.description && <span className="acpmux-menu-description">{choice.description}</span>}</span>
-            {selected && <CheckIcon />}
-          </div>;
-        })}
-      </div>)}
+      {sections.map((section, s) => {
+        const titled = section.title && sections.length > 1;
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+        return <div key={s} className="acpmux-menu-section" role="group" aria-labelledby={titled ? `${menuId}-group-${s}` : undefined} aria-label={titled ? undefined : label}>
+          {titled && <div className="acpmux-menu-header" id={`${menuId}-group-${s}`}>{section.title}</div>}
+          {section.choices.map((choice) => {
+            index += 1;
+            const at = index;
+            const current = choice.id === section.current;
+            return <div key={choice.id} id={`${menuId}-${at}`} data-value={choice.id}
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+              role="option" tabIndex={-1} aria-selected={at === selected} aria-checked={current}
+              className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}${warnUnrestricted && unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
+              onMouseMove={() => { if (at !== selected) setActive(at); }} onMouseDown={(event) => { event.preventDefault(); pick(at); }}>
+              <span className="acpmux-menu-text"><span className="acpmux-menu-label">{choice.name}</span>{choice.description && <span className="acpmux-menu-description">{choice.description}</span>}</span>
+              {current && <CheckIcon />}
+            </div>;
+          })}
+        </div>;
+      })}
     </div>}
   </span>;
 }

@@ -40,7 +40,7 @@ describe("acpmux composer pickers", () => {
     onEffort: (config: string, id: string) => { calls.push(`effort ${config} ${id}`); },
   })));
   const button = (label: string) => doc.querySelector<HTMLButtonElement>(`[aria-label="${label}"].acpmux-picker-button`);
-  const options = () => [...doc.querySelectorAll("[role=option]")].map((option) => `${option.textContent}${option.getAttribute("aria-selected") === "true" ? " *" : ""}`);
+  const options = () => [...doc.querySelectorAll("[role=option]")].map((option) => `${option.textContent}${option.getAttribute("aria-checked") === "true" ? " *" : ""}`);
   const key = async (target: Element, name: string) => act(async () => { target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true })); });
 
   beforeEach(() => { calls = []; root = createRoot(doc.getElementById("root")!); });
@@ -74,6 +74,37 @@ describe("acpmux composer pickers", () => {
     expect(doc.querySelector("[role=listbox]")).toBeNull();
     expect(doc.activeElement).toBe(model);
     expect(calls).toEqual(["effort reasoning_effort medium"]);
+  });
+
+  test("Space picks on keyup without the button's click reopening the menu, and a shrunk list keeps a row highlighted", async () => {
+    await render(snapshot({ configOptions: [effort] }));
+    const model = button("Model")!;
+    await key(model, "ArrowDown");
+    await key(model, "ArrowUp");
+    // A live update drops the effort options while the highlight sits on the last one.
+    await render(snapshot());
+    expect(doc.getElementById(model.getAttribute("aria-activedescendant")!)!.textContent).toBe("6.1 Sol");
+    await key(model, " ");
+    expect(model.getAttribute("aria-expanded")).toBe("true");
+    const up = new dom.window.KeyboardEvent("keyup", { key: " ", bubbles: true, cancelable: true });
+    await act(async () => { model.dispatchEvent(up); });
+    expect(up.defaultPrevented).toBe(true);
+    expect(calls).toEqual(["model sol"]);
+    expect(model.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("the menu closes when the window loses focus", async () => {
+    await render(snapshot());
+    await act(async () => button("Model")!.click());
+    await act(async () => { dom.window.dispatchEvent(new dom.window.Event("blur")); });
+    expect(doc.querySelector("[role=listbox]")).toBeNull();
+  });
+
+  test("each section is a labelled group", async () => {
+    await render(snapshot({ configOptions: [effort] }));
+    await act(async () => button("Model")!.click());
+    const groups = [...doc.querySelectorAll("[role=listbox] > [role=group]")];
+    expect(groups.map((group) => doc.getElementById(group.getAttribute("aria-labelledby")!)!.textContent)).toEqual(["Model", "Effort"]);
   });
 
   test("a click outside closes the menu without picking", async () => {
@@ -136,5 +167,16 @@ describe("acpmux composer send button", () => {
     expect(send().getAttribute("aria-label")).toBe("Stop");
     await act(async () => (send() as HTMLButtonElement).click());
     expect(stops).toBe(1);
+  });
+
+  test("Stop ignores a click that lands right after a send, such as a double-click's second", async () => {
+    await render(snapshot());
+    await act(async () => typeInto(textarea(), "go"));
+    await act(async () => { doc.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+    await render(snapshot({}, true));
+    expect(send().getAttribute("aria-label")).toBe("Stop");
+    await act(async () => (send() as HTMLButtonElement).click());
+    expect(sent).toEqual(["go"]);
+    expect(stops).toBe(0);
   });
 });

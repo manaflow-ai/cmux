@@ -4,6 +4,9 @@ import { ArrowUpIcon, StopIcon } from "./ComposerPickers";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
+/// How long after a send the Stop button that replaces Send ignores clicks.
+const STOP_GUARD_MS = 600;
+
 export const COMPOSER_LABELS = {
   placeholder: "Ask anything",
   prompt: "Prompt",
@@ -38,6 +41,9 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
   const [dismissed, setDismissed] = useState<string | undefined>();
   const textarea = useRef<HTMLTextAreaElement>(null);
   const pendingCaret = useRef<number | undefined>(undefined);
+  // Send becomes Stop in place once the turn starts; a second click of a
+  // double-click, or a click right after Enter, must not cancel the new turn.
+  const sentAt = useRef(0);
   const commands = snapshot.commands;
   const query = slashQuery(text, caret);
   const open = query !== undefined && dismissed !== text;
@@ -64,18 +70,22 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     const prompt = text.trim();
     if (!prompt) return;
     edit("", 0);
+    sentAt.current = Date.now();
     onSend(prompt);
   };
+  const stopTurn = () => { if (Date.now() - sentAt.current > STOP_GUARD_MS) onStop(); };
   const keyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Every key belongs to the input method while it composes, not only Enter.
     if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
-    if (!open) {
-      if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) submit(event);
-      return;
-    }
+    const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    // Enter sends unless it picks a command: with the menu closed, with nothing
+    // to pick (an unknown command or a pasted path), or on a command already
+    // typed in full that takes no arguments.
+    const typedInFull = matches[selected]?.command.name === query && !matches[selected]?.command.hint;
+    if (event.key === "Enter" && plain && (!open || matches.length === 0 || typedInFull)) { submit(event); return; }
+    if (!open) return;
     if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setDismissed(text); return; }
     if (matches.length === 0) return;
-    const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
@@ -100,8 +110,8 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
         onChange={(event) => edit(event.target.value, event.target.selectionStart)} onSelect={track} onKeyDown={keyDown} />
       {accessory}
       {stop
-        ? <button type="button" className="acpmux-send acpmux-cancel" aria-label={COMPOSER_LABELS.stop} title={COMPOSER_LABELS.stop} onClick={onStop}><StopIcon /></button>
-        : <button type="submit" className={`acpmux-send${text.trim() ? " acpmux-send-ready" : ""}`} aria-label={COMPOSER_LABELS.send} title={COMPOSER_LABELS.send}><ArrowUpIcon /></button>}
+        ? <button key="stop" type="button" className="acpmux-send acpmux-cancel" aria-label={COMPOSER_LABELS.stop} title={COMPOSER_LABELS.stop} onClick={stopTurn}><StopIcon /></button>
+        : <button key="send" type="submit" className={`acpmux-send${text.trim() ? " acpmux-send-ready" : ""}`} aria-label={COMPOSER_LABELS.send} title={COMPOSER_LABELS.send}><ArrowUpIcon /></button>}
     </div>
     <div className="acpmux-composer-meta"><Chips snapshot={snapshot} /></div>
   </form>;

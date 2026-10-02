@@ -7,8 +7,9 @@
    src/shell) with Aside's restraint, one rounded bar and the pickers as small muted text
    below it. Every color derives from the theme bridge: Codex's surfaces are its page
    color mixed toward its text by these amounts, so the default dark theme lands near
-   Codex and other themes keep their character. */
-.acpmux-shell{--acpmux-composer-bg:color-mix(in srgb,var(--agent-text) 13%,var(--agent-page-bg));--acpmux-composer-edge:color-mix(in srgb,var(--agent-text) 18%,var(--agent-page-bg));--acpmux-composer-placeholder:color-mix(in srgb,var(--agent-text) 34%,var(--agent-page-bg));--acpmux-composer-dim:color-mix(in srgb,var(--agent-text) 56%,var(--agent-page-bg));--acpmux-menu-bg:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg));--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg));--acpmux-warning:var(--agent-warning,var(--agent-danger))}
+   Codex and other themes keep their character. They mix into the opaque page color
+   (the bridge's accent text) so a translucent window's backdrop never thins them. */
+.acpmux-shell{--acpmux-base:var(--agent-accent-text,var(--agent-page-bg));--acpmux-composer-bg:color-mix(in srgb,var(--agent-text) 13%,var(--acpmux-base));--acpmux-composer-edge:color-mix(in srgb,var(--agent-text) 18%,var(--acpmux-base));--acpmux-composer-placeholder:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base));--acpmux-composer-dim:color-mix(in srgb,var(--agent-text) 56%,var(--acpmux-base));--acpmux-menu-bg:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,var(--acpmux-base));--acpmux-warning:var(--agent-warning,var(--agent-danger))}
 .acpmux-composer{position:relative;padding:0 max(16px,calc((100% - 720px)/2)) 10px;font-family:system-ui,-apple-system,"Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
 .acpmux-composer-box{position:relative;display:flex;align-items:flex-end;gap:4px;min-height:44px;padding:8px;box-sizing:border-box;border-radius:22px;background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge)}
 .acpmux-composer-box button{font:inherit;cursor:pointer}
@@ -18,6 +19,8 @@
 .acpmux-composer-meta button{font:inherit;cursor:pointer}
 .acpmux-chips{flex:1;min-width:0;display:flex;align-items:center;gap:2px}
 .acpmux-chips-spacer{flex:1}
+/* A registry composerChips override that still draws native selects. */
+.acpmux-composer-meta select{height:22px;padding:0 6px;border:0;border-radius:6px;background:none;color:var(--acpmux-composer-dim);font:inherit}
 .acpmux-icon{flex:none;display:block}
 .acpmux-picker{display:flex;min-width:0}
 .acpmux-picker-button{display:flex;align-items:center;gap:4px;min-width:0;height:22px;padding:0 6px;border:0;border-radius:6px;background:none;color:var(--acpmux-composer-dim);white-space:nowrap}
@@ -30,8 +33,8 @@
 .acpmux-model-name{color:inherit}
 .acpmux-model-effort{opacity:.75}
 .acpmux-send{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:var(--acpmux-composer-dim);color:var(--acpmux-composer-bg)}
-.acpmux-send-ready,.acpmux-send.acpmux-cancel{background:var(--agent-text);color:var(--agent-page-bg)}
-.acpmux-menu{font-size:13px;position:absolute;bottom:calc(100% + 6px);z-index:3;min-width:220px;max-width:min(420px,calc(100vw - 32px));max-height:min(360px,50vh);overflow:auto;padding:6px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 10px 30px var(--agent-shadow,rgb(0 0 0/.35));color:var(--agent-text);line-height:18px}
+.acpmux-send-ready,.acpmux-send.acpmux-cancel{background:var(--agent-text);color:var(--acpmux-base)}
+.acpmux-menu{font-size:13px;position:absolute;bottom:calc(100% + 6px);z-index:3;min-width:min(220px,calc(100% - 32px));max-width:min(420px,calc(100% - 32px));max-height:min(360px,50vh);overflow:auto;padding:6px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 10px 30px var(--agent-shadow,rgb(0 0 0/.35));color:var(--agent-text);line-height:18px}
 /* The menus open above the whole composer, aligned with its edges. */
 .acpmux-menu-start{left:max(16px,calc((100% - 720px)/2))}
 .acpmux-menu-end{right:max(16px,calc((100% - 720px)/2))}
