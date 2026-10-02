@@ -450,7 +450,7 @@ struct CloudTerminalReservationKey: Hashable {
 final class CloudTerminalPaneReservation {
     let workspaceID: UUID
     let panelID: UUID
-    let sourcePlacement: CloudTerminalSourcePlacement
+    private(set) var sourcePlacement: CloudTerminalSourcePlacement
     /// An existing terminal's saved target, never the source tab of a new create.
     let attachmentPlacement: SurfaceResourcePlacement?
     let creationReceipt = CloudTerminalCreationReceipt()
@@ -488,6 +488,17 @@ final class CloudTerminalPaneReservation {
     var remoteWorkspaceID: String? { sourcePlacement.remoteWorkspaceID }
     var remoteTabID: String? { sourcePlacement.remoteTabID }
     var elapsed: Duration { ContinuousClock.now - startedAt }
+
+    /// Completes the remote workspace identity after local pane admission.
+    func updateRemoteWorkspaceID(_ id: String) {
+        sourcePlacement = CloudTerminalSourcePlacement(
+            machine: sourcePlacement.machine,
+            resource: sourcePlacement.resource,
+            remoteWorkspaceID: id,
+            remoteTabID: sourcePlacement.remoteTabID,
+            pendingCreation: sourcePlacement.pendingCreation
+        )
+    }
 
     /// Rechecks a saved view after attachment awaits and before any queued input is forwarded.
     func validatedAttachmentPlacement(
