@@ -34,7 +34,8 @@ enum DebugThemes {
     }
 
     /// Every scroll view's edge-fade mask (`ScrollEdgeFade`): its gradient
-    /// locations and frame, to check the fade state from outside.
+    /// locations, its colors' alphas (0 is a faded edge), its orientation
+    /// and frame, to check the fade state from outside.
     private static func edgeFades(in view: NSView) -> [JSONValue] {
         var found: [JSONValue] = []
         if let host = view as? ScrollEdgeFadeView, let mask = host.layer?.mask as? CAGradientLayer {
@@ -44,6 +45,9 @@ enum DebugThemes {
                 "locations": .array((mask.locations ?? []).map { .number($0.doubleValue) }),
                 "height": .number(Double(mask.frame.height)),
                 "flipped": .bool(host.layer?.isGeometryFlipped ?? false),
+                "top_down": .bool(host.layer.map(ScrollEdgeFadeView.rendersTopDown) ?? false),
+                "start_y": .number(Double(mask.startPoint.y)),
+                "alphas": .array(((mask.colors as? [CGColor]) ?? []).map { .number(Double($0.alpha)) }),
             ]))
         }
         for subview in view.subviews { found += edgeFades(in: subview) }

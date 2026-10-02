@@ -58,6 +58,8 @@ public final class TabStripView: NSView {
     let contentView = FlippedView()
     let tabsClip = FlippedView()
     let fadeMask = CAGradientLayer()
+    /// Edges whose fade is shown or fading in (`updateFadeMask`).
+    var fadedEdges: (leading: Bool, trailing: Bool) = (false, false)
     let newTabButton = NewTabButtonView()
     let buttonGroup = TabStripButtonGroupView()
     let hoverCard = TabHoverCardController()

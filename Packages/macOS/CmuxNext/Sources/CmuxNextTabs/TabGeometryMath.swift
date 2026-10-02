@@ -50,9 +50,12 @@ public struct TabScrollMath {
         return clamp(offset, contentWidth: contentWidth, viewportWidth: viewportWidth)
     }
 
-    /// Which edges show a fade for a scroll offset.
+    /// Which edges show a fade for a scroll offset: an edge with more than
+    /// half a point of tabs hidden beyond it. The offset is clamped first,
+    /// so a rubber band past either end never flashes a fade.
     public static func fadedEdges(offset: CGFloat, contentWidth: CGFloat, viewportWidth: CGFloat) -> (leading: Bool, trailing: Bool) {
         let maximum = maxOffset(contentWidth: contentWidth, viewportWidth: viewportWidth)
-        return (offset > 0.5, offset < maximum - 0.5)
+        let clamped = clamp(offset, contentWidth: contentWidth, viewportWidth: viewportWidth)
+        return (clamped > 0.5, clamped < maximum - 0.5)
     }
 }

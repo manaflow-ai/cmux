@@ -42,6 +42,33 @@ import Testing
         #expect(edges(0, flipped: false) == .top)
     }
 
+    @Test func contentInsetsAreNotVisibleArea() {
+        let insets = NSEdgeInsets(top: 30, left: 0, bottom: 20, right: 0)
+        func edges(_ y: CGFloat) -> ScrollEdges {
+            ScrollEdges.hidden(clipBounds: CGRect(x: 0, y: y, width: 100, height: 250), insets: insets, document: document, isFlipped: true)
+        }
+        // At the top the clip's origin is minus the top inset.
+        #expect(edges(-30) == .bottom)
+        #expect(edges(-29) == [.top, .bottom])
+        // At the bottom the last row sits above the bottom inset.
+        #expect(edges(1000 - 250 + 20) == .top)
+        #expect(edges(1000 - 250 + 19) == [.top, .bottom])
+    }
+
+    /// Each layer's geometry flip flips its space relative to its parent.
+    @Test func orientationCombinesEveryAncestorFlip() {
+        let root = CALayer()
+        let parent = CALayer()
+        let host = CALayer()
+        root.addSublayer(parent)
+        parent.addSublayer(host)
+        #expect(!ScrollEdgeFadeView.rendersTopDown(host))
+        parent.isGeometryFlipped = true
+        #expect(ScrollEdgeFadeView.rendersTopDown(host))
+        host.isGeometryFlipped = true
+        #expect(!ScrollEdgeFadeView.rendersTopDown(host))
+    }
+
     /// AppKit lays a view's layer space out like the view's coordinates,
     /// so a plain host inside a flipped sidebar renders bottom-up even
     /// though its own layer is geometry-flipped.
@@ -66,6 +93,7 @@ import Testing
         // bottom-up space of a plain view, whatever its own layer flag.
         #expect(!fade.isFlipped)
         #expect(mask.startPoint.y == 1)
+        #expect(ScrollEdgeFadeView.rendersTopDown(layer) == fade.isFlipped)
     }
 
     @Test func maskFollowsTheScrollPositionAndContentSize() throws {
