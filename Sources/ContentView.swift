@@ -7305,11 +7305,9 @@ struct ContentView: View {
                 (panelContext.panel as? BrowserPanel)?.isOmnibarVisible ?? true
             )
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
+            if panelIsTerminal { Self.setCommandPaletteAgentMessagesContext(panelId: panelId, in: &snapshot) }
             snapshot.setBool(CommandPaletteContextKeys.panelHasPane, workspace.paneId(forPanelId: panelId) != nil)
-            snapshot.setBool(
-                CommandPaletteContextKeys.panelSupportsDeepLinks,
-                true
-            )
+            snapshot.setBool(CommandPaletteContextKeys.panelSupportsDeepLinks, true)
             let allowsAgentContinuation = workspace.allowsAgentContinuation(forPanelId: panelId)
             let fallbackForkableSnapshot = workspace.restoredAgentSnapshotForContinuation(panelId: panelId)
             let forkablePanelKey = Self.commandPaletteForkableAgentPanelKey(
@@ -8453,6 +8451,7 @@ struct ContentView: View {
             )
         )
         contributions.append(contentsOf: Self.commandPaletteTerminalScrollContributions(subtitle: terminalPanelSubtitle))
+        contributions.append(contentsOf: Self.commandPaletteAgentMessagesContributions(subtitle: terminalPanelSubtitle))
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitRight",
@@ -9427,6 +9426,7 @@ struct ContentView: View {
             }
         }
         registerTerminalScrollCommandPaletteHandlers(&registry)
+        registerAgentMessagesCommandPaletteHandlers(&registry)
         registry.register(commandId: "palette.terminalClearScreenKeepScrollback") {
             if !tabManager.clearFocusedTerminalKeepingScrollback() {
                 NSSound.beep()
