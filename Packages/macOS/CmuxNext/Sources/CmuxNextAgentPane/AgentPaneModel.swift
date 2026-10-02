@@ -21,6 +21,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
     /// Opens a changed file the page names; false when it could not.
     @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
+    /// Runs a git read on the session host and returns its JSON result.
+    @ObservationIgnored public var onGit: (@MainActor (AgentPaneGitRequest) async throws -> Data)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
     /// What a new chat inherits from the tab it was opened from.
@@ -71,6 +73,12 @@ public final class AgentPaneModel {
                 return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
             }
             return AgentPaneReply.success()
+        case .git(let git):
+            guard let onGit, let data = try? await onGit(git),
+                  let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
+                return AgentPaneReply.failure(code: "git_failed", message: Self.gitFailedMessage)
+            }
+            return AgentPaneReply.success(value)
         case .unsupported(let method):
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")
         }

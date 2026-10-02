@@ -15,6 +15,7 @@ import {
   type AcpmuxSnapshot,
 } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
+import { postNative } from "./native";
 import { composerDraft } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
@@ -41,7 +42,6 @@ import { SearchChats } from "./SearchChats";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 
-type Reply<T> = { ok: true; value: T } | { ok: false; error?: { userMessage?: string } };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
 /// `onOpenDiff` opens the changes of the turn holding `rowId`, at `path` when given.
@@ -91,21 +91,15 @@ function hostAccount(value: unknown): SidebarAccount | undefined {
   return { name: account.name, detail: typeof account.detail === "string" ? account.detail : undefined };
 }
 
+/// A page action: the connected client's (chat actions run against acpmux), else the native host.
 function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
   const direct = window.cmuxAcpmuxActions?.[method];
   if (direct) return direct(params) as Promise<T>;
-  const handler = window.webkit?.messageHandlers?.agentSession;
-  if (!handler) return Promise.reject(new Error("Native bridge is unavailable"));
-  return Promise.resolve(handler.postMessage({ id: crypto.randomUUID(), method, params }) as unknown as Reply<T>).then(
-    (reply) => {
-      if (!reply.ok) throw new Error(reply.error?.userMessage ?? "Request failed");
-      return reply.value;
-    },
-  );
+  return postNative<T>(method, params);
 }
 
-/// The changes view reads git scopes from whoever runs the session: the acpmux client
-/// (or the mock daemon), else the native host.
+/// The changes view reads git scopes through the client, which knows the selected session's
+/// folder and asks the native host (or, in mock mode, the in-page daemon).
 const changesSource: ChangesSource = { diff: (scope) => callNative("git.diff", { scope, include_patch: true }) };
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
@@ -917,6 +911,7 @@ function AcpmuxPane() {
             retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
           },
           mock ? () => new MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket : undefined,
+          mock ? "daemon" : "native",
         );
         if (cancelled) {
           client.close();

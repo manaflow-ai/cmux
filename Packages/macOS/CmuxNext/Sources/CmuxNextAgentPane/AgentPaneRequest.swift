@@ -22,6 +22,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `file.open` with `{path, where}`: a changed file from the changes view,
     /// in a tab beside the agent or in the text editor.
     case openFile(path: String, target: AgentPaneFileTarget)
+    /// `git.diff` or `git.status` with `{cwd, …}`: the changes view's reads of
+    /// the session's repository, which the App runs on the session host.
+    case git(AgentPaneGitRequest)
     case unsupported(String)
 
     public static let maximumPacingFrames = 640
@@ -54,6 +57,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             if let path = params?["path"] as? String, !path.isEmpty,
                let raw = params?["where"] as? String, let target = AgentPaneFileTarget(rawValue: raw) {
                 self = .openFile(path: path, target: target)
+            } else {
+                self = .unsupported(method)
+            }
+        case "git.diff", "git.status":
+            if let git = AgentPaneGitRequest(method: method, params: params) {
+                self = .git(git)
             } else {
                 self = .unsupported(method)
             }
