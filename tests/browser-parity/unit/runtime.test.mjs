@@ -268,6 +268,58 @@ test("fs sandbox: the session directory and the temp directory only", () => {
   }
 });
 
+test("fs sandbox: rm, rename and lstat act on a link itself; copy and rename keep the destination on failure", () => {
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmux-repl-unit-")));
+  const work = path.join(base, "work");
+  const outside = path.join(base, "outside");
+  fs.mkdirSync(work);
+  fs.mkdirSync(outside);
+  fs.mkdirSync(path.join(base, "tmp"));
+  const secret = path.join(outside, "secret.txt");
+  fs.writeFileSync(secret, "secret");
+  const at = (name) => path.join(work, name);
+  const text = (p) => fs.readFileSync(p, "utf8");
+  try {
+    const op = createFsOp({ workDir: work, tmpdir: path.join(base, "tmp") });
+    const nodeFs = ns.api.createFs({ fsOp: op }, ns.api.createPath(() => work));
+
+    fs.symlinkSync(secret, at("out-link"));
+    assert.equal(op("lstat", { path: "out-link" }).type, "symlink");
+    assert.equal(nodeFs.lstatSync("out-link").isSymbolicLink(), true);
+    assert.throws(() => op("readFile", { path: "out-link" }), (e) => e.code === "EACCES");
+    assert.throws(() => op("writeFile", { path: "out-link", base64: "" }), (e) => e.code === "EACCES");
+    op("rename", { from: "out-link", to: "moved-link" });
+    assert.equal(fs.readlinkSync(at("moved-link")), secret);
+    op("rm", { path: "moved-link" });
+    assert.equal(fs.existsSync(at("moved-link")), false);
+    assert.equal(text(secret), "secret");
+
+    fs.mkdirSync(at("data"));
+    fs.writeFileSync(at("data/keep.txt"), "keep");
+    fs.symlinkSync(at("data"), at("alias"));
+    op("rm", { path: "alias", recursive: true });
+    assert.equal(text(at("data/keep.txt")), "keep");
+
+    fs.symlinkSync(path.join(outside, "missing.txt"), at("dangling"));
+    assert.throws(() => op("writeFile", { path: "dangling", base64: "" }), (e) => e.code === "EACCES");
+    op("rm", { path: "dangling" });
+    assert.equal(fs.existsSync(path.join(outside, "missing.txt")), false);
+
+    fs.writeFileSync(at("dest.txt"), "old");
+    assert.throws(() => op("rename", { from: "missing.txt", to: "dest.txt" }), (e) => e.code === "ENOENT");
+    fs.writeFileSync(at("unreadable.txt"), "new");
+    fs.chmodSync(at("unreadable.txt"), 0o000);
+    assert.throws(() => op("copyFile", { from: "unreadable.txt", to: "dest.txt" }), (e) => e.code === "EACCES");
+    fs.chmodSync(at("unreadable.txt"), 0o644);
+    assert.equal(text(at("dest.txt")), "old");
+    assert.deepEqual(fs.readdirSync(work).sort(), ["data", "dest.txt", "unreadable.txt"]);
+    op("copyFile", { from: "unreadable.txt", to: "dest.txt" });
+    assert.equal(text(at("dest.txt")), "new");
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("refs: bound to DOM nodes; survive renames; never reused; removed refs fail fast", async () => {
   const server = await startFixtureServers();
   try {
