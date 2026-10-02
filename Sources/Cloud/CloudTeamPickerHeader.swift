@@ -3,6 +3,14 @@ import CmuxCloud
 import CmuxFoundation
 import SwiftUI
 
+/// Where the Cloud header puts Refresh and New Machine.
+enum CloudHeaderMachineActions {
+    /// Two icon buttons beside the full team name.
+    case inline
+    /// One "⋯" menu, so the team name keeps its room in a narrow sidebar.
+    case overflowMenu
+}
+
 /// Team scope, Invite, and machine actions share the Cloud header. Fleet status keeps its own
 /// row so it cannot squeeze the active team's name out of a narrow sidebar;
 /// the status view owns that row, so an idle fleet adds no gap under the toolbar.
@@ -18,65 +26,13 @@ struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
     @State private var panePresentation = CloudTeamPickerPresentation()
 
     var body: some View {
-        @Bindable var picker = presentation ?? panePresentation
+        let picker = presentation ?? panePresentation
         VStack(spacing: 0) {
+            // The first row that fits wins, so a narrow sidebar folds Refresh
+            // and New Machine into one menu before it squeezes the team name.
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 6) {
-                    if let accountFlow {
-                        CloudTeamPickerRow(accountFlow: accountFlow, presentation: picker)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .disabled(accountFlow.isWorkingOnAuth)
-                    }
-                    Spacer(minLength: 0)
-                    agentMenu()
-                    if let accountFlow, accountFlow.confirmedTeamID != nil {
-                        MachinesChromeLabelButton(
-                            symbolName: "person.badge.plus",
-                            title: String(localized: "sidebar.account.invite.button", defaultValue: "Invite"),
-                            accessibilityLabel: String(localized: "sidebar.account.invitePeople.short", defaultValue: "Invite People"),
-                            action: { picker.isInvitePresented = true }
-                        )
-                        .popover(isPresented: $picker.isInvitePresented, arrowEdge: .bottom) {
-                            CloudTeamInvitePopover(accountFlow: accountFlow, presentation: picker)
-                        }
-                        .accessibilityIdentifier("CloudTeamInviteButton")
-                    }
-                    MachinesChromeIconButton(
-                        symbolName: "arrow.clockwise",
-                        accessibilityLabel: refreshLabel,
-                        isBusy: isRefreshing,
-                        action: onRefresh
-                    )
-                    .accessibilityIdentifier("CloudHeaderRefreshButton")
-                    MachinesChromeIconButton(
-                        symbolName: "plus",
-                        accessibilityLabel: newMachineLabel,
-                        isBusy: false,
-                        action: onNewMachine
-                    )
-                    .accessibilityIdentifier("CloudHeaderNewMachineButton")
-                }
-                HStack(spacing: 6) {
-                    if let accountFlow {
-                        CloudTeamPickerRow(accountFlow: accountFlow, presentation: picker)
-                            .disabled(accountFlow.isWorkingOnAuth)
-                    }
-                    Spacer(minLength: 0)
-                    agentMenu()
-                    if let accountFlow, accountFlow.confirmedTeamID != nil {
-                        MachinesChromeLabelButton(
-                            symbolName: "person.badge.plus",
-                            title: String(localized: "sidebar.account.invite.button", defaultValue: "Invite"),
-                            accessibilityLabel: String(localized: "sidebar.account.invitePeople.short", defaultValue: "Invite People"),
-                            action: { picker.isInvitePresented = true }
-                        )
-                        .popover(isPresented: $picker.isInvitePresented, arrowEdge: .bottom) {
-                            CloudTeamInvitePopover(accountFlow: accountFlow, presentation: picker)
-                        }
-                        .accessibilityIdentifier("CloudTeamInviteButton")
-                    }
-                    machineActionsMenu
-                }
+                actionsRow(.inline, picker: picker)
+                actionsRow(.overflowMenu, picker: picker)
             }
             .rightSidebarChromeBar()
             .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
@@ -90,6 +46,59 @@ struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
         .onDisappear {
             picker.isPresented = false
             picker.isInvitePresented = false
+        }
+    }
+
+    /// One candidate header row. Internal so tests can measure each candidate
+    /// the way `ViewThatFits` does, without an accessibility client.
+    @ViewBuilder
+    func actionsRow(_ actions: CloudHeaderMachineActions, picker presentation: CloudTeamPickerPresentation) -> some View {
+        @Bindable var picker = presentation
+        HStack(spacing: 6) {
+            if let accountFlow {
+                switch actions {
+                case .inline:
+                    CloudTeamPickerRow(accountFlow: accountFlow, presentation: picker)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .disabled(accountFlow.isWorkingOnAuth)
+                case .overflowMenu:
+                    CloudTeamPickerRow(accountFlow: accountFlow, presentation: picker)
+                        .disabled(accountFlow.isWorkingOnAuth)
+                }
+            }
+            Spacer(minLength: 0)
+            agentMenu()
+            if let accountFlow, accountFlow.confirmedTeamID != nil {
+                MachinesChromeLabelButton(
+                    symbolName: "person.badge.plus",
+                    title: String(localized: "sidebar.account.invite.button", defaultValue: "Invite"),
+                    accessibilityLabel: String(localized: "sidebar.account.invitePeople.short", defaultValue: "Invite People"),
+                    action: { picker.isInvitePresented = true }
+                )
+                .popover(isPresented: $picker.isInvitePresented, arrowEdge: .bottom) {
+                    CloudTeamInvitePopover(accountFlow: accountFlow, presentation: picker)
+                }
+                .accessibilityIdentifier("CloudTeamInviteButton")
+            }
+            switch actions {
+            case .inline:
+                MachinesChromeIconButton(
+                    symbolName: "arrow.clockwise",
+                    accessibilityLabel: refreshLabel,
+                    isBusy: isRefreshing,
+                    action: onRefresh
+                )
+                .accessibilityIdentifier("CloudHeaderRefreshButton")
+                MachinesChromeIconButton(
+                    symbolName: "plus",
+                    accessibilityLabel: newMachineLabel,
+                    isBusy: false,
+                    action: onNewMachine
+                )
+                .accessibilityIdentifier("CloudHeaderNewMachineButton")
+            case .overflowMenu:
+                machineActionsMenu
+            }
         }
     }
 
