@@ -47,6 +47,8 @@ interface SchedulerInternals {
   onWake(now: number): Promise<void>
 }
 const scheduler = (team: string) => testEnv.SCHEDULER_DO.get(testEnv.SCHEDULER_DO.idFromName(team))
+/** runInDurableObject with an untyped stub (its generic inference recurses too deep on our DO types). */
+const inDO = runInDurableObject as unknown as (stub: unknown, cb: (instance: any, state: DurableObjectState) => Promise<void>) => Promise<void>
 const inScheduler = (team: string, fn: (s: SchedulerInternals) => Promise<void>) =>
   (runInDurableObject as unknown as (stub: unknown, cb: (instance: unknown) => Promise<void>) => Promise<void>)(scheduler(team), (instance) => fn(instance as SchedulerInternals))
 
@@ -201,7 +203,7 @@ describe("webhook triggers (workerd)", () => {
 
     const runId = first.json.run as string
     // The input waits outside entity state until dispatch (checked in one DO turn, before any alarm can run).
-    await runInDurableObject(scheduler(team) as never, async (instance: any, state: DurableObjectState) => {
+    await inDO(scheduler(team), async (instance, state) => {
       const r = await instance.deliverWebhook(team, trigger, "direct-1", { body: { probe: true } })
       expect(r.status).toBe("accepted")
       const rows = state.storage.sql.exec("SELECT json FROM run_inputs WHERE run = ?", r.run).toArray()
@@ -219,7 +221,7 @@ describe("webhook triggers (workerd)", () => {
     const runs = await read(token, "automation.runs.list", { automation })
     expect(runs.json.value.runs).toHaveLength(2)
     expect(runs.json.value.runs.find((r: any) => r.id === runId)).toMatchObject({ state: "succeeded", trigger: { type: "webhook", delivery_id: "deploy-1" } })
-    await runInDurableObject(scheduler(team) as never, async (_i: unknown, state: DurableObjectState) => {
+    await inDO(scheduler(team), async (_i, state) => {
       expect(state.storage.sql.exec("SELECT run FROM run_inputs").toArray()).toHaveLength(0)
     })
   })
