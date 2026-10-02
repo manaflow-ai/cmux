@@ -28,6 +28,11 @@ import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { HomeLists } from "./HomeLists";
 import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
+import type { TrustSource } from "./folderTrust";
+import { TrustAsk } from "./TrustAsk";
+import { agentName } from "./agents";
+import { t } from "./i18n";
+import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
 import type { ChangesSource } from "./changes/model";
@@ -114,6 +119,12 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
     },
   );
 }
+
+/// Folder trust lives with acpmux (or the mock daemon), else the native host.
+const trustSource: TrustSource = {
+  get: (cwd) => callNative("acp.trust.get", { cwd }),
+  set: (cwd, level) => callNative("acp.trust.set", { cwd, level }),
+};
 
 /// The changes view reads git scopes from whoever runs the session: the acpmux client
 /// (or the mock daemon), else the native host.
@@ -732,6 +743,14 @@ function AcpmuxPane() {
     !snapshot.handoff?.receipt;
   const handoffLoading = !!snapshot.sessionId && !!snapshot.canHandoff && !snapshot.handoff?.ready;
   const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot);
+  // A folder the user hasn't decided on is asked about beside the chat's other permission asks,
+  // once its first prompt went; nothing waits on the answer.
+  const trustAsk = useFolderTrustAsk(trustSource, {
+    sessionId: snapshot.sessionId,
+    cwd: snapshot.summary?.cwd,
+    started: !freshChat && snapshot.rows.length > 0,
+    prompts: snapshot.rows.filter((row) => row.kind === "user").length,
+  });
   // Search files reads the session's folder through whoever runs the session: the acpmux
   // client (or the mock daemon), else the native host.
   const fileRoot = snapshot.summary?.cwd;
@@ -1031,6 +1050,8 @@ function AcpmuxPane() {
           "chat.new": async ({ harness, cwd }) =>
             persistSession(await client.create(harness ? String(harness) : undefined, cwd ? String(cwd) : undefined)),
           "chat.history": () => client.loadOlder(),
+          "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
+          "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
           "file.search": ({ path, query, limit }) =>
             client.fileSearch(
               typeof path === "string" ? path : undefined,
@@ -1212,9 +1233,18 @@ function AcpmuxPane() {
               />
             )}
           </div>
-          {snapshot.permission?.pending && (
+          {(snapshot.permission?.pending || trustAsk.ask) && (
             <div className="acpmux-permission">
-              <PermissionCard permission={snapshot.permission} />
+              {trustAsk.ask && (
+                <TrustAsk
+                  ask={trustAsk.ask}
+                  agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
+                  onTrust={trustAsk.trust}
+                  onDistrust={trustAsk.distrust}
+                  onUndo={trustAsk.undo}
+                />
+              )}
+              {snapshot.permission?.pending && <PermissionCard permission={snapshot.permission} />}
             </div>
           )}
           {/* Between the hero and the docked composer. */}

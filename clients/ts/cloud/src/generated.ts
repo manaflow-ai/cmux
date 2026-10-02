@@ -952,6 +952,124 @@ export interface CloudOps {
       }>
     }
   }
+  /** Allow a validated path through the caller's private network. */
+  readonly "firewall.create": {
+    readonly params: {
+      readonly source: {
+        readonly vmId?: string
+        readonly vpcId?: string
+        readonly tunnelId?: string
+        readonly cidr?: string
+        readonly public?: boolean
+        readonly port?: number
+        readonly protocol?: "tcp" | "udp" | "icmp"
+      }
+      readonly destination: {
+        readonly vmId?: string
+        readonly vpcId?: string
+        readonly tunnelId?: string
+        readonly cidr?: string
+        readonly public?: boolean
+        readonly port?: number
+        readonly protocol?: "tcp" | "udp" | "icmp"
+      }
+      readonly description?: string
+    }
+    readonly result: {
+      readonly id: string
+      readonly action: "allow"
+      readonly source: {
+        readonly vmId?: string
+        readonly vpcId?: string
+        readonly tunnelId?: string
+        readonly cidr?: string
+        readonly public?: boolean
+        readonly port?: number
+        readonly protocol?: "tcp" | "udp" | "icmp"
+      }
+      readonly destination: {
+        readonly vmId?: string
+        readonly vpcId?: string
+        readonly tunnelId?: string
+        readonly cidr?: string
+        readonly public?: boolean
+        readonly port?: number
+        readonly protocol?: "tcp" | "udp" | "icmp"
+      }
+      readonly description?: string
+    }
+  }
+  /** Delete one firewall rule owned by the caller. */
+  readonly "firewall.delete": {
+    readonly params: {
+      readonly rule_id: string
+    }
+    readonly result: {
+      readonly rule_id: string
+    }
+  }
+  /** Read one firewall rule owned by the caller. */
+  readonly "firewall.get": {
+    readonly params: {
+      readonly rule_id: string
+    }
+    readonly result: {
+      readonly id: string
+      readonly action: "allow"
+      readonly source: {
+        readonly vmId?: string
+        readonly vpcId?: string
+        readonly tunnelId?: string
+        readonly cidr?: string
+        readonly public?: boolean
+        readonly port?: number
+        readonly protocol?: "tcp" | "udp" | "icmp"
+      }
+      readonly destination: {
+        readonly vmId?: string
+        readonly vpcId?: string
+        readonly tunnelId?: string
+        readonly cidr?: string
+        readonly public?: boolean
+        readonly port?: number
+        readonly protocol?: "tcp" | "udp" | "icmp"
+      }
+      readonly description?: string
+    }
+  }
+  /** List firewall rules attached to the caller's private network. */
+  readonly "firewall.list": {
+    readonly params: {
+      readonly vpc_id?: string
+      readonly vm_id?: string
+      readonly tunnel_id?: string
+    }
+    readonly result: {
+      readonly rules: ReadonlyArray<{
+        readonly id: string
+        readonly action: "allow"
+        readonly source: {
+          readonly vmId?: string
+          readonly vpcId?: string
+          readonly tunnelId?: string
+          readonly cidr?: string
+          readonly public?: boolean
+          readonly port?: number
+          readonly protocol?: "tcp" | "udp" | "icmp"
+        }
+        readonly destination: {
+          readonly vmId?: string
+          readonly vpcId?: string
+          readonly tunnelId?: string
+          readonly cidr?: string
+          readonly public?: boolean
+          readonly port?: number
+          readonly protocol?: "tcp" | "udp" | "icmp"
+        }
+        readonly description?: string
+      }>
+    }
+  }
   /** Comment on a GitHub issue or pull request as the cmux GitHub App installation. */
   readonly "github.issue.comment": {
     readonly params: {
@@ -1094,6 +1212,18 @@ export interface CloudOps {
         readonly id: string
         readonly key: string
         readonly name: string
+      }>
+    }
+  }
+  /** List the caller-owned private Cloud networks. */
+  readonly "network.list": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly networks: ReadonlyArray<{
+        readonly id: string
+        readonly cidr: string | null
+        readonly cidrV6: string | null
+        readonly scope: "user" | "team"
       }>
     }
   }
@@ -1295,6 +1425,39 @@ export interface CloudOps {
     }
     readonly result: TeamPolicy
   }
+  /** Attach an owned WireGuard tunnel to an owned private network. */
+  readonly "tunnel.attach": {
+    readonly params: {
+      readonly device_fingerprint: string
+      readonly network_id: string
+    }
+    readonly result: {
+      readonly tunnel_id: string
+      readonly network_id: string
+    }
+  }
+  /** Detach an owned WireGuard tunnel from an owned private network. */
+  readonly "tunnel.detach": {
+    readonly params: {
+      readonly device_fingerprint: string
+      readonly network_id: string
+    }
+    readonly result: {
+      readonly tunnel_id: string
+      readonly network_id: string
+    }
+  }
+  /** Rotate an owned tunnel's WireGuard public key without changing its address. */
+  readonly "tunnel.rotate-key": {
+    readonly params: {
+      readonly device_fingerprint: string
+      readonly client_public_key: string
+    }
+    readonly result: {
+      readonly tunnel_id: string
+      readonly client_public_key: string
+    }
+  }
   /** Create or refresh the caller's user record from the Stack session. */
   readonly "user.ensure": {
     readonly params: Readonly<Record<string, never>>
@@ -1334,6 +1497,10 @@ export const cloudOpMeta = {
   "feed.seen": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
   "feed.snooze": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
   "feed.unarchive": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "firewall.create": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "firewall.delete": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
+  "firewall.get": { class: "read", owner: "cloud:UserDO", risk: "read" },
+  "firewall.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "github.issue.comment": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
   "host.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "host.remove": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
@@ -1349,6 +1516,7 @@ export const cloudOpMeta = {
   "integration.revoke": { class: "mutation", owner: "cloud:ConnectionDO", risk: "destructive" },
   "linear.issue.create": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "linear.teams.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
+  "network.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "slack.post_as_bot": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
   "sso.connection.activate": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "sso.connection.create": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
@@ -1369,6 +1537,9 @@ export const cloudOpMeta = {
   "team.policy.history": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.rollback": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.policy.update": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "tunnel.attach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "tunnel.detach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "tunnel.rotate-key": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "user.ensure": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
 } as const satisfies Record<CloudOpName, { class: "read" | "mutation"; owner: string; risk: string }>
 
