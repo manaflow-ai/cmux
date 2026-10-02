@@ -2358,11 +2358,12 @@ extension Workspace {
             panelGitBranches.removeValue(forKey: panelId)
         }
 
-        if snapshot.terminal?.hibernation != nil {
-            surfaceListeningPorts.removeValue(forKey: panelId)
-        } else {
-            surfaceListeningPorts[panelId] = Array(Set(snapshot.listeningPorts)).sorted()
-        }
+        // Listening ports are ephemeral runtime state: the snapshot's listeners
+        // are usually dead by relaunch, and a panel running a fullscreen agent
+        // never re-registers with PortScanner to correct them. Live listeners
+        // re-badge on the first scan burst, so restoring nothing is strictly
+        // more accurate than trusting the snapshot either way.
+        surfaceListeningPorts.removeValue(forKey: panelId)
 
         if let ttyName = snapshot.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty {
             restorePersistedSurfaceTTYName(ttyName, panelId: panelId)
@@ -11644,6 +11645,22 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return destinationConfiguration.hasSameRemoteRelayNamespace(as: originConfiguration)
     }
     // MARK: - Focus Management
+
+    /// Converges the workspace pane selection when a mounted terminal accepts
+    /// user input. Cloud manual-mirror surfaces can receive an input event
+    /// while their portal focus callback is still being rebound; keeping this
+    /// guard at the workspace boundary makes the active pane border and the
+    /// keyboard target follow the same selected workspace.
+    @discardableResult
+    func focusPanelFromTerminalInput(_ panelId: UUID) -> Bool {
+        guard panels[panelId] != nil,
+              (owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id))?.selectedTabId == id,
+              focusedPanelId != panelId else {
+            return false
+        }
+        focusPanel(panelId, trigger: .terminalFirstResponder)
+        return true
+    }
 
     /// Focuses a panel a split just created. `previousHostedView` is the terminal that
     /// had focus before Bonsplit moved it. SwiftUI reparents that view into the new

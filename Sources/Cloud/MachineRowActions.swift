@@ -179,6 +179,14 @@ struct MachineRowActions {
         )
     }
 
+    /// The rename sheet should identify a machine by the label the user sees;
+    /// the stable VM id is only the mutation target and a fallback for machines
+    /// that have not received a label yet.
+    static func renamePromptDisplayName(id: String, currentLabel: String?) -> String {
+        let label = currentLabel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return label?.isEmpty == false ? label! : id
+    }
+
     @MainActor
     private static func presentRenamePrompt(
         id: String,
@@ -189,7 +197,10 @@ struct MachineRowActions {
         let alert = NSAlert()
         alert.alertStyle = .informational
         let format = String(localized: "machines.rename.title", defaultValue: "Rename \u{201C}%@\u{201D}")
-        alert.messageText = String(format: format, id)
+        alert.messageText = String(
+            format: format,
+            renamePromptDisplayName(id: id, currentLabel: currentLabel)
+        )
         alert.informativeText = String(
             localized: "machines.rename.message",
             defaultValue: "The label is display-only. The machine keeps its name as its address."
