@@ -534,6 +534,8 @@ export const workedTurn: SeedStep[] = [
       "Uploads now retry server errors with backoff.\n\n- `withRetry` in `retry.ts` tries up to 5 times, waiting 0.5 s, 1 s, 2 s and 4 s.\n- `uploadArtifact` retries only 5xx responses; a 4xx still fails at once.\n- The new test fails the first two uploads with 503 and checks the third succeeds.\n\n```ts\nawait withRetry(async () => {\n  const response = await fetch(url, { method: 'PUT', body });\n  if (response.status >= 500) throw new RetryableError(response.status);\n});\n```\n\nBoth tests pass. The worst case adds 7.5 s before a publish gives up.",
     ),
   },
+  // How full the context window is after the turn, as Codex and Claude report it.
+  { ago: START - 85_000, update: { sessionUpdate: "usage_update", used: 33_551, size: 200_000 } },
   { ago: START - 86_000, mux: "turn_result", msg: { status: "completed" } },
 ];
 

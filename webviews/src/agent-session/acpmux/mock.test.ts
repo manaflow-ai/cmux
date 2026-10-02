@@ -3,6 +3,7 @@ import { AcpmuxDirectClient } from "./direct";
 import { MockAcpmuxSocket, mockHost, mockReply } from "./mock";
 import type { AcpmuxSnapshot } from "./model";
 import { GROUP_ROWS, sessionMark, sidebarSections } from "./sessionList";
+import { workedTurn } from "./mockFixture";
 
 describe("mock transport", () => {
   const connectMock = async (
@@ -111,6 +112,12 @@ describe("mock transport", () => {
       .flatMap((row) => row.items ?? [])
       .flatMap((item) => item.tool?.diffs ?? [])
       .map((diff) => diff.path);
+    // The turn reports context usage, for the composer's usage ring.
+    expect(
+      workedTurn
+        .map((step) => ("update" in step ? step.update : undefined))
+        .find((update) => update?.sessionUpdate === "usage_update"),
+    ).toEqual({ sessionUpdate: "usage_update", used: 33_551, size: 200_000 });
     expect(diffs).toEqual([
       "~/code/cmux/Sources/Fleet/retry.ts",
       "~/code/cmux/Sources/Fleet/upload.ts",
