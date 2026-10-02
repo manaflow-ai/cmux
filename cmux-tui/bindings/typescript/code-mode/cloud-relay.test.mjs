@@ -55,6 +55,46 @@ test("host allowlist does not inherit catalog operations marked deny", async () 
   assert.deepEqual(await broker.request("vm.pause", { vm_id: "vm_fixture" }), { id: "vm_fixture", status: "paused" });
 });
 
+test("catalog mutations use the protocol's script origin", async () => {
+  const calls = [];
+  const broker = createCloudBroker({
+    catalog: relayCatalog,
+    apiUrl: "https://cloud.test",
+    bearerToken: "fixture-secret",
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ ok: true, value: { tunnelId: "tunnel_fixture" } }), { status: 200, headers: { "content-type": "application/json" } });
+    },
+  });
+  await broker.request("tunnel.attach", { vm_id: "vm_fixture" }, "attach-key");
+  const payload = JSON.parse(calls[0].init.body);
+  assert.equal(payload.origin, "script");
+  assert.equal(payload.idempotency_key, "attach-key");
+});
+
+test("domain and publication operations use fixed VM routes", async () => {
+  const calls = [];
+  const broker = createCloudBroker({
+    catalog: relayCatalog,
+    apiUrl: "https://cloud.test",
+    bearerToken: "fixture-secret",
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ ok: true, publication: { id: "pub_fixture" } }), { status: 200 });
+    },
+  });
+  await broker.request("vm.domain.verify", { name: "example.test" }, "domain-key");
+  await broker.request("vm.publication.create", { vmId: "vm_fixture", port: 3000, accessMode: "personal" }, "publication-create-key");
+  await broker.request("vm.publication.update", { id: "pub_fixture", accessMode: "personal" }, "publication-key");
+  assert.equal(calls[0].url, "https://cloud.test/api/vm/domains/example.test/verify");
+  assert.equal(calls[1].url, "https://cloud.test/api/vm/publications");
+  assert.equal(calls[1].init.method, "POST");
+  assert.deepEqual(JSON.parse(calls[1].init.body), { vmId: "vm_fixture", port: 3000, accessMode: "personal" });
+  assert.equal(calls[2].url, "https://cloud.test/api/vm/publications/pub_fixture");
+  assert.equal(calls[2].init.method, "PATCH");
+  assert.deepEqual(JSON.parse(calls[2].init.body), { accessMode: "personal" });
+});
+
 test("host relay serves typed requests over a Unix socket", async () => {
   const dir = mkdtempSync(join(tmpdir(), "cmux-cloud-relay-"));
   const socketPath = join(dir, "relay.sock");

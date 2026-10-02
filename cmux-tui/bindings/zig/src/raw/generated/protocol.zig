@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6e4b74f422c11e18d69989adcf960e8ff35ea4ae3390ed528c66f9438c5f43f9";
+pub const ir_sha256 = "4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -3748,6 +3748,25 @@ pub fn getCellPixels(client: anytype, request: GetCellPixelsRequest) !wire.Decod
     );
 }
 
+pub const GetFrontendBrowserHistoryRequest = struct {
+    surface: Id,
+};
+
+pub const GetFrontendBrowserHistoryResult = JsonValue;
+
+pub fn getFrontendBrowserHistory(client: anytype, request: GetFrontendBrowserHistoryRequest) !wire.Decoded(GetFrontendBrowserHistoryResult) {
+    return client.callTyped(
+        GetFrontendBrowserHistoryResult,
+        .{
+            .name = "get-frontend-browser-history",
+            .authority = "control",
+            .since = 12,
+            .capability = "frontend-browser-history-v1",
+        },
+        request,
+    );
+}
+
 pub const GetFrontendProjectionRequest = struct {
     frontend: []const u8,
     scope: []const u8,
@@ -5871,6 +5890,26 @@ pub fn setDefaultColors(client: anytype, request: SetDefaultColorsRequest) !wire
     );
 }
 
+pub const SetFrontendBrowserHistoryRequest = struct {
+    history: wire.Nullable(JsonValue),
+    surface: Id,
+};
+
+pub const SetFrontendBrowserHistoryResult = JsonValue;
+
+pub fn setFrontendBrowserHistory(client: anytype, request: SetFrontendBrowserHistoryRequest) !wire.Decoded(SetFrontendBrowserHistoryResult) {
+    return client.callTyped(
+        SetFrontendBrowserHistoryResult,
+        .{
+            .name = "set-frontend-browser-history",
+            .authority = "control",
+            .since = 12,
+            .capability = "frontend-browser-history-v1",
+        },
+        request,
+    );
+}
+
 pub const SetPersonalTerminalRequest = struct {
     session_id: []const u8,
     terminal_key: []const u8,
@@ -7920,7 +7959,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 205;
+pub const command_count: usize = 207;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -7987,6 +8026,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "forget-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "get-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "get-cell-pixels", .authority = "frontend", .since = 6, .capability = null, .stream = null },
+    .{ .name = "get-frontend-browser-history", .authority = "control", .since = 12, .capability = "frontend-browser-history-v1", .stream = null },
     .{ .name = "get-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "get-size-state", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "identify", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -8082,6 +8122,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-client-sizing", .authority = "control", .since = 10, .capability = null, .stream = null },
     .{ .name = "set-column-sticky", .authority = "control", .since = 12, .capability = "sticky-columns-v1", .stream = null },
     .{ .name = "set-default-colors", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "set-frontend-browser-history", .authority = "control", .since = 12, .capability = "frontend-browser-history-v1", .stream = null },
     .{ .name = "set-personal-terminal", .authority = "control", .since = 12, .capability = "personal-terminals-v1", .stream = null },
     .{ .name = "set-personal-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "set-profile-follows", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
