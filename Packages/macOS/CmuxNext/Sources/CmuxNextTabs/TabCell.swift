@@ -56,6 +56,8 @@ final class TabCell {
     }
 
     var bounds: CGRect { CGRect(origin: .zero, size: layer.bounds.size) }
+    /// The tab's rounded pill (its background) in this cell's coordinates.
+    var pillFrameInCell: CGRect { backgroundLayer.frame }
 
     private let backgroundLayer = CALayer()
     let iconLayer = CALayer()
