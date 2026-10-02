@@ -796,6 +796,7 @@ extension TerminalController {
                     try await provider.closeTerminal(resource)
                     closedIDs.append(resource)
                 } catch {
+                    if Task.isCancelled { throw CancellationError() }
                     failedIDs.append(resource.key)
                 }
             }
