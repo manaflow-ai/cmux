@@ -182,6 +182,13 @@ public final class AgentPaneView: NSView {
         webView.evaluateJavaScript("window.cmuxAcpmuxBridge?.command?.(\"searchChats\");", completionHandler: nil)
     }
 
+    /// Opens the frontend's Continue in… chooser. The chooser owns target
+    /// selection and preparation; native actions do not create a second
+    /// handoff pipeline.
+    public func showContinueIn() {
+        evaluateScript("window.cmuxAcpmuxBridge?.command?.(\"continueIn\");")
+    }
+
     /// Stops whichever agent pane is dictating, keeping its words, so the
     /// shortcut ends a session started in a tab that is no longer in front.
     /// False when none is.

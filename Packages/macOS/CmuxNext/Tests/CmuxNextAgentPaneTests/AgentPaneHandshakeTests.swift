@@ -32,8 +32,19 @@ import Testing
         let reply = AgentPaneReply.handshake(.mock)
         #expect(reply["ok"] as? Bool == true)
         let value = try #require(reply["value"] as? [String: Any])
-        #expect(Set(value.keys) == ["protocolVersion", "transport"])
+        #expect(Set(value.keys) == ["protocolVersion", "transport", "handoffStrings"])
         #expect(value["transport"] as? String == "mock")
+    }
+
+    @Test func theHandshakeCarriesLocalizedContinuationLabels() throws {
+        let reply = AgentPaneReply.handshake(.mock)
+        let value = try #require(reply["value"] as? [String: Any])
+        let labels = try #require(value["handoffStrings"] as? [String: String])
+        #expect(Set(labels.keys) == Set(AgentPaneHandoffStrings.values.keys))
+        #expect(labels.count == 36)
+        #expect(labels["continueIn"] == "Continue in…")
+        #expect(labels["fromTo"]?.contains("%@") == true)
+        #expect(labels["memoryLimit"]?.contains("32") == true)
     }
 
     @Test func decodesPageRequests() {

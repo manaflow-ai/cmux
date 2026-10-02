@@ -65,4 +65,13 @@ struct MiscActionBindingCoverageTests {
         #expect(AgentHandlers.forkCommand(agent: "codex", session: "ab") == nil)
         #expect(AgentHandlers.forkCommand(agent: "claude", session: "a; rm -rf ~") == nil)
     }
+
+    @Test func continueInIsAUserChooserBackedByTheSharedFrontendFlow() throws {
+        let descriptor = try #require(ActionCatalog.all.first { $0.id == "agentPane.continueIn" })
+        #expect(descriptor.requires.contains(.agentPaneFocused))
+        #expect(descriptor.targets == [.pane])
+        #expect(descriptor.surfacePlan.cli == .exempt(.guiOnly))
+        #expect(descriptor.surfacePlan.contextMenu == .exempt(.guiOnly))
+        #expect(Self.boundServices().registry.isBound("agentPane.continueIn"))
+    }
 }
