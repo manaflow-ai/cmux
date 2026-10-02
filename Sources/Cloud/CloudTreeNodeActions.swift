@@ -521,30 +521,21 @@ struct CloudTreeNodeActions {
                     guard let client = VMClient.shared else {
                         throw VMClientError.notSignedIn
                     }
-                    let matches = try await client.listPublications(vmID: resource.machine.rawValue, port: port)
-                    let protected = matches.first { $0.accessMode == .personal || $0.accessMode == .team }
-                    if let publicPublication = matches.first(where: { $0.accessMode == .public }), protected == nil {
-                        throw CloudTreeSharePortError.publicPublication(hostname: publicPublication.hostname)
-                    }
-                    var publication: VMPublication
-                    if let protected {
-                        publication = protected
-                    } else {
-                        publication = try await client.createPublication(
+                    do {
+                        let publication = try await CloudPortShareService.prepare(
+                            client: client,
                             vmID: resource.machine.rawValue,
-                            port: port,
-                            hostname: nil,
-                            accessMode: nil,
-                            teamID: nil
+                            port: port
                         )
+                        Self.copyToPasteboard(publication.url)
+                    } catch let error as CloudPortShareError {
+                        switch error {
+                        case .publicPublication(let hostname):
+                            throw CloudTreeSharePortError.publicPublication(hostname: hostname)
+                        case .provisioning(let state):
+                            throw CloudTreeSharePortError.provisioning(state: state)
+                        }
                     }
-                    if publication.state != "active" {
-                        publication = try await client.verifyPublication(id: publication.id)
-                    }
-                    guard publication.state == "active" else {
-                        throw CloudTreeSharePortError.provisioning(state: publication.state)
-                    }
-                    Self.copyToPasteboard(publication.url)
                 }
             },
             refresh: refresh
