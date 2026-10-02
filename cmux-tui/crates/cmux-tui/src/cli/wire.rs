@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::resource::{
-    EnvelopeType, MAX_MESSAGE_BYTES, OperationClass, PROTOCOL, ResponseEnvelope, StreamEndEnvelope,
+    EnvelopeType, OperationClass, PROTOCOL, ResponseEnvelope, StreamEndEnvelope,
     StreamEndReason, StreamItemEnvelope,
 };
 use ratatui::buffer::CellWidth;
@@ -16,7 +16,7 @@ use super::command::{RequestPlan, WireOperation, random_prefixed};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
-const SERVER_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(2);
+pub(super) const SERVER_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(2);
 const SUPPORTED_SERVER_APP: &str = "cmux-tui";
 /// The session-journal wire shape is compatible from its introduction through
 /// the current protocol. Future protocol versions need an explicit review.
@@ -29,7 +29,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         eprintln!("cmux: streams require --jsonl, --quiet, or human output");
         return 2;
     }
-    if let Err(error) = apply_global_route(&global, &mut plan.params) {
+    if let Err(error) = super::resolve::apply_global_route(&global, &mut plan.params) {
         eprintln!("cmux: {error}");
         return 2;
     }
@@ -120,188 +120,11 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     code
 }
 
-/// `--machine` and `--session` name the scope of a request that names none
-/// (or `current`).
-fn apply_global_route(global: &GlobalArgs, params: &mut Value) -> Result<(), &'static str> {
-    let Some(params) = params.as_object_mut() else {
-        return Err("request params are not an object");
-    };
-    if let Some(machine) = &global.machine
-        && params.get("machine").is_none_or(|value| value.as_str() == Some("current"))
-    {
-        params.insert("machine".into(), Value::String(machine.clone()));
-    }
-    if let Some(session) = &global.session
-        && params.get("session").is_none_or(|value| value.as_str() == Some("current"))
-    {
-        params.insert("session".into(), Value::String(session.clone()));
-    }
-    Ok(())
-}
-
 fn encode_request(request: &Value) -> Result<Vec<u8>, i32> {
-    encode_request_bytes(request).map_err(|error| {
+    super::resolve::encode_request_bytes(request).map_err(|error| {
         eprintln!("cmux: {error}");
         2
     })
-}
-
-fn encode_request_bytes(request: &Value) -> Result<Vec<u8>, String> {
-    match serde_json::to_vec(request) {
-        Ok(encoded) if encoded.len() <= MAX_MESSAGE_BYTES => Ok(encoded),
-        Ok(_) => Err("request exceeds the 4 MiB protocol limit".into()),
-        Err(error) => Err(format!("cannot encode request: {error}")),
-    }
-}
-
-/// How a request that did not succeed ended, for a caller that reports it
-/// itself (`cmux mcp serve`): the owner rejected it, it never reached the
-/// owner, or it may have reached the owner and its outcome is unknown.
-#[cfg_attr(not(unix), allow(dead_code))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum FailureKind {
-    Rejected,
-    NotRun,
-    InProgress,
-}
-
-#[cfg_attr(not(unix), allow(dead_code))]
-impl FailureKind {
-    /// The `state` word a timeout or transport failure reports.
-    pub(super) fn state(self) -> &'static str {
-        match self {
-            Self::Rejected => "rejected",
-            Self::NotRun => "not_run",
-            Self::InProgress => "in_progress",
-        }
-    }
-}
-
-/// A failed request: the owner's error object unchanged (or a local one in
-/// the same `{code, message, details, retryable}` shape) and the mutation's
-/// idempotency key, which a retry reuses so the change cannot apply twice.
-#[cfg_attr(not(unix), allow(dead_code))]
-#[derive(Clone, Debug, PartialEq)]
-pub(super) struct CallFailure {
-    pub kind: FailureKind,
-    pub error: Value,
-    pub idempotency_key: Option<String>,
-}
-
-#[cfg_attr(not(unix), allow(dead_code))]
-impl CallFailure {
-    pub(super) fn local(kind: FailureKind, code: &str, message: impl Into<String>) -> Self {
-        Self {
-            kind,
-            error: json!({
-                "code": code,
-                "message": message.into(),
-                "details": {},
-                "retryable": kind != FailureKind::Rejected,
-            }),
-            idempotency_key: None,
-        }
-    }
-
-    fn with_key(mut self, key: Option<&str>) -> Self {
-        self.idempotency_key = key.map(str::to_owned);
-        self
-    }
-}
-
-/// One unary request with the CLI's contract, returning its result instead
-/// of printing it: the same route defaults, socket discovery, lookups on the
-/// request's own connection, idempotency key (generated for a mutation that
-/// carries none), response deadline and protocol checks as `cmux <scope> …`.
-#[cfg_attr(not(unix), allow(dead_code))]
-pub(super) fn call(global: &GlobalArgs, mut plan: RequestPlan) -> Result<Value, CallFailure> {
-    use FailureKind::{InProgress, NotRun, Rejected};
-    if plan.stream {
-        return Err(CallFailure::local(NotRun, "usage.invalid", "streams are not unary requests"));
-    }
-    apply_global_route(global, &mut plan.params)
-        .map_err(|error| CallFailure::local(NotRun, "usage.invalid", error))?;
-    let mut request = request_value(&plan)
-        .map_err(|error| CallFailure::local(NotRun, "usage.invalid", error.0))?;
-    let key = request.get("idempotency_key").and_then(Value::as_str).map(str::to_owned);
-    let fail = |kind, code: &str, message: String| {
-        CallFailure::local(kind, code, message).with_key(key.as_deref())
-    };
-    let request_id =
-        request["id"].as_str().expect("locally built request IDs are strings").to_string();
-    let (socket, socket_is_derived) = resolve_socket_with_origin(global).map_err(|_| {
-        fail(
-            NotRun,
-            "usage.invalid",
-            crate::localization::catalog().startup.invalid_session_name.to_string(),
-        )
-    })?;
-    let stream = cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived)
-        .map_err(|error| {
-            fail(
-                NotRun,
-                "transport.unavailable",
-                format!("cannot connect to session socket {}: {error}", socket.display()),
-            )
-        })?;
-    let _ = stream.set_read_timeout(Some(SERVER_PREFLIGHT_TIMEOUT));
-    let mut reader = BufReader::new(stream);
-    if !plan.resolve.is_empty() {
-        let caller_route = global.socket.is_none() && global.session.is_none();
-        super::resolve::apply(&mut reader, &mut plan, caller_route).map_err(
-            |failure| match failure {
-                super::resolve::Failure::Resource(error) => {
-                    CallFailure { kind: NotRun, error, idempotency_key: key.clone() }
-                }
-                super::resolve::Failure::Transport(message) => {
-                    fail(NotRun, "transport.failed", message)
-                }
-            },
-        )?;
-        request["params"] = plan.params.clone();
-    }
-    let encoded = encode_request_bytes(&request)
-        .map_err(|message| fail(NotRun, "validation.invalid", message))?;
-    let _ = reader.get_mut().set_read_timeout(response_read_timeout(&plan, true));
-    // Once sent, a mutation's outcome is unknown until it answers; a read
-    // changed nothing either way.
-    let sent = if plan.operation.class() == OperationClass::Mutation { InProgress } else { NotRun };
-    super::resolve::send(&mut reader, &encoded)
-        .map_err(|message| fail(sent, "transport.failed", message))?;
-    match read_response(&mut reader, &request_id) {
-        Ok(Ok(result)) => Ok(result),
-        Ok(Err(error)) => Err(CallFailure { kind: Rejected, error, idempotency_key: key.clone() }),
-        Err(message) => Err(fail(sent, "transport.failed", message)),
-    }
-}
-
-/// Reads envelopes until the response to `request_id`: `Ok(Ok(result))`,
-/// `Ok(Err(resource error))`, or `Err` for a transport or protocol failure.
-pub(super) fn read_response(
-    reader: &mut BufReader<Box<dyn transport::Stream>>,
-    request_id: &str,
-) -> Result<Result<Value, Value>, String> {
-    loop {
-        let value = read_envelope(reader, false)?
-            .ok_or_else(|| "transport closed before response".to_string())?;
-        if value.get("type").and_then(Value::as_str) != Some("response") {
-            continue;
-        }
-        let response: ResponseEnvelope = serde_json::from_value(value)
-            .map_err(|error| format!("protocol error: invalid response envelope: {error}"))?;
-        if response.id.as_str() != request_id {
-            continue;
-        }
-        response.validate().map_err(|error| format!("protocol error: {}", error.message))?;
-        if response.ok {
-            return Ok(Ok(response.result.unwrap_or(Value::Null)));
-        }
-        let error = response
-            .error
-            .and_then(|error| serde_json::to_value(error).ok())
-            .unwrap_or_else(|| json!({"code": "operation.failed", "message": "request failed"}));
-        return Ok(Err(error));
-    }
 }
 
 /// Reports a mutation's idempotency key once when the command fails after
@@ -486,7 +309,7 @@ fn validate_capability_identity(identity: &Value) -> Result<(), &'static str> {
 /// `interrupt_handled` is false only for a stream on a platform with no
 /// signal watcher (Windows): there a console interrupt only sets the
 /// shutdown flag, so the read wakes every 250 ms to look at it.
-fn response_read_timeout(plan: &RequestPlan, interrupt_handled: bool) -> Option<Duration> {
+pub(super) fn response_read_timeout(plan: &RequestPlan, interrupt_handled: bool) -> Option<Duration> {
     if plan.stream {
         return (!interrupt_handled).then_some(Duration::from_millis(250));
     }

@@ -90,7 +90,7 @@ pub(super) fn spawn(global: GlobalArgs, output: Output) {
         let mut watch = ActionWatch::default();
         let mut delay = FIRST_RETRY;
         loop {
-            let _ = super::super::app::watch_events(&global, params.clone(), |frame| {
+            let _ = super::transport::watch_app_events(&global, params.clone(), |frame| {
                 if watch.frame(frame) {
                     let _ = output.tools_changed();
                 }

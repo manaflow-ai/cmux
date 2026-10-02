@@ -7,12 +7,12 @@
 use std::io::{BufReader, Write};
 
 use cmux_tui_core::platform::transport;
-use cmux_tui_core::resource::{PROTOCOL, ResourceOperation};
+use cmux_tui_core::resource::{MAX_MESSAGE_BYTES, PROTOCOL, ResourceOperation, ResponseEnvelope};
 use serde_json::{Map, Value, json};
 
-use super::OutputMode;
+use super::{GlobalArgs, OutputMode};
 use super::command::{RequestPlan, Resolve, ZoomStep};
-use super::wire::{print_operation_error, random_request_id, read_response};
+use super::wire::{print_operation_error, random_request_id, read_envelope};
 
 type Reader = BufReader<Box<dyn transport::Stream>>;
 
@@ -65,15 +65,6 @@ pub(super) fn apply(
                     "current".to_string()
                 };
                 params.insert("workspace".into(), Value::String(workspace));
-            }
-            Resolve::IdPrefix { field, list } => {
-                let Some(value) = params.get(&field).and_then(Value::as_str).map(str::to_owned)
-                else {
-                    continue;
-                };
-                let records = read(reader, list, route.clone())?;
-                params
-                    .insert(field.clone(), Value::String(unique_prefix(&field, &value, &records)?));
             }
             Resolve::StateName { field, list } => {
                 let Some(value) = params.get(field).and_then(Value::as_str).map(str::to_owned)
@@ -244,42 +235,59 @@ fn state_id(field: &str, value: &str, records: &Value) -> Result<Option<String>,
     }
 }
 
-/// `ws_1a2b`: fewer than 32 lowercase hex digits after the prefix, so not a
-/// whole id but a unique prefix of one (`Resolve::IdPrefix`).
-#[cfg_attr(not(unix), allow(dead_code))]
-pub(super) fn is_partial_id(value: &str, prefix: &str) -> bool {
-    hex_after(value, prefix).is_some_and(|hex| !hex.is_empty() && hex.len() < 32)
+/// `--machine` and `--session` name the scope of a request that names none
+/// (or `current`).
+pub(super) fn apply_global_route(global: &GlobalArgs, params: &mut Value) -> Result<(), &'static str> {
+    let Some(params) = params.as_object_mut() else {
+        return Err("request params are not an object");
+    };
+    if let Some(machine) = &global.machine
+        && params.get("machine").is_none_or(|value| value.as_str() == Some("current"))
+    {
+        params.insert("machine".into(), Value::String(machine.clone()));
+    }
+    if let Some(session) = &global.session
+        && params.get("session").is_none_or(|value| value.as_str() == Some("current"))
+    {
+        params.insert("session".into(), Value::String(session.clone()));
+    }
+    Ok(())
 }
 
-fn hex_after<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
-    let hex = value.strip_prefix(prefix)?.strip_prefix('_')?;
-    hex.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)).then_some(hex)
+pub(super) fn encode_request_bytes(request: &Value) -> Result<Vec<u8>, String> {
+    match serde_json::to_vec(request) {
+        Ok(encoded) if encoded.len() <= MAX_MESSAGE_BYTES => Ok(encoded),
+        Ok(_) => Err("request exceeds the 4 MiB protocol limit".into()),
+        Err(error) => Err(format!("cannot encode request: {error}")),
+    }
 }
 
-/// The one id in `records` that starts with `prefix`. No match is
-/// `selector.not_found`; more than one is `selector.ambiguous` with the
-/// candidates, as the daemon reports for a name.
-fn unique_prefix(field: &str, prefix: &str, records: &Value) -> Result<String, Failure> {
-    let records = records.as_array().map(Vec::as_slice).unwrap_or_default();
-    let matches = records
-        .iter()
-        .filter_map(|record| record.get("id").and_then(Value::as_str))
-        .filter(|id| id.starts_with(prefix))
-        .collect::<Vec<_>>();
-    match matches.as_slice() {
-        [id] => Ok((*id).to_string()),
-        [] => Err(Failure::Resource(json!({
-            "code": "selector.not_found",
-            "message": format!("no {field} id starts with {prefix:?}"),
-            "details": {"field": field, "prefix": prefix},
-            "retryable": false,
-        }))),
-        candidates => Err(Failure::Resource(json!({
-            "code": "selector.ambiguous",
-            "message": format!("more than one {field} id starts with {prefix:?}; use more of it"),
-            "details": {"field": field, "prefix": prefix, "candidates": candidates},
-            "retryable": false,
-        }))),
+/// Reads envelopes until the response to `request_id`: `Ok(Ok(result))`,
+/// `Ok(Err(resource error))`, or `Err` for a transport or protocol failure.
+pub(super) fn read_response(
+    reader: &mut Reader,
+    request_id: &str,
+) -> Result<Result<Value, Value>, String> {
+    loop {
+        let value = read_envelope(reader, false)?
+            .ok_or_else(|| "transport closed before response".to_string())?;
+        if value.get("type").and_then(Value::as_str) != Some("response") {
+            continue;
+        }
+        let response: ResponseEnvelope = serde_json::from_value(value)
+            .map_err(|error| format!("protocol error: invalid response envelope: {error}"))?;
+        if response.id.as_str() != request_id {
+            continue;
+        }
+        response.validate().map_err(|error| format!("protocol error: {}", error.message))?;
+        if response.ok {
+            return Ok(Ok(response.result.unwrap_or(Value::Null)));
+        }
+        let error = response
+            .error
+            .and_then(|error| serde_json::to_value(error).ok())
+            .unwrap_or_else(|| json!({"code": "operation.failed", "message": "request failed"}));
+        return Ok(Err(error));
     }
 }
 
@@ -344,36 +352,6 @@ mod tests {
         assert_eq!(error["code"], "selector.ambiguous");
         assert_eq!(error["details"]["candidates"], json!(["g1", "g2"]));
         assert!(error["message"].as_str().unwrap().contains("tab group"));
-    }
-
-    #[test]
-    fn an_id_prefix_resolves_only_when_unique() {
-        let records = json!([
-            {"id": "ws_1a2b0000000000000000000000000000"},
-            {"id": "ws_1a2c0000000000000000000000000000"},
-            {"id": "ws_9f000000000000000000000000000000"},
-        ]);
-        assert_eq!(
-            unique_prefix("workspace", "ws_9", &records).ok().as_deref(),
-            Some("ws_9f000000000000000000000000000000")
-        );
-        let Err(Failure::Resource(error)) = unique_prefix("workspace", "ws_1a", &records) else {
-            panic!("a shared prefix resolved");
-        };
-        assert_eq!(error["code"], "selector.ambiguous");
-        assert_eq!(error["details"]["candidates"].as_array().map(Vec::len), Some(2));
-        let Err(Failure::Resource(error)) = unique_prefix("workspace", "ws_77", &records) else {
-            panic!("an unknown prefix resolved");
-        };
-        assert_eq!(error["code"], "selector.not_found");
-    }
-
-    #[test]
-    fn a_partial_id_has_fewer_than_32_hex_digits() {
-        assert!(is_partial_id("ws_1a", "ws"));
-        assert!(!is_partial_id("ws_0123456789abcdef0123456789abcdef", "ws"));
-        assert!(!is_partial_id("ws_", "ws"));
-        assert!(!is_partial_id("ws_XY", "ws"));
     }
 
     #[test]

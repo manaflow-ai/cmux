@@ -21,6 +21,9 @@ use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
 use crate::app_identity::AppIdentity;
+pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
+
+mod run;
 
 /// Scopes that belong to the app, whatever follows.
 pub(super) const APP_SCOPES: &[&str] =
@@ -313,26 +316,6 @@ fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
     })
 }
 
-/// The params every `action.run` starts from: the action, whether it is
-/// named by its CLI name, `wait: true`, and who asked (`origin`). Only a run
-/// with `focus: true` may move the app's focus, selection, shown workspace or
-/// key window, unless the action's purpose is focus or the origin is `user`
-/// (plans/cmux-next/OWNERSHIP-PRINCIPLES.md, "Clients are projections").
-pub(super) fn action_run_params(
-    action: &str,
-    name: ActionName,
-    origin: &str,
-) -> Map<String, Value> {
-    let mut params = Map::new();
-    params.insert("action".into(), json!(action));
-    if name == ActionName::Cli {
-        params.insert("cli".into(), json!(true));
-    }
-    params.insert("wait".into(), json!(true));
-    params.insert("origin".into(), json!(origin));
-    params
-}
-
 /// `action.run` for an action id or CLI name: `--target ID`, `--no-wait`
 /// (`--wait` is the default), `--interactive`, and `--<argument> VALUE` for
 /// each schema argument (`--arg name=value` also works).
@@ -504,72 +487,6 @@ fn call(global: &GlobalArgs, mut stream: UnixStream, command: AppCommand) -> Ran
     }
 }
 
-/// Gives an `action.run` its idempotency key: `given`, else a new one.
-fn insert_run_key(params: &mut Value, given: Option<&str>) -> Result<String, String> {
-    let key = match given {
-        Some(key) => key.to_owned(),
-        None => super::command::random_prefixed("mutation").map_err(|error| error.to_string())?,
-    };
-    params["idempotency_key"] = json!(key);
-    Ok(key)
-}
-
-/// One request; a `busy` app that says the run never started is asked again
-/// after the delay it names, at most `BUSY_RETRIES` times.
-fn request_with_retry(
-    stream: &mut UnixStream,
-    method: &str,
-    params: &Value,
-    timeout: Duration,
-) -> Result<Result<Value, Value>, String> {
-    let mut retries = 0;
-    loop {
-        match request(stream, method, params.clone(), timeout)? {
-            Err(error) if retries < BUSY_RETRIES && busy_before_running(&error) => {
-                retries += 1;
-                std::thread::sleep(busy_retry_delay(&error));
-            }
-            response => return Ok(response),
-        }
-    }
-}
-
-/// One app control request with the CLI's contract, returning its result
-/// instead of printing it (`cmux mcp serve`): the same app discovery, read
-/// barrier (`after: "sync"`), busy retry and, for `action.run`, an
-/// idempotency key (`idempotency_key`, else a new one).
-pub(super) fn call_method(
-    global: &GlobalArgs,
-    method: &str,
-    mut params: Value,
-    timeout: Duration,
-    idempotency_key: Option<&str>,
-) -> Result<Value, super::wire::CallFailure> {
-    use super::wire::{CallFailure, FailureKind};
-    let socket = socket_path(global)
-        .map_err(|error| CallFailure::local(FailureKind::NotRun, "app.not_found", error))?;
-    let mut stream = connect(&socket)
-        .map_err(|error| CallFailure::local(FailureKind::NotRun, "app.unreachable", error))?;
-    let key = if method == "action.run" {
-        Some(
-            insert_run_key(&mut params, idempotency_key)
-                .map_err(|error| CallFailure::local(FailureKind::NotRun, "app.transport", error))?,
-        )
-    } else {
-        None
-    };
-    let failure = |kind, error| CallFailure { kind, error, idempotency_key: key.clone() };
-    match request_with_retry(&mut stream, method, &params, timeout) {
-        Ok(Ok(result)) => Ok(result),
-        Ok(Err(error)) => Err(failure(FailureKind::Rejected, error)),
-        // Once sent, a run's outcome is unknown; a read changed nothing.
-        Err(message) => Err(failure(
-            if key.is_some() { FailureKind::InProgress } else { FailureKind::NotRun },
-            json!({"code": "app.transport", "message": message, "details": {}, "retryable": true}),
-        )),
-    }
-}
-
 fn error_code(error: &Value) -> Option<&str> {
     error.get("code").and_then(Value::as_str)
 }
@@ -643,7 +560,7 @@ pub(super) fn request(
     parse_response(&response)
 }
 
-fn send_line(stream: &mut UnixStream, value: &Value) -> Result<(), String> {
+pub(super) fn send_line(stream: &mut UnixStream, value: &Value) -> Result<(), String> {
     let mut bytes = serde_json::to_vec(value).map_err(|error| error.to_string())?;
     bytes.push(b'\n');
     stream.write_all(&bytes).map_err(|error| error.to_string())
@@ -708,34 +625,6 @@ fn stream_events(stream: &mut UnixStream, params: Value, output: OutputMode) -> 
         }
     }
     0
-}
-
-/// Reads `events.stream` from the app with the CLI's discovery and calls
-/// `on_frame` with each JSON frame (the stream's acknowledgement first),
-/// blocking until the app closes the stream (`Ok`) or cannot be reached.
-/// Blocking reads, no polling.
-pub(super) fn watch_events(
-    global: &GlobalArgs,
-    params: Value,
-    mut on_frame: impl FnMut(&Value),
-) -> Result<(), String> {
-    let socket = socket_path(global)?;
-    let mut stream = connect(&socket)?;
-    send_line(
-        &mut stream,
-        &json!({ "id": "events", "method": "events.stream", "params": params }),
-    )?;
-    let reader = BufReader::new(stream.try_clone().map_err(|error| error.to_string())?);
-    for line in reader.lines() {
-        let line = line.map_err(|error| error.to_string())?;
-        let Ok(frame) = serde_json::from_str::<Value>(&line) else { continue };
-        if frame.get("ok").and_then(Value::as_bool) == Some(false) {
-            let message = frame["error"]["message"].as_str().unwrap_or("events.stream failed");
-            return Err(message.to_owned());
-        }
-        on_frame(&frame);
-    }
-    Ok(())
 }
 
 pub(super) fn failure(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {

@@ -1233,9 +1233,6 @@ pub(crate) struct AppControlMessages {
     pub root_scopes: &'static str,
     pub acp_open_usage: &'static str,
     pub browser_page_usage: &'static str,
-    pub mcp_usage: &'static str,
-    pub mcp_disabled: &'static str,
-    pub mcp_config_invalid: &'static str,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1341,9 +1338,6 @@ static ENGLISH: Catalog = Catalog {
         invalid_response: "the cmux app sent an answer this cmux cannot read",
         acp_open_usage: "usage: cmux acp open SESSION [--pane PANE]",
         browser_page_usage: "usage: cmux browser <tab_…|page> navigate URL | back | forward | reload | state | eval SCRIPT | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value SELECTOR | fill|type SELECTOR TEXT",
-        mcp_usage: "usage: cmux mcp serve | cmux mcp tools [--json]\n\n  serve  Serve cmux tools to an MCP client on stdin and stdout. Off unless\n         cmux.json sets \"mcp\": {\"enabled\": true} (cmux settings set mcp.enabled true)\n  tools  List the tools serve offers and the operations it leaves out",
-        mcp_disabled: "the MCP server is off; turn it on with `cmux settings set mcp.enabled true` or \"mcp\": {\"enabled\": true} in {path}",
-        mcp_config_invalid: "the MCP server stays off because the settings file cannot be read: {error}",
         root_scopes: "APP SCOPES (the cmux app)\n  app           ping, identify, capabilities, and app actions (`cmux app new-window`)\n  window        List the app's windows\n  action        List, describe, and run registered actions\n  settings      Read and change cmux.json settings\n  events        Stream app events as JSON lines\n  history       List and search the app's history (list, search <text>)\n  bookmark      List and search browser bookmarks (list, search <text>)\n  <noun> <verb> Any action by its CLI name (`cmux action list`)\n  --app-socket <path>  Connect to an exact app control socket\n",
     },
     agent_wrapper: AgentWrapperMessages {
@@ -2118,9 +2112,6 @@ static JAPANESE: Catalog = Catalog {
         invalid_response: "cmux アプリの応答を読み取れません",
         acp_open_usage: "使い方: cmux acp open セッション [--pane ペイン]",
         browser_page_usage: "使い方: cmux browser <tab_…|page> navigate URL | back | forward | reload | state | eval スクリプト | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value セレクタ | fill|type セレクタ テキスト",
-        mcp_usage: "使い方: cmux mcp serve | cmux mcp tools [--json]\n\n  serve  標準入出力で MCP クライアントに cmux のツールを提供します。cmux.json で\n         \"mcp\": {\"enabled\": true} を設定しない限りオフです (cmux settings set mcp.enabled true)\n  tools  serve が提供するツールと、除外する操作を一覧表示",
-        mcp_disabled: "MCP サーバーはオフです。`cmux settings set mcp.enabled true` を実行するか、{path} に \"mcp\": {\"enabled\": true} を設定してください",
-        mcp_config_invalid: "設定ファイルを読み取れないため、MCP サーバーはオフのままです: {error}",
         root_scopes: "アプリのスコープ (cmux アプリ)\n  app           ping、identify、capabilities とアプリのアクション (`cmux app new-window`)\n  window        アプリのウィンドウ一覧\n  action        登録済みアクションの一覧、説明、実行\n  settings      cmux.json の設定の読み取りと変更\n  events        アプリのイベントを JSON 行で表示\n  history       アプリの履歴の一覧と検索 (list、search <テキスト>)\n  bookmark      ブラウザのブックマークの一覧と検索 (list、search <テキスト>)\n  <名詞> <動詞> CLI 名で任意のアクションを実行 (`cmux action list`)\n  --app-socket <パス>  指定したアプリ制御ソケットに接続\n",
     },
     agent_wrapper: AgentWrapperMessages {

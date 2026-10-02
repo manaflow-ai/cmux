@@ -6,8 +6,9 @@ use cmux_tui_core::resource::{OperationClass, ResourceOperation};
 use serde_json::{Map, Value, json};
 
 use super::super::app::{ActionName, AppCommand, run_action};
-use super::super::command::{CommandPlan, ParsedCommand, RequestPlan, Resolve};
-use super::super::wire::{CallFailure, FailureKind, request_value};
+use super::super::command::{CommandPlan, ParsedCommand, RequestPlan};
+use super::super::wire::request_value;
+use super::transport::{CallFailure, FailureKind, Prefix};
 use super::*;
 
 const WORKSPACE: &str = "ws_0123456789abcdef0123456789abcdef";
@@ -37,15 +38,20 @@ impl Fake {
 }
 
 impl Backend for Fake {
-    fn resource(&self, session: Option<&str>, plan: RequestPlan) -> Result<Value, CallFailure> {
-        // The request exactly as `wire::call` builds it.
+    fn resource(
+        &self,
+        session: Option<&str>,
+        plan: RequestPlan,
+        prefixes: &[Prefix],
+    ) -> Result<Value, CallFailure> {
+        // The request exactly as `transport::resource` builds it.
         let request = request_value(&plan).expect("a valid request");
         let key = request.get("idempotency_key").and_then(Value::as_str).map(str::to_owned);
         self.sent.borrow_mut().push(json!({
             "kind": "resource",
             "session": session,
             "request": request,
-            "resolve": plan.resolve.len(),
+            "prefixes": prefixes.len(),
         }));
         if self.fail_resources {
             return Err(CallFailure {
@@ -154,7 +160,7 @@ fn every_catalog_operation_is_a_tool_or_excluded_with_a_reason() {
 
 #[test]
 fn every_tool_is_reachable_from_the_cmux_cli_and_no_excluded_operation_is() {
-    let cases = super::super::command::tests::safe_operation_cases();
+    let cases = super::super::command::cases::safe_operation_cases();
     let sends =
         |args: &[&str]| match super::super::parse(&strings(args), super::super::Surface::Cmux) {
             Ok(ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. }) => {
@@ -481,15 +487,15 @@ fn ids_take_a_unique_prefix_and_a_session_qualifier() {
     assert_eq!(call.session.as_deref(), Some("build-box"));
     assert_eq!(call.plan.params["workspace"], "ws_1a2b");
     assert_eq!(
-        call.plan.resolve,
-        [Resolve::IdPrefix { field: "workspace".into(), list: ResourceOperation::WorkspaceList }]
+        call.prefixes,
+        [Prefix { field: "workspace".into(), list: ResourceOperation::WorkspaceList }]
     );
     assert_eq!(call.plan.params["machine"], "current");
     assert_eq!(call.plan.params["session"], "current");
 
     for whole in [WORKSPACE, "current", "name:ws_1", "workspace:ws_1a"] {
         let call = tool.plan(&object(json!({"workspace": whole}))).expect("plan");
-        assert!(call.plan.resolve.is_empty(), "{whole}");
+        assert!(call.prefixes.is_empty(), "{whole}");
         assert_eq!(call.session, None, "{whole}");
         assert_eq!(call.plan.params["workspace"], whole);
     }

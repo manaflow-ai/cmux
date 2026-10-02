@@ -3,7 +3,7 @@
 //! The tools come from the two catalogs the owners publish, never from the
 //! CLI grammar: the session daemon's `cmux.protocol/2` operations
 //! (`v2_tools`) and the app's actions marked for the CLI (`action_tools`).
-//! Calls reuse the CLI's transport (`wire::call`, `app::call_method`), so a
+//! Calls go through `transport`, built from the CLI's own pieces, so a
 //! tool call has the CLI's contract: socket discovery, `--session` routing,
 //! public ids, idempotency keys, read barriers and deadlines. Off by default:
 //! `serve` refuses unless cmux.json sets `"mcp": {"enabled": true}`, it
@@ -12,9 +12,11 @@
 
 mod action_tools;
 mod config;
+mod messages;
 mod schema;
 #[cfg(test)]
 mod tests;
+mod transport;
 mod v2_tools;
 mod watch;
 
@@ -25,7 +27,7 @@ use std::time::Duration;
 use serde_json::{Map, Value, json};
 
 use super::command::RequestPlan;
-use super::wire::{CallFailure, FailureKind};
+use transport::{CallFailure, FailureKind, Prefix};
 use super::{GlobalArgs, OutputMode};
 use action_tools::ActionTool;
 
@@ -59,7 +61,12 @@ impl Exclusion {
 
 /// Where tool calls go: the session daemon and the app. Tests replace it.
 pub(super) trait Backend {
-    fn resource(&self, session: Option<&str>, plan: RequestPlan) -> Result<Value, CallFailure>;
+    fn resource(
+        &self,
+        session: Option<&str>,
+        plan: RequestPlan,
+        prefixes: &[Prefix],
+    ) -> Result<Value, CallFailure>;
     fn app(
         &self,
         method: &str,
@@ -75,7 +82,12 @@ struct LiveBackend {
 }
 
 impl Backend for LiveBackend {
-    fn resource(&self, session: Option<&str>, plan: RequestPlan) -> Result<Value, CallFailure> {
+    fn resource(
+        &self,
+        session: Option<&str>,
+        plan: RequestPlan,
+        prefixes: &[Prefix],
+    ) -> Result<Value, CallFailure> {
         let mut global = self.global.clone();
         if let Some(session) = session
             && global.session.as_deref() != Some(session)
@@ -89,7 +101,7 @@ impl Backend for LiveBackend {
             }
             global.session = Some(session.to_owned());
         }
-        super::wire::call(&global, plan)
+        transport::resource(&global, plan, prefixes)
     }
 
     fn app(
@@ -99,13 +111,20 @@ impl Backend for LiveBackend {
         timeout: Duration,
         idempotency_key: Option<&str>,
     ) -> Result<Value, CallFailure> {
-        super::app::call_method(&self.global, method, params, timeout, idempotency_key)
+        transport::app_method(&self.global, method, params, timeout, idempotency_key)
     }
 }
 
+/// `cmux [global options] mcp …`; `None` when `args` names another scope.
+pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
+    let (global, command_args) = super::parse_globals(args).ok()?;
+    let (scope, rest) = command_args.split_first()?;
+    (scope == "mcp").then(|| run(global, rest))
+}
+
 /// `cmux [global options] mcp <command>`.
-pub(super) fn run(global: GlobalArgs, args: &[String]) -> i32 {
-    let usage = crate::localization::catalog().app_control.mcp_usage;
+fn run(global: GlobalArgs, args: &[String]) -> i32 {
+    let usage = messages::messages().usage;
     match args {
         [flag] if matches!(flag.as_str(), "-h" | "--help" | "help") => {
             println!("{usage}");
@@ -123,11 +142,11 @@ pub(super) fn run(global: GlobalArgs, args: &[String]) -> i32 {
 /// Why `serve` must not run with the settings file at `path`, or `None`
 /// when cmux.json turns the server on.
 pub(super) fn refusal(path: &std::path::Path) -> Option<String> {
-    let messages = &crate::localization::catalog().app_control;
+    let messages = messages::messages();
     match config::enabled(path) {
         Ok(true) => None,
-        Ok(false) => Some(messages.mcp_disabled.replace("{path}", &path.display().to_string())),
-        Err(error) => Some(messages.mcp_config_invalid.replace("{error}", &error)),
+        Ok(false) => Some(messages.disabled.replace("{path}", &path.display().to_string())),
+        Err(error) => Some(messages.config_invalid.replace("{error}", &error)),
     }
 }
 
@@ -356,7 +375,7 @@ impl<B: Backend> Server<B> {
             Err(error) => return tool_error(envelope(error, "not_run", None)),
         };
         let page = call.page;
-        match self.backend.resource(call.session.as_deref(), call.plan) {
+        match self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes) {
             Ok(value) => success(
                 match page {
                     Some(page) => v2_tools::paginate(value, page),

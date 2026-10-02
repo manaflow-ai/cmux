@@ -10,8 +10,9 @@ use std::sync::OnceLock;
 use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value, json};
 
-use super::super::command::{RequestPlan, Resolve, WireOperation};
-use super::super::{federation, resolve};
+use super::super::command::{RequestPlan, WireOperation};
+use super::super::federation;
+use super::transport::{self, Prefix};
 use super::Exclusion;
 use super::schema::{self, Generator};
 
@@ -119,6 +120,8 @@ pub(super) struct CallPlan {
     pub plan: RequestPlan,
     pub session: Option<String>,
     pub page: Option<Page>,
+    /// Arguments that hold a unique id prefix, resolved before sending.
+    pub prefixes: Vec<Prefix>,
 }
 
 pub(super) fn tools() -> &'static [V2Tool] {
@@ -325,7 +328,7 @@ impl V2Tool {
             }
         }
         let mut session = None;
-        let mut resolve = Vec::new();
+        let mut prefixes = Vec::new();
         let mut idempotency_key = None;
         let (mut offset, mut limit) = (None, None);
         for (name, value) in arguments {
@@ -345,7 +348,7 @@ impl V2Tool {
                 _ if selector => {
                     let id = self.id_argument(name, name, text(name, value)?, &mut session)?;
                     if let Some(step) = id.1 {
-                        resolve.push(step);
+                        prefixes.push(step);
                     }
                     params.insert(name.clone(), Value::String(id.0));
                 }
@@ -359,7 +362,7 @@ impl V2Tool {
                         (Some(resource), Some(raw)) => {
                             let id = self.id_argument(name, resource, raw, &mut session)?;
                             if let Some(step) = id.1 {
-                                resolve.push(step);
+                                prefixes.push(step);
                             }
                             Value::String(id.0)
                         }
@@ -393,10 +396,11 @@ impl V2Tool {
                 params: Value::Object(params),
                 idempotency_key,
                 stream: false,
-                resolve,
+                resolve: Vec::new(),
             },
             session,
             page,
+            prefixes,
         })
     }
 
@@ -415,7 +419,7 @@ impl V2Tool {
         resource: &str,
         raw: &str,
         session: &mut Option<String>,
-    ) -> Result<(String, Option<Resolve>), Value> {
+    ) -> Result<(String, Option<Prefix>), Value> {
         let (qualifier, id) = match federation::qualified(raw) {
             Some((session, id)) => (Some(session), id),
             None => (None, raw),
@@ -424,9 +428,9 @@ impl V2Tool {
             set_session(session, qualifier)?;
         }
         let lookup = schema::id_prefix(resource)
-            .filter(|prefix| resolve::is_partial_id(id, prefix))
+            .filter(|prefix| transport::is_partial_id(id, prefix))
             .and_then(|_| schema::prefix_list(resource))
-            .map(|list| Resolve::IdPrefix { field: field.to_owned(), list });
+            .map(|list| Prefix { field: field.to_owned(), list });
         Ok((id.to_owned(), lookup))
     }
 }
