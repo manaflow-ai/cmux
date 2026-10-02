@@ -45,9 +45,34 @@ struct CloudTreeCategoryCreateActionTests {
     }
 
     @Test("Persistent create rows expose the shared hover treatment")
-    func persistentCreateRowsUseHoverHighlight() {
-        #expect(CloudTreeCellView.isPersistentActionRow(.createAction(.newCloudVM)))
-        #expect(CloudTreeCellView.isPersistentActionRow(.createAction(.newWorkspaceOnResolvedMachine)))
+    func persistentCreateRowsUseHoverHighlight() throws {
+        let fixture = Fixture()
+        defer { fixture.close() }
+
+        fixture.apply(machines: [])
+        let newMachine = try #require(fixture.cloudSection?.children.first { node in
+            if case .createAction(.newCloudVM) = node.kind { return true }
+            return false
+        })
+        let machineCell = try fixture.cell(for: newMachine)
+        machineCell.setHovered(true)
+        #expect(machineCell.isPersistentActionHoverVisible)
+        machineCell.setHovered(false)
+        #expect(!machineCell.isPersistentActionHoverVisible)
+
+        fixture.apply(machines: [fixture.machine])
+        let workspaces = try #require(fixture.machineNode?.children.first { node in
+            if case .workspacesGroup = node.kind { return true }
+            return false
+        })
+        let newWorkspace = try #require(workspaces.children.last { node in
+            if case .createAction(.newWorkspaceOnResolvedMachine) = node.kind { return true }
+            return false
+        })
+        let workspaceCell = try fixture.cell(for: newWorkspace)
+        workspaceCell.setHovered(true)
+        #expect(workspaceCell.isPersistentActionHoverVisible)
+
         #expect(CloudTreeCellView.isPersistentActionRow(.placeholder(
             machine: .cloud("empty"),
             CloudTreePlaceholder(text: "New Machine", style: .createMachine)

@@ -64,7 +64,7 @@ final class CloudTreeCellView: NSTableCellView {
         identifier = Self.identifier
         persistentActionHover.wantsLayer = true
         persistentActionHover.layer?.cornerRadius = 4
-        persistentActionHover.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
+        updatePersistentActionHoverAppearance()
         persistentActionHover.isHidden = true
         NotificationCenter.default.addObserver(
             self,
@@ -244,6 +244,18 @@ final class CloudTreeCellView: NSTableCellView {
         )
     }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updatePersistentActionHoverAppearance()
+    }
+
+    private func updatePersistentActionHoverAppearance() {
+        let color = NSColor.labelColor
+            .resolvedColor(with: effectiveAppearance)
+            .withAlphaComponent(0.06)
+        persistentActionHover.layer?.backgroundColor = color.cgColor
+    }
+
     private func makeButtonsHost(style: CloudTreeStyle) -> CloudTreeRowControlsHostingView {
         let host = CloudTreeRowControlsHostingView(rootView: AnyView(EmptyView()))
         host.translatesAutoresizingMaskIntoConstraints = false
@@ -292,6 +304,12 @@ final class CloudTreeCellView: NSTableCellView {
 
     private func updatePersistentActionHover() {
         persistentActionHover.isHidden = !(showsPersistentActionHover && hovered)
+    }
+
+    /// Exposed for the focused cell-level regression test. The outline still
+    /// owns hover tracking in production through `setHovered`.
+    var isPersistentActionHoverVisible: Bool {
+        !persistentActionHover.isHidden
     }
 
     static func isPersistentActionRow(_ kind: CloudTreeNode.Kind) -> Bool {
