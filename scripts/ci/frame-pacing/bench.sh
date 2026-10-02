@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # Fling bench for the cmux-next agent pane on a 120 Hz virtual display.
 #
-# usage: bench.sh WORK_DIR
+# usage: bench.sh WORK_DIR [FLINGS]
 #   WORK_DIR holds the tagged app (app/*.app), VDisplay.app (built from
 #   vdisplay.m) and an out/ directory. Run it in the console user's GUI session
 #   (scripts/ci/run-in-console-session.sh); CMUX_TAG is the app's baked tag.
 #
 # For each render rate (CMUX_NEXT_AGENT_PANE_FULL_RATE=0 capped, =1 full) it
 # launches the app with the mock agent pane, seeds 5000 rows, runs one warm-up
-# fling and FLINGS measured flings, and writes out/<mode>-<n>.json with the
+# fling and FLINGS measured flings (3 by default; an argument, because
+# run-in-console-session.sh forwards only a fixed list of variables), and writes out/<mode>-<n>.json with the
 # fling_stats and perf_stats debug results. out/display.txt records the virtual
 # display's measured tick interval. The virtual display and every app this
 # script launched are gone when it exits, however it exits.
@@ -16,7 +17,8 @@ set -uo pipefail
 
 work="${1:?usage: bench.sh WORK_DIR}"
 tag="${CMUX_TAG:?set CMUX_TAG to the baked tag of the app}"
-flings="${FRAME_PACING_FLINGS:-3}"
+flings="${2:-3}"
+case "$flings" in ""|*[!0-9]*) echo "FLINGS must be a number, got: $flings" >&2; exit 1 ;; esac
 out="$work/out"
 mkdir -p "$out"
 app="$(ls -d "$work"/app/*.app 2>/dev/null | head -1)"
