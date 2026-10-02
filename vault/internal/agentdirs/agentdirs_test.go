@@ -86,6 +86,19 @@ func TestCodexDiscoverSkipsSymlinkedSessionFiles(t *testing.T) {
 	}
 }
 
+func TestOpenRegularFileNoSymlinkRejectsHardLinks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.jsonl")
+	link := filepath.Join(t.TempDir(), "linked.jsonl")
+	writeFile(t, path, `{"cwd":"/private"}`+"\n")
+	if err := os.Link(path, link); err != nil {
+		t.Skipf("hard links unavailable: %v", err)
+	}
+	if file, _, err := OpenRegularFileNoSymlink(path); err == nil {
+		_ = file.Close()
+		t.Fatal("expected hard-linked file to be rejected")
+	}
+}
+
 func TestDiscoverSymlinkedRoots(t *testing.T) {
 	base := t.TempDir()
 	shared := filepath.Join(base, "shared")
