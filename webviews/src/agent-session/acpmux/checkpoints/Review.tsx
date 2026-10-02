@@ -174,6 +174,7 @@ export function CheckpointReview({
                   <label>
                     <input
                       type="checkbox"
+                      aria-label={candidate.path}
                       checked={candidate.eligible && selected.has(candidate.path)}
                       disabled={!candidate.eligible}
                       onChange={() => toggle(candidate.path)}

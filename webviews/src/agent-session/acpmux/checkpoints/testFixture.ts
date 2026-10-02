@@ -42,4 +42,3 @@ export class MemoryPersistence implements CheckpointPersistence {
     this.values.delete(key);
   }
 }
-

@@ -8413,11 +8413,11 @@
         }
       },
       "da": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Base"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grundlag"
+          }
+        },
       "de": {
         "stringUnit": {
           "state": "translated",
@@ -8443,11 +8443,11 @@
         }
       },
       "km": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Base"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "មូលដ្ឋាន"
+          }
+        },
       "ko": {
         "stringUnit": {
           "state": "translated",
@@ -8455,11 +8455,11 @@
         }
       },
       "nb": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Base"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grunnlag"
+          }
+        },
       "pl": {
         "stringUnit": {
           "state": "translated",
@@ -8479,11 +8479,11 @@
         }
       },
       "th": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Base"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "ฐาน"
+          }
+        },
       "tr": {
         "stringUnit": {
           "state": "translated",
@@ -10450,11 +10450,11 @@
         }
       },
       "tr": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "işlem %s üzerinden yok sayıldı"
-        }
-      },
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yok sayıldı"
+          }
+        },
       "uk": {
         "stringUnit": {
           "state": "translated",

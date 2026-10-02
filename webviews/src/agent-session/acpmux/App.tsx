@@ -105,7 +105,7 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
   const direct = window.cmuxAcpmuxActions?.[method];
   if (direct) return direct(params) as Promise<T>;
   const handler = window.webkit?.messageHandlers?.agentSession;
-  if (!handler) return Promise.reject(new NativeError({code: "native.not_connected", origin: "native"}));
+  if (!handler) return Promise.reject(new NativeError({ code: "native.not_connected", origin: "native" }));
   return Promise.resolve(handler.postMessage({ id: crypto.randomUUID(), method, params }) as unknown as Reply<T>).then(
     (reply) => {
       if (!reply.ok) throw new NativeError(reply.error);
@@ -692,14 +692,21 @@ function AcpmuxPane() {
   });
   const [handoffLabels, setHandoffLabels] = useState(handoffStrings);
   const [checkpointLabels, setCheckpointLabels] = useState(checkpointStrings);
+  const [checkpointVariant, setCheckpointVariant] = useState<"compact" | "expanded">("compact");
   const checkpoints = useCheckpoints({
     request: callNative,
-    target: snapshot.summary?.cwd ? {cwd: snapshot.summary.cwd, sessionId: snapshot.sessionId, hostKind: snapshot.summary.hostKind} : undefined,
+    target: snapshot.summary?.cwd
+      ? { cwd: snapshot.summary.cwd, sessionId: snapshot.sessionId, hostKind: snapshot.summary.hostKind }
+      : undefined,
     online: snapshot.connection === "connected",
     strings: checkpointLabels,
+    variant: checkpointVariant,
   });
   const showCheckpoint = useRef(checkpoints.show);
   showCheckpoint.current = checkpoints.show;
+  useEffect(() => {
+    void callNative("pane.checkpointAvailability", { available: checkpoints.supported }).catch(() => undefined);
+  }, [checkpoints.supported, snapshot.sessionId]);
   const [continuing, setContinuing] = useState(false);
   const [reviewReload, setReviewReload] = useState(0);
   useEffect(() => setContinuing(false), [snapshot.sessionId]);
@@ -952,6 +959,12 @@ function AcpmuxPane() {
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
+        if (mock)
+          setCheckpointVariant(
+            new URLSearchParams(window.location.search).get("checkpointVariant") === "expanded"
+              ? "expanded"
+              : "compact",
+          );
         setAccount(mock ? MOCK_ACCOUNT : hostAccount(host.account));
         if (!mock && (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token)) return;
         const client = await AcpmuxDirectClient.connect(
@@ -1104,7 +1117,11 @@ function AcpmuxPane() {
                 {header.status && <span className="acpmux-status">{header.status}</span>}
               </div>
               <div className="acpmux-handoff-header-tools">
-                {checkpoints.supported && <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>{checkpointLabels.createCheckpoint}</button>}
+                {checkpoints.supported && (
+                  <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>
+                    {checkpointLabels.createCheckpoint}
+                  </button>
+                )}
                 <span
                   className="acpmux-session-coverage"
                   title={`${handoffLabels.unverified} · ${snapshot.summary?.enforcement?.detail ?? handoffLabels.unverifiedDetail}`}
@@ -1165,9 +1182,20 @@ function AcpmuxPane() {
               </TurnActionsContext.Provider>
             )}
             {diffView && diffFiles && (
-              <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} source={changesSource}
-                checkpointAction={checkpoints.supported ? <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>{checkpointLabels.createCheckpoint}</button> : undefined}
-                checkpointReview={checkpoints.review} />
+              <DiffPanel
+                files={diffFiles}
+                initialPath={diffView.path}
+                onClose={closeDiff}
+                source={changesSource}
+                checkpointAction={
+                  checkpoints.supported ? (
+                    <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>
+                      {checkpointLabels.createCheckpoint}
+                    </button>
+                  ) : undefined
+                }
+                checkpointReview={checkpoints.review}
+              />
             )}
           </div>
           {snapshot.permission?.pending && (

@@ -75,7 +75,7 @@ describe("CheckpointClient", () => {
       if (method === CHECKPOINT_OPS.list && params.cwd === "/old") return gate.promise;
       return list;
     };
-    const client = new CheckpointClient(request, persistence, undefined, async () => ({checkpoints: true}));
+    const client = new CheckpointClient(request, persistence, undefined, async () => ({ checkpoints: true }));
     await client.refreshCapabilities();
     client.select({ cwd: "/old" });
     const pending = client.list({ include_candidates: true });
@@ -89,7 +89,12 @@ describe("CheckpointClient", () => {
   test("persists a create key, gets first after uncertainty, then retries with the same key", async () => {
     const h = harness();
     const persistence = new MemoryPersistence();
-    const client = new CheckpointClient(h.request, persistence, () => "create-key", async () => ({checkpoints: true}));
+    const client = new CheckpointClient(
+      h.request,
+      persistence,
+      () => "create-key",
+      async () => ({ checkpoints: true }),
+    );
     await client.refreshCapabilities();
     client.select(target);
     await expect(client.create({ include_untracked: ["draft.txt"] })).rejects.toThrow("connection lost");
@@ -119,7 +124,9 @@ describe("CheckpointClient", () => {
 
   test("does not send a request for managed pin removal", async () => {
     const h = harness();
-    const client = new CheckpointClient(h.request, new MemoryPersistence(), undefined, async () => ({checkpoints: true}));
+    const client = new CheckpointClient(h.request, new MemoryPersistence(), undefined, async () => ({
+      checkpoints: true,
+    }));
     await client.refreshCapabilities();
     client.select(target);
     await expect(client.unpin({ checkpoint_id: "cp-1", pin_id: "handoff:cp-1" })).rejects.toMatchObject({
@@ -131,7 +138,9 @@ describe("CheckpointClient", () => {
 
   test("refuses mutations while offline and does not queue them", async () => {
     const h = harness();
-    const client = new CheckpointClient(h.request, new MemoryPersistence(), undefined, async () => ({checkpoints: true}));
+    const client = new CheckpointClient(h.request, new MemoryPersistence(), undefined, async () => ({
+      checkpoints: true,
+    }));
     await client.refreshCapabilities();
     client.select(target);
     client.setOnline(false);

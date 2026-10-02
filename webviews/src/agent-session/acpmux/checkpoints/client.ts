@@ -47,7 +47,12 @@ export type CheckpointClientOptions = {
   onChange?: () => void;
 };
 
-type StoredMutation = { idempotency_key: string; attempted: boolean; operation: MutationOperation; body: Record<string, unknown> };
+type StoredMutation = {
+  idempotency_key: string;
+  attempted: boolean;
+  operation: MutationOperation;
+  body: Record<string, unknown>;
+};
 type MutationOperation = "create" | "pin" | "unpin";
 const defaultPersistence: CheckpointPersistence = {
   async get(key) {
@@ -55,7 +60,7 @@ const defaultPersistence: CheckpointPersistence = {
     return value === null || value === undefined ? undefined : JSON.parse(value);
   },
   async set(key, value) {
-    if (!globalThis.localStorage) throw new CheckpointRpcError({code: "native.invalid_request", origin: "native"});
+    if (!globalThis.localStorage) throw new CheckpointRpcError({ code: "native.invalid_request", origin: "native" });
     globalThis.localStorage.setItem(key, JSON.stringify(value));
   },
   async delete(key) {
@@ -247,7 +252,9 @@ export class CheckpointClient {
     return `cmux.checkpoint.pending:${stable(target)}`;
   }
   private async mutationKey(
-    operation: MutationOperation, target: CheckpointTarget, body: Record<string, unknown>,
+    operation: MutationOperation,
+    target: CheckpointTarget,
+    body: Record<string, unknown>,
   ): Promise<{ storageKey: string; record: StoredMutation }> {
     const storageKey = this.mutationStorageKey(target);
     const stored = await this.persistence.get(storageKey);
@@ -268,7 +275,12 @@ export class CheckpointClient {
     const value = await this.persistence.get(this.mutationStorageKey(target));
     if (generation !== this.generation || !value || typeof value !== "object") return;
     const pending = value as StoredMutation;
-    if (!pending.body || typeof pending.idempotency_key !== "string" || !["create", "pin", "unpin"].includes(pending.operation)) return;
+    if (
+      !pending.body ||
+      typeof pending.idempotency_key !== "string" ||
+      !["create", "pin", "unpin"].includes(pending.operation)
+    )
+      return;
     this.state = { ...this.state, pending, busy: "recovering", error: undefined };
     this.changed();
     try {
@@ -283,13 +295,20 @@ export class CheckpointClient {
       if (generation === this.generation) this.state = { ...this.state, error: requestError(error) };
       throw error;
     } finally {
-      if (generation === this.generation) { this.state = { ...this.state, busy: undefined }; this.changed(); }
+      if (generation === this.generation) {
+        this.state = { ...this.state, busy: undefined };
+        this.changed();
+      }
     }
   }
   async retry(): Promise<MutationEnvelope<Checkpoint>> {
     const pending = this.state.pending;
-    if (!pending) throw new CheckpointRpcError({code: "validation.invalid", origin: "native"});
-    return this.mutate(pending.operation, pending.body, pending.operation === "create" ? "creating" : pending.operation === "pin" ? "pinning" : "unpinning");
+    if (!pending) throw new CheckpointRpcError({ code: "validation.invalid", origin: "native" });
+    return this.mutate(
+      pending.operation,
+      pending.body,
+      pending.operation === "create" ? "creating" : pending.operation === "pin" ? "pinning" : "unpinning",
+    );
   }
   private async reconcile(
     operation: MutationOperation,
@@ -307,11 +326,17 @@ export class CheckpointClient {
     return undefined;
   }
   private async mutate(
-    operation: MutationOperation, body: Record<string, unknown>, busy: CheckpointClientState["busy"],
+    operation: MutationOperation,
+    body: Record<string, unknown>,
+    busy: CheckpointClientState["busy"],
   ): Promise<MutationEnvelope<Checkpoint>> {
     const target = this.requireReady();
     if (this.mutationActive || this.state.busy)
-      throw new CheckpointRpcError({code: "operation.failed", origin: "native", details: {reason: "repository_busy"}});
+      throw new CheckpointRpcError({
+        code: "operation.failed",
+        origin: "native",
+        details: { reason: "repository_busy" },
+      });
     this.mutationActive = true;
     const generation = this.generation;
     this.state = { ...this.state, busy, error: undefined };
@@ -321,19 +346,22 @@ export class CheckpointClient {
       const saved = await this.mutationKey(operation, target, body);
       storageKey = saved.storageKey;
       const record = saved.record;
-      if (generation !== this.generation || !this.online) throw new CheckpointRpcError({code: "native.not_connected", origin: "native"});
+      if (generation !== this.generation || !this.online)
+        throw new CheckpointRpcError({ code: "native.not_connected", origin: "native" });
       this.state = { ...this.state, pending: record };
       if (record.attempted) {
         const reconciled = await this.reconcile(operation, target, body, record.idempotency_key);
         if (reconciled) {
           await this.persistence.delete(storageKey);
-          if (generation === this.generation) this.state = { ...this.state, record: reconciled.result, pending: undefined };
+          if (generation === this.generation)
+            this.state = { ...this.state, record: reconciled.result, pending: undefined };
           return reconciled;
         }
       }
       const params = { ...targetParams(target), ...body, idempotency_key: record.idempotency_key };
       await this.persistence.set(storageKey, { ...record, attempted: true });
-      if (generation !== this.generation || !this.online) throw new CheckpointRpcError({code: "native.not_connected", origin: "native"});
+      if (generation !== this.generation || !this.online)
+        throw new CheckpointRpcError({ code: "native.not_connected", origin: "native" });
       const result = mutationEnvelope<Checkpoint>(await this.call(CHECKPOINT_OPS[operation], params));
       const parsedRecord = checkpointRecord(result.result);
       await this.persistence.delete(storageKey);
@@ -342,7 +370,8 @@ export class CheckpointClient {
     } catch (error) {
       const parsed = requestError(error);
       if (!parsed.uncertain && storageKey) await this.persistence.delete(storageKey);
-      if (generation === this.generation) this.state = { ...this.state, error: parsed, pending: parsed.uncertain ? this.state.pending : undefined };
+      if (generation === this.generation)
+        this.state = { ...this.state, error: parsed, pending: parsed.uncertain ? this.state.pending : undefined };
       throw parsed;
     } finally {
       this.mutationActive = false;

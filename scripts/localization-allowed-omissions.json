@@ -4287,7 +4287,9 @@
     "source": "Base",
     "identityLocales": {
       "fr": "Base is the established French UI word for a base; the translated catalog entry remains explicit.",
-      "es": "Base is the established Spanish UI word for a base; the translated catalog entry remains explicit."
+      "es": "Base is the established Spanish UI word for a base; the translated catalog entry remains explicit.",
+      "it": "Base is the established Italian word for a base; the translated catalog entry remains explicit.",
+      "pt-BR": "Base is the established Portuguese word for a base; the translated catalog entry remains explicit."
     }
   }
 }

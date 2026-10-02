@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  checkpointList,
-  mutationEnvelope,
-  supportsCheckpointCapability,
-  type Checkpoint,
-} from "./protocol";
+import { checkpointList, mutationEnvelope, supportsCheckpointCapability, type Checkpoint } from "./protocol";
 
 const checkpoint: Checkpoint = {
   checkpoint_id: "cp-1",
@@ -28,10 +23,10 @@ const checkpoint: Checkpoint = {
 
 describe("checkpoint protocol", () => {
   test("requires a true checkpoint capability from the native connection", () => {
-    expect(supportsCheckpointCapability({checkpoints: true})).toBe(true);
-    expect(supportsCheckpointCapability({checkpoints: false})).toBe(false);
+    expect(supportsCheckpointCapability({ checkpoints: true })).toBe(true);
+    expect(supportsCheckpointCapability({ checkpoints: false })).toBe(false);
     expect(supportsCheckpointCapability(undefined)).toBe(false);
-    expect(supportsCheckpointCapability({checkpoints: "true"})).toBe(false);
+    expect(supportsCheckpointCapability({ checkpoints: "true" })).toBe(false);
   });
 
   test("accepts decimal revisions and rejects malformed mutation envelopes", () => {

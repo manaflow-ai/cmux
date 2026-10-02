@@ -213,7 +213,8 @@ export class CheckpointRpcError extends Error {
     this.details = reply.details;
     this.retryable = typeof reply.retryable === "boolean" ? reply.retryable : undefined;
     this.origin = reply.origin === "native" || reply.origin === "session_host" ? reply.origin : undefined;
-    this.uncertain = this.code === "mutation.indeterminate" ||
+    this.uncertain =
+      this.code === "mutation.indeterminate" ||
       (this.origin === "native" ? this.code === "native.timed_out" : this.origin === undefined);
   }
 }
