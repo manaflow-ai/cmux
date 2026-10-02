@@ -453,4 +453,15 @@ describe("direct client session state", () => {
     await settle();
     expect(latest().rows.map((row) => [row.kind, row.text])).toEqual([["assistant", "Welcome."], ["user", "hi"], ["assistant", "Hello."]]);
   });
+
+  test("a superseded message drops every segment it was split into", async () => {
+    const update = (seq: number, update: Record<string, unknown>): EventRecord => ({ sessionId: "a", seq, at: seq, dir: "in", kind: String(update.sessionUpdate), msg: { method: "session/update", params: { sessionId: "a", update } } });
+    const chunk = (seq: number, text: string) => update(seq, { sessionUpdate: "agent_message_chunk", messageId: "m1", content: { type: "text", text } });
+    ScriptedSocket.respond = ({ method }) => method === "_acpmux/attach"
+      ? { session: { sessionId: "a", status: "idle" }, events: [userEvent("a", 5, "run it"), chunk(6, "Before."), update(7, { sessionUpdate: "tool_call", toolCallId: "t1", title: "Run", status: "completed" }), chunk(8, "After."), { sessionId: "a", seq: 9, at: 9, dir: "mux", kind: "message_superseded", msg: { oldMessageId: "m1" } }] }
+      : method === "_acpmux/watch" ? { sessions: [{ sessionId: "a" }] } : {};
+    await connect();
+    await settle();
+    expect(latest().rows.filter((row) => row.kind === "assistant")).toEqual([]);
+  });
 });
