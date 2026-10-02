@@ -5,9 +5,9 @@ import CmuxNextDesign
 import CmuxNextSidebar
 import Testing
 
-/// `window.rail`: the icon rail's buttons and their actions, where the rail
-/// sits for each placement, clearance from the traffic lights, and tooltips
-/// with live shortcuts.
+/// `window.rail`: the sidebar's sticky sections as an icon rail, where the
+/// rail sits for each placement, clearance from the traffic lights, and
+/// tooltips with live shortcuts.
 @MainActor
 @Suite(.serialized)
 struct WindowRailTests {
@@ -28,18 +28,47 @@ struct WindowRailTests {
         controller.window?.close()
     }
 
-    @Test func buttonsRunTheirRegistryActionsInOrder() {
+    /// The rail is a look of the sidebar's layout: it shows the sticky
+    /// sections' items (the defaults here) as icons, in band order, and
+    /// every built-in an item can name has the sidebar's action and a real
+    /// symbol.
+    @Test func theRailShowsTheSidebarsStickySections() {
         let services = Coverage.boundServices()
-        let rail = WindowRailView(registry: services.registry)
-        #expect(rail.buttons.map(\.item.action) == [
-            "newSurface", "openBrowser", "palette.newAgentChat", "showNotifications", "history.show", "accounts.show",
-        ])
-        #expect(rail.buttons.last?.item == WindowRail.account)
-        for button in rail.buttons {
-            #expect(services.registry.isBound(button.item.action), "\(button.item.action) is not bound")
-            #expect(NSImage(systemSymbolName: button.item.symbol, accessibilityDescription: nil) != nil, "\(button.item.symbol)")
-            #expect(button.accessibilityLabel() == WindowRail.title(for: button.item.action, registry: services.registry))
+        let saved = DesignSettings.shared.rail
+        defer { DesignSettings.shared.rail = saved }
+        let controller = makeWindow(services, .leading)
+        let column = controller.root.rail.column
+        column.layoutSubtreeIfNeeded()
+        let bands = SidebarLayoutDocument.defaults.bands(room: nil)
+        let expected = (bands.above + bands.below).flatMap(\.items).map(\.id)
+        #expect(column.layoutResult.buttons.map(\.item) == expected)
+        for builtIn in SidebarBuiltIn.allCases {
+            #expect(SidebarBridge.builtInActions[builtIn] != nil, "\(builtIn) has no action")
+            #expect(NSImage(systemSymbolName: builtIn.symbol, accessibilityDescription: nil) != nil, "\(builtIn.symbol)")
         }
+        // The new-tab launchers the rail used to hard-code run bound actions.
+        for builtIn in [SidebarBuiltIn.newTerminal, .newBrowser, .newAgentChat, .settings, .account] {
+            #expect(SidebarBridge.builtInActions[builtIn].map(services.registry.isBound) == true, "\(builtIn) is not bound")
+        }
+        close(controller)
+        withExtendedLifetime(services) {}
+    }
+
+    /// Right-clicking a rail item or the empty rail shows the sidebar's
+    /// menus, so pinning, removing and reordering work from the rail while
+    /// the sidebar hides its bands.
+    @Test func railItemsShowTheSidebarsMenus() throws {
+        let services = Coverage.boundServices()
+        let saved = DesignSettings.shared.rail
+        defer { DesignSettings.shared.rail = saved }
+        let controller = makeWindow(services, .leading)
+        let column = controller.root.rail.column
+        let home = LayoutItemID("itm_home")
+        let menu = try #require(column.contextMenuProvider?(.layoutItem(home)))
+        #expect(!menu.items.isEmpty)
+        #expect(menu.items.map(\.title) == controller.sidebar.contextMenu(for: .layoutItem(home))?.items.map(\.title))
+        #expect(column.contextMenuProvider?(.background) != nil)
+        close(controller)
         withExtendedLifetime(services) {}
     }
 
@@ -49,25 +78,32 @@ struct WindowRailTests {
         #expect(condition(), "line \(line)")
     }
 
-    /// Tooltips follow a rebind on their own (the rail observes the
-    /// registry's shortcuts; the test never refreshes them by hand).
+    /// A built-in's tooltip is its action's title and live shortcut, and
+    /// follows a rebind on its own (the rail observes the registry's
+    /// shortcuts; the test never refreshes it by hand).
     @Test func toolTipsShowTheBoundShortcut() async throws {
         let services = Coverage.boundServices()
         let registry = services.registry
-        let rail = WindowRailView(registry: registry)
-        func tip(_ id: ActionID) -> String? { rail.buttons.first { $0.item.action == id }?.toolTip }
-
+        let saved = DesignSettings.shared.rail
+        defer { DesignSettings.shared.rail = saved }
         let browserShortcut = try #require(registry.shortcutDisplay(for: "openBrowser"))
-        #expect(tip("openBrowser") == "New Browser Tab (\(browserShortcut))")
-        let inboxShortcut = try #require(registry.shortcutDisplay(for: "showNotifications"))
-        #expect(tip("showNotifications") == "Show Notifications (\(inboxShortcut))")
+        #expect(WindowRail.toolTip(for: .builtIn(.newBrowser), registry: registry) == "New Browser Tab (\(browserShortcut))")
         // No shortcut: the title alone, without the menu ellipsis.
-        #expect(tip("accounts.show") == "Accounts")
+        #expect(WindowRail.toolTip(for: .builtIn(.account), registry: registry) == "Accounts")
+        // Not a built-in: the item's own title.
+        #expect(WindowRail.toolTip(for: .url("https://example.com"), registry: registry) == nil)
 
-        registry.setShortcutOverride(Shortcut("t", modifiers: [.control, .option, .command]), for: "newSurface")
-        try await eventually { tip("newSurface") == "New Terminal Tab (⌃⌥⌘T)" }
-        registry.setShortcutOverride(nil, for: "openBrowser")
-        try await eventually { tip("openBrowser") == "New Browser Tab" }
+        let controller = makeWindow(services, .leading)
+        let column = controller.root.rail.column
+        column.layoutSubtreeIfNeeded()
+        let settings = LayoutItemID("itm_settings")
+        registry.setShortcutOverride(Shortcut("s", modifiers: [.control, .option, .command]), for: "openSettings")
+        try await eventually {
+            column.layoutSubtreeIfNeeded()
+            return column.itemView(settings)?.toolTip == "\(WindowRail.title(for: "openSettings", registry: registry)) (⌃⌥⌘S)"
+        }
+        registry.setShortcutOverride(nil, for: "openSettings")
+        close(controller)
         withExtendedLifetime(services) {}
     }
 
@@ -103,12 +139,18 @@ struct WindowRailTests {
             }
             if placement != .off {
                 #expect(rail.minY == root.bounds.minY && rail.maxY == root.bounds.maxY, "\(placement): rail not full height")
-                // Accounts sits at the bottom, below the top group.
-                let buttons = root.rail.buttons
-                let top = buttons.filter { $0.item != WindowRail.account }.map(\.frame)
-                let account = buttons.first { $0.item == WindowRail.account }!.frame
-                #expect(top.map(\.minY) == top.map(\.minY).sorted(), "\(placement): top group out of order")
-                #expect(account.minY > top.map(\.maxY).max()!, "\(placement): accounts not pinned to the bottom")
+                // The band below the workspace list is pinned to the bottom,
+                // under the band above it.
+                let column = root.rail.column
+                column.layoutSubtreeIfNeeded()
+                let bands = SidebarLayoutDocument.defaults.bands(room: nil)
+                let below = Set(bands.below.flatMap(\.items).map(\.id))
+                let buttons = column.layoutResult.buttons
+                let top = buttons.filter { !below.contains($0.item) }.map(\.frame)
+                let bottom = buttons.filter { below.contains($0.item) }.map(\.frame)
+                #expect(!top.isEmpty && !bottom.isEmpty, "\(placement)")
+                #expect(bottom.map(\.minY).min()! > top.map(\.maxY).max()!, "\(placement): bottom band not below the top band")
+                #expect(column.bounds.height - bottom.map(\.maxY).max()! < 40, "\(placement): bottom band not pinned to the bottom")
             }
             close(controller)
         }
@@ -162,10 +204,13 @@ struct WindowRailTests {
                 for inset in [controller.root.rail.topInset, 0] {
                     controller.root.rail.topInset = inset
                     controller.root.layoutSubtreeIfNeeded()
-                    for button in controller.root.rail.buttons {
-                        let frame = button.convert(button.bounds, to: nil)
+                    let column = controller.root.rail.column
+                    column.layoutSubtreeIfNeeded()
+                    for button in column.layoutResult.buttons {
+                        let view = try #require(column.itemView(button.item))
+                        let frame = view.convert(view.bounds, to: nil)
                         #expect(frame.maxY <= lights.minY,
-                                "\(style) \(placement) inset \(inset): \(button.item.action) at \(frame) overlaps the lights at \(lights)")
+                                "\(style) \(placement) inset \(inset): \(button.item) at \(frame) overlaps the lights at \(lights)")
                     }
                 }
                 close(controller)

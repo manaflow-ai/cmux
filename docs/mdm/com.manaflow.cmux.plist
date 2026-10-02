@@ -49,7 +49,7 @@
 			<key>pfm_default</key>
 			<string>off</string>
 			<key>pfm_description</key>
-			<string>A column of buttons for new tabs, agent chats, notifications, history and accounts.</string>
+			<string>Shows the sidebar's pinned sections as a column of icons beside it.</string>
 			<key>pfm_name</key>
 			<string>window.rail</string>
 			<key>pfm_range_list</key>
