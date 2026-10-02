@@ -17,7 +17,9 @@ public nonisolated enum AppPlatformResources {
     /// The sample apps' manifests and assets, one directory per app.
     public static var samples: URL { root.appending(path: "samples", directoryHint: .isDirectory) }
 
-    /// The bundled sample manifests (sorted by directory name).
+    /// The bundled sample manifests (sorted by directory name). Reads the
+    /// disk: call it off the main actor (`preload`), or in tests and the
+    /// fake supervisor.
     public static func sampleManifests() -> [(manifest: AppManifest, directory: URL)] {
         let fm = FileManager.default
         guard let entries = try? fm.contentsOfDirectory(at: samples, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return [] }
@@ -27,13 +29,34 @@ public nonisolated enum AppPlatformResources {
     }
 }
 
-/// Where an app's bundle files (icons, scene images) are on this Mac:
-/// the bundled sample's directory when cmux ships one, else nil (the icon
-/// falls back to a symbol). The supervisor's bundle cache is not shared
-/// with the client.
-public nonisolated enum AppBundleLocator {
-    private static let directories: [String: URL] = Dictionary(
-        AppPlatformResources.sampleManifests().map { ($0.manifest.id, $0.directory) }, uniquingKeysWith: { first, _ in first })
+/// Reads the app platform resources from disk. The client calls it only
+/// from `AppPlatformResources.preload`, which runs off the main actor;
+/// tests inject a recorder to prove that.
+public nonisolated protocol AppResourceLoading: Sendable {
+    /// App id -> the bundled sample's directory.
+    func sampleDirectories() -> [String: URL]
+    /// Loads `AppScopeTable.bundled` so no later reader pays for the file read.
+    func warmScopeTable()
+}
 
-    public static func directory(for app: String) -> URL? { directories[app] }
+/// The module's bundled resources.
+public nonisolated struct BundledAppResources: AppResourceLoading {
+    public init() {}
+
+    public func sampleDirectories() -> [String: URL] {
+        Dictionary(AppPlatformResources.sampleManifests().map { ($0.manifest.id, $0.directory) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    public func warmScopeTable() { _ = AppScopeTable.bundled }
+}
+
+extension AppPlatformResources {
+    /// Loads the sample directories and the scope table once, off the main
+    /// actor (app start). Until it finishes, icons of bundled samples fall
+    /// back to a symbol; nothing on the main actor waits for it.
+    @concurrent
+    public static func preload(using loader: some AppResourceLoading = BundledAppResources()) async {
+        loader.warmScopeTable()
+        AppBundleLocator.store(loader.sampleDirectories())
+    }
 }
