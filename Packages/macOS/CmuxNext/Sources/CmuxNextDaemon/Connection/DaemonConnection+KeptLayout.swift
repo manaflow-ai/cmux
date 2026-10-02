@@ -12,38 +12,6 @@ public struct EndedSessions: Sendable, Equatable {
     }
 }
 
-/// The working directory of each terminal tab when Quit's End Sessions,
-/// Keep Layout ended it, by tab resource id. The app writes it before the
-/// end and reads it at the next launch (`relaunchKeptTabs`).
-public struct KeptLayoutPlan: Codable, Sendable, Equatable {
-    public struct Tab: Codable, Sendable, Equatable {
-        public var cwd: String?
-        public init(cwd: String?) { self.cwd = cwd }
-    }
-
-    public var tabs: [String: Tab]
-
-    public init(tabs: [String: Tab]) { self.tabs = tabs }
-
-    /// Every live terminal tab of `tree`, with its current directory.
-    public init(tree: DaemonTree) {
-        var tabs: [String: Tab] = [:]
-        for tab in tree.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs) where tab.kind == .pty && !tab.dead {
-            guard let id = tab.tabResourceID?.rawValue else { continue }
-            tabs[id] = Tab(cwd: tab.cwd)
-        }
-        self.tabs = tabs
-    }
-
-    /// This plan with `measured` directories (by tab resource id) in place of
-    /// the tree's, and `fallback` for a tab with neither.
-    public func withDirectories(_ measured: [String: String], fallback: String?) -> KeptLayoutPlan {
-        KeptLayoutPlan(tabs: Dictionary(uniqueKeysWithValues: tabs.map { id, tab in
-            (id, Tab(cwd: measured[id] ?? tab.cwd ?? fallback))
-        }))
-    }
-}
-
 /// One kept tab to restart: a new shell opens next to the dead tab in the
 /// same pane (so the pane, its split and ratio never change), takes its
 /// name, pin and group, and the dead tab closes.
@@ -57,16 +25,18 @@ public struct KeptTabRelaunch: Sendable, Equatable {
     public var pinned: Bool
     public var group: TabGroupID?
 
-    /// The relaunches `plan` asks for in `tree`: dead terminal tabs whose
-    /// tab resource id the plan lists, in tree order.
-    public static func steps(tree: DaemonTree, plan: KeptLayoutPlan) -> [KeptTabRelaunch] {
+    /// The kept tabs of `tree` to restart: dead terminal tabs with the
+    /// workspace store's `relaunch` record, in tree order. A record without
+    /// a directory restarts in `fallbackCwd`.
+    public static func steps(tree: DaemonTree, fallbackCwd: String?) -> [KeptTabRelaunch] {
         var steps: [KeptTabRelaunch] = []
         for workspace in tree.workspaces {
             for pane in workspace.screens.flatMap(\.panes) {
                 for (index, tab) in pane.tabs.enumerated() where tab.kind == .pty && tab.dead {
-                    guard let id = tab.tabResourceID?.rawValue, let kept = plan.tabs[id] else { continue }
+                    guard let relaunch = tab.relaunch else { continue }
                     steps.append(KeptTabRelaunch(workspace: workspace.key, pane: pane.id, deadSurface: tab.surface, index: index,
-                                                 cwd: kept.cwd, name: tab.name, pinned: tab.pinned, group: tab.tabGroup))
+                                                 cwd: relaunch.cwd ?? fallbackCwd, name: tab.name, pinned: tab.pinned,
+                                                 group: tab.tabGroup))
                 }
             }
         }
@@ -75,12 +45,13 @@ public struct KeptTabRelaunch: Sendable, Equatable {
 }
 
 extension DaemonConnection {
-    /// Restarts a shell in every kept tab `plan` lists (the next launch after
-    /// End Sessions, Keep Layout). Returns how many restarted. A tab that
-    /// fails is left dead; the rest continue.
+    /// Restarts a shell in every kept tab (the next launch after End
+    /// Sessions, Keep Layout): each dead tab with a `relaunch` record.
+    /// Returns how many restarted. A tab that fails is left dead; the rest
+    /// continue.
     @discardableResult
-    public func relaunchKeptTabs(_ plan: KeptLayoutPlan) async throws -> Int {
-        let steps = KeptTabRelaunch.steps(tree: try await listWorkspaces(), plan: plan)
+    public func relaunchKeptTabs(fallbackCwd: String?) async throws -> Int {
+        let steps = KeptTabRelaunch.steps(tree: try await listWorkspaces(), fallbackCwd: fallbackCwd)
         var relaunched = 0
         for step in steps {
             do {

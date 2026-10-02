@@ -77,8 +77,8 @@ struct QuitSessionsTests {
     /// End Sessions, Keep Layout on a daemon with
     /// `end-terminals-keep-layout-v1`: every terminal ends, the next owner
     /// keeps both panes and the split ratio with dead tabs, and
-    /// `relaunchKeptTabs` restarts a shell in each, in its recorded
-    /// directory, without changing the layout. A pinned cmux-tui without the
+    /// `relaunchKeptTabs` restarts a shell in each, in the directory the
+    /// store recorded, without changing the layout. A pinned cmux-tui without the
     /// capability skips the check.
     @Test func endKeepLayoutRestartsEachTabInTheSameSplit() async throws {
         let h = try await BranchDaemonHarness.start()
@@ -86,15 +86,12 @@ struct QuitSessionsTests {
         guard h.identity.supports(DaemonCapabilities.shared.endTerminalsKeepLayout) else { return await h.stop() }
         let other = h.root.appendingPathComponent("other")
         let hosts: Set<Int32>
-        let plan: KeptLayoutPlan
         let before: DaemonTree
         do {
             try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
             let (_, pane, _) = try await h.workspaceWithTerminal("kept")
             _ = try await h.connection.split(pane, direction: .right, options: SpawnOptions(cwd: other.path))
             before = try await h.tree()
-            plan = KeptLayoutPlan(tree: before)
-            #expect(plan.tabs.count == 2)
             hosts = TerminalHosts.of(daemon: h.identity.pid)
         } catch {
             await h.stop()
@@ -117,8 +114,10 @@ struct QuitSessionsTests {
             let kept = try await next.listWorkspaces()
             let keptTabs = kept.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
             #expect(keptTabs.count == 2 && keptTabs.allSatisfy(\.dead), "\(keptTabs)")
+            #expect(keptTabs.allSatisfy { $0.relaunch?.cwd != nil }, "the store's keep-layout records: \(keptTabs.map(\.relaunch))")
             #expect(Self.shape(kept) == Self.shape(before))
-            #expect(try await next.relaunchKeptTabs(plan) == 2)
+            #expect(try await next.relaunchKeptTabs(fallbackCwd: nil) == 2)
+            #expect(try await next.relaunchKeptTabs(fallbackCwd: nil) == 0, "a second relaunch found kept tabs")
             let after = try await next.listWorkspaces()
             #expect(Self.shape(after) == Self.shape(before), "the relaunch changed the layout")
             let tabs = after.workspaces.flatMap(\.screens).flatMap(\.panes).map(\.tabs)
