@@ -13,7 +13,7 @@ struct SettingsRootView: View {
     var body: some View {
         // Reading the tokens re-renders on a theme change of the window's scope.
         let _ = SettingsTheme.shared.tokens
-        let layout = SettingsWindowTunables.layout.value
+        let layout = SettingsWindowLayout.tunable.value
         HStack(spacing: 0) {
             SettingsSidebar(model: model, layout: layout)
                 .frame(width: Metrics.sidebarWidth - Metrics.space6 * 2)

@@ -37,11 +37,21 @@ public struct SettingsPageFilter: Equatable, Sendable {
 /// The one-page sidebar follows the scroll position: the selected section
 /// is the last one whose header has reached `line` (points below the top
 /// of the visible area). Pure, so the rule is tested without a window.
-public enum SettingsScrollSpy {
+public struct SettingsScrollSpy {
+    /// The sections on the page, in page order.
+    public let order: [SettingsSection]
+    /// Points below the top of the visible area.
+    public let line: CGFloat
+
+    public init(order: [SettingsSection], line: CGFloat) {
+        self.order = order
+        self.line = line
+    }
+
     /// `offsets` are header tops relative to the visible area's top, for
-    /// the sections on the page; `order` is page order. Before any header
-    /// reaches the line, the first section is selected.
-    public static func section(order: [SettingsSection], offsets: [SettingsSection: CGFloat], line: CGFloat) -> SettingsSection? {
+    /// the sections on the page. Before any header reaches the line, the
+    /// first section is selected.
+    public func section(offsets: [SettingsSection: CGFloat]) -> SettingsSection? {
         var current: SettingsSection?
         for section in order {
             guard let offset = offsets[section] else { continue }
