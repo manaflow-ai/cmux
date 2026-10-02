@@ -114,7 +114,7 @@ impl Hub {
                     meta.id
                 )));
             }
-            ImportReservation { hub: &**self, id: meta.id.clone() }
+            ImportReservation { hub: self, id: meta.id.clone() }
         };
         if let Some(n) = name {
             meta.name = n;
