@@ -28,7 +28,7 @@ cpu_s() {
   awk -v hz="$(getconf CLK_TCK)" '{print ($14+$15)/hz}' "/proc/$pid/stat"
 }
 
-testapp_pid() { pgrep -f "$BIN testapp --display :99" | head -1 || true; }
+testapp_pid() { pgrep -n -f "$BIN testapp --display :99" || true; }
 
 case "${1:-}" in
   up)

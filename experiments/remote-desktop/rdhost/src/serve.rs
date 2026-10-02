@@ -9,7 +9,7 @@ use std::io::{BufRead, BufReader};
 use std::net::{TcpListener, TcpStream};
 use std::os::fd::AsRawFd;
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{mpsc, Arc, Condvar, Mutex};
 use std::time::Duration;
 
 /// How long a new connection waits for the previous session to finish tearing down.
@@ -44,6 +44,8 @@ impl Slot {
 }
 
 /// Keeps one test app child running with the workload the current client asked for.
+/// Owned by one long-lived thread: the child dies with its parent *thread* (PR_SET_PDEATHSIG),
+/// so it must not be spawned from a per-session thread.
 struct TestApp {
     display: String,
     child: Option<(Child, Kind)>,
@@ -79,6 +81,31 @@ impl TestApp {
     }
 }
 
+type AppRequest = (Kind, mpsc::Sender<Result<(), String>>);
+
+/// Handle to the test app manager thread.
+#[derive(Clone)]
+struct AppHandle(mpsc::Sender<AppRequest>);
+
+impl AppHandle {
+    fn spawn(display: String) -> Self {
+        let (tx, rx) = mpsc::channel::<AppRequest>();
+        std::thread::spawn(move || {
+            let mut app = TestApp { display, child: None };
+            for (kind, reply) in rx {
+                let _ = reply.send(app.ensure(kind).map_err(|e| e.to_string()));
+            }
+        });
+        Self(tx)
+    }
+
+    fn ensure(&self, kind: Kind) -> Res<()> {
+        let (tx, rx) = mpsc::channel();
+        self.0.send((kind, tx)).map_err(|_| "test app manager gone")?;
+        rx.recv().map_err(|_| "test app manager gone")?.map_err(Into::into)
+    }
+}
+
 pub fn run(opts: &Opts) -> Res<()> {
     let qp = match opts.get("rc") {
         Some("bitrate") => None,
@@ -100,9 +127,9 @@ pub fn run(opts: &Opts) -> Res<()> {
     let port: u16 = opts.num_or("port", 7400)?;
     let auto_app = opts.str_or("testapp", "auto") == "auto";
     let log_dir = opts.get("log-dir").map(str::to_string);
-    let app = Arc::new(Mutex::new(TestApp { display: cfg.display.clone(), child: None }));
+    let app = AppHandle::spawn(cfg.display.clone());
     if auto_app {
-        lock(&app)?.ensure(Kind::Marker)?;
+        app.ensure(Kind::Marker)?;
     }
     let listener = TcpListener::bind(("0.0.0.0", port))?;
     eprintln!("rdhost serve: listening on 0.0.0.0:{port} display {} capture {} codec {} qp {:?}", cfg.display, cfg.capture, cfg.codec, cfg.qp);
@@ -117,7 +144,7 @@ pub fn run(opts: &Opts) -> Res<()> {
             }
         };
         session_no += 1;
-        let (cfg, app, slot, log_dir) = (cfg.clone(), Arc::clone(&app), Arc::clone(&slot), log_dir.clone());
+        let (cfg, app, slot, log_dir) = (cfg.clone(), app.clone(), Arc::clone(&slot), log_dir.clone());
         std::thread::spawn(move || {
             if !slot.acquire() {
                 let mut s = stream;
@@ -138,10 +165,6 @@ pub fn run(opts: &Opts) -> Res<()> {
     Ok(())
 }
 
-fn lock(app: &Mutex<TestApp>) -> Res<std::sync::MutexGuard<'_, TestApp>> {
-    app.lock().map_err(|_| "test app lock poisoned".into())
-}
-
 /// Dead-peer detection: a client that vanishes without a FIN (for example behind a tunnel)
 /// must free the single session slot within seconds, not after the kernel's ~15 min retry limit.
 fn detect_dead_peers(stream: &TcpStream) -> Res<()> {
@@ -160,7 +183,7 @@ fn detect_dead_peers(stream: &TcpStream) -> Res<()> {
     Ok(())
 }
 
-fn handle(mut stream: TcpStream, cfg: &ServeCfg, app: Option<&Arc<Mutex<TestApp>>>) -> Res<serde_json::Value> {
+fn handle(mut stream: TcpStream, cfg: &ServeCfg, app: Option<&AppHandle>) -> Res<serde_json::Value> {
     stream.set_nodelay(true)?;
     detect_dead_peers(&stream)?;
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
@@ -172,7 +195,7 @@ fn handle(mut stream: TcpStream, cfg: &ServeCfg, app: Option<&Arc<Mutex<TestApp>
     stream.set_read_timeout(None)?;
     eprintln!("rdhost serve: HELLO {}", String::from_utf8_lossy(&payload));
     if let Some(app) = app {
-        lock(app)?.ensure(Kind::parse(&hello.workload).unwrap_or(Kind::Marker))?;
+        app.ensure(Kind::parse(&hello.workload).unwrap_or(Kind::Marker))?;
     }
     session::run(stream, &hello, cfg)
 }
