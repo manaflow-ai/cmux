@@ -84,6 +84,11 @@ impl FsSandbox {
             if let Ok(real) = existing.canonicalize() {
                 break rest.iter().rev().fold(real, |acc, part| acc.join(part));
             }
+            // A component that exists but does not canonicalize is a
+            // dangling symlink: following it could create its target anywhere.
+            if std::fs::symlink_metadata(existing).is_ok() {
+                return Err(err("EACCES", format!("{path} goes through a broken symbolic link")));
+            }
             match (existing.parent(), existing.file_name()) {
                 (Some(parent), Some(name)) => {
                     rest.push(name);

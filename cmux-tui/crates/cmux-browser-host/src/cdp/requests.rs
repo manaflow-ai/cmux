@@ -45,13 +45,18 @@ pub(super) fn start_worker(
 }
 
 impl Inner {
-    /// `Fetch.enable` for a new session's setup batch while a filter is set.
-    pub(super) fn fetch_enable_step(&self) -> Option<(&'static str, Value)> {
-        self.request_filter
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .is_some()
-            .then(|| ("Fetch.enable", patterns()))
+    /// Steps for a session's setup batch while a filter is set: Fetch
+    /// interception, and WebSockets blocked (Fetch never sees them, and an
+    /// allow list cannot be written as Chromium block patterns).
+    pub(super) fn fetch_enable_step(&self) -> Vec<(&'static str, Value)> {
+        if self.request_filter.lock().unwrap_or_else(PoisonError::into_inner).is_none() {
+            return Vec::new();
+        }
+        vec![
+            ("Fetch.enable", patterns()),
+            ("Network.enable", json!({})),
+            ("Network.setBlockedURLs", json!({"urls": ["ws://*", "wss://*"]})),
+        ]
     }
 
     pub(super) fn request_paused(&self, event: &CdpEvent) {
@@ -72,9 +77,12 @@ impl Inner {
         *self.request_filter.lock().unwrap_or_else(PoisonError::into_inner) = filter;
         let sessions: Vec<String> = self.lock().sessions.keys().cloned().collect();
         for session in sessions {
-            let (method, params) =
-                if enable { ("Fetch.enable", patterns()) } else { ("Fetch.disable", json!({})) };
-            let _ = self.conn.call(Some(&session), method, params, INTERNAL_TIMEOUT);
+            let steps = if enable {
+                self.fetch_enable_step()
+            } else {
+                vec![("Fetch.disable", json!({})), ("Network.setBlockedURLs", json!({"urls": []}))]
+            };
+            let _ = self.conn.call_batch(Some(&session), steps, INTERNAL_TIMEOUT);
         }
     }
 }

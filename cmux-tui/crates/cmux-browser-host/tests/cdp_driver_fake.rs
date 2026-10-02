@@ -746,12 +746,18 @@ fn workers_and_prerenders_are_intercepted_before_they_run() {
         let order = |session: &str| -> Vec<String> {
             sent.iter().filter(|(s, _)| s == session).map(|(_, m)| m.clone()).collect()
         };
-        if order("W1").len() >= 2 && order("P1").len() >= 2 {
+        if order("W1").len() >= 4 && order("P1").len() >= 4 {
             for session in ["W1", "P1"] {
+                let steps = order(session);
                 assert_eq!(
-                    order(session),
-                    vec!["Fetch.enable".to_string(), "Runtime.runIfWaitingForDebugger".to_string()],
-                    "{session}"
+                    steps.first().map(String::as_str),
+                    Some("Fetch.enable"),
+                    "{session}: {steps:?}"
+                );
+                assert_eq!(
+                    steps.last().map(String::as_str),
+                    Some("Runtime.runIfWaitingForDebugger"),
+                    "{session}: {steps:?}"
                 );
             }
             break;

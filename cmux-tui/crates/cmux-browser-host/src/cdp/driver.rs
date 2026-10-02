@@ -192,12 +192,14 @@ impl Inner {
     fn run_follow_up(&self, follow_up: FollowUp) {
         match follow_up {
             FollowUp::Resume { session_id } => {
-                let _ = self.conn.call(
-                    Some(&session_id),
-                    "Runtime.runIfWaitingForDebugger",
-                    json!({}),
-                    INTERNAL_TIMEOUT,
-                );
+                // Workers and prerenders make requests too: interception
+                // first while a filter is set, then let them run.
+                let steps: Vec<(&str, Value)> = self
+                    .fetch_enable_step()
+                    .into_iter()
+                    .chain([("Runtime.runIfWaitingForDebugger", json!({}))])
+                    .collect();
+                let _ = self.conn.call_batch(Some(&session_id), steps, INTERNAL_TIMEOUT);
             }
             FollowUp::SetUpFrame { target_id: _, session_id } => {
                 // Failures leave the frame unreachable; it must still run.

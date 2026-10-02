@@ -30,10 +30,6 @@ pub struct Gate {
     grants: Grants,
     /// Navigations the policy refused (`session.blockedNavigations()`).
     log: Mutex<Vec<Value>>,
-    /// Secret typing holds this exclusively from the focus check through the
-    /// insert; every other call holds it shared, so no call can move focus
-    /// in between.
-    typing: std::sync::RwLock<()>,
 }
 
 /// Finds the URL of the frame that holds keyboard focus. Same-origin child
@@ -51,7 +47,6 @@ impl Gate {
             vault: Mutex::new(Vault::default()),
             grants,
             log: Mutex::new(Vec::new()),
-            typing: std::sync::RwLock::new(()),
         }
     }
 
@@ -212,15 +207,8 @@ impl VmHost for Gate {
     fn driver_call(&self, method: &str, params: Value) -> Result<Value, DriverError> {
         self.check(method, &params)?;
         let mut params = params;
-        let carries_secret = matches!(method, "input.insertText" | "input.key")
-            && params.get("text").and_then(|t| t.get("__secret")).is_some();
-        let _exclusive;
-        let _shared;
-        if carries_secret {
-            _exclusive = self.typing.write().unwrap_or_else(PoisonError::into_inner);
+        if matches!(method, "input.insertText" | "input.key") {
             self.resolve_secret(&mut params, "text")?;
-        } else {
-            _shared = self.typing.read().unwrap_or_else(PoisonError::into_inner);
         }
         match self.driver.call(method, &params) {
             Ok(value) => Ok(self.mask_value(&value)),

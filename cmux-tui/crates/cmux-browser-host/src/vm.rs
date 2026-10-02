@@ -242,7 +242,9 @@ fn run(
                 continue;
             }
             shared.borrow_mut().output.clear();
-            let deadline = Instant::now() + timeout;
+            let now = Instant::now();
+            let deadline =
+                now.checked_add(timeout.min(Duration::from_secs(24 * 60 * 60))).unwrap_or(now);
             interrupt_at.store(deadline.duration_since(base).as_millis() as u64, Ordering::Relaxed);
             let started = context.with(|ctx| -> Result<Persistent<Promise<'static>>, String> {
                 let eval: Function = ctx
@@ -263,7 +265,12 @@ fn run(
             }
         }
 
-        // Run queued promise jobs, then fire due timers.
+        // Run queued promise jobs, then fire due timers. Outside an
+        // evaluation the jobs are continuations of callbacks (driver
+        // results, events, timers) and get the callback budget too.
+        if running.is_none() && runtime.is_job_pending() {
+            callback_deadline(&interrupt_at);
+        }
         loop {
             match runtime.execute_pending_job() {
                 Ok(true) => continue,
@@ -271,6 +278,7 @@ fn run(
                 Err(_) => continue,
             }
         }
+        restore_deadline(&interrupt_at, &running);
         let due = shared.borrow_mut().due(Instant::now());
         if !due.is_empty() {
             callback_deadline(&interrupt_at);
@@ -281,9 +289,10 @@ fn run(
                     }
                 }
             });
-            restore_deadline(&interrupt_at, &running);
-            // Jobs the timers queued (promise reactions) run before settling.
+            // Jobs the timers queued (promise reactions) run before settling,
+            // still under the callback budget.
             while !matches!(runtime.execute_pending_job(), Ok(false)) {}
+            restore_deadline(&interrupt_at, &running);
         }
 
         // Settle the running evaluation.
