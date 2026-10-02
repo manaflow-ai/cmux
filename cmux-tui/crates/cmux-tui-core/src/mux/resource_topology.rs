@@ -12,6 +12,7 @@ use crate::resource::{
 };
 use crate::resource_mutation::ResourceMutationPlan;
 use crate::server::MAX_CREATION_SELECTOR_FALLBACKS;
+use crate::terminal_end::DetachProof;
 use crate::workspace_registry::{
     RegistryPane, RegistryScreen, RegistryTab, RegistryViewportColumn, ResourceCreationPreparation,
     ResourceCreationRecovery, ResourcePatchCommit, ResourceWorkspaceClose, ResourceWorkspaceLedger,
@@ -3078,8 +3079,11 @@ impl Mux {
         }))
     }
 
+    /// Views of an exited terminal to remove in the exit's commit. Requires
+    /// a [`DetachProof`]: only a process end may detach (invariant 3).
     pub(super) fn terminal_exit_detach_projection_locked(
         &self,
+        _proof: DetachProof,
         registry: &WorkspaceRegistry,
         state: &State,
         terminal_id: &str,
@@ -3230,6 +3234,11 @@ impl Mux {
             terminal.lifecycle == TerminalLifecycle::Exited,
             "terminal {terminal_id} is not exited"
         );
+        // Invariant 3: a receipt of a host loss (outcome unknown) keeps the
+        // tabs, dead; only a recorded exit status or signal detaches them.
+        let Some(proof) = TerminalEnd::from_receipt(terminal.exit.as_ref()).detach_proof() else {
+            return Ok(false);
+        };
         let Some(terminal_public_id) = registry.terminal_resource_id(terminal_id)? else {
             return Ok(false);
         };
@@ -3249,6 +3258,7 @@ impl Mux {
             return Ok(false);
         }
         let Some(projection) = self.terminal_exit_detach_projection_locked(
+            proof,
             &registry,
             &state,
             terminal_id,
