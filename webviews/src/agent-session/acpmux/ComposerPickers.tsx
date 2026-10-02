@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import type { AcpmuxSnapshot } from "./model";
+import { registerPicker } from "./pickerOpeners";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -423,6 +424,9 @@ export function Picker({
     // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt.
     trigger.current?.focus();
   };
+  const showRef = useRef(show);
+  showRef.current = show;
+  useEffect(() => registerPicker(label, () => showRef.current()), [label]);
   const close = () => {
     setOpen(false);
     trigger.current?.focus();
