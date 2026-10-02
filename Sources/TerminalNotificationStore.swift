@@ -385,17 +385,6 @@ final class TerminalNotificationStore: ObservableObject {
                 topic: Self.feedChangedEventTopic,
                 payload: ["revision": revision]
             )
-            Task { @MainActor in
-                MobileHostService.emitEvent(
-                    topic: "feed.changed",
-                    payload: [
-                        "revision": FeedCoordinator.combinedMobileFeedRevision(
-                            workstream: FeedCoordinator.shared.store?.revision ?? 0,
-                            notifications: revision
-                        )
-                    ]
-                )
-            }
         }
         indexes = Self.buildIndexes(for: notifications)
         userDefaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
@@ -3053,17 +3042,6 @@ final class TerminalNotificationStore: ObservableObject {
                 topic: Self.feedChangedEventTopic,
                 payload: ["revision": revision]
             )
-            Task { @MainActor in
-                MobileHostService.emitEvent(
-                    topic: "feed.changed",
-                    payload: [
-                        "revision": FeedCoordinator.combinedMobileFeedRevision(
-                            workstream: FeedCoordinator.shared.store?.revision ?? 0,
-                            notifications: revision
-                        )
-                    ]
-                )
-            }
         }
         clearWorkspaceManualUnread()
         clearSurfaceManualUnread()
