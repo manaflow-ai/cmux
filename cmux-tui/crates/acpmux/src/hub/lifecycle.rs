@@ -68,10 +68,26 @@ impl Hub {
             "retainedProfiles": retained, "modelProbePending": true}))
     }
 
+    /// The session that already adopted `agent_session_id` on `harness`, so
+    /// adopting twice opens the same session instead of two resuming one.
+    fn adopted_session(&self, harness: &str, agent_session_id: &str) -> Option<Arc<Session>> {
+        self.sessions
+            .lock()
+            .unwrap()
+            .values()
+            .find(|s| {
+                let meta = s.meta();
+                meta.harness == harness && meta.agent_session_id.as_deref() == Some(agent_session_id)
+            })
+            .cloned()
+    }
+
     pub async fn new_session(self: &Arc<Self>, req: NewRequest) -> Result<Arc<Session>, RpcError> {
         // Harness discovery and launcher checks finish in the background.
         self.wait_startup().await;
-        let NewRequest { harness, preset, name, cwd, policy, model, effort } = req;
+        let NewRequest { harness, preset, name, cwd, policy, model, effort, adopt } = req;
+        // An adopted session's harness names the head unless one was given.
+        let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
         let (agent, profile, defaults, head, preset_name) = {
@@ -126,6 +142,43 @@ impl Hub {
         // set_model call.
         let spawn_model = profile_takes_model_at_spawn(&profile)
             || defaults.env.values().any(|v| v.contains("${model}"));
+        // Adopting checks the id against the harness's own store before
+        // anything is created, and takes the conversation's recorded cwd.
+        let adopted = match &adopt {
+            Some(a) => {
+                if let Some(asked) = &a.harness
+                    && asked != agent
+                    && asked != &family
+                {
+                    return Err(RpcError::invalid_params(format!(
+                        "adopt names harness {asked} but the session resolves to {agent}"
+                    )));
+                }
+                let found = crate::adopt::find(&family, &a.agent_session_id, &crate::adopt::HarnessHomes::from_env())
+                    .map_err(RpcError::invalid_params)?;
+                if let Some(existing) = self.adopted_session(agent, &a.agent_session_id) {
+                    return Ok(existing);
+                }
+                Some(found)
+            }
+            None => None,
+        };
+        let recorded = adopted.as_ref().and_then(|a| a.cwd.clone());
+        let cwd = match (cwd, &recorded) {
+            (Some(given), Some(recorded)) if family == "claude" && &given != recorded => {
+                // Claude keeps a conversation under its cwd's project; resuming elsewhere finds nothing.
+                return Err(RpcError::invalid_params(format!(
+                    "cwd {} does not match the adopted session's {}",
+                    given.display(),
+                    recorded.display()
+                )));
+            }
+            (Some(given), _) => given,
+            (None, Some(recorded)) => recorded.clone(),
+            (None, None) => {
+                dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
+            }
+        };
         let cwd = if cwd.is_absolute() {
             cwd
         } else {
@@ -149,7 +202,8 @@ impl Hub {
             preset: preset_name.clone(),
             model_request: if spawn_model { model.clone() } else { None },
             cwd,
-            agent_session_id: None,
+            // Set before the first spawn, so the harness resumes it.
+            agent_session_id: adopt.as_ref().map(|a| a.agent_session_id.clone()),
             status: SessionStatus::Idle,
             created_at: now,
             updated_at: now,
@@ -177,6 +231,16 @@ impl Hub {
         // creations can never publish the same name twice.
         let session = {
             let mut sessions = self.sessions.lock().unwrap();
+            // Checked again under the insert lock: two concurrent adopts of
+            // one id get one session.
+            if let Some(a) = &adopt
+                && let Some(existing) = sessions.values().find(|s| {
+                    let m = s.meta();
+                    m.harness == agent && m.agent_session_id.as_deref() == Some(a.agent_session_id.as_str())
+                })
+            {
+                return Ok(existing.clone());
+            }
             meta.name = match name {
                 Some(n) => {
                     if sessions.values().any(|s| s.meta().name == n) {
@@ -197,6 +261,9 @@ impl Hub {
             return Err(RpcError::internal(e.to_string()));
         }
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
+        if let Some(a) = &adopt {
+            self.append(&session, "mux", "adopted", json!({"agentSessionId": a.agent_session_id}));
+        }
         let spawn = self.spawn_profile(&session, &profile, &defaults.env).await;
         if let Err(e) = self.ensure_child(&session, &spawn).await {
             // A session whose agent never started is not left behind, and
@@ -929,10 +996,13 @@ pub struct NewRequest {
     pub harness: Option<String>,
     pub preset: Option<String>,
     pub name: Option<String>,
-    pub cwd: PathBuf,
+    /// None: the adopted session's recorded cwd, else the home directory.
+    pub cwd: Option<PathBuf>,
     pub policy: Option<PermissionPolicy>,
     pub model: Option<String>,
     pub effort: Option<String>,
+    /// A harness session to resume instead of starting a new one.
+    pub adopt: Option<crate::adopt::AdoptRequest>,
 }
 
 /// `${cwd}`, `${home}`, `${model}` and a leading `~/` in a profile env value or argv word.

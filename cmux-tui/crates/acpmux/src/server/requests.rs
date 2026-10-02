@@ -155,10 +155,10 @@ pub(super) async fn handle_request(
                 }
                 return Ok(result);
             }
-            let cwd = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| {
-                dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
-            });
+            let cwd = str_param(&params, "cwd").map(PathBuf::from);
             let meta = mux_meta(&params);
+            let adopt =
+                crate::adopt::AdoptRequest::from_meta(meta).map_err(RpcError::invalid_params)?;
             let pick = |key: &str| {
                 meta.and_then(|m| m.get(key))
                     .and_then(Value::as_str)
@@ -176,6 +176,7 @@ pub(super) async fn handle_request(
                 policy,
                 model: pick("model"),
                 effort: pick("effort"),
+                adopt,
             };
             let s = hub.new_session(req).await?;
             attach(hub, conn, &s.id);

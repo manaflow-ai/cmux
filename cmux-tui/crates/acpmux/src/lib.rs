@@ -9,6 +9,7 @@
 // work from moving the crate into the cmux-tui workspace.
 #![allow(clippy::too_many_arguments, clippy::type_complexity, clippy::result_large_err)]
 
+pub mod adopt;
 pub mod agent;
 pub mod claude_stdio;
 pub mod cli;
