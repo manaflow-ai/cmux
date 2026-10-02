@@ -629,7 +629,7 @@ const ChevronRightIcon = () => (
     <path d="m6.25 4.25 3.5 3.75-3.5 3.75" />
   </Icon>
 );
-const SearchIcon = () => (
+export const SearchIcon = () => (
   <Icon size={16}>
     <circle cx="7" cy="7" r="4.25" />
     <path d="m10.25 10.25 3 3" />
@@ -678,12 +678,6 @@ export const AtIcon = () => (
   <Icon>
     <circle cx="8" cy="8" r="2.4" />
     <path d="M10.4 8v.9a1.8 1.8 0 0 0 3.6 0V8A6 6 0 1 0 11 13.2" />
-  </Icon>
-);
-export const SearchIcon = () => (
-  <Icon>
-    <circle cx="7.2" cy="7.2" r="4.3" />
-    <path d="m10.4 10.4 3.1 3.1" />
   </Icon>
 );
 export const SlashIcon = () => (

@@ -15,6 +15,10 @@ Object.assign(globals, {
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  // The composer's prompt is a Milkdown (ProseMirror) editor.
+  Node: dom.window.Node,
+  getSelection: dom.window.getSelection.bind(dom.window),
+  MutationObserver: dom.window.MutationObserver,
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 afterAll(() => Object.assign(globals, saved));
@@ -26,6 +30,7 @@ const { FileSearch } = await import("./FileSearch");
 const { matchRuns, readFileSearch } = await import("./fileSearchModel");
 const { mockFileSearch } = await import("./mockFiles");
 const { MockAcpmuxSocket } = await import("./mock");
+const { promptField, typeInto: typePrompt } = await import("./promptFieldTesting");
 
 const doc = dom.window.document;
 let root: ReturnType<typeof createRoot>;
@@ -245,9 +250,9 @@ test("+ then Search files mentions the picked file at the caret, and Escape retu
   expect(items()).not.toContain("Search files");
   await act(async () => plus().click());
   await render(async (query) => mockFileSearch("~/code/cmux", query, 50));
-  const prompt = doc.querySelector("textarea")!;
-  await act(async () => typeInto(prompt, "Look at"));
-  prompt.setSelectionRange(7, 7);
+  await settle();
+  const prompt = promptField(doc);
+  await act(async () => typePrompt(prompt, "Look at"));
   await act(async () => plus().click());
   expect(items()).toContain("Search files");
   await act(async () => {
@@ -270,7 +275,7 @@ test("+ then Search files mentions the picked file at the caret, and Escape retu
   });
   await key("Escape");
   expect(doc.querySelector(".acpmux-file-search")).toBeNull();
-  expect(doc.activeElement).toBe(prompt);
+  expect(doc.activeElement).toBe(prompt.element);
   // Another chat's folder closes an open palette, so its rows can't be picked into this draft.
   await act(async () => plus().click());
   await act(async () => {
@@ -283,7 +288,7 @@ test("+ then Search files mentions the picked file at the caret, and Escape retu
   expect(doc.querySelector(".acpmux-file-search")).toBeNull();
 });
 
-test("a picked path with a space is quoted, with its quotes and backslashes escaped, so the agent reads the whole mention", async () => {
+test("a picked path with a space is quoted, so the agent reads the whole mention", async () => {
   await act(async () =>
     root.render(
       createElement(Composer, {
@@ -291,10 +296,11 @@ test("a picked path with a space is quoted, with its quotes and backslashes esca
         chips: () => null,
         onSend: () => {},
         onStop: () => {},
-        searchFiles: async () => ({ root: "~/notes", results: [{ path: 'docs/My "big" \\ Notes.md' }] }),
+        searchFiles: async () => ({ root: "~/notes", results: [{ path: "docs/My Notes.md" }] }),
       }),
     ),
   );
+  await settle();
   await act(async () => doc.querySelector<HTMLButtonElement>('[aria-label="Add"]')!.click());
   await act(async () => {
     [...doc.querySelectorAll("[role=option]")]
@@ -304,7 +310,7 @@ test("a picked path with a space is quoted, with its quotes and backslashes esca
   await act(async () => typeInto(field(), "notes"));
   await act(async () => new Promise((resolve) => setTimeout(resolve, 120)));
   await key("Enter");
-  expect(doc.querySelector("textarea")!.value).toBe('@"docs/My \\"big\\" \\\\ Notes.md" ');
+  expect(promptField(doc).value).toBe('@"docs/My Notes.md" ');
 });
 
 test("the mock daemon answers file.search for a folder, empty for no query, and fails outside a repository", async () => {

@@ -159,8 +159,9 @@ export function Composer({
     if (composing.current) return;
     const at = caret;
     const before = text.slice(0, at);
-    // A path with a space is quoted, or an agent would read the mention only up to it.
-    const mentioned = path && /\s/.test(path) ? `"${path.replace(/[\\"]/g, "\\$&")}"` : path;
+    // A path with a space is quoted, or an agent would read the mention only up to it. The prompt
+    // is markdown, which takes backslash escapes as its own, so a quote in a name is left as is.
+    const mentioned = path && /\s/.test(path) ? `"${path}"` : path;
     const insert = (before && !/\s$/.test(before) ? " @" : "@") + (mentioned ? `${mentioned} ` : "");
     plusDraft.current = undefined;
     pendingCaret.current = at + insert.length;
@@ -253,7 +254,7 @@ export function Composer({
             search={searchFiles}
             onClose={() => {
               setFindingFiles(false);
-              textarea.current?.focus();
+              field.current?.focus();
             }}
             onPick={(path) => {
               setFindingFiles(false);
