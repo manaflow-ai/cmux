@@ -85,6 +85,16 @@ struct MachinesPanelView: View {
         return CloudMachinesFeature.isEnabled
     }
 
+    /// Keep every New Cloud Machine affordance on the same plan gate. A plan
+    /// that has not loaded yet stays available so the shared presenter can
+    /// resolve it; once loaded, a free plan at its ceiling shows its upgrade
+    /// guidance through the existing empty-state action instead.
+    private var canCreateCloudMachine: Bool {
+        guard includesCloud else { return false }
+        guard let plan = viewModel.plan else { return true }
+        return !plan.isAtLimit || plan.isPaidPlan
+    }
+
     /// The panel replaces its cached tree as soon as a team mutation starts;
     /// waiting for the scope observer would leave the previous team's rows
     /// visible while the create or switch is still in flight.
@@ -196,12 +206,14 @@ struct MachinesPanelView: View {
     private var authenticatedContent: some View {
         if includesCloud {
             controlBar
-            CloudNewMachineButton {
-                _ = AppDelegate.shared?.performNewCloudMachineAction(
-                    tabManager: tabManager,
-                    preferredWindow: tabManager?.window,
-                    debugSource: "cloudTree.newMachineButton"
-                )
+            if canCreateCloudMachine {
+                CloudNewMachineButton {
+                    _ = AppDelegate.shared?.performNewCloudMachineAction(
+                        tabManager: tabManager,
+                        preferredWindow: tabManager?.window,
+                        debugSource: "cloudTree.newMachineButton"
+                    )
+                }
             }
         }
         if includesCloud {
@@ -494,7 +506,7 @@ struct MachinesPanelView: View {
                 incomingAccessManaged: incomingAccessManaged, available: DevicesFeature.isAvailable()
             ),
             showsCloudVPNWarning: tunnelStatus.status?.state == .off,
-            canCreateCloudMachine: includesCloud,
+            canCreateCloudMachine: canCreateCloudMachine,
             cloudFleetListIsCurrent: viewModel.listProblem == nil && !viewModel.isNetworkOffline,
             cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
             reveal: devicesModel.revealRequest ?? selectionReveal,
