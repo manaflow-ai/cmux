@@ -34,6 +34,24 @@ import Testing
         try expectFollowsReduceTransparency(PageUnresponsiveView(frame: .zero).glass, "page unresponsive")
     }
 
+    /// The legibility veil is for glass over a page; the opaque fill shows
+    /// unchanged, and the veil returns with the glass.
+    @Test func theVeilDropsUnderReduceTransparency() throws {
+        ReduceTransparency.override = false
+        defer { ReduceTransparency.override = nil }
+        let bar = FindBarView(frame: .zero)
+        let surface = try #require(bar.glass)
+        let veil = try #require(surface.contentView.subviews.first as? OverlayBackingView)
+        veil.updateLayer()
+        #expect((veil.layer?.backgroundColor?.alpha ?? 0) > 0.5)
+        ReduceTransparency.override = true
+        veil.updateLayer()
+        #expect(veil.layer?.backgroundColor?.alpha == 0)
+        ReduceTransparency.override = false
+        veil.updateLayer()
+        #expect((veil.layer?.backgroundColor?.alpha ?? 0) > 0.5)
+    }
+
     @Test func barsStartOpaqueUnderReduceTransparency() throws {
         ReduceTransparency.override = true
         defer { ReduceTransparency.override = nil }

@@ -115,6 +115,9 @@ public final class OverlaySurfaceView: NSView {
         materialView = view
         applyShape()
         applyTheme()
+        // Content colors may depend on the material (a veil that only
+        // glass needs): the content re-resolves them like on a theme change.
+        ThemeScope.invalidate(contentView)
     }
 
     private func applyShape() {
@@ -154,5 +157,19 @@ public final class OverlaySurfaceView: NSView {
         let strength = ChromeTunables.glassOverlayTintStrength.value
         guard strength != 1 else { return tint }
         return tint.withAlphaComponent(min(max(tint.alphaComponent * strength, 0), 1))
+    }
+}
+
+extension NSView {
+    /// The material of the overlay surface this view sits in, or nil
+    /// outside one. Content that only glass needs (a legibility veil)
+    /// checks it in its color hook, which reruns when the material changes.
+    public var enclosingOverlayMaterial: OverlayMaterial? {
+        var current = superview
+        while let view = current {
+            if let surface = view as? OverlaySurfaceView { return surface.material }
+            current = view.superview
+        }
+        return nil
     }
 }
