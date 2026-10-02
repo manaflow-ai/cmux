@@ -305,9 +305,9 @@ These extend 7.7 (G1 to G8):
 | Mode | App process runs as | Auth | Secret |
 | --- | --- | --- | --- |
 | system (Linux, team VM) | OS user `app-<app>` | `local sameuser app_<app> peer map=cmuxapps` with `pg_ident` `cmuxapps app-<app> app_<app>` | none |
-| user (Linux, macOS, Windows) | the installing user, sandboxed per app | `local sameuser app_<app> scram-sha-256` | a random 32-byte password in `<state>/apps/<app>/pgpass` (0600), passed as `PGPASSFILE`; never in env, argv or logs |
+| user (Linux, macOS, Windows) | the installing user, sandboxed per app (Linux: bubblewrap mount namespace; macOS: seatbelt; Windows: restricted token) | `local sameuser app_<app> scram-sha-256` | a random 32-byte password in `<state>/apps/<app>/pgpass` (0600), passed as `PGPASSFILE`; the server stores only the SCRAM verifier; never in env, argv or logs |
 
-- `pg_hba.conf` is generated in full and owned by the server; the first rule is `local all cmux_admin peer` (system mode) so only the service user is superuser; the last rule is `reject`.
+- `pg_hba.conf` is generated in full and owned by the server; the last rule is `reject`. System mode: `local all cmux_admin peer`, so only the service user is superuser. User mode: `local all cmux_admin scram-sha-256` with a random secret in `<state>/postgres/admin.pgpass` (0600), and every app process runs in a sandbox that cannot see `<state>/postgres` or any other app's directory. Reason (measured on Freestyle, 2026-10-02): peer auth in user mode gave every same-user app superuser access, because all apps run as one OS user; Landlock on kernel 6.1 cannot block a connect to the socket. So user mode has exactly one non-app secret, the admin secret, and its protection is the per-app sandbox; system mode has none.
 - Per app: role `app_<app>` (`LOGIN`, `CONNECTION LIMIT 20`, `statement_timeout 30s`, `idle_in_transaction_session_timeout 60s`, `temp_file_limit 1GB`), database `app_<app>` owned by it (or schema `app_<app>` in a shared database when the manifest says `mode: schema`), `REVOKE ALL ON DATABASE … FROM PUBLIC`, `REVOKE CREATE ON SCHEMA public FROM PUBLIC`. App ids are validated (`[a-z][a-z0-9_]{0,40}`) before they become identifiers, and every identifier is quoted.
 - The service gets `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` and `DATABASE_URL` without a password.
 - Agents never get superuser. `cmux server db shell <app>` opens `psql` as the app role for the owner and their mux.
@@ -333,7 +333,7 @@ These extend 7.7 (G1 to G8):
 | Platform | What cmux holds | Notes |
 | --- | --- | --- |
 | macOS | `IOPMAssertionCreateWithName`: `PreventUserIdleSystemSleep` always; `PreventSystemSleep` on AC power (macOS ignores it on battery); `PreventUserIdleDisplaySleep` on AC unless `server.health.allowDisplaySleep` (prevents idle lock where MDM does not force it) | released when the role stops or the process exits |
-| Linux | logind inhibitor `sleep:idle:handle-lid-switch` (mode `block`) through D-Bus, held as a file descriptor | headless boxes rarely need it; laptops do |
+| Linux | one logind `Inhibit` file descriptor per kind (mode `block`): `idle` always; `sleep` and `handle-lid-switch` only with the one-time polkit rule (system mode installs it; user mode raises `inhibit.limited`), because logind refuses `sleep` to a lingering user without a session and refuses a combined request | measured on Freestyle 2026-10-02 |
 | Windows | `PowerCreateRequest` + `PowerSetRequest(SystemRequired, AwayModeRequired)` | |
 
 ### 9.2 Probes (event-driven, no polling)
@@ -362,7 +362,8 @@ A pure reducer in `cmux-server-core` turns facts into alerts: `(facts, previous 
 | `restart.noAutoRestart` | `autorestart` off | info | `pmset -a autorestart 1` (admin once) |
 | `restart.fileVaultWait` | FileVault on and auto login off | warning | none automatic; `fdesetup authrestart` is used for planned update restarts |
 | `restart.notLoggedIn` | macOS headless install: LaunchAgent and no login after boot | warning | install the system LaunchDaemon variant (admin once) |
-| `linger.off` | Linux user mode without linger | critical | `loginctl enable-linger` (sudo once) |
+| `linger.off` | Linux user mode without linger (for example no polkitd) | critical | `loginctl enable-linger` (sudo once) |
+| `inhibit.limited` | Linux user mode holds only the `idle` inhibitor | info | the polkit rule (sudo once) |
 | `encryption.off` | disk encryption off | info | open settings |
 | `postgres.quota` | an app at 80% of its quota | warning | raise quota |
 | `backup.stale` | no base backup in 48 h or WAL archive failing for 10 min | warning | run backup now |
@@ -454,7 +455,7 @@ Screenshots and the recommendation are in the lane report.
 | --- | --- | --- |
 | 1 | This plan | draft |
 | 2 | `cmux-server-core` pure crate: layout, ports, Postgres plan (conf, hba, ident, per-app SQL), pairing code and words, health reducer, unit renderers, channel manifest verification; tests on the testbox | in progress |
-| 3 | Headless Linux prototype on a Freestyle VM: installer script with checksum and signature refusal, user systemd service running the real session host, idempotent rerun, upgrade, rollback, uninstall; Postgres plan applied for real; headless Chromium | in progress |
+| 3 | Headless Linux prototype on a Freestyle VM (`server/prototype/linux/`, README has the numbers): installer with checksum, signature, expiry and downgrade refusal; user systemd service running the real pinned session host; idempotent rerun, upgrade with terminal adoption, rollback, uninstall, purge, reboot survival; Postgres 17 user and system mode with PITR; sandboxed chrome-headless-shell; logind inhibitors; idle 0.031 CPU-s/min | done (system mode end to end, aarch64, macOS, Windows UNVERIFIED) |
 | 4 | `CmuxNextServer` Swift prototypes (panel, pairing, health; three variants each) with screenshots | in progress |
 | 5 | `cmux-server` I/O crate: `cmux host run` roles, probes, assertions, supervisor, Postgres runner; mounted as `cmux server …` after #16174 | next |
 | 6 | `PairingDO`, `server.pair.*`, `host` kind `server` in `TeamDO`; network policy `tag:server` | next (backend) |
@@ -464,7 +465,8 @@ Screenshots and the recommendation are in the lane report.
 ## 16. Risks
 
 - Relocatable PostgreSQL builds per target are new CI work; a distro package fallback makes the server depend on root.
-- Unprivileged user namespaces for the Chromium sandbox vary by distribution.
+- Unprivileged user namespaces for the Chromium sandbox vary by distribution (Freestyle's kernel has no AppArmor, so the Ubuntu restriction was not tested); chrome-headless-shell needs its shared libraries bundled in the store package for user mode.
+- The session host needs `Type=notify` readiness and a `--state` root under the server state directory (today it uses `~/.local/share/cmux-tui`, which `--purge` misses); units keep `KillMode=process` so a restart keeps terminal hosts.
 - macOS LaunchAgents stop at logout; headless Macs need the LaunchDaemon variant (admin) to survive a reboot without login.
 - Freestyle tunnel and firewall propagation time bounds revocation latency (spec/network-policy.md).
 - The feed API (lane 9), the manifest `server` block gaps (7.7) and `TeamDO` leases (backend) are external dependencies.
