@@ -1,0 +1,63 @@
+- banner:
+  - heading "ARIA roles" [level=1]
+- navigation "Breadcrumb":
+  - list:
+    - link "Root":
+      - /url: /
+    - link "Here":
+      - /url: /aria.html
+- main:
+  - heading "Names" [level=2]
+  - text: Labelled by span
+  - textbox "Labelled by span"
+  - text: Label for
+  - textbox "Label for": prefilled
+  - textbox "Title only"
+  - button "Icon button":
+  - button "Described"
+  - text: extra description
+  - heading "Level three" [level=3]
+  - heading "Level four" [level=4]
+  - heading "Widgets" [level=2]
+  - tablist "Tabs":
+    - tab "First" [selected]
+    - tab "Second"
+  - tabpanel: Panel one
+  - button "Menu"
+  - button "Bold" [pressed]
+  - switch "Wifi" [checked]
+  - slider "Volume": "3"
+  - group "Size":
+    - generic: Size
+    - radio "Small" [checked]
+    - text: Small
+    - radio "Large"
+    - text: Large
+  - progressbar "Upload"
+  - alert: Heads up
+  - table "Scores":
+    - caption: Scores
+    - rowgroup:
+      - row "Name Score":
+        - columnheader "Name"
+        - columnheader "Score"
+    - rowgroup:
+      - row "Ada 9":
+        - cell "Ada"
+        - cell "9"
+  - tree "Files":
+    - treeitem "src" [expanded]:
+      - text: src
+      - treeitem "main.swift"
+  - generic "More"
+  - heading "Visibility" [level=2]
+  - paragraph: Aria hidden
+  - paragraph: Offscreen text
+  - dialog "Inline dialog":
+    - paragraph: Dialog body
+    - button "OK"
+  - link "Anchor link":
+    - /url: "#top"
+  - generic: Clickable div
+  - generic "Editor": Editable text
+- contentinfo: Footer text
