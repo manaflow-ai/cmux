@@ -44,7 +44,7 @@ import Testing
     @Test func quietRowsStackUnderAHeader() {
         let layout = SidebarRegionLayout.make(sections: [section("a", title: "A", items: 2)], width: 240, look: .quiet, collapsed: [], metrics: m)
         #expect(layout.rows.map(\.frame.minY) == [4, 26, 54])
-        #expect(layout.height == 4 + 22 + 56 + 4)
+        #expect(layout.height == CGFloat(86))
         #expect(layout.cards.isEmpty)
         #expect(layout.rows.allSatisfy { $0.frame.width == 240 })
     }
@@ -58,7 +58,7 @@ import Testing
         let layout = SidebarRegionLayout.make(sections: [section("a", title: "A", items: 3)], width: 240, look: .quiet,
                                               collapsed: [LayoutSectionID("a")], metrics: m)
         #expect(layout.rows.count == 1)
-        #expect(layout.height == 4 + 22 + 4)
+        #expect(layout.height == CGFloat(30))
         // An untitled section cannot collapse.
         let untitled = SidebarRegionLayout.make(sections: [section("b", items: 3)], width: 240, look: .quiet,
                                                 collapsed: [LayoutSectionID("b")], metrics: m)
@@ -80,7 +80,7 @@ import Testing
         #expect(tiles.count == 6)
         // 224 points fit 4 columns of at least 42 with 8 gaps.
         #expect(Set(tiles.map(\.frame.minY)).count == 2)
-        #expect(tiles[0].frame.width == (224 - 3 * 8) / 4)
+        #expect(tiles[0].frame.width == CGFloat(50))
     }
 
     @Test func trayKeepsListLookSectionsAsRows() {
@@ -92,8 +92,8 @@ import Testing
 
     @Test func maxRowsCapsTheStickyHeight() {
         let layout = SidebarRegionLayout.make(sections: [section("a", maxRows: 2, items: 10)], width: 240, look: .quiet, collapsed: [], metrics: m)
-        #expect(layout.height == 4 + 280 + 4)
-        #expect(layout.cappedHeight == 4 + 56 + 4)
+        #expect(layout.height == CGFloat(288))
+        #expect(layout.cappedHeight == CGFloat(64))
         #expect(layout.stickyHeight(available: 1_000, share: 0.5) == 64)
     }
 

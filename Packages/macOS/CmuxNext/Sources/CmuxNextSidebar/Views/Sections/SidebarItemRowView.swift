@@ -23,7 +23,7 @@ final class SidebarItemRowView: NSView {
     private let chip = CALayer()
     private let icon = NSImageView()
     private let title = NSTextField(labelWithString: "")
-    private let badge = NSTextField(labelWithString: "")
+    private let badge = UnreadBadgeView()
     private var isHovered = false { didSet { if isHovered != oldValue { needsDisplay = true } } }
 
     override init(frame: NSRect) {
@@ -37,7 +37,6 @@ final class SidebarItemRowView: NSView {
         icon.imageScaling = .scaleProportionallyDown
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
-        badge.alignment = .right
         [icon, title, badge].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
@@ -56,8 +55,8 @@ final class SidebarItemRowView: NSView {
         self.style = style
         title.stringValue = info.title
         title.isHidden = style == .tile
-        badge.stringValue = info.badge.map { $0 > 99 ? "99+" : String($0) } ?? ""
-        badge.isHidden = info.badge == nil || style == .tile
+        badge.configure(info.badge.map(UnreadState.count) ?? .none)
+        if style == .tile { badge.isHidden = true }
         toolTip = style == .tile ? info.title : nil
         setAccessibilityLabel(info.title)
         setAccessibilitySelected(info.isActive)
@@ -72,7 +71,6 @@ final class SidebarItemRowView: NSView {
             pill.backgroundColor = (info.isActive ? Palette.selectionFill : isHovered ? Palette.hoverFill : rest)?.cgColor
             chip.backgroundColor = style == .list ? (info.color.map(SidebarStyle.color) ?? Palette.hoverFill).cgColor : nil
             title.textColor = Palette.textPrimary
-            badge.textColor = Palette.textSecondary
             icon.contentTintColor = style == .list && info.color != nil ? Palette.textOnPrimary
                 : info.isActive ? Palette.textPrimary : Palette.textSecondary
         }
@@ -102,10 +100,9 @@ final class SidebarItemRowView: NSView {
         let glyph = style == .list ? iconFrame.insetBy(dx: 2, dy: 2) : iconFrame
         icon.frame = glyph
         title.font = SidebarStyle.titleFont
-        badge.font = SidebarStyle.badgeFont
-        let badgeWidth = badge.isHidden ? 0 : ceil(badge.intrinsicContentSize.width)
+        let bh = SidebarStyle.badgeHeight
+        let badgeWidth = badge.isHidden ? 0 : badge.preferredWidth
         let badgeX = b.width - inset * 2 - badgeWidth
-        let bh = ceil(badge.intrinsicContentSize.height)
         badge.frame = NSRect(x: badgeX, y: (b.height - bh) / 2, width: badgeWidth, height: bh)
         let th = ceil(title.intrinsicContentSize.height)
         let textX = iconFrame.maxX + Metrics.space3

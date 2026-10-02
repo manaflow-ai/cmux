@@ -58,7 +58,54 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
 
     public static func make(sections: [LayoutSection], width: CGFloat, look: SectionsLookVariant,
                             collapsed: Set<LayoutSectionID>, metrics m: SidebarRegionMetrics) -> SidebarRegionLayout {
-        .empty
+        let shown = sections.filter { $0.content == .items && (!$0.items.isEmpty || $0.title != nil) }
+        guard !shown.isEmpty else { return .empty }
+        var rows: [SidebarRegionRow] = []
+        var cards: [CGRect] = []
+        var y = m.padding
+        var capped = m.padding
+        for (index, section) in shown.enumerated() {
+            if index > 0 {
+                y += m.sectionGap
+                capped += m.sectionGap
+            }
+            let carded = look == .card
+            let x = carded ? m.inset : 0
+            let innerWidth = max(0, width - x * 2)
+            let top = y
+            if carded { y += m.cardPadding }
+            var sectionCapped: CGFloat = carded ? m.cardPadding * 2 : 0
+            if section.title != nil {
+                rows.append(SidebarRegionRow(kind: .header(section.id), frame: CGRect(x: x, y: y, width: innerWidth, height: m.headerHeight)))
+                y += m.headerHeight
+                sectionCapped += m.headerHeight
+            }
+            let isCollapsed = section.title != nil && collapsed.contains(section.id)
+            if !isCollapsed {
+                if look == .tray && section.look == .builtIn {
+                    let grid = tiles(section, x: x + m.inset, y: y, width: max(0, innerWidth - m.inset * 2), metrics: m)
+                    rows += grid.rows
+                    y += grid.height
+                    let rowsShown = min(grid.lines, section.maxRows ?? grid.lines)
+                    sectionCapped += CGFloat(rowsShown) * m.tileHeight + CGFloat(max(0, rowsShown - 1)) * m.tileGap
+                } else {
+                    for item in section.items {
+                        rows.append(SidebarRegionRow(kind: .item(item.id, section: section.id),
+                                                     frame: CGRect(x: x, y: y, width: innerWidth, height: m.rowHeight)))
+                        y += m.rowHeight
+                    }
+                    sectionCapped += CGFloat(min(section.items.count, section.maxRows ?? section.items.count)) * m.rowHeight
+                }
+            }
+            if carded {
+                y += m.cardPadding
+                cards.append(CGRect(x: x, y: top, width: innerWidth, height: y - top))
+            }
+            capped += sectionCapped
+        }
+        y += m.padding
+        capped += m.padding
+        return SidebarRegionLayout(rows: rows, cards: cards, height: y, cappedHeight: min(capped, y))
     }
 
     private static func tiles(_ section: LayoutSection, x: CGFloat, y: CGFloat, width: CGFloat,
@@ -66,7 +113,8 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
         let count = section.items.count
         guard count > 0 else { return ([], 0, 0) }
         let fit = max(1, Int((width + m.tileGap) / (m.tileMinWidth + m.tileGap)))
-        let columns = min(fit, count)
+        // Fixed columns, so one tile keeps its size and sits leading.
+        let columns = fit
         let tileWidth = (width - CGFloat(columns - 1) * m.tileGap) / CGFloat(columns)
         var rows: [SidebarRegionRow] = []
         for (i, item) in section.items.enumerated() {
