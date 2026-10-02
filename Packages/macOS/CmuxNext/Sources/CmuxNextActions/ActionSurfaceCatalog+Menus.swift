@@ -141,7 +141,7 @@ nonisolated extension ActionSurfaceCatalog {
         "triggerFlash": [p(.pane, .inspect, 500)],
         "palette.swapWithSession": [p(.pane, .connection, 200)],
         "toggleCanvasLayout": [p(.pane, .layout, 102)],
-        "palette.newSimulatorPane": [p(.newTab, .create, 100)],
+        "palette.newSimulatorPane": [p(.pane, .create, 100)],
         "newTab.sameKind": [p(.tab, .create, -1)],
         "newSurface": [p(.tab, .create, 0), p(.newTab, .create, 0)],
         "openBrowser.webkit": [p(.tab, .create, 1), p(.newTab, .create, 1)],
