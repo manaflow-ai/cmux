@@ -21,6 +21,9 @@ use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
 use crate::app_identity::AppIdentity;
+pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
+
+mod run;
 
 /// Scopes that belong to the app, whatever follows.
 pub(super) const APP_SCOPES: &[&str] =
@@ -30,8 +33,8 @@ pub(super) const APP_SCOPES: &[&str] =
 /// that waits for its work may wait for a terminal to start (6 s) or for a
 /// network action the app bounds itself (`ActionDescriptor.resultDeadline`,
 /// 40 s, Connect to CodeRouter), so the CLI gives the app longer than that.
-const READ_TIMEOUT: Duration = Duration::from_secs(5);
-const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
+pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(5);
+pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 const MAX_RESPONSE_BYTES: u64 = 16 << 20;
 /// A `busy` app that says the run never started is asked again this many
 /// times, after the delay it names (`retry_after_ms`, else this default).
@@ -322,17 +325,8 @@ pub(super) fn run_action(
     name: ActionName,
 ) -> Result<AppCommand, UsageError> {
     let messages = &crate::localization::catalog().app_control;
-    let mut params = Map::new();
+    let mut params = action_run_params(action, name, action_origin());
     let mut arguments = Map::new();
-    params.insert("action".into(), json!(action));
-    if name == ActionName::Cli {
-        params.insert("cli".into(), json!(true));
-    }
-    params.insert("wait".into(), json!(true));
-    // Who asked (action origin): a person at a terminal, else a script. Only
-    // a run with `focus: true` (`--focus`) may move the app's focus,
-    // selection, shown workspace or key window.
-    params.insert("origin".into(), json!(action_origin()));
     let mut index = 0;
     while index < args.len() {
         let flag = args[index].as_str();
@@ -452,13 +446,8 @@ fn call(global: &GlobalArgs, mut stream: UnixStream, command: AppCommand) -> Ran
     };
     let cli_name = params.get("cli") == Some(&Value::Bool(true));
     let key = if method == "action.run" {
-        match global.idempotency_key.clone().map(Ok).unwrap_or_else(|| {
-            super::command::random_prefixed("mutation").map_err(|error| error.to_string())
-        }) {
-            Ok(key) => {
-                params["idempotency_key"] = json!(key);
-                Some(key)
-            }
+        match insert_run_key(&mut params, global.idempotency_key.as_deref()) {
+            Ok(key) => Some(key),
             Err(error) => return Ran::Done(failure("app.transport", &error, global.output, 3)),
         }
     } else if global.idempotency_key.is_some() {
@@ -468,19 +457,12 @@ fn call(global: &GlobalArgs, mut stream: UnixStream, command: AppCommand) -> Ran
         None
     };
     let report = super::wire::KeyReport::new(key.as_deref());
-    let mut retries = 0;
-    let response = loop {
-        match request(&mut stream, method, params.clone(), timeout) {
-            Ok(Err(error)) if retries < BUSY_RETRIES && busy_before_running(&error) => {
-                retries += 1;
-                std::thread::sleep(busy_retry_delay(&error));
-            }
-            Ok(response) => break response,
-            Err(error) => {
-                let code = failure("app.transport", &error, global.output, 3);
-                report.finish(global.output);
-                return Ran::Done(code);
-            }
+    let response = match request_with_retry(&mut stream, method, &params, timeout) {
+        Ok(response) => response,
+        Err(error) => {
+            let code = failure("app.transport", &error, global.output, 3);
+            report.finish(global.output);
+            return Ran::Done(code);
         }
     };
     match response {
@@ -578,7 +560,7 @@ pub(super) fn request(
     parse_response(&response)
 }
 
-fn send_line(stream: &mut UnixStream, value: &Value) -> Result<(), String> {
+pub(super) fn send_line(stream: &mut UnixStream, value: &Value) -> Result<(), String> {
     let mut bytes = serde_json::to_vec(value).map_err(|error| error.to_string())?;
     bytes.push(b'\n');
     stream.write_all(&bytes).map_err(|error| error.to_string())

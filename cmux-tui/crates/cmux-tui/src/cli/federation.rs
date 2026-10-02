@@ -52,8 +52,10 @@ const ID_OPTIONS: &[&str] = &[
     "--other-pane",
 ];
 
-/// `Some((session, id))` when `value` is `<session>:<typed public id>`.
-fn qualified(value: &str) -> Option<(&str, &str)> {
+/// `Some((session, id))` when `value` is `<session>:<typed public id>`. A
+/// kind (`workspace:ws_…`, an action target) and the `name:` escape are not
+/// sessions. `cmux mcp` shares it.
+pub(super) fn qualified(value: &str) -> Option<(&str, &str)> {
     let (session, id) = value.split_once(':')?;
     // A kind (`workspace:ws_…`, an action target) and the `name:` escape are
     // not sessions.

@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::resource::{
-    EnvelopeType, MAX_MESSAGE_BYTES, OperationClass, PROTOCOL, ResponseEnvelope, StreamEndEnvelope,
-    StreamEndReason, StreamItemEnvelope,
+    EnvelopeType, OperationClass, PROTOCOL, ResponseEnvelope, StreamEndEnvelope, StreamEndReason,
+    StreamItemEnvelope,
 };
 use ratatui::buffer::CellWidth;
 use serde_json::{Value, json};
@@ -16,7 +16,7 @@ use super::command::{RequestPlan, WireOperation, random_prefixed};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
-const SERVER_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(2);
+pub(super) const SERVER_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(2);
 const SUPPORTED_SERVER_APP: &str = "cmux-tui";
 /// The session-journal wire shape is compatible from its introduction through
 /// the current protocol. Future protocol versions need an explicit review.
@@ -29,19 +29,9 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         eprintln!("cmux: streams require --jsonl, --quiet, or human output");
         return 2;
     }
-    let Some(params) = plan.params.as_object_mut() else {
-        eprintln!("cmux: request params are not an object");
+    if let Err(error) = super::resolve::apply_global_route(&global, &mut plan.params) {
+        eprintln!("cmux: {error}");
         return 2;
-    };
-    if let Some(machine) = &global.machine
-        && params.get("machine").is_none_or(|value| value.as_str() == Some("current"))
-    {
-        params.insert("machine".into(), Value::String(machine.clone()));
-    }
-    if let Some(session) = &global.session
-        && params.get("session").is_none_or(|value| value.as_str() == Some("current"))
-    {
-        params.insert("session".into(), Value::String(session.clone()));
     }
     let mut request = match request_value(&plan) {
         Ok(request) => request,
@@ -131,17 +121,10 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
 }
 
 fn encode_request(request: &Value) -> Result<Vec<u8>, i32> {
-    match serde_json::to_vec(request) {
-        Ok(encoded) if encoded.len() <= MAX_MESSAGE_BYTES => Ok(encoded),
-        Ok(_) => {
-            eprintln!("cmux: request exceeds the 4 MiB protocol limit");
-            Err(2)
-        }
-        Err(error) => {
-            eprintln!("cmux: cannot encode request: {error}");
-            Err(2)
-        }
-    }
+    super::resolve::encode_request_bytes(request).map_err(|error| {
+        eprintln!("cmux: {error}");
+        2
+    })
 }
 
 /// Reports a mutation's idempotency key once when the command fails after
@@ -326,7 +309,10 @@ fn validate_capability_identity(identity: &Value) -> Result<(), &'static str> {
 /// `interrupt_handled` is false only for a stream on a platform with no
 /// signal watcher (Windows): there a console interrupt only sets the
 /// shutdown flag, so the read wakes every 250 ms to look at it.
-fn response_read_timeout(plan: &RequestPlan, interrupt_handled: bool) -> Option<Duration> {
+pub(super) fn response_read_timeout(
+    plan: &RequestPlan,
+    interrupt_handled: bool,
+) -> Option<Duration> {
     if plan.stream {
         return (!interrupt_handled).then_some(Duration::from_millis(250));
     }
@@ -348,7 +334,7 @@ fn response_read_timeout(plan: &RequestPlan, interrupt_handled: bool) -> Option<
     Some(Duration::from_secs(10))
 }
 
-fn request_value(plan: &RequestPlan) -> Result<Value, UsageError> {
+pub(super) fn request_value(plan: &RequestPlan) -> Result<Value, UsageError> {
     let class = plan.operation.class();
     let mut request = json!({
         "protocol": PROTOCOL,

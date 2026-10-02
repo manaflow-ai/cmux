@@ -147,6 +147,12 @@ On the merges of `feat-cmux-next` (2026-10-02, owner after feat-cmux-next-99):
   before `:` is not a session (the `name:` escape hung the hosted tests); tab-less
   terminals carry `lifecycle` on every published record.
 
+On `feat-cmux-next-mcp` (PR into `feat-cmux-next-acpmux`):
+
+- `cmux mcp serve` and `cmux mcp tools [--json]`: MCP tools from the v2 catalog and the
+  app's CLI actions, over the CLI's own transport (mcp.md). Off unless cmux.json sets
+  `mcp.enabled`.
+
 ## Numeric refs replacement
 
 The old CLI's refs and selector flags have no Rust equivalent; `cmux` takes the
