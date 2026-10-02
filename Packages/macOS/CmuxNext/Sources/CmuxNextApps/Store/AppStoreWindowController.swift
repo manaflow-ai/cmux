@@ -80,6 +80,8 @@ final class AppStoreContentView: NSHostingView<AnyView> {
 
     func resolveColors() {
         appearanceModel.update(from: self)
-        window?.backgroundColor = NSColor(appearanceModel.colors.background)
+        // Opaque (a utility window): the scene's own background is the
+        // sidebar color, which carries the main windows' opacity.
+        window?.backgroundColor = performWithTheme { Palette.utilityWindowBackground }
     }
 }
