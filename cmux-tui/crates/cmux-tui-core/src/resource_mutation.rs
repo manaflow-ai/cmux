@@ -98,7 +98,10 @@ impl ResourceMutationPlan {
                 before
             }
             StateStep::Replace(projected) => std::mem::replace(state, *projected),
-            StateStep::Staged => state.clone(),
+            StateStep::Staged => {
+                debug_assert!(false, "a plan's state step was staged twice");
+                state.clone()
+            }
         }
     }
 
