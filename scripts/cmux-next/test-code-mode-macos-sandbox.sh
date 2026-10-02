@@ -15,7 +15,8 @@ root="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
 profile_helper="$root/scripts/cmux-next/cmux-code-mode-macos-profile"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/cmux-code-mode-macos-smoke.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
-mkdir -m 700 "$tmp/run" "$tmp/sdk"
+mkdir -m 700 "$tmp/run" "$tmp/sdk" "$tmp/host-home"
+printf '%s\n' secret >"$tmp/host-home/secret"
 proxy_socket="$tmp/proxy.sock"
 server="$tmp/socket-server.mjs"
 script="$tmp/smoke.mjs"
@@ -70,10 +71,11 @@ if grep -q 'network-outbound (**)' "$profile"; then
   exit 1
 fi
 
-# Use the real host home as the denied path. It is never added to the profile.
+# Use an existing host-home file outside the allowlist, so a missing file cannot
+# make the denial assertion pass accidentally.
 env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin \
-  HOME="$tmp/run" TMPDIR="$tmp/run" \
-  SMOKE_SOCKET="$proxy_socket" SMOKE_DENIED="$HOME/.ssh/config" \
+  HOME="$tmp/host-home" TMPDIR="$tmp/run" \
+  SMOKE_SOCKET="$proxy_socket" SMOKE_DENIED="$tmp/host-home/secret" \
   "$sandbox_exec" -p "$profile" "$bun" "$script"
 
 [[ -f "$tmp/run/allowed.txt" ]]
